@@ -71,4 +71,17 @@ def log_task(note: str = "") -> str:
             f.write(entry)
         return "Task logged successfully."
     except Exception as e:
-        return f"Error logging task: {str(e)}" 
+        return f"Error logging task: {str(e)}"
+
+@tool
+def search_chat_memory(query: str) -> str:
+    """Search past chat messages for relevant memories."""
+    from apps.agents.shared.tools.memory_loader import retrieve_similar_chats
+    return retrieve_similar_chats(query)
+
+@tool
+def store_memory_entry(text: str) -> str:
+    """Store something Chloe should remember later."""
+    from apps.agents.shared.tools.memory_loader import save_chat_to_memory
+    save_chat_to_memory(text)
+    return "✅ Memory stored!" 
