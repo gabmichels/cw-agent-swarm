@@ -18,7 +18,8 @@ apps/agents/
 │   │   ├── brand_guidelines.md
 │   │   └── product_info.md
 │   └── tools/              # Shared tools for agents
-│       └── memory_loader.py # Loads and embeds memory files
+│       ├── memory_loader.py # Loads and embeds memory files
+│       └── discord_notify.py # Sends notifications via Discord
 ├── main.py                 # Main entry point
 ├── run.bat                 # Batch script to run the agent (Windows)
 ├── requirements.txt        # Python dependencies
@@ -31,6 +32,7 @@ apps/agents/
 
 - Python 3.8+ (tested with Python 3.13)
 - OpenAI API key
+- (Optional) Discord bot token and user ID for notifications
 
 ### Installation
 
@@ -43,11 +45,16 @@ apps/agents/
 2. Install the required dependencies:
    ```
    pip install -r requirements.txt
+   pip install discord.py  # For Discord notifications
    ```
 
-3. Create a `.env` file in the `apps/agents` directory with your OpenAI API key:
+3. Create a `.env` file in the `apps/agents` directory with your API keys:
    ```
    OPENAI_API_KEY=your_openai_api_key_here
+   
+   # Discord integration (optional)
+   DISCORD_BOT_TOKEN=your_discord_bot_token_here
+   DISCORD_USER_ID=your_discord_user_id_here
    ```
 
 ### Running the CMO Agent
@@ -77,6 +84,7 @@ The CMO Agent works by:
 3. Creating a vector store for semantic search
 4. When a query is made, it retrieves relevant context from the vector store
 5. The context is passed to the OpenAI model, which generates a response
+6. (Optional) The response is sent as a Discord direct message notification
 
 ## Interacting with the CMO Agent
 
@@ -88,11 +96,7 @@ Currently, the CMO Agent generates a weekly marketing strategy based on the know
 - Recommended channels
 - Metrics to track
 
-To customize the agent's behavior:
-
-1. Modify the memory files in `shared/memory/` directory to update its knowledge base
-2. Adjust the prompt in `departments/marketing/cmo_agent.py` to change the output format
-3. Modify the planning query in `plan_weekly_strategy()` function to focus on different aspects
+If Discord integration is configured, the agent will also send the weekly strategy as a direct message to the specified Discord user.
 
 ## Future Roadmap
 
@@ -128,3 +132,14 @@ Contributions are welcome! Feel free to submit pull requests or open issues to i
 ## License
 
 This project is licensed under the [MIT License](LICENSE).
+
+### Discord Integration
+
+To enable Discord notifications:
+
+1. Create a Discord bot at https://discord.com/developers/applications
+2. Get your bot token and add it to your `.env` file as `DISCORD_BOT_TOKEN`
+3. Get your Discord user ID (in Developer Mode, right-click your username and select "Copy ID")
+4. Add your user ID to your `.env` file as `DISCORD_USER_ID`
+
+The CMO agent will send the weekly strategy directly to you via Discord DM when it's generated.

@@ -43,4 +43,5 @@ def plan_weekly_strategy():
         temperature=0.4,
     )
     
+    # Return the strategy directly - Discord notification handled in main.py
     return response.choices[0].message.content
