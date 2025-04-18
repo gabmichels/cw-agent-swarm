@@ -36,3 +36,8 @@ yarn-error.log*
 # Misc
 .DS_Store
 *.pem
+
+*.pyc
+__pycache__/
+debug_paths.bat
+

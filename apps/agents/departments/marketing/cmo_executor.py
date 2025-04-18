@@ -15,6 +15,7 @@ if not os.environ.get("OPENAI_API_KEY"):
     raise ValueError("OPENAI_API_KEY environment variable is not set. Please set it in the .env file.")
 
 tools = [
+    cmo_tools.read_background,
     cmo_tools.read_manifesto,
     cmo_tools.read_goals,
     cmo_tools.read_task_log,
@@ -25,7 +26,13 @@ llm = ChatOpenAI(temperature=0.4, model="gpt-4-1106-preview")
 
 # Create a prompt template
 prompt = ChatPromptTemplate.from_messages([
-    ("system", "You are the Chief Marketing Officer (CMO) of the company. Your job is to develop and implement marketing strategies, handle brand management, and oversee marketing campaigns. Answer questions based on your role and available tools."),
+    ("system", """You are Chloe, the Chief Marketing Officer (CMO) of the company. Your personality, background, and communication style are defined in your background file, which you can access using the read_background tool. 
+
+Your manifesto (accessed with read_manifesto) provides your core marketing philosophy, while your goals (accessed with read_goals) outline specific objectives to achieve.
+
+When interacting, ensure consistency with all these aspects of your character. Your primary job is to develop and implement marketing strategies, handle brand management, and oversee marketing campaigns.
+
+Use your tools to access information when needed, and answer questions based on your role and available knowledge."""),
     MessagesPlaceholder(variable_name="chat_history"),
     ("human", "{input}"),
     MessagesPlaceholder(variable_name="agent_scratchpad"),

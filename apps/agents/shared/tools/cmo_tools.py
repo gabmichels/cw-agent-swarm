@@ -8,6 +8,17 @@ script_dir = Path(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 BASE_PATH = script_dir / "memory"
 
 @tool
+def read_background(_: str = "") -> str:
+    """Read Chloe's background document.
+    
+    Returns the content of the Chloe's background file.
+    """
+    try:
+        return (BASE_PATH / "chloe_background.md").read_text(encoding="utf-8")
+    except Exception as e:
+        return f"Error reading background: {str(e)}"
+
+@tool
 def read_manifesto(_: str = "") -> str:
     """Read the CMO manifesto document.
     
