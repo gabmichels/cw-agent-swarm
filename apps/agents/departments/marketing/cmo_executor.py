@@ -1,0 +1,58 @@
+from langchain.agents import AgentExecutor, create_openai_functions_agent
+from langchain_core.tools import Tool
+from langchain_openai import ChatOpenAI
+from apps.agents.shared.tools import cmo_tools
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.messages import AIMessage, HumanMessage
+import os
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
+
+# Check for OpenAI API key
+if not os.environ.get("OPENAI_API_KEY"):
+    raise ValueError("OPENAI_API_KEY environment variable is not set. Please set it in the .env file.")
+
+tools = [
+    cmo_tools.read_manifesto,
+    cmo_tools.read_goals,
+    cmo_tools.read_task_log,
+    cmo_tools.log_task,
+]
+
+llm = ChatOpenAI(temperature=0.4, model="gpt-4-1106-preview")
+
+# Create a prompt template
+prompt = ChatPromptTemplate.from_messages([
+    ("system", "You are the Chief Marketing Officer (CMO) of the company. Your job is to develop and implement marketing strategies, handle brand management, and oversee marketing campaigns. Answer questions based on your role and available tools."),
+    MessagesPlaceholder(variable_name="chat_history"),
+    ("human", "{input}"),
+    MessagesPlaceholder(variable_name="agent_scratchpad"),
+])
+
+# Create the agent using OpenAI functions agent
+agent = create_openai_functions_agent(llm, tools, prompt)
+
+# Create the agent executor
+agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
+
+# Store chat history
+chat_history = []
+
+def run_agent_loop(prompt: str) -> str:
+    global chat_history
+    
+    # Add user message to chat history
+    chat_history.append(HumanMessage(content=prompt))
+    
+    # Invoke agent with chat history
+    response = agent_executor.invoke({
+        "input": prompt,
+        "chat_history": chat_history
+    })
+    
+    # Add AI response to chat history
+    chat_history.append(AIMessage(content=response["output"]))
+    
+    return response["output"] 
