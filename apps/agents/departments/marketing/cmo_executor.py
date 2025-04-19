@@ -98,6 +98,17 @@ You are an autonomous, action-oriented marketing leader with the following enhan
    - You can retrieve your most recent weekly reflection with get_weekly_reflection
    - These reflections help you identify patterns, challenges, and accomplishments
 
+6. **Intent Understanding System**
+   - You now have an intent preprocessing system that analyzes user requests
+   - The system can detect intents like research_request, task_request, clarification, etc.
+   - It may provide you with a suggested tool chain to handle specific intents
+   - When a tool_chain is included in your input, you should prioritize using those tools first
+
+When you receive input with a tool_chain parameter, it means the system has detected a specific intent and suggested tools to use. For example:
+- For research intents, you might be guided to use research_and_analyze or collect_new_data tools
+- For information queries, you might be guided to search the episodic memory
+- For task requests, you might be guided to create a new task
+
 As an autonomous agent with advanced memory and reflection, you should:
 - Store important observations with appropriate concept tags
 - Regularly reflect on past experiences to identify patterns and lessons
@@ -157,21 +168,48 @@ def run_agent_loop(prompt_str: str) -> str:
         print("=== DEBUG: Starting agent loop ===")
         logging.info(f"User input: {prompt_str}")
         
-        # Detect task type based on message content
-        task_type = "default"
-        
-        # Simple keyword-based task detection
-        lower_prompt = prompt_str.lower()
-        if any(word in lower_prompt for word in ["marketing", "campaign", "brand", "audience", "promotion"]):
-            task_type = "marketing"
-        elif any(word in lower_prompt for word in ["write", "draft", "content", "blog", "article", "text"]):
-            task_type = "writing"
-        elif any(word in lower_prompt for word in ["finance", "budget", "cost", "revenue", "profit", "expense"]):
-            task_type = "finance"
-        elif any(word in lower_prompt for word in ["research", "investigate", "analyze", "study", "trends"]):
-            task_type = "research"
-        elif any(word in lower_prompt for word in ["tool", "function", "command", "run", "execute"]):
-            task_type = "tool_use"
+        # New intent preprocessing using Gemini
+        try:
+            # Import the intent preprocessing here to avoid circular imports
+            from apps.agents.shared.intent import route_intent
+            
+            # Route the user message through the intent system
+            logging.info("DEBUG: Running intent preprocessing")
+            intent_result = route_intent(prompt_str)
+            
+            # Extract the intent information
+            intent = intent_result.get("intent", "unknown")
+            confidence = intent_result.get("confidence", 0.0)
+            
+            # Log the detected intent
+            logging.info(f"Detected intent: {intent} (confidence: {confidence})")
+            
+            # Extract parameters from intent processing
+            parameters = intent_result.get("preprocessing_result", {}).get("parameters", {})
+            
+            # Set the task type based on the intent (use as tag for memory)
+            task_type = intent
+            
+            # Log the full intent processing results for debugging
+            logging.debug(f"Intent processing result: {intent_result}")
+            
+        except Exception as intent_error:
+            logging.error(f"Error in intent preprocessing: {intent_error}")
+            # Fall back to the original task detection logic
+            task_type = "default"
+            
+            # Simple keyword-based task detection
+            lower_prompt = prompt_str.lower()
+            if any(word in lower_prompt for word in ["marketing", "campaign", "brand", "audience", "promotion"]):
+                task_type = "marketing"
+            elif any(word in lower_prompt for word in ["write", "draft", "content", "blog", "article", "text"]):
+                task_type = "writing"
+            elif any(word in lower_prompt for word in ["finance", "budget", "cost", "revenue", "profit", "expense"]):
+                task_type = "finance"
+            elif any(word in lower_prompt for word in ["research", "investigate", "analyze", "study", "trends"]):
+                task_type = "research"
+            elif any(word in lower_prompt for word in ["tool", "function", "command", "run", "execute"]):
+                task_type = "tool_use"
         
         logging.info(f"Selected task type: {task_type}")
         
@@ -187,6 +225,13 @@ def run_agent_loop(prompt_str: str) -> str:
             logging.error(f"DEBUG ERROR: Could not initialize LLM: {str(llm_error)}")
             raise llm_error
         
+        # Check if we have a tool chain configuration from intent processing
+        tool_chain_config = None
+        if 'intent_result' in locals() and isinstance(intent_result, dict) and "tool_chain" in intent_result:
+            tool_chain_config = intent_result.get("tool_chain")
+            logging.info(f"Using tool chain from intent processing: {tool_chain_config.get('primary_tools', [])}")
+        
+        # Continue with normal processing
         try:
             # Load recent chat history from the persistent storage
             recent_history_entries = get_recent_history(n=10)
@@ -207,10 +252,20 @@ def run_agent_loop(prompt_str: str) -> str:
             
             # Invoke agent with chat history
             print("DEBUG: Invoking agent executor")
-            response = current_agent_executor.invoke({
-                "input": prompt_str,
-                "chat_history": langchain_history  # Use the loaded history
-            })
+            
+            # If we have a tool chain configuration, add it to the input
+            if tool_chain_config:
+                response = current_agent_executor.invoke({
+                    "input": prompt_str,
+                    "chat_history": langchain_history,
+                    "tool_chain": tool_chain_config  # Add the tool chain configuration
+                })
+            else:
+                response = current_agent_executor.invoke({
+                    "input": prompt_str,
+                    "chat_history": langchain_history
+                })
+                
             print("DEBUG: Agent execution completed successfully")
             
             # Extract response based on format - prioritize OpenRouter format

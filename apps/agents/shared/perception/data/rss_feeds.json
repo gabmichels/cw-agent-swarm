@@ -1,0 +1,99 @@
+{
+  "feeds": [
+    {
+      "url": "https://www.travelpulse.com/feed/",
+      "name": "Travel Pulse",
+      "tags": ["travel", "tourism", "international"]
+    },
+    {
+      "url": "https://www.lonelyplanet.com/rss/news",
+      "name": "Lonely Planet",
+      "tags": ["travel", "tourism", "international"]
+    },
+    {
+      "url": "https://www.fodors.com/news/feed",
+      "name": "Fodors Travel",
+      "tags": ["travel", "tourism", "international"]
+    },
+    {
+      "url": "https://www.fluentu.com/blog/feed/",
+      "name": "FluentU Language Learning",
+      "tags": ["language_learning", "education"]
+    },
+    {
+      "url": "https://www.languagemagazine.com/feed/",
+      "name": "Language Magazine",
+      "tags": ["language_learning", "education", "linguistics"]
+    },
+    {
+      "url": "https://www.mezzoguild.com/feed/",
+      "name": "The Mezzofanti Guild",
+      "tags": ["language_learning", "education"]
+    },
+    {
+      "url": "https://slator.com/feed/",
+      "name": "Slator",
+      "tags": ["translation", "language_services", "business"]
+    },
+    {
+      "url": "https://www.atanet.org/pressroom/feed/?tax=chronicle",
+      "name": "American Translators Association",
+      "tags": ["translation", "language_services", "professional"]
+    },
+    {
+      "url": "https://voicebot.ai/feed/",
+      "name": "Voicebot.ai",
+      "tags": ["voice_ai", "technology", "speech_to_text"]
+    },
+    {
+      "url": "https://aitopics.org/rss",
+      "name": "AI Topics",
+      "tags": ["ai", "technology"]
+    },
+    {
+      "url": "https://devblogs.microsoft.com/cognitiveservices/feed/",
+      "name": "Microsoft Cognitive Services",
+      "tags": ["ai", "technology", "speech_to_text", "translation"]
+    },
+    {
+      "url": "https://blog.google/technology/ai/rss/",
+      "name": "Google AI Blog",
+      "tags": ["ai", "technology", "translation", "speech_to_text"]
+    },
+    {
+      "url": "https://phys.org/rss-feed/technology-news/computer-sciences/",
+      "name": "Phys.org Computer Science",
+      "tags": ["technology", "research"]
+    },
+    {
+      "url": "https://www.speechtechmag.com/rss/",
+      "name": "Speech Technology Magazine",
+      "tags": ["speech_to_text", "voice_ai", "technology"]
+    },
+    {
+      "url": "https://uxplanet.org/feed",
+      "name": "UX Planet",
+      "tags": ["design", "accessibility", "user_experience"]
+    },
+    {
+      "url": "https://medium.com/feed/tag/translation",
+      "name": "Medium - Translation",
+      "tags": ["translation", "technology", "language"]
+    },
+    {
+      "url": "https://medium.com/feed/tag/language-learning",
+      "name": "Medium - Language Learning",
+      "tags": ["language_learning", "education"]
+    },
+    {
+      "url": "https://medium.com/feed/tag/speech-recognition",
+      "name": "Medium - Speech Recognition",
+      "tags": ["speech_to_text", "voice_ai", "technology"]
+    },
+    {
+      "url": "https://medium.com/feed/tag/travel-tech",
+      "name": "Medium - Travel Tech",
+      "tags": ["travel", "technology", "tourism"]
+    }
+  ]
+} 

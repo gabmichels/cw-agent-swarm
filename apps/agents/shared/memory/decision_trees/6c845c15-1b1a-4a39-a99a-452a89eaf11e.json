@@ -1,0 +1,119 @@
+{
+  "id": "6c845c15-1b1a-4a39-a99a-452a89eaf11e",
+  "name": "Marketing Initiative Planning",
+  "description": "Decision tree for planning and executing marketing initiatives",
+  "root_node_id": "2b865e14-e16b-40fb-a74a-fa712af63c62",
+  "nodes": {
+    "2b865e14-e16b-40fb-a74a-fa712af63c62": {
+      "id": "2b865e14-e16b-40fb-a74a-fa712af63c62",
+      "question": "Is this a new marketing initiative or an existing one?",
+      "condition": null,
+      "action": null,
+      "success_node": null,
+      "failure_node": null,
+      "options": [
+        {
+          "key": "new",
+          "text": "New Initiative",
+          "target_node": "assess_audience"
+        },
+        {
+          "key": "existing",
+          "text": "Existing Initiative",
+          "target_node": "evaluate_performance"
+        }
+      ]
+    },
+    "assess_audience": {
+      "id": "assess_audience",
+      "question": "Have we defined our target audience for this initiative?",
+      "condition": null,
+      "action": null,
+      "success_node": "define_goals",
+      "failure_node": "research_audience",
+      "options": []
+    },
+    "research_audience": {
+      "id": "research_audience",
+      "question": null,
+      "condition": null,
+      "action": "Conduct audience research and create audience personas",
+      "success_node": null,
+      "failure_node": null,
+      "options": []
+    },
+    "define_goals": {
+      "id": "define_goals",
+      "question": "Do we have clear, measurable goals for this initiative?",
+      "condition": null,
+      "action": null,
+      "success_node": "resource_check",
+      "failure_node": "set_goals",
+      "options": []
+    },
+    "set_goals": {
+      "id": "set_goals",
+      "question": null,
+      "condition": null,
+      "action": "Define SMART goals for the marketing initiative",
+      "success_node": null,
+      "failure_node": null,
+      "options": []
+    },
+    "resource_check": {
+      "id": "resource_check",
+      "question": "Do we have the necessary resources (budget, team, tools) for this initiative?",
+      "condition": null,
+      "action": null,
+      "success_node": "create_plan",
+      "failure_node": "resource_plan",
+      "options": []
+    },
+    "resource_plan": {
+      "id": "resource_plan",
+      "question": null,
+      "condition": null,
+      "action": "Create a resource acquisition plan before proceeding",
+      "success_node": null,
+      "failure_node": null,
+      "options": []
+    },
+    "create_plan": {
+      "id": "create_plan",
+      "question": null,
+      "condition": null,
+      "action": "Create a detailed execution plan for the marketing initiative",
+      "success_node": null,
+      "failure_node": null,
+      "options": []
+    },
+    "evaluate_performance": {
+      "id": "evaluate_performance",
+      "question": "Is the initiative meeting its performance targets?",
+      "condition": null,
+      "action": null,
+      "success_node": "optimize_initiative",
+      "failure_node": "diagnose_issues",
+      "options": []
+    },
+    "optimize_initiative": {
+      "id": "optimize_initiative",
+      "question": null,
+      "condition": null,
+      "action": "Identify and implement optimizations to improve results further",
+      "success_node": null,
+      "failure_node": null,
+      "options": []
+    },
+    "diagnose_issues": {
+      "id": "diagnose_issues",
+      "question": null,
+      "condition": null,
+      "action": "Perform root cause analysis on underperforming metrics",
+      "success_node": null,
+      "failure_node": null,
+      "options": []
+    }
+  },
+  "execution_history": []
+}

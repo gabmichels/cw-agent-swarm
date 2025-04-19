@@ -25,6 +25,11 @@ from apps.agents.shared.tools.decision_tree import (
     create_content_creation_tree
 )
 
+# Import the perception tools
+from apps.agents.shared.tools.perception_tools import (
+    PerceptionTools
+)
+
 # Import the new memory and reflection modules
 from apps.agents.shared.memory.episodic_memory import (
     store_memory, get_all_memories, get_memories_by_tag,
@@ -550,4 +555,132 @@ def get_weekly_reflection():
         reflection = latest_reflections[0]
         return f"📝 Latest reflection ({reflection['created_at']}):\n\n{reflection['content']}"
     except Exception as e:
-        return f"❌ Unable to retrieve weekly reflection: {str(e)}" 
+        return f"❌ Unable to retrieve weekly reflection: {str(e)}"
+
+# == Perception Tools for External Data Awareness ==
+
+@tool
+def query_perception(query: str) -> str:
+    """
+    Query the perception layer with a natural language question about trends, news, or insights.
+    
+    Args:
+        query: A natural language query about what's happening in the world
+        
+    Examples:
+        - "What's trending in marketing this week?"
+        - "Latest news about AI translation?"
+        - "What's happening in travel today?"
+        - "Insights on voice technology?"
+        - "Summarize AI news"
+    """
+    return PerceptionTools.query_perception(query)
+
+@tool
+def get_trending_topics(domain: str = "") -> str:
+    """
+    Get trending topics in a specific domain.
+    
+    Args:
+        domain: The domain to get trends for (e.g., "marketing", "technology", "travel")
+            If empty, will return general trending topics.
+    """
+    return PerceptionTools.get_trending_topics(domain)
+
+@tool
+def get_latest_news(topic: str) -> str:
+    """
+    Get the latest news about a specific topic.
+    
+    Args:
+        topic: The topic to get news for (e.g., "AI in marketing", "voice technology")
+    """
+    return PerceptionTools.get_latest_news(topic)
+
+@tool
+def get_domain_insights(domain: str) -> str:
+    """
+    Get insights about a specific domain.
+    
+    Args:
+        domain: The domain to get insights for (e.g., "marketing", "AI", "travel industry")
+    """
+    return PerceptionTools.get_domain_insights(domain)
+
+@tool
+def summarize_news(topic: str) -> str:
+    """
+    Get a summary of news about a specific topic.
+    
+    Args:
+        topic: The topic to summarize news for (e.g., "marketing", "AI", "voice tech")
+    """
+    return PerceptionTools.summarize_news(topic)
+
+@tool
+def collect_new_data(topic: str, keywords: str = "", discord_webhook: str = "") -> str:
+    """
+    Proactively collect fresh data from external sources on a specific topic.
+    This allows you to "bring yourself up to speed" by fetching the latest information.
+    
+    Args:
+        topic: The main topic to research (e.g., "language challenges", "marketing trends")
+        keywords: Comma-separated specific keywords to search for (e.g., "translation barriers, communication problems")
+        discord_webhook: Optional Discord webhook URL to send notification when complete
+    """
+    # Parse keywords
+    keyword_list = None
+    if keywords:
+        keyword_list = [k.strip() for k in keywords.split(",")]
+    
+    # Check if we should notify Discord
+    notify_discord = bool(discord_webhook)
+    
+    return PerceptionTools.trigger_data_collection(
+        topic=topic, 
+        keywords=keyword_list,
+        notify_discord=notify_discord,
+        discord_webhook_url=discord_webhook
+    )
+
+@tool
+def check_data_collection(task_id: str) -> str:
+    """
+    Check the status of a previously initiated data collection task.
+    
+    Args:
+        task_id: The ID of the data collection task to check
+    """
+    return PerceptionTools.check_collection_status(task_id)
+
+@tool
+def get_data_collection_report(task_id: str) -> str:
+    """
+    Get a detailed report from a completed data collection task.
+    
+    Args:
+        task_id: The ID of the completed data collection task
+    """
+    return PerceptionTools.get_collection_report(task_id)
+
+@tool
+def research_and_analyze(topic: str, keywords: str = "") -> str:
+    """
+    Comprehensive tool to collect, wait for, and analyze data about a topic.
+    Use this when you need to actively research a topic without multiple steps.
+    
+    Args:
+        topic: The topic to research (e.g., "language challenges in customer service")
+        keywords: Comma-separated keywords to guide the research
+    """
+    # Parse keywords
+    keyword_list = None
+    if keywords:
+        keyword_list = [k.strip() for k in keywords.split(",")]
+    
+    return PerceptionTools.collect_and_analyze(
+        topic=topic,
+        keywords=keyword_list,
+        wait_for_completion=True,
+        timeout_seconds=120
+    ) 
