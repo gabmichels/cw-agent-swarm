@@ -1,0 +1,11 @@
+services:
+  crowd-wisdom-hq:
+    build: .
+    ports:
+      - "8501:8501"
+    volumes:
+      # Mount for persistent history storage
+      - ./apps/hq-ui/history:/app/apps/hq-ui/history
+    env_file:
+      - ./apps/hq-ui/.env
+    restart: unless-stopped 

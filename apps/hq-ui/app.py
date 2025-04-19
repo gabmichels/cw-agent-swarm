@@ -117,17 +117,31 @@ st.sidebar.markdown("### 💬 Chat with Chloe")
 with st.sidebar.form(key="sidebar_chat_form", clear_on_submit=True):
     # Use text_area instead of text_input for more height
     user_input = st.text_area("Your message", placeholder="Type your message here...", height=80, max_chars=1000, key="sidebar_input")
+    # Add a processing status indicator that will show after submission
+    status_placeholder = st.empty()
     submitted = st.form_submit_button("Send")
 
 # === Process new messages ===
 if submitted and user_input.strip() != "":
-    with st.sidebar.spinner("Thinking..."):
-        agent_response = run_agent_loop(user_input)
-        # Update history
-        chat_history.append({"role": "user", "message": user_input})
-        chat_history.append({"role": "agent", "message": agent_response})
-        with open(chat_file, "w", encoding="utf-8") as f:
-            json.dump(chat_history, f, indent=2)
+    # Simple approach - show a message in the main area
+    loading_message = st.empty()
+    loading_message.info("Processing your message... This might take a moment.")
+    
+    # Process the message
+    agent_response = run_agent_loop(user_input)
+    
+    # Update history
+    chat_history.append({"role": "user", "message": user_input})
+    chat_history.append({"role": "agent", "message": agent_response})
+    
+    # Save to file
+    with open(chat_file, "w", encoding="utf-8") as f:
+        json.dump(chat_history, f, indent=2)
+    
+    # Clear the loading message
+    loading_message.empty()
+    
+    # Refresh the page to show new messages
     st.rerun()
 
 # === Main Content Area ===
