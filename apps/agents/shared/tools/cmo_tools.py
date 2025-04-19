@@ -84,4 +84,19 @@ def store_memory_entry(text: str) -> str:
     """Store something Chloe should remember later."""
     from apps.agents.shared.tools.memory_loader import save_chat_to_memory
     save_chat_to_memory(text)
-    return "✅ Memory stored!" 
+    return "✅ Memory stored!"
+
+@tool
+def mark_important_insight(text: str, source: str = "unspecified", insight_type: str = "general") -> str:
+    """Store an insight marked as high importance with metadata.
+    
+    Args:
+        text: The insight text to store
+        source: Where the insight came from (e.g., "gab", "team_meeting", "customer_feedback")
+        insight_type: The type of insight (e.g., "campaign_feedback", "market_trend", "competitive_analysis")
+        
+    Returns:
+        A confirmation message that the insight was stored.
+    """
+    from apps.agents.shared.tools.memory_loader import mark_important_insight as save_insight
+    return save_insight(text, source, insight_type) 
