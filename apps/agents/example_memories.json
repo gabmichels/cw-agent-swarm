@@ -1,0 +1,212 @@
+[
+  {
+    "id": "memory_149a4676",
+    "type": "action",
+    "content": "Example action memory #1",
+    "importance": 0.13493046464468295,
+    "created_at": "2025-04-19T17:30:14.321494",
+    "metadata": {
+      "example_id": 1
+    }
+  },
+  {
+    "id": "memory_af77ae3e",
+    "type": "observation",
+    "content": "Example observation memory #2",
+    "importance": 0.864992400181595,
+    "created_at": "2025-04-19T17:30:14.322290",
+    "metadata": {
+      "example_id": 2
+    }
+  },
+  {
+    "id": "memory_01af4971",
+    "type": "conversation",
+    "content": "Example conversation memory #3",
+    "importance": 0.10742344805179904,
+    "created_at": "2025-04-19T17:30:14.322929",
+    "metadata": {
+      "example_id": 3
+    }
+  },
+  {
+    "id": "memory_13493ca2",
+    "type": "action",
+    "content": "Example action memory #4",
+    "importance": 0.227677969815263,
+    "created_at": "2025-04-19T17:30:14.323581",
+    "metadata": {
+      "example_id": 4
+    }
+  },
+  {
+    "id": "memory_28f2062b",
+    "type": "observation",
+    "content": "Example observation memory #5",
+    "importance": 0.1295260196887299,
+    "created_at": "2025-04-19T17:30:14.323939",
+    "metadata": {
+      "example_id": 5
+    }
+  },
+  {
+    "id": "memory_67d099b7",
+    "type": "reflection",
+    "content": "This is a directly created reflection without memory analysis.",
+    "importance": 0.8,
+    "created_at": "2025-04-19T17:30:14.324982",
+    "metadata": {
+      "reflection_id": "reflection_1"
+    }
+  },
+  {
+    "id": "memory_3a7835a4",
+    "type": "reflection",
+    "content": "Analysis of 5 memories based on prompt: What patterns can be found in the memories?\n\nMemory types: 1 reflection, 2 observation, 1 action, 1 conversation\n\nInsights:\n- Found 5 memories to analyze\n- The memories span 4 different types",
+    "importance": 0.8,
+    "created_at": "2025-04-19T17:30:14.326002",
+    "metadata": {
+      "reflection_id": "reflection_2"
+    }
+  },
+  {
+    "id": "memory_9ac30929",
+    "type": "action",
+    "content": "Example action memory #1",
+    "importance": 0.5981297014806737,
+    "created_at": "2025-04-19T17:30:35.644870",
+    "metadata": {
+      "example_id": 1
+    }
+  },
+  {
+    "id": "memory_295b6d14",
+    "type": "observation",
+    "content": "Example observation memory #2",
+    "importance": 0.6268029297937308,
+    "created_at": "2025-04-19T17:30:35.645591",
+    "metadata": {
+      "example_id": 2
+    }
+  },
+  {
+    "id": "memory_f93870b5",
+    "type": "observation",
+    "content": "Example observation memory #3",
+    "importance": 0.9969429205866528,
+    "created_at": "2025-04-19T17:30:35.646093",
+    "metadata": {
+      "example_id": 3
+    }
+  },
+  {
+    "id": "memory_e311bead",
+    "type": "conversation",
+    "content": "Example conversation memory #4",
+    "importance": 0.42693352883115454,
+    "created_at": "2025-04-19T17:30:35.646639",
+    "metadata": {
+      "example_id": 4
+    }
+  },
+  {
+    "id": "memory_15527fd2",
+    "type": "observation",
+    "content": "Example observation memory #5",
+    "importance": 0.022304550418552838,
+    "created_at": "2025-04-19T17:30:35.647172",
+    "metadata": {
+      "example_id": 5
+    }
+  },
+  {
+    "id": "memory_6d8b8885",
+    "type": "reflection",
+    "content": "This is a directly created reflection without memory analysis.",
+    "importance": 0.8,
+    "created_at": "2025-04-19T17:30:35.648536",
+    "metadata": {
+      "reflection_id": "reflection_3"
+    }
+  },
+  {
+    "id": "memory_d1a32889",
+    "type": "reflection",
+    "content": "Analysis of 5 memories based on prompt: What patterns can be found in the memories?\n\nMemory types: 1 reflection, 3 observation, 1 conversation\n\nInsights:\n- Found 5 memories to analyze\n- The memories span 3 different types",
+    "importance": 0.8,
+    "created_at": "2025-04-19T17:30:35.649769",
+    "metadata": {
+      "reflection_id": "reflection_4"
+    }
+  },
+  {
+    "id": "memory_d411450b",
+    "type": "action",
+    "content": "Example action memory #1",
+    "importance": 0.2599863728330415,
+    "created_at": "2025-04-19T17:45:17.518683",
+    "metadata": {
+      "example_id": 1
+    }
+  },
+  {
+    "id": "memory_e4507643",
+    "type": "observation",
+    "content": "Example observation memory #2",
+    "importance": 0.9866798044949994,
+    "created_at": "2025-04-19T17:45:17.519365",
+    "metadata": {
+      "example_id": 2
+    }
+  },
+  {
+    "id": "memory_2f669d54",
+    "type": "observation",
+    "content": "Example observation memory #3",
+    "importance": 0.597954809860062,
+    "created_at": "2025-04-19T17:45:17.519803",
+    "metadata": {
+      "example_id": 3
+    }
+  },
+  {
+    "id": "memory_09055b08",
+    "type": "conversation",
+    "content": "Example conversation memory #4",
+    "importance": 0.7618671124516861,
+    "created_at": "2025-04-19T17:45:17.520185",
+    "metadata": {
+      "example_id": 4
+    }
+  },
+  {
+    "id": "memory_021f0ea3",
+    "type": "observation",
+    "content": "Example observation memory #5",
+    "importance": 0.6105506729472666,
+    "created_at": "2025-04-19T17:45:17.520713",
+    "metadata": {
+      "example_id": 5
+    }
+  },
+  {
+    "id": "memory_1b678c81",
+    "type": "reflection",
+    "content": "This is a directly created reflection without memory analysis.",
+    "importance": 0.8,
+    "created_at": "2025-04-19T17:45:17.521457",
+    "metadata": {
+      "reflection_id": "reflection_5"
+    }
+  },
+  {
+    "id": "memory_3939e0c9",
+    "type": "reflection",
+    "content": "Analysis of 5 memories based on prompt: What patterns can be found in the memories?\n\nMemory types: 1 reflection, 3 observation, 1 conversation\n\nInsights:\n- Found 5 memories to analyze\n- The memories span 3 different types",
+    "importance": 0.8,
+    "created_at": "2025-04-19T17:45:17.522446",
+    "metadata": {
+      "reflection_id": "reflection_6"
+    }
+  }
+]

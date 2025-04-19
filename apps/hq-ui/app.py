@@ -4,6 +4,7 @@ import json
 
 from apps.agents.departments.marketing.cmo_executor import run_agent_loop
 from apps.agents.shared.tools.memory_loader import retrieve_similar_chats
+from apps.agents.shared.memory.reflection import reflection_system
 
 # === Layout + Config ===
 st.set_page_config(page_title="Crowd Wisdom HQ", layout="wide")
@@ -156,10 +157,15 @@ with main_container:
 
     with col1:
         st.markdown("##### 🧠 Reflection of the Week")
-        reflections_path = Path("apps/agents/shared/memory/chloe_reflections.md")
-        if reflections_path.exists():
-            latest_reflection = reflections_path.read_text().strip().split("###")[-1]
-            st.info(latest_reflection[:350] + "...")
+        try:
+            latest_reflections = reflection_system.get_latest_reflections(1)
+            if latest_reflections:
+                reflection = latest_reflections[0]
+                st.info(f"{reflection['content'][:350]}...")
+            else:
+                st.info("No reflections are available yet. Ask Chloe to run a reflection.")
+        except Exception as e:
+            st.info("Ask Chloe to reflect on recent work to see insights here.")
 
     with col2:
         st.markdown("##### 💭 Thought Preview")
@@ -168,27 +174,70 @@ with main_container:
 
     with col3:
         st.markdown("##### 🔥 Important Updates")
-        highlights = retrieve_similar_chats("what important marketing actions happened recently?")[:300]        
-        st.warning(highlights + "...")
+        # Try to get important memories first
+        try:
+            from apps.agents.shared.memory.episodic_memory import get_important_recent_memories, IMPORTANCE_HIGH
+            important_memories = get_important_recent_memories(days=14, importance_level=IMPORTANCE_HIGH)
+            
+            if important_memories:
+                memory = important_memories[0]
+                highlights = memory.get('content', '')[:300]
+                st.warning(highlights + "...")
+            else:
+                # Fallback to the old method
+                highlights = retrieve_similar_chats("what important marketing actions happened recently?")[:300]        
+                st.warning(highlights + "...")
+        except Exception:
+            # Fallback if memory module fails
+            highlights = retrieve_similar_chats("what important marketing actions happened recently?")[:300]        
+            st.warning(highlights + "...")
 
     # === Agent Files Row ===
     st.markdown("### Agent Files")
-    file_col1, file_col2, file_col3, file_col4 = st.columns(4)
+    file_col1, file_col2, file_col3, file_col4, file_col5 = st.columns(5)
 
     with file_col1:
         st.markdown("**Agent Files:**")
 
     with file_col2:
-        reflections_path = "apps/agents/shared/memory/chloe_reflections.md"
-        st.markdown(f"[🧠 Reflections](file:///{Path(reflections_path).resolve()})")
+        reflections_path = Path("apps/agents/shared/memory/reflections.json")
+        if reflections_path.exists():
+            st.markdown("🧠 Reflections")
+            if st.button("View Reflections", key="view_reflections"):
+                with open(reflections_path, "r") as f:
+                    reflection_data = json.load(f)
+                    st.json(reflection_data)
 
     with file_col3:
         task_log_path = "apps/agents/shared/memory/task_log.md"
-        st.markdown(f"[📋 Task Log](file:///{Path(task_log_path).resolve()})")
+        if Path(task_log_path).exists():
+            st.markdown("📋 Task Log")
+            if st.button("View Tasks", key="view_tasks"):
+                with open(task_log_path, "r") as f:
+                    st.markdown(f.read())
+        else:
+            st.markdown("📋 Task Log (not yet created)")
 
     with file_col4:
         goals_path = "apps/agents/shared/memory/marketing_goals.md"
-        st.markdown(f"[🎯 Marketing Goals](file:///{Path(goals_path).resolve()})")
+        if Path(goals_path).exists():
+            st.markdown("🎯 Marketing Goals")
+            if st.button("View Goals", key="view_goals"):
+                with open(goals_path, "r") as f:
+                    st.markdown(f.read())
+        else:
+            st.markdown("🎯 Marketing Goals (not yet created)")
+        
+    with file_col5:
+        memory_path = Path("apps/agents/shared/memory/episodic_memories.json")
+        if memory_path.exists():
+            st.markdown("🧩 Episodic Memory")
+            if st.button("View Memories", key="view_memories"):
+                with open(memory_path, "r") as f:
+                    memory_data = json.load(f)
+                    st.json(memory_data)
+        else:
+            st.markdown("🧩 Episodic Memory (not yet created)")
 
     # === Chat UI ===
     st.markdown("## 💬 Conversation History")

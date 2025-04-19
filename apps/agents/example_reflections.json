@@ -1,0 +1,99 @@
+[
+  {
+    "id": "reflection_1",
+    "content": "This is a directly created reflection without memory analysis.",
+    "source_memory_ids": [
+      "memory_149a4676"
+    ],
+    "created_at": "2025-04-19T17:30:14.324454",
+    "metadata": {
+      "method": "direct"
+    }
+  },
+  {
+    "id": "reflection_2",
+    "content": "Analysis of 5 memories based on prompt: What patterns can be found in the memories?\n\nMemory types: 1 reflection, 2 observation, 1 action, 1 conversation\n\nInsights:\n- Found 5 memories to analyze\n- The memories span 4 different types",
+    "source_memory_ids": [
+      "memory_67d099b7",
+      "memory_28f2062b",
+      "memory_13493ca2",
+      "memory_01af4971",
+      "memory_af77ae3e"
+    ],
+    "created_at": "2025-04-19T17:30:14.325743",
+    "metadata": {
+      "memory_count": 5,
+      "memory_types": [
+        "reflection",
+        "observation",
+        "action",
+        "conversation"
+      ],
+      "prompt": "What patterns can be found in the memories?"
+    }
+  },
+  {
+    "id": "reflection_3",
+    "content": "This is a directly created reflection without memory analysis.",
+    "source_memory_ids": [
+      "memory_149a4676"
+    ],
+    "created_at": "2025-04-19T17:30:35.648245",
+    "metadata": {
+      "method": "direct"
+    }
+  },
+  {
+    "id": "reflection_4",
+    "content": "Analysis of 5 memories based on prompt: What patterns can be found in the memories?\n\nMemory types: 1 reflection, 3 observation, 1 conversation\n\nInsights:\n- Found 5 memories to analyze\n- The memories span 3 different types",
+    "source_memory_ids": [
+      "memory_6d8b8885",
+      "memory_15527fd2",
+      "memory_e311bead",
+      "memory_f93870b5",
+      "memory_295b6d14"
+    ],
+    "created_at": "2025-04-19T17:30:35.649488",
+    "metadata": {
+      "memory_count": 5,
+      "memory_types": [
+        "reflection",
+        "observation",
+        "conversation"
+      ],
+      "prompt": "What patterns can be found in the memories?"
+    }
+  },
+  {
+    "id": "reflection_5",
+    "content": "This is a directly created reflection without memory analysis.",
+    "source_memory_ids": [
+      "memory_149a4676"
+    ],
+    "created_at": "2025-04-19T17:45:17.521203",
+    "metadata": {
+      "method": "direct"
+    }
+  },
+  {
+    "id": "reflection_6",
+    "content": "Analysis of 5 memories based on prompt: What patterns can be found in the memories?\n\nMemory types: 1 reflection, 3 observation, 1 conversation\n\nInsights:\n- Found 5 memories to analyze\n- The memories span 3 different types",
+    "source_memory_ids": [
+      "memory_1b678c81",
+      "memory_021f0ea3",
+      "memory_09055b08",
+      "memory_2f669d54",
+      "memory_e4507643"
+    ],
+    "created_at": "2025-04-19T17:45:17.522155",
+    "metadata": {
+      "memory_count": 5,
+      "memory_types": [
+        "reflection",
+        "observation",
+        "conversation"
+      ],
+      "prompt": "What patterns can be found in the memories?"
+    }
+  }
+]

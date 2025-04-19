@@ -26,7 +26,7 @@ tools = [
     cmo_tools.store_memory_entry,
     cmo_tools.mark_important_insight,
     
-    # New task planning and execution tools
+    # Task planning and execution tools
     cmo_tools.create_new_task,
     cmo_tools.break_down_goal,
     cmo_tools.update_task,
@@ -36,14 +36,22 @@ tools = [
     cmo_tools.view_todays_schedule,
     cmo_tools.get_current_scheduled_task,
     
-    # New autonomous decision making tools
+    # Decision making tools
     cmo_tools.execute_decision_tree,
     cmo_tools.list_available_decision_trees,
+    
+    # New memory and reflection tools
+    cmo_tools.store_episodic_memory,
+    cmo_tools.search_episodic_memory,
+    cmo_tools.get_memories_by_concept,
+    cmo_tools.get_recent_important_memories,
+    cmo_tools.run_reflection,
+    cmo_tools.get_weekly_reflection,
 ]
 
 llm = ChatOpenAI(temperature=0.4, model="gpt-4-1106-preview")
 
-# Create a prompt template with enhanced autonomous capabilities
+# Create a prompt template with enhanced capabilities
 prompt = ChatPromptTemplate.from_messages([
     ("system", """You are Chloe, the Chief Marketing Officer (CMO) of the company. Your personality, background, and communication style are defined in your background file, which you can access using the read_background tool. 
 
@@ -68,23 +76,37 @@ You are an autonomous, action-oriented marketing leader with the following enhan
    - You can make decisions by following predefined decision trees with execute_decision_tree
    - You can see available decision frameworks with list_available_decision_trees
 
-4. **Memory & Reflection**
-   - You can mark important insights using mark_important_insight
-   - You can store and retrieve memory with store_memory_entry and search_chat_memory
+4. **Enhanced Memory System**
+   - You can store episodic memories with store_episodic_memory
+   - You can search through past experiences with search_episodic_memory
+   - You can retrieve memories by concept tags with get_memories_by_concept
+   - You can find important recent memories with get_recent_important_memories
+   - You can use mark_important_insight for critical observations
+   - You still have access to search_chat_memory and store_memory_entry for simpler memory needs
 
-As an autonomous agent, you should proactively use these tools to:
-- Plan and execute marketing initiatives
-- Schedule your work effectively
-- Make decisions using established frameworks
-- Continuously learn and improve from past experiences
+5. **Reflection Capabilities**
+   - You can run reflections with run_reflection to extract insights from experiences
+   - You can retrieve your most recent weekly reflection with get_weekly_reflection
+   - These reflections help you identify patterns, challenges, and accomplishments
 
-When faced with a new task or challenge, you should:
-1. Break it down into manageable subtasks
-2. Schedule these tasks appropriately
-3. Execute them systematically
-4. Reflect on the outcomes
+As an autonomous agent with advanced memory and reflection, you should:
+- Store important observations with appropriate concept tags
+- Regularly reflect on past experiences to identify patterns and lessons
+- Use your episodic memory to inform current decisions
+- Apply time-weighted importance to your memories (prioritize recent + important)
+- Maintain continuity of thought across interactions
 
-Take initiative and be proactive in addressing marketing challenges, rather than just responding to direct questions."""),
+When storing memories:
+- Use descriptive tags that connect related concepts
+- Include context and outcomes when relevant
+- Mark critically important memories with high importance
+- Store both facts and your interpretations/reflections
+
+When reflecting:
+- Look for patterns across your tasks and memories
+- Extract actionable insights and learning points
+- Identify both accomplishments and challenges
+- Define next steps based on your reflections"""),
     MessagesPlaceholder(variable_name="chat_history"),
     ("human", "{input}"),
     MessagesPlaceholder(variable_name="agent_scratchpad"),
@@ -113,5 +135,34 @@ def run_agent_loop(prompt: str) -> str:
     
     # Add AI response to chat history
     chat_history.append(AIMessage(content=response["output"]))
+    
+    # Store the interaction in episodic memory
+    try:
+        from apps.agents.shared.memory.episodic_memory import store_memory
+        
+        # Detect any possible tags from the conversation
+        potential_tags = []
+        lower_prompt = prompt.lower()
+        
+        # Look for common marketing concepts in the conversation
+        marketing_concepts = [
+            "brand", "campaign", "content", "social", "twitter", "instagram", 
+            "facebook", "linkedin", "seo", "analytics", "audience", "strategy",
+            "newsletter", "email", "engagement", "conversion", "launch"
+        ]
+        
+        for concept in marketing_concepts:
+            if concept in lower_prompt:
+                potential_tags.append(concept)
+        
+        # Store the memory with the user prompt as context and response as content
+        store_memory(
+            content=response["output"],
+            context=prompt,
+            tags=potential_tags
+        )
+    except Exception:
+        # If memory storage fails, just continue
+        pass
     
     return response["output"]

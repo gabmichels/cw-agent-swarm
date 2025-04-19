@@ -25,6 +25,19 @@ from apps.agents.shared.tools.decision_tree import (
     create_content_creation_tree
 )
 
+# Import the new memory and reflection modules
+from apps.agents.shared.memory.episodic_memory import (
+    store_memory, get_all_memories, get_memories_by_tag,
+    get_memories_by_importance, get_memories_by_timeframe,
+    get_important_recent_memories, search_memories,
+    IMPORTANCE_HIGH, IMPORTANCE_MEDIUM, IMPORTANCE_LOW
+)
+
+from apps.agents.shared.memory.reflect import (
+    generate_reflection, get_latest_reflection, 
+    get_all_reflections, run_weekly_reflection
+)
+
 @tool
 def read_background(_: str = "") -> str:
     """Read Chloe's background document.
@@ -365,4 +378,176 @@ def list_available_decision_trees():
         
         return result
     except Exception as e:
-        return f"Error listing decision trees: {str(e)}" 
+        return f"Error listing decision trees: {str(e)}"
+
+# == New Memory and Reflection Tools ==
+
+@tool
+def store_episodic_memory(content: str, context: str = "", outcome: str = "", importance: str = "medium", tags: str = ""):
+    """
+    Store a new memory entry in episodic memory.
+    
+    Args:
+        content: The main content/observation to remember
+        context: Context around when this observation occurred
+        outcome: What resulted from this situation
+        importance: How important this memory is (high, medium, low)
+        tags: Comma-separated list of concept tags (e.g., "marketing,twitter,brand")
+    """
+    try:
+        # Parse tags from comma-separated string
+        tag_list = [tag.strip() for tag in tags.split(",")] if tags else []
+        
+        memory = store_memory(
+            content=content,
+            context=context,
+            outcome=outcome,
+            importance=importance,
+            tags=tag_list
+        )
+        
+        return f"Memory stored with ID: {memory['id']}"
+    except Exception as e:
+        return f"Error storing memory: {str(e)}"
+
+@tool
+def search_episodic_memory(query: str):
+    """
+    Search through episodic memory for relevant entries.
+    
+    Args:
+        query: Text to search for in memories
+    """
+    try:
+        memories = search_memories(query)
+        
+        if not memories:
+            return "No matching memories found."
+        
+        result = f"Found {len(memories)} relevant memories:\n\n"
+        
+        # Show the 5 most recent matching memories
+        for memory in memories[:5]:
+            try:
+                date = datetime.datetime.fromisoformat(memory.get("timestamp")).strftime("%Y-%m-%d")
+            except (ValueError, TypeError):
+                date = "Unknown date"
+                
+            result += f"Memory from {date} (Importance: {memory.get('importance', 'medium')}):\n"
+            result += f"{memory.get('content', '')}\n"
+            
+            if memory.get("tags"):
+                result += f"Tags: {' '.join(memory.get('tags', []))}\n"
+                
+            result += "\n---\n\n"
+        
+        if len(memories) > 5:
+            result += f"...and {len(memories) - 5} more memories."
+        
+        return result
+    except Exception as e:
+        return f"Error searching memories: {str(e)}"
+
+@tool
+def get_memories_by_concept(tag: str):
+    """
+    Get memories tagged with a specific concept.
+    
+    Args:
+        tag: Concept tag to search for (e.g., "twitter", "brand")
+    """
+    try:
+        memories = get_memories_by_tag(tag)
+        
+        if not memories:
+            return f"No memories found with tag '{tag}'."
+        
+        result = f"Found {len(memories)} memories tagged with '{tag}':\n\n"
+        
+        # Show the 5 most recent memories with this tag
+        sorted_memories = sorted(
+            memories, 
+            key=lambda m: m.get("timestamp", ""), 
+            reverse=True
+        )
+        
+        for memory in sorted_memories[:5]:
+            try:
+                date = datetime.datetime.fromisoformat(memory.get("timestamp")).strftime("%Y-%m-%d")
+            except (ValueError, TypeError):
+                date = "Unknown date"
+                
+            result += f"Memory from {date} (Importance: {memory.get('importance', 'medium')}):\n"
+            result += f"{memory.get('content', '')}\n\n"
+        
+        if len(memories) > 5:
+            result += f"...and {len(memories) - 5} more memories with this tag."
+        
+        return result
+    except Exception as e:
+        return f"Error retrieving memories by tag: {str(e)}"
+
+@tool
+def get_recent_important_memories(days: int = 30):
+    """
+    Get important memories from the recent past.
+    
+    Args:
+        days: Number of days to look back
+    """
+    try:
+        memories = get_important_recent_memories(days)
+        
+        if not memories:
+            return f"No important memories found from the past {days} days."
+        
+        result = f"Found {len(memories)} important memories from the past {days} days:\n\n"
+        
+        for memory in memories:
+            try:
+                date = datetime.datetime.fromisoformat(memory.get("timestamp")).strftime("%Y-%m-%d")
+            except (ValueError, TypeError):
+                date = "Unknown date"
+                
+            result += f"Memory from {date}:\n"
+            result += f"{memory.get('content', '')}\n"
+            
+            if memory.get("tags"):
+                result += f"Tags: {' '.join(memory.get('tags', []))}\n"
+                
+            result += "\n---\n\n"
+        
+        return result
+    except Exception as e:
+        return f"Error retrieving important recent memories: {str(e)}"
+
+@tool
+def run_reflection():
+    """Run a reflection on recent memories to extract insights."""
+    try:
+        from apps.agents.shared.memory.reflection import reflection_system
+        
+        # Run an analysis reflection
+        reflection = reflection_system.analyze_memories(
+            memory_limit=20,
+            reflection_prompt="What are the key patterns and insights from recent activities?"
+        )
+        
+        return f"✅ Reflection completed! Here's what I learned:\n\n{reflection['content'][:500]}..."
+    except Exception as e:
+        return f"❌ Unable to run reflection: {str(e)}"
+
+@tool
+def get_weekly_reflection():
+    """Get the latest weekly reflection."""
+    try:
+        from apps.agents.shared.memory.reflection import reflection_system
+        
+        latest_reflections = reflection_system.get_latest_reflections(1)
+        if not latest_reflections:
+            return "No reflections available yet. Use the run_reflection tool to create one."
+            
+        reflection = latest_reflections[0]
+        return f"📝 Latest reflection ({reflection['created_at']}):\n\n{reflection['content']}"
+    except Exception as e:
+        return f"❌ Unable to retrieve weekly reflection: {str(e)}" 
