@@ -142,6 +142,50 @@ st.markdown("""
         border-radius: 8px;
         margin-top: 20px;
     }
+    
+    /* Typing indicator animation */
+    .typing-indicator {
+        display: flex;
+        align-items: center;
+        margin-top: 5px;
+    }
+    
+    .typing-indicator span {
+        height: 8px;
+        width: 8px;
+        background: rgba(255, 255, 255, 0.8);
+        border-radius: 50%;
+        display: inline-block;
+        margin-right: 5px;
+        animation: typing 1s infinite ease-in-out;
+    }
+    
+    .typing-indicator span:nth-child(1) {
+        animation-delay: 0s;
+    }
+    
+    .typing-indicator span:nth-child(2) {
+        animation-delay: 0.2s;
+    }
+    
+    .typing-indicator span:nth-child(3) {
+        animation-delay: 0.4s;
+    }
+    
+    @keyframes typing {
+        0% {
+            transform: translateY(0px);
+            opacity: 0.4;
+        }
+        50% {
+            transform: translateY(-5px);
+            opacity: 1;
+        }
+        100% {
+            transform: translateY(0px);
+            opacity: 0.4;
+        }
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -183,52 +227,55 @@ with st.sidebar.form(key="sidebar_chat_form", clear_on_submit=True):
 
 # === Process new messages ===
 if submitted and user_input.strip() != "":
-    # Simple approach - show a message in the main area
-    loading_message = st.empty()
-    loading_message.info("Processing your message... This might take a moment.")
+    # Add user message to session state immediately
+    user_msg = {"role": "user", "message": user_input, "timestamp": datetime.now().isoformat()}
+    chat_history.append(user_msg)
+    
+    # Save to file immediately so it persists between reruns
+    with open(chat_file, "w", encoding="utf-8") as f:
+        json.dump(chat_history, f, indent=2)
+    
+    # Set a session state flag to indicate we're processing
+    st.session_state.processing = True
+    st.session_state.processing_message = user_input
+    
+    # Force a rerun to show the processing indicator
+    st.rerun()
+
+# Check if we need to process a message (this will run after the rerun)
+if hasattr(st.session_state, 'processing') and st.session_state.processing:
+    # Get the message we're processing
+    processing_message = st.session_state.processing_message
     
     # Process the message
-    agent_response = run_agent_loop(user_input)
+    agent_response = run_agent_loop(processing_message)
     print(f"DEBUG APP: Agent response received: {agent_response[:100] if agent_response else 'EMPTY'}")
     
     # Get last message from chat history (from the agent object)
     from apps.agents.departments.marketing.cmo_executor import chat_history as agent_chat_history
-    print(f"DEBUG APP: Agent chat history length: {len(agent_chat_history) if agent_chat_history else 0}")
     
     # Extract the last AI message metadata if available
     metadata = {}
     if agent_chat_history and len(agent_chat_history) > 0:
         last_message = agent_chat_history[-1]
-        print(f"DEBUG APP: Last message type: {type(last_message)}")
-        print(f"DEBUG APP: Last message content: {getattr(last_message, 'content', 'No content')[:100]}")
         # Copy metadata if available
         if hasattr(last_message, "metadata") and last_message.metadata:
             metadata = last_message.metadata
-            print(f"DEBUG APP: Message metadata: {metadata}")
-        else:
-            print("DEBUG APP: No metadata in last message")
-    else:
-        print("DEBUG APP: No agent chat history available")
-    
-    # Update history with timestamp for user message
-    from datetime import datetime
-    user_msg = {"role": "user", "message": user_input, "timestamp": datetime.now().isoformat()}
-    chat_history.append(user_msg)
     
     # Add agent response with metadata
     agent_msg = {"role": "agent", "message": agent_response, "metadata": metadata}
     chat_history.append(agent_msg)
-    print(f"DEBUG APP: Added agent message to chat history: {agent_msg['message'][:100] if agent_msg['message'] else 'EMPTY'}")
     
-    # Save to file
+    # Save the updated history
     with open(chat_file, "w", encoding="utf-8") as f:
         json.dump(chat_history, f, indent=2)
-    print(f"DEBUG APP: Saved chat history to {chat_file}")
     
-    # Clear the loading message
-    loading_message.empty()
+    # Clear the processing flag
+    st.session_state.processing = False
+    if 'processing_message' in st.session_state:
+        del st.session_state.processing_message
     
-    # Refresh the page to show new messages
+    # Force a final rerun to show the completed conversation
     st.rerun()
 
 # === Main Content Area ===
@@ -339,9 +386,35 @@ with main_container:
         except:
             return ""
 
+    # Determine which chat history to display
+    display_history = chat_history
+    show_loading_spinner = False
+    
+    # If we're processing a message, show the loading indicator
+    if hasattr(st.session_state, 'processing') and st.session_state.processing:
+        show_loading_spinner = True
+        
+    # Add auto-scroll to bottom JS
+    st.markdown("""
+    <script>
+    // Auto-scroll function
+    function scrollToBottom() {
+        const chatArea = document.querySelector('.chat-messages');
+        if (chatArea) {
+            chatArea.scrollTop = chatArea.scrollHeight;
+        }
+    }
+    
+    // Call on load and after content changes
+    window.addEventListener('load', scrollToBottom);
+    const observer = new MutationObserver(scrollToBottom);
+    observer.observe(document.body, { childList: true, subtree: true });
+    </script>
+    """, unsafe_allow_html=True)
+
     # Chat messages in scrollable container
     st.markdown('<div class="chat-messages">', unsafe_allow_html=True)
-    for msg in chat_history:
+    for msg in display_history:
         if msg["role"] == "user":
             st.markdown(f'''
             <div class="user-bubble">
@@ -402,6 +475,26 @@ with main_container:
                 {msg["message"]}
             </div>
             ''', unsafe_allow_html=True)
+    
+    # Show loading spinner at the bottom if we're waiting for a response
+    if show_loading_spinner:
+        st.markdown(f'''
+        <div class="agent-bubble">
+            <div class="message-sender">
+                <span>
+                    🤖 Chloe
+                    <span class="badge badge-default">Thinking</span>
+                </span>
+                <span class="timestamp">{format_timestamp(datetime.now().isoformat())}</span>
+            </div>
+            <div class="typing-indicator">
+                <span></span>
+                <span></span>
+                <span></span>
+            </div>
+        </div>
+        ''', unsafe_allow_html=True)
+    
     st.markdown('</div>', unsafe_allow_html=True)
     
     st.markdown('</div>', unsafe_allow_html=True) 
