@@ -12,6 +12,8 @@ from pathlib import Path
 
 # Import our custom LLM router
 from apps.agents.shared.llm_router import get_llm, log_model_response
+# Import the chat history module
+from apps.agents.shared.memory.chat_history import log_chat, get_recent_history, format_for_langchain
 
 # Load environment variables
 load_dotenv()
@@ -173,10 +175,6 @@ def run_agent_loop(prompt_str: str) -> str:
         
         logging.info(f"Selected task type: {task_type}")
         
-        # DEBUGGING TASK TYPES: If it's not "default", log the type and double-check
-        if task_type != "default":
-            logging.info(f"IMPORTANT: Using specialized task type: {task_type}")
-        
         # Get appropriate LLM
         try:
             logging.info(f"DEBUG: Attempting to get LLM for task type: {task_type}")
@@ -185,30 +183,33 @@ def run_agent_loop(prompt_str: str) -> str:
             model_used = current_llm.model_name
             logging.info(f"Using model: {model_used}")
             
-            # DEBUGGING MODEL: Log the model class and key attributes
-            logging.info(f"Model class: {current_llm.__class__.__name__}")
-            logging.info(f"Model details: {dir(current_llm)[:10]}...")
-            
         except Exception as llm_error:
             logging.error(f"DEBUG ERROR: Could not initialize LLM: {str(llm_error)}")
             raise llm_error
         
         try:
+            # Load recent chat history from the persistent storage
+            recent_history_entries = get_recent_history(n=10)
+            langchain_history = format_for_langchain(recent_history_entries)
+            
+            # Also log this user input to chat history
+            log_chat("user", prompt_str, tags=[task_type])
+            
             # Create a new agent with the appropriate LLM
             print("DEBUG: Creating agent with LLM")
             agent = create_openai_tools_agent(current_llm, tools, prompt_template)
             print("DEBUG: Creating agent executor")
             current_agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
             
-            # Add user message to chat history
-            print("DEBUG: Adding user message to chat history")
+            # Add user message to in-memory chat history (for this session)
+            print("DEBUG: Adding user message to in-memory chat history")
             chat_history.append(HumanMessage(content=prompt_str))
             
             # Invoke agent with chat history
             print("DEBUG: Invoking agent executor")
             response = current_agent_executor.invoke({
                 "input": prompt_str,
-                "chat_history": chat_history
+                "chat_history": langchain_history  # Use the loaded history
             })
             print("DEBUG: Agent execution completed successfully")
             
@@ -245,24 +246,15 @@ def run_agent_loop(prompt_str: str) -> str:
                 final_output = str(response)
                 logging.info(f"DEBUG: Using string conversion as fallback: {final_output[:50]}...")
             
-            # DEBUGGING RESPONSE: Log detailed response structure
-            logging.info(f"DEBUG: Response type: {type(response)}")
-            if isinstance(response, dict):
-                logging.info(f"DEBUG: Response keys: {list(response.keys())}")
-            
-            # DEBUGGING RESPONSE: Add more detailed response inspection
-            if final_output.startswith("I apologize"):
-                logging.warning(f"ERROR RESPONSE DETECTED! Response type: {type(response)}")
-                if isinstance(response, dict):
-                    for key, value in response.items():
-                        logging.warning(f"Response key '{key}': {str(value)[:100]}")
-            
             # Guard against empty responses
             if not final_output or final_output.strip() == "":
                 final_output = "I apologize, but I encountered an issue processing your request. Please try again."
                 logging.info("DEBUG: Empty response detected, using fallback message")
             
-            # Add to chat history and return
+            # Log assistant response to chat history
+            log_chat("assistant", final_output, tags=[task_type])
+            
+            # Add to in-memory chat history and return
             ai_message = AIMessage(content=final_output)
             ai_message.metadata = {
                 "task_type": task_type,
@@ -388,6 +380,9 @@ def run_agent_loop(prompt_str: str) -> str:
                     
                     logging.info(f"DEBUG: Fallback output: {fallback_output[:50]}...")
                     
+                    # Log fallback response to chat history
+                    log_chat("assistant", fallback_output, tags=["default", "fallback"])
+                    
                     # Add AI response to chat history with metadata
                     fallback_message = AIMessage(content=fallback_output)
                     fallback_message.metadata = {
@@ -406,6 +401,9 @@ def run_agent_loop(prompt_str: str) -> str:
                 # If we're already using the default model and still failed, return error message
                 error_message = f"I apologize, but I encountered an error processing your request. Please try again with a different question."
                 logging.info(f"DEBUG: Using default model failed, returning error message: {error_message}")
+                
+                # Log error message to chat history
+                log_chat("assistant", error_message, tags=["error"])
                 
                 # Add error message to chat history
                 error_ai_message = AIMessage(content=error_message)
@@ -426,6 +424,9 @@ def run_agent_loop(prompt_str: str) -> str:
         traceback.print_exc()
         
         error_message = f"I apologize, but I encountered an unexpected error. Please try again later."
+        
+        # Log critical error to chat history
+        log_chat("assistant", error_message, tags=["critical_error"])
         
         # Add error message to chat history
         try:

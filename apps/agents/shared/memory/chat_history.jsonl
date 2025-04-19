@@ -1,0 +1,8 @@
+{"role": "user", "content": "Hello, how are you?", "timestamp": "2025-04-19T21:19:50.080738"}
+{"role": "assistant", "content": "I'm doing well, thank you! How can I help you today?", "timestamp": "2025-04-19T21:19:50.090966"}
+{"role": "user", "content": "Tell me about marketing strategies for startups", "timestamp": "2025-04-19T21:19:50.091187"}
+{"role": "assistant", "content": "For startups, I recommend focusing on low-cost, high-impact strategies like content marketing and social media.", "timestamp": "2025-04-19T21:19:50.091447", "tags": ["marketing"]}
+{"role": "user", "content": "Let's discuss our social media strategy", "timestamp": "2025-04-19T21:19:50.102033", "tags": ["marketing", "social"]}
+{"role": "assistant", "content": "Social media is crucial for brand awareness. Let's focus on Instagram and Twitter.", "timestamp": "2025-04-19T21:19:50.102420", "tags": ["marketing", "social"]}
+{"role": "user", "content": "What about our budget for Q3?", "timestamp": "2025-04-19T21:19:50.102712", "tags": ["finance"]}
+{"role": "assistant", "content": "For Q3, I recommend allocating 40% to digital ads, 30% to content creation, and 30% to analytics tools.", "timestamp": "2025-04-19T21:19:50.102940", "tags": ["finance", "budget"]}
