@@ -13,6 +13,7 @@ from ..perception.data_collector import (
     get_task_status, 
     generate_report_from_task
 )
+from ..config import DEFAULT_DISCORD_WEBHOOK, ENABLE_AUTO_NOTIFICATIONS, has_notification_intent
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -118,7 +119,8 @@ class PerceptionTools:
         keywords: List[str] = None, 
         sources: List[str] = None,
         notify_discord: bool = False,
-        discord_webhook_url: str = ""
+        discord_webhook_url: str = "",
+        response_message: str = None
     ) -> str:
         """
         Trigger active data collection on a specific topic.
@@ -130,22 +132,51 @@ class PerceptionTools:
             sources: Sources to collect from (defaults to ["rss", "reddit"])
             notify_discord: Whether to send a Discord notification when complete
             discord_webhook_url: Discord webhook URL for notifications
+            response_message: Optional response message to check for notification intent
             
         Returns:
             Task ID and confirmation message
         """
         logger.info(f"Triggering data collection for topic: {topic}")
         
+        # Determine if we should notify based on:
+        # 1. Explicit notify_discord parameter
+        # 2. Discord webhook URL parameter
+        # 3. Default Discord webhook from config
+        # 4. Notification intent in the response message
+        if not notify_discord and not discord_webhook_url and ENABLE_AUTO_NOTIFICATIONS:
+            # Check for notification intent in response_message if provided
+            if response_message and has_notification_intent(response_message):
+                notify_discord = True
+                logger.info("Auto-notification enabled based on notification intent in response")
+            
+            # Use default webhook if available
+            if notify_discord and DEFAULT_DISCORD_WEBHOOK:
+                discord_webhook_url = DEFAULT_DISCORD_WEBHOOK
+                logger.info("Using default Discord webhook for notification")
+        
+        # Final decision on whether to notify and which URL to use
+        should_notify = notify_discord or bool(discord_webhook_url)
+        webhook_url = discord_webhook_url if discord_webhook_url else DEFAULT_DISCORD_WEBHOOK if should_notify else None
+        
         try:
             task_id = collect_data(
                 topic=topic,
                 keywords=keywords,
                 sources=sources,
-                send_notification=notify_discord,
-                notification_url=discord_webhook_url if notify_discord else None
+                send_notification=should_notify,
+                notification_url=webhook_url
             )
             
-            return f"I've started collecting fresh data about '{topic}'. This will take a few moments to complete. You can check the status using the task ID: {task_id}"
+            # Customize the response based on notification status
+            response = f"I've started collecting fresh data about '{topic}'. This will take a few moments to complete."
+            
+            if should_notify and webhook_url:
+                response += f" I'll notify you on Discord when it's ready."
+            else:
+                response += f" You can check the status using the task ID: {task_id}"
+            
+            return response
         except Exception as e:
             logger.error(f"Error triggering data collection: {str(e)}")
             return f"I encountered an error while trying to collect data on {topic}: {str(e)}"
@@ -209,7 +240,10 @@ class PerceptionTools:
         topic: str, 
         keywords: List[str] = None,
         wait_for_completion: bool = True,
-        timeout_seconds: int = 60
+        timeout_seconds: int = 60,
+        notify_discord: bool = False,
+        discord_webhook_url: str = "",
+        response_message: str = None
     ) -> str:
         """
         Collect fresh data, wait for completion, and provide analysis in one step.
@@ -219,6 +253,9 @@ class PerceptionTools:
             keywords: Specific keywords to search for
             wait_for_completion: Whether to wait for collection to complete
             timeout_seconds: Maximum time to wait for completion
+            notify_discord: Whether to send a Discord notification when complete
+            discord_webhook_url: Discord webhook URL for notifications
+            response_message: Optional response message to check for notification intent
             
         Returns:
             Analysis report or status message
@@ -227,15 +264,38 @@ class PerceptionTools:
         
         logger.info(f"Collecting and analyzing data for: {topic}")
         
+        # Determine if we should notify
+        if not notify_discord and not discord_webhook_url and ENABLE_AUTO_NOTIFICATIONS:
+            # Check for notification intent in response_message if provided
+            if response_message and has_notification_intent(response_message):
+                notify_discord = True
+                logger.info("Auto-notification enabled based on notification intent in response")
+            
+            # Use default webhook if available
+            if notify_discord and DEFAULT_DISCORD_WEBHOOK:
+                discord_webhook_url = DEFAULT_DISCORD_WEBHOOK
+                logger.info("Using default Discord webhook for notification")
+        
+        # Final decision on whether to notify and which URL to use
+        should_notify = notify_discord or bool(discord_webhook_url)
+        webhook_url = discord_webhook_url if discord_webhook_url else DEFAULT_DISCORD_WEBHOOK if should_notify else None
+        
         try:
             # Start the collection
             task_id = collect_data(
                 topic=topic,
-                keywords=keywords
+                keywords=keywords,
+                send_notification=should_notify,
+                notification_url=webhook_url
             )
             
             if not wait_for_completion:
-                return f"I've started collecting fresh data about '{topic}'. You can check back later with task ID: {task_id}"
+                response = f"I've started collecting fresh data about '{topic}'."
+                if should_notify and webhook_url:
+                    response += f" I'll notify you on Discord when it's ready."
+                else:
+                    response += f" You can check back later with task ID: {task_id}"
+                return response
             
             # Wait for completion
             logger.info(f"Waiting for task {task_id} to complete...")
@@ -261,7 +321,12 @@ class PerceptionTools:
                 time.sleep(5)
             
             # If we get here, we've timed out
-            return f"The data collection is taking longer than expected. You can check its status later with task ID: {task_id}"
+            response = f"The data collection is taking longer than expected."
+            if should_notify and webhook_url:
+                response += f" I'll notify you on Discord when it's ready."
+            else:
+                response += f" You can check its status later with task ID: {task_id}"
+            return response
             
         except Exception as e:
             logger.error(f"Error in collect and analyze: {str(e)}")

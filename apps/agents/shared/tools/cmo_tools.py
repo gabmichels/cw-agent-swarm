@@ -3,6 +3,9 @@ from pathlib import Path
 import datetime
 import os
 import json
+import logging
+from typing import Dict, List, Any, Optional
+import time
 
 # Get the absolute path to the memory directory
 script_dir = Path(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -42,6 +45,40 @@ from apps.agents.shared.memory.reflect import (
     generate_reflection, get_latest_reflection, 
     get_all_reflections, run_weekly_reflection
 )
+
+from ..perception.perception_interpreter import handle_perception_query
+from ..perception.news_monitor import check_topic_sources
+from ..tools.perception_tools import PerceptionTools
+from ..memory.interaction_log import get_last_ai_message, log_ai_message, log_user_message
+
+# Initialize logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Initialize the interaction logging system
+def initialize_interaction_logging():
+    """
+    Initialize the interaction logging system.
+    This should be called at the start of any agent session.
+    """
+    from ..memory.interaction_log import clear_interaction_history
+    clear_interaction_history()
+    logger.info("Interaction logging system initialized")
+
+# Add a function to log interactions
+def log_interaction(is_user: bool, message: str):
+    """
+    Log a message in the interaction history.
+    
+    Args:
+        is_user: True if the message is from the user, False if from AI
+        message: The message content
+    """
+    if is_user:
+        log_user_message(message)
+    else:
+        log_ai_message(message)
+    logger.debug(f"Logged {'user' if is_user else 'AI'} message of length {len(message)}")
 
 @tool
 def read_background(_: str = "") -> str:
@@ -620,27 +657,34 @@ def summarize_news(topic: str) -> str:
 @tool
 def collect_new_data(topic: str, keywords: str = "", discord_webhook: str = "") -> str:
     """
-    Proactively collect fresh data from external sources on a specific topic.
-    This allows you to "bring yourself up to speed" by fetching the latest information.
+    Proactively collect fresh data on a specified topic.
+    
+    This is a function that can be used to collect fresh data on a specified topic.
+    It will trigger a background task to collect data from various sources.
     
     Args:
-        topic: The main topic to research (e.g., "language challenges", "marketing trends")
-        keywords: Comma-separated specific keywords to search for (e.g., "translation barriers, communication problems")
+        topic: The main topic to collect data about
+        keywords: Comma-separated keywords to help focus the collection (optional)
         discord_webhook: Optional Discord webhook URL to send notification when complete
+        
+    Returns:
+        A confirmation message with task ID or notification details
     """
-    # Parse keywords
-    keyword_list = None
-    if keywords:
-        keyword_list = [k.strip() for k in keywords.split(",")]
+    # Parse the keywords string into a list
+    keyword_list = [kw.strip() for kw in keywords.split(",")] if keywords else []
     
     # Check if we should notify Discord
     notify_discord = bool(discord_webhook)
     
+    # Get the last AI message to check for notification intent
+    last_message = get_last_ai_message()
+    
     return PerceptionTools.trigger_data_collection(
-        topic=topic, 
-        keywords=keyword_list,
+        topic=topic,
+        keywords=keyword_list if keyword_list else None,
         notify_discord=notify_discord,
-        discord_webhook_url=discord_webhook
+        discord_webhook_url=discord_webhook,
+        response_message=last_message
     )
 
 @tool
@@ -666,21 +710,28 @@ def get_data_collection_report(task_id: str) -> str:
 @tool
 def research_and_analyze(topic: str, keywords: str = "") -> str:
     """
-    Comprehensive tool to collect, wait for, and analyze data about a topic.
-    Use this when you need to actively research a topic without multiple steps.
+    Collect, wait for, and analyze data about a topic.
+    
+    This is a comprehensive tool that performs data collection and analysis in one step.
+    It will wait for the data collection to complete before returning the analysis.
     
     Args:
-        topic: The topic to research (e.g., "language challenges in customer service")
-        keywords: Comma-separated keywords to guide the research
+        topic: The main topic to research
+        keywords: Comma-separated keywords to help focus the research (optional)
+        
+    Returns:
+        A comprehensive analysis of the collected data
     """
-    # Parse keywords
-    keyword_list = None
-    if keywords:
-        keyword_list = [k.strip() for k in keywords.split(",")]
+    # Parse the keywords string into a list
+    keyword_list = [kw.strip() for kw in keywords.split(",")] if keywords else []
+    
+    # Get the last AI message to check for notification intent
+    last_message = get_last_ai_message()
     
     return PerceptionTools.collect_and_analyze(
         topic=topic,
-        keywords=keyword_list,
+        keywords=keyword_list if keyword_list else None,
         wait_for_completion=True,
-        timeout_seconds=120
+        timeout_seconds=90,  # Wait up to 90 seconds for completion
+        response_message=last_message
     ) 

@@ -128,9 +128,54 @@ When a data collection task is started:
 
 The data collection process is designed to be asynchronous, allowing the agent to perform other tasks while data is being collected.
 
+## Notification System
+
+The perception layer includes a notification system that can alert you when data collection tasks are completed. This is particularly useful for long-running tasks.
+
+### Discord Notifications
+
+To enable Discord notifications:
+
+1. Create a webhook in your Discord server (Server Settings → Integrations → Webhooks → New Webhook)
+2. Add the webhook URL to your `.env` file:
+   ```
+   DISCORD_WEBHOOK_URL=your_discord_webhook_url
+   ```
+3. Ensure `ENABLE_AUTO_NOTIFICATIONS=1` is set in your `.env` file (this is the default)
+
+### Automatic Notification Intent Detection
+
+The system includes automatic notification intent detection that works as follows:
+
+1. When an agent responds with phrases like "I'll notify you" or "I'll let you know", the system automatically detects this as notification intent
+2. If notification intent is detected, a Discord notification will be sent when the task completes (if a webhook URL is configured)
+3. No additional configuration is needed - the agent's message is automatically analyzed
+
+Example messages that trigger notification intent:
+- "I'll notify you when it's complete"
+- "I will let you know when the data is ready"
+- "You'll be notified once the task is finished"
+- "I'll ping you when it's done"
+
+### Manual Notification Configuration
+
+You can also manually configure notifications when calling the data collection tools:
+
+```python
+from apps.agents.shared.tools.cmo_tools import collect_new_data
+
+# With manual Discord notification
+result = collect_new_data(
+    topic="language barriers",
+    keywords="translation issues, communication problems",
+    discord_webhook="https://discord.com/api/webhooks/your-webhook-url"
+)
+```
+
 ## Configuration
 
 The perception layer can be configured by modifying the following files:
 
 - `apps/agents/shared/perception/data/rss_feeds.json` - RSS feed configuration
-- `apps/agents/shared/perception/data/reddit_config.json` - Reddit API configuration 
+- `apps/agents/shared/perception/data/reddit_config.json` - Reddit API configuration
+- `.env` - Environment variables including notification settings 
