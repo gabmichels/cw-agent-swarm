@@ -1,6 +1,7 @@
 from langchain.chat_models import ChatOpenAI
 from langchain.prompts import PromptTemplate
 from apps.agents.shared.tools.memory_loader import retrieve_similar_chats, retrieve_high_priority
+from apps.agents.shared.llm_router import get_llm, log_model_response
 from pathlib import Path
 import datetime
 
@@ -34,11 +35,15 @@ Use a personal and thoughtful tone.
 {important_insights}
 """)
 
-llm = ChatOpenAI(temperature=0.5, model="gpt-4-1106-preview")
+# Use the writing model for reflection tasks
+llm = get_llm("writing", temperature=0.5)
 chain = prompt | llm
 
 # Execute the chain and get Chloe's reflection
 reflection = chain.invoke({"task_log": task_log, "chat_summary": chat_summary, "important_insights": important_insights})
+
+# Log which model was used
+log_model_response(reflection)
 
 # Output reflection
 print(reflection.content)

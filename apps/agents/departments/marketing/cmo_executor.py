@@ -6,13 +6,17 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.messages import AIMessage, HumanMessage
 import os
 from dotenv import load_dotenv
+import datetime
+
+# Import our custom LLM router
+from apps.agents.shared.llm_router import get_llm, log_model_response
 
 # Load environment variables
 load_dotenv()
 
-# Check for OpenAI API key
-if not os.environ.get("OPENAI_API_KEY"):
-    raise ValueError("OPENAI_API_KEY environment variable is not set. Please set it in the .env file.")
+# Check for API keys
+if not os.environ.get("OPENAI_API_KEY") and not os.environ.get("OPENROUTER_API_KEY"):
+    raise ValueError("Neither OPENAI_API_KEY nor OPENROUTER_API_KEY environment variables are set. Please set one of them in the .env file.")
 
 # Define all available tools for the agent
 tools = [
@@ -49,10 +53,11 @@ tools = [
     cmo_tools.get_weekly_reflection,
 ]
 
-llm = ChatOpenAI(temperature=0.4, model="gpt-4-1106-preview")
+# Get the appropriate LLM for marketing tasks
+llm = get_llm("marketing", temperature=0.4)
 
 # Create a prompt template with enhanced capabilities
-prompt = ChatPromptTemplate.from_messages([
+prompt_template = ChatPromptTemplate.from_messages([
     ("system", """You are Chloe, the Chief Marketing Officer (CMO) of the company. Your personality, background, and communication style are defined in your background file, which you can access using the read_background tool. 
 
 Your manifesto (accessed with read_manifesto) provides your core marketing philosophy, while your goals (accessed with read_goals) outline specific objectives to achieve.
@@ -113,7 +118,7 @@ When reflecting:
 ])
 
 # Create the agent using OpenAI functions agent
-agent = create_openai_functions_agent(llm, tools, prompt)
+agent = create_openai_functions_agent(llm, tools, prompt_template)
 
 # Create the agent executor
 agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
@@ -121,48 +126,193 @@ agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
 # Store chat history
 chat_history = []
 
-def run_agent_loop(prompt: str) -> str:
-    global chat_history
+def run_agent_loop(prompt_str: str) -> str:
+    global chat_history, agent_executor, prompt_template
     
-    # Add user message to chat history
-    chat_history.append(HumanMessage(content=prompt))
-    
-    # Invoke agent with chat history
-    response = agent_executor.invoke({
-        "input": prompt,
-        "chat_history": chat_history
-    })
-    
-    # Add AI response to chat history
-    chat_history.append(AIMessage(content=response["output"]))
-    
-    # Store the interaction in episodic memory
     try:
-        from apps.agents.shared.memory.episodic_memory import store_memory
+        print("=== DEBUG: Starting agent loop ===")
+        print(f"User input: {prompt_str}")
         
-        # Detect any possible tags from the conversation
-        potential_tags = []
-        lower_prompt = prompt.lower()
+        # Detect task type based on message content
+        task_type = "default"
         
-        # Look for common marketing concepts in the conversation
-        marketing_concepts = [
-            "brand", "campaign", "content", "social", "twitter", "instagram", 
-            "facebook", "linkedin", "seo", "analytics", "audience", "strategy",
-            "newsletter", "email", "engagement", "conversion", "launch"
-        ]
+        # Simple keyword-based task detection
+        lower_prompt = prompt_str.lower()
+        if any(word in lower_prompt for word in ["marketing", "campaign", "brand", "audience", "promotion"]):
+            task_type = "marketing"
+        elif any(word in lower_prompt for word in ["write", "draft", "content", "blog", "article", "text"]):
+            task_type = "writing"
+        elif any(word in lower_prompt for word in ["finance", "budget", "cost", "revenue", "profit", "expense"]):
+            task_type = "finance"
+        elif any(word in lower_prompt for word in ["research", "investigate", "analyze", "study", "trends"]):
+            task_type = "research"
+        elif any(word in lower_prompt for word in ["tool", "function", "command", "run", "execute"]):
+            task_type = "tool_use"
         
-        for concept in marketing_concepts:
-            if concept in lower_prompt:
-                potential_tags.append(concept)
+        print(f"Selected task type: {task_type}")
         
-        # Store the memory with the user prompt as context and response as content
-        store_memory(
-            content=response["output"],
-            context=prompt,
-            tags=potential_tags
-        )
-    except Exception:
-        # If memory storage fails, just continue
-        pass
+        # Get appropriate LLM
+        try:
+            print(f"DEBUG: Attempting to get LLM for task type: {task_type}")
+            current_llm = get_llm(task_type, temperature=0.4)
+            print(f"Using model: {current_llm.model_name}")
+        except Exception as llm_error:
+            print(f"DEBUG ERROR: Could not initialize LLM: {str(llm_error)}")
+            raise llm_error
+        
+        try:
+            # Create a new agent with the appropriate LLM
+            print("DEBUG: Creating agent with LLM")
+            agent = create_openai_functions_agent(current_llm, tools, prompt_template)
+            print("DEBUG: Creating agent executor")
+            current_agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
+            
+            # Add user message to chat history
+            print("DEBUG: Adding user message to chat history")
+            chat_history.append(HumanMessage(content=prompt_str))
+            
+            # Invoke agent with chat history
+            print("DEBUG: Invoking agent executor")
+            response = current_agent_executor.invoke({
+                "input": prompt_str,
+                "chat_history": chat_history
+            })
+            print("DEBUG: Agent execution completed successfully")
+            
+            # Log which model was used
+            print("DEBUG: Logging model response")
+            log_model_response(response)
+            
+            # Get model info
+            try:
+                model_used = getattr(response, "model_name", getattr(response, "model", "unknown"))
+                print(f"DEBUG: Model used: {model_used}")
+            except AttributeError:
+                model_used = "unknown"
+                print("DEBUG: Could not get model information")
+            
+            # Add AI response to chat history with metadata
+            print("DEBUG: Adding AI response to chat history")
+            ai_message = AIMessage(content=response["output"])
+            ai_message.metadata = {
+                "task_type": task_type,
+                "model": model_used,
+                "timestamp": datetime.datetime.now().isoformat()
+            }
+            chat_history.append(ai_message)
+            
+            # Store the interaction in episodic memory
+            try:
+                print("DEBUG: Storing interaction in episodic memory")
+                from apps.agents.shared.memory.episodic_memory import store_memory
+                
+                # Detect any possible tags from the conversation
+                potential_tags = []
+                lower_prompt = prompt_str.lower()
+                
+                # Look for common marketing concepts in the conversation
+                marketing_concepts = [
+                    "brand", "campaign", "content", "social", "twitter", "instagram", 
+                    "facebook", "linkedin", "seo", "analytics", "audience", "strategy",
+                    "newsletter", "email", "engagement", "conversion", "launch"
+                ]
+                
+                for concept in marketing_concepts:
+                    if concept in lower_prompt:
+                        potential_tags.append(concept)
+                
+                # Store the memory with the user prompt as context and response as content
+                store_memory(
+                    content=response["output"],
+                    context=prompt_str,
+                    tags=potential_tags
+                )
+                print(f"DEBUG: Memory stored with tags: {potential_tags}")
+            except Exception as e:
+                print(f"DEBUG ERROR: Error storing memory: {str(e)}")
+                # If memory storage fails, just continue
+                pass
+            
+            print("DEBUG: Returning response")
+            return response["output"]
+            
+        except Exception as inner_e:
+            print(f"DEBUG ERROR: Error with agent execution: {str(inner_e)}")
+            
+            # Fallback to default model if there was an issue with specialized model
+            if task_type != "default":
+                print("DEBUG: Falling back to default model")
+                try:
+                    fallback_llm = get_llm("default", temperature=0.4)
+                    fallback_agent = create_openai_functions_agent(fallback_llm, tools, prompt_template)
+                    fallback_executor = AgentExecutor(agent=fallback_agent, tools=tools, verbose=True)
+                    fallback_response = fallback_executor.invoke({
+                        "input": prompt_str,
+                        "chat_history": chat_history
+                    })
+                    
+                    # Log which model was used
+                    print("DEBUG: Logging fallback model response")
+                    log_model_response(fallback_response)
+                    
+                    # Get model info
+                    try:
+                        fallback_model = getattr(fallback_response, "model_name", getattr(fallback_response, "model", "unknown"))
+                        print(f"DEBUG: Fallback model used: {fallback_model}")
+                    except AttributeError:
+                        fallback_model = "unknown"
+                        print("DEBUG: Could not get fallback model information")
+                    
+                    # Add AI response to chat history with metadata
+                    fallback_message = AIMessage(content=fallback_response["output"])
+                    fallback_message.metadata = {
+                        "task_type": "default (fallback)",
+                        "model": fallback_model,
+                        "timestamp": datetime.datetime.now().isoformat()
+                    }
+                    chat_history.append(fallback_message)
+                    
+                    print("DEBUG: Returning fallback response")
+                    return fallback_response["output"]
+                except Exception as fb_error:
+                    print(f"DEBUG ERROR: Fallback execution also failed: {str(fb_error)}")
+                    raise fb_error
+            else:
+                # If we're already using the default model and still failed, return error message
+                error_message = f"I apologize, but I encountered an error processing your request. Please try again with a different question."
+                print(f"DEBUG: Using default model failed, returning error message: {error_message}")
+                
+                # Add error message to chat history
+                error_ai_message = AIMessage(content=error_message)
+                error_ai_message.metadata = {
+                    "task_type": "error",
+                    "model": "none",
+                    "timestamp": datetime.datetime.now().isoformat(),
+                    "error": str(inner_e)
+                }
+                chat_history.append(error_ai_message)
+                
+                return error_message
     
-    return response["output"]
+    except Exception as outer_e:
+        print(f"DEBUG CRITICAL ERROR in run_agent_loop: {str(outer_e)}")
+        print("Stack trace:")
+        import traceback
+        traceback.print_exc()
+        
+        error_message = f"I apologize, but I encountered an unexpected error. Please try again later."
+        
+        # Add error message to chat history
+        try:
+            error_ai_message = AIMessage(content=error_message)
+            error_ai_message.metadata = {
+                "task_type": "critical_error",
+                "model": "none",
+                "timestamp": datetime.datetime.now().isoformat(),
+                "error": str(outer_e)
+            }
+            chat_history.append(error_ai_message)
+        except:
+            pass
+        
+        return error_message

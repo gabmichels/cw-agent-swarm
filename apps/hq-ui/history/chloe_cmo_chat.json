@@ -46,5 +46,64 @@
   {
     "role": "agent",
     "message": "My reflection on recent marketing activities for the week of April 14 to April 20, 2025, has been completed. If you need detailed insights or wish to discuss specific points from this reflection, please let me know, and I can provide the information."
+  },
+  {
+    "role": "user",
+    "message": "Chloe, can you write a twitter post that hypes up our users for the next coming weeks?",
+    "timestamp": "2025-04-19T16:33:37.004067"
+  },
+  {
+    "role": "agent",
+    "message": "I apologize, but I encountered an unexpected error. Please try again later.",
+    "metadata": {
+      "task_type": "critical_error",
+      "model": "none",
+      "timestamp": "2025-04-19T16:33:37.004018",
+      "error": "'ChatOpenAI' object has no attribute 'model'"
+    }
+  },
+  {
+    "role": "user",
+    "message": "Chloe, can you write a twitter post that hypes up our users for the next coming weeks?",
+    "timestamp": "2025-04-19T16:48:33.739628"
+  },
+  {
+    "role": "agent",
+    "message": "I apologize, but I encountered an unexpected error. Please try again later.",
+    "metadata": {
+      "task_type": "critical_error",
+      "model": "none",
+      "timestamp": "2025-04-19T16:48:33.739566",
+      "error": "'ChatOpenAI' object has no attribute 'model'"
+    }
+  },
+  {
+    "role": "user",
+    "message": "Chloe, can you write a twitter post that hypes up our users for the next coming weeks?",
+    "timestamp": "2025-04-19T17:21:39.302053"
+  },
+  {
+    "role": "agent",
+    "message": "I apologize, but I encountered an unexpected error. Please try again later.",
+    "metadata": {
+      "task_type": "critical_error",
+      "model": "none",
+      "timestamp": "2025-04-19T17:21:39.301934",
+      "error": "\"functions\" and \"function_call\" are deprecated in favor of \"tools\" and \"tool_choice.\" To learn how to use tools, visit: https://openrouter.ai/docs/requests#tool-calls"
+    }
+  },
+  {
+    "role": "user",
+    "message": "Chloe, can you write a twitter post that hypes up our users for the next coming weeks?",
+    "timestamp": "2025-04-19T17:28:59.586586"
+  },
+  {
+    "role": "agent",
+    "message": "Absolutely! Here\u2019s a draft for a hype-driven Twitter post:\n\nBig things are coming! \ud83d\ude80 Over the next few weeks, we\u2019re rolling out features, updates, and surprises designed just for you. Stay tuned, get excited, and let\u2019s make this our best season yet! #ComingSoon #StayTuned\n\nWould you like this tailored to a specific campaign, product, or audience segment?",
+    "metadata": {
+      "task_type": "writing",
+      "model": "unknown",
+      "timestamp": "2025-04-19T17:28:59.586162"
+    }
   }
 ]

@@ -1,6 +1,10 @@
 import streamlit as st
-from pathlib import Path
 import json
+import os
+from datetime import datetime, timedelta
+from langchain_openai import OpenAI
+import random
+from pathlib import Path
 
 from apps.agents.departments.marketing.cmo_executor import run_agent_loop
 from apps.agents.shared.tools.memory_loader import retrieve_similar_chats
@@ -43,6 +47,61 @@ st.markdown("""
         margin-bottom: 5px;
         border-bottom: 1px solid rgba(255, 255, 255, 0.3);
         padding-bottom: 5px;
+        display: flex;
+        justify-content: space-between;
+    }
+    
+    /* Badge styling */
+    .badge {
+        display: inline-block;
+        padding: 2px 6px;
+        font-size: 11px;
+        border-radius: 10px;
+        margin-left: 5px;
+        font-weight: normal;
+    }
+    
+    .badge-task {
+        background-color: #3498db;
+    }
+    
+    .badge-model {
+        background-color: #2ecc71;
+    }
+    
+    .badge-default {
+        background-color: #95a5a6;
+    }
+    
+    .badge-marketing {
+        background-color: #9b59b6;
+    }
+    
+    .badge-writing {
+        background-color: #f39c12;
+    }
+    
+    .badge-finance {
+        background-color: #1abc9c;
+    }
+    
+    .badge-research {
+        background-color: #e74c3c;
+    }
+    
+    .badge-tool {
+        background-color: #34495e;
+    }
+    
+    .badge-error {
+        background-color: #e74c3c;
+    }
+    
+    /* Timestamp styling */
+    .timestamp {
+        font-size: 11px;
+        opacity: 0.8;
+        font-weight: normal;
     }
     
     /* Add extra space at bottom to prevent content from being hidden */
@@ -131,9 +190,25 @@ if submitted and user_input.strip() != "":
     # Process the message
     agent_response = run_agent_loop(user_input)
     
-    # Update history
-    chat_history.append({"role": "user", "message": user_input})
-    chat_history.append({"role": "agent", "message": agent_response})
+    # Get last message from chat history (from the agent object)
+    from apps.agents.departments.marketing.cmo_executor import chat_history as agent_chat_history
+    
+    # Extract the last AI message metadata if available
+    metadata = {}
+    if agent_chat_history and len(agent_chat_history) > 0:
+        last_message = agent_chat_history[-1]
+        # Copy metadata if available
+        if hasattr(last_message, "metadata") and last_message.metadata:
+            metadata = last_message.metadata
+    
+    # Update history with timestamp for user message
+    from datetime import datetime
+    user_msg = {"role": "user", "message": user_input, "timestamp": datetime.now().isoformat()}
+    chat_history.append(user_msg)
+    
+    # Add agent response with metadata
+    agent_msg = {"role": "agent", "message": agent_response, "metadata": metadata}
+    chat_history.append(agent_msg)
     
     # Save to file
     with open(chat_file, "w", encoding="utf-8") as f:
@@ -242,20 +317,65 @@ with main_container:
     # === Chat UI ===
     st.markdown("## 💬 Conversation History")
     
+    def format_timestamp(timestamp_str):
+        """Format a ISO timestamp string to a readable format."""
+        if not timestamp_str:
+            return ""
+        try:
+            from datetime import datetime
+            dt = datetime.fromisoformat(timestamp_str)
+            return dt.strftime("%b %d, %I:%M %p")
+        except:
+            return ""
+
     # Chat messages in scrollable container
     st.markdown('<div class="chat-messages">', unsafe_allow_html=True)
     for msg in chat_history:
         if msg["role"] == "user":
             st.markdown(f'''
             <div class="user-bubble">
-                <div class="message-sender">🧠 You</div>
+                <div class="message-sender">
+                    <span>🧠 You</span>
+                    <span class="timestamp">{format_timestamp(msg.get("timestamp", ""))}</span>
+                </div>
                 {msg["message"]}
             </div>
             ''', unsafe_allow_html=True)
         else:
+            # Get metadata if available
+            metadata = msg.get("metadata", {})
+            task_type = metadata.get("task_type", "default")
+            model = metadata.get("model", "unknown")
+            timestamp = metadata.get("timestamp", "")
+            
+            # Set default display text for error cases
+            if task_type in ["error", "critical_error"]:
+                badge_color = "badge-error"
+                task_type_display = "Error"
+                model_display = "N/A"
+            else:
+                badge_color = f"badge-{task_type.split()[0]}"  # Handle "default (fallback)" case
+                task_type_display = task_type.replace("_", " ").title()
+                
+                # Format model to be more readable - extract just the model name without provider
+                if "/" in model:
+                    model_short = model.split("/")[-1]
+                else:
+                    model_short = model
+                    
+                # Format model to be more readable
+                model_display = model_short.replace("-", " ").replace("_", " ")
+            
             st.markdown(f'''
             <div class="agent-bubble">
-                <div class="message-sender">🤖 Chloe</div>
+                <div class="message-sender">
+                    <span>
+                        🤖 Chloe
+                        <span class="badge {badge_color}">{task_type_display}</span>
+                        <span class="badge badge-model">{model_display}</span>
+                    </span>
+                    <span class="timestamp">{format_timestamp(timestamp)}</span>
+                </div>
                 {msg["message"]}
             </div>
             ''', unsafe_allow_html=True)
