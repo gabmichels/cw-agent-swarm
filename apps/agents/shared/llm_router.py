@@ -1,7 +1,6 @@
 import os
 from typing import Dict, Optional, Any
 from langchain_openai import ChatOpenAI
-from apps.agents.shared.patched_chat_openai import PatchedChatOpenAI
 
 def get_model_for_task(task_type: str = "default") -> str:
     """
@@ -24,13 +23,13 @@ def get_model_for_task(task_type: str = "default") -> str:
     }
     return task_model_map.get(task_type, task_model_map["default"])
 
-def get_llm(task_type: str = "default", **kwargs) -> ChatOpenAI:
+def get_llm(task_type: str = "default", temperature: float = 0.4) -> ChatOpenAI:
     """
     Get a configured LLM instance for a specific task type.
     
     Args:
         task_type: The type of task being performed
-        **kwargs: Additional arguments to pass to the ChatOpenAI constructor
+        temperature: Temperature parameter for the LLM
     
     Returns:
         A configured ChatOpenAI instance
@@ -58,26 +57,17 @@ def get_llm(task_type: str = "default", **kwargs) -> ChatOpenAI:
         print(f"DEBUG LLM_ROUTER: Using OpenRouter with headers: {headers}")
         
         try:
-            # Create OpenRouter-specific LLM using PatchedChatOpenAI for tools compatibility
-            print("DEBUG LLM_ROUTER: Creating PatchedChatOpenAI with OpenRouter")
+            # Create OpenRouter-specific LLM
+            print("DEBUG LLM_ROUTER: Creating ChatOpenAI with OpenRouter")
             
-            # OpenRouter base params
-            openrouter_params = {
-                "model": model_name,
-                "temperature": 0.4,
-                "base_url": "https://openrouter.ai/api/v1",
-                "api_key": api_key,
-                "default_headers": headers
-            }
-            
-            # Add remaining custom kwargs
-            for key, value in kwargs.items():
-                openrouter_params[key] = value
-                print(f"DEBUG LLM_ROUTER: Adding custom param {key}")
-            
-            print(f"DEBUG LLM_ROUTER: OpenRouter params (excluding api_key): {', '.join([f'{k}={v}' for k, v in openrouter_params.items() if k != 'api_key'])}")
-            # Use PatchedChatOpenAI instead of ChatOpenAI
-            return PatchedChatOpenAI(**openrouter_params)
+            # Clean, minimal OpenRouter params
+            return ChatOpenAI(
+                model=model_name,
+                temperature=temperature,
+                base_url="https://openrouter.ai/api/v1",
+                api_key=api_key,
+                default_headers=headers
+            )
         except Exception as e:
             print(f"DEBUG LLM_ROUTER ERROR: OpenRouter initialization failed: {str(e)}")
             
@@ -96,26 +86,15 @@ def get_llm(task_type: str = "default", **kwargs) -> ChatOpenAI:
         raise ValueError("No OpenAI API key found. Set OPENAI_API_KEY in your environment.")
     
     # Create a clean config for direct OpenAI (no headers, no base_url)
-    openai_params = {
-        "model": "gpt-4o" if using_openrouter else model_name,  # Use gpt-4o as fallback model
-        "temperature": 0.4,
-        "api_key": api_key
-    }
+    fallback_model = "gpt-4o" if using_openrouter else model_name  # Use gpt-4o as fallback model
+    print(f"DEBUG LLM_ROUTER: Creating ChatOpenAI with direct OpenAI using model={fallback_model}")
     
-    # Add custom kwargs
-    for key, value in kwargs.items():
-        if key != "default_headers":  # Skip headers for direct OpenAI
-            openai_params[key] = value
-            print(f"DEBUG LLM_ROUTER: Adding custom param {key}")
-    
-    print(f"DEBUG LLM_ROUTER: OpenAI params (excluding api_key): {', '.join([f'{k}={v}' for k, v in openai_params.items() if k != 'api_key'])}")
-    
-    try:
-        print("DEBUG LLM_ROUTER: Creating ChatOpenAI with direct OpenAI")
-        return ChatOpenAI(**openai_params)
-    except Exception as e:
-        print(f"DEBUG LLM_ROUTER ERROR: OpenAI initialization failed: {str(e)}")
-        raise e
+    # Clean, minimal OpenAI params
+    return ChatOpenAI(
+        model=fallback_model,
+        temperature=temperature,
+        api_key=api_key
+    )
 
 def log_model_response(response: Any) -> None:
     """
@@ -125,9 +104,55 @@ def log_model_response(response: Any) -> None:
         response: The response from the model
     """
     try:
-        # Check for model_name first (newer attribute), then model (older attribute)
+        # Debug all response attributes
+        print(f"DEBUG Model Response Type: {type(response)}")
+        
+        # First check additional_kwargs for OpenRouter's response format
+        if hasattr(response, "additional_kwargs") and isinstance(response.additional_kwargs, dict):
+            # Debug
+            print(f"DEBUG Response additional_kwargs: {response.additional_kwargs}")
+            
+            # OpenRouter specific model field in metadata
+            if "model" in response.additional_kwargs:
+                print(f"Model used: {response.additional_kwargs['model']}")
+                return
+            
+            # Check nested metadata for model information
+            if "metadata" in response.additional_kwargs:
+                metadata = response.additional_kwargs["metadata"]
+                print(f"DEBUG Response metadata: {metadata}")
+                if isinstance(metadata, dict) and "model" in metadata:
+                    print(f"Model used: {metadata['model']}")
+                    return
+                
+        # Fall back to standard model_name or model attributes
         model_name = getattr(response, "model_name", 
-                      getattr(response, "model", "unknown"))
-        print(f"Model used: {model_name}")
-    except AttributeError:
-        print("Could not determine model used") 
+                    getattr(response, "model", None))
+        
+        if model_name:
+            print(f"Model used: {model_name}")
+        else:
+            # Try to find model in OpenRouter response format (direct attribute)
+            for attr_name in ["_model", "model_id", "model_name", "id"]:
+                if hasattr(response, attr_name):
+                    model = getattr(response, attr_name)
+                    if model:
+                        print(f"Model used: {model}")
+                        return
+            
+            # Last attempt - check all attributes
+            print("DEBUG Checking all response attributes:")
+            for attr in dir(response):
+                if not attr.startswith('_') and not callable(getattr(response, attr)):
+                    try:
+                        value = getattr(response, attr)
+                        if isinstance(value, dict) and "model" in value:
+                            print(f"Model found in {attr}: {value['model']}")
+                            return
+                    except:
+                        pass
+                        
+            print("Could not determine model used - no model information found in response")
+    except Exception as e:
+        print(f"Error determining model: {str(e)}")
+        print("Could not determine model used due to error") 

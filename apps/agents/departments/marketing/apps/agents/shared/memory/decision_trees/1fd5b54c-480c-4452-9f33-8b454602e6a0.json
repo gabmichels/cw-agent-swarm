@@ -1,0 +1,150 @@
+{
+  "id": "1fd5b54c-480c-4452-9f33-8b454602e6a0",
+  "name": "Content Creation Process",
+  "description": "Decision tree for the content creation workflow",
+  "root_node_id": "030a8689-43b3-4afb-8fe7-7a503b491971",
+  "nodes": {
+    "030a8689-43b3-4afb-8fe7-7a503b491971": {
+      "id": "030a8689-43b3-4afb-8fe7-7a503b491971",
+      "question": "What type of content are we creating?",
+      "condition": null,
+      "action": null,
+      "success_node": null,
+      "failure_node": null,
+      "options": [
+        {
+          "key": "blog",
+          "text": "Blog Post",
+          "target_node": "blog_topic"
+        },
+        {
+          "key": "social",
+          "text": "Social Media",
+          "target_node": "social_platform"
+        },
+        {
+          "key": "video",
+          "text": "Video",
+          "target_node": "video_purpose"
+        },
+        {
+          "key": "email",
+          "text": "Email",
+          "target_node": "email_audience"
+        }
+      ]
+    },
+    "blog_topic": {
+      "id": "blog_topic",
+      "question": "Do we have a clear topic and keyword strategy?",
+      "condition": null,
+      "action": null,
+      "success_node": "blog_outline",
+      "failure_node": "keyword_research",
+      "options": []
+    },
+    "keyword_research": {
+      "id": "keyword_research",
+      "question": null,
+      "condition": null,
+      "action": "Conduct keyword research and select target keywords",
+      "success_node": null,
+      "failure_node": null,
+      "options": []
+    },
+    "blog_outline": {
+      "id": "blog_outline",
+      "question": null,
+      "condition": null,
+      "action": "Create a detailed outline for the blog post",
+      "success_node": null,
+      "failure_node": null,
+      "options": []
+    },
+    "social_platform": {
+      "id": "social_platform",
+      "question": "Which platform is the content for?",
+      "condition": null,
+      "action": null,
+      "success_node": null,
+      "failure_node": null,
+      "options": [
+        {
+          "key": "instagram",
+          "text": "Instagram",
+          "target_node": "insta_type"
+        },
+        {
+          "key": "twitter",
+          "text": "Twitter",
+          "target_node": "twitter_content"
+        },
+        {
+          "key": "linkedin",
+          "text": "LinkedIn",
+          "target_node": "linkedin_content"
+        },
+        {
+          "key": "facebook",
+          "text": "Facebook",
+          "target_node": "fb_content"
+        }
+      ]
+    },
+    "insta_type": {
+      "id": "insta_type",
+      "question": null,
+      "condition": null,
+      "action": "Create Instagram-specific visual content with appropriate hashtags",
+      "success_node": null,
+      "failure_node": null,
+      "options": []
+    },
+    "twitter_content": {
+      "id": "twitter_content",
+      "question": null,
+      "condition": null,
+      "action": "Create concise Twitter content with relevant hashtags",
+      "success_node": null,
+      "failure_node": null,
+      "options": []
+    },
+    "linkedin_content": {
+      "id": "linkedin_content",
+      "question": null,
+      "condition": null,
+      "action": "Create professional LinkedIn content focused on industry insights",
+      "success_node": null,
+      "failure_node": null,
+      "options": []
+    },
+    "fb_content": {
+      "id": "fb_content",
+      "question": null,
+      "condition": null,
+      "action": "Create engaging Facebook content with strong call-to-action",
+      "success_node": null,
+      "failure_node": null,
+      "options": []
+    },
+    "video_purpose": {
+      "id": "video_purpose",
+      "question": null,
+      "condition": null,
+      "action": "Create a video script and production plan",
+      "success_node": null,
+      "failure_node": null,
+      "options": []
+    },
+    "email_audience": {
+      "id": "email_audience",
+      "question": null,
+      "condition": null,
+      "action": "Create an email marketing template with personalized content",
+      "success_node": null,
+      "failure_node": null,
+      "options": []
+    }
+  },
+  "execution_history": []
+}

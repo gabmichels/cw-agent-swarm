@@ -189,17 +189,26 @@ if submitted and user_input.strip() != "":
     
     # Process the message
     agent_response = run_agent_loop(user_input)
+    print(f"DEBUG APP: Agent response received: {agent_response[:100] if agent_response else 'EMPTY'}")
     
     # Get last message from chat history (from the agent object)
     from apps.agents.departments.marketing.cmo_executor import chat_history as agent_chat_history
+    print(f"DEBUG APP: Agent chat history length: {len(agent_chat_history) if agent_chat_history else 0}")
     
     # Extract the last AI message metadata if available
     metadata = {}
     if agent_chat_history and len(agent_chat_history) > 0:
         last_message = agent_chat_history[-1]
+        print(f"DEBUG APP: Last message type: {type(last_message)}")
+        print(f"DEBUG APP: Last message content: {getattr(last_message, 'content', 'No content')[:100]}")
         # Copy metadata if available
         if hasattr(last_message, "metadata") and last_message.metadata:
             metadata = last_message.metadata
+            print(f"DEBUG APP: Message metadata: {metadata}")
+        else:
+            print("DEBUG APP: No metadata in last message")
+    else:
+        print("DEBUG APP: No agent chat history available")
     
     # Update history with timestamp for user message
     from datetime import datetime
@@ -209,10 +218,12 @@ if submitted and user_input.strip() != "":
     # Add agent response with metadata
     agent_msg = {"role": "agent", "message": agent_response, "metadata": metadata}
     chat_history.append(agent_msg)
+    print(f"DEBUG APP: Added agent message to chat history: {agent_msg['message'][:100] if agent_msg['message'] else 'EMPTY'}")
     
     # Save to file
     with open(chat_file, "w", encoding="utf-8") as f:
         json.dump(chat_history, f, indent=2)
+    print(f"DEBUG APP: Saved chat history to {chat_file}")
     
     # Clear the loading message
     loading_message.empty()
@@ -363,8 +374,20 @@ with main_container:
                 else:
                     model_short = model
                     
-                # Format model to be more readable
-                model_display = model_short.replace("-", " ").replace("_", " ")
+                # Guard against "unknown" model - provide more specific fallback values
+                if model_short == "unknown":
+                    # Check if we can determine the task type from metadata
+                    if task_type == "marketing":
+                        model_display = "Gemini"
+                    elif task_type == "writing":
+                        model_display = "GPT-4.1"
+                    elif task_type == "research":
+                        model_display = "Auto"
+                    else:
+                        model_display = "GPT-4.1"  # Default fallback display name
+                else:    
+                    # Format model to be more readable
+                    model_display = model_short.replace("-", " ").replace("_", " ")
             
             st.markdown(f'''
             <div class="agent-bubble">

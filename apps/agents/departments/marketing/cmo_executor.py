@@ -1,4 +1,4 @@
-from langchain.agents import AgentExecutor, create_openai_functions_agent
+from langchain.agents import AgentExecutor, create_openai_tools_agent
 from langchain_core.tools import Tool
 from langchain_openai import ChatOpenAI
 from apps.agents.shared.tools import cmo_tools
@@ -7,6 +7,8 @@ from langchain_core.messages import AIMessage, HumanMessage
 import os
 from dotenv import load_dotenv
 import datetime
+import logging
+from pathlib import Path
 
 # Import our custom LLM router
 from apps.agents.shared.llm_router import get_llm, log_model_response
@@ -117,8 +119,8 @@ When reflecting:
     MessagesPlaceholder(variable_name="agent_scratchpad"),
 ])
 
-# Create the agent using OpenAI functions agent
-agent = create_openai_functions_agent(llm, tools, prompt_template)
+# Create the agent using OpenAI tools agent (instead of functions agent)
+agent = create_openai_tools_agent(llm, tools, prompt_template)
 
 # Create the agent executor
 agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
@@ -126,12 +128,32 @@ agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
 # Store chat history
 chat_history = []
 
+# Setup logging at the beginning of the file, after other imports
+# Create logs directory if it doesn't exist
+logs_dir = Path("./logs")
+logs_dir.mkdir(exist_ok=True)
+timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+log_file = logs_dir / f"cmo_debug_{timestamp}.log"
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(log_file),
+        logging.StreamHandler()  # Still output to console too
+    ]
+)
+
+# Add a startup log message
+logging.debug(f"=== CMO Executor starting up at {datetime.datetime.now().isoformat()} ===")
+
 def run_agent_loop(prompt_str: str) -> str:
     global chat_history, agent_executor, prompt_template
     
     try:
         print("=== DEBUG: Starting agent loop ===")
-        print(f"User input: {prompt_str}")
+        logging.info(f"User input: {prompt_str}")
         
         # Detect task type based on message content
         task_type = "default"
@@ -149,21 +171,32 @@ def run_agent_loop(prompt_str: str) -> str:
         elif any(word in lower_prompt for word in ["tool", "function", "command", "run", "execute"]):
             task_type = "tool_use"
         
-        print(f"Selected task type: {task_type}")
+        logging.info(f"Selected task type: {task_type}")
+        
+        # DEBUGGING TASK TYPES: If it's not "default", log the type and double-check
+        if task_type != "default":
+            logging.info(f"IMPORTANT: Using specialized task type: {task_type}")
         
         # Get appropriate LLM
         try:
-            print(f"DEBUG: Attempting to get LLM for task type: {task_type}")
+            logging.info(f"DEBUG: Attempting to get LLM for task type: {task_type}")
             current_llm = get_llm(task_type, temperature=0.4)
-            print(f"Using model: {current_llm.model_name}")
+            # Store the model name from the request
+            model_used = current_llm.model_name
+            logging.info(f"Using model: {model_used}")
+            
+            # DEBUGGING MODEL: Log the model class and key attributes
+            logging.info(f"Model class: {current_llm.__class__.__name__}")
+            logging.info(f"Model details: {dir(current_llm)[:10]}...")
+            
         except Exception as llm_error:
-            print(f"DEBUG ERROR: Could not initialize LLM: {str(llm_error)}")
+            logging.error(f"DEBUG ERROR: Could not initialize LLM: {str(llm_error)}")
             raise llm_error
         
         try:
             # Create a new agent with the appropriate LLM
             print("DEBUG: Creating agent with LLM")
-            agent = create_openai_functions_agent(current_llm, tools, prompt_template)
+            agent = create_openai_tools_agent(current_llm, tools, prompt_template)
             print("DEBUG: Creating agent executor")
             current_agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
             
@@ -179,21 +212,58 @@ def run_agent_loop(prompt_str: str) -> str:
             })
             print("DEBUG: Agent execution completed successfully")
             
-            # Log which model was used
-            print("DEBUG: Logging model response")
-            log_model_response(response)
+            # Extract response based on format - prioritize OpenRouter format
+            # First check for OpenRouter/OpenAI direct API format (most likely with OpenRouter)
+            if isinstance(response, dict) and "choices" in response and len(response["choices"]) > 0:
+                try:
+                    choices = response["choices"]
+                    if isinstance(choices[0], dict) and "message" in choices[0]:
+                        message = choices[0]["message"]
+                        if isinstance(message, dict) and "content" in message:
+                            final_output = message["content"]
+                            logging.info(f"DEBUG: Extracted from choices[0].message.content: {final_output[:50]}...")
+                        else:
+                            final_output = str(message)
+                            logging.info(f"DEBUG: Extracted message from choices but no content, using string conversion: {final_output[:50]}...")
+                    else:
+                        final_output = str(choices[0])
+                        logging.info(f"DEBUG: Extracted first choice but no message structure, using string conversion: {final_output[:50]}...")
+                except (KeyError, TypeError, IndexError) as e:
+                    logging.info(f"DEBUG: Error extracting from choices: {str(e)}")
+                    final_output = str(response)
+                    logging.info(f"DEBUG: Failed to extract from choices, using string conversion: {final_output[:50]}...")
+            # LangChain-specific AIMessage objects (most common response format)
+            elif hasattr(response, "content"):
+                final_output = response.content
+                logging.info(f"DEBUG: Extracted from direct content attribute: {final_output[:50]}...")
+            # AgentExecutor response format
+            elif isinstance(response, dict) and "output" in response:
+                final_output = response["output"]
+                logging.info(f"DEBUG: Extracted from 'output' key: {final_output[:50]}...")
+            # Fallback to string representation
+            else:
+                final_output = str(response)
+                logging.info(f"DEBUG: Using string conversion as fallback: {final_output[:50]}...")
             
-            # Get model info
-            try:
-                model_used = getattr(response, "model_name", getattr(response, "model", "unknown"))
-                print(f"DEBUG: Model used: {model_used}")
-            except AttributeError:
-                model_used = "unknown"
-                print("DEBUG: Could not get model information")
+            # DEBUGGING RESPONSE: Log detailed response structure
+            logging.info(f"DEBUG: Response type: {type(response)}")
+            if isinstance(response, dict):
+                logging.info(f"DEBUG: Response keys: {list(response.keys())}")
             
-            # Add AI response to chat history with metadata
-            print("DEBUG: Adding AI response to chat history")
-            ai_message = AIMessage(content=response["output"])
+            # DEBUGGING RESPONSE: Add more detailed response inspection
+            if final_output.startswith("I apologize"):
+                logging.warning(f"ERROR RESPONSE DETECTED! Response type: {type(response)}")
+                if isinstance(response, dict):
+                    for key, value in response.items():
+                        logging.warning(f"Response key '{key}': {str(value)[:100]}")
+            
+            # Guard against empty responses
+            if not final_output or final_output.strip() == "":
+                final_output = "I apologize, but I encountered an issue processing your request. Please try again."
+                logging.info("DEBUG: Empty response detected, using fallback message")
+            
+            # Add to chat history and return
+            ai_message = AIMessage(content=final_output)
             ai_message.metadata = {
                 "task_type": task_type,
                 "model": model_used,
@@ -205,6 +275,13 @@ def run_agent_loop(prompt_str: str) -> str:
             try:
                 print("DEBUG: Storing interaction in episodic memory")
                 from apps.agents.shared.memory.episodic_memory import store_memory
+                
+                # Guard against errors in memory storage
+                if not isinstance(final_output, str):
+                    logging.info(f"DEBUG WARNING: final_output is not a string but {type(final_output)}")
+                    memory_content = str(final_output)
+                else:
+                    memory_content = final_output
                 
                 # Detect any possible tags from the conversation
                 potential_tags = []
@@ -223,28 +300,34 @@ def run_agent_loop(prompt_str: str) -> str:
                 
                 # Store the memory with the user prompt as context and response as content
                 store_memory(
-                    content=response["output"],
+                    content=memory_content,  # Use potentially fixed value
                     context=prompt_str,
                     tags=potential_tags
                 )
-                print(f"DEBUG: Memory stored with tags: {potential_tags}")
+                logging.info(f"DEBUG: Memory stored with tags: {potential_tags}")
             except Exception as e:
-                print(f"DEBUG ERROR: Error storing memory: {str(e)}")
-                # If memory storage fails, just continue
+                logging.info(f"DEBUG ERROR: Error storing memory: {str(e)}")
+                import traceback
+                traceback.print_exc()
+                # If memory storage fails, just continue processing
                 pass
             
             print("DEBUG: Returning response")
-            return response["output"]
+            return final_output  # Return the extracted final_output value
             
         except Exception as inner_e:
-            print(f"DEBUG ERROR: Error with agent execution: {str(inner_e)}")
+            logging.info(f"DEBUG ERROR: Error with agent execution: {str(inner_e)}")
             
             # Fallback to default model if there was an issue with specialized model
             if task_type != "default":
                 print("DEBUG: Falling back to default model")
                 try:
                     fallback_llm = get_llm("default", temperature=0.4)
-                    fallback_agent = create_openai_functions_agent(fallback_llm, tools, prompt_template)
+                    # Get the model name directly from the LLM object
+                    fallback_model = fallback_llm.model_name
+                    logging.info(f"DEBUG: Using fallback model: {fallback_model}")
+                    
+                    fallback_agent = create_openai_tools_agent(fallback_llm, tools, prompt_template)
                     fallback_executor = AgentExecutor(agent=fallback_agent, tools=tools, verbose=True)
                     fallback_response = fallback_executor.invoke({
                         "input": prompt_str,
@@ -255,38 +338,80 @@ def run_agent_loop(prompt_str: str) -> str:
                     print("DEBUG: Logging fallback model response")
                     log_model_response(fallback_response)
                     
-                    # Get model info
-                    try:
-                        fallback_model = getattr(fallback_response, "model_name", getattr(fallback_response, "model", "unknown"))
-                        print(f"DEBUG: Fallback model used: {fallback_model}")
-                    except AttributeError:
-                        fallback_model = "unknown"
-                        print("DEBUG: Could not get fallback model information")
+                    # Parse fallback response
+                    if isinstance(fallback_response, dict):
+                        # First check for OpenRouter/OpenAI response format (most likely with OpenRouter)
+                        if "choices" in fallback_response and len(fallback_response["choices"]) > 0:
+                            try:
+                                choices = fallback_response["choices"]
+                                if isinstance(choices[0], dict) and "message" in choices[0]:
+                                    message = choices[0]["message"]
+                                    if isinstance(message, dict) and "content" in message:
+                                        fallback_output = message["content"]
+                                        logging.info(f"DEBUG: Fallback found in choices[0].message.content: {fallback_output[:50]}...")
+                                    else:
+                                        fallback_output = str(message)
+                                        logging.info(f"DEBUG: Fallback message has no content, using string conversion: {fallback_output[:50]}...")
+                                else:
+                                    fallback_output = str(choices[0])
+                                    logging.info(f"DEBUG: Fallback choice has no message, using string conversion: {fallback_output[:50]}...")
+                            except (KeyError, TypeError, IndexError) as e:
+                                logging.info(f"DEBUG: Error extracting from fallback choices: {str(e)}")
+                                fallback_output = str(fallback_response)
+                        # Try standard output key
+                        elif "output" in fallback_response:
+                            fallback_output = fallback_response["output"]
+                            logging.info(f"DEBUG: Fallback found in output key: {fallback_output[:50]}...")
+                        else:
+                            # Try other common keys
+                            fallback_output = None
+                            for key in ["result", "content", "message", "response", "text"]:
+                                if key in fallback_response and fallback_response[key]:
+                                    fallback_output = fallback_response[key]
+                                    logging.info(f"DEBUG: Fallback found in {key} key: {fallback_output[:50]}...")
+                                    break
+                            
+                            # If still no output found, convert to string
+                            if not fallback_output:
+                                fallback_output = str(fallback_response)
+                                logging.info(f"DEBUG: No recognizable keys in fallback, using string conversion: {fallback_output[:50]}...")
+                    elif hasattr(fallback_response, "content"):
+                        fallback_output = fallback_response.content
+                        logging.info(f"DEBUG: Fallback found in content attribute: {fallback_output[:50]}...")
+                    else:
+                        fallback_output = str(fallback_response)
+                        logging.info(f"DEBUG: Fallback using string conversion: {fallback_output[:50]}...")
+                    
+                    # Guard against empty responses
+                    if not fallback_output or fallback_output.strip() == "":
+                        fallback_output = "I apologize, but I encountered an issue processing your request. Please try again."
+                    
+                    logging.info(f"DEBUG: Fallback output: {fallback_output[:50]}...")
                     
                     # Add AI response to chat history with metadata
-                    fallback_message = AIMessage(content=fallback_response["output"])
+                    fallback_message = AIMessage(content=fallback_output)
                     fallback_message.metadata = {
                         "task_type": "default (fallback)",
-                        "model": fallback_model,
+                        "model": fallback_model,  # Use the model name from the LLM object
                         "timestamp": datetime.datetime.now().isoformat()
                     }
                     chat_history.append(fallback_message)
                     
                     print("DEBUG: Returning fallback response")
-                    return fallback_response["output"]
+                    return fallback_output
                 except Exception as fb_error:
-                    print(f"DEBUG ERROR: Fallback execution also failed: {str(fb_error)}")
+                    logging.info(f"DEBUG ERROR: Fallback execution also failed: {str(fb_error)}")
                     raise fb_error
             else:
                 # If we're already using the default model and still failed, return error message
                 error_message = f"I apologize, but I encountered an error processing your request. Please try again with a different question."
-                print(f"DEBUG: Using default model failed, returning error message: {error_message}")
+                logging.info(f"DEBUG: Using default model failed, returning error message: {error_message}")
                 
                 # Add error message to chat history
                 error_ai_message = AIMessage(content=error_message)
                 error_ai_message.metadata = {
                     "task_type": "error",
-                    "model": "none",
+                    "model": model_used if 'model_used' in locals() else "none",
                     "timestamp": datetime.datetime.now().isoformat(),
                     "error": str(inner_e)
                 }
@@ -295,7 +420,7 @@ def run_agent_loop(prompt_str: str) -> str:
                 return error_message
     
     except Exception as outer_e:
-        print(f"DEBUG CRITICAL ERROR in run_agent_loop: {str(outer_e)}")
+        logging.info(f"DEBUG CRITICAL ERROR in run_agent_loop: {str(outer_e)}")
         print("Stack trace:")
         import traceback
         traceback.print_exc()
@@ -307,7 +432,7 @@ def run_agent_loop(prompt_str: str) -> str:
             error_ai_message = AIMessage(content=error_message)
             error_ai_message.metadata = {
                 "task_type": "critical_error",
-                "model": "none",
+                "model": model_used if 'model_used' in locals() else "none",
                 "timestamp": datetime.datetime.now().isoformat(),
                 "error": str(outer_e)
             }
