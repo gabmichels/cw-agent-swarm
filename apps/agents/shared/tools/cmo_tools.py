@@ -2,10 +2,28 @@ from langchain_core.tools import tool
 from pathlib import Path
 import datetime
 import os
+import json
 
 # Get the absolute path to the memory directory
 script_dir = Path(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 BASE_PATH = script_dir / "memory"
+
+# Import the new task planning and decision making modules
+from apps.agents.shared.tools.task_planner import (
+    create_task, decompose_goal, update_task_status, 
+    get_next_tasks, get_task_details, get_all_active_tasks,
+    get_blocked_task_details, add_task_dependency,
+    STATUS_PENDING, STATUS_IN_PROGRESS, STATUS_COMPLETED, STATUS_BLOCKED
+)
+
+from apps.agents.shared.tools.task_scheduler import (
+    auto_schedule_tasks, get_todays_schedule, get_current_task
+)
+
+from apps.agents.shared.tools.decision_tree import (
+    list_decision_trees, load_decision_tree, create_marketing_initiative_tree,
+    create_content_creation_tree
+)
 
 @tool
 def read_background(_: str = "") -> str:
@@ -99,4 +117,252 @@ def mark_important_insight(text: str, source: str = "unspecified", insight_type:
         A confirmation message that the insight was stored.
     """
     from apps.agents.shared.tools.memory_loader import mark_important_insight as save_insight
-    return save_insight(text, source, insight_type) 
+    return save_insight(text, source, insight_type)
+
+# == New Task Planning and Execution Tools ==
+
+@tool
+def create_new_task(title: str, description: str, priority: str = "medium", deadline: str = None):
+    """
+    Create a new task to be tracked and executed.
+    
+    Args:
+        title: Short descriptive title of the task
+        description: Detailed description of what needs to be done
+        priority: Task priority (high, medium, low)
+        deadline: Optional deadline in YYYY-MM-DD format
+    """
+    try:
+        task = create_task(title, description, priority, deadline)
+        return f"Task created with ID: {task['id']} - {title} (Priority: {priority})"
+    except Exception as e:
+        return f"Error creating task: {str(e)}"
+
+@tool
+def break_down_goal(goal_title: str, goal_description: str, subtasks_json: str):
+    """
+    Break down a high-level goal into actionable subtasks.
+    
+    Args:
+        goal_title: Title of the main goal
+        goal_description: Description of the main goal
+        subtasks_json: JSON string of subtasks, format: [{"title": "Subtask 1", "description": "Description", "priority": "high/medium/low", "deadline": "YYYY-MM-DD"}]
+    """
+    try:
+        subtasks = json.loads(subtasks_json)
+        goal_id = decompose_goal(goal_title, goal_description, subtasks)
+        return f"Goal decomposed into {len(subtasks)} subtasks with parent goal ID: {goal_id}"
+    except Exception as e:
+        return f"Error breaking down goal: {str(e)}"
+
+@tool
+def update_task(task_id: str, new_status: str, notes: str = None):
+    """
+    Update the status of a task.
+    
+    Args:
+        task_id: ID of the task to update
+        new_status: New status (pending, in_progress, completed, blocked)
+        notes: Optional notes about the status update
+    """
+    try:
+        status_map = {
+            "pending": STATUS_PENDING,
+            "in progress": STATUS_IN_PROGRESS,
+            "completed": STATUS_COMPLETED,
+            "blocked": STATUS_BLOCKED
+        }
+        
+        status_code = status_map.get(new_status.lower(), STATUS_PENDING)
+        success = update_task_status(task_id, status_code, notes)
+        
+        if success:
+            return f"Task {task_id} updated to status: {new_status}"
+        else:
+            return f"Task {task_id} not found"
+    except Exception as e:
+        return f"Error updating task: {str(e)}"
+
+@tool
+def get_priority_tasks(limit: int = 3):
+    """
+    Get the highest priority tasks to work on next.
+    
+    Args:
+        limit: Maximum number of tasks to return
+    """
+    try:
+        tasks = get_next_tasks(limit)
+        if not tasks:
+            return "No pending tasks found."
+        
+        result = "Priority tasks to work on:\n\n"
+        for i, task in enumerate(tasks):
+            result += f"{i+1}. {task['title']} (ID: {task['id']})\n"
+            result += f"   Priority: {task['priority']}, Status: {task['status']}\n"
+            result += f"   Description: {task['description'][:100]}...\n\n"
+        
+        return result
+    except Exception as e:
+        return f"Error retrieving priority tasks: {str(e)}"
+
+@tool
+def get_detailed_task_info(task_id: str):
+    """
+    Get detailed information about a specific task.
+    
+    Args:
+        task_id: ID of the task
+    """
+    try:
+        task = get_task_details(task_id)
+        if not task:
+            return f"Task {task_id} not found."
+        
+        result = f"Task: {task['title']} (ID: {task['id']})\n"
+        result += f"Status: {task['status']}\n"
+        result += f"Priority: {task['priority']}\n"
+        if task.get('deadline'):
+            result += f"Deadline: {task['deadline']}\n"
+        result += f"Created: {task['created_at']}\n"
+        result += f"Last updated: {task['updated_at']}\n\n"
+        result += f"Description: {task['description']}\n\n"
+        
+        if task['notes']:
+            result += "Notes:\n"
+            for note in task['notes']:
+                result += f"- {note['timestamp']}: {note['content']}\n"
+        
+        if task['subtasks']:
+            result += "\nSubtasks:\n"
+            for subtask_id in task['subtasks']:
+                subtask = get_task_details(subtask_id)
+                if subtask:
+                    result += f"- {subtask['title']} (Status: {subtask['status']})\n"
+        
+        return result
+    except Exception as e:
+        return f"Error retrieving task details: {str(e)}"
+
+@tool
+def schedule_tasks_automatically(days_ahead: int = 3):
+    """
+    Automatically schedule pending tasks based on priority and deadlines.
+    
+    Args:
+        days_ahead: Number of days to schedule ahead
+    """
+    try:
+        result = auto_schedule_tasks(days_ahead)
+        return f"Scheduled {result['scheduled_tasks']} out of {result['total_pending_tasks']} pending tasks across {result['total_blocks']} time blocks."
+    except Exception as e:
+        return f"Error scheduling tasks: {str(e)}"
+
+@tool
+def view_todays_schedule():
+    """View the schedule for today with all planned tasks."""
+    try:
+        schedule = get_todays_schedule()
+        if not schedule:
+            return "No tasks scheduled for today."
+        
+        result = "Today's schedule:\n\n"
+        for block in schedule:
+            result += f"{block['start_time']} - {block['end_time']}: "
+            result += f"{block['task_title']}"
+            if 'task_status' in block:
+                result += f" ({block['task_status']})"
+            result += "\n"
+        
+        return result
+    except Exception as e:
+        return f"Error retrieving today's schedule: {str(e)}"
+
+@tool
+def get_current_scheduled_task():
+    """Get information about the task scheduled for the current time."""
+    try:
+        task = get_current_task()
+        if not task:
+            return "No task scheduled for the current time."
+        
+        result = f"Current task: {task['title']} (ID: {task['id']})\n"
+        result += f"Status: {task['status']}\n"
+        result += f"Priority: {task['priority']}\n"
+        result += f"Scheduled time: {task['time_block']['start']} - {task['time_block']['end']}\n\n"
+        result += f"Description: {task['description']}\n"
+        
+        return result
+    except Exception as e:
+        return f"Error retrieving current task: {str(e)}"
+
+@tool
+def execute_decision_tree(tree_name: str, context_json: str = "{}"):
+    """
+    Execute a decision tree to make an autonomous decision.
+    
+    Args:
+        tree_name: Name or ID of the decision tree to execute
+        context_json: JSON string of context information for decision making
+    """
+    try:
+        # Find the decision tree by name or ID
+        trees = list_decision_trees()
+        target_tree = None
+        
+        for tree in trees:
+            if tree_name.lower() in tree['name'].lower() or tree_name == tree['id']:
+                target_tree = load_decision_tree(tree['id'])
+                break
+        
+        if not target_tree:
+            return f"Decision tree '{tree_name}' not found."
+        
+        # Parse context
+        context = json.loads(context_json)
+        
+        # Execute the tree
+        result = target_tree.execute(context)
+        
+        if 'error' in result:
+            return f"Error executing decision tree: {result['error']}"
+        
+        # Format the execution path
+        path_info = "Decision path:\n"
+        for step in result['path']:
+            if step['question']:
+                path_info += f"- Question: {step['question']}\n"
+            if step['action']:
+                path_info += f"- Action: {step['action']}\n"
+        
+        final_result = f"Executed decision tree: {target_tree.name}\n\n"
+        final_result += path_info + "\n"
+        
+        if result['final_action']:
+            final_result += f"Final decision: {result['final_action']}"
+        else:
+            final_result += "No final action determined."
+        
+        # Save the updated tree with execution history
+        save_decision_tree(target_tree)
+        
+        return final_result
+    except Exception as e:
+        return f"Error executing decision tree: {str(e)}"
+
+@tool
+def list_available_decision_trees():
+    """List all available decision trees that can be used for autonomous decision making."""
+    try:
+        trees = list_decision_trees()
+        if not trees:
+            return "No decision trees available."
+        
+        result = "Available decision trees:\n\n"
+        for i, tree in enumerate(trees):
+            result += f"{i+1}. {tree['name']} (ID: {tree['id']})\n"
+            result += f"   Description: {tree['description']}\n\n"
+        
+        return result
+    except Exception as e:
+        return f"Error listing decision trees: {str(e)}" 
