@@ -1,28 +1,59 @@
-# Chloe AI Test Suite
+# Project Tests
 
-This directory contains test files for the Chloe AI system, organized by functionality.
+This directory contains tests for various aspects of the project.
 
-## Test Organization
+## Directory Structure
 
-- `llm/`: Tests for the LLM router and OpenRouter integration
-- `memory/`: Tests for the memory system
-- `db/`: Tests for database integrations (Chroma, etc.)
-- `general/`: General utility tests
+```
+tests/
+├── debug/           # Debug and troubleshooting utilities
+│   ├── test_file_output.py
+│   ├── test_response.py
+│   ├── test_quick.py
+│   └── troubleshoot_chloe.py
+├── models/          # Tests for model integrations
+│   ├── test_basic.py
+│   ├── test_perception.py
+│   ├── test_chat_history.py
+│   ├── test_response_fix.py
+│   └── test_badge_fix.py
+├── openrouter/      # Tests for OpenRouter API integration
+│   ├── test_basic.py
+│   ├── test_fixed.py
+│   └── test_local.py
+└── README.md        # This file
+```
 
 ## Running Tests
 
-Most test files are self-contained and can be run directly with Python:
+Individual test files can be run directly:
 
 ```bash
-# Activate the virtual environment first
-.\venv\Scripts\activate.ps1
-
-# Run a specific test
-python tests/llm/test_openrouter_fixed.py
-
-# Run test_router.py for LLM routing 
-python tests/llm/test_router.py
+# Run a specific test file
+python tests/models/test_basic.py
 ```
+
+## Test Categories
+
+### Models Tests
+
+Tests for the model integrations and API interactions.
+
+### Debug Tests
+
+Debugging and troubleshooting utilities for working with the system.
+
+### OpenRouter Tests
+
+Tests specifically for the OpenRouter API integration.
+
+## Adding New Tests
+
+When adding new tests:
+
+1. Place the test in the appropriate subdirectory
+2. Add a `main()` function if needed for standalone execution
+3. Follow the naming convention: `test_<what_is_being_tested>.py`
 
 ## Environment Setup
 

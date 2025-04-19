@@ -1,83 +1,71 @@
 """
-Simple test for the data collection functionality.
-This test directly uses the data_collector module to collect and report data.
+Test script to demonstrate automatic notification detection in the Perception Tools.
+This script simulates a conversation with Chloe where she promises to notify the user.
 """
+
 import os
 import sys
 import time
 from pathlib import Path
 
-# Add the project root to the path
-ROOT_DIR = Path(__file__).parent.parent.parent
-sys.path.append(str(ROOT_DIR))
-print(f"Added {ROOT_DIR} to path")
+# Add the parent directory to sys.path
+current_dir = Path(__file__).parent
+parent_dir = current_dir.parent
+sys.path.append(str(parent_dir))
 
-try:
-    print("\nImporting data_collector module...")
-    from apps.agents.shared.perception.data_collector import (
-        collect_data, 
-        get_task_status, 
-        generate_report_from_task
-    )
-    print("✅ Successfully imported data_collector")
+from shared.tools.perception_tools import PerceptionTools
+from shared.config import DEFAULT_DISCORD_WEBHOOK, ENABLE_AUTO_NOTIFICATIONS
+
+def test_simple_collection():
+    """Test the simple data collection functionality"""
+    print("Starting simple data collection test...")
     
     # Test topic
     topic = "language challenges"
-    keywords = ["language barrier", "translation problems"]
+    keywords = ["language barrier", "translation problems", "communication difficulty"]
     
-    print(f"\n🔍 Starting data collection for topic: {topic}")
-    print(f"📋 Keywords: {', '.join(keywords)}")
+    print(f"Collecting data on topic: {topic}")
+    print(f"Using keywords: {keywords}")
     
-    # Step 1: Start data collection
-    try:
-        task_id = collect_data(
-            topic=topic,
-            keywords=keywords,
-            sources=["rss", "reddit"]
-        )
+    # Check if we have a default webhook configured
+    if DEFAULT_DISCORD_WEBHOOK:
+        print(f"Default Discord webhook is configured: {DEFAULT_DISCORD_WEBHOOK[:20]}...")
+        print(f"Auto notifications enabled: {ENABLE_AUTO_NOTIFICATIONS}")
+    else:
+        print("No default Discord webhook configured")
+    
+    # Test with notification intent in message
+    response_message = "I'll notify you when I've collected all the data on language challenges."
+    
+    # Trigger data collection with the response message
+    task_id, message = PerceptionTools.trigger_data_collection(
+        topic=topic,
+        keywords=keywords,
+        response_message=response_message
+    )
+    
+    print(f"Task started with ID: {task_id}")
+    print(f"Response: {message}")
+    
+    # Wait for collection to complete
+    print("Waiting for collection to complete...")
+    max_wait = 30  # Max wait in seconds
+    start_time = time.time()
+    
+    while time.time() - start_time < max_wait:
+        status = PerceptionTools.check_collection_status(task_id)
+        print(f"Status: {status}")
         
-        print(f"✅ Started data collection with task ID: {task_id}")
-        
-        # Step 2: Check status a few times
-        for i in range(1, 7):  # Check status for up to 30 seconds
-            print(f"\nChecking status (attempt {i})...")
-            status_data = get_task_status(task_id)
+        if "completed" in status.lower():
+            # Get the report
+            report = PerceptionTools.get_collection_report(task_id)
+            print("\nCollection Report:")
+            print(report)
+            break
             
-            if status_data:
-                status = status_data.get("status", "unknown")
-                print(f"Current status: {status}")
-                
-                if status == "completed":
-                    print("Data collection completed!")
-                    break
-                elif status == "failed":
-                    error = status_data.get("summary", "Unknown error")
-                    print(f"Data collection failed: {error}")
-                    break
-            else:
-                print("Could not retrieve status")
-            
-            print("Waiting 5 seconds...")
-            time.sleep(5)
-        
-        # Step 3: Get and display the report
-        print("\nGenerating report...")
-        report = generate_report_from_task(task_id)
-        print("\n📊 REPORT:")
-        print("-" * 50)
-        print(report)
-        
-    except Exception as e:
-        print(f"❌ Error during data collection: {str(e)}")
-        import traceback
-        traceback.print_exc()
-    
-except Exception as e:
-    print(f"❌ Import error: {str(e)}")
-    import traceback
-    traceback.print_exc()
-
-print("\nTest complete.")
+        time.sleep(5)  # Check every 5 seconds
+    else:
+        print("Collection did not complete within the timeout period")
 
 if __name__ == "__main__":
-    print("Running as main module") 
+    test_simple_collection() 
