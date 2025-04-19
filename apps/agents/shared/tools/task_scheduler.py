@@ -294,3 +294,4 @@ def reschedule_task(task_id, date_str, start_hour, start_minute):
         return True
     
     return False 
+ 

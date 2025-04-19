@@ -187,3 +187,4 @@ def log_to_context(
     """
     context_file = MEMORY_DIR / f"chat_history_{context_name}.jsonl"
     return log_chat(role, content, tags, file_path=context_file) 
+ 

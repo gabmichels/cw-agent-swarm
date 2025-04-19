@@ -199,3 +199,4 @@ class ConceptualMemory:
 
 # Create a global instance for easy import
 concept_memory = ConceptualMemory() 
+ 

@@ -339,3 +339,4 @@ if __name__ == "__main__":
     print("\nStrategy plan excerpt:")
     strategy_lines = strategy.split("\n")
     print("\n".join(strategy_lines[:15]) + "\n...") 
+ 

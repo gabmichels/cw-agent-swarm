@@ -437,3 +437,4 @@ if __name__ == "__main__":
             for tool in result.get("tool_chain", {}).get("primary_tools", []):
                 print(f"  - {tool}")
         print() 
+ 

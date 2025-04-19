@@ -23,3 +23,4 @@ EXPOSE 8501
 
 # Run Streamlit app
 CMD ["streamlit", "run", "apps/hq-ui/app.py", "--server.address=0.0.0.0"] 
+ 

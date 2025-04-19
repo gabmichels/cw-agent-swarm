@@ -392,3 +392,4 @@ perception_tools = {
     "get_collection_report": PerceptionTools.get_collection_report,
     "collect_and_analyze": PerceptionTools.collect_and_analyze
 } 
+ 

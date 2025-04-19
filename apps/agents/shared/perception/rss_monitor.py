@@ -340,3 +340,4 @@ if __name__ == "__main__":
     print("\nSummary of headlines:")
     summary = get_headlines_summary()
     print(summary[:500] + "..." if len(summary) > 500 else summary) 
+ 

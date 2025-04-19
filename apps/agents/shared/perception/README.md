@@ -179,3 +179,4 @@ The perception layer can be configured by modifying the following files:
 - `apps/agents/shared/perception/data/rss_feeds.json` - RSS feed configuration
 - `apps/agents/shared/perception/data/reddit_config.json` - Reddit API configuration
 - `.env` - Environment variables including notification settings 
+ 

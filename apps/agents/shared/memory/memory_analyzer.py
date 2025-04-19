@@ -201,3 +201,4 @@ class MemoryAnalyzer:
 
 # Create a singleton instance
 memory_analyzer = MemoryAnalyzer() 
+ 

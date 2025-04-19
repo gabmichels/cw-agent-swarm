@@ -204,3 +204,4 @@ if __name__ == "__main__":
     print(f"Generated {len(insights)} insights from perception data")
     for insight in insights:
         print(f"- {insight['title']}: {insight['description']}") 
+ 

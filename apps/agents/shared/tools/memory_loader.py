@@ -173,3 +173,11 @@ def mark_important_insight(text: str, source: str = "unspecified", insight_type:
     except Exception as e:
         print(f"Error marking important insight: {str(e)}")
         return "⚠️ Unable to store insight due to a technical issue." 
+    metadata = {
+        "importance": "high",
+        "source": source,
+        "type": insight_type,
+        "timestamp": str(datetime.datetime.now())
+    }
+    save_chat_to_memory(text, metadata)
+    return "✅ Important insight stored!" 

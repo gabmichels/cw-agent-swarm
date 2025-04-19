@@ -107,3 +107,4 @@ def enhance_prompt_with_formatting(original_prompt: str, agent_type: str = None)
         return original_prompt
         
     return f"{original_prompt}\n\n{formatting_instructions}" 
+ 

@@ -725,3 +725,4 @@ if __name__ == "__main__":
     print("\nMarketing insights report:")
     insights = get_marketing_insights()
     print(insights[:500] + "..." if len(insights) > 500 else insights) 
+ 

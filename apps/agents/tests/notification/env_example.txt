@@ -1,0 +1,31 @@
+# Example .env file configuration for Discord notifications
+# Copy these settings to your .env file in the apps/hq-ui directory
+
+# Discord webhook URL for channel notifications
+# Create a webhook in your Discord server's channel settings
+DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/your-webhook-id/your-webhook-token
+
+# Discord bot token for direct message notifications
+# Create a bot at https://discord.com/developers/applications
+DISCORD_BOT_TOKEN=your-discord-bot-token
+
+# Your Discord user ID to receive direct messages
+# Enable developer mode in Discord settings, then right-click your name and "Copy ID"
+DEFAULT_DISCORD_USER_ID=your-discord-user-id
+
+# Notification preferences
+# Set to 1 to enable automatic notifications when intent is detected
+ENABLE_AUTO_NOTIFICATIONS=1
+
+# Set to 1 to prefer direct messages over webhook when both are available
+PREFER_DIRECT_MESSAGES=1
+
+# Default notification method (webhook or bot_dm)
+DEFAULT_NOTIFICATION_METHOD=webhook
+
+# Development settings
+# Set to 1 to enable development mode
+DEV_MODE=0
+
+# Set to 1 to use mock data collection (faster for testing)
+MOCK_DATA_COLLECTION=0 

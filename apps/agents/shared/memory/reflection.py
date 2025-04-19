@@ -347,3 +347,4 @@ class ReflectionSystem:
 
 # Create a global instance for easy import
 reflection_system = ReflectionSystem() 
+ 

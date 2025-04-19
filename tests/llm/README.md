@@ -57,3 +57,4 @@ If you encounter OpenRouter API errors, check:
 2. Verify that all agent code is using `create_openai_tools_agent` 
 3. Check that response parsing properly handles the OpenRouter format
 4. Examine debug logs for the specific error 
+ 

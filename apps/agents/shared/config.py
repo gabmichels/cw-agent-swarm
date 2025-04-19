@@ -88,3 +88,4 @@ DISCORD_DM_AVAILABLE = bool(DISCORD_BOT_TOKEN and DEFAULT_DISCORD_USER_ID)
 
 # Whether to prefer direct messages when available
 PREFER_DIRECT_MESSAGES = bool(int(os.getenv("PREFER_DIRECT_MESSAGES", "1"))) 
+ 

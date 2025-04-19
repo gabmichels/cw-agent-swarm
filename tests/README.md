@@ -72,3 +72,4 @@ When adding new tests:
 2. Use the prefix `test_` for the filename
 3. Add docstrings at the beginning of the file explaining what it tests
 4. Make tests self-contained when possible 
+ 

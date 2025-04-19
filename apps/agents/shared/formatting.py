@@ -147,3 +147,4 @@ RICH_TEXT_EXAMPLES = {
         {"text": "Plan for task 3", "checked": False}
     ])
 } 
+ 

@@ -68,3 +68,4 @@ log_model_response(response)  # Will print: "Model used: google/gemini-2.5-flash
 
 If OpenRouter cannot access your requested model, it will try to use a similar alternative.
 If you don't have an OpenRouter API key, the system will fall back to using your OpenAI API key directly. 
+ 

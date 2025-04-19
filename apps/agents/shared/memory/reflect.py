@@ -339,3 +339,4 @@ def run_weekly_reflection() -> Dict[str, Any]:
         Generated reflection data
     """
     return generate_reflection("week") 
+ 

@@ -47,7 +47,7 @@ from apps.agents.shared.memory.reflect import (
 )
 
 from ..perception.perception_interpreter import handle_perception_query
-from ..perception.news_monitor import check_topic_sources
+from ..perception.news_monitor import get_combined_news, get_trending_topics
 from ..tools.perception_tools import PerceptionTools
 from ..memory.interaction_log import get_last_ai_message, log_ai_message, log_user_message
 
@@ -172,7 +172,7 @@ def mark_important_insight(text: str, source: str = "unspecified", insight_type:
         A confirmation message that the insight was stored.
     """
     from apps.agents.shared.tools.memory_loader import mark_important_insight as save_insight
-    return save_insight(text, source, insight_type)
+    return save_insight(text, source, insight_type) 
 
 # == New Task Planning and Execution Tools ==
 

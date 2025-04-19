@@ -9,3 +9,4 @@ services:
     env_file:
       - ./apps/hq-ui/.env
     restart: unless-stopped 
+ 

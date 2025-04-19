@@ -106,3 +106,4 @@ except Exception as e:
     print(f"Error with fixed settings: {str(e)}")
     import traceback
     traceback.print_exc() 
+ 

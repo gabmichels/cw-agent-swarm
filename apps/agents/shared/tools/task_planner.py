@@ -293,3 +293,4 @@ def get_blocked_task_details():
         })
     
     return results 
+ 

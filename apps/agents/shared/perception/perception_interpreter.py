@@ -712,3 +712,4 @@ if __name__ == "__main__":
         print(f"\nQuery: {query}")
         response = handle_perception_query(query)
         print(f"Response:\n{response}") 
+ 

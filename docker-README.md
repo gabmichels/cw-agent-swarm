@@ -54,3 +54,4 @@ The Docker Compose setup includes a volume mount for `./apps/hq-ui/history:/app/
   ```bash
   docker logs crowd-wisdom-employees-crowd-wisdom-app-1
   ``` 
+ 

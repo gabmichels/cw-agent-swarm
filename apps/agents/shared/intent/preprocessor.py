@@ -364,3 +364,4 @@ if __name__ == "__main__":
         print(f"\nMessage: {message}")
         print(f"Intent: {intent_data.get('intent')} (Confidence: {intent_data.get('confidence', 0)})")
         print(f"Parameters: {json.dumps(intent_data.get('parameters', {}), indent=2)}") 
+ 

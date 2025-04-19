@@ -446,3 +446,4 @@ if __name__ == "__main__":
     print("\nSocial insights summary:")
     insights = get_social_insights()
     print(insights[:500] + "..." if len(insights) > 500 else insights) 
+ 

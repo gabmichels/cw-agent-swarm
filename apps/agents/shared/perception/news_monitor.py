@@ -320,3 +320,4 @@ if __name__ == "__main__":
     print("Trending topics:")
     for topic in trending:
         print(f"  {topic['topic']}: {topic['count']} items ({topic['percentage']:.1f}%)") 
+ 

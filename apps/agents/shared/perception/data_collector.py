@@ -35,7 +35,7 @@ except ImportError:
 
 # Import the Discord notifier
 try:
-    from ..notification.discord_bot import DiscordNotifier
+    from ..tools.discord_notify import send_discord_dm
     DISCORD_BOT_AVAILABLE = True
 except ImportError:
     DISCORD_BOT_AVAILABLE = False
@@ -451,11 +451,13 @@ async def send_notification_async(
             logger.error("No Discord user ID provided for direct message")
             return
             
-        # Get an instance of the Discord notifier
-        notifier = DiscordNotifier.get_instance(DISCORD_BOT_TOKEN)
+        # Format message for Discord
+        formatted_message = f"**{title}**\n\n{message}\n\n*Task ID: {task_id}*"
         
-        # Send the DM
-        success = await notifier.send_dm_async(user_id, title, message, task_id)
+        # Send the DM using the direct notification function
+        loop = asyncio.get_event_loop()
+        success = await loop.run_in_executor(None, lambda: send_discord_dm(formatted_message, user_id))
+        
         if not success:
             logger.error(f"Failed to send Discord DM to user {user_id}")
     
@@ -538,11 +540,11 @@ def send_notification(
             logger.error("No Discord user ID provided for direct message")
             return
             
-        # Get an instance of the Discord notifier
-        notifier = DiscordNotifier.get_instance(DISCORD_BOT_TOKEN)
+        # Format message for Discord
+        formatted_message = f"**{title}**\n\n{message}\n\n*Task ID: {task_id}*"
         
-        # Send the DM
-        success = notifier.send_dm(user_id, title, message, task_id)
+        # Send the DM using the direct notification function
+        success = send_discord_dm(formatted_message, user_id)
         if not success:
             logger.error(f"Failed to send Discord DM to user {user_id}")
     
@@ -680,3 +682,4 @@ if __name__ == "__main__":
     report = generate_report_from_task(task_id)
     print("\nFinal Report:")
     print(report) 
+ 
