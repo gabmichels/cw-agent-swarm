@@ -655,37 +655,59 @@ def summarize_news(topic: str) -> str:
     return PerceptionTools.summarize_news(topic)
 
 @tool
-def collect_new_data(topic: str, keywords: str = "", discord_webhook: str = "") -> str:
+def collect_new_data(
+    topic: str,
+    keywords: str = "",
+    discord_webhook: str = "",
+    discord_user_id: str = "",
+    notification_method: str = None,
+    response_message: str = None
+) -> Dict[str, Any]:
     """
     Proactively collect fresh data on a specified topic.
     
-    This is a function that can be used to collect fresh data on a specified topic.
-    It will trigger a background task to collect data from various sources.
-    
     Args:
         topic: The main topic to collect data about
-        keywords: Comma-separated keywords to help focus the collection (optional)
+        keywords: Optional comma-separated keywords to focus the collection
         discord_webhook: Optional Discord webhook URL to send notification when complete
+        discord_user_id: Optional Discord user ID to send direct message notification
+        notification_method: Notification method to use (webhook or bot_dm)
+        response_message: The most recent AI message to check for notification intent
         
     Returns:
-        A confirmation message with task ID or notification details
+        Dictionary with task_id and response message
     """
-    # Parse the keywords string into a list
-    keyword_list = [kw.strip() for kw in keywords.split(",")] if keywords else []
+    # Parse keywords
+    keyword_list = [kw.strip() for kw in keywords.split(",") if kw.strip()] if keywords else []
     
     # Check if we should notify Discord
-    notify_discord = bool(discord_webhook)
+    notify_discord = bool(discord_webhook) or bool(discord_user_id)
     
-    # Get the last AI message to check for notification intent
-    last_message = get_last_ai_message()
+    # Get the last AI message from the interaction log to check for notification intent
+    if response_message is None:
+        try:
+            from ..memory.interaction_log import get_recent_interactions
+            interactions = get_recent_interactions(1)
+            if interactions and interactions[0]["role"] == "assistant":
+                response_message = interactions[0]["content"]
+        except Exception as e:
+            logger.error(f"Error getting recent interactions: {e}")
     
-    return PerceptionTools.trigger_data_collection(
+    # Start data collection
+    task_id, response = PerceptionTools.trigger_data_collection(
         topic=topic,
-        keywords=keyword_list if keyword_list else None,
-        notify_discord=notify_discord,
+        keywords=keyword_list,
         discord_webhook_url=discord_webhook,
-        response_message=last_message
+        discord_user_id=discord_user_id,
+        notify_discord=notify_discord,
+        response_message=response_message,
+        notification_method=notification_method
     )
+    
+    return {
+        "task_id": task_id,
+        "message": response
+    }
 
 @tool
 def check_data_collection(task_id: str) -> str:
@@ -693,45 +715,80 @@ def check_data_collection(task_id: str) -> str:
     Check the status of a previously initiated data collection task.
     
     Args:
-        task_id: The ID of the data collection task to check
+        task_id: The task ID returned from collect_new_data
+        
+    Returns:
+        Status report
     """
     return PerceptionTools.check_collection_status(task_id)
 
 @tool
 def get_data_collection_report(task_id: str) -> str:
     """
-    Get a detailed report from a completed data collection task.
+    Get a report from a completed data collection task.
     
     Args:
-        task_id: The ID of the completed data collection task
+        task_id: The task ID returned from collect_new_data
+        
+    Returns:
+        Detailed report with findings and analysis
     """
     return PerceptionTools.get_collection_report(task_id)
 
 @tool
-def research_and_analyze(topic: str, keywords: str = "") -> str:
+def research_and_analyze(
+    topic: str,
+    keywords: str = "",
+    wait_for_completion: bool = True,
+    timeout_seconds: int = 60,
+    discord_webhook: str = "",
+    discord_user_id: str = "",
+    notification_method: str = None,
+    response_message: str = None
+) -> Dict[str, Any]:
     """
-    Collect, wait for, and analyze data about a topic.
-    
-    This is a comprehensive tool that performs data collection and analysis in one step.
-    It will wait for the data collection to complete before returning the analysis.
+    Comprehensive tool that collects, waits for, and analyzes data about a topic.
     
     Args:
         topic: The main topic to research
-        keywords: Comma-separated keywords to help focus the research (optional)
+        keywords: Optional comma-separated keywords to guide the research
+        wait_for_completion: Whether to wait for collection to complete before returning
+        timeout_seconds: Maximum time to wait for completion (if waiting)
+        discord_webhook: Optional Discord webhook URL for notifications
+        discord_user_id: Optional Discord user ID for direct message notification
+        notification_method: Notification method to use (webhook or bot_dm)
+        response_message: The most recent AI message to check for notification intent
         
     Returns:
-        A comprehensive analysis of the collected data
+        Dictionary with task_id, status information, and potentially the report
     """
-    # Parse the keywords string into a list
-    keyword_list = [kw.strip() for kw in keywords.split(",")] if keywords else []
+    # Parse keywords
+    keyword_list = [kw.strip() for kw in keywords.split(",") if kw.strip()] if keywords else []
     
-    # Get the last AI message to check for notification intent
-    last_message = get_last_ai_message()
+    # Check if we should notify Discord
+    notify_discord = bool(discord_webhook) or bool(discord_user_id)
     
-    return PerceptionTools.collect_and_analyze(
+    # Get the last AI message from the interaction log to check for notification intent
+    if response_message is None:
+        try:
+            from ..memory.interaction_log import get_recent_interactions
+            interactions = get_recent_interactions(1)
+            if interactions and interactions[0]["role"] == "assistant":
+                response_message = interactions[0]["content"]
+        except Exception as e:
+            logger.error(f"Error getting recent interactions: {e}")
+    
+    # Start research
+    result = PerceptionTools.collect_and_analyze(
         topic=topic,
-        keywords=keyword_list if keyword_list else None,
-        wait_for_completion=True,
-        timeout_seconds=90,  # Wait up to 90 seconds for completion
-        response_message=last_message
-    ) 
+        keywords=keyword_list,
+        wait_for_completion=wait_for_completion,
+        timeout_seconds=timeout_seconds,
+        discord_webhook_url=discord_webhook,
+        discord_user_id=discord_user_id,
+        notify_discord=notify_discord,
+        response_message=response_message,
+        notification_method=notification_method
+    )
+    
+    return result 

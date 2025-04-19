@@ -5,69 +5,86 @@ This file contains global configuration settings and environment variables.
 """
 import os
 from pathlib import Path
+from typing import List, Optional
 from dotenv import load_dotenv
 
-# Load environment variables from the main .env file
+# Load environment variables from .env file
 env_path = Path(__file__).parent.parent.parent / "hq-ui" / ".env"
-if env_path.exists():
-    load_dotenv(env_path)
+load_dotenv(dotenv_path=env_path)
 
-# Discord settings
-# Use environment variable if set, otherwise default to None
-DEFAULT_DISCORD_WEBHOOK = os.environ.get("DISCORD_WEBHOOK_URL", None)
+# Discord notification settings
+DEFAULT_DISCORD_WEBHOOK = os.getenv("DISCORD_WEBHOOK_URL")
+DISCORD_BOT_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
+DEFAULT_DISCORD_USER_ID = os.getenv("DEFAULT_DISCORD_USER_ID")
 
-# Development mode flags
-DEV_MODE = os.environ.get("CHLOE_DEV_MODE", "0") == "1"
+# Whether to automatically enable notifications when intent is detected
+ENABLE_AUTO_NOTIFICATIONS = bool(int(os.getenv("ENABLE_AUTO_NOTIFICATIONS", "0")))
 
-# Notification settings
-ENABLE_AUTO_NOTIFICATIONS = os.environ.get("ENABLE_AUTO_NOTIFICATIONS", "1") == "1"
+# Development mode settings
+DEV_MODE = bool(int(os.getenv("DEV_MODE", "0")))
+MOCK_DATA_COLLECTION = bool(int(os.getenv("MOCK_DATA_COLLECTION", "0")))
 
-# Function to determine if a message indicates intent to notify
+# Notification phrases that indicate intent to notify
+NOTIFICATION_PHRASES: List[str] = [
+    "i'll notify you",
+    "i will notify you",
+    "i'll let you know",
+    "i will let you know",
+    "i'll send you a notification",
+    "i will send you a notification",
+    "i'll update you",
+    "i will update you",
+    "i'll ping you",
+    "i will ping you",
+    "i'll message you",
+    "i will message you",
+    "i'll dm you",
+    "i will dm you",
+    "send a notification",
+    "send you a notification",
+    "notify you when",
+    "let you know when",
+    "update you when",
+    "ping you when",
+    "message you when",
+    "dm you when",
+    "notify you via discord",
+    "notify you through discord",
+    "message you on discord",
+    "dm you on discord",
+]
+
 def has_notification_intent(message: str) -> bool:
     """
-    Check if a message indicates an intent to notify the user.
+    Check if a message contains phrases indicating an intent to notify the user.
     
     Args:
-        message: The message to check
+        message: The message to check for notification intent
         
     Returns:
-        True if the message indicates an intent to notify, False otherwise
+        True if notification intent is detected, False otherwise
     """
     if not message:
         return False
         
-    notification_phrases = [
-        "i'll notify you",
-        "i will notify you",
-        "i'll send you a notification",
-        "i will send you a notification",
-        "i'll let you know",
-        "i will let you know",
-        "notification will be sent",
-        "you'll be notified",
-        "you will be notified",
-        "i'll ping you",
-        "i will ping you",
-        # Additional phrases
-        "notify you when",
-        "let you know when",
-        "i'll inform you",
-        "i will inform you",
-        "send you an alert",
-        "send a notification",
-        "notify you once",
-        "let you know once",
-        "inform you when",
-        "ping you when",
-        "i'll alert you",
-        "i will alert you",
-        "notify you via discord",
-        "alert you via discord",
-        "message you when",
-        "i'll message you",
-        "i will message you"
-    ]
+    message = message.lower()
+    for phrase in NOTIFICATION_PHRASES:
+        if phrase in message:
+            return True
+            
+    return False
+
+# Notification method preferences
+class NotificationMethod:
+    """Enumeration of notification methods."""
+    WEBHOOK = "webhook"  # Discord channel webhook
+    BOT_DM = "bot_dm"    # Discord bot direct message
     
-    # Check if any notification phrase is in the message
-    message_lower = message.lower()
-    return any(phrase in message_lower for phrase in notification_phrases) 
+# Default notification method to use
+DEFAULT_NOTIFICATION_METHOD = os.getenv("DEFAULT_NOTIFICATION_METHOD", NotificationMethod.WEBHOOK)
+
+# Whether direct message notifications are available (requires bot token and default user ID)
+DISCORD_DM_AVAILABLE = bool(DISCORD_BOT_TOKEN and DEFAULT_DISCORD_USER_ID)
+
+# Whether to prefer direct messages when available
+PREFER_DIRECT_MESSAGES = bool(int(os.getenv("PREFER_DIRECT_MESSAGES", "1"))) 

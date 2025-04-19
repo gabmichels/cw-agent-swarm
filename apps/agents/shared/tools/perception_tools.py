@@ -5,7 +5,8 @@ This module provides agent tools to interact with the perception layer.
 These tools allow an agent to query for news, trends, and insights.
 """
 import logging
-from typing import Dict, List, Any, Optional, Union
+import time
+from typing import Dict, List, Any, Optional, Union, Tuple
 
 from ..perception.perception_interpreter import handle_perception_query
 from ..perception.data_collector import (
@@ -13,7 +14,16 @@ from ..perception.data_collector import (
     get_task_status, 
     generate_report_from_task
 )
-from ..config import DEFAULT_DISCORD_WEBHOOK, ENABLE_AUTO_NOTIFICATIONS, has_notification_intent
+from ..config import (
+    DEFAULT_DISCORD_WEBHOOK,
+    DISCORD_BOT_TOKEN,
+    DEFAULT_DISCORD_USER_ID,
+    ENABLE_AUTO_NOTIFICATIONS,
+    has_notification_intent,
+    NotificationMethod,
+    DEFAULT_NOTIFICATION_METHOD,
+    PREFER_DIRECT_MESSAGES
+)
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -115,71 +125,95 @@ class PerceptionTools:
     
     @staticmethod
     def trigger_data_collection(
-        topic: str, 
-        keywords: List[str] = None, 
+        topic: str,
+        keywords: List[str] = None,
         sources: List[str] = None,
+        discord_webhook_url: str = None,
+        discord_user_id: str = None,
         notify_discord: bool = False,
-        discord_webhook_url: str = "",
-        response_message: str = None
-    ) -> str:
+        response_message: str = None,
+        notification_method: str = None
+    ) -> Tuple[str, str]:
         """
-        Trigger active data collection on a specific topic.
-        This will actively fetch fresh data from RSS feeds and Reddit.
+        Trigger proactive data collection on a specific topic.
         
         Args:
-            topic: Main topic to collect data about
-            keywords: Specific keywords to search for (defaults to [topic])
-            sources: Sources to collect from (defaults to ["rss", "reddit"])
+            topic: The topic to collect data on
+            keywords: List of keywords to focus the collection
+            sources: List of sources to collect from
+            discord_webhook_url: Optional webhook URL for Discord notifications
+            discord_user_id: Optional Discord user ID for direct message notifications
             notify_discord: Whether to send a Discord notification when complete
-            discord_webhook_url: Discord webhook URL for notifications
-            response_message: Optional response message to check for notification intent
+            response_message: The last response message from the AI to check for notification intent
+            notification_method: Which notification method to use (webhook or bot_dm)
             
         Returns:
-            Task ID and confirmation message
+            Tuple of (task_id, response_message)
         """
-        logger.info(f"Triggering data collection for topic: {topic}")
+        # Parse keywords if provided as comma-separated string
+        if isinstance(keywords, str):
+            keywords = [k.strip() for k in keywords.split(',') if k.strip()]
+        elif keywords is None:
+            keywords = []
+            
+        # Determine notification preferences
+        should_notify = False
+        webhook_url = None
+        user_id = None
         
-        # Determine if we should notify based on:
+        # Logic for determining if and how to send notifications:
         # 1. Explicit notify_discord parameter
-        # 2. Discord webhook URL parameter
-        # 3. Default Discord webhook from config
-        # 4. Notification intent in the response message
-        if not notify_discord and not discord_webhook_url and ENABLE_AUTO_NOTIFICATIONS:
-            # Check for notification intent in response_message if provided
-            if response_message and has_notification_intent(response_message):
-                notify_discord = True
-                logger.info("Auto-notification enabled based on notification intent in response")
+        if notify_discord:
+            should_notify = True
             
-            # Use default webhook if available
-            if notify_discord and DEFAULT_DISCORD_WEBHOOK:
-                discord_webhook_url = DEFAULT_DISCORD_WEBHOOK
-                logger.info("Using default Discord webhook for notification")
-        
-        # Final decision on whether to notify and which URL to use
-        should_notify = notify_discord or bool(discord_webhook_url)
-        webhook_url = discord_webhook_url if discord_webhook_url else DEFAULT_DISCORD_WEBHOOK if should_notify else None
-        
-        try:
-            task_id = collect_data(
-                topic=topic,
-                keywords=keywords,
-                sources=sources,
-                send_notification=should_notify,
-                notification_url=webhook_url
-            )
-            
-            # Customize the response based on notification status
-            response = f"I've started collecting fresh data about '{topic}'. This will take a few moments to complete."
-            
-            if should_notify and webhook_url:
-                response += f" I'll notify you on Discord when it's ready."
+        # 2. Check for notification intent in the response
+        if not notify_discord and ENABLE_AUTO_NOTIFICATIONS and response_message:
+            if has_notification_intent(response_message):
+                should_notify = True
+                logger.info(f"Detected notification intent in: {response_message[:100]}...")
+                
+        # 3. Determine method preference
+        if notification_method is None:
+            # Automatic method selection:
+            if discord_user_id or (should_notify and PREFER_DIRECT_MESSAGES and DEFAULT_DISCORD_USER_ID):
+                notification_method = NotificationMethod.BOT_DM
+            elif discord_webhook_url or DEFAULT_DISCORD_WEBHOOK:
+                notification_method = NotificationMethod.WEBHOOK
             else:
-                response += f" You can check the status using the task ID: {task_id}"
-            
-            return response
-        except Exception as e:
-            logger.error(f"Error triggering data collection: {str(e)}")
-            return f"I encountered an error while trying to collect data on {topic}: {str(e)}"
+                notification_method = DEFAULT_NOTIFICATION_METHOD
+                
+        # 4. Set the right parameters for the chosen method
+        if notification_method == NotificationMethod.BOT_DM:
+            user_id = discord_user_id if discord_user_id else DEFAULT_DISCORD_USER_ID
+        else:  # WEBHOOK
+            webhook_url = discord_webhook_url if discord_webhook_url else DEFAULT_DISCORD_WEBHOOK
+        
+        # Start the data collection
+        logger.info(f"Starting data collection on topic: {topic}")
+        task_id = collect_data(
+            topic=topic,
+            keywords=keywords,
+            sources=sources,
+            send_notification=should_notify,
+            notification_url=webhook_url,
+            notification_user_id=user_id,
+            notification_method=notification_method
+        )
+        
+        # Build a response message
+        response = f"I've started collecting data on '{topic}'"
+        if keywords:
+            response += f" focusing on keywords: {', '.join(keywords)}"
+        
+        response += f". Task ID: {task_id}"
+        
+        if should_notify:
+            if notification_method == NotificationMethod.BOT_DM:
+                response += f" I'll notify you via Discord direct message when it's ready."
+            else:
+                response += f" I'll notify you on Discord when it's ready."
+        
+        return task_id, response
     
     @staticmethod
     def check_collection_status(task_id: str) -> str:
@@ -187,150 +221,164 @@ class PerceptionTools:
         Check the status of a data collection task.
         
         Args:
-            task_id: The ID of the data collection task
+            task_id: The ID of the collection task
             
         Returns:
-            Status report
+            Status message
         """
-        logger.info(f"Checking collection status for task: {task_id}")
+        task_data = get_task_status(task_id)
         
-        try:
-            status = get_task_status(task_id)
+        if not task_data:
+            return f"No data collection task found with ID {task_id}."
             
-            if not status:
-                return f"I couldn't find a data collection task with ID: {task_id}"
-            
-            task_status = status.get("status", "unknown")
-            
-            if task_status == "completed":
-                # If the task is complete, provide a brief summary
-                summary = status.get("summary", "No summary available.")
-                return f"Data collection task {task_id} is complete!\n\n{summary}\n\nFor a full report, use get_collection_report."
-            elif task_status == "failed":
-                error = status.get("summary", "Unknown error")
-                return f"Data collection task {task_id} failed: {error}"
-            else:
-                return f"Data collection task {task_id} is still {task_status}. Please check back later."
-        except Exception as e:
-            logger.error(f"Error checking collection status: {str(e)}")
-            return f"I encountered an error while checking the collection status: {str(e)}"
+        status = task_data.get("status", "unknown")
+        topic = task_data.get("topic", "unknown topic")
+        
+        if status == "completed":
+            return f"Data collection task for '{topic}' is completed. You can get the report."
+        elif status == "failed":
+            return f"Data collection task for '{topic}' failed: {task_data.get('summary', 'Unknown error')}"
+        else:
+            return f"Data collection task for '{topic}' is {status}."
     
     @staticmethod
     def get_collection_report(task_id: str) -> str:
         """
-        Get a detailed report from a completed data collection task.
+        Get a report from a completed data collection task.
         
         Args:
-            task_id: The ID of the data collection task
+            task_id: The ID of the collection task
             
         Returns:
-            Detailed report
+            Formatted report
         """
-        logger.info(f"Generating report for collection task: {task_id}")
-        
-        try:
-            report = generate_report_from_task(task_id)
-            return report
-        except Exception as e:
-            logger.error(f"Error generating collection report: {str(e)}")
-            return f"I encountered an error while generating the collection report: {str(e)}"
+        return generate_report_from_task(task_id)
     
     @staticmethod
     def collect_and_analyze(
-        topic: str, 
+        topic: str,
         keywords: List[str] = None,
+        sources: List[str] = None,
         wait_for_completion: bool = True,
         timeout_seconds: int = 60,
+        discord_webhook_url: str = None,
+        discord_user_id: str = None,
         notify_discord: bool = False,
-        discord_webhook_url: str = "",
-        response_message: str = None
-    ) -> str:
+        response_message: str = None,
+        notification_method: str = None
+    ) -> Dict[str, Any]:
         """
-        Collect fresh data, wait for completion, and provide analysis in one step.
+        Collect and analyze data on a topic, optionally waiting for completion.
         
         Args:
-            topic: Topic to collect data about
-            keywords: Specific keywords to search for
-            wait_for_completion: Whether to wait for collection to complete
+            topic: The topic to collect data on
+            keywords: List of keywords to focus the collection
+            sources: List of sources to collect from
+            wait_for_completion: Whether to wait for the collection to complete
             timeout_seconds: Maximum time to wait for completion
+            discord_webhook_url: Optional webhook URL for Discord notifications
+            discord_user_id: Optional Discord user ID for direct message notifications
             notify_discord: Whether to send a Discord notification when complete
-            discord_webhook_url: Discord webhook URL for notifications
-            response_message: Optional response message to check for notification intent
+            response_message: The last response message from the AI to check for notification intent
+            notification_method: Which notification method to use (webhook or bot_dm)
             
         Returns:
-            Analysis report or status message
+            Dictionary with task_id, status, and optional report/summary
         """
-        import time
+        # Parse keywords if provided as comma-separated string
+        if isinstance(keywords, str):
+            keywords = [k.strip() for k in keywords.split(',') if k.strip()]
+        elif keywords is None:
+            keywords = []
+            
+        # Determine notification preferences
+        should_notify = False
+        webhook_url = None
+        user_id = None
         
-        logger.info(f"Collecting and analyzing data for: {topic}")
-        
-        # Determine if we should notify
-        if not notify_discord and not discord_webhook_url and ENABLE_AUTO_NOTIFICATIONS:
-            # Check for notification intent in response_message if provided
-            if response_message and has_notification_intent(response_message):
-                notify_discord = True
-                logger.info("Auto-notification enabled based on notification intent in response")
-            
-            # Use default webhook if available
-            if notify_discord and DEFAULT_DISCORD_WEBHOOK:
-                discord_webhook_url = DEFAULT_DISCORD_WEBHOOK
-                logger.info("Using default Discord webhook for notification")
-        
-        # Final decision on whether to notify and which URL to use
-        should_notify = notify_discord or bool(discord_webhook_url)
-        webhook_url = discord_webhook_url if discord_webhook_url else DEFAULT_DISCORD_WEBHOOK if should_notify else None
-        
-        try:
-            # Start the collection
-            task_id = collect_data(
-                topic=topic,
-                keywords=keywords,
-                send_notification=should_notify,
-                notification_url=webhook_url
-            )
-            
-            if not wait_for_completion:
-                response = f"I've started collecting fresh data about '{topic}'."
-                if should_notify and webhook_url:
-                    response += f" I'll notify you on Discord when it's ready."
-                else:
-                    response += f" You can check back later with task ID: {task_id}"
-                return response
-            
-            # Wait for completion
-            logger.info(f"Waiting for task {task_id} to complete...")
-            start_time = time.time()
-            
-            while time.time() - start_time < timeout_seconds:
-                status = get_task_status(task_id)
+        # Logic for notification similar to trigger_data_collection
+        if not notify_discord and ENABLE_AUTO_NOTIFICATIONS and response_message:
+            if has_notification_intent(response_message):
+                should_notify = True
+                logger.info(f"Detected notification intent in: {response_message[:100]}...")
                 
-                if not status:
-                    return f"Something went wrong. I couldn't find the task with ID: {task_id}"
-                
-                task_status = status.get("status", "unknown")
-                
-                if task_status == "completed":
-                    # Task completed successfully, get the report
-                    report = generate_report_from_task(task_id)
-                    return f"I've collected and analyzed data about '{topic}':\n\n{report}"
-                elif task_status == "failed":
-                    error = status.get("summary", "Unknown error")
-                    return f"Data collection for '{topic}' failed: {error}"
-                
-                # Wait before checking again
-                time.sleep(5)
-            
-            # If we get here, we've timed out
-            response = f"The data collection is taking longer than expected."
-            if should_notify and webhook_url:
-                response += f" I'll notify you on Discord when it's ready."
+        # Determine method preference
+        if notification_method is None:
+            # Automatic method selection:
+            if discord_user_id or (should_notify and PREFER_DIRECT_MESSAGES and DEFAULT_DISCORD_USER_ID):
+                notification_method = NotificationMethod.BOT_DM
+            elif discord_webhook_url or DEFAULT_DISCORD_WEBHOOK:
+                notification_method = NotificationMethod.WEBHOOK
             else:
-                response += f" You can check its status later with task ID: {task_id}"
-            return response
+                notification_method = DEFAULT_NOTIFICATION_METHOD
+                
+        # Set the right parameters for the chosen method
+        if notification_method == NotificationMethod.BOT_DM:
+            user_id = discord_user_id if discord_user_id else DEFAULT_DISCORD_USER_ID
+        else:  # WEBHOOK
+            webhook_url = discord_webhook_url if discord_webhook_url else DEFAULT_DISCORD_WEBHOOK
+        
+        # Start the data collection
+        task_id = collect_data(
+            topic=topic,
+            keywords=keywords,
+            sources=sources,
+            send_notification=should_notify,
+            notification_url=webhook_url,
+            notification_user_id=user_id,
+            notification_method=notification_method
+        )
+        
+        result = {
+            "task_id": task_id,
+            "status": "pending"
+        }
+        
+        # Build a response message
+        response = f"I've started collecting and analyzing data on '{topic}'"
+        
+        if keywords:
+            response += f" focusing on keywords: {', '.join(keywords)}"
             
-        except Exception as e:
-            logger.error(f"Error in collect and analyze: {str(e)}")
-            return f"I encountered an error while collecting and analyzing data on {topic}: {str(e)}"
+        # Add notification info to response
+        if should_notify:
+            if notification_method == NotificationMethod.BOT_DM:
+                response += f" I'll notify you via Discord direct message when it's ready."
+            else:
+                response += f" I'll notify you on Discord when it's ready."
+                
+        result["response"] = response
+        
+        # Wait for completion if requested
+        if wait_for_completion:
+            start_time = time.time()
+            elapsed = 0
+            
+            while elapsed < timeout_seconds:
+                task_data = get_task_status(task_id)
+                
+                if task_data and task_data.get("status") == "completed":
+                    result["status"] = "completed"
+                    result["report"] = generate_report_from_task(task_id)
+                    result["summary"] = task_data.get("summary", "No summary available")
+                    break
+                elif task_data and task_data.get("status") == "failed":
+                    result["status"] = "failed"
+                    result["error"] = task_data.get("summary", "Unknown error")
+                    break
+                    
+                # Wait before checking again
+                time.sleep(min(5, timeout_seconds - elapsed))
+                elapsed = time.time() - start_time
+                
+            # If we timed out
+            if result["status"] == "pending":
+                result["status"] = "timeout"
+                result["response"] += f" The task is still running in the background. Task ID: {task_id}"
+                if should_notify:
+                    response += " You will be notified when it completes."
+                    
+        return result
 
 # Export the tools for use in the agent system
 perception_tools = {

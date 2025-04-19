@@ -9,8 +9,10 @@ import json
 import logging
 import asyncio
 import time
+import os
+import uuid
 from pathlib import Path
-from typing import Dict, List, Any, Optional, Union
+from typing import Dict, List, Any, Optional, Union, Tuple
 from datetime import datetime
 
 # Import perception modules
@@ -23,13 +25,28 @@ from .rss_feed import fetch_rss_feeds, filter_articles_by_tags
 from .reddit_monitor import fetch_reddit_posts, search_reddit_for_keywords
 from ..memory.episodic_memory import store_memory
 
-# Optional imports for notifications
+# Import optional dependencies
 try:
     import aiohttp
     import requests
     NOTIFICATION_AVAILABLE = True
 except ImportError:
     NOTIFICATION_AVAILABLE = False
+
+# Import the Discord notifier
+try:
+    from ..notification.discord_bot import DiscordNotifier
+    DISCORD_BOT_AVAILABLE = True
+except ImportError:
+    DISCORD_BOT_AVAILABLE = False
+
+from ..config import (
+    DISCORD_BOT_TOKEN, 
+    DEFAULT_DISCORD_USER_ID,
+    NotificationMethod,
+    DEFAULT_NOTIFICATION_METHOD,
+    DISCORD_DM_AVAILABLE
+)
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -38,6 +55,9 @@ logger = logging.getLogger(__name__)
 # Constants
 DATA_DIR = Path(__file__).parent / "data"
 COLLECTION_LOG_FILE = DATA_DIR / "collection_log.json"
+
+# Source types
+DEFAULT_SOURCES = ["news", "web", "research"]
 
 def ensure_data_directory() -> None:
     """Ensure the data directory exists."""
@@ -180,138 +200,156 @@ async def collect_data_async(
     keywords: List[str] = None,
     max_items_per_source: int = 20,
     send_notification: bool = False,
-    notification_url: str = None
+    notification_url: str = None,
+    notification_user_id: str = None,
+    notification_method: str = None
 ) -> str:
     """
-    Asynchronously collect data from various sources.
+    Collect data on a topic asynchronously.
     
     Args:
-        task_id: Unique ID for this collection task
-        topic: The topic to collect data about
-        sources: List of sources to collect from (defaults to ["rss", "reddit"])
-        keywords: Specific keywords to search for (defaults to topic if not provided)
-        max_items_per_source: Maximum items to collect per source
+        task_id: Unique ID for this task
+        topic: The topic to collect data on
+        sources: List of sources to collect from (e.g., "news", "web", "research")
+        keywords: List of keywords to use for searching
+        max_items_per_source: Maximum number of items to collect per source
         send_notification: Whether to send a notification when complete
         notification_url: URL to send the notification to
+        notification_user_id: Discord user ID to send notification to
+        notification_method: Notification method to use (webhook or bot_dm)
         
     Returns:
-        Task ID for status tracking
+        Task ID for tracking
     """
-    # Set defaults
-    sources = sources or ["rss", "reddit"]
-    keywords = keywords or [topic]
-    
-    # Create the task
+    if not sources:
+        sources = DEFAULT_SOURCES
+        
+    if not keywords:
+        keywords = []
+        
+    # Create and save task
     task = DataCollectionTask(task_id, topic, sources, keywords)
     task.start()
     save_task(task)
     
+    logger.info(f"Starting data collection task {task_id} for topic: {topic}")
+    
     try:
-        # Collect from RSS feeds
-        if "rss" in sources:
-            logger.info(f"Collecting RSS feeds related to {topic}")
+        # Mock collection mode for testing
+        from ..config import MOCK_DATA_COLLECTION
+        if MOCK_DATA_COLLECTION:
+            # Just for testing, simulate data collection
+            await asyncio.sleep(5)  # Simulate work
             
-            # Get RSS feeds
-            rss_articles = fetch_rss_feeds(max_age_days=7)
+            # Add mock results
+            task.results = {
+                "news": {"count": 12, "data": {}},
+                "web": {"count": 18, "data": {}},
+                "research": {"count": 7, "data": {}}
+            }
             
-            # Filter by keywords
-            filtered_articles = []
-            for article in rss_articles:
-                content = f"{article.get('title', '')} {article.get('content', '')}".lower()
-                if any(keyword.lower() in content for keyword in keywords):
-                    filtered_articles.append(article)
+            task.summary = f"Collected mock data on topic '{topic}' with {len(keywords)} keywords."
+            task.complete()
+            save_task(task)
             
-            # Store results
-            task.results["rss"]["count"] = len(filtered_articles)
-            task.results["rss"]["items"] = filtered_articles[:max_items_per_source]
-            logger.info(f"Collected {len(filtered_articles)} relevant RSS articles")
+            # Mock notification
+            if send_notification and (notification_url or notification_user_id):
+                target = notification_user_id if notification_method == NotificationMethod.BOT_DM else notification_url
+                await send_notification_async(
+                    target,
+                    f"Data Collection Complete: {topic}",
+                    f"Your data collection task on '{topic}' is now complete.\n\n{task.summary}",
+                    task_id,
+                    notification_method
+                )
+                
+            return task_id
         
-        # Collect from Reddit
-        if "reddit" in sources:
-            logger.info(f"Collecting Reddit posts related to {topic}")
+        # Actual data collection logic would go here
+        # For each source, collect data using source-specific methods
+        
+        # Import data collectors here to avoid circular imports
+        from ..perception.news_monitor import collect_news
+        from ..perception.web_search import search_web
+        from ..perception.research_tools import find_research
+        
+        results = {}
+        
+        # Collect from each source in parallel
+        collectors = []
+        
+        # Add collectors based on requested sources
+        if "news" in sources:
+            collectors.append(collect_news(topic, keywords, max_items_per_source))
             
-            # Get general Reddit posts
-            reddit_posts = fetch_reddit_posts(limit=50)
+        if "web" in sources:
+            collectors.append(search_web(topic, keywords, max_items_per_source))
             
-            # Search for specific keywords
-            keyword_posts = []
-            for keyword in keywords:
-                keyword_posts.extend(search_reddit_for_keywords([keyword], limit=10))
+        if "research" in sources:
+            collectors.append(find_research(topic, keywords, max_items_per_source))
             
-            # Combine and deduplicate
-            all_posts = reddit_posts + [post for post in keyword_posts if post["id"] not in [p["id"] for p in reddit_posts]]
+        # Run all collectors in parallel
+        collected_results = await asyncio.gather(*collectors, return_exceptions=True)
+        
+        # Process results
+        for i, result in enumerate(collected_results):
+            if isinstance(result, Exception):
+                logger.error(f"Error in collector {i}: {result}")
+                continue
+                
+            source, data = result
+            results[source] = data
             
-            # Filter by keywords
-            filtered_posts = []
-            for post in all_posts:
-                content = f"{post.get('title', '')} {post.get('selftext', '')}".lower()
-                if any(keyword.lower() in content for keyword in keywords):
-                    filtered_posts.append(post)
-            
-            # Store results
-            task.results["reddit"]["count"] = len(filtered_posts)
-            task.results["reddit"]["items"] = filtered_posts[:max_items_per_source]
-            logger.info(f"Collected {len(filtered_posts)} relevant Reddit posts")
+        # Add results to task
+        task.results = results
         
         # Generate summary
-        all_items = []
-        for source, data in task.results.items():
-            all_items.extend(data["items"])
+        total_items = sum(data.get("count", 0) for data in results.values())
+        task.summary = f"Collected {total_items} items on topic '{topic}' from {len(results)} sources."
         
-        # Get trending topics from the collected data
-        trending_topics = get_trending_topics(all_items, top_n=5)
-        
-        # Create a summary
-        summary = f"Data collection for '{topic}' complete.\n\n"
-        summary += f"Collected {task.results['rss']['count']} RSS articles and {task.results['reddit']['count']} Reddit posts.\n\n"
-        
-        if trending_topics:
-            summary += "Key topics found:\n"
-            for topic_data in trending_topics:
-                topic_name = topic_data["topic"]
-                percentage = topic_data["percentage"]
-                summary += f"- {topic_name.replace('_', ' ').title()} ({percentage:.1f}%)\n"
-            summary += "\n"
-        
-        # Add example items
-        if all_items:
-            summary += "Sample findings:\n"
-            for i, item in enumerate(sorted(all_items, key=lambda x: x.get("published_timestamp", 0), reverse=True)[:5]):
-                title = item.get("title", "")
-                source = item.get("source", "")
-                summary += f"- {title} (from {source})\n"
-        
-        task.summary = summary
+        # Complete task
         task.complete()
         save_task(task)
         
-        # Store the collection results as a memory
-        store_memory(
-            content=f"Data collection on '{topic}' found {len(all_items)} relevant items across {len(sources)} sources.",
-            context=summary,
-            tags=["perception", "data_collection"] + keywords,
-            importance=0.6
-        )
-        
         # Send notification if requested
-        if send_notification and notification_url and NOTIFICATION_AVAILABLE:
-            try:
-                await send_notification_async(
-                    notification_url,
-                    f"Data collection on '{topic}' complete",
-                    summary,
-                    task_id
-                )
-            except Exception as e:
-                logger.error(f"Error sending notification: {e}")
+        if send_notification:
+            # Determine which notification method to use
+            if notification_method is None:
+                # Auto-detect based on what's provided
+                if notification_user_id:
+                    notification_method = NotificationMethod.BOT_DM
+                    target = notification_user_id
+                elif notification_url:
+                    notification_method = NotificationMethod.WEBHOOK
+                    target = notification_url
+                elif DEFAULT_DISCORD_USER_ID and DISCORD_DM_AVAILABLE:
+                    notification_method = NotificationMethod.BOT_DM
+                    target = DEFAULT_DISCORD_USER_ID
+                else:
+                    target = notification_url
+            else:
+                # Use specified method
+                target = notification_user_id if notification_method == NotificationMethod.BOT_DM else notification_url
+            
+            # Only send if we have a target
+            if target:
+                try:
+                    await send_notification_async(
+                        target,
+                        f"Data Collection Complete: {topic}",
+                        f"Your data collection task on '{topic}' is now complete.\n\n{task.summary}",
+                        task_id,
+                        notification_method
+                    )
+                except Exception as e:
+                    logger.error(f"Error sending notification: {e}")
         
-        return task_id
-    
     except Exception as e:
-        logger.error(f"Error collecting data: {e}")
+        logger.error(f"Error in data collection task {task_id}: {e}")
         task.fail(str(e))
         save_task(task)
-        return task_id
+        
+    return task_id
 
 def collect_data(
     topic: str,
@@ -319,54 +357,110 @@ def collect_data(
     keywords: List[str] = None,
     max_items_per_source: int = 20,
     send_notification: bool = False,
-    notification_url: str = None
+    notification_url: str = None,
+    notification_user_id: str = None,
+    notification_method: str = None
 ) -> str:
     """
-    Synchronously start a data collection task.
+    Collect data on a topic (synchronous wrapper).
     
     Args:
-        topic: The topic to collect data about
-        sources: List of sources to collect from
-        keywords: Specific keywords to search for
-        max_items_per_source: Maximum items to collect per source
+        topic: The topic to collect data on
+        sources: List of sources to collect from (e.g., "news", "web", "research")
+        keywords: List of keywords to use for searching
+        max_items_per_source: Maximum number of items to collect per source
         send_notification: Whether to send a notification when complete
         notification_url: URL to send the notification to
+        notification_user_id: Discord user ID to send notification to
+        notification_method: Notification method to use (webhook or bot_dm)
         
     Returns:
-        Task ID for status tracking
+        Task ID for tracking
     """
-    # Generate a task ID
-    task_id = f"collect_{int(time.time())}"
+    task_id = str(uuid.uuid4())
     
-    # Run the collection task in the background
-    asyncio.create_task(collect_data_async(
-        task_id=task_id,
-        topic=topic,
-        sources=sources,
-        keywords=keywords,
-        max_items_per_source=max_items_per_source,
-        send_notification=send_notification,
-        notification_url=notification_url
-    ))
+    async def _run_async():
+        return await collect_data_async(
+            task_id,
+            topic,
+            sources,
+            keywords,
+            max_items_per_source,
+            send_notification,
+            notification_url,
+            notification_user_id,
+            notification_method
+        )
+    
+    # Run in an event loop
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            # Create a new task if we're already in an event loop
+            future = asyncio.ensure_future(_run_async())
+            asyncio.create_task(future)
+        else:
+            # Run the coroutine until complete
+            loop.run_until_complete(_run_async())
+    except RuntimeError:
+        # No event loop, create a new one
+        asyncio.run(_run_async())
     
     return task_id
 
-async def send_notification_async(url: str, title: str, message: str, task_id: str) -> None:
+async def send_notification_async(
+    url_or_user_id: str, 
+    title: str, 
+    message: str, 
+    task_id: str,
+    notification_method: str = None
+) -> None:
     """
     Send an asynchronous notification.
     
     Args:
-        url: The URL to send the notification to
+        url_or_user_id: The URL to send the notification to or user ID for DM
         title: Notification title
         message: Notification message
         task_id: Task ID for reference
+        notification_method: Which notification method to use (webhook or bot_dm)
     """
-    if not NOTIFICATION_AVAILABLE:
-        logger.warning("Notification packages not available (aiohttp, requests)")
+    if not NOTIFICATION_AVAILABLE and notification_method != NotificationMethod.BOT_DM:
+        logger.warning("Webhook notification packages not available (aiohttp, requests)")
         return
+        
+    # Determine notification method if not specified
+    if notification_method is None:
+        if "discord.com/api/webhooks" in url_or_user_id:
+            notification_method = NotificationMethod.WEBHOOK
+        elif DISCORD_DM_AVAILABLE and url_or_user_id.isdigit():
+            notification_method = NotificationMethod.BOT_DM
+        else:
+            notification_method = DEFAULT_NOTIFICATION_METHOD
+    
+    # Discord direct message via bot
+    if notification_method == NotificationMethod.BOT_DM and DISCORD_BOT_AVAILABLE:
+        # Use the Discord bot to send a DM
+        user_id = url_or_user_id
+        
+        # If no user ID provided, use the default
+        if not user_id and DEFAULT_DISCORD_USER_ID:
+            user_id = DEFAULT_DISCORD_USER_ID
+            
+        if not user_id:
+            logger.error("No Discord user ID provided for direct message")
+            return
+            
+        # Get an instance of the Discord notifier
+        notifier = DiscordNotifier.get_instance(DISCORD_BOT_TOKEN)
+        
+        # Send the DM
+        success = await notifier.send_dm_async(user_id, title, message, task_id)
+        if not success:
+            logger.error(f"Failed to send Discord DM to user {user_id}")
     
     # Discord webhook format
-    if "discord" in url.lower():
+    elif notification_method == NotificationMethod.WEBHOOK and "discord" in url_or_user_id.lower():
         payload = {
             "content": None,
             "embeds": [
@@ -383,12 +477,12 @@ async def send_notification_async(url: str, title: str, message: str, task_id: s
         }
         
         async with aiohttp.ClientSession() as session:
-            async with session.post(url, json=payload) as response:
+            async with session.post(url_or_user_id, json=payload) as response:
                 if response.status != 204:
-                    logger.error(f"Error sending Discord notification: {response.status}")
+                    logger.error(f"Error sending Discord webhook notification: {response.status}")
     
     # Generic webhook
-    else:
+    elif notification_method == NotificationMethod.WEBHOOK:
         payload = {
             "title": title,
             "message": message,
@@ -397,26 +491,63 @@ async def send_notification_async(url: str, title: str, message: str, task_id: s
         }
         
         async with aiohttp.ClientSession() as session:
-            async with session.post(url, json=payload) as response:
+            async with session.post(url_or_user_id, json=payload) as response:
                 if response.status not in (200, 201, 202, 204):
                     logger.error(f"Error sending notification: {response.status}")
 
-def send_notification(url: str, title: str, message: str, task_id: str) -> None:
+def send_notification(
+    url_or_user_id: str, 
+    title: str, 
+    message: str, 
+    task_id: str,
+    notification_method: str = None
+) -> None:
     """
     Send a synchronous notification.
     
     Args:
-        url: The URL to send the notification to
+        url_or_user_id: The URL to send the notification to or user ID for DM
         title: Notification title
         message: Notification message
         task_id: Task ID for reference
+        notification_method: Which notification method to use (webhook or bot_dm)
     """
-    if not NOTIFICATION_AVAILABLE:
-        logger.warning("Notification packages not available (requests)")
+    if not NOTIFICATION_AVAILABLE and notification_method != NotificationMethod.BOT_DM:
+        logger.warning("Webhook notification packages not available (requests)")
         return
     
+    # Determine notification method if not specified
+    if notification_method is None:
+        if "discord.com/api/webhooks" in url_or_user_id:
+            notification_method = NotificationMethod.WEBHOOK
+        elif DISCORD_DM_AVAILABLE and url_or_user_id.isdigit():
+            notification_method = NotificationMethod.BOT_DM
+        else:
+            notification_method = DEFAULT_NOTIFICATION_METHOD
+    
+    # Discord direct message via bot
+    if notification_method == NotificationMethod.BOT_DM and DISCORD_BOT_AVAILABLE:
+        # Use the Discord bot to send a DM
+        user_id = url_or_user_id
+        
+        # If no user ID provided, use the default
+        if not user_id and DEFAULT_DISCORD_USER_ID:
+            user_id = DEFAULT_DISCORD_USER_ID
+            
+        if not user_id:
+            logger.error("No Discord user ID provided for direct message")
+            return
+            
+        # Get an instance of the Discord notifier
+        notifier = DiscordNotifier.get_instance(DISCORD_BOT_TOKEN)
+        
+        # Send the DM
+        success = notifier.send_dm(user_id, title, message, task_id)
+        if not success:
+            logger.error(f"Failed to send Discord DM to user {user_id}")
+    
     # Discord webhook format
-    if "discord" in url.lower():
+    elif notification_method == NotificationMethod.WEBHOOK and "discord" in url_or_user_id.lower():
         payload = {
             "content": None,
             "embeds": [
@@ -432,12 +563,12 @@ def send_notification(url: str, title: str, message: str, task_id: str) -> None:
             ]
         }
         
-        response = requests.post(url, json=payload)
+        response = requests.post(url_or_user_id, json=payload)
         if response.status_code != 204:
-            logger.error(f"Error sending Discord notification: {response.status_code}")
+            logger.error(f"Error sending Discord webhook notification: {response.status_code}")
     
     # Generic webhook
-    else:
+    elif notification_method == NotificationMethod.WEBHOOK:
         payload = {
             "title": title,
             "message": message,
@@ -445,7 +576,7 @@ def send_notification(url: str, title: str, message: str, task_id: str) -> None:
             "timestamp": datetime.now().isoformat()
         }
         
-        response = requests.post(url, json=payload)
+        response = requests.post(url_or_user_id, json=payload)
         if response.status_code not in (200, 201, 202, 204):
             logger.error(f"Error sending notification: {response.status_code}")
 
