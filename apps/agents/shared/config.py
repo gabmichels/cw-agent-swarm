@@ -24,6 +24,13 @@ ENABLE_AUTO_NOTIFICATIONS = bool(int(os.getenv("ENABLE_AUTO_NOTIFICATIONS", "0")
 DEV_MODE = bool(int(os.getenv("DEV_MODE", "0")))
 MOCK_DATA_COLLECTION = bool(int(os.getenv("MOCK_DATA_COLLECTION", "0")))
 
+# Coda Integration settings
+CODA_API_TOKEN = os.getenv("CODA_API_KEY")
+CODA_REFLECTION_DOC_ID = os.getenv("CODA_DOC_ID")
+CODA_REFLECTION_TABLE_ID = os.getenv("CODA_REFLECTION_TABLE_ID")
+CODA_WEEKLY_REFLECTION_BLOCK_ID = os.getenv("CODA_WEEKLY_REFLECTION_BLOCK_ID")
+CODA_AVAILABLE = bool(CODA_API_TOKEN and CODA_REFLECTION_DOC_ID and CODA_REFLECTION_TABLE_ID)
+
 # Notification phrases that indicate intent to notify
 NOTIFICATION_PHRASES: List[str] = [
     "i'll notify you",

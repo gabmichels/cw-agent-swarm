@@ -578,34 +578,38 @@ def get_recent_important_memories(days: int = 30):
 
 @tool
 def run_reflection():
-    """Run a reflection on recent memories to extract insights."""
-    try:
-        from apps.agents.shared.memory.reflection import reflection_system
-        
-        # Run an analysis reflection
-        reflection = reflection_system.analyze_memories(
-            memory_limit=20,
-            reflection_prompt="What are the key patterns and insights from recent activities?"
-        )
-        
-        return f"✅ Reflection completed! Here's what I learned:\n\n{reflection['content'][:500]}..."
-    except Exception as e:
-        return f"❌ Unable to run reflection: {str(e)}"
+    """
+    Run an end-of-day reflection process, thinking about what you learned and achieved.
+    
+    This is useful when you want to gather your thoughts at the end of a day or work session.
+    It helps consolidate lessons learned and insights gained.
+    
+    Returns:
+        String confirming that reflection was initiated
+    """
+    return "Please share your reflections on what you've learned, what went well, and what could be improved. I'll help organize your thoughts and record them."
 
 @tool
 def get_weekly_reflection():
-    """Get the latest weekly reflection."""
+    """
+    Get the latest weekly reflection to review progress and plan ahead.
+    
+    This is useful for understanding recent achievements and planning for the coming week.
+    
+    Returns:
+        String with the latest weekly reflection or instructions to create one
+    """
     try:
-        from apps.agents.shared.memory.reflection import reflection_system
+        from apps.agents.shared.tools.reflection_tool import search_reflections
         
-        latest_reflections = reflection_system.get_latest_reflections(1)
-        if not latest_reflections:
-            return "No reflections available yet. Use the run_reflection tool to create one."
-            
-        reflection = latest_reflections[0]
-        return f"📝 Latest reflection ({reflection['created_at']}):\n\n{reflection['content']}"
-    except Exception as e:
-        return f"❌ Unable to retrieve weekly reflection: {str(e)}"
+        result = search_reflections("weekly", limit=1)
+        if result["success"] and result.get("count", 0) > 0:
+            reflection = result["reflections"][0]
+            return f"# {reflection.get('title', 'Weekly Reflection')}\n\n{reflection.get('content', 'No content available.')}"
+        else:
+            return "No weekly reflection found. You can create one with create_weekly_reflection()."
+    except ImportError:
+        return "Reflection tools not available. Please check your installation."
 
 # == Perception Tools for External Data Awareness ==
 
@@ -976,3 +980,464 @@ def suggest_idle_activity():
     result += f"Last performed: {last_execution}"
     
     return result 
+
+def publish_reflection(topic: str, reflection_content: str, metadata: dict = None) -> dict:
+    """
+    Publish a reflection to Coda. This is a low-level function that expects pre-formatted content.
+    
+    Args:
+        topic: The topic of reflection
+        reflection_content: The content of the reflection in markdown format
+        metadata: Additional metadata for the reflection
+    
+    Returns:
+        Dictionary with success status and message
+    """
+    if metadata is None:
+        metadata = {}
+    
+    # Set title in metadata
+    if "title" not in metadata:
+        metadata["title"] = topic
+    
+    try:
+        from apps.agents.shared.tools.reflection_tool import create_reflection
+        
+        result = create_reflection(
+            content=reflection_content,
+            title=metadata.get("title"),
+            reflection_type=metadata.get("type", "general"),
+            tags=metadata.get("tags", []),
+            importance=metadata.get("importance", "medium"),
+            publish_to_coda=True
+        )
+        
+        return {
+            "success": result["success"],
+            "message": f"Reflection published: {result['title']}",
+            "details": result
+        }
+    except ImportError:
+        try:
+            # Fallback to old method
+            from apps.agents.shared.tools.coda_reflection_tool import publish_reflection_to_coda, CODA_AVAILABLE
+            
+            if not CODA_AVAILABLE:
+                return {
+                    "success": False,
+                    "message": "Coda integration is not available. Please check environment variables for CODA_API_TOKEN, CODA_REFLECTION_DOC_ID, and CODA_REFLECTION_TABLE_ID."
+                }
+            
+            result = publish_reflection_to_coda(reflection_content, metadata)
+            
+            return {
+                "success": result["success"],
+                "message": result.get("message", "Error publishing reflection"),
+                "details": result
+            }
+        except ImportError:
+            return {
+                "success": False,
+                "message": "Failed to import reflection tools. Please check your installation."
+            }
+
+def get_recent_reflections(limit: int = 5) -> dict:
+    """
+    Retrieve recent reflections from Coda or local storage.
+    
+    Args:
+        limit: Maximum number of reflections to return
+    
+    Returns:
+        Dictionary with reflections data
+    """
+    try:
+        from apps.agents.shared.tools.reflection_tool import get_recent_reflections as get_reflections
+        
+        return get_reflections(limit)
+    except ImportError:
+        try:
+            # Fallback to old method
+            from apps.agents.shared.tools.coda_reflection_tool import get_recent_reflections_from_coda, CODA_AVAILABLE
+            
+            if not CODA_AVAILABLE:
+                return {
+                    "success": False,
+                    "message": "Coda integration is not available. Please check environment variables for CODA_API_TOKEN, CODA_REFLECTION_DOC_ID, and CODA_REFLECTION_TABLE_ID.",
+                    "reflections": []
+                }
+            
+            return get_recent_reflections_from_coda(limit)
+        except ImportError:
+            return {
+                "success": False,
+                "message": "Failed to import reflection tools. Please check your installation.",
+                "reflections": []
+            }
+
+def search_reflections(query: str, limit: int = 10) -> dict:
+    """
+    Search for reflections in Coda or local storage containing the query string.
+    
+    Args:
+        query: The search query
+        limit: Maximum number of reflections to return
+    
+    Returns:
+        Dictionary with matching reflections
+    """
+    try:
+        from apps.agents.shared.tools.reflection_tool import search_reflections as search
+        
+        return search(query, limit)
+    except ImportError:
+        try:
+            # Fallback to old method
+            from apps.agents.shared.tools.coda_reflection_tool import search_reflections_in_coda, CODA_AVAILABLE
+            
+            if not CODA_AVAILABLE:
+                return {
+                    "success": False,
+                    "message": "Coda integration is not available. Please check environment variables for CODA_API_TOKEN, CODA_REFLECTION_DOC_ID, and CODA_REFLECTION_TABLE_ID.",
+                    "reflections": []
+                }
+            
+            return search_reflections_in_coda(query, limit)
+        except ImportError:
+            return {
+                "success": False,
+                "message": "Failed to import reflection tools. Please check your installation.",
+                "reflections": []
+            } 
+
+@tool
+def create_reflection(content: str, title: str = "", tags: str = "", importance: str = "medium") -> dict:
+    """
+    Create and store a new reflection with optional publishing to Coda.
+    
+    This tool helps you document your thoughts, insights, and learnings in a structured way.
+    Reflections are stored locally and optionally published to Coda if configured.
+    
+    Args:
+        content: The reflection content (markdown text)
+        title: Optional title for the reflection (if empty, will be generated from content)
+        tags: Comma-separated list of tags for categorizing the reflection
+        importance: Importance level ("low", "medium", "high")
+    
+    Returns:
+        Dictionary with reflection details and publishing status
+    """
+    try:
+        from apps.agents.shared.tools.reflection_tool import create_reflection as create
+        
+        # Parse tags
+        tag_list = []
+        if tags:
+            tag_list = [tag.strip() for tag in tags.split(",") if tag.strip()]
+        
+        result = create(
+            content=content,
+            title=title if title else None,
+            reflection_type="general",
+            tags=tag_list,
+            importance=importance,
+            publish_to_coda=True
+        )
+        
+        return {
+            "success": result["success"],
+            "title": result["title"],
+            "message": f"Reflection created: {result['title']}",
+            "details": {
+                "reflection_id": result.get("reflection_id", ""),
+                "filepath": result.get("filepath", ""),
+                "coda_published": result.get("coda_publishing", {}).get("success", False)
+            }
+        }
+    except ImportError:
+        return {
+            "success": False,
+            "message": "Reflection tools not available. Please check your installation."
+        }
+
+@tool
+def create_weekly_reflection(content: str, title: str = "", additional_tags: str = "") -> dict:
+    """
+    Create a weekly reflection summarizing progress, insights, and plans.
+    
+    Weekly reflections are a special type of reflection with higher importance and
+    specific formatting. They help track progress over time and plan for the future.
+    
+    Args:
+        content: The reflection content (markdown text)
+        title: Optional title for the reflection (if empty, a standard weekly title will be generated)
+        additional_tags: Comma-separated list of additional tags beyond the automatic "weekly" tag
+    
+    Returns:
+        Dictionary with reflection details and publishing status
+    """
+    try:
+        from apps.agents.shared.tools.reflection_tool import create_weekly_reflection as create_weekly
+        
+        # Parse additional tags
+        tag_list = []
+        if additional_tags:
+            tag_list = [tag.strip() for tag in additional_tags.split(",") if tag.strip()]
+        
+        result = create_weekly(
+            content=content,
+            title=title if title else None,
+            tags=tag_list,
+            publish_to_coda=True
+        )
+        
+        return {
+            "success": result["success"],
+            "title": result["title"],
+            "message": f"Weekly reflection created: {result['title']}",
+            "details": {
+                "reflection_id": result.get("reflection_id", ""),
+                "filepath": result.get("filepath", ""),
+                "coda_published": result.get("coda_publishing", {}).get("success", False)
+            }
+        }
+    except ImportError:
+        return {
+            "success": False,
+            "message": "Reflection tools not available. Please check your installation."
+        } 
+
+@tool
+def create_document(title: str, content: str, doc_type: str = "general") -> Dict[str, Any]:
+    """
+    Create a new document in Coda with structured content.
+    
+    This tool creates a new document with the specified title and content.
+    The document can be a general document or a specific type like marketing goals.
+    
+    Args:
+        title: The title of the document
+        content: The content to include in the document (markdown supported)
+        doc_type: The type of document (e.g., "general", "marketing_goals", "roadmap")
+        
+    Returns:
+        Dictionary with document creation status and URL
+    """
+    try:
+        from apps.agents.shared.tools.document_generation import (
+            create_general_document,
+            create_marketing_goals_document,
+            parse_document_sections,
+            parse_marketing_content
+        )
+        from apps.agents.shared.config import CODA_AVAILABLE
+        
+        if not CODA_AVAILABLE:
+            return {
+                "success": False,
+                "message": "Coda integration is not available. Please check environment variables."
+            }
+            
+        # Process based on document type
+        if doc_type.lower() == "marketing_goals":
+            # Parse marketing content
+            year = datetime.now().year
+            goals, strategies, metrics, timeline = parse_marketing_content(content)
+            
+            # Create marketing goals document
+            result = create_marketing_goals_document(
+                title,
+                year,
+                goals,
+                strategies,
+                metrics,
+                timeline
+            )
+        else:
+            # Create general document
+            sections = parse_document_sections(content)
+            result = create_general_document(title, sections)
+            
+        if result["success"]:
+            return {
+                "success": True,
+                "message": f"Document '{title}' created successfully",
+                "url": result.get("browser_link") or result.get("url", ""),
+                "doc_id": result.get("doc_id", "")
+            }
+        else:
+            return {
+                "success": False,
+                "message": result.get("error", "Failed to create document")
+            }
+    except Exception as e:
+        return {
+            "success": False,
+            "message": f"Error creating document: {str(e)}"
+        }
+
+@tool
+def update_document(doc_id: str, content: str, section: str = "", append: bool = True) -> Dict[str, Any]:
+    """
+    Update an existing document in Coda.
+    
+    This tool updates a specific section of an existing document or adds new content.
+    The document is identified by its document ID.
+    
+    Args:
+        doc_id: The ID of the document to update (e.g., "doc-abc123")
+        content: The content to add or update (markdown supported)
+        section: The section to update (leave empty to add at the end)
+        append: Whether to append to existing content (True) or replace it (False)
+        
+    Returns:
+        Dictionary with update status
+    """
+    try:
+        from apps.agents.shared.tools.document_generation import update_document_section
+        from apps.agents.shared.config import CODA_AVAILABLE
+        
+        if not CODA_AVAILABLE:
+            return {
+                "success": False,
+                "message": "Coda integration is not available. Please check environment variables."
+            }
+            
+        # Default section name if not provided
+        if not section:
+            section = "Updates"
+            
+        # Update the document
+        result = update_document_section(doc_id, section, content, append)
+        
+        if result["success"]:
+            return {
+                "success": True,
+                "message": f"Document {doc_id} updated successfully in section '{section}'",
+                "action": result.get("action", "updated")
+            }
+        else:
+            return {
+                "success": False,
+                "message": result.get("error", "Failed to update document")
+            }
+    except Exception as e:
+        return {
+            "success": False,
+            "message": f"Error updating document: {str(e)}"
+        }
+
+@tool
+def process_document_request(user_message: str, generated_content: str) -> Dict[str, Any]:
+    """
+    Process a document request from the user, creating or updating a document as appropriate.
+    
+    This tool analyzes the user's message to determine whether to create a new document
+    or update an existing one, and handles the request accordingly.
+    
+    Args:
+        user_message: The user's original message requesting document creation/update
+        generated_content: The content you've generated for the document
+        
+    Returns:
+        Dictionary with operation status and details
+    """
+    try:
+        from apps.agents.shared.tools.document_generation import (
+            process_document_request as process_request,
+            extract_coda_doc_id
+        )
+        from apps.agents.shared.config import CODA_AVAILABLE
+        
+        if not CODA_AVAILABLE:
+            return {
+                "success": False,
+                "message": "Coda integration is not available. Please check environment variables."
+            }
+            
+        # Process the document request
+        result = process_request(user_message, generated_content)
+        
+        if result["success"]:
+            # Check what action was performed
+            if result.get("action") == "updated":
+                return {
+                    "success": True,
+                    "message": f"Updated document {result['doc_id']} in section '{result['section']}'",
+                    "doc_id": result.get("doc_id", ""),
+                    "action": "updated"
+                }
+            else:
+                return {
+                    "success": True,
+                    "message": f"Created new document: {result.get('title', '')}",
+                    "url": result.get("browser_link") or result.get("url", ""),
+                    "doc_id": result.get("doc_id", ""),
+                    "action": "created"
+                }
+        else:
+            return {
+                "success": False,
+                "message": result.get("error", "Failed to process document request")
+            }
+    except Exception as e:
+        return {
+            "success": False,
+            "message": f"Error processing document request: {str(e)}"
+        }
+
+@tool
+def list_coda_documents(limit: int = 10) -> Dict[str, Any]:
+    """
+    List available Coda documents.
+    
+    This tool retrieves a list of documents available in the Coda workspace.
+    
+    Args:
+        limit: Maximum number of documents to return
+        
+    Returns:
+        Dictionary with list of documents
+    """
+    try:
+        from apps.agents.shared.tools.coda_client import CodaClient
+        from apps.agents.shared.config import CODA_AVAILABLE
+        
+        if not CODA_AVAILABLE:
+            return {
+                "success": False,
+                "message": "Coda integration is not available. Please check environment variables."
+            }
+            
+        # List documents
+        client = CodaClient()
+        documents = client.list_documents(limit=limit)
+        
+        if documents:
+            doc_list = []
+            for doc in documents:
+                doc_list.append({
+                    "title": doc.get("name", "Untitled"),
+                    "id": doc.get("id", ""),
+                    "url": doc.get("browserLink", ""),
+                    "last_modified": doc.get("modifiedAt", "")
+                })
+                
+            return {
+                "success": True,
+                "documents": doc_list,
+                "count": len(doc_list),
+                "message": f"Found {len(doc_list)} documents"
+            }
+        else:
+            return {
+                "success": True,
+                "documents": [],
+                "count": 0,
+                "message": "No documents found"
+            }
+    except Exception as e:
+        return {
+            "success": False,
+            "message": f"Error listing documents: {str(e)}"
+        } 
