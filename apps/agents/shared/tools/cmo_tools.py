@@ -51,6 +51,19 @@ from ..perception.news_monitor import get_combined_news, get_trending_topics
 from ..tools.perception_tools import PerceptionTools
 from ..memory.interaction_log import get_last_ai_message, log_ai_message, log_user_message
 
+# Import the autonomy package
+from apps.agents.shared.autonomy import (
+    run_behavior_loop,
+    LoopExecutionMode,
+    get_recent_behavior_logs,
+    get_todays_behaviors,
+    get_full_rhythm_map,
+    prioritize_tasks,
+    get_highest_priority_task,
+    choose_idle_activity,
+    get_idle_activity_history
+)
+
 # Initialize logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -790,5 +803,176 @@ def research_and_analyze(
         response_message=response_message,
         notification_method=notification_method
     )
+    
+    return result 
+
+# == New Autonomy Tools ==
+
+@tool
+def run_daily_routine(mode: str = "simulation"):
+    """
+    Run Chloe's daily autonomous behavior routine.
+    
+    Args:
+        mode: Execution mode - "simulation" (default, just shows what would happen), 
+              "automatic" (runs actions automatically), or "approval" (asks for approval)
+    
+    Returns:
+        Results of the behavior loop execution
+    """
+    execution_mode = {
+        "simulation": LoopExecutionMode.SIMULATION,
+        "automatic": LoopExecutionMode.AUTOMATIC,
+        "approval": LoopExecutionMode.APPROVAL
+    }.get(mode.lower(), LoopExecutionMode.SIMULATION)
+    
+    result = run_behavior_loop(execution_mode)
+    
+    # Format the result for display
+    action_type = result["action"]
+    
+    if action_type == "task":
+        return (f"I executed task: {result.get('task_title')}\n"
+                f"Priority score: {result.get('priority_score', 0):.2f}\n"
+                f"Execution time: {result.get('execution_time', 0):.2f} seconds")
+    
+    elif action_type == "idle":
+        return (f"I performed idle activity: {result.get('activity')}\n"
+                f"Description: {result.get('description')}\n"
+                f"Execution time: {result.get('execution_time', 0):.2f} seconds")
+    
+    elif action_type == "escalation":
+        return (f"I escalated to human: {result.get('reason')}\n" 
+                f"Execution time: {result.get('execution_time', 0):.2f} seconds")
+    
+    else:
+        return f"No action taken: {result.get('reason')}"
+
+@tool
+def get_daily_rhythm():
+    """
+    Get Chloe's daily rhythm map showing planned behaviors for each day of the week.
+    
+    Returns:
+        Formatted daily rhythm information
+    """
+    rhythm_map = get_full_rhythm_map()
+    
+    result = "## Chloe's Daily Rhythm Map\n\n"
+    
+    for day, behaviors in rhythm_map.items():
+        result += f"### {day}\n"
+        
+        for behavior in behaviors:
+            result += f"- **{behavior['name']}** ({behavior['priority']}): {behavior['description']}\n"
+        
+        result += "\n"
+    
+    # Add today's behaviors
+    today = datetime.datetime.now().strftime("%A")
+    today_behaviors = get_todays_behaviors()
+    
+    result += f"## Today's Behaviors ({today})\n\n"
+    
+    for behavior in today_behaviors:
+        result += f"- **{behavior.name}** ({behavior.priority.name}): {behavior.description}\n"
+    
+    return result
+
+@tool
+def get_prioritized_tasks(limit: int = 5):
+    """
+    Get a list of Chloe's prioritized tasks based on urgency, importance, and daily rhythm.
+    
+    Args:
+        limit: Maximum number of tasks to return
+        
+    Returns:
+        Formatted list of prioritized tasks
+    """
+    tasks = prioritize_tasks(limit=limit)
+    
+    if not tasks:
+        return "No tasks available to prioritize."
+    
+    result = "## Prioritized Tasks\n\n"
+    
+    for i, task in enumerate(tasks):
+        result += f"### {i+1}. {task.get('title', 'Untitled')}\n"
+        result += f"- **Priority**: {task.get('priority', 'medium')}\n"
+        result += f"- **Score**: {task.get('_priority_score', 0):.2f}\n"
+        result += f"- **Status**: {task.get('status', 'unknown')}\n"
+        
+        if task.get('deadline'):
+            result += f"- **Deadline**: {task.get('deadline')}\n"
+        
+        result += f"\n{task.get('description', 'No description')}\n\n"
+    
+    return result
+
+@tool
+def get_autonomous_activity_history(limit: int = 10):
+    """
+    Get the history of Chloe's autonomous activities.
+    
+    Args:
+        limit: Maximum number of activities to return
+        
+    Returns:
+        Formatted history of autonomous activities
+    """
+    logs = get_recent_behavior_logs(limit=limit)
+    
+    if not logs:
+        return "No autonomous activity history available."
+    
+    result = "## Autonomous Activity History\n\n"
+    
+    for log in logs:
+        timestamp = log.get("timestamp", "")
+        
+        try:
+            dt = datetime.datetime.fromisoformat(timestamp)
+            formatted_time = dt.strftime("%Y-%m-%d %H:%M:%S")
+        except (ValueError, TypeError):
+            formatted_time = timestamp
+            
+        action_type = log.get("action_type", "unknown")
+        action_name = log.get("action_name", "unnamed")
+        
+        result += f"### {formatted_time} - {action_type.title()}: {action_name}\n"
+        
+        details = log.get("details", {})
+        for key, value in details.items():
+            if key != "mode":  # Skip mode for cleaner output
+                result += f"- **{key}**: {value}\n"
+        
+        result += "\n"
+    
+    return result
+
+@tool
+def suggest_idle_activity():
+    """
+    Suggest an idle activity for Chloe to perform during downtime.
+    
+    Returns:
+        Information about a suggested idle activity
+    """
+    activity = choose_idle_activity()
+    
+    if not activity:
+        return "No idle activities available at this time."
+    
+    result = f"## Suggested Activity: {activity.name}\n\n"
+    result += f"{activity.description}\n\n"
+    result += f"Function: {activity.function_name}\n"
+    result += f"Cooldown: {activity.cooldown_hours} hours\n\n"
+    
+    # Show history
+    history = get_idle_activity_history()
+    last_execution = history.get(activity.function_name, "Never")
+    
+    result += f"Last performed: {last_execution}"
     
     return result 

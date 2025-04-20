@@ -55,6 +55,13 @@ tools = [
     cmo_tools.get_recent_important_memories,
     cmo_tools.run_reflection,
     cmo_tools.get_weekly_reflection,
+    
+    # Autonomy and daily rhythm tools
+    cmo_tools.run_daily_routine,
+    cmo_tools.get_daily_rhythm,
+    cmo_tools.get_prioritized_tasks,
+    cmo_tools.get_autonomous_activity_history,
+    cmo_tools.suggest_idle_activity,
 ]
 
 # Get the appropriate LLM for marketing tasks
@@ -249,8 +256,8 @@ def run_agent_loop(prompt_str: str) -> str:
             # Add user message to in-memory chat history (for this session)
             print("DEBUG: Adding user message to in-memory chat history")
             chat_history.append(HumanMessage(content=prompt_str))
-            
-            # Invoke agent with chat history
+    
+    # Invoke agent with chat history
             print("DEBUG: Invoking agent executor")
             
             # If we have a tool chain configuration, add it to the input
@@ -378,9 +385,9 @@ def run_agent_loop(prompt_str: str) -> str:
                     fallback_executor = AgentExecutor(agent=fallback_agent, tools=tools, verbose=True)
                     fallback_response = fallback_executor.invoke({
                         "input": prompt_str,
-                        "chat_history": chat_history
-                    })
-                    
+        "chat_history": chat_history
+    })
+    
                     # Log which model was used
                     print("DEBUG: Logging fallback model response")
                     log_model_response(fallback_response)

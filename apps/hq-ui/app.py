@@ -9,9 +9,22 @@ from pathlib import Path
 from apps.agents.departments.marketing.cmo_executor import run_agent_loop
 from apps.agents.shared.tools.memory_loader import retrieve_similar_chats
 from apps.agents.shared.memory.reflection import reflection_system
+from apps.agents.shared.autonomy.behavior_loop import run_behavior_loop, LoopExecutionMode
 
 # === Layout + Config ===
 st.set_page_config(page_title="Crowd Wisdom HQ", layout="wide")
+
+# === Initialize Session State ===
+if 'current_view' not in st.session_state:
+    st.session_state.current_view = 'chat'
+if 'resource_title' not in st.session_state:
+    st.session_state.resource_title = ''
+if 'resource_content' not in st.session_state:
+    st.session_state.resource_content = ''
+if 'resource_type' not in st.session_state:
+    st.session_state.resource_type = ''
+if 'scroll_to_bottom' not in st.session_state:
+    st.session_state.scroll_to_bottom = False
 
 # === Custom CSS ===
 st.markdown("""
@@ -186,6 +199,32 @@ st.markdown("""
             opacity: 0.4;
         }
     }
+    
+    /* Floating scroll to bottom button */
+    .scroll-to-bottom-btn {
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        width: 50px;
+        height: 50px;
+        border-radius: 50%;
+        background-color: #4CAF50;
+        color: white;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        cursor: pointer;
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+        z-index: 9999;
+        font-size: 24px;
+        opacity: 0.8;
+        transition: opacity 0.3s, transform 0.3s;
+    }
+    
+    .scroll-to-bottom-btn:hover {
+        opacity: 1;
+        transform: scale(1.05);
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -213,6 +252,119 @@ if chat_file.exists():
 else:
     chat_history = []
 
+# Function to switch to chat view
+def switch_to_chat():
+    st.session_state.current_view = 'chat'
+    st.session_state.resource_title = ''
+    st.session_state.resource_content = ''
+    st.session_state.resource_type = ''
+
+# === Add Dropdown Menu for Actions and File Access ===
+st.sidebar.markdown("---")
+st.sidebar.markdown("### 🔧 Actions & Resources")
+
+# Create the dropdown menu for actions and file resources
+action_option = st.sidebar.selectbox(
+    "Select Action or Resource",
+    [
+        "Select an action...",
+        "🚀 Run Daily Routine (Auto Mode)",
+        "🔎 Run Daily Routine (Simulation Mode)",
+        "👁️ View Reflections",
+        "📋 View Tasks",
+        "🧠 View Episodic Memory",
+        "🎯 View Marketing Goals"
+    ]
+)
+
+# Process the selected option
+if action_option == "🚀 Run Daily Routine (Auto Mode)":
+    if st.sidebar.button("Confirm Run"):
+        # Start automatic behavior loop
+        with st.spinner("Running Chloe's daily routine..."):
+            try:
+                result = run_behavior_loop(LoopExecutionMode.AUTOMATIC)
+                st.sidebar.success(f"Completed action: {result['action']}")
+                
+                if result['action'] == 'task':
+                    st.sidebar.info(f"Task: {result['task_title']}")
+                elif result['action'] == 'idle':
+                    st.sidebar.info(f"Idle activity: {result['activity']}")
+                elif result['action'] == 'escalation':
+                    st.sidebar.warning(f"Escalation reason: {result['reason']}")
+            except Exception as e:
+                st.sidebar.error(f"Error running routine: {str(e)}")
+
+elif action_option == "🔎 Run Daily Routine (Simulation Mode)":
+    if st.sidebar.button("Confirm Simulation"):
+        # Start simulation behavior loop
+        with st.spinner("Simulating Chloe's daily routine..."):
+            try:
+                result = run_behavior_loop(LoopExecutionMode.SIMULATION)
+                st.sidebar.success(f"Simulated action: {result['action']}")
+                
+                if result['action'] == 'task':
+                    st.sidebar.info(f"Task: {result['task_title']}")
+                elif result['action'] == 'idle':
+                    st.sidebar.info(f"Idle activity: {result['activity']}")
+                elif result['action'] == 'escalation':
+                    st.sidebar.warning(f"Escalation reason: {result['reason']}")
+            except Exception as e:
+                st.sidebar.error(f"Error simulating routine: {str(e)}")
+
+elif action_option == "👁️ View Reflections":
+    reflections_path = Path("apps/agents/shared/memory/reflections.json")
+    if reflections_path.exists():
+        if st.sidebar.button("Show Reflections"):
+            with open(reflections_path, "r") as f:
+                st.session_state.resource_title = "👁️ Reflections"
+                st.session_state.resource_content = json.load(f)
+                st.session_state.resource_type = 'json'
+                st.session_state.current_view = 'resource'
+    else:
+        st.sidebar.warning("Reflections file not found")
+
+elif action_option == "📋 View Tasks":
+    task_log_path = "apps/agents/shared/memory/task_log.md"
+    if Path(task_log_path).exists():
+        if st.sidebar.button("Show Tasks"):
+            with open(task_log_path, "r") as f:
+                st.session_state.resource_title = "📋 Task Log"
+                st.session_state.resource_content = f.read()
+                st.session_state.resource_type = 'markdown'
+                st.session_state.current_view = 'resource'
+    else:
+        st.sidebar.warning("Task log file not found")
+
+elif action_option == "🧠 View Episodic Memory":
+    memory_path = Path("apps/agents/shared/memory/episodic_memories.json")
+    if memory_path.exists():
+        if st.sidebar.button("Show Episodic Memory"):
+            with open(memory_path, "r") as f:
+                st.session_state.resource_title = "🧠 Episodic Memory"
+                st.session_state.resource_content = json.load(f)
+                st.session_state.resource_type = 'json'
+                st.session_state.current_view = 'resource'
+    else:
+        st.sidebar.warning("Episodic memory file not found")
+
+elif action_option == "🎯 View Marketing Goals":
+    goals_path = "apps/agents/shared/memory/marketing_goals.md"
+    if Path(goals_path).exists():
+        if st.sidebar.button("Show Marketing Goals"):
+            with open(goals_path, "r") as f:
+                st.session_state.resource_title = "🎯 Marketing Goals"
+                st.session_state.resource_content = f.read()
+                st.session_state.resource_type = 'markdown'
+                st.session_state.current_view = 'resource'
+    else:
+        st.sidebar.warning("Marketing goals file not found")
+
+# Back button for resource views
+if st.session_state.current_view == 'resource':
+    if st.sidebar.button("← Back to Chat", key="sidebar_back_button"):
+        switch_to_chat()
+
 # === Add Chat Input to Sidebar ===
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 💬 Chat with Chloe")
@@ -227,6 +379,9 @@ with st.sidebar.form(key="sidebar_chat_form", clear_on_submit=True):
 
 # === Process new messages ===
 if submitted and user_input.strip() != "":
+    # Switch back to chat view if in resource view
+    switch_to_chat()
+    
     # Add user message to session state immediately
     user_msg = {"role": "user", "message": user_input, "timestamp": datetime.now().isoformat()}
     chat_history.append(user_msg)
@@ -325,176 +480,184 @@ with main_container:
             highlights = retrieve_similar_chats("what important marketing actions happened recently?")[:300]        
             st.warning(highlights + "...")
 
-    # === Agent Files Row ===
-    st.markdown("### Agent Files")
-    file_col1, file_col2, file_col3, file_col4, file_col5 = st.columns(5)
-
-    with file_col1:
-        st.markdown("**Agent Files:**")
-
-    with file_col2:
-        reflections_path = Path("apps/agents/shared/memory/reflections.json")
-        if reflections_path.exists():
-            st.markdown("🧠 Reflections")
-            if st.button("View Reflections", key="view_reflections"):
-                with open(reflections_path, "r") as f:
-                    reflection_data = json.load(f)
-                    st.json(reflection_data)
-
-    with file_col3:
-        task_log_path = "apps/agents/shared/memory/task_log.md"
-        if Path(task_log_path).exists():
-            st.markdown("📋 Task Log")
-            if st.button("View Tasks", key="view_tasks"):
-                with open(task_log_path, "r") as f:
-                    st.markdown(f.read())
-        else:
-            st.markdown("📋 Task Log (not yet created)")
-
-    with file_col4:
-        goals_path = "apps/agents/shared/memory/marketing_goals.md"
-        if Path(goals_path).exists():
-            st.markdown("🎯 Marketing Goals")
-            if st.button("View Goals", key="view_goals"):
-                with open(goals_path, "r") as f:
-                    st.markdown(f.read())
-        else:
-            st.markdown("🎯 Marketing Goals (not yet created)")
+    # Conditional display based on current view
+    if st.session_state.current_view == 'resource':
+        # Display resource content
+        st.markdown(f"## {st.session_state.resource_title}")
         
-    with file_col5:
-        memory_path = Path("apps/agents/shared/memory/episodic_memories.json")
-        if memory_path.exists():
-            st.markdown("🧩 Episodic Memory")
-            if st.button("View Memories", key="view_memories"):
-                with open(memory_path, "r") as f:
-                    memory_data = json.load(f)
-                    st.json(memory_data)
-        else:
-            st.markdown("🧩 Episodic Memory (not yet created)")
-
-    # === Chat UI ===
-    st.markdown("## 💬 Conversation History")
-    
-    def format_timestamp(timestamp_str):
-        """Format a ISO timestamp string to a readable format."""
-        if not timestamp_str:
-            return ""
-        try:
-            from datetime import datetime
-            dt = datetime.fromisoformat(timestamp_str)
-            return dt.strftime("%b %d, %I:%M %p")
-        except:
-            return ""
-
-    # Determine which chat history to display
-    display_history = chat_history
-    show_loading_spinner = False
-    
-    # If we're processing a message, show the loading indicator
-    if hasattr(st.session_state, 'processing') and st.session_state.processing:
-        show_loading_spinner = True
+        # Add a back to chat button
+        if st.button("← Back to Chat", key="main_back_button"):
+            switch_to_chat()
+            st.rerun()
         
-    # Add auto-scroll to bottom JS
-    st.markdown("""
-    <script>
-    // Auto-scroll function
-    function scrollToBottom() {
-        const chatArea = document.querySelector('.chat-messages');
-        if (chatArea) {
-            chatArea.scrollTop = chatArea.scrollHeight;
+        # Display the correct content type
+        if st.session_state.resource_type == 'markdown':
+            st.markdown(st.session_state.resource_content)
+        elif st.session_state.resource_type == 'json':
+            st.json(st.session_state.resource_content)
+        else:
+            st.text(str(st.session_state.resource_content))
+    else:
+        # === Chat UI ===
+        st.markdown("## 💬 Conversation History")
+        
+        def format_timestamp(timestamp_str):
+            """Format a ISO timestamp string to a readable format."""
+            if not timestamp_str:
+                return ""
+            try:
+                from datetime import datetime
+                dt = datetime.fromisoformat(timestamp_str)
+                return dt.strftime("%b %d, %I:%M %p")
+            except:
+                return ""
+
+        # Determine which chat history to display
+        display_history = chat_history
+        show_loading_spinner = False
+        
+        # If we're processing a message, show the loading indicator
+        if hasattr(st.session_state, 'processing') and st.session_state.processing:
+            show_loading_spinner = True
+            
+        # Add auto-scroll to bottom JS
+        st.markdown("""
+        <script>
+        // Auto-scroll function
+        function scrollToBottom() {
+            const chatArea = document.querySelector('.chat-messages');
+            if (chatArea) {
+                chatArea.scrollTop = chatArea.scrollHeight;
+            }
         }
-    }
-    
-    // Call on load and after content changes
-    window.addEventListener('load', scrollToBottom);
-    const observer = new MutationObserver(scrollToBottom);
-    observer.observe(document.body, { childList: true, subtree: true });
-    </script>
-    """, unsafe_allow_html=True)
+        
+        // Call on load and after content changes
+        window.addEventListener('load', scrollToBottom);
+        const observer = new MutationObserver(scrollToBottom);
+        observer.observe(document.body, { childList: true, subtree: true });
+        </script>
+        """, unsafe_allow_html=True)
 
-    # Chat messages in scrollable container
-    st.markdown('<div class="chat-messages">', unsafe_allow_html=True)
-    for msg in display_history:
-        if msg["role"] == "user":
-            st.markdown(f'''
-            <div class="user-bubble">
-                <div class="message-sender">
-                    <span>🧠 You</span>
-                    <span class="timestamp">{format_timestamp(msg.get("timestamp", ""))}</span>
+        # Chat messages in scrollable container
+        st.markdown('<div class="chat-messages">', unsafe_allow_html=True)
+        for msg in display_history:
+            if msg["role"] == "user":
+                st.markdown(f'''
+                <div class="user-bubble">
+                    <div class="message-sender">
+                        <span>🧠 You</span>
+                        <span class="timestamp">{format_timestamp(msg.get("timestamp", ""))}</span>
+                    </div>
+                    {msg["message"]}
                 </div>
-                {msg["message"]}
-            </div>
-            ''', unsafe_allow_html=True)
-        else:
-            # Get metadata if available
-            metadata = msg.get("metadata", {})
-            task_type = metadata.get("task_type", "default")
-            model = metadata.get("model", "unknown")
-            timestamp = metadata.get("timestamp", "")
-            
-            # Set default display text for error cases
-            if task_type in ["error", "critical_error"]:
-                badge_color = "badge-error"
-                task_type_display = "Error"
-                model_display = "N/A"
+                ''', unsafe_allow_html=True)
             else:
-                badge_color = f"badge-{task_type.split()[0]}"  # Handle "default (fallback)" case
-                task_type_display = task_type.replace("_", " ").title()
+                # Get metadata if available
+                metadata = msg.get("metadata", {})
+                task_type = metadata.get("task_type", "default")
+                model = metadata.get("model", "unknown")
+                timestamp = metadata.get("timestamp", "")
                 
-                # Format model to be more readable - extract just the model name without provider
-                if "/" in model:
-                    model_short = model.split("/")[-1]
+                # Set default display text for error cases
+                if task_type in ["error", "critical_error"]:
+                    badge_color = "badge-error"
+                    task_type_display = "Error"
+                    model_display = "N/A"
                 else:
-                    model_short = model
+                    badge_color = f"badge-{task_type.split()[0]}"  # Handle "default (fallback)" case
+                    task_type_display = task_type.replace("_", " ").title()
                     
-                # Guard against "unknown" model - provide more specific fallback values
-                if model_short == "unknown":
-                    # Check if we can determine the task type from metadata
-                    if task_type == "marketing":
-                        model_display = "Gemini"
-                    elif task_type == "writing":
-                        model_display = "GPT-4.1"
-                    elif task_type == "research":
-                        model_display = "Auto"
+                    # Format model to be more readable - extract just the model name without provider
+                    if "/" in model:
+                        model_short = model.split("/")[-1]
                     else:
-                        model_display = "GPT-4.1"  # Default fallback display name
-                else:    
-                    # Format model to be more readable
-                    model_display = model_short.replace("-", " ").replace("_", " ")
-            
+                        model_short = model
+                        
+                    # Guard against "unknown" model - provide more specific fallback values
+                    if model_short == "unknown":
+                        # Check if we can determine the task type from metadata
+                        if task_type == "marketing":
+                            model_display = "Gemini"
+                        elif task_type == "writing":
+                            model_display = "GPT-4.1"
+                        elif task_type == "research":
+                            model_display = "Auto"
+                        else:
+                            model_display = "GPT-4.1"  # Default fallback display name
+                    else:    
+                        # Format model to be more readable
+                        model_display = model_short.replace("-", " ").replace("_", " ")
+                
+                st.markdown(f'''
+                <div class="agent-bubble">
+                    <div class="message-sender">
+                        <span>
+                            🤖 Chloe
+                            <span class="badge {badge_color}">{task_type_display}</span>
+                            <span class="badge badge-model">{model_display}</span>
+                        </span>
+                        <span class="timestamp">{format_timestamp(timestamp)}</span>
+                    </div>
+                    {msg["message"]}
+                </div>
+                ''', unsafe_allow_html=True)
+        
+        # Show loading spinner at the bottom if we're waiting for a response
+        if show_loading_spinner:
             st.markdown(f'''
             <div class="agent-bubble">
                 <div class="message-sender">
                     <span>
                         🤖 Chloe
-                        <span class="badge {badge_color}">{task_type_display}</span>
-                        <span class="badge badge-model">{model_display}</span>
+                        <span class="badge badge-default">Thinking</span>
                     </span>
-                    <span class="timestamp">{format_timestamp(timestamp)}</span>
+                    <span class="timestamp">{format_timestamp(datetime.now().isoformat())}</span>
                 </div>
-                {msg["message"]}
+                <div class="typing-indicator">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </div>
             </div>
             ''', unsafe_allow_html=True)
-    
-    # Show loading spinner at the bottom if we're waiting for a response
-    if show_loading_spinner:
-        st.markdown(f'''
-        <div class="agent-bubble">
-            <div class="message-sender">
-                <span>
-                    🤖 Chloe
-                    <span class="badge badge-default">Thinking</span>
-                </span>
-                <span class="timestamp">{format_timestamp(datetime.now().isoformat())}</span>
-            </div>
-            <div class="typing-indicator">
-                <span></span>
-                <span></span>
-                <span></span>
-            </div>
+        
+        # Add an ID to the bottom of the chat for scrolling
+        st.markdown('<div id="chat-bottom"></div>', unsafe_allow_html=True)
+        
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+        # Create a button that links to the bottom of chat
+        st.markdown('''
+        <style>
+        .floating-button {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 9999;
+        }
+        .floating-button a {
+            display: block;
+            width: 50px;
+            height: 50px;
+            background-color: #4CAF50;
+            color: white;
+            border-radius: 50%;
+            text-align: center;
+            line-height: 50px;
+            font-size: 24px;
+            text-decoration: none;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+            opacity: 0.8;
+            transition: opacity 0.3s, transform 0.3s;
+        }
+        .floating-button a:hover {
+            opacity: 1;
+            transform: scale(1.05);
+        }
+        </style>
+        <div class="floating-button">
+            <a href="#chat-bottom" title="Scroll to bottom">⬇️</a>
         </div>
         ''', unsafe_allow_html=True)
-    
-    st.markdown('</div>', unsafe_allow_html=True)
     
     st.markdown('</div>', unsafe_allow_html=True) 
