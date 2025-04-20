@@ -49,10 +49,10 @@ class SimpleMemoryStore:
 
 # Create embeddings with OpenRouter compatibility
 def get_embeddings():
-    # Check for API keys
-    api_key = os.getenv("OPENROUTER_API_KEY", os.getenv("OPENAI_API_KEY"))
+    # Get API key
+    api_key = os.getenv("OPENROUTER_API_KEY")
     if not api_key:
-        raise ValueError("No API key found. Set OPENROUTER_API_KEY or OPENAI_API_KEY in your environment.")
+        raise ValueError("No API key found. Set OPENROUTER_API_KEY in your environment.")
     
     # Use OpenAI embeddings through OpenRouter if needed
     if os.getenv("OPENROUTER_API_KEY"):

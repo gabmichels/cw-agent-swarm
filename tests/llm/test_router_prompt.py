@@ -1,44 +1,57 @@
 import os
-from dotenv import load_dotenv
-from apps.agents.shared.llm_router import get_llm, log_model_response
+import sys
+from pathlib import Path
 
-# Load environment variables
-print("Loading environment variables...")
-load_dotenv("apps/hq-ui/.env")
+# Set up proper imports
+project_root = Path(__file__).parent.parent.parent
+sys.path.append(str(project_root))
 
-# Ensure environment variable is set
-if 'OPENROUTER_API_KEY' not in os.environ and 'OPENAI_API_KEY' not in os.environ:
-    print("Please set OPENROUTER_API_KEY or OPENAI_API_KEY environment variable")
-    exit(1)
+# Check for API key
+if 'OPENROUTER_API_KEY' not in os.environ:
+    print("Please set OPENROUTER_API_KEY environment variable")
+    sys.exit(1)
 
-print("\n=== Testing LLM Routers with Different Tasks ===")
+# Import once path is set
+from shared.agent_core.llm_router import get_llm, log_model_response, get_model_for_task
 
-# Test only a couple of tasks to avoid excessive API usage
-tasks = ["default", "marketing"]  # Limited to just two tasks
-
-for task in tasks:
-    print(f"\n--- Testing {task.upper()} task ---")
-    try:
-        llm = get_llm(task, temperature=0.1)  # Low temperature for consistent results
-        print(f"✅ LLM initialized successfully for {task}!")
-        print(f"Model: {llm.model_name}")
-        
-        # Send a simple prompt
-        prompt = f"Write a very short message (one sentence) about '{task}' tasks."
-        print(f"Sending prompt: '{prompt}'")
-        
-        response = llm.invoke(prompt)
-        print(f"Response: {response.content}")
-        
-        # Log model details
-        try:
-            log_model_response(response)
-        except Exception as e:
-            print(f"Note: Couldn't log model details: {e}")
-            
-    except Exception as e:
-        print(f"❌ Error with {task} task: {str(e)}")
+def test_marketing_prompt():
+    """Test a marketing-specific prompt"""
+    print("\n=== Testing Marketing Prompt ===")
     
-    print(f"--- End of {task.upper()} test ---")
+    llm = get_llm("marketing")
+    prompt = """
+    I need to create a content strategy for a new SaaS product.
+    The target audience is small business owners.
+    What are the key channels I should focus on?
+    """
+    
+    response = llm.invoke(prompt)
+    print(f"Response content (first 150 chars): {response.content[:150]}...")
+    
+    # Log the model that was used
+    log_model_response(response)
+    
+    return True
 
-print("\n=== All tests completed ===") 
+def test_writing_prompt():
+    """Test a writing-specific prompt"""
+    print("\n=== Testing Writing Prompt ===")
+    
+    llm = get_llm("writing")
+    prompt = """
+    Write a short paragraph about artificial intelligence and its impact on society.
+    Make it engaging and easy to understand for a general audience.
+    """
+    
+    response = llm.invoke(prompt)
+    print(f"Response content (first 150 chars): {response.content[:150]}...")
+    
+    # Log the model that was used
+    log_model_response(response)
+    
+    return True
+
+if __name__ == "__main__":
+    # Run all tests
+    test_marketing_prompt()
+    test_writing_prompt() 

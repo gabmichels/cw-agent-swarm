@@ -1,84 +1,68 @@
-# Turborepo starter
+# Crowd Wisdom Employees - Modularized AI Agents
 
-This Turborepo starter is maintained by the Turborepo core team.
+## Overview
+This project implements a modular architecture for AI agents, focused on creating specialized agent roles like Chloe (CMO).
 
-## Using this example
+## Directory Structure
+```
+agents/
+  chloe/                        # Chloe-specific components
+    agent_config.py             # Chloe's personality, tone, LLM preferences
+    strategies/                 # Marketing-specific strategy modules
+    tools/                      # Marketing-specific tools
+    reflections/                # Chloe's reflection interpretations
+    main.py                     # Assembles Chloe using shared core
 
-Run the following command:
-
-```sh
-npx create-turbo@latest
+shared/
+  agent_core/                   # Shared agent infrastructure
+    memory/                     # Memory systems
+    tools/                      # Generic tools for all agents
 ```
 
-## What's inside?
+## Getting Started
 
-This Turborepo includes the following packages/apps:
+### Environment Setup
 
-### Apps and Packages
-
-- `docs`: a [Next.js](https://nextjs.org/) app
-- `web`: another [Next.js](https://nextjs.org/) app
-- `@repo/ui`: a stub React component library shared by both `web` and `docs` applications
-- `@repo/eslint-config`: `eslint` configurations (includes `eslint-config-next` and `eslint-config-prettier`)
-- `@repo/typescript-config`: `tsconfig.json`s used throughout the monorepo
-
-Each package/app is 100% [TypeScript](https://www.typescriptlang.org/).
-
-### Utilities
-
-This Turborepo has some additional tools already setup for you:
-
-- [TypeScript](https://www.typescriptlang.org/) for static type checking
-- [ESLint](https://eslint.org/) for code linting
-- [Prettier](https://prettier.io) for code formatting
-
-### Build
-
-To build all apps and packages, run the following command:
-
-```
-cd my-turborepo
-pnpm build
+1. Copy the example environment file:
+```bash
+cp .env.example .env
 ```
 
-### Develop
-
-To develop all apps and packages, run the following command:
-
+2. Edit `.env` and add your API key:
 ```
-cd my-turborepo
-pnpm dev
+OPENROUTER_API_KEY=your_openrouter_api_key_here
 ```
 
-### Remote Caching
+3. You can customize other settings in the `.env` file:
+   - Model preferences by task type
+   - Default LLM parameters
+   - Memory locations
+   - Debug settings
 
-> [!TIP]
-> Vercel Remote Cache is free for all plans. Get started today at [vercel.com](https://vercel.com/signup?/signup?utm_source=remote-cache-sdk&utm_campaign=free_remote_cache).
+### Running with Docker
 
-Turborepo can use a technique known as [Remote Caching](https://turbo.build/docs/core-concepts/remote-caching) to share cache artifacts across machines, enabling you to share build caches with your team and CI/CD pipelines.
+Build and run the Docker container:
 
-By default, Turborepo will cache locally. To enable Remote Caching you will need an account with Vercel. If you don't have an account you can [create one](https://vercel.com/signup?utm_source=turborepo-examples), then enter the following commands:
-
-```
-cd my-turborepo
-npx turbo login
-```
-
-This will authenticate the Turborepo CLI with your [Vercel account](https://vercel.com/docs/concepts/personal-accounts/overview).
-
-Next, you can link your Turborepo to your Remote Cache by running the following command from the root of your Turborepo:
-
-```
-npx turbo link
+```bash
+docker build -t crowd-wisdom-hq .
+docker run -p 8501:8501 -e OPENROUTER_API_KEY=your_key_here crowd-wisdom-hq
 ```
 
-## Useful Links
+Then access the HQ interface at http://localhost:8501
 
-Learn more about the power of Turborepo:
+### Running Locally
 
-- [Tasks](https://turbo.build/docs/core-concepts/monorepos/running-tasks)
-- [Caching](https://turbo.build/docs/core-concepts/caching)
-- [Remote Caching](https://turbo.build/docs/core-concepts/remote-caching)
-- [Filtering](https://turbo.build/docs/core-concepts/monorepos/filtering)
-- [Configuration Options](https://turbo.build/docs/reference/configuration)
-- [CLI Usage](https://turbo.build/docs/reference/command-line-reference)
+Install dependencies:
+```bash
+pip install -r requirements.txt
+```
+
+Run the HQ app:
+```bash
+streamlit run hq_app.py
+```
+
+## Adding New Agents
+
+To create a new agent, follow the modular structure in the `agents/` directory. 
+See `README_AGENT_MODULARIZATION.md` for detailed instructions on creating new agents.

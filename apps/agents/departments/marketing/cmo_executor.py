@@ -18,9 +18,9 @@ from apps.agents.shared.memory.chat_history import log_chat, get_recent_history,
 # Load environment variables
 load_dotenv()
 
-# Check for API keys
-if not os.environ.get("OPENAI_API_KEY") and not os.environ.get("OPENROUTER_API_KEY"):
-    raise ValueError("Neither OPENAI_API_KEY nor OPENROUTER_API_KEY environment variables are set. Please set one of them in the .env file.")
+# Check for API key
+if not os.environ.get("OPENROUTER_API_KEY"):
+    raise ValueError("OPENROUTER_API_KEY environment variable is not set. Please set it in the .env file.")
 
 # Define all available tools for the agent
 tools = [

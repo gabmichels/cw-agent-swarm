@@ -5,21 +5,15 @@ import logging
 from pathlib import Path
 from dotenv import load_dotenv
 
-# Set up logging to file
-logs_dir = Path("./logs")
-logs_dir.mkdir(exist_ok=True)
-log_file = logs_dir / "debug_direct_test.log"
-
+# Configure logging
 logging.basicConfig(
-    level=logging.DEBUG,
-    format='%(asctime)s - %(levelname)s - %(message)s',
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler(log_file),
-        logging.StreamHandler()  # Also output to console
+        logging.FileHandler("debug_log.txt"),
+        logging.StreamHandler(sys.stdout)
     ]
 )
-
-logging.info(f"=== Debug script starting up ===")
 
 # Add the parent directory to the path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -28,19 +22,20 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 logging.info("Loading environment variables...")
 load_dotenv("apps/hq-ui/.env")
 
-# Import our test modules
-from apps.agents.shared.llm_router import get_llm, log_model_response
-
-logging.info("=== Testing Direct LLM Response For Debugging ===")
+# Import the agent executor (optional, based on your needs)
+try:
+    from apps.agents.departments.marketing.cmo_executor import run_agent_loop
+    logging.info("Successfully imported agent_executor")
+except Exception as e:
+    logging.error(f"Error importing agent_executor: {str(e)}")
 
 # Check environment variables
-openai_key = os.getenv("OPENAI_API_KEY")
+logging.info("\n=== Environment Variables ===")
 openrouter_key = os.getenv("OPENROUTER_API_KEY")
-logging.info(f"OPENAI_API_KEY set: {'Yes' if openai_key else 'No'}")
 logging.info(f"OPENROUTER_API_KEY set: {'Yes' if openrouter_key else 'No'}")
 
-if not openrouter_key and not openai_key:
-    logging.error("ERROR: No API keys found. Please set either OPENAI_API_KEY or OPENROUTER_API_KEY.")
+if not openrouter_key:
+    logging.error("ERROR: No API key found. Please set OPENROUTER_API_KEY in your environment.")
     sys.exit(1)
 
 # Simple writing prompt to test response structure

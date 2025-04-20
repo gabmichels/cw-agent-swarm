@@ -31,15 +31,12 @@ You have access to tools to get weather information. Use them when needed."""),
     MessagesPlaceholder(variable_name="agent_scratchpad"),
 ])
 
-# Check API keys
-print("\n=== Environment Variables ===")
-openai_key = os.getenv("OPENAI_API_KEY")
+# Check environment variables
 openrouter_key = os.getenv("OPENROUTER_API_KEY")
-print(f"OPENAI_API_KEY set: {'Yes' if openai_key else 'No'}")
 print(f"OPENROUTER_API_KEY set: {'Yes' if openrouter_key else 'No'}")
 
 if not openrouter_key:
-    print("ERROR: No OpenRouter API key found!")
+    print("ERROR: No OPENROUTER_API_KEY found. Please set it in your environment.")
     exit(1)
 
 # Test with default settings (deprecated functions format)

@@ -6,6 +6,7 @@ model badge detection and rich formatting in responses.
 """
 
 import os
+import sys
 from dotenv import load_dotenv
 from apps.agents.shared.llm_router import get_llm, log_model_response
 from apps.agents.shared.agent_prompts import enhance_prompt_with_formatting
@@ -16,14 +17,12 @@ load_dotenv("apps/hq-ui/.env")
 
 # Check environment variables
 print("\n=== Environment Variables ===")
-openai_key = os.getenv("OPENAI_API_KEY")
 openrouter_key = os.getenv("OPENROUTER_API_KEY")
-print(f"OPENAI_API_KEY set: {'Yes' if openai_key else 'No'}")
 print(f"OPENROUTER_API_KEY set: {'Yes' if openrouter_key else 'No'}")
 
 if not openrouter_key:
-    print("ERROR: No OpenRouter API key found!")
-    exit(1)
+    print("ERROR: No OPENROUTER_API_KEY found. Please set it in your environment.")
+    sys.exit(1)
 
 try:
     print("\n=== Testing Enhanced Agent Features ===")

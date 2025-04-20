@@ -1,6 +1,6 @@
 # Project Tests
 
-This directory contains tests for various aspects of the project.
+This directory contains various test modules for the Crowd Wisdom AI Agents project.
 
 ## Directory Structure
 
@@ -24,14 +24,23 @@ tests/
 └── README.md        # This file
 ```
 
+## Environment Setup
+
+Create a `.env` file in the project root with:
+
+```
+OPENROUTER_API_KEY=your-openrouter-key
+```
+
 ## Running Tests
 
-Individual test files can be run directly:
+To run a specific test:
 
 ```bash
-# Run a specific test file
-python tests/models/test_basic.py
+python tests/path/to/test_file.py
 ```
+
+Note that most tests require an OpenRouter API key to be set in your environment.
 
 ## Test Categories
 
@@ -54,16 +63,6 @@ When adding new tests:
 1. Place the test in the appropriate subdirectory
 2. Add a `main()` function if needed for standalone execution
 3. Follow the naming convention: `test_<what_is_being_tested>.py`
-
-## Environment Setup
-
-All tests require environment variables to be loaded from `apps/hq-ui/.env`. 
-This file should contain your API keys:
-
-```
-OPENAI_API_KEY=your-openai-key
-OPENROUTER_API_KEY=your-openrouter-key
-```
 
 ## Contributing New Tests
 

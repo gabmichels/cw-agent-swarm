@@ -13,9 +13,7 @@ load_dotenv("apps/hq-ui/.env")
 from apps.agents.shared.llm_router import get_llm, log_model_response
 
 # Check environment variables
-openai_key = os.getenv("OPENAI_API_KEY")
 openrouter_key = os.getenv("OPENROUTER_API_KEY")
-print(f"OpenAI API key set: {'Yes' if openai_key else 'No'}")
 print(f"OpenRouter API key set: {'Yes' if openrouter_key else 'No'}")
 
 if not openrouter_key:

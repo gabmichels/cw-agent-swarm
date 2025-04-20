@@ -7,7 +7,6 @@ load_dotenv("apps/hq-ui/.env")
 
 # Check if environment variables are set
 print("\n=== Environment Variables ===")
-print(f"OPENAI_API_KEY set: {'Yes' if os.getenv('OPENAI_API_KEY') else 'No'}")
 print(f"OPENROUTER_API_KEY set: {'Yes' if os.getenv('OPENROUTER_API_KEY') else 'No'}")
 
 # Import our router

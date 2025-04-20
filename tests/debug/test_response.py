@@ -17,13 +17,11 @@ from apps.agents.shared.llm_router import get_llm
 print("\n=== Testing Direct LLM Response Handling ===")
 
 # Check environment variables
-openai_key = os.getenv("OPENAI_API_KEY")
 openrouter_key = os.getenv("OPENROUTER_API_KEY")
-print(f"OPENAI_API_KEY set: {'Yes' if openai_key else 'No'}")
 print(f"OPENROUTER_API_KEY set: {'Yes' if openrouter_key else 'No'}")
 
-if not openrouter_key and not openai_key:
-    print("ERROR: No API keys found. Please set either OPENAI_API_KEY or OPENROUTER_API_KEY.")
+if not openrouter_key:
+    print("ERROR: No API key found. Please set OPENROUTER_API_KEY in your environment.")
     sys.exit(1)
 
 # Test with a simple prompt

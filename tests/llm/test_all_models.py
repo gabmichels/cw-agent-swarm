@@ -116,16 +116,13 @@ def main():
     """Run tests for all task types."""
     print("\n=== TESTING ALL LLM MODELS ===\n")
     
-    # Get API keys
+    # Check environment variables
     openrouter_key = os.getenv("OPENROUTER_API_KEY")
-    openai_key = os.getenv("OPENAI_API_KEY")
-    
-    print(f"OpenRouter API key available: {'Yes' if openrouter_key else 'No'}")
-    print(f"OpenAI API key available: {'Yes' if openai_key else 'No'}")
-    
-    if not (openrouter_key or openai_key):
-        print("❌ Error: Neither OpenRouter nor OpenAI API keys are available.")
-        return
+    print(f"OPENROUTER_API_KEY set: {'Yes' if openrouter_key else 'No'}")
+
+    if not openrouter_key:
+        print("ERROR: No OPENROUTER_API_KEY found. Please set it in your environment.")
+        sys.exit(1)
     
     # Define all task types
     task_types = ["default", "marketing", "writing", "finance", "tool_use", "research"]

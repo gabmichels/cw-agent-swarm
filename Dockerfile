@@ -2,25 +2,28 @@ FROM python:3.9-slim
 
 WORKDIR /app
 
-# Copy requirements files
-COPY apps/agents/requirements.txt requirements-agents.txt
+# Copy requirements file
+COPY requirements.txt requirements.txt
 
-# Install dependencies from both requirements files
-RUN pip install --no-cache-dir -r requirements-agents.txt
-RUN pip install streamlit
+# Install dependencies
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the entire project
 COPY . .
 
 # Set environment variable for API key (can be overridden at runtime)
-ENV OPENAI_API_KEY=""
+ENV OPENROUTER_API_KEY=""
 
 # Set PYTHONPATH to recognize the app modules
 ENV PYTHONPATH=/app
+
+# Create directories for agent memory if they don't exist
+RUN mkdir -p /app/shared/agent_core/memory/chat_history
+RUN mkdir -p /app/shared/agent_core/memory/reflections
 
 # Expose Streamlit's default port
 EXPOSE 8501
 
 # Run Streamlit app
-CMD ["streamlit", "run", "apps/hq-ui/app.py", "--server.address=0.0.0.0"] 
+CMD ["streamlit", "run", "hq_app.py", "--server.address=0.0.0.0"] 
  

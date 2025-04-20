@@ -1,57 +1,51 @@
-# Crowd Wisdom HQ - Dockerized Streamlit App
+# Docker Setup Instructions
 
-This README provides instructions for running the Crowd Wisdom HQ application using Docker.
+This document provides instructions for setting up and running the agent system using Docker.
 
 ## Prerequisites
 
-- [Docker](https://www.docker.com/products/docker-desktop/) installed on your system
-- [Docker Compose](https://docs.docker.com/compose/install/) (usually included with Docker Desktop)
+- Docker and Docker Compose installed on your system
+- Git (for cloning the repository)
+- An OpenRouter API key
 
-## Getting Started
+## Environment Setup
 
-### Option 1: Using Docker Compose (Recommended)
+1. Create a `.env` file in the project root with the following contents:
 
-1. Make sure your `.env` file is in place at `apps/hq-ui/.env` with your OpenAI API key:
-   ```
-   OPENAI_API_KEY=your_api_key_here
-   ```
+```
+OPENROUTER_API_KEY=your_openrouter_api_key_here
+```
 
-2. Run the application using Docker Compose:
-   ```bash
-   docker-compose up
-   ```
+2. Replace `your_openrouter_api_key_here` with your actual OpenRouter API key.
 
-3. Access the application in your web browser at: [http://localhost:8501](http://localhost:8501)
-
-4. To stop the application, press `Ctrl+C` in the terminal where it's running, or run:
-   ```bash
-   docker-compose down
-   ```
-
-### Option 2: Using Docker Directly
+## Building and Running with Docker
 
 1. Build the Docker image:
-   ```bash
-   docker build -t crowd-wisdom-app .
-   ```
+
+```bash
+docker-compose build
+```
 
 2. Run the container:
-   ```bash
-   docker run -p 8501:8501 -e OPENAI_API_KEY="your_api_key_here" crowd-wisdom-app
-   ```
 
-3. Access the application in your web browser at: [http://localhost:8501](http://localhost:8501)
+```bash
+docker-compose up
+```
 
-## Persistent Data
+This will start the agent system in an interactive mode.
 
-The Docker Compose setup includes a volume mount for `./apps/hq-ui/history:/app/apps/hq-ui/history` to ensure that chat history persists between container restarts.
+## Testing
 
-## Troubleshooting
+To run the test suite within Docker:
 
-- **API Key Issues**: If you see authentication errors, verify your OpenAI API key is correct
-- **Port Conflicts**: If port 8501 is already in use, modify the port mapping in `docker-compose.yml` (e.g., change to `"8502:8501"`)
-- **Container Exits**: Check Docker logs for error messages:
-  ```bash
-  docker logs crowd-wisdom-employees-crowd-wisdom-app-1
-  ``` 
- 
+```bash
+docker-compose run agent python -m unittest discover
+```
+
+## Development with Docker
+
+For development, you can mount your local code directory to see changes in real-time:
+
+```bash
+docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
+``` 
