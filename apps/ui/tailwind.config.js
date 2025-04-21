@@ -4,6 +4,7 @@ module.exports = {
     './app/**/*.{js,ts,jsx,tsx,mdx}',
     './components/**/*.{js,ts,jsx,tsx,mdx}',
   ],
+  darkMode: 'class',
   theme: {
     extend: {
       colors: {
@@ -32,6 +33,17 @@ module.exports = {
           800: '#5b21b6',
           900: '#4c1d95',
           950: '#2e1065',
+        },
+        gray: {
+          750: '#374151',
+          850: '#1e2533',
+        },
+        dark: {
+          bg: '#111827',
+          card: '#1f2937',
+          border: '#374151',
+          text: '#f9fafb',
+          text2: '#d1d5db',
         },
       },
     },

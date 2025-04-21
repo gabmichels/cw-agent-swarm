@@ -1,3 +1,10 @@
+/**
+ * App constants
+ */
+
+export const APP_NAME = 'Crowd Wisdom Employees';
+export const APP_VERSION = '0.1.0';
+
 // Agent names
 export const AGENT_NAMES = {
   CHLOE: 'chloe',
@@ -67,4 +74,12 @@ export const API_ROUTES = {
   TASKS: '/api/tasks',
   AGENTS: '/api/agents',
   REFLECTIONS: '/api/reflections',
+};
+
+export const DEFAULT_LLM_TEMPERATURE = 0.7;
+
+export const MEMORY_TYPES = {
+  PERSONA: 'persona',
+  KNOWLEDGE: 'knowledge',
+  CONVERSATION: 'conversation',
 }; 

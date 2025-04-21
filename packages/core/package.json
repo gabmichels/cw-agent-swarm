@@ -12,10 +12,10 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@langchain/core": "^0.2.7",
-    "@langchain/openai": "^0.1.6",
+    "@langchain/core": "^0.3.45",
+    "@langchain/openai": "^0.5.6",
+    "@langchain/langgraph": "^0.2.65",
     "langchain": "^0.2.0",
-    "langgraph": "^0.0.24",
     "zod": "^3.22.4"
   },
   "devDependencies": {

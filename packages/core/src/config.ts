@@ -12,6 +12,36 @@ export const getEnv = () => {
   return envSchema.parse(process.env);
 };
 
+/**
+ * Core configuration
+ */
+
+/**
+ * Default configuration for the core module
+ */
+export const DEFAULT_CONFIG = {
+  llm: {
+    defaultModel: 'gpt-4o',
+    defaultTemperature: 0.7,
+  },
+  memory: {
+    vectorDbUrl: 'http://localhost:6333',
+  },
+};
+
+/**
+ * Load configuration from environment variables
+ */
+export function loadConfig() {
+  return {
+    ...DEFAULT_CONFIG,
+    llm: {
+      ...DEFAULT_CONFIG.llm,
+      apiKey: process.env.OPENAI_API_KEY || '',
+    },
+  };
+}
+
 // System-wide configuration
 export const config = {
   system: {

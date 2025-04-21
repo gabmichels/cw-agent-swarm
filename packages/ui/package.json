@@ -1,6 +1,6 @@
 {
-  "name": "@repo/ui",
-  "version": "0.0.0",
+  "name": "@crowd-wisdom/ui-components",
+  "version": "0.1.0",
   "private": true,
   "exports": {
     "./*": "./src/*.tsx"
@@ -11,8 +11,8 @@
     "check-types": "tsc --noEmit"
   },
   "devDependencies": {
-    "@repo/eslint-config": "*",
-    "@repo/typescript-config": "*",
+    "@crowd-wisdom/eslint-config": "*",
+    "@crowd-wisdom/typescript-config": "*",
     "@turbo/gen": "^2.5.0",
     "@types/node": "^22.14.0",
     "@types/react": "19.1.0",

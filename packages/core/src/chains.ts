@@ -2,6 +2,7 @@ import { RunnableSequence } from '@langchain/core/runnables';
 import { StringOutputParser } from '@langchain/core/output_parsers';
 import { ChatPromptTemplate, MessagesPlaceholder } from '@langchain/core/prompts';
 import { getLLM } from './llm';
+import { createChatOpenAI } from './llm';
 
 // Simple QA chain with chat history support
 export const createQAChain = (
@@ -41,4 +42,17 @@ export const createReflectionChain = () => {
     llm,
     new StringOutputParser(),
   ]);
-}; 
+};
+
+/**
+ * Create a simple chain for generating text
+ */
+export function createTextGenerationChain(apiKey: string, systemPrompt: string) {
+  const llm = createChatOpenAI(apiKey);
+  const prompt = ChatPromptTemplate.fromMessages([
+    ['system', systemPrompt],
+    ['human', '{input}'],
+  ]);
+  
+  return prompt.pipe(llm).pipe(new StringOutputParser());
+} 

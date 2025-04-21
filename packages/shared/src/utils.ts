@@ -1,11 +1,30 @@
-// Generate a unique ID with optional prefix
-export function generateId(prefix = ''): string {
-  return `${prefix}${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 9)}`;
+/**
+ * Shared utility functions
+ */
+
+/**
+ * Format a date to a human-readable string
+ */
+export function formatDate(date: Date): string {
+  return date.toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  });
 }
 
-// Format a date to ISO string
-export function formatDate(date: Date): string {
-  return date.toISOString();
+/**
+ * Generate a unique ID
+ */
+export function generateId(): string {
+  return Math.random().toString(36).substring(2, 15);
+}
+
+/**
+ * Sleep for a specified number of milliseconds
+ */
+export function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 // Parse an ISO date string

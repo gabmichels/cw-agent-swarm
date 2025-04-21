@@ -63,7 +63,7 @@ export class AgentMemory {
     if (!this.vectorStore) return [];
 
     const result = await searchVectorStore(this.vectorStore, query, limit);
-    return result.success ? result.results : [];
+    return result.success && result.results ? result.results : [];
   }
 
   // Get contextual memories based on query

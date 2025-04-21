@@ -37,8 +37,9 @@ export class DiscordNotifier implements Notifier {
           console.error('Discord login error:', error);
           resolve(false);
         });
-      } catch (error) {
-        console.error('Discord initialization error:', error);
+      } catch (error: unknown) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        console.error('Discord initialization error:', errorMessage);
         resolve(false);
       }
     });
@@ -58,8 +59,9 @@ export class DiscordNotifier implements Notifier {
 
       await channel.send(message);
       return true;
-    } catch (error) {
-      console.error('Error sending Discord message:', error);
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error('Error sending Discord message:', errorMessage);
       return false;
     }
   }
@@ -68,8 +70,9 @@ export class DiscordNotifier implements Notifier {
     try {
       await this.client.destroy();
       console.log('Discord client disconnected');
-    } catch (error) {
-      console.error('Error shutting down Discord client:', error);
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error('Error shutting down Discord client:', errorMessage);
     }
   }
 }

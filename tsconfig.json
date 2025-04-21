@@ -1,0 +1,55 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "baseUrl": ".",
+    "paths": {
+      "@crowd-wisdom/*": [
+        "packages/*/src"
+      ],
+      "*": ["types/*"]
+    },
+    "resolveJsonModule": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "isolatedModules": true,
+    "declaration": true,
+    "noEmit": true,
+    "composite": true
+  },
+  "include": [
+    "types/**/*.d.ts"
+  ],
+  "files": [],
+  "references": [
+    {
+      "path": "packages/typescript-config"
+    },
+    {
+      "path": "packages/eslint-config"
+    },
+    {
+      "path": "packages/shared"
+    },
+    {
+      "path": "packages/core"
+    },
+    {
+      "path": "packages/data"
+    },
+    {
+      "path": "packages/memory"
+    },
+    {
+      "path": "packages/agents/chloe"
+    },
+    {
+      "path": "packages/ui"
+    },
+    {
+      "path": "apps/ui"
+    }
+  ]
+}

@@ -1,5 +1,9 @@
 import { z } from 'zod';
 
+/**
+ * Shared types for the application
+ */
+
 // Shared type for agent configurations
 export interface AgentConfig {
   name: string;
@@ -9,6 +13,7 @@ export interface AgentConfig {
   model: string;
   temperature: number;
   maxTokens: number;
+  verbose: boolean;
 }
 
 // Schema for agent configurations
@@ -59,4 +64,20 @@ export interface ToolResult {
   success: boolean;
   result?: any;
   error?: string;
+}
+
+export interface MemoryDocument {
+  id: string;
+  content: string;
+  metadata: {
+    source: string;
+    type: string;
+    createdAt: Date;
+  };
+}
+
+export interface AgentResponse {
+  message: string;
+  thought?: string;
+  sources?: string[];
 } 

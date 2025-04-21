@@ -4,6 +4,16 @@
   "exclude": ["node_modules", "dist"],
   "compilerOptions": {
     "outDir": "./dist",
-    "rootDir": "./src"
-  }
+    "rootDir": "./src",
+    "baseUrl": ".",
+    "paths": {
+      "@crowd-wisdom/shared": ["../shared/src"]
+    },
+    "composite": true,
+    "incremental": true,
+    "skipLibCheck": true
+  },
+  "references": [
+    { "path": "../shared" }
+  ]
 } 

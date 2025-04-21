@@ -1,6 +1,6 @@
-# Crowd Wisdom Employees - Node.js Migration
+# Crowd Wisdom Employees
 
-This repository contains the Node.js migration of the Chloe agent system, rebuilding it with modern JavaScript/TypeScript technologies.
+This repository contains the Node.js implementation of the Chloe agent system, rebuilt with modern JavaScript/TypeScript technologies.
 
 ## 🏗️ Tech Stack
 
@@ -13,19 +13,22 @@ This repository contains the Node.js migration of the Chloe agent system, rebuil
 
 ## 📂 Project Structure
 
-The project follows a monorepo structure:
+The project follows a clean monorepo structure:
 
 ```
 /apps
   /ui                  → Next.js app (chat interface + dashboard)
 /packages
-  /agents              → Chloe and other agents
+  /agents
     /chloe             → Chloe agent implementation
   /core                → LangGraph logic, toolchains, routing, LLM setup
   /memory              → Vector DB connectors, embedding logic
   /shared              → Utilities, constants, types
-  /data                → Initial documents and memory
-/scripts               → Setup scripts
+  /data                → Data loaders and handlers
+  /typescript-config   → Shared TypeScript configurations
+/data                  → Static data files and resources
+/scripts               → Setup and utility scripts
+/legacy-python         → Original Python codebase (for reference)
 ```
 
 ## 🚀 Getting Started
@@ -33,7 +36,7 @@ The project follows a monorepo structure:
 ### Prerequisites
 
 - Node.js 18+
-- npm/pnpm
+- [pnpm](https://pnpm.io/) 8.x+
 - (Optional) Qdrant instance for vector storage
 
 ### Installation
@@ -42,20 +45,24 @@ The project follows a monorepo structure:
    ```bash
    git clone https://github.com/your-org/crowd-wisdom-employees.git
    cd crowd-wisdom-employees
-   git checkout nodejs-migration
    ```
 
 2. Install dependencies:
    ```bash
-   npm install
+   pnpm install
    ```
 
-3. Build all packages:
+3. Run the setup script:
    ```bash
-   npm run build
+   node scripts/setup.js
    ```
 
-4. Set up environment variables:
+4. Build all packages:
+   ```bash
+   pnpm build
+   ```
+
+5. Set up environment variables:
    ```bash
    cp .env.example .env
    ```
@@ -64,7 +71,7 @@ The project follows a monorepo structure:
 ### Running the Development Environment
 
 ```bash
-npm run dev
+pnpm dev
 ```
 
 This starts the Next.js UI and watches for changes in all packages.
@@ -73,7 +80,7 @@ This starts the Next.js UI and watches for changes in all packages.
 
 ```bash
 cd packages/agents/chloe
-npm run start
+pnpm start
 ```
 
 ## 🧠 Features
@@ -92,10 +99,14 @@ The system is built around a modular agent architecture:
 3. **Agent Packages**: Implement specific agent behaviors (Chloe)
 4. **UI App**: Provides a web interface to interact with agents
 
+## 📝 Legacy Python Code
+
+The original Python implementation is preserved in the `/legacy-python` directory for reference. This code is not actively maintained but serves as a reference for implementing features in the Node.js version.
+
 ## 📝 License
 
 [Specify your license here]
 
 ## 🙏 Acknowledgements
 
-This project is a Node.js migration of the original Python-based Chloe agent system.
+This project is a Node.js reimplementation of the original Python-based Chloe agent system.

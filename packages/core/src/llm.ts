@@ -1,5 +1,9 @@
+/**
+ * LLM Configuration
+ */
+
 import { ChatOpenAI } from '@langchain/openai';
-import { OpenRouterCallbackManager } from '@langchain/core/callbacks';
+import { DEFAULT_LLM_TEMPERATURE } from '@crowd-wisdom/shared';
 
 interface LLMOptions {
   modelName?: string;
@@ -31,4 +35,15 @@ export const getOpenRouterLLM = (options: LLMOptions = {}) => {
   });
 };
 
-export const getLLM = getOpenRouterLLM; // Default LLM provider 
+export const getLLM = getOpenRouterLLM; // Default LLM provider
+
+/**
+ * Create a ChatOpenAI instance with the specified configuration
+ */
+export function createChatOpenAI(apiKey: string, temperature = DEFAULT_LLM_TEMPERATURE) {
+  return new ChatOpenAI({
+    openAIApiKey: apiKey,
+    temperature,
+    modelName: 'gpt-4o',
+  });
+} 

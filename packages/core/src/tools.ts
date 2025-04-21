@@ -50,4 +50,32 @@ export const createMemorySearchTool = () => {
       return `Memory search results for: ${query} (limit: ${limit})`;
     },
   });
-}; 
+};
+
+/**
+ * Create a simple search tool
+ */
+export function createSearchTool() {
+  return {
+    name: 'search',
+    description: 'Search for information on the internet',
+    async invoke(query: string) {
+      // This is a placeholder for actual search implementation
+      return `Search results for: ${query} (placeholder)`;
+    }
+  };
+}
+
+/**
+ * Create a simple calculator tool
+ */
+export function createCalculatorTool() {
+  return {
+    name: 'calculator',
+    description: 'Perform mathematical calculations',
+    async invoke(expression: string) {
+      // This is a placeholder for actual calculator implementation
+      return `Result for ${expression}: (placeholder)`;
+    }
+  };
+} 
