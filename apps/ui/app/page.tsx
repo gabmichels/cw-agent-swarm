@@ -130,7 +130,9 @@ export default function Home() {
           const formattedMessages = data.history.map((msg: any) => ({
             sender: msg.role === 'user' ? 'You' : selectedAgent,
             content: msg.content,
-            timestamp: new Date(msg.timestamp)
+            timestamp: new Date(msg.timestamp),
+            memory: msg.memory || [],
+            thoughts: msg.thoughts || []
           }));
           
           setMessages(formattedMessages);
@@ -697,8 +699,30 @@ For detailed instructions, see the Debug panel.`,
                           className="text-sm md:text-base prose prose-invert prose-ul:pl-5 prose-ul:my-1 prose-ol:pl-5 prose-ol:my-1 prose-ol:list-decimal prose-li:my-0.5 prose-li:pl-1 prose-li:marker:text-indigo-400 prose-p:my-1 prose-headings:mt-2 prose-headings:mb-1 prose-strong:text-indigo-300 max-w-none" 
                           dangerouslySetInnerHTML={{ __html: renderMarkdown(message.content) }}
                         />
-                        <div className={`text-xs mt-1 ${message.sender === 'You' ? 'text-indigo-300' : 'text-gray-500'}`}>
-                          {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        <div className={`text-xs mt-1 flex items-center justify-between ${message.sender === 'You' ? 'text-indigo-300' : 'text-gray-500'}`}>
+                          <span>{message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                          {message.sender !== 'You' && (
+                            <div className="flex space-x-1">
+                              {message.memory && message.memory.length > 0 && (
+                                <span 
+                                  title="Used memory context"
+                                  className="cursor-pointer text-indigo-400 hover:text-indigo-300"
+                                  onClick={() => setSelectedTab('memory')}
+                                >
+                                  📚
+                                </span>
+                              )}
+                              {message.thoughts && message.thoughts.length > 0 && (
+                                <span 
+                                  title="Has reasoning thoughts"
+                                  className="cursor-pointer text-indigo-400 hover:text-indigo-300"
+                                  onClick={() => setSelectedTab('thoughts')}
+                                >
+                                  💭
+                                </span>
+                              )}
+                            </div>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -840,50 +864,118 @@ For detailed instructions, see the Debug panel.`,
           ) : selectedTab === 'memory' ? (
             <div className="flex-1 p-4 md:p-6 overflow-y-auto bg-gray-900">
               <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4 text-gray-100">Memory</h2>
-              <p className="text-sm md:text-base text-gray-400">
-                Browse {selectedAgent}'s long-term memory and knowledge base.
+              <p className="text-sm md:text-base text-gray-400 mb-4">
+                Browse {selectedAgent}'s long-term memory and knowledge base. This shows what context is retrieved when answering your questions.
               </p>
-              <div className="mt-3 md:mt-4 p-3 md:p-4 border border-gray-700 rounded-lg bg-gray-800">
+              
+              {!isDebugMode && (
+                <div className="mb-4">
+                  <button
+                    onClick={() => setIsDebugMode(true)}
+                    className="px-3 py-1 rounded bg-gray-700 text-gray-300 text-xs hover:bg-gray-600 flex items-center"
+                  >
+                    <span className="mr-1">🪲</span> Enable Debug Mode
+                  </button>
+                </div>
+              )}
+              
+              <div className="space-y-6">
                 {messages.some(m => m.memory && m.memory.length > 0) ? (
-                  <div className="space-y-3">
-                    {messages.filter(m => m.memory && m.memory.length > 0).map((message, idx) => (
-                      <div key={idx} className="border-b border-gray-700 pb-3 last:border-0 last:pb-0">
-                        <div className="font-medium text-sm text-gray-300 mb-1">Memory used for: {message.content.substring(0, 50)}...</div>
-                        {message.memory?.map((mem, memIdx) => (
-                          <div key={memIdx} className="text-sm bg-gray-700 p-2 rounded mt-1 text-gray-200">
-                            {mem}
+                  messages.filter(m => m.memory && m.memory.length > 0).map((message, idx) => (
+                    <div key={idx} className="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                      <div className="flex items-start mb-3">
+                        <div className="w-8 h-8 rounded-full bg-indigo-900 text-indigo-300 mr-3 flex items-center justify-center font-medium">
+                          {message.sender === 'You' ? 'Y' : message.sender.charAt(0)}
+                        </div>
+                        <div>
+                          <h3 className="font-medium text-gray-200">Memory context used for response</h3>
+                          <p className="text-sm text-gray-400 mt-1">
+                            {message.content.length > 100 ? `${message.content.substring(0, 100)}...` : message.content}
+                          </p>
+                          <div className="text-xs text-gray-500 mt-1">
+                            {message.timestamp.toLocaleString()}
                           </div>
-                        ))}
+                        </div>
                       </div>
-                    ))}
-                  </div>
+                      
+                      <div className="border-t border-gray-700 pt-3 mt-3">
+                        <h4 className="text-sm font-medium text-gray-300 mb-2">Memory items used:</h4>
+                        <div className="space-y-2">
+                          {message.memory?.map((mem, memIdx) => (
+                            <div key={memIdx} className="text-sm bg-gray-700 p-3 rounded text-gray-200">
+                              {mem}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  ))
                 ) : (
-                  <p className="italic text-sm text-gray-500">No memory context used yet.</p>
+                  <div className="bg-gray-800 rounded-lg p-4 border border-gray-700 text-center">
+                    <p className="italic text-sm text-gray-400 my-6">
+                      No memory context has been used yet. As you have more conversation with {selectedAgent}, 
+                      she will start drawing on past interactions to provide more relevant answers.
+                    </p>
+                  </div>
                 )}
               </div>
             </div>
           ) : (
             <div className="flex-1 p-4 md:p-6 overflow-y-auto bg-gray-900">
               <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4 text-gray-100">Thoughts</h2>
-              <p className="text-sm md:text-base text-gray-400">
-                See what {selectedAgent} is currently thinking about.
+              <p className="text-sm md:text-base text-gray-400 mb-4">
+                See how {selectedAgent} reasons about your questions. These are internal thought processes that help generate the response.
               </p>
-              <div className="mt-3 md:mt-4 p-3 md:p-4 border border-gray-700 rounded-lg bg-gray-800">
+              
+              {!isDebugMode && (
+                <div className="mb-4">
+                  <button
+                    onClick={() => setIsDebugMode(true)}
+                    className="px-3 py-1 rounded bg-gray-700 text-gray-300 text-xs hover:bg-gray-600 flex items-center"
+                  >
+                    <span className="mr-1">🪲</span> Enable Debug Mode
+                  </button>
+                </div>
+              )}
+              
+              <div className="space-y-6">
                 {messages.some(m => m.thoughts && m.thoughts.length > 0) ? (
-                  <div className="space-y-3">
-                    {messages.filter(m => m.thoughts && m.thoughts.length > 0).map((message, idx) => (
-                      <div key={idx} className="border-b border-gray-700 pb-3 last:border-0 last:pb-0">
-                        <div className="font-medium text-sm text-gray-300 mb-1">Thoughts for: {message.content.substring(0, 50)}...</div>
-                        {message.thoughts?.map((thought, thoughtIdx) => (
-                          <div key={thoughtIdx} className="text-sm bg-gray-700 p-2 rounded mt-1 text-gray-200">
-                            {thought}
+                  messages.filter(m => m.thoughts && m.thoughts.length > 0).map((message, idx) => (
+                    <div key={idx} className="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                      <div className="flex items-start mb-3">
+                        <div className="w-8 h-8 rounded-full bg-indigo-900 text-indigo-300 mr-3 flex items-center justify-center font-medium">
+                          {message.sender === 'You' ? 'Y' : message.sender.charAt(0)}
+                        </div>
+                        <div>
+                          <h3 className="font-medium text-gray-200">Thought process for response</h3>
+                          <p className="text-sm text-gray-400 mt-1">
+                            {message.content.length > 100 ? `${message.content.substring(0, 100)}...` : message.content}
+                          </p>
+                          <div className="text-xs text-gray-500 mt-1">
+                            {message.timestamp.toLocaleString()}
                           </div>
-                        ))}
+                        </div>
                       </div>
-                    ))}
-                  </div>
+                      
+                      <div className="border-t border-gray-700 pt-3 mt-3">
+                        <h4 className="text-sm font-medium text-gray-300 mb-2">Thinking steps:</h4>
+                        <div className="space-y-2">
+                          {message.thoughts?.map((thought, thoughtIdx) => (
+                            <div key={thoughtIdx} className="text-sm bg-gray-700 p-3 rounded text-gray-200 overflow-auto">
+                              <pre className="whitespace-pre-wrap">{thought}</pre>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  ))
                 ) : (
-                  <p className="italic text-sm text-gray-500">No thoughts recorded yet.</p>
+                  <div className="bg-gray-800 rounded-lg p-4 border border-gray-700 text-center">
+                    <p className="italic text-sm text-gray-400 my-6">
+                      No thought processes have been captured yet. As you interact with {selectedAgent},
+                      her reasoning process will be displayed here.
+                    </p>
+                  </div>
                 )}
               </div>
             </div>

@@ -76,11 +76,20 @@ const captureThoughts = () => {
        logStr.includes('Reasoning:') ||
        logStr.includes('Planning:') ||
        logStr.includes('agent state:') ||
-       (logStr.includes('LangGraph') && logStr.includes('state'))) && 
+       logStr.includes('thinking about:') ||
+       logStr.includes('analyzing:') ||
+       logStr.includes('considering:') ||
+       (logStr.includes('LangGraph') && logStr.includes('state')) ||
+       (logStr.includes('thought:') && !logStr.includes('API')) ||
+       (logStr.includes('LLM response') && logStr.length < 500)) && 
       !logStr.includes('API') && 
-      !logStr.includes('initialize')
+      !logStr.includes('initialize') &&
+      !logStr.includes('socket') &&
+      !logStr.includes('connection')
     ) {
-      thoughts.push(logStr);
+      // Add timestamp to the thought
+      const timestamp = new Date().toISOString();
+      thoughts.push(`[${timestamp.split('T')[1].split('.')[0]}] ${logStr}`);
     }
   };
   
@@ -127,6 +136,9 @@ async function generateRealResponse(message: string): Promise<{reply: string, me
     if (chloeInstance) {
       console.log('Using real Chloe agent to process message');
       try {
+        // Capture agent thoughts about the message
+        console.log(`Chloe thinking: Analyzing user query: "${message}"`);
+        
         const reply = await chloeInstance.processMessage(message);
         
         // Get memory context
@@ -135,7 +147,9 @@ async function generateRealResponse(message: string): Promise<{reply: string, me
           if (chloeInstance.getMemory && typeof chloeInstance.getMemory === 'function') {
             const memory = chloeInstance.getMemory();
             if (memory && memory.getContext && typeof memory.getContext === 'function') {
+              console.log('Retrieving relevant memory context for:', message);
               memoryContext = await memory.getContext(message) || [];
+              console.log(`Found ${memoryContext.length} memory items that may be relevant`);
             } else {
               console.error('Memory object does not have getContext method');
             }
@@ -148,6 +162,13 @@ async function generateRealResponse(message: string): Promise<{reply: string, me
         
         // Get captured thoughts
         const thoughts = thoughtCapture.getThoughts();
+        console.log(`Captured ${thoughts.length} thought steps during processing`);
+        
+        // Add final thought about the response if there are no thoughts yet
+        if (thoughts.length === 0) {
+          const timestamp = new Date().toISOString();
+          thoughts.push(`[${timestamp.split('T')[1].split('.')[0]}] Chloe thinking: Generated response based on the user query without detailed thought steps.`);
+        }
         
         result = {
           reply,
