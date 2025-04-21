@@ -17,7 +17,7 @@
   "devDependencies": {
     "@crowd-wisdom/typescript-config": "*",
     "@types/node": "^20.11.30",
-    "eslint": "^8.57.0",
+    "eslint": "^9.25.1",
     "tsup": "^8.0.2",
     "typescript": "^5.3.3"
   }

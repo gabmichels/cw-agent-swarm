@@ -42,11 +42,19 @@ export function loadConfig() {
   };
 }
 
-// System-wide configuration
+/**
+ * System configuration
+ */
 export const config = {
   system: {
-    name: 'Chloe',
-    version: '1.0.0',
+    name: 'Crowd Wisdom',
+    version: '0.1.0',
+    description: 'AI agent platform for marketers'
+  },
+  llm: {
+    defaultModel: 'gpt-3.5-turbo',
+    defaultTemperature: 0.7,
+    defaultMaxTokens: 2000
   },
   memory: {
     vectorStoreUrl: process.env.QDRANT_URL || 'http://localhost:6333',

@@ -77,6 +77,7 @@ export const API_ROUTES = {
 };
 
 export const DEFAULT_LLM_TEMPERATURE = 0.7;
+export const DEFAULT_LLM_MODEL = 'openai/gpt-4.1';
 
 export const MEMORY_TYPES = {
   PERSONA: 'persona',

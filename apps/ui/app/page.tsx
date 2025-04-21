@@ -8,24 +8,70 @@ interface Message {
   sender: string;
   content: string;
   timestamp: Date;
+  memory?: string[];
+  thoughts?: string[];
 }
 
 export default function Home() {
   const [selectedDepartment, setSelectedDepartment] = useState('Marketing');
   const [selectedAgent, setSelectedAgent] = useState('Chloe');
   const [selectedTab, setSelectedTab] = useState('chat');
-  const [messages, setMessages] = useState<Message[]>([
-    { 
-      sender: 'Chloe', 
-      content: 'Hello! I\'m Chloe, your marketing expert. How can I help you today?',
-      timestamp: new Date()
-    }
-  ]);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [inputMessage, setInputMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isDebugMode, setIsDebugMode] = useState(false);
+  const [diagnosticResults, setDiagnosticResults] = useState<any>(null);
+  const [chloeCheckResults, setChloeCheckResults] = useState<any>(null);
+  const [fixInstructions, setFixInstructions] = useState<any>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Load initial chat history from the server
+  useEffect(() => {
+    async function loadInitialChat() {
+      setIsLoading(true);
+      try {
+        const response = await fetch('/api/chat?userId=default-user');
+        
+        if (!response.ok) {
+          throw new Error(`Failed to load chat history: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        
+        if (data.history && data.history.length > 0) {
+          // Convert server messages to our client format
+          const formattedMessages = data.history.map((msg: any) => ({
+            sender: msg.role === 'user' ? 'You' : selectedAgent,
+            content: msg.content,
+            timestamp: new Date(msg.timestamp)
+          }));
+          
+          setMessages(formattedMessages);
+        } else {
+          // Fallback to default welcome message if no history
+          setMessages([{
+            sender: selectedAgent,
+            content: `Hello! I'm ${selectedAgent}, your marketing expert. How can I help you today?`,
+            timestamp: new Date()
+          }]);
+        }
+      } catch (error) {
+        console.error("Error loading initial chat:", error);
+        // Set a basic welcome message on error
+        setMessages([{
+          sender: selectedAgent,
+          content: `Hello! I'm ${selectedAgent}. There was an error loading our previous conversation.`,
+          timestamp: new Date()
+        }]);
+      } finally {
+        setIsLoading(false);
+      }
+    }
+    
+    loadInitialChat();
+  }, [selectedAgent]);
 
   // Scroll to bottom of messages when messages change
   useEffect(() => {
@@ -51,10 +97,9 @@ export default function Home() {
     }
   }, []);
 
-  const handleSendMessage = (e: FormEvent<HTMLFormElement>) => {
+  const handleSendMessage = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     
-    // For debugging - just use client-side responses
     console.log("Form submitted with:", inputMessage);
     
     if (!inputMessage.trim()) return;
@@ -72,21 +117,364 @@ export default function Home() {
     const sentMessage = inputMessage;
     setInputMessage('');
     
-    // Simulate response
-    setTimeout(() => {
+    // Set loading state
+    setIsLoading(true);
+    
+    try {
+      // Call the actual API
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          message: sentMessage,
+          userId: 'default-user', // We can improve this later
+        }),
+      });
+      
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      // Use the actual response from the API
       const agentResponse: Message = {
         sender: selectedAgent,
-        content: `You said: "${sentMessage}". This is a client-side echo for debugging.`,
+        content: data.reply,
+        timestamp: new Date(),
+        memory: data.memory,
+        thoughts: data.thoughts
+      };
+      
+      // Log memory and thoughts for debugging
+      if (data.memory && data.memory.length > 0) {
+        console.log('Memory context used:', data.memory);
+      }
+      
+      if (data.thoughts && data.thoughts.length > 0) {
+        console.log('Agent thoughts:', data.thoughts);
+      }
+      
+      setMessages(prev => [...prev, agentResponse]);
+    } catch (error) {
+      console.error("Error calling API:", error);
+      
+      // Show error message
+      const errorResponse: Message = {
+        sender: selectedAgent,
+        content: `Sorry, I encountered an error: ${error instanceof Error ? error.message : "Unknown error"}`,
         timestamp: new Date()
       };
       
-      setMessages(prev => [...prev, agentResponse]);
-    }, 1000);
+      setMessages(prev => [...prev, errorResponse]);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   // Toggle sidebar for mobile view
   const toggleSidebar = () => {
     setIsSidebarOpen(!isSidebarOpen);
+  };
+
+  // Test connection to the API and check if Chloe is loading
+  const testChloeAgent = async () => {
+    console.log("Testing Chloe agent connection...");
+    setIsLoading(true);
+    
+    try {
+      // Call chat API with a test message
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          message: "TEST_CONNECTION: Check if Chloe agent is working",
+          userId: 'debug-user',
+        }),
+      });
+      
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      // Show debug message
+      const debugMessage: Message = {
+        sender: 'Debug',
+        content: `Agent Status: ${data.reply.includes('SIMULATED') ? '❌ Using simulated response' : '✅ Real agent connected'}\n\nResponse: ${data.reply}`,
+        timestamp: new Date(),
+        memory: data.memory,
+        thoughts: data.thoughts
+      };
+      
+      setMessages(prev => [...prev, debugMessage]);
+      
+      // Log details
+      console.log("Chloe agent test response:", data);
+    } catch (error) {
+      console.error("Error testing Chloe agent:", error);
+      
+      // Show error message
+      const errorMessage: Message = {
+        sender: 'Debug',
+        content: `Failed to test Chloe agent: ${error instanceof Error ? error.message : "Unknown error"}`,
+        timestamp: new Date()
+      };
+      
+      setMessages(prev => [...prev, errorMessage]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Debug function to examine Chloe's memory
+  const inspectChloeMemory = async () => {
+    console.log("Inspecting Chloe's memory...");
+    setIsLoading(true);
+    
+    try {
+      // Call chat API with a special command to inspect memory
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          message: "DEBUG_COMMAND: What memories do you have about our conversation so far?",
+          userId: 'debug-user',
+        }),
+      });
+      
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      // Show memory inspection results
+      const memoryMessage: Message = {
+        sender: 'Debug',
+        content: `Memory Inspection: ${data.reply}`,
+        timestamp: new Date(),
+        memory: data.memory,
+        thoughts: data.thoughts
+      };
+      
+      setMessages(prev => [...prev, memoryMessage]);
+      
+      // Log details
+      console.log("Chloe memory inspection:", data);
+    } catch (error) {
+      console.error("Error inspecting Chloe memory:", error);
+      
+      // Show error message
+      const errorMessage: Message = {
+        sender: 'Debug',
+        content: `Failed to inspect Chloe memory: ${error instanceof Error ? error.message : "Unknown error"}`,
+        timestamp: new Date()
+      };
+      
+      setMessages(prev => [...prev, errorMessage]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Run diagnostics to check why Chloe isn't loading
+  const runDiagnostics = async () => {
+    console.log("Running system diagnostics...");
+    setIsLoading(true);
+    
+    try {
+      // Call diagnostics API
+      const response = await fetch('/api/diagnostics');
+      
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      setDiagnosticResults(data);
+      
+      // Show diagnostic results
+      const diagnosticMessage: Message = {
+        sender: 'Diagnostics',
+        content: `System Diagnostics Results:
+        
+${formatDiagnosticSummary(data)}
+
+Check the Debug panel for full details.`,
+        timestamp: new Date()
+      };
+      
+      setMessages(prev => [...prev, diagnosticMessage]);
+      
+      // Log details
+      console.log("Diagnostics results:", data);
+    } catch (error) {
+      console.error("Error running diagnostics:", error);
+      
+      // Show error message
+      const errorMessage: Message = {
+        sender: 'Diagnostics',
+        content: `Failed to run diagnostics: ${error instanceof Error ? error.message : "Unknown error"}`,
+        timestamp: new Date()
+      };
+      
+      setMessages(prev => [...prev, errorMessage]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+  
+  // Format diagnostic results for display
+  const formatDiagnosticSummary = (data: any): string => {
+    if (!data || !data.diagnostics) {
+      return "No diagnostic data available";
+    }
+    
+    const { diagnostics } = data;
+    const summary = [];
+    
+    // Check Chloe package
+    if (diagnostics.chloePackage) {
+      summary.push(`Chloe Package: ${diagnostics.chloePackage.success ? '✅' : '❌'} ${diagnostics.chloePackage.message}`);
+    }
+    
+    // Check Chloe exports
+    if (diagnostics.chloeExports) {
+      const hasChloeAgent = diagnostics.chloeExports.details?.hasChloeAgent;
+      summary.push(`Chloe Exports: ${diagnostics.chloeExports.success ? '✅' : '❌'} ${hasChloeAgent ? 'ChloeAgent found' : 'ChloeAgent not found'}`);
+    }
+    
+    // Check environment variables
+    if (diagnostics.environmentVars) {
+      const missingVars = diagnostics.environmentVars.details?.missing || [];
+      summary.push(`Environment Variables: ${diagnostics.environmentVars.success ? '✅ All set' : `❌ Missing: ${missingVars.join(', ')}`}`);
+    }
+    
+    // Check required packages
+    const packages = [
+      { name: 'LangChain Core', result: diagnostics.langchainPackage },
+      { name: 'LangChain OpenAI', result: diagnostics.openaiPackage },
+      { name: 'LangGraph', result: diagnostics.langgraphPackage }
+    ];
+    
+    summary.push('Required Packages:');
+    packages.forEach(pkg => {
+      if (pkg.result) {
+        summary.push(`  - ${pkg.name}: ${pkg.result.success ? '✅' : '❌'}`);
+      }
+    });
+    
+    return summary.join('\n');
+  };
+
+  // Check Chloe's functionality directly
+  const checkChloe = async () => {
+    console.log("Checking Chloe agent...");
+    setIsLoading(true);
+    
+    try {
+      // Call check-chloe API
+      const response = await fetch('/api/check-chloe');
+      
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      setChloeCheckResults(data);
+      
+      // Format the steps for display
+      const stepsMessage = data.steps ? data.steps.join('\n') : 'No steps recorded';
+      
+      // Show results
+      const checkMessage: Message = {
+        sender: 'Diagnostics',
+        content: `Chloe Agent Check ${data.success ? '✅' : '❌'}:
+
+${stepsMessage}
+
+${data.error ? `Error: ${data.error}` : ''}`,
+        timestamp: new Date()
+      };
+      
+      setMessages(prev => [...prev, checkMessage]);
+      
+      // Log details
+      console.log("Chloe check results:", data);
+    } catch (error) {
+      console.error("Error checking Chloe:", error);
+      
+      // Show error message
+      const errorMessage: Message = {
+        sender: 'Diagnostics',
+        content: `Failed to check Chloe: ${error instanceof Error ? error.message : "Unknown error"}`,
+        timestamp: new Date()
+      };
+      
+      setMessages(prev => [...prev, errorMessage]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Show instructions to fix Chloe agent
+  const showFixInstructions = async () => {
+    console.log("Fetching fix instructions...");
+    setIsLoading(true);
+    
+    try {
+      // Call fix-instructions API
+      const response = await fetch('/api/fix-instructions');
+      
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      setFixInstructions(data);
+      
+      // Show a summary of the instructions
+      const instructionMessage: Message = {
+        sender: 'Diagnostics',
+        content: `📋 ${data.title}
+
+Here are the main steps to check:
+1. Package Installation: Make sure @crowd-wisdom/agents-chloe is installed
+2. Environment Variables: Check .env.local for required API keys
+3. API Keys: Verify OpenRouter and Qdrant API keys are valid
+4. Export Format: Ensure correct exports in the package
+5. Rebuild and Restart: Try rebuilding and restarting the server
+
+For detailed instructions, see the Debug panel.`,
+        timestamp: new Date()
+      };
+      
+      setMessages(prev => [...prev, instructionMessage]);
+      
+      // Log details
+      console.log("Fix instructions:", data);
+    } catch (error) {
+      console.error("Error fetching fix instructions:", error);
+      
+      // Show error message
+      const errorMessage: Message = {
+        sender: 'Diagnostics',
+        content: `Failed to fetch fix instructions: ${error instanceof Error ? error.message : "Unknown error"}`,
+        timestamp: new Date()
+      };
+      
+      setMessages(prev => [...prev, errorMessage]);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -107,6 +495,14 @@ export default function Home() {
             <li><a href="/" className="text-gray-300 hover:text-indigo-400">Dashboard</a></li>
             <li><a href="/employees" className="text-gray-300 hover:text-indigo-400">Employees</a></li>
             <li><a href="/settings" className="text-gray-300 hover:text-indigo-400">Settings</a></li>
+            <li>
+              <button 
+                className="text-gray-300 hover:text-indigo-400"
+                onClick={() => setIsDebugMode(!isDebugMode)}
+              >
+                {isDebugMode ? 'Hide Debug' : 'Debug'}
+              </button>
+            </li>
           </ul>
         </nav>
       </header>
@@ -241,6 +637,45 @@ export default function Home() {
 
               {/* Chat Input - fixed at bottom */}
               <div className="bg-gray-800 border-t border-gray-700 p-3 md:p-4 relative z-10">
+                {isDebugMode && (
+                  <div className="flex justify-end mb-2 space-x-2">
+                    <button
+                      onClick={testChloeAgent}
+                      disabled={isLoading}
+                      className="px-2 py-1 rounded bg-gray-700 text-gray-300 text-xs hover:bg-gray-600 disabled:opacity-50"
+                    >
+                      Test Chloe Agent
+                    </button>
+                    <button
+                      onClick={inspectChloeMemory}
+                      disabled={isLoading}
+                      className="px-2 py-1 rounded bg-gray-700 text-gray-300 text-xs hover:bg-gray-600 disabled:opacity-50"
+                    >
+                      Inspect Memory
+                    </button>
+                    <button
+                      onClick={runDiagnostics}
+                      disabled={isLoading}
+                      className="px-2 py-1 rounded bg-gray-700 text-gray-300 text-xs hover:bg-gray-600 disabled:opacity-50"
+                    >
+                      Run Diagnostics
+                    </button>
+                    <button
+                      onClick={checkChloe}
+                      disabled={isLoading}
+                      className="px-2 py-1 rounded bg-gray-700 text-gray-300 text-xs hover:bg-gray-600 disabled:opacity-50"
+                    >
+                      Check Chloe
+                    </button>
+                    <button
+                      onClick={showFixInstructions}
+                      disabled={isLoading}
+                      className="px-2 py-1 rounded bg-gray-700 text-gray-300 text-xs hover:bg-gray-600 disabled:opacity-50"
+                    >
+                      Fix Instructions
+                    </button>
+                  </div>
+                )}
                 <form 
                   onSubmit={handleSendMessage} 
                   className="flex items-center gap-2 relative z-20"
@@ -321,7 +756,22 @@ export default function Home() {
                 Browse {selectedAgent}'s long-term memory and knowledge base.
               </p>
               <div className="mt-3 md:mt-4 p-3 md:p-4 border border-gray-700 rounded-lg bg-gray-800">
-                <p className="italic text-sm text-gray-500">Memory browser coming soon.</p>
+                {messages.some(m => m.memory && m.memory.length > 0) ? (
+                  <div className="space-y-3">
+                    {messages.filter(m => m.memory && m.memory.length > 0).map((message, idx) => (
+                      <div key={idx} className="border-b border-gray-700 pb-3 last:border-0 last:pb-0">
+                        <div className="font-medium text-sm text-gray-300 mb-1">Memory used for: {message.content.substring(0, 50)}...</div>
+                        {message.memory?.map((mem, memIdx) => (
+                          <div key={memIdx} className="text-sm bg-gray-700 p-2 rounded mt-1 text-gray-200">
+                            {mem}
+                          </div>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="italic text-sm text-gray-500">No memory context used yet.</p>
+                )}
               </div>
             </div>
           ) : (
@@ -331,12 +781,83 @@ export default function Home() {
                 See what {selectedAgent} is currently thinking about.
               </p>
               <div className="mt-3 md:mt-4 p-3 md:p-4 border border-gray-700 rounded-lg bg-gray-800">
-                <p className="italic text-sm text-gray-500">Thought visualization coming soon.</p>
+                {messages.some(m => m.thoughts && m.thoughts.length > 0) ? (
+                  <div className="space-y-3">
+                    {messages.filter(m => m.thoughts && m.thoughts.length > 0).map((message, idx) => (
+                      <div key={idx} className="border-b border-gray-700 pb-3 last:border-0 last:pb-0">
+                        <div className="font-medium text-sm text-gray-300 mb-1">Thoughts for: {message.content.substring(0, 50)}...</div>
+                        {message.thoughts?.map((thought, thoughtIdx) => (
+                          <div key={thoughtIdx} className="text-sm bg-gray-700 p-2 rounded mt-1 text-gray-200">
+                            {thought}
+                          </div>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="italic text-sm text-gray-500">No thoughts recorded yet.</p>
+                )}
               </div>
             </div>
           )}
         </main>
       </div>
+
+      {/* Debug panel */}
+      {isDebugMode && (diagnosticResults || chloeCheckResults || fixInstructions) && (
+        <div className="bg-gray-900 border-t border-gray-700 p-3 text-xs overflow-auto max-h-[200px]">
+          <h3 className="text-gray-300 font-medium mb-2">Debug Results</h3>
+          
+          {diagnosticResults && (
+            <div className="mb-3">
+              <h4 className="text-gray-400 font-medium mb-1">System Diagnostics:</h4>
+              <pre className="text-gray-400 whitespace-pre-wrap overflow-x-auto">
+                {JSON.stringify(diagnosticResults, null, 2)}
+              </pre>
+            </div>
+          )}
+          
+          {chloeCheckResults && (
+            <div className="mb-3">
+              <h4 className="text-gray-400 font-medium mb-1">Chloe Check:</h4>
+              <pre className="text-gray-400 whitespace-pre-wrap overflow-x-auto">
+                {JSON.stringify(chloeCheckResults, null, 2)}
+              </pre>
+            </div>
+          )}
+          
+          {fixInstructions && (
+            <div>
+              <h4 className="text-gray-400 font-medium mb-1">Fix Instructions:</h4>
+              <div className="text-gray-400">
+                <h5 className="font-medium">{fixInstructions.title}</h5>
+                {fixInstructions.instructions?.map((section: any, i: number) => (
+                  <div key={i} className="mt-2">
+                    <div className="font-medium">{section.title}</div>
+                    {section.steps && (
+                      <ul className="list-disc list-inside pl-2 mt-1">
+                        {section.steps.map((step: string, j: number) => (
+                          <li key={j}>{step}</li>
+                        ))}
+                      </ul>
+                    )}
+                    {section.issues && (
+                      <div className="pl-2 mt-1">
+                        {section.issues.map((issue: any, k: number) => (
+                          <div key={k} className="mt-1">
+                            <div className="text-red-400">{issue.error}</div>
+                            <div className="pl-2">Fix: {issue.fix}</div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 } 

@@ -1,11 +1,16 @@
 {
-  "extends": "@crowd-wisdom/typescript-config/base.json",
-  "include": ["src/**/*.ts", "src/**/*.tsx"],
-  "exclude": ["node_modules", "dist"],
   "compilerOptions": {
+    "target": "es2020",
+    "module": "commonjs",
+    "declaration": true,
     "outDir": "./dist",
-    "rootDir": "./src",
-    "composite": true,
-    "incremental": true
-  }
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "composite": true
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist"]
 } 

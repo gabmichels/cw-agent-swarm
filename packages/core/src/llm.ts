@@ -3,44 +3,41 @@
  */
 
 import { ChatOpenAI } from '@langchain/openai';
-import { DEFAULT_LLM_TEMPERATURE } from '@crowd-wisdom/shared';
+import { config } from './config';
 
-interface LLMOptions {
+/**
+ * Options for configuring the LLM
+ */
+export interface LLMOptions {
   modelName?: string;
   temperature?: number;
   apiKey?: string;
   maxTokens?: number;
 }
 
-export const getOpenRouterLLM = (options: LLMOptions = {}) => {
-  const {
-    modelName = 'openrouter/anthropic/claude-3-opus:2024-05-01',
-    temperature = 0.7,
-    apiKey = process.env.OPENROUTER_API_KEY,
-    maxTokens = 4000,
-  } = options;
-
+/**
+ * Get a configured OpenAI model
+ */
+export function getLLM(options: LLMOptions = {}): ChatOpenAI {
   return new ChatOpenAI({
-    modelName,
-    temperature,
-    openAIApiKey: apiKey,
-    maxTokens,
+    modelName: options.modelName || config.llm.defaultModel,
+    temperature: options.temperature ?? config.llm.defaultTemperature,
+    maxTokens: options.maxTokens ?? config.llm.defaultMaxTokens,
+    openAIApiKey: options.apiKey || process.env.OPENROUTER_API_KEY,
     configuration: {
-      baseURL: 'https://openrouter.ai/api/v1',
+      baseURL: process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1',
       defaultHeaders: {
-        'HTTP-Referer': 'https://crowd-wisdom-employees',
-        'X-Title': 'Crowd Wisdom Employees'
-      }
+        'HTTP-Referer': 'https://crowd-wisdom-agents.vercel.app',
+        'X-Title': 'Crowd Wisdom Agents',
+      },
     }
   });
-};
-
-export const getLLM = getOpenRouterLLM; // Default LLM provider
+}
 
 /**
  * Create a ChatOpenAI instance with the specified configuration
  */
-export function createChatOpenAI(apiKey: string, temperature = DEFAULT_LLM_TEMPERATURE) {
+export function createChatOpenAI(apiKey: string, temperature = config.llm.defaultTemperature) {
   return new ChatOpenAI({
     openAIApiKey: apiKey,
     temperature,

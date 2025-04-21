@@ -6,14 +6,10 @@ import { z } from 'zod';
 
 // Shared type for agent configurations
 export interface AgentConfig {
-  name: string;
-  description: string;
   systemPrompt: string;
-  capabilities: string[];
   model: string;
   temperature: number;
   maxTokens: number;
-  verbose: boolean;
 }
 
 // Schema for agent configurations

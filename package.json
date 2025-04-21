@@ -1,14 +1,18 @@
 {
-  "name": "crowd-wisdom-employees",
+  "name": "crowd-wisdom-employees-monorepo",
+  "version": "0.1.0",
   "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "packages/agents/*",
+    "packages/agents/chloe"
+  ],
   "scripts": {
-    "dev": "turbo dev",
-    "build": "turbo build",
-    "clean": "turbo clean",
-    "lint": "turbo lint",
-    "check-types": "turbo check-types",
-    "format": "prettier --write \"**/*.{ts,tsx,md}\"",
-    "typecheck": "tsc --noEmit"
+    "dev": "npm run -w=@crowd-wisdom/ui dev",
+    "build": "npm run build:packages && npm run -w=@crowd-wisdom/ui build",
+    "build:packages": "npm run -w=@crowd-wisdom/shared build && npm run -w=@crowd-wisdom/core build && npm run -w=@crowd-wisdom/memory build && npm run -w=@crowd-wisdom/agents-chloe build",
+    "lint": "npm run -w=@crowd-wisdom/ui lint"
   },
   "devDependencies": {
     "prettier": "^3.5.3",
@@ -20,8 +24,7 @@
   },
   "packageManager": "pnpm@8.15.0",
   "dependencies": {
-    "@types/cron": "2.4.0",
-    "cron": "3.1.6",
+    "cron": "4.3.0",
     "discord.js": "14.14.1",
     "tsup": "8.0.2",
     "zod": "3.22.4"

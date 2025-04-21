@@ -106,4 +106,15 @@ export function formatBytes(bytes: number, decimals = 2): string {
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   
   return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+}
+
+/**
+ * Utility functions for the Crowd Wisdom platform
+ */
+
+/**
+ * Format a date as an ISO string
+ */
+export function formatDateAsISO(date: Date): string {
+  return date.toISOString();
 } 

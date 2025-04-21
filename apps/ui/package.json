@@ -9,23 +9,31 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "@crowd-wisdom/core": "*",
-    "@crowd-wisdom/shared": "*",
-    "next": "14.2.2",
-    "react": "^18",
-    "react-dom": "^18",
-    "tailwindcss": "^3.4.1",
-    "postcss": "^8.4.37",
-    "autoprefixer": "^10.4.18",
-    "react-markdown": "^9.0.1",
-    "lucide-react": "^0.344.0"
+    "@crowd-wisdom/agents-chloe": "file:../../packages/agents/chloe",
+    "@crowd-wisdom/core": "file:../../packages/core",
+    "@crowd-wisdom/shared": "file:../../packages/shared",
+    "@langchain/core": "^0.3.45",
+    "@langchain/langgraph": "^0.2.65",
+    "@langchain/openai": "^0.5.6",
+    "autoprefixer": "^10.4.21",
+    "lucide-react": "^0.344.0",
+    "next": "^15.4.0-canary.0",
+    "openai": "^4.95.1",
+    "postcss": "^8.5.3",
+    "postcss-import": "^16.1.0",
+    "postcss-nested": "^7.0.2",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-markdown": "^9.1.0",
+    "styled-jsx": "^5.1.6",
+    "tailwindcss": "^3.4.17"
   },
   "devDependencies": {
-    "@types/node": "^20.11.30",
-    "@types/react": "^18.2.65",
-    "@types/react-dom": "^18.2.21",
-    "typescript": "^5.3.3",
-    "eslint": "^8.57.0",
-    "eslint-config-next": "14.2.2"
+    "@types/node": "^20.17.30",
+    "@types/react": "^18.3.20",
+    "@types/react-dom": "^18.3.6",
+    "eslint": "^8.57.1",
+    "eslint-config-next": "^15.4.0-canary.0",
+    "typescript": "^5.8.3"
   }
-} 
+}

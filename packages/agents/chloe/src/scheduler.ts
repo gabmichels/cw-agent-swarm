@@ -41,9 +41,15 @@ export function setupScheduler(agent: ChloeAgent) {
       console.log('Task scheduler stopped');
     },
     status: () => {
+      // Check if job is active safely
+      const isJobActive = (job: any) => {
+        // Cron v4 uses isActive, earlier versions used running
+        return job.isActive || false;
+      };
+      
       return {
-        dailyTasks: dailyTasks.running,
-        weeklyReflection: weeklyReflection.running,
+        dailyTasks: isJobActive(dailyTasks),
+        weeklyReflection: isJobActive(weeklyReflection),
       };
     },
     // Add a task to run once at a specific time
