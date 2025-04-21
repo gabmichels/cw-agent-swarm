@@ -33,7 +33,7 @@ export class DiscordNotifier implements Notifier {
           resolve(true);
         });
 
-        this.client.login(this.token).catch((error) => {
+        this.client.login(this.token).catch((error: Error) => {
           console.error('Discord login error:', error);
           resolve(false);
         });
