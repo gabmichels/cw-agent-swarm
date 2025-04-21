@@ -1,68 +1,101 @@
-# Crowd Wisdom Employees - Modularized AI Agents
+# Crowd Wisdom Employees - Node.js Migration
 
-## Overview
-This project implements a modular architecture for AI agents, focused on creating specialized agent roles like Chloe (CMO).
+This repository contains the Node.js migration of the Chloe agent system, rebuilding it with modern JavaScript/TypeScript technologies.
 
-## Directory Structure
+## 🏗️ Tech Stack
+
+- **Node.js & TypeScript** - Core platform
+- **LangChain.js** - LLM orchestration and chains
+- **LangGraph** - Agent workflows and state management
+- **Qdrant** - Vector database for memory
+- **Next.js** - UI frontend
+- **Turborepo** - Monorepo management
+
+## 📂 Project Structure
+
+The project follows a monorepo structure:
+
 ```
-agents/
-  chloe/                        # Chloe-specific components
-    agent_config.py             # Chloe's personality, tone, LLM preferences
-    strategies/                 # Marketing-specific strategy modules
-    tools/                      # Marketing-specific tools
-    reflections/                # Chloe's reflection interpretations
-    main.py                     # Assembles Chloe using shared core
-
-shared/
-  agent_core/                   # Shared agent infrastructure
-    memory/                     # Memory systems
-    tools/                      # Generic tools for all agents
+/apps
+  /ui                  → Next.js app (chat interface + dashboard)
+/packages
+  /agents              → Chloe and other agents
+    /chloe             → Chloe agent implementation
+  /core                → LangGraph logic, toolchains, routing, LLM setup
+  /memory              → Vector DB connectors, embedding logic
+  /shared              → Utilities, constants, types
+  /data                → Initial documents and memory
+/scripts               → Setup scripts
 ```
 
-## Getting Started
+## 🚀 Getting Started
 
-### Environment Setup
+### Prerequisites
 
-1. Copy the example environment file:
+- Node.js 18+
+- npm/pnpm
+- (Optional) Qdrant instance for vector storage
+
+### Installation
+
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/your-org/crowd-wisdom-employees.git
+   cd crowd-wisdom-employees
+   git checkout nodejs-migration
+   ```
+
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
+
+3. Build all packages:
+   ```bash
+   npm run build
+   ```
+
+4. Set up environment variables:
+   ```bash
+   cp .env.example .env
+   ```
+   Then edit `.env` with your API keys and configuration.
+
+### Running the Development Environment
+
 ```bash
-cp .env.example .env
+npm run dev
 ```
 
-2. Edit `.env` and add your API key:
-```
-OPENROUTER_API_KEY=your_openrouter_api_key_here
-```
+This starts the Next.js UI and watches for changes in all packages.
 
-3. You can customize other settings in the `.env` file:
-   - Model preferences by task type
-   - Default LLM parameters
-   - Memory locations
-   - Debug settings
-
-### Running with Docker
-
-Build and run the Docker container:
+### Running the Agent Directly
 
 ```bash
-docker build -t crowd-wisdom-hq .
-docker run -p 8501:8501 -e OPENROUTER_API_KEY=your_key_here crowd-wisdom-hq
+cd packages/agents/chloe
+npm run start
 ```
 
-Then access the HQ interface at http://localhost:8501
+## 🧠 Features
 
-### Running Locally
+- **Memory System**: Long-term memory using vector embeddings
+- **Autonomous Workflows**: Scheduled tasks and reflections
+- **Discord Integration**: Notifications via Discord
+- **Web Interface**: Chat and management UI with Next.js
 
-Install dependencies:
-```bash
-pip install -r requirements.txt
-```
+## 💡 Architecture
 
-Run the HQ app:
-```bash
-streamlit run hq_app.py
-```
+The system is built around a modular agent architecture:
 
-## Adding New Agents
+1. **Core Package**: Provides the LLM interfaces, prompt templates, and basic tools
+2. **Memory Package**: Handles vector storage and retrieval
+3. **Agent Packages**: Implement specific agent behaviors (Chloe)
+4. **UI App**: Provides a web interface to interact with agents
 
-To create a new agent, follow the modular structure in the `agents/` directory. 
-See `README_AGENT_MODULARIZATION.md` for detailed instructions on creating new agents.
+## 📝 License
+
+[Specify your license here]
+
+## 🙏 Acknowledgements
+
+This project is a Node.js migration of the original Python-based Chloe agent system.

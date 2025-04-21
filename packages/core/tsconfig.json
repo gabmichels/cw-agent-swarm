@@ -1,0 +1,9 @@
+{
+  "extends": "@crowd-wisdom/typescript-config/base.json",
+  "include": ["src/**/*.ts", "src/**/*.tsx"],
+  "exclude": ["node_modules", "dist"],
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src"
+  }
+} 
