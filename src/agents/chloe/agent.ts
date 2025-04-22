@@ -80,10 +80,14 @@ export class ChloeAgent {
       // Make model available globally for TaskLogger to use
       global.model = this.model;
 
-      // Initialize base memory system
+      // Initialize base memory system with OpenAI embeddings if configured
+      const useOpenAI = process.env.USE_OPENAI_EMBEDDINGS === 'true';
+      console.log(`Using OpenAI embeddings for LanceDB: ${useOpenAI}`);
+      
       this.memory = new AgentMemory({
         agentId: 'chloe',
         collectionName: 'chloe_memory',
+        useOpenAI: useOpenAI
       });
       await this.memory.initialize();
       
@@ -91,7 +95,8 @@ export class ChloeAgent {
       this.chloeMemory = new ChloeMemory({
         agentId: 'chloe',
         useExternalMemory: true,
-        externalMemory: this.memory
+        externalMemory: this.memory,
+        useOpenAI: useOpenAI
       });
       await this.chloeMemory.initialize();
       

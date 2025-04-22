@@ -266,7 +266,55 @@ export default function Home() {
     setIsSidebarOpen(!isSidebarOpen);
   };
 
-  // Test connection to the API and check if Chloe is loading
+  // Test LanceDB connection
+  const testLanceDB = async () => {
+    console.log("Testing LanceDB connection...");
+    setIsLoading(true);
+    
+    try {
+      // Call LanceDB debug API
+      const response = await fetch('/api/debug/lancedb');
+      
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      // Show test results
+      const resultMessage: Message = {
+        sender: 'LanceDB Test',
+        content: `LanceDB Connection Test: ${data.success ? '✅ Success' : '❌ Failed'}
+        
+${data.message}
+
+${data.success 
+  ? `Successfully stored test thought and found ${data.searchResults?.length || 0} memories in search` 
+  : `Error: ${data.error}`}`,
+        timestamp: new Date()
+      };
+      
+      setMessages(prev => [...prev, resultMessage]);
+      
+      // Log details
+      console.log("LanceDB test results:", data);
+    } catch (error) {
+      console.error("Error testing LanceDB:", error);
+      
+      // Show error message
+      const errorMessage: Message = {
+        sender: 'LanceDB Test',
+        content: `Failed to test LanceDB connection: ${error instanceof Error ? error.message : "Unknown error"}`,
+        timestamp: new Date()
+      };
+      
+      setMessages(prev => [...prev, errorMessage]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Test Chloe agent directly
   const testChloeAgent = async () => {
     console.log("Testing Chloe agent connection...");
     setIsLoading(true);
@@ -757,6 +805,13 @@ For detailed instructions, see the Debug panel.`,
                       className="px-2 py-1 rounded bg-gray-700 text-gray-300 text-xs hover:bg-gray-600 disabled:opacity-50"
                     >
                       Test Chloe Agent
+                    </button>
+                    <button
+                      onClick={testLanceDB}
+                      disabled={isLoading}
+                      className="px-2 py-1 rounded bg-indigo-800 text-gray-200 text-xs hover:bg-indigo-700 disabled:opacity-50"
+                    >
+                      Test LanceDB
                     </button>
                     <button
                       onClick={inspectChloeMemory}

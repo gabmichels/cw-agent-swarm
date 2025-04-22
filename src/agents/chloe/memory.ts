@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { AgentMemory } from '../../lib/memory';
+import { AgentMemory, LanceDBMemory } from '../../lib/memory';
 
 export interface MemoryEntry {
   id: string;
@@ -20,6 +20,7 @@ export interface ChloeMemoryOptions {
   memoryFile?: string;
   useExternalMemory?: boolean;
   externalMemory?: AgentMemory;
+  useOpenAI?: boolean;
 }
 
 /**
@@ -32,7 +33,9 @@ export class ChloeMemory {
   private memoryFile: string;
   private useExternalMemory: boolean;
   private externalMemory?: AgentMemory;
+  private lanceMemory: LanceDBMemory;
   private initialized: boolean = false;
+  private legacyMode: boolean = false;
 
   constructor(options?: ChloeMemoryOptions) {
     this.agentId = options?.agentId || 'chloe';
@@ -40,6 +43,15 @@ export class ChloeMemory {
     this.memoryFile = options?.memoryFile || path.join(this.dataDir, 'memories.json');
     this.useExternalMemory = options?.useExternalMemory || false;
     this.externalMemory = options?.externalMemory;
+    this.legacyMode = process.env.USE_LEGACY_MEMORY === 'true';
+    
+    // Initialize LanceDB memory for vector storage
+    this.lanceMemory = new LanceDBMemory({
+      dataDirectory: process.env.LANCEDB_DATA_DIR || path.join(process.cwd(), 'data', 'lance'),
+      useOpenAI: options?.useOpenAI || process.env.USE_OPENAI_EMBEDDINGS === 'true'
+    });
+    
+    console.log('ChloeMemory initialized with LanceDB backend');
   }
 
   /**
@@ -49,31 +61,48 @@ export class ChloeMemory {
     try {
       console.log('Initializing Chloe memory system...');
       
-      // Create directory if it doesn't exist
-      await this.ensureDirectoryExists(this.dataDir);
+      // Initialize LanceDB memory
+      await this.lanceMemory.initialize();
+      
+      // For backward compatibility, still handle JSON files if in legacy mode
+      if (this.legacyMode) {
+        // Create directory if it doesn't exist
+        await this.ensureDirectoryExists(this.dataDir);
+        
+        // Load existing memories from file if it exists
+        if (fs.existsSync(this.memoryFile)) {
+          const memoryData = fs.readFileSync(this.memoryFile, 'utf-8');
+          const parsedMemories = JSON.parse(memoryData);
+          
+          // Convert data to Memory objects and restore dates
+          parsedMemories.forEach((memory: any) => {
+            memory.created = new Date(memory.created);
+            if (memory.expiresAt) memory.expiresAt = new Date(memory.expiresAt);
+            this.memories.set(memory.id, memory);
+          });
+          
+          console.log(`Loaded ${this.memories.size} memories from legacy storage`);
+          
+          // Migrate legacy memories to LanceDB
+          console.log('Migrating legacy memories to LanceDB...');
+          // Convert Map.values() to Array before iterating to avoid TypeScript iterator issues
+          const memoryArray = Array.from(this.memories.values());
+          for (const memory of memoryArray) {
+            // Store as thought in LanceDB
+            await this.lanceMemory.storeThought({
+              text: memory.content,
+              tag: memory.category,
+              importance: memory.importance,
+              source: memory.source
+            });
+          }
+          console.log('Legacy memory migration complete');
+        }
+      }
       
       // Initialize external memory if needed
       if (this.useExternalMemory && this.externalMemory) {
         await this.externalMemory.initialize();
-      }
-      
-      // Load existing memories from file if it exists
-      if (fs.existsSync(this.memoryFile)) {
-        const memoryData = fs.readFileSync(this.memoryFile, 'utf-8');
-        const parsedMemories = JSON.parse(memoryData);
-        
-        // Convert data to Memory objects and restore dates
-        parsedMemories.forEach((memory: any) => {
-          memory.created = new Date(memory.created);
-          if (memory.expiresAt) memory.expiresAt = new Date(memory.expiresAt);
-          this.memories.set(memory.id, memory);
-        });
-        
-        console.log(`Loaded ${this.memories.size} memories`);
-      } else {
-        // Create empty memory file
-        await this.saveMemories();
-        console.log('Created new memory file');
       }
       
       this.initialized = true;
@@ -81,19 +110,6 @@ export class ChloeMemory {
     } catch (error) {
       console.error('Error initializing memory system:', error);
       return false;
-    }
-  }
-
-  /**
-   * Save memories to file
-   */
-  private async saveMemories(): Promise<void> {
-    try {
-      // Convert Map to array for JSON serialization
-      const memoriesArray = Array.from(this.memories.values());
-      fs.writeFileSync(this.memoryFile, JSON.stringify(memoriesArray, null, 2));
-    } catch (error) {
-      console.error('Error saving memories:', error);
     }
   }
 
@@ -124,14 +140,29 @@ export class ChloeMemory {
       tags
     };
     
-    // Add to local memory
-    this.memories.set(memoryId, newMemory);
-    await this.saveMemories();
+    // Add to LanceDB
+    await this.lanceMemory.storeThought({
+      text: content,
+      tag: category,
+      importance: importance,
+      source: source
+    });
+    
+    // For backwards compatibility, still update the Map and JSON file in legacy mode
+    if (this.legacyMode) {
+      this.memories.set(memoryId, newMemory);
+      await this.saveMemories();
+    }
     
     // Add to external memory if enabled
     if (this.useExternalMemory && this.externalMemory) {
       const memoryText = this.formatMemoryForExternal(newMemory);
-      await this.externalMemory.addMemory(memoryText);
+      await this.externalMemory.addMemory(memoryText, {
+        tag: category,
+        importance: importance,
+        source: source,
+        tags: tags
+      });
     }
     
     console.log(`Added new memory: ${memoryId} - ${content.substring(0, 50)}...`);
@@ -149,100 +180,66 @@ export class ChloeMemory {
   }
 
   /**
-   * Get high-importance memories
+   * Get high-importance memories - now uses LanceDB
    */
-  getHighImportanceMemories(): MemoryEntry[] {
-    return Array.from(this.memories.values()).filter(memory => memory.importance === 'high');
+  async getHighImportanceMemories(limit: number = 20): Promise<MemoryEntry[]> {
+    if (!this.initialized) {
+      await this.initialize();
+    }
+    
+    const thoughts = await this.lanceMemory.getImportantThoughts('high', limit);
+    
+    // Convert from ThoughtRecord to MemoryEntry
+    return thoughts.map(thought => ({
+      id: thought.id,
+      content: thought.text,
+      created: new Date(thought.timestamp),
+      category: thought.metadata.tag,
+      importance: thought.metadata.importance as 'low' | 'medium' | 'high',
+      source: thought.metadata.source as 'user' | 'chloe' | 'system',
+      tags: []
+    }));
   }
 
   /**
-   * Get memories by category
-   */
-  getMemoriesByCategory(category: string): MemoryEntry[] {
-    return Array.from(this.memories.values()).filter(memory => memory.category === category);
-  }
-
-  /**
-   * Get memories by source
-   */
-  getMemoriesBySource(source: 'user' | 'chloe' | 'system'): MemoryEntry[] {
-    return Array.from(this.memories.values()).filter(memory => memory.source === source);
-  }
-
-  /**
-   * Get memories by tag
-   */
-  getMemoriesByTag(tag: string): MemoryEntry[] {
-    return Array.from(this.memories.values()).filter(
-      memory => memory.tags?.includes(tag)
-    );
-  }
-
-  /**
-   * Get recent memories, up to specified limit
-   */
-  getRecentMemories(limit: number = 10): MemoryEntry[] {
-    return Array.from(this.memories.values())
-      .sort((a, b) => b.created.getTime() - a.created.getTime())
-      .slice(0, limit);
-  }
-
-  /**
-   * Get relevant memories for a query, using external memory if available
+   * Get relevant memories for a query, using LanceDB
    */
   async getRelevantMemories(query: string, limit: number = 5): Promise<string[]> {
     if (!this.initialized) {
       await this.initialize();
     }
     
-    // If external memory is enabled, use it
-    if (this.useExternalMemory && this.externalMemory) {
+    // Use LanceDB memory for semantic retrieval
+    const results = await this.lanceMemory.searchMemory({
+      query,
+      limit
+    });
+    
+    // If no results from LanceDB, try external memory if available
+    if (results.length === 0 && this.useExternalMemory && this.externalMemory) {
       try {
-        const result = await this.externalMemory.getContext(query);
-        if (result !== null) {
-          // Handle both string and array returns
-          return Array.isArray(result) ? result : [result];
+        const externalResults = await this.externalMemory.getContext(query);
+        if (externalResults && externalResults.length > 0) {
+          return externalResults;
         }
-        // If null is returned, fall back to local memory
       } catch (error) {
         console.error('Error retrieving context from external memory:', error);
-        // Fall back to local memory if external fails
       }
     }
     
-    // Simple fallback implementation using local memory
-    // In a real implementation, this could use more sophisticated matching
-    const allMemories = Array.from(this.memories.values());
-    
-    // Prioritize high-importance memories
-    const highImportanceMemories = allMemories.filter(memory => memory.importance === 'high');
-    
-    // Find memories that might be related to the query (very basic implementation)
-    const queryWords = query.toLowerCase().split(/\s+/);
-    
-    const relevantMemories = allMemories.filter(memory => {
-      const content = memory.content.toLowerCase();
-      return queryWords.some(word => content.includes(word));
-    });
-    
-    // Combine high importance and relevant memories, prioritizing high importance
-    const combinedMemories = [...highImportanceMemories, ...relevantMemories]
-      // Remove duplicates
-      .filter((memory, index, self) => 
-        index === self.findIndex(m => m.id === memory.id)
-      )
-      // Sort by creation date (newest first)
-      .sort((a, b) => b.created.getTime() - a.created.getTime())
-      .slice(0, limit);
-    
-    // Format the memories as strings in an array
-    if (combinedMemories.length === 0) {
+    // Format the results as strings
+    if (results.length === 0) {
       return ["No relevant memories found."];
     }
     
-    return combinedMemories.map(memory => {
-      const importanceMarker = memory.importance === 'high' ? '[IMPORTANT] ' : '';
-      return `${importanceMarker}${memory.category}: ${memory.content} (${memory.created.toISOString()})`;
+    return results.map(result => {
+      if (result.type === 'thought') {
+        const importance = result.metadata.importance;
+        const importanceMarker = importance === 'high' ? '[IMPORTANT] ' : '';
+        return `${importanceMarker}${result.metadata.tag}: ${result.text} (${new Date(result.timestamp).toISOString()})`;
+      } else {
+        return `${result.type}: ${result.text}`;
+      }
     });
   }
 
@@ -253,6 +250,21 @@ export class ChloeMemory {
     if (!fs.existsSync(dirPath)) {
       fs.mkdirSync(dirPath, { recursive: true });
       console.log(`Created directory: ${dirPath}`);
+    }
+  }
+
+  /**
+   * Save memories to file - only used in legacy mode
+   */
+  private async saveMemories(): Promise<void> {
+    if (!this.legacyMode) return;
+    
+    try {
+      // Convert Map to array for JSON serialization
+      const memoriesArray = Array.from(this.memories.values());
+      fs.writeFileSync(this.memoryFile, JSON.stringify(memoriesArray, null, 2));
+    } catch (error) {
+      console.error('Error saving memories:', error);
     }
   }
 } 
