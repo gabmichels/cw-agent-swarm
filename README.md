@@ -1,112 +1,104 @@
 # Crowd Wisdom Employees
 
-This repository contains the Node.js implementation of the Chloe agent system, rebuilt with modern JavaScript/TypeScript technologies.
+This project has been converted from a monorepo to a single package structure for simplified development.
 
-## 🏗️ Tech Stack
+## Project Structure
 
-- **Node.js & TypeScript** - Core platform
-- **LangChain.js** - LLM orchestration and chains
-- **LangGraph** - Agent workflows and state management
-- **Qdrant** - Vector database for memory
-- **Next.js** - UI frontend
-- **Turborepo** - Monorepo management
+- `src/` - Main source code directory
+  - `app/` - Next.js application using the App Router
+    - `api/` - API routes for backend functionality
+    - `chat/` - Chat interface page
+  - `components/` - Reusable React components
+  - `lib/` - Shared utilities and core functionality
+    - `core/` - Core functionality and LLM integration
+    - `shared/` - Shared types, utilities, and constants
+  - `agents/` - AI agent implementations
+    - `chloe/` - Chloe marketing assistant agent
+  - `persona/` - Personality and brand guidelines for agents
+  - `types/` - TypeScript type definitions and ambient declarations
 
-## 📂 Project Structure
-
-The project follows a clean monorepo structure:
-
-```
-/apps
-  /ui                  → Next.js app (chat interface + dashboard)
-/packages
-  /agents
-    /chloe             → Chloe agent implementation
-  /core                → LangGraph logic, toolchains, routing, LLM setup
-  /memory              → Vector DB connectors, embedding logic
-  /shared              → Utilities, constants, types
-  /data                → Data loaders and handlers
-  /typescript-config   → Shared TypeScript configurations
-/data                  → Static data files and resources
-/scripts               → Setup and utility scripts
-/legacy-python         → Original Python codebase (for reference)
-```
-
-## 🚀 Getting Started
+## Getting Started
 
 ### Prerequisites
 
-- Node.js 18+
-- [pnpm](https://pnpm.io/) 8.x+
-- (Optional) Qdrant instance for vector storage
+- Node.js >= 18
+- npm or pnpm
 
 ### Installation
 
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/your-org/crowd-wisdom-employees.git
-   cd crowd-wisdom-employees
-   ```
-
-2. Install dependencies:
-   ```bash
-   pnpm install
-   ```
-
-3. Run the setup script:
-   ```bash
-   node scripts/setup.js
-   ```
-
-4. Build all packages:
-   ```bash
-   pnpm build
-   ```
-
-5. Set up environment variables:
-   ```bash
-   cp .env.example .env
-   ```
-   Then edit `.env` with your API keys and configuration.
-
-### Running the Development Environment
-
+1. Clone the repository
 ```bash
+git clone https://github.com/your-username/crowd-wisdom-employees.git
+cd crowd-wisdom-employees
+```
+
+2. Install dependencies
+```bash
+npm install
+# or
+pnpm install
+```
+
+3. Setup environment variables
+```bash
+# Copy the example environment variables
+cp .env.example .env
+# Edit the .env file with your API keys and settings
+```
+
+4. Start the development server
+```bash
+npm run dev
+# or
 pnpm dev
 ```
 
-This starts the Next.js UI and watches for changes in all packages.
+5. Open [http://localhost:3000](http://localhost:3000) in your browser
 
-### Running the Agent Directly
+### Using the Setup Script (Windows)
 
-```bash
-cd packages/agents/chloe
-pnpm start
+For Windows users, we've included a PowerShell script that handles installation and startup:
+
+```powershell
+# Run the setup script
+.\setup.ps1
 ```
 
-## 🧠 Features
+## Project Details
 
-- **Memory System**: Long-term memory using vector embeddings
-- **Autonomous Workflows**: Scheduled tasks and reflections
-- **Discord Integration**: Notifications via Discord
-- **Web Interface**: Chat and management UI with Next.js
+### Technology Stack
 
-## 💡 Architecture
+- **Frontend**: Next.js, React, Tailwind CSS
+- **AI/LLM**: LangChain, OpenAI API
+- **Agent Framework**: Custom agent architecture with memory systems
 
-The system is built around a modular agent architecture:
+### Key Features
 
-1. **Core Package**: Provides the LLM interfaces, prompt templates, and basic tools
-2. **Memory Package**: Handles vector storage and retrieval
-3. **Agent Packages**: Implement specific agent behaviors (Chloe)
-4. **UI App**: Provides a web interface to interact with agents
+- Chat interface with AI assistants
+- Chloe marketing assistant agent with memory and reflection capabilities
+- API endpoints for agent interaction and diagnostics
 
-## 📝 Legacy Python Code
+## Development
 
-The original Python implementation is preserved in the `/legacy-python` directory for reference. This code is not actively maintained but serves as a reference for implementing features in the Node.js version.
+### Available Scripts
 
-## 📝 License
+- `npm run dev` - Start the development server
+- `npm run build` - Build the application for production
+- `npm run start` - Start the production server
+- `npm run lint` - Run ESLint
 
-[Specify your license here]
+### Import Structure
 
-## 🙏 Acknowledgements
+After migration from the monorepo, imports now use relative paths:
 
-This project is a Node.js reimplementation of the original Python-based Chloe agent system.
+```typescript
+// Old monorepo import
+import { ChloeAgent } from '@crowd-wisdom/agents-chloe';
+
+// New relative import
+import { ChloeAgent } from '../agents/chloe';
+```
+
+## License
+
+[MIT](LICENSE)
