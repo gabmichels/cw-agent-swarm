@@ -68,7 +68,13 @@ const captureThoughts = () => {
         return String(arg);
       }
     }).join(' ');
+
+    // TEMPORARY: Open the floodgates to see all logs
+    // Add timestamp to all logs to make them visible 
+    const timestamp = new Date().toISOString();
+    thoughts.push(`[${timestamp.split('T')[1].split('.')[0]}] DEBUG LOG: ${logStr}`);
     
+    /* Original filtering logic - temporarily disabled to see all logs
     // Capture specific patterns that might be thoughts
     if (
       (logStr.includes('Chloe thinking:') || 
@@ -91,6 +97,7 @@ const captureThoughts = () => {
       const timestamp = new Date().toISOString();
       thoughts.push(`[${timestamp.split('T')[1].split('.')[0]}] ${logStr}`);
     }
+    */
   };
   
   // Return functions to get captured thoughts and restore console
