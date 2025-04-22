@@ -35,9 +35,13 @@ export class AgentMemory {
     return Promise.resolve({});
   }
 
-  async getContext(query: string, limit: number = 5): Promise<string> {
+  async getContext(query: string, limit: number = 5): Promise<string[]> {
     console.log(`Getting context for ${this.agentId} with query: ${query}`);
-    // This would normally search for relevant memories and return them formatted as context
-    return Promise.resolve(`Stub memory context for query: "${query}"`);
+    // Return an array of memory strings instead of a single string
+    return Promise.resolve([
+      `Memory 1: Related to "${query}"`,
+      `Memory 2: Some other relevant information`,
+      `Memory 3: More context that might be helpful`
+    ]);
   }
 } 

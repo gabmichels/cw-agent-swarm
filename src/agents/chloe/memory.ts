@@ -190,7 +190,7 @@ export class ChloeMemory {
   /**
    * Get relevant memories for a query, using external memory if available
    */
-  async getRelevantMemories(query: string, limit: number = 5): Promise<string> {
+  async getRelevantMemories(query: string, limit: number = 5): Promise<string[]> {
     if (!this.initialized) {
       await this.initialize();
     }
@@ -200,7 +200,8 @@ export class ChloeMemory {
       try {
         const result = await this.externalMemory.getContext(query);
         if (result !== null) {
-          return result;
+          // Handle both string and array returns
+          return Array.isArray(result) ? result : [result];
         }
         // If null is returned, fall back to local memory
       } catch (error) {
@@ -234,15 +235,15 @@ export class ChloeMemory {
       .sort((a, b) => b.created.getTime() - a.created.getTime())
       .slice(0, limit);
     
-    // Format the memories as a string
+    // Format the memories as strings in an array
     if (combinedMemories.length === 0) {
-      return "No relevant memories found.";
+      return ["No relevant memories found."];
     }
     
     return combinedMemories.map(memory => {
       const importanceMarker = memory.importance === 'high' ? '[IMPORTANT] ' : '';
       return `${importanceMarker}${memory.category}: ${memory.content} (${memory.created.toISOString()})`;
-    }).join('\n\n');
+    });
   }
 
   /**
