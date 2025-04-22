@@ -55,3 +55,8 @@ Thumbs.db
 __pycache__/
 debug_paths.bat
 
+# LanceDB and data files
+/data/lance/
+/data/logs/
+*.lance/
+
