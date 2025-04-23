@@ -2,21 +2,11 @@
 const nextConfig = {
   reactStrictMode: true,
   transpilePackages: [],
-  serverExternalPackages: ["@lancedb/lancedb", "@lancedb/lancedb-win32-x64-msvc"],
+  serverExternalPackages: [],
   experimental: {
-    appDir: true,
-    serverComponentsExternalPackages: ["@lancedb/lancedb", "@lancedb/lancedb-win32-x64-msvc"],
+    serverComponentsExternalPackages: [],
   },
   webpack: (config, { isServer }) => {
-    // Only on the server
-    if (isServer) {
-      // Mark LanceDB packages as external
-      config.externals.push(
-        "@lancedb/lancedb",
-        "@lancedb/lancedb-win32-x64-msvc"
-      );
-    }
-
     // For both client and server
     // This is a workaround for compatibility issues with binary modules
     config.resolve.fallback = {

@@ -3,7 +3,7 @@ import { StateGraph, END } from '@langchain/langgraph';
 import { RunnableSequence } from '@langchain/core/runnables';
 import { ChatPromptTemplate } from '@langchain/core/prompts';
 import { createBaseAgent, getLLM } from '../../lib/core';
-import { AgentMemory } from '../../lib/memory/src/memory';
+import { AgentMemory } from '../../lib/memory';
 import { SYSTEM_PROMPTS, AgentConfig, Message, Task } from '../../lib/shared';
 import { chloeTools } from './tools';
 import { Notifier } from './notifiers';
@@ -82,7 +82,6 @@ export class ChloeAgent {
 
       // Initialize base memory system with OpenAI embeddings if configured
       const useOpenAI = process.env.USE_OPENAI_EMBEDDINGS === 'true';
-      console.log(`Using OpenAI embeddings for LanceDB: ${useOpenAI}`);
       
       this.memory = new AgentMemory({
         agentId: 'chloe',

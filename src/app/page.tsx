@@ -266,53 +266,6 @@ export default function Home() {
     setIsSidebarOpen(!isSidebarOpen);
   };
 
-  // Test LanceDB connection
-  const testLanceDB = async () => {
-    console.log("Testing LanceDB connection...");
-    setIsLoading(true);
-    
-    try {
-      // Call LanceDB debug API
-      const response = await fetch('/api/debug/lancedb');
-      
-      if (!response.ok) {
-        throw new Error(`API error: ${response.status}`);
-      }
-      
-      const data = await response.json();
-      
-      // Show test results
-      const resultMessage: Message = {
-        sender: 'LanceDB Test',
-        content: `LanceDB Connection Test: ${data.success ? '✅ Success' : '❌ Failed'}
-        
-${data.message}
-
-${data.success 
-  ? `Successfully stored test thought and found ${data.searchResults?.length || 0} memories in search` 
-  : `Error: ${data.error}`}`,
-        timestamp: new Date()
-      };
-      
-      setMessages(prev => [...prev, resultMessage]);
-      
-      // Log details
-      console.log("LanceDB test results:", data);
-    } catch (error) {
-      console.error("Error testing LanceDB:", error);
-      
-      // Show error message
-      const errorMessage: Message = {
-        sender: 'LanceDB Test',
-        content: `Failed to test LanceDB connection: ${error instanceof Error ? error.message : "Unknown error"}`,
-        timestamp: new Date()
-      };
-      
-      setMessages(prev => [...prev, errorMessage]);
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
   // Test Chloe agent directly
   const testChloeAgent = async () => {
@@ -612,6 +565,43 @@ For detailed instructions, see the Debug panel.`,
     }
   };
 
+  // New function to reset chat history
+  const resetChatHistory = async () => {
+    if (!confirm('Are you sure you want to reset the chat history? This will clear all messages.')) {
+      return;
+    }
+    
+    setIsLoading(true);
+    
+    try {
+      // First try to reset the database schema
+      const resetResponse = await fetch('/api/memory/reset-schema');
+      
+      if (!resetResponse.ok) {
+        console.error('Error resetting memory schema:', await resetResponse.text());
+      } else {
+        console.log('Reset memory schema successfully');
+      }
+      
+      // Set a new welcome message
+      setMessages([{
+        sender: selectedAgent,
+        content: `Hello! I'm ${selectedAgent}. Our conversation has been reset.`,
+        timestamp: new Date()
+      }]);
+    } catch (error) {
+      console.error('Error resetting chat history:', error);
+      
+      setMessages([{
+        sender: selectedAgent,
+        content: `Hello! I'm ${selectedAgent}. There was an error resetting our conversation.`,
+        timestamp: new Date()
+      }]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   return (
     <div className="flex flex-col h-screen max-h-screen">
       {/* Top Navigation Bar */}
@@ -685,6 +675,47 @@ For detailed instructions, see the Debug panel.`,
 
         {/* Main Content Area */}
         <main className={`flex-1 flex flex-col overflow-hidden ${isSidebarOpen ? 'md:ml-0 ml-0' : 'ml-0'} w-full bg-gray-900`}>
+          {/* Chat toolbar */}
+          <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 p-3 flex justify-between items-center">
+            <div className="flex items-center">
+              <button
+                onClick={toggleSidebar}
+                className="sm:hidden mr-2 p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M3 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM3 10a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM3 15a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clipRule="evenodd" />
+                </svg>
+              </button>
+              <h2 className="text-lg font-semibold">
+                Chat with {selectedAgent}
+              </h2>
+            </div>
+            
+            <div className="flex items-center gap-2">
+              <button
+                onClick={resetChatHistory}
+                className="p-2 rounded-md text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2 text-sm"
+                title="Reset chat history"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                Reset Chat
+              </button>
+              
+              <button
+                onClick={() => setIsDebugMode(!isDebugMode)}
+                className={`p-2 rounded-md ${isDebugMode ? 'bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'} flex items-center gap-2 text-sm`}
+                title="Toggle debug mode"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+                </svg>
+                Debug
+              </button>
+            </div>
+          </div>
+
           {/* Info Section */}
           <div className="bg-gray-800 border-b border-gray-700 p-3 md:p-4">
             <h1 className="text-xl md:text-2xl font-bold mb-3 md:mb-4 text-gray-100">{selectedAgent}</h1>
@@ -805,13 +836,6 @@ For detailed instructions, see the Debug panel.`,
                       className="px-2 py-1 rounded bg-gray-700 text-gray-300 text-xs hover:bg-gray-600 disabled:opacity-50"
                     >
                       Test Chloe Agent
-                    </button>
-                    <button
-                      onClick={testLanceDB}
-                      disabled={isLoading}
-                      className="px-2 py-1 rounded bg-indigo-800 text-gray-200 text-xs hover:bg-indigo-700 disabled:opacity-50"
-                    >
-                      Test LanceDB
                     </button>
                     <button
                       onClick={inspectChloeMemory}

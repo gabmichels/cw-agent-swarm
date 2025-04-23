@@ -9,10 +9,11 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "@lancedb/lancedb": "^0.18.2",
     "@langchain/core": "^0.3.45",
     "@langchain/langgraph": "^0.2.65",
     "@langchain/openai": "^0.5.6",
+    "@qdrant/js-client-rest": "^1.14.0",
+    "apache-arrow": "^19.0.1",
     "autoprefixer": "^10.4.21",
     "cron": "4.3.0",
     "discord.js": "14.14.1",

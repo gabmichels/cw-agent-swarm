@@ -1,6 +1,7 @@
-import fs from 'fs';
 import path from 'path';
-import { AgentMemory, LanceDBMemory } from '../../lib/memory';
+import { AgentMemory } from '../../lib/memory';
+// Use server-only Qdrant implementation
+import * as serverQdrant from '../../server/qdrant';
 
 export interface MemoryEntry {
   id: string;
@@ -16,8 +17,6 @@ export interface MemoryEntry {
 
 export interface ChloeMemoryOptions {
   agentId?: string;
-  dataDir?: string;
-  memoryFile?: string;
   useExternalMemory?: boolean;
   externalMemory?: AgentMemory;
   useOpenAI?: boolean;
@@ -27,31 +26,26 @@ export interface ChloeMemoryOptions {
  * Class to manage Chloe's memories with tagging and importance levels
  */
 export class ChloeMemory {
-  private memories: Map<string, MemoryEntry> = new Map();
   private agentId: string;
-  private dataDir: string;
-  private memoryFile: string;
   private useExternalMemory: boolean;
   private externalMemory?: AgentMemory;
-  private lanceMemory: LanceDBMemory;
   private initialized: boolean = false;
-  private legacyMode: boolean = false;
 
   constructor(options?: ChloeMemoryOptions) {
     this.agentId = options?.agentId || 'chloe';
-    this.dataDir = options?.dataDir || path.join(process.cwd(), 'data', 'memory');
-    this.memoryFile = options?.memoryFile || path.join(this.dataDir, 'memories.json');
     this.useExternalMemory = options?.useExternalMemory || false;
     this.externalMemory = options?.externalMemory;
-    this.legacyMode = process.env.USE_LEGACY_MEMORY === 'true';
     
-    // Initialize LanceDB memory for vector storage
-    this.lanceMemory = new LanceDBMemory({
-      dataDirectory: process.env.LANCEDB_DATA_DIR || path.join(process.cwd(), 'data', 'lance'),
-      useOpenAI: options?.useOpenAI || process.env.USE_OPENAI_EMBEDDINGS === 'true'
-    });
+    // Server-side only initialization
+    if (typeof window === 'undefined') {
+      serverQdrant.initMemory({
+        useOpenAI: options?.useOpenAI || process.env.USE_OPENAI_EMBEDDINGS === 'true'
+      }).catch(error => {
+        console.error('Error initializing server-side Qdrant:', error);
+      });
+    }
     
-    console.log('ChloeMemory initialized with LanceDB backend');
+    console.log('ChloeMemory initialized with server-side Qdrant backend');
   }
 
   /**
@@ -61,43 +55,10 @@ export class ChloeMemory {
     try {
       console.log('Initializing Chloe memory system...');
       
-      // Initialize LanceDB memory
-      await this.lanceMemory.initialize();
-      
-      // For backward compatibility, still handle JSON files if in legacy mode
-      if (this.legacyMode) {
-        // Create directory if it doesn't exist
-        await this.ensureDirectoryExists(this.dataDir);
-        
-        // Load existing memories from file if it exists
-        if (fs.existsSync(this.memoryFile)) {
-          const memoryData = fs.readFileSync(this.memoryFile, 'utf-8');
-          const parsedMemories = JSON.parse(memoryData);
-          
-          // Convert data to Memory objects and restore dates
-          parsedMemories.forEach((memory: any) => {
-            memory.created = new Date(memory.created);
-            if (memory.expiresAt) memory.expiresAt = new Date(memory.expiresAt);
-            this.memories.set(memory.id, memory);
-          });
-          
-          console.log(`Loaded ${this.memories.size} memories from legacy storage`);
-          
-          // Migrate legacy memories to LanceDB
-          console.log('Migrating legacy memories to LanceDB...');
-          // Convert Map.values() to Array before iterating to avoid TypeScript iterator issues
-          const memoryArray = Array.from(this.memories.values());
-          for (const memory of memoryArray) {
-            // Store as thought in LanceDB
-            await this.lanceMemory.storeThought({
-              text: memory.content,
-              tag: memory.category,
-              importance: memory.importance,
-              source: memory.source
-            });
-          }
-          console.log('Legacy memory migration complete');
-        }
+      // Server-side only initialization
+      if (typeof window === 'undefined') {
+        // Initialize Qdrant memory through server module
+        await serverQdrant.initMemory();
       }
       
       // Initialize external memory if needed
@@ -140,18 +101,14 @@ export class ChloeMemory {
       tags
     };
     
-    // Add to LanceDB
-    await this.lanceMemory.storeThought({
-      text: content,
-      tag: category,
-      importance: importance,
-      source: source
-    });
-    
-    // For backwards compatibility, still update the Map and JSON file in legacy mode
-    if (this.legacyMode) {
-      this.memories.set(memoryId, newMemory);
-      await this.saveMemories();
+    // Add to server-side Qdrant (only when running server-side)
+    if (typeof window === 'undefined') {
+      await serverQdrant.addMemory('thought', content, {
+        category,
+        importance,
+        source,
+        tags
+      });
     }
     
     // Add to external memory if enabled
@@ -180,91 +137,82 @@ export class ChloeMemory {
   }
 
   /**
-   * Get high-importance memories - now uses LanceDB
+   * Get high-importance memories - now uses server-side Qdrant
    */
   async getHighImportanceMemories(limit: number = 20): Promise<MemoryEntry[]> {
     if (!this.initialized) {
       await this.initialize();
     }
     
-    const thoughts = await this.lanceMemory.getImportantThoughts('high', limit);
+    // Use server-side Qdrant (only when running server-side)
+    if (typeof window === 'undefined') {
+      try {
+        const thoughts = await serverQdrant.searchMemory('thought', '', {
+          limit,
+          filter: { 'importance': 'high' }
+        });
+        
+        // Convert from server Qdrant records to MemoryEntry
+        return thoughts.map(thought => ({
+          id: thought.id,
+          content: thought.text,
+          created: new Date(thought.timestamp),
+          category: thought.metadata.category || thought.metadata.tag || 'thought',
+          importance: thought.metadata.importance as 'low' | 'medium' | 'high',
+          source: thought.metadata.source as 'user' | 'chloe' | 'system',
+          tags: thought.metadata.tags || []
+        }));
+      } catch (error) {
+        console.error('Error retrieving high importance memories:', error);
+        return [];
+      }
+    }
     
-    // Convert from ThoughtRecord to MemoryEntry
-    return thoughts.map(thought => ({
-      id: thought.id,
-      content: thought.text,
-      created: new Date(thought.timestamp),
-      category: thought.metadata.tag,
-      importance: thought.metadata.importance as 'low' | 'medium' | 'high',
-      source: thought.metadata.source as 'user' | 'chloe' | 'system',
-      tags: []
-    }));
+    return [];
   }
 
   /**
-   * Get relevant memories for a query, using LanceDB
+   * Get relevant memories for a query, using server-side Qdrant
    */
   async getRelevantMemories(query: string, limit: number = 5): Promise<string[]> {
     if (!this.initialized) {
       await this.initialize();
     }
     
-    // Use LanceDB memory for semantic retrieval
-    const results = await this.lanceMemory.searchMemory({
-      query,
-      limit
-    });
-    
-    // If no results from LanceDB, try external memory if available
-    if (results.length === 0 && this.useExternalMemory && this.externalMemory) {
+    // Use server-side Qdrant for semantic retrieval
+    if (typeof window === 'undefined') {
       try {
-        const externalResults = await this.externalMemory.getContext(query);
-        if (externalResults && externalResults.length > 0) {
-          return externalResults;
+        const results = await serverQdrant.searchMemory(null, query, { limit });
+        
+        // If no results, try external memory if available
+        if (results.length === 0 && this.useExternalMemory && this.externalMemory) {
+          try {
+            const externalResults = await this.externalMemory.getContext(query);
+            if (externalResults && externalResults.length > 0) {
+              return externalResults;
+            }
+          } catch (error) {
+            console.error('Error retrieving context from external memory:', error);
+          }
         }
+        
+        // Format the results as strings
+        if (results.length === 0) {
+          return ["No relevant memories found."];
+        }
+        
+        return results.map(result => {
+          const importance = result.metadata.importance;
+          const importanceMarker = importance === 'high' ? '[IMPORTANT] ' : '';
+          const category = result.metadata.category || result.metadata.tag || result.type;
+          return `${importanceMarker}${category}: ${result.text} (${new Date(result.timestamp).toISOString()})`;
+        });
       } catch (error) {
-        console.error('Error retrieving context from external memory:', error);
+        console.error('Error searching memory:', error);
+        return ["Error accessing memory."];
       }
     }
     
-    // Format the results as strings
-    if (results.length === 0) {
-      return ["No relevant memories found."];
-    }
-    
-    return results.map(result => {
-      if (result.type === 'thought') {
-        const importance = result.metadata.importance;
-        const importanceMarker = importance === 'high' ? '[IMPORTANT] ' : '';
-        return `${importanceMarker}${result.metadata.tag}: ${result.text} (${new Date(result.timestamp).toISOString()})`;
-      } else {
-        return `${result.type}: ${result.text}`;
-      }
-    });
-  }
-
-  /**
-   * Ensure directory exists
-   */
-  private async ensureDirectoryExists(dirPath: string): Promise<void> {
-    if (!fs.existsSync(dirPath)) {
-      fs.mkdirSync(dirPath, { recursive: true });
-      console.log(`Created directory: ${dirPath}`);
-    }
-  }
-
-  /**
-   * Save memories to file - only used in legacy mode
-   */
-  private async saveMemories(): Promise<void> {
-    if (!this.legacyMode) return;
-    
-    try {
-      // Convert Map to array for JSON serialization
-      const memoriesArray = Array.from(this.memories.values());
-      fs.writeFileSync(this.memoryFile, JSON.stringify(memoriesArray, null, 2));
-    } catch (error) {
-      console.error('Error saving memories:', error);
-    }
+    return ["Memory search unavailable in browser environment."];
   }
 } 
