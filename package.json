@@ -17,6 +17,7 @@
     "autoprefixer": "^10.4.21",
     "cron": "4.3.0",
     "discord.js": "14.14.1",
+    "langchain": "^0.0.225",
     "lucide-react": "^0.344.0",
     "marked": "^15.0.8",
     "next": "^15.4.0-canary.0",

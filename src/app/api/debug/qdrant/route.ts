@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import * as serverQdrant from '../../../../server/qdrant';
+import { MemoryRecord } from '../../../../server/qdrant';
 
 export const runtime = 'nodejs'; // Mark as server-side only
 export const dynamic = 'force-dynamic'; // Prevent caching
@@ -9,8 +10,8 @@ export async function GET() {
   
   // Variable to store test results
   let connectionSuccess = false;
-  let testRecordId = null;
-  let searchResults = [];
+  let testRecordId: string | null = null;
+  let searchResults: MemoryRecord[] = [];
   
   try {
     // Initialize Qdrant

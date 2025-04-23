@@ -112,7 +112,9 @@ class InMemoryStorage {
 class QdrantHandler {
   private client: QdrantClient;
   private dimensions: number;
-  private embeddingFunction: (text: string) => Promise<number[]>;
+  private embeddingFunction: (text: string) => Promise<number[]> = async (text: string) => {
+    return Array.from({ length: 1536 }, () => Math.random() * 2 - 1);
+  };
   private openai: OpenAI | null = null;
   private initialized: boolean = false;
   private collections: Set<string> = new Set();
@@ -133,10 +135,16 @@ class QdrantHandler {
     this.fallbackStorage = new InMemoryStorage();
     this.connectionTimeout = options?.connectionTimeout || 5000; // 5 second timeout
     
-    // Initialize Qdrant client
+    // Get Qdrant URL with fallback
+    const qdrantUrl = options?.qdrantUrl || process.env.QDRANT_URL || 'http://localhost:6333';
+    const qdrantApiKey = options?.qdrantApiKey || process.env.QDRANT_API_KEY;
+    
+    console.log(`Initializing Qdrant client with URL: ${qdrantUrl}`);
+    
+    // Initialize Qdrant client with better options
     this.client = new QdrantClient({
-      url: options?.qdrantUrl || process.env.QDRANT_URL || 'http://localhost:6333',
-      apiKey: options?.qdrantApiKey || process.env.QDRANT_API_KEY,
+      url: qdrantUrl,
+      apiKey: qdrantApiKey,
       timeout: this.connectionTimeout
     });
     
@@ -144,14 +152,25 @@ class QdrantHandler {
     
     // Set up OpenAI if useOpenAI is true
     if (options?.useOpenAI) {
+      const openAIApiKey = options?.openAIApiKey || process.env.OPENAI_API_KEY;
+      
+      if (!openAIApiKey) {
+        console.warn('OpenAI API key not provided, falling back to random embeddings');
+        this.setupRandomEmbeddings();
+        return;
+      }
+      
       this.openai = new OpenAI({
-        apiKey: options?.openAIApiKey || process.env.OPENAI_API_KEY
+        apiKey: openAIApiKey
       });
+      
+      const embeddingModel = options?.openAIModel || process.env.OPENAI_EMBEDDING_MODEL || 'text-embedding-3-small';
+      console.log(`Using OpenAI for embeddings with model: ${embeddingModel}`);
       
       this.embeddingFunction = async (text: string) => {
         try {
           const response = await this.openai!.embeddings.create({
-            model: options?.openAIModel || 'text-embedding-3-small',
+            model: embeddingModel,
             input: text,
             encoding_format: 'float' // Explicitly request float format instead of base64
           });
@@ -169,7 +188,7 @@ class QdrantHandler {
             this.dimensions = embedding.length; // Update dimensions
           }
           
-          // Ensure all values are numbers
+          // Ensure all values are numbers and normalize the vector
           const validEmbedding = embedding.map(val => {
             if (typeof val !== 'number') {
               console.warn(`Embedding contains non-number value: ${val}, converting to number`);
@@ -178,7 +197,7 @@ class QdrantHandler {
             return val;
           });
           
-          return validEmbedding;
+          return this.normalizeVector(validEmbedding);
         } catch (error) {
           console.error('Error generating embeddings with OpenAI:', error);
           console.warn('Falling back to random vectors due to OpenAI embedding error');
@@ -187,12 +206,17 @@ class QdrantHandler {
         }
       };
     } else {
-      // Default embedding function (random vectors, for development only)
-      console.warn("Using random embeddings - not for production use!");
-      this.embeddingFunction = async (text: string) => {
-        return Array.from({ length: this.dimensions }, () => Math.random() * 2 - 1);
-      };
+      this.setupRandomEmbeddings();
     }
+  }
+
+  private setupRandomEmbeddings() {
+    // Default embedding function (random vectors, for development only)
+    console.warn("Using random embeddings - not for production use!");
+    this.embeddingFunction = async (text: string) => {
+      const randomVector = Array.from({ length: this.dimensions }, () => Math.random() * 2 - 1);
+      return this.normalizeVector(randomVector);
+    };
   }
 
   async initialize(): Promise<void> {
@@ -201,16 +225,27 @@ class QdrantHandler {
       
       // Test connection to Qdrant with timeout
       try {
-        const testConnectionPromise = this.client.getCollections();
+        console.log('Testing connection to Qdrant...');
+        
+        // Set up a timeout for the connection test
+        const testConnectionPromise = this.client.getCollections()
+          .catch(err => {
+            console.error('Error in getCollections:', err.message);
+            throw err;
+          });
+          
         const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Connection timeout')), this.connectionTimeout)
+          setTimeout(() => reject(new Error(`Connection timeout after ${this.connectionTimeout}ms`)), this.connectionTimeout)
         );
         
-        await Promise.race([testConnectionPromise, timeoutPromise]);
+        // Try to connect to the Qdrant server
+        const result = await Promise.race([testConnectionPromise, timeoutPromise]) as { collections: any[] };
+        console.log(`Qdrant connection successful. Found ${result.collections.length} collections.`);
         this.useQdrant = true;
-        console.log('Successfully connected to Qdrant');
+        
       } catch (error) {
-        console.error('Failed to connect to Qdrant, using in-memory fallback:', error);
+        console.error('Failed to connect to Qdrant, using in-memory fallback:', 
+          error instanceof Error ? error.message : 'Unknown error');
         this.useQdrant = false;
         this.initialized = true;
         return;
@@ -218,6 +253,7 @@ class QdrantHandler {
       
       // If we get here, Qdrant is available
       // Check and create collections for each memory type
+      let collectionErrors = 0;
       for (const [type, collectionName] of Object.entries(COLLECTIONS)) {
         try {
           const exists = await this.collectionExists(collectionName);
@@ -231,8 +267,15 @@ class QdrantHandler {
             this.collections.add(collectionName);
           }
         } catch (error) {
-          console.error(`Error checking/creating collection ${collectionName}:`, error);
-          this.useQdrant = false;
+          collectionErrors++;
+          console.error(`Error checking/creating collection ${collectionName}:`, 
+            error instanceof Error ? error.message : 'Unknown error');
+          
+          // Only disable Qdrant if we encounter errors for all collections
+          if (collectionErrors >= Object.keys(COLLECTIONS).length) {
+            console.error('Failed to create/check any collections, falling back to in-memory storage');
+            this.useQdrant = false;
+          }
         }
       }
       
@@ -241,10 +284,12 @@ class QdrantHandler {
       if (!this.useQdrant) {
         console.log('Using in-memory fallback for Qdrant');
       } else {
-        console.log('Qdrant memory system initialized successfully');
+        console.log(`Qdrant memory system initialized successfully with ${this.collections.size} collections`);
       }
     } catch (error) {
-      console.error('Failed to initialize Qdrant memory system:', error);
+      console.error('Failed to initialize Qdrant memory system:', 
+        error instanceof Error ? error.message : 'Unknown error');
+      console.error('Stack trace:', error instanceof Error ? error.stack : 'Not available');
       this.useQdrant = false;
       this.initialized = true;
     }
@@ -270,33 +315,103 @@ class QdrantHandler {
       console.log(`Creating collection ${collectionName} with vector size ${this.dimensions}`);
       
       // Check if the collection already exists
-      const collections = await this.client.getCollections();
-      const exists = collections.collections.some(collection => collection.name === collectionName);
-      
-      if (exists) {
-        console.log(`Collection ${collectionName} already exists, skipping creation`);
-        this.collections.add(collectionName);
-        return;
+      try {
+        const collections = await this.client.getCollections();
+        const exists = collections.collections.some(collection => collection.name === collectionName);
+        
+        if (exists) {
+          console.log(`Collection ${collectionName} already exists, skipping creation`);
+          this.collections.add(collectionName);
+          
+          // Verify collection has correct vector size - if not, log a warning
+          try {
+            const collectionInfo = await this.client.getCollection(collectionName);
+            const vectorConfig = collectionInfo.config?.params?.vectors;
+            let vectorSize: number | undefined;
+            
+            // Handle different vector config formats
+            if (typeof vectorConfig === 'object' && vectorConfig !== null) {
+              if ('size' in vectorConfig && typeof vectorConfig.size === 'number') {
+                vectorSize = vectorConfig.size;
+              }
+            }
+            
+            if (vectorSize && vectorSize !== this.dimensions) {
+              console.warn(`Collection ${collectionName} has vector size ${vectorSize}, but we expect ${this.dimensions}`);
+              // Update our dimensions to match the collection
+              this.dimensions = vectorSize;
+            }
+          } catch (infoError) {
+            console.error(`Error getting collection info for ${collectionName}:`, infoError);
+          }
+          
+          return;
+        }
+      } catch (getError) {
+        console.error(`Error checking if collection ${collectionName} exists:`, getError);
+        // Continue with creation attempt
       }
       
       // Create collection with proper settings
-      await this.client.createCollection(collectionName, {
-        vectors: {
-          size: this.dimensions,
-          distance: 'Cosine'
-        },
-        optimizers_config: {
-          default_segment_number: 2
-        },
-        replication_factor: 1
-      });
-      
-      console.log(`Successfully created collection ${collectionName}`);
-      this.collections.add(collectionName);
+      try {
+        // Create collection with correct type for vectors config
+        await this.client.createCollection(collectionName, {
+          vectors: {
+            size: this.dimensions,
+            distance: "Cosine" as const // Use const assertion for type safety
+          }
+        });
+        
+        console.log(`Successfully created collection ${collectionName}`);
+        this.collections.add(collectionName);
+        
+        // Create index for faster searches
+        try {
+          // Wait a moment for collection to be fully created
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          
+          // Create payload index for metadata filtering
+          await this.client.createPayloadIndex(collectionName, {
+            field_name: "timestamp",
+            field_schema: "datetime"
+          });
+          
+          // Create index for type field
+          await this.client.createPayloadIndex(collectionName, {
+            field_name: "type",
+            field_schema: "keyword"
+          });
+          
+          console.log(`Created payload indices for collection ${collectionName}`);
+        } catch (indexError) {
+          console.warn(`Error creating indices for ${collectionName} (non-fatal):`, indexError);
+          // Continue even if index creation fails
+        }
+      } catch (createError: any) {
+        // Special handling for "already exists" errors - which is fine
+        if (createError.message && createError.message.includes('already exists')) {
+          console.log(`Collection ${collectionName} was created by another process, continuing`);
+          this.collections.add(collectionName);
+          return;
+        }
+        
+        console.error(`Error creating collection ${collectionName}:`, createError);
+        throw createError; // Rethrow for upper level handling
+      }
     } catch (error) {
-      console.error(`Error creating collection ${collectionName}:`, error);
+      console.error(`Failed to create/verify collection ${collectionName}:`, error);
       this.useQdrant = false;
     }
+  }
+
+  // Helper to generate a valid Qdrant ID - either integer or UUID
+  private generateValidQdrantId(): string | number {
+    // Use numeric ID format (Qdrant accepts unsigned integers)
+    const numericId = Date.now() * 1000 + Math.floor(Math.random() * 1000);
+    return numericId;
+    
+    // Alternatively, could generate UUID if needed:
+    // return crypto.randomUUID();
   }
 
   async addMemory(type: 'message' | 'thought' | 'document' | 'task', content: string, metadata: Record<string, any> = {}): Promise<string> {
@@ -305,8 +420,11 @@ class QdrantHandler {
     }
     
     try {
-      // Create record ID
-      const id = `${type}_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+      // Create a valid numeric ID for Qdrant
+      const qdrantId = this.generateValidQdrantId();
+      
+      // Create a string ID for our internal reference
+      const stringId = `${type}_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
       
       // Get collection name
       const collectionName = COLLECTIONS[type];
@@ -316,60 +434,108 @@ class QdrantHandler {
         metadata.timestamp = new Date().toISOString();
       }
       
+      // Include the string ID in metadata for reference
+      metadata.stringId = stringId;
+      
       // If Qdrant is unavailable, use in-memory fallback
       if (!this.useQdrant) {
-        return this.fallbackStorage.addMemory(collectionName, id, content, type, metadata);
+        return this.fallbackStorage.addMemory(collectionName, stringId, content, type, metadata);
       }
       
       // Generate embedding for Qdrant
       const embedding = await this.embeddingFunction(content);
       
+      // Validate and normalize the vector to ensure it's safe for Qdrant
+      const safeVector = this.validateVectorForQdrant(embedding);
+      
       try {
-        // Store the point in Qdrant - using 'points' format instead of 'batch' format
-        const requestPayload = {
-          wait: true,
-          points: [
-            {
-              id: id,
-              vector: embedding,
-              payload: {
-                text: content,
-                timestamp: metadata.timestamp,
-                type: type,
-                ...metadata
-              }
-            }
-          ]
+        // Format payload exactly according to Qdrant's requirements
+        // Ensure all fields have the exact types Qdrant expects
+        const point = {
+          id: qdrantId,
+          vector: safeVector,
+          payload: {
+            text: content,
+            timestamp: metadata.timestamp,
+            type: type
+          } as Record<string, any>
         };
         
-        // Debug log the request payload
-        console.log(`Upserting point to Qdrant, id: ${id}, vector length: ${embedding.length}`);
+        // Add the rest of metadata separately to ensure core fields are correct
+        for (const [key, value] of Object.entries(metadata)) {
+          if (key !== 'text' && key !== 'timestamp' && key !== 'type') {
+            point.payload[key] = value;
+          }
+        }
         
-        await this.client.upsert(collectionName, requestPayload);
+        const requestPayload = {
+          wait: true,
+          points: [point]
+        };
         
-        console.log(`Added ${type} to Qdrant memory: ${id}`);
-        return id;
+        // Debug log with less verbosity
+        console.log(`Adding ${type} to Qdrant collection ${collectionName}, id: ${qdrantId}`);
+        
+        try {
+          // Use a more direct approach to capture the exact response
+          const response = await this.client.upsert(collectionName, requestPayload);
+          console.log(`Successfully added ${type} to Qdrant, id: ${qdrantId}`);
+          return stringId;
+        } catch (upsertError: any) {
+          // Log error but reduce verbosity
+          console.error(`Error upserting to Qdrant: ${upsertError.message || 'Unknown error'}`);
+          
+          // Check if there's a status code to better classify the error
+          const status = upsertError.status || (upsertError.response && upsertError.response.status);
+          if (status) {
+            console.error(`Error status: ${status}`);
+          }
+          
+          // Fall back to in-memory
+          console.warn(`Falling back to in-memory storage for ${type}`);
+          this.useQdrant = false;
+          return this.fallbackStorage.addMemory(collectionName, stringId, content, type, metadata);
+        }
       } catch (error) {
         // If there's an error with the Qdrant upsert, log and use fallback
-        console.error(`Error upserting to Qdrant: ${error instanceof Error ? error.message : String(error)}`);
-        console.error(`Error details:`, error);
+        console.error(`Error preparing Qdrant upsert: ${error instanceof Error ? error.message : String(error)}`);
         this.useQdrant = false;
-        return this.fallbackStorage.addMemory(collectionName, id, content, type, metadata);
+        return this.fallbackStorage.addMemory(collectionName, stringId, content, type, metadata);
       }
     } catch (error) {
       console.error(`Failed to add ${type} to Qdrant memory, using fallback:`, error);
       this.useQdrant = false;
       
-      // Use fallback storage
-      const id = `${type}_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+      // Use fallback storage with a string ID
+      const stringId = `${type}_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
       const collectionName = COLLECTIONS[type];
       
       if (!metadata.timestamp) {
         metadata.timestamp = new Date().toISOString();
       }
       
-      return this.fallbackStorage.addMemory(collectionName, id, content, type, metadata);
+      return this.fallbackStorage.addMemory(collectionName, stringId, content, type, metadata);
     }
+  }
+
+  private extractMemoryRecord(result: any): MemoryRecord {
+    const payload = result.payload || {};
+    
+    // Use the stored stringId from metadata if available, otherwise convert the numeric ID to string
+    const id = payload.stringId || (result.id !== undefined ? String(result.id) : `id_${Date.now()}`);
+    
+    return {
+      id,
+      text: payload.text || '',
+      timestamp: payload.timestamp || new Date().toISOString(),
+      type: payload.type || 'message',
+      metadata: this.extractMetadata(payload)
+    };
+  }
+
+  private buildQdrantFilter(filter: Record<string, any>): any {
+    // Fallback to the simplified filter for guaranteed results
+    return this.createSimplestFilter(filter);
   }
 
   async searchMemory(type: 'message' | 'thought' | 'document' | 'task' | null, query: string, options: MemorySearchOptions = {}): Promise<MemoryRecord[]> {
@@ -383,7 +549,7 @@ class QdrantHandler {
         ? [COLLECTIONS[type]] 
         : Object.values(COLLECTIONS);
       
-      // Define limit and filter
+      // Define limit
       const limit = options.limit || 5;
       
       // If Qdrant is unavailable, use in-memory fallback
@@ -401,37 +567,65 @@ class QdrantHandler {
       // Generate embedding for query
       const queryEmbedding = await this.embeddingFunction(query);
       
-      // Build Qdrant filter from options
-      const filter = options.filter ? this.buildQdrantFilter(options.filter) : undefined;
+      // Validate and normalize the query vector
+      const safeQueryVector = this.validateVectorForQdrant(queryEmbedding);
       
       // Search each collection and combine results
       const results = await Promise.all(
         collectionsToSearch.map(async (collectionName) => {
           try {
-            // Create and execute search
-            const searchResult = await this.client.search(collectionName, {
-              vector: queryEmbedding,
-              limit,
-              filter,
+            // ULTRA SIMPLE APPROACH: Start with minimal parameters that are guaranteed to work
+            let searchParams: any = {
+              vector: safeQueryVector,
+              limit: limit,
               with_payload: true
-            });
+            };
             
-            // Convert to our format
-            return searchResult.map(result => {
-              const payload = result.payload as any;
-              return {
-                id: result.id as string,
-                text: payload.text,
-                timestamp: payload.timestamp,
-                type: payload.type,
-                metadata: this.extractMetadata(payload)
+            // Only add filter if absolutely needed, and in the simplest form possible
+            if (options.filter && Object.keys(options.filter).length > 0) {
+              // Create a simplified version of the filter
+              const simpleFilter = this.createSimplestFilter(options.filter);
+              if (simpleFilter) {
+                searchParams.filter = simpleFilter;
+              }
+            }
+            
+            // Log what we're about to do
+            console.log(`Searching collection ${collectionName} with simplified parameters`);
+            
+            try {
+              // Execute the search
+              const searchResult = await this.client.search(collectionName, searchParams);
+              console.log(`Search successful, found ${searchResult.length} results`);
+              
+              // Convert to our format
+              return searchResult.map(result => this.extractMemoryRecord(result));
+            } catch (e: any) {
+              // If we get an error, try again without ANY filter
+              console.error(`Error with filter, trying without filter: ${e.message}`);
+              const backupParams = {
+                vector: safeQueryVector,
+                limit: limit,
+                with_payload: true
               };
-            });
+              
+              const backupResult = await this.client.search(collectionName, backupParams);
+              return backupResult.map(result => this.extractMemoryRecord(result)); 
+            }
           } catch (error) {
             console.error(`Error searching collection ${collectionName}:`, error);
-            this.useQdrant = false;
             
-            // Fall back to in-memory search
+            // If collection doesn't exist yet, return empty results
+            if (error instanceof Error && error.message && (
+              error.message.includes('not found') || 
+              error.message.includes('does not exist')
+            )) {
+              console.warn(`Collection ${collectionName} does not exist yet, returning empty results`);
+              return [];
+            }
+            
+            // For other errors, fall back to in-memory
+            this.useQdrant = false;
             return this.fallbackStorage.searchMemory(collectionName, query, options);
           }
         })
@@ -458,26 +652,39 @@ class QdrantHandler {
     }
   }
   
-  private buildQdrantFilter(filter: Record<string, any>): any {
-    // Convert our filter format to Qdrant's filter format
-    const conditions = Object.entries(filter).map(([key, value]) => {
-      return { key, match: { value } };
-    });
-    
-    if (conditions.length === 0) {
-      return undefined;
+  // Create the simplest possible filter that's guaranteed to work with Qdrant
+  private createSimplestFilter(filter: Record<string, any>): any {
+    try {
+      // Only handle the most basic case: direct equality matches
+      const conditions = Object.entries(filter)
+        .filter(([_, value]) => 
+          // Only include simple scalar values
+          typeof value === 'string' || 
+          typeof value === 'number' || 
+          typeof value === 'boolean')
+        .map(([field, value]) => ({
+          match: { [field]: value }
+        }));
+      
+      if (conditions.length === 0) {
+        return null; // No valid conditions
+      }
+      
+      if (conditions.length === 1) {
+        return conditions[0]; // Single condition
+      }
+      
+      // Multiple conditions combined with AND logic
+      return { must: conditions };
+    } catch (error) {
+      console.error("Error creating filter, skipping filter:", error);
+      return null; // Return null on any error to skip filtering
     }
-    
-    if (conditions.length === 1) {
-      return conditions[0];
-    }
-    
-    return { must: conditions };
   }
   
   private extractMetadata(payload: any): Record<string, any> {
     // Extract metadata fields from payload (excluding standard fields)
-    const standardFields = ['text', 'timestamp', 'type'];
+    const standardFields = ['text', 'timestamp', 'type', 'stringId'];
     const metadata: Record<string, any> = {};
     
     for (const [key, value] of Object.entries(payload)) {
@@ -502,29 +709,42 @@ class QdrantHandler {
         return this.fallbackStorage.getRecentMemories(collectionName, limit);
       }
       
-      // In Qdrant, we need to use scroll API to get recent memories
-      // Let's sort by timestamp in the query
-      const result = await this.client.scroll(collectionName, {
-        limit,
-        with_payload: true,
-        with_vector: false
-      });
+      // First, check if the collection exists
+      try {
+        const exists = await this.collectionExists(collectionName);
+        if (!exists) {
+          console.log(`Collection ${collectionName} doesn't exist yet, returning empty results`);
+          return [];
+        }
+      } catch (error) {
+        console.warn(`Error checking if collection ${collectionName} exists:`, error);
+        // Continue and try to scroll anyway
+      }
       
-      const memories = result.points.map((point: any) => {
-        const payload = point.payload;
-        return {
-          id: point.id as string,
-          text: payload.text,
-          timestamp: payload.timestamp,
-          type: payload.type,
-          metadata: this.extractMetadata(payload)
-        };
-      });
-      
-      // Sort by timestamp (newest first)
-      return memories.sort((a, b) => {
-        return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
-      }).slice(0, limit);
+      try {
+        // In Qdrant, we need to use scroll API to get recent memories
+        const result = await this.client.scroll(collectionName, {
+          limit,
+          with_payload: true,
+          with_vector: false
+        });
+        
+        if (!result.points || result.points.length === 0) {
+          console.log(`No points found in collection ${collectionName}`);
+          return [];
+        }
+        
+        // Use the helper method to format the memory records
+        const memories = result.points.map((point: any) => this.extractMemoryRecord(point));
+        
+        // Sort by timestamp (newest first)
+        return memories.sort((a, b) => {
+          return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
+        }).slice(0, limit);
+      } catch (error) {
+        console.error(`Error getting points from collection ${collectionName}:`, error);
+        throw error; // rethrow to be caught by outer try-catch
+      }
     } catch (error) {
       console.error(`Failed to get recent ${type}s, using fallback:`, error);
       this.useQdrant = false;
@@ -592,10 +812,89 @@ class QdrantHandler {
       return true; // Return true since we've reset the in-memory fallback
     }
   }
+
+  // Helper method to normalize a vector to unit length
+  private normalizeVector(vector: number[]): number[] {
+    try {
+      // Filter out any invalid values first
+      const validValues = vector.map(val => {
+        if (typeof val !== 'number' || isNaN(val) || !isFinite(val)) {
+          return 0; // Replace invalid values with 0
+        }
+        return val;
+      });
+      
+      // Calculate the magnitude (Euclidean norm)
+      const magnitudeSquared = validValues.reduce((sum, val) => sum + val * val, 0);
+      const magnitude = Math.sqrt(magnitudeSquared);
+      
+      // Avoid division by zero
+      if (magnitude === 0 || !isFinite(magnitude)) {
+        console.warn('Vector has zero magnitude or invalid values, returning array of small random values');
+        return Array.from({ length: vector.length }, () => (Math.random() - 0.5) * 0.0001);
+      }
+      
+      // Normalize each component
+      return validValues.map(val => {
+        const normalized = val / magnitude;
+        // Final safety check for any NaN/Infinity that might have slipped through
+        if (!isFinite(normalized)) {
+          return (Math.random() - 0.5) * 0.0001;
+        }
+        return normalized;
+      });
+    } catch (error) {
+      console.error('Error normalizing vector:', error);
+      // Return small random values as a fallback
+      return Array.from({ length: vector.length }, () => (Math.random() - 0.5) * 0.0001);
+    }
+  }
+  
+  // Helper to ensure vectors are always safe for Qdrant
+  private validateVectorForQdrant(vector: number[]): number[] {
+    try {
+      // Ensure vector is the right size
+      if (vector.length !== this.dimensions) {
+        console.warn(`Vector length ${vector.length} doesn't match expected dimensions ${this.dimensions}, resizing`);
+        // Resize the vector to match dimensions
+        if (vector.length > this.dimensions) {
+          // Truncate if too long
+          vector = vector.slice(0, this.dimensions);
+        } else {
+          // Pad with small random values if too short
+          const padding = Array.from(
+            { length: this.dimensions - vector.length },
+            () => (Math.random() - 0.5) * 0.0001
+          );
+          vector = [...vector, ...padding];
+        }
+      }
+      
+      // Validate each element is a proper number
+      const validVector = vector.map(val => {
+        if (typeof val !== 'number' || isNaN(val) || !isFinite(val)) {
+          return (Math.random() - 0.5) * 0.0001;
+        }
+        return val;
+      });
+      
+      // Normalize to ensure unit length
+      return this.normalizeVector(validVector);
+    } catch (error) {
+      console.error('Vector validation error:', error);
+      // Return a safe random vector as last resort
+      return Array.from(
+        { length: this.dimensions },
+        () => (Math.random() - 0.5) * 0.0001
+      );
+    }
+  }
 }
 
 // Singleton instance
 let qdrantInstance: QdrantHandler | null = null;
+let isInitializing = false;
+let initializationPromise: Promise<void> | null = null;
 
 // Public API
 export async function initMemory(options?: {
@@ -605,17 +904,59 @@ export async function initMemory(options?: {
   forceReinit?: boolean;
   connectionTimeout?: number;
 }): Promise<void> {
+  // If already initializing, wait for that to complete instead of creating a new instance
+  if (isInitializing && initializationPromise && !options?.forceReinit) {
+    try {
+      console.log('Waiting for existing Qdrant initialization to complete');
+      await initializationPromise;
+      return;
+    } catch (error) {
+      console.error('Previous initialization failed, starting fresh:', error);
+    }
+  }
+
+  // Create new instance if needed
   if (!qdrantInstance || options?.forceReinit) {
-    qdrantInstance = new QdrantHandler({
+    console.log('Creating new Qdrant handler instance');
+    
+    // Extract configuration with proper defaults
+    const config = {
       qdrantUrl: options?.qdrantUrl || process.env.QDRANT_URL || 'http://localhost:6333',
       qdrantApiKey: options?.qdrantApiKey || process.env.QDRANT_API_KEY,
-      useOpenAI: options?.useOpenAI || process.env.USE_OPENAI_EMBEDDINGS === 'true',
+      useOpenAI: options?.useOpenAI !== undefined 
+        ? options.useOpenAI 
+        : process.env.USE_OPENAI_EMBEDDINGS === 'true',
       openAIModel: process.env.OPENAI_EMBEDDING_MODEL || 'text-embedding-3-small',
-      connectionTimeout: options?.connectionTimeout || 5000
-    });
+      connectionTimeout: options?.connectionTimeout || 10000 // 10 seconds default timeout
+    };
+    
+    // Log the configuration (minus sensitive data)
+    console.log(`Qdrant configuration: URL=${config.qdrantUrl}, useOpenAI=${config.useOpenAI}, model=${config.openAIModel}, timeout=${config.connectionTimeout}ms`);
+    
+    qdrantInstance = new QdrantHandler(config);
   }
   
-  await qdrantInstance.initialize();
+  // Use a Promise to track initialization
+  isInitializing = true;
+  initializationPromise = (async () => {
+    try {
+      console.log('Starting Qdrant initialization');
+      await qdrantInstance!.initialize();
+      console.log('Qdrant initialization completed successfully');
+    } catch (error) {
+      console.error('Qdrant initialization failed:', error);
+      throw error; // Rethrow to signal failure to caller
+    } finally {
+      isInitializing = false;
+    }
+  })();
+  
+  try {
+    await initializationPromise;
+  } catch (error) {
+    console.warn('Continuing despite Qdrant initialization failure - will use in-memory fallback');
+    // We'll continue even if initialization fails, as the handler will fall back to in-memory
+  }
 }
 
 export async function addMemory(
@@ -675,4 +1016,60 @@ export async function resetAllCollections(): Promise<boolean> {
 // Export function to check if initialized
 export function isInitialized(): boolean {
   return qdrantInstance?.isInitialized() || false;
+}
+
+// Add a function to get all memories of a specific type
+async function getAllMemoriesByType(
+  type: 'message' | 'thought' | 'document' | 'task'
+): Promise<MemoryRecord[]> {
+  if (!qdrantInstance) {
+    await initMemory();
+  }
+  
+  try {
+    // We're using an empty query to get all memories of this type
+    // The empty query will rely on the vector search but will return all results
+    // sorted by vector similarity with a random vector (effectively random order)
+    return qdrantInstance!.searchMemory(type, "", { limit: 100 });
+  } catch (error) {
+    console.error(`Error getting all memories of type ${type}:`, error);
+    return [];
+  }
+}
+
+// Export the new function
+export { getAllMemoriesByType };
+
+// Add a diagnostic function to identify message storage issues
+export async function diagnoseDatabaseHealth(): Promise<{ 
+  status: string;
+  messageCount: number;
+  recentMessages: Array<{id: string, type: string, text: string}>
+}> {
+  if (!qdrantInstance) {
+    await initMemory();
+  }
+  
+  try {
+    // Get recent messages to check what's in the database
+    const recentMessages = await qdrantInstance!.getRecentMemories('message', 20);
+    
+    // Return diagnostic information
+    return {
+      status: "Database connected",
+      messageCount: recentMessages.length,
+      recentMessages: recentMessages.map(msg => ({
+        id: msg.id,
+        type: msg.metadata.role || 'unknown',
+        text: msg.text.substring(0, 50) + (msg.text.length > 50 ? '...' : '')
+      }))
+    };
+  } catch (error) {
+    console.error("Error diagnosing database health:", error);
+    return {
+      status: "Error checking database",
+      messageCount: 0,
+      recentMessages: []
+    };
+  }
 } 

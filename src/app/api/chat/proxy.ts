@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import * as serverQdrant from '../../../server/qdrant';
+import { MemoryRecord } from '../../../server/qdrant';
 
 // Dynamically import the Chloe agent to avoid import errors
 async function getChloeAgent() {
@@ -43,14 +44,27 @@ async function getChloeAgent() {
 async function loadChatHistoryFromQdrant(specificUserId?: string) {
   console.log(`Loading chat history from Qdrant${specificUserId ? ` for user: ${specificUserId}` : ''}`);
   try {
-    // Initialize Qdrant if needed
+    // Initialize Qdrant if needed with a longer timeout for initial load
     if (!serverQdrant.isInitialized()) {
-      await serverQdrant.initMemory();
+      await serverQdrant.initMemory({
+        connectionTimeout: 10000 // 10 seconds
+      });
     }
     
-    // Get recent messages
-    const recentMessages = await serverQdrant.getRecentMemories('message', 1000);
+    // Set up a timeout to prevent hanging
+    const fetchTimeout = 30000; // 30 seconds total timeout for this operation
+    const timeoutPromise = new Promise<MemoryRecord[]>((_, reject) => {
+      setTimeout(() => reject(new Error('Qdrant fetch operation timed out')), fetchTimeout);
+    });
+    
+    // Try to get recent messages with timeout protection - increase limit to ensure we get all messages
+    console.log('Fetching messages from Qdrant...');
+    const fetchPromise = serverQdrant.getRecentMemories('message', 1000);
+    const recentMessages = await Promise.race([fetchPromise, timeoutPromise]);
     console.log(`Retrieved ${recentMessages.length} total messages from Qdrant`);
+    
+    // Log IDs to help debug
+    console.log('Message IDs:', recentMessages.map(m => m.id).join(', '));
     
     // Clear existing history if loading for a specific user
     if (specificUserId) {
@@ -58,9 +72,14 @@ async function loadChatHistoryFromQdrant(specificUserId?: string) {
     }
     
     // Group messages by userId
+    const userCounts: Record<string, number> = {};
+    
     for (const message of recentMessages) {
       if (message.metadata && message.metadata.userId) {
         const userId = message.metadata.userId;
+        
+        // Track message count per user
+        userCounts[userId] = (userCounts[userId] || 0) + 1;
         
         // Skip if we're loading for a specific user and this message isn't for that user
         if (specificUserId && userId !== specificUserId) {
@@ -82,6 +101,11 @@ async function loadChatHistoryFromQdrant(specificUserId?: string) {
         console.log(`Message missing userId metadata: ${message.id}`);
       }
     }
+    
+    // Log user counts
+    Object.entries(userCounts).forEach(([userId, count]) => {
+      console.log(`Found ${count} messages for user ${userId}`);
+    });
     
     // Sort messages for each user by timestamp
     const usersToSort = specificUserId ? [specificUserId] : Array.from(chatHistory.keys());
@@ -105,7 +129,14 @@ async function loadChatHistoryFromQdrant(specificUserId?: string) {
     
     return true;
   } catch (error) {
-    console.error('Error loading chat history from Qdrant:', error);
+    console.error('Error loading chat history from Qdrant:', error instanceof Error ? error.message : String(error));
+    console.error('Full error details:', error);
+    
+    // If this is for a specific user who doesn't have history yet, just create an empty array
+    if (specificUserId && !chatHistory.has(specificUserId)) {
+      chatHistory.set(specificUserId, []);
+    }
+    
     return false;
   }
 }
@@ -306,36 +337,82 @@ See server logs for specific error messages.`,
 
 // Save a message to chat history
 async function saveToHistory(userId: string, role: 'user' | 'assistant', content: string) {
+  // Ensure we have a user ID
+  if (!userId) {
+    userId = 'default-user';
+  }
+  
+  // Create a timestamp
+  const timestamp = new Date().toISOString();
+  
+  // Initialize chat history for this user if it doesn't exist
   if (!chatHistory.has(userId)) {
     chatHistory.set(userId, []);
   }
   
-  const timestamp = new Date().toISOString();
-  const userHistory = chatHistory.get(userId)!;
-  userHistory.push({
+  // First add message to in-memory history (this is guaranteed to work)
+  const message = {
     role,
     content,
     timestamp
-  });
+  };
   
-  // Limit history size (optional)
-  if (userHistory.length > 100) {
-    userHistory.shift(); // Remove oldest message if too many
-  }
+  chatHistory.get(userId)!.push(message);
+  console.log(`Added ${role} message to in-memory history for user ${userId}`);
   
-  // Persist to Qdrant (only when running server-side)
-  try {
-    if (typeof window === 'undefined') {
-      await serverQdrant.addMemory('message', content, {
+  // Then try to persist to Qdrant (only when running server-side)
+  if (typeof window === 'undefined') {
+    let qdrantSuccess = false;
+    
+    try {
+      // Ensure Qdrant is initialized before adding memory
+      if (!serverQdrant.isInitialized()) {
+        console.log('Initializing Qdrant before saving message');
+        await serverQdrant.initMemory({
+          connectionTimeout: 10000 // Increase timeout to 10 seconds
+        });
+      }
+      
+      // Set up a timeout to prevent long-running operations
+      const timeout = 15000; // 15 seconds
+      const timeoutPromise = new Promise<string>((_, reject) => {
+        setTimeout(() => reject(new Error('Qdrant operation timed out')), timeout);
+      });
+      
+      // Try to add memory with timeout protection
+      console.log(`Saving ${role} message to Qdrant for user ${userId}: "${content.substring(0, 50)}..."`);
+      const addMemoryPromise = serverQdrant.addMemory('message', content, {
         userId,
         role,
         source: role === 'user' ? 'user' : 'chloe'
       });
-      console.log(`Saved ${role} message to Qdrant for user ${userId}`);
+      
+      // Race the promises to handle timeouts
+      const messageId = await Promise.race([addMemoryPromise, timeoutPromise]);
+      console.log(`Saved ${role} message to Qdrant for user ${userId}, ID: ${messageId}`);
+      qdrantSuccess = true;
+    } catch (error) {
+      // Log the error but continue - this is non-critical
+      console.error('Error saving message to Qdrant:', error instanceof Error ? error.message : String(error));
+      console.error('Full error details:', error);
+      
+      // Continue with in-memory storage only
+      console.log(`Falling back to in-memory storage only for user ${userId}`);
     }
-  } catch (error) {
-    console.error('Error saving message to Qdrant:', error);
+    
+    // After saving, verify the message count to ensure it's consistent
+    try {
+      if (qdrantSuccess) {
+        const recentMessages = await serverQdrant.getRecentMemories('message', 100);
+        const userMessages = recentMessages.filter(m => m.metadata.userId === userId);
+        console.log(`Verification: Found ${userMessages.length} messages for user ${userId} in Qdrant`);
+      }
+    } catch (verifyError) {
+      console.warn('Error verifying message count:', verifyError);
+    }
   }
+  
+  return message;
 }
 
 // Get chat history for a user
@@ -357,13 +434,23 @@ export async function POST(request: Request) {
     console.log(`Processing request from ${userId}: "${message}"`);
     
     // Save user message to history - use await since we modified to be async
-    await saveToHistory(userId, 'user', message);
+    const userMsg = await saveToHistory(userId, 'user', message);
+    console.log(`User message saved to history with timestamp: ${userMsg.timestamp}`);
     
     // Process the message with the real agent
     const { reply, memory, thoughts } = await generateRealResponse(message);
     
+    // Wait a moment before saving the assistant's response
+    // This helps ensure the messages have different timestamps for proper ordering
+    await new Promise(resolve => setTimeout(resolve, 100));
+    
     // Save assistant response to history - use await since we modified to be async
-    await saveToHistory(userId, 'assistant', reply);
+    const assistantMsg = await saveToHistory(userId, 'assistant', reply);
+    console.log(`Assistant message saved to history with timestamp: ${assistantMsg.timestamp}`);
+    
+    // Verify the history after saving
+    const updatedHistory = getUserHistory(userId);
+    console.log(`After response, history has ${updatedHistory.length} messages for user ${userId}`);
     
     // Log thoughts for debugging
     if (thoughts && thoughts.length > 0) {
@@ -392,17 +479,51 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const userId = searchParams.get('userId') || 'default-user';
     
-    // Force reload from Qdrant for this specific user
-    try {
-      await loadChatHistoryFromQdrant(userId);
-      console.log(`Refreshed chat history from Qdrant for user request: ${userId}`);
-    } catch (loadError) {
-      console.error('Error refreshing chat history from Qdrant:', loadError);
+    console.log(`Retrieving chat history for user: ${userId}`);
+    
+    // First check if we already have history for this user in memory
+    // This avoids unnecessary Qdrant calls which could fail
+    const existingHistory = getUserHistory(userId);
+    if (existingHistory.length > 0) {
+      console.log(`Found ${existingHistory.length} existing messages in memory for user ${userId}`);
     }
     
-    // Get the history after refreshing from Qdrant
+    // Force reload from Qdrant for this specific user
+    let qdrantSuccess = false;
+    let retryCount = 0;
+    
+    while (!qdrantSuccess && retryCount < 2) {
+      try {
+        // Set a timeout for the entire operation
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('Qdrant history load timeout')), 10000); // 10 second timeout
+        });
+        
+        const loadPromise = loadChatHistoryFromQdrant(userId);
+        await Promise.race([loadPromise, timeoutPromise]);
+        console.log(`Refreshed chat history from Qdrant for user request: ${userId}`);
+        qdrantSuccess = true;
+      } catch (loadError) {
+        retryCount++;
+        console.error(`Error refreshing chat history from Qdrant (attempt ${retryCount}/2):`, 
+          loadError instanceof Error ? loadError.message : String(loadError));
+        
+        if (retryCount < 2) {
+          console.log(`Retrying Qdrant history load for user ${userId}...`);
+          // Wait a moment before retrying
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+      }
+    }
+    
+    // Get the history after possibly refreshing from Qdrant
     const history = getUserHistory(userId);
-    console.log(`Retrieved ${history.length} messages for user ${userId}`);
+    console.log(`Retrieved ${history.length} messages for user ${userId}${qdrantSuccess ? ' (from Qdrant)' : ' (from memory)'}`);
+    
+    // If we have history but it might be incomplete (missing the last message)
+    if (qdrantSuccess && history.length > 0 && history.length < 3) {
+      console.log(`Warning: Only ${history.length} messages found for user ${userId}, this may be incomplete`);
+    }
     
     // If no history exists, create a welcome message
     if (history.length === 0) {
@@ -412,8 +533,14 @@ export async function GET(request: Request) {
         timestamp: new Date().toISOString()
       };
       
-      // Save to history
-      await saveToHistory(userId, 'assistant', welcomeMessage.content);
+      try {
+        // Save to history - with special handling to avoid errors
+        await saveToHistory(userId, 'assistant', welcomeMessage.content);
+        console.log(`Created welcome message for new user: ${userId}`);
+      } catch (saveError) {
+        console.error('Error saving welcome message:', saveError);
+        // Still return the welcome message even if saving fails
+      }
       
       return NextResponse.json({
         history: [welcomeMessage]
@@ -421,13 +548,19 @@ export async function GET(request: Request) {
     }
     
     return NextResponse.json({
-      history: history
+      history: history,
+      source: qdrantSuccess ? 'qdrant' : 'memory',
+      count: history.length
     });
   } catch (error: any) {
     console.error('Error fetching chat history:', error);
-    return NextResponse.json(
-      { error: error.message || 'Failed to fetch chat history' },
-      { status: 500 }
-    );
+    // Return an empty history rather than an error to avoid breaking the UI
+    return NextResponse.json({
+      history: [],
+      error: error.message || 'Failed to fetch chat history',
+      errorDetails: error.stack
+    }, {
+      status: 200 // Still return 200 to avoid breaking the UI
+    });
   }
 } 

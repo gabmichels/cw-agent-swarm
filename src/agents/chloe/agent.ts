@@ -36,7 +36,7 @@ export class ChloeAgent {
   private config: AgentConfig;
   private notifiers: Notifier[] = [];
   private model: ChatOpenAI | null = null;
-  private initialized: boolean = false;
+  protected initialized: boolean = false;
   private taskLogger: TaskLogger | null = null;
   
   constructor(config?: Partial<AgentConfig>) {
@@ -794,5 +794,19 @@ export class ChloeAgent {
       
       return 'Failed to generate conversation summary.';
     }
+  }
+
+  /**
+   * Get the model instance
+   */
+  getModel(): ChatOpenAI | null {
+    return this.model;
+  }
+  
+  /**
+   * Check if the agent is initialized
+   */
+  isInitialized(): boolean {
+    return this.initialized;
   }
 } 
