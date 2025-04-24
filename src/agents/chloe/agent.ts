@@ -153,6 +153,65 @@ export class ChloeAgent {
     console.log(`Chloe thinking: ${message}`);
   }
 
+  // Add this method to integrate with intent router
+  private async processIntentWithRouter(message: string): Promise<{ success: boolean; response?: string }> {
+    if (!this.initialized) {
+      return { success: false };
+    }
+
+    try {
+      this.logThought(`Analyzing message intent: "${message.substring(0, 50)}${message.length > 50 ? '...' : ''}"`);
+      
+      // Dynamically import the IntentRouterTool to avoid circular dependencies
+      const { IntentRouterTool } = await import('./tools/intentRouter');
+      const intentRouter = new IntentRouterTool();
+      
+      this.logThought(`Using intent router to detect user intent`);
+      const result = await intentRouter.execute({ input: message });
+      
+      if (result.success && result.action) {
+        this.logThought(`✓ Intent detected: ${result.intent} (${Math.round((result.confidence || 0) * 100)}% confidence)`);
+        this.logThought(`✓ Executing action: ${result.action}`);
+        
+        if (this.taskLogger) {
+          this.taskLogger.logAction(`Intent detected and routed`, {
+            intent: result.intent,
+            action: result.action,
+            confidence: result.confidence,
+            timestamp: new Date().toISOString()
+          });
+        }
+        
+        // If we have a result, return it directly
+        if (result.result) {
+          let responseText;
+          
+          // Format the response based on the action type
+          if (result.action === 'propose_content_ideas' && Array.isArray(result.result.ideas)) {
+            responseText = `Here are some content ideas I generated:\n\n${result.result.ideas.join('\n\n')}`;
+          } else if (result.action === 'reflect_on_performance' && result.result.reflection) {
+            responseText = result.result.reflection;
+          } else {
+            // Generic response formatting
+            responseText = typeof result.result === 'string' 
+              ? result.result 
+              : `I completed the ${result.action} action successfully.`;
+          }
+          
+          return { success: true, response: responseText };
+        }
+      } else {
+        this.logThought(`No specific intent detected or no matching tool found`);
+      }
+      
+      return { success: false };
+    } catch (error) {
+      console.error('Error in intent routing:', error);
+      this.logThought(`Error occurred during intent detection: ${error instanceof Error ? error.message : String(error)}`);
+      return { success: false };
+    }
+  }
+
   // Process a user message
   async processMessage(message: string): Promise<string> {
     console.log('!!!!!!!!!!!!!! UNMISTAKABLE MARKER - THIS IS THE EDITED AGENT FILE !!!!!!!!!!!!!!');
@@ -163,6 +222,20 @@ export class ChloeAgent {
     }
 
     console.log('ChloeAgent.processMessage called with message:', message);
+
+    // Try to handle the message with intent routing first
+    try {
+      const intentResult = await this.processIntentWithRouter(message);
+      if (intentResult.success && intentResult.response) {
+        // If intent routing was successful, return the response
+        return intentResult.response;
+      }
+      // Otherwise, continue with normal processing
+      this.logThought(`Processing with standard LLM pipeline`);
+    } catch (error) {
+      console.error('Error in intent routing:', error);
+      // Continue with normal processing if intent routing fails
+    }
 
     // Check for special commands related to conversation history
     const lowerMessage = message.toLowerCase().trim();

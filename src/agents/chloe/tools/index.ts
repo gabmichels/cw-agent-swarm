@@ -8,6 +8,7 @@ interface SimpleTool {
 import { ChloeMemory } from '../memory';
 import { codaIntegration } from './coda';
 import { createMarketScanner, MarketScanner } from './marketScanner';
+import { IntentRouterTool as ActualIntentRouterTool } from './intentRouter';
 
 /**
  * Searches through Chloe's memory for relevant information
@@ -300,6 +301,60 @@ The signals have been saved to memory and can be retrieved using the search_memo
   }
 }
 
+/**
+ * Handles intent routing by classifying user input and directing to appropriate tools
+ */
+export class IntentRouterTool implements SimpleTool {
+  name = 'intent_router';
+  description = 'Route intents to appropriate tools based on the input';
+  private actualTool: any;
+
+  constructor() {
+    // Dynamically import the actual implementation to avoid circular dependencies
+    import('./intentRouter').then(module => {
+      const ActualTool = module.IntentRouterTool;
+      this.actualTool = new ActualTool();
+      console.log('IntentRouterTool loaded successfully');
+    }).catch(error => {
+      console.error('Failed to load IntentRouterTool:', error);
+    });
+  }
+
+  async _call(input: string): Promise<string> {
+    try {
+      // If we have the actual tool loaded, use it
+      if (this.actualTool) {
+        console.log('Delegating to actual IntentRouterTool');
+        const result = await this.actualTool.execute({ input });
+        console.log('IntentRouter result:', result);
+        
+        if (result.success) {
+          if (result.result && typeof result.result === 'object') {
+            // Handle different result formats based on the action
+            if (result.action === 'propose_content_ideas' && Array.isArray(result.result.ideas)) {
+              return `Content ideas: \n${result.result.ideas.join('\n')}`;
+            } else if (result.action === 'reflect_on_performance' && result.result.reflection) {
+              return result.result.reflection;
+            } else {
+              return JSON.stringify(result.result);
+            }
+          }
+          return `Intent matched: ${result.intent} (${Math.round((result.confidence || 0) * 100)}% confidence)`;
+        } else {
+          return result.message || 'Intent routing failed';
+        }
+      }
+      
+      // Fallback if actual tool isn't loaded yet
+      console.log("IntentRouterTool implementation not loaded yet - using fallback");
+      return "Intent routing is initializing. Please try again in a moment.";
+    } catch (error) {
+      console.error('Error in intent router:', error);
+      return `Error routing intent: ${error instanceof Error ? error.message : String(error)}`;
+    }
+  }
+}
+
 // Export all tools in a factory function
 export const createChloeTools = (memory: ChloeMemory, model: any, discordWebhookUrl?: string) => {
   return {
@@ -310,8 +365,43 @@ export const createChloeTools = (memory: ChloeMemory, model: any, discordWebhook
     notifyDiscord: new NotifyDiscordTool(discordWebhookUrl),
     codaDocument: new CodaDocumentTool(),
     marketScan: new MarketScanTool(),
+    intentRouter: new ActualIntentRouterTool()
   };
 };
+
+// Export all tools from this file for easy access
+
+// Import tools
+import { SearchMemoryTool } from './searchMemory';
+import { SummarizeRecentActivityTool } from './summarizeActivity';
+import { ProposeContentIdeasTool } from './proposeContent';
+import { ReflectOnPerformanceTool } from './reflectOnPerformance';
+import { NotifyDiscordTool } from './notifyDiscord';
+import { IntentRouterTool } from './intentRouter';
+
+// Export individual tools
+export {
+  SearchMemoryTool,
+  SummarizeRecentActivityTool,
+  ProposeContentIdeasTool,
+  ReflectOnPerformanceTool,
+  NotifyDiscordTool,
+  ActualIntentRouterTool
+};
+
+/**
+ * Create all available tools for Chloe
+ */
+export function createChloeTools(): any[] {
+  return [
+    new SearchMemoryTool(),
+    new SummarizeRecentActivityTool(),
+    new ProposeContentIdeasTool(),
+    new ReflectOnPerformanceTool(),
+    new NotifyDiscordTool(),
+    new ActualIntentRouterTool()
+  ];
+}
 
 // For backward compatibility
 export const chloeTools = {
@@ -322,4 +412,5 @@ export const chloeTools = {
   notifyDiscord: async (message: string) => "Tools not initialized. Please use createChloeTools().",
   codaDocument: async (input: string) => "Tools not initialized. Please use createChloeTools().",
   marketScan: async (input: string) => "Tools not initialized. Please use createChloeTools().",
+  intentRouter: async (input: string) => "Tools not initialized. Please use createChloeTools().",
 }; 

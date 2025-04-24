@@ -37,15 +37,21 @@ export function loadConfig() {
     ...DEFAULT_CONFIG,
     llm: {
       ...DEFAULT_CONFIG.llm,
-      apiKey: process.env.OPENAI_API_KEY || '',
+      // Prefer OpenRouter API key if available, fall back to OpenAI
+      apiKey: process.env.OPENROUTER_API_KEY || process.env.OPENAI_API_KEY || '',
     },
   };
 }
 
 /**
+ * Configuration
+ */
+export const config = loadConfig();
+
+/**
  * System configuration
  */
-export const config = {
+export const systemConfig = {
   system: {
     name: 'Crowd Wisdom',
     version: '0.1.0',
