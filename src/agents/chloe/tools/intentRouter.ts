@@ -134,7 +134,7 @@ export class IntentRouterTool extends BaseTool {
     );
     
     // Register available tools here
-    this.registerTool('propose_content_ideas', new ProposeContentIdeasTool());
+    this.registerTool('generate_content_ideas', new ProposeContentIdeasTool());
     this.registerTool('reflect_on_performance', new ReflectOnPerformanceTool());
     
     // Initialize the promptTemplate
