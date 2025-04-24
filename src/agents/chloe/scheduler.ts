@@ -416,6 +416,22 @@ export function setupDefaultSchedule(scheduler: ChloeScheduler): void {
     ['research', 'industry', 'innovation']
   );
   
+  // Market scanner - runs twice a day at 7:00 AM and 3:00 PM
+  scheduler.scheduleTask(
+    'market-scan',
+    '0 7,15 * * *',
+    'Run a comprehensive market scan to identify trending topics, news, and insights from RSS feeds, Reddit, and Twitter. Focus on marketing trends, travel content, and social media shifts. After scanning, analyze the findings, identify opportunities, and update our content strategy accordingly.',
+    ['market-scan', 'research', 'trends', 'intelligence']
+  );
+  
+  // Coda document sync - runs daily at 6:00 PM
+  scheduler.scheduleTask(
+    'coda-documents-sync',
+    '0 18 * * *',
+    'Review and update our Coda documents with the latest marketing insights, campaign performance, and content ideas. Create new research documents for any trending topics identified in today\'s market scans.',
+    ['coda', 'documentation', 'sync', 'knowledge-management']
+  );
+  
   console.log('Default scheduled tasks have been set up');
 }
 

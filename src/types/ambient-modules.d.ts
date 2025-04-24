@@ -62,9 +62,10 @@ declare module '@langchain/core' {
 
 // Quick fix for @langchain/openai
 declare module '@langchain/openai' {
-  const content: any;
-  export = content;
-  export * from 'content';
+  export class ChatOpenAI {
+    constructor(options: any);
+    invoke(input: string): Promise<{ content: string }>;
+  }
 }
 
 // Enhanced declaration for @langchain/langgraph
@@ -97,6 +98,8 @@ declare module '@langchain/langgraph/schema' {
 declare module '@langchain/core/prompts' {
   export class ChatPromptTemplate {
     static fromTemplate(template: string): ChatPromptTemplate;
+    static fromMessages(messages: any[]): ChatPromptTemplate;
+    pipe(next: any): any;
   }
   
   export class MessagesPlaceholder {
@@ -118,6 +121,12 @@ declare module '@langchain/core/runnables' {
 declare module '@langchain/core/tools' {
   export class StructuredTool {
     constructor(options: any);
+  }
+}
+
+declare module '@langchain/core/output_parsers' {
+  export class StringOutputParser {
+    constructor();
   }
 }
 

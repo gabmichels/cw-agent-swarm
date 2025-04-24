@@ -1,0 +1,52 @@
+{
+  "sources": [
+    {
+      "id": "digital-marketing",
+      "type": "reddit",
+      "url": "r/digital_marketing",
+      "category": "Digital Marketing",
+      "theme": "Marketing",
+      "refresh_interval": 24
+    },
+    {
+      "id": "travel",
+      "type": "reddit",
+      "url": "r/travel",
+      "category": "Travel",
+      "theme": "Travel",
+      "refresh_interval": 24
+    },
+    {
+      "id": "language-learning",
+      "type": "reddit",
+      "url": "r/languagelearning",
+      "category": "Language Learning",
+      "theme": "Education",
+      "refresh_interval": 48
+    },
+    {
+      "id": "social-media-marketing",
+      "type": "reddit",
+      "url": "r/socialmedia",
+      "category": "Social Media",
+      "theme": "Marketing",
+      "refresh_interval": 24
+    },
+    {
+      "id": "content-marketing",
+      "type": "reddit",
+      "url": "r/content_marketing",
+      "category": "Content Marketing",
+      "theme": "Marketing",
+      "refresh_interval": 36
+    },
+    {
+      "id": "seo-reddit",
+      "type": "reddit",
+      "url": "r/seo",
+      "category": "SEO",
+      "theme": "Marketing",
+      "refresh_interval": 24
+    }
+  ]
+} 

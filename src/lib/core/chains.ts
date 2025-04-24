@@ -1,73 +1,91 @@
 import { StringOutputParser } from '@langchain/core/output_parsers';
 import { ChatPromptTemplate, MessagesPlaceholder } from '@langchain/core/prompts';
+import { ChatOpenAI } from '@langchain/openai';
 import { getLLM } from './llm';
-import { createChatOpenAI } from './llm';
-
-// Simple QA chain with chat history support
-export const createQAChain = (
-  systemPrompt: string = 'You are a helpful AI assistant.'
-) => {
-  const llm = getLLM();
-  const prompt = ChatPromptTemplate.fromMessages([
-    ['system', systemPrompt],
-    new MessagesPlaceholder('chat_history'),
-    ['human', '{input}'],
-  ]);
-
-  // Use any to bypass type issues
-  return {
-    invoke: async (input: any) => {
-      const promptValue = await prompt.invoke(input);
-      const llmResult = await llm.invoke(promptValue as any);
-      const parser = new StringOutputParser();
-      return parser.invoke(llmResult as any);
-    }
-  };
-};
-
-// Reflection chain for agent introspection
-export const createReflectionChain = () => {
-  const llm = getLLM({ temperature: 0.2 });
-  const prompt = ChatPromptTemplate.fromTemplate(`
-    You are an AI assistant reflecting on your past decisions and actions.
-    Please analyze the following conversation history and answer the reflection question.
-    
-    Conversation History:
-    {history}
-    
-    Reflection Question: {question}
-    
-    Please provide a thoughtful analysis based on the conversation history.
-  `);
-
-  // Use any to bypass type issues
-  return {
-    invoke: async (input: any) => {
-      const promptValue = await prompt.invoke(input);
-      const llmResult = await llm.invoke(promptValue as any);
-      const parser = new StringOutputParser();
-      return parser.invoke(llmResult as any);
-    }
-  };
-};
+import { config } from "./config";
 
 /**
- * Create a simple chain for generating text
+ * Creates a QA chain with a system prompt.
+ * @param systemPrompt - The system prompt to use.
+ * @param apiKey - Optional OpenAI API key.
+ * @returns A runnable chain.
  */
-export function createTextGenerationChain(apiKey: string, systemPrompt: string) {
-  const llm = createChatOpenAI(apiKey);
-  const prompt = ChatPromptTemplate.fromMessages([
-    ['system', systemPrompt],
-    ['human', '{input}'],
-  ]);
+export function createQAChain(systemPrompt: string, apiKey?: string) {
+  const model = getLLM({ apiKey });
   
-  // Use any to bypass type issues
-  return {
-    invoke: async (input: any) => {
-      const promptValue = await prompt.invoke(input);
-      const llmResult = await llm.invoke(promptValue as any);
-      const parser = new StringOutputParser();
-      return parser.invoke(llmResult as any);
-    }
-  };
+  const prompt = ChatPromptTemplate.fromMessages([
+    ["system", systemPrompt],
+    new MessagesPlaceholder("history"),
+    ["human", "{input}"]
+  ]);
+
+  return prompt.pipe(model).pipe(new StringOutputParser());
+}
+
+/**
+ * Creates a reflection chain.
+ * @param reflectionQuestion - The reflection question to answer.
+ * @param apiKey - Optional OpenAI API key.
+ * @returns A runnable chain.
+ */
+export function createReflectionChain(reflectionQuestion: string, apiKey?: string) {
+  const model = getLLM({ apiKey });
+  
+  const prompt = ChatPromptTemplate.fromMessages([
+    ["system", "You are a helpful assistant that generates insightful reflections."],
+    ["human", reflectionQuestion]
+  ]);
+
+  return prompt.pipe(model).pipe(new StringOutputParser());
+}
+
+/**
+ * Creates a text generation chain with a system prompt.
+ * @param systemPrompt - The system prompt to use.
+ * @param apiKey - Optional OpenAI API key.
+ * @returns A runnable chain.
+ */
+export function createTextGenerationChain(systemPrompt: string, apiKey?: string) {
+  const model = getLLM({ apiKey });
+  
+  const prompt = ChatPromptTemplate.fromMessages([
+    ["system", systemPrompt],
+    ["human", "{input}"]
+  ]);
+
+  return prompt.pipe(model).pipe(new StringOutputParser());
+}
+
+export class ConversationalChain {
+  private model: ChatOpenAI;
+  private prompt: ChatPromptTemplate;
+
+  constructor({
+    systemPrompt,
+    model,
+    temperature,
+    maxTokens,
+  }: {
+    systemPrompt: string;
+    model?: string;
+    temperature?: number;
+    maxTokens?: number;
+  }) {
+    this.model = new ChatOpenAI({
+      modelName: model,
+      temperature,
+      maxTokens,
+    });
+
+    this.prompt = ChatPromptTemplate.fromMessages([
+      ["system", systemPrompt],
+      new MessagesPlaceholder("history"),
+      ["human", "{input}"]
+    ]);
+  }
+
+  async run(input: string, history: any[] = []) {
+    const chain = this.prompt.pipe(this.model);
+    return chain.invoke({ input, history });
+  }
 } 

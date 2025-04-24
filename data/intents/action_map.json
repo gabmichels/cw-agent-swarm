@@ -1,0 +1,69 @@
+{
+  "intents": [
+    {
+      "intent": "generate_content",
+      "patterns": [
+        "create content for {topic}",
+        "make a post about {topic}",
+        "write content on {topic}",
+        "generate marketing material for {topic}",
+        "need content ideas for {topic}"
+      ],
+      "action": "propose_content_ideas",
+      "description": "Generates marketing content ideas based on a topic",
+      "extractParams": true
+    },
+    {
+      "intent": "analyze_performance",
+      "patterns": [
+        "how did {metric} perform",
+        "review performance of {metric}",
+        "analyze {metric} results",
+        "evaluate {metric} data",
+        "performance insights for {metric}"
+      ],
+      "action": "reflect_on_performance",
+      "description": "Analyzes marketing performance metrics",
+      "extractParams": true
+    },
+    {
+      "intent": "schedule_task",
+      "patterns": [
+        "schedule {task} for {time}",
+        "add task to do {task} at {time}",
+        "remind me to {task} on {time}",
+        "create reminder for {task} at {time}",
+        "plan {task} for {time}"
+      ],
+      "action": "schedule_task",
+      "description": "Schedules a marketing task for later execution",
+      "extractParams": true
+    },
+    {
+      "intent": "send_notification",
+      "patterns": [
+        "notify me about {topic}",
+        "send update on {topic}",
+        "alert about {topic}",
+        "send message about {topic}",
+        "update me on {topic}"
+      ],
+      "action": "send_notification",
+      "description": "Sends a notification about a specified topic",
+      "extractParams": true
+    },
+    {
+      "intent": "retrieve_information",
+      "patterns": [
+        "find information on {topic}",
+        "search for {topic}",
+        "look up {topic}",
+        "tell me about {topic}",
+        "research {topic}"
+      ],
+      "action": "search_knowledge",
+      "description": "Retrieves information from internal knowledge base",
+      "extractParams": true
+    }
+  ]
+} 

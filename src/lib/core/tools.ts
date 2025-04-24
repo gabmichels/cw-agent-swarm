@@ -1,4 +1,4 @@
-import { DynamicStructuredTool } from '@langchain/core/tools';
+import { StructuredTool } from '@langchain/core/tools';
 import { z } from 'zod';
 
 // Basic utility to create a tool
@@ -13,7 +13,7 @@ export function createTool({
   schema: z.ZodObject<any>;
   func: (input: any) => Promise<string>;
 }) {
-  return new DynamicStructuredTool({
+  return new StructuredTool({
     name,
     description,
     schema,

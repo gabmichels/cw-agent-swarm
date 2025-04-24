@@ -1,0 +1,52 @@
+{
+  "sources": [
+    {
+      "id": "travel-trends",
+      "type": "twitter",
+      "url": "search:travel OR tourism lang:en -is:retweet",
+      "category": "Travel Trends",
+      "theme": "Travel",
+      "refresh_interval": 8
+    },
+    {
+      "id": "marketing-influencers",
+      "type": "twitter",
+      "url": "from:neilpatel OR from:ahrefs OR from:randfish",
+      "category": "Marketing Influencers",
+      "theme": "Marketing",
+      "refresh_interval": 12
+    },
+    {
+      "id": "language-learning-twitter",
+      "type": "twitter",
+      "url": "search:language learning OR polyglot lang:en -is:retweet",
+      "category": "Language Learning",
+      "theme": "Education",
+      "refresh_interval": 24
+    },
+    {
+      "id": "social-media-trends",
+      "type": "twitter",
+      "url": "search:social media trend OR instagram OR tiktok lang:en -is:retweet",
+      "category": "Social Media Trends",
+      "theme": "Marketing",
+      "refresh_interval": 6
+    },
+    {
+      "id": "content-marketing-thought-leaders",
+      "type": "twitter",
+      "url": "from:cmicontent OR from:contentmarketing OR from:JoePulizzi",
+      "category": "Content Marketing",
+      "theme": "Marketing",
+      "refresh_interval": 12
+    },
+    {
+      "id": "travel-bloggers",
+      "type": "twitter",
+      "url": "from:nomadicmatt OR from:adventurouskate OR from:youngadventuress",
+      "category": "Travel Influencers",
+      "theme": "Travel",
+      "refresh_interval": 12
+    }
+  ]
+} 

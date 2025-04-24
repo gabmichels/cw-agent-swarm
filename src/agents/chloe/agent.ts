@@ -585,7 +585,7 @@ export class ChloeAgent {
         try {
           const memories = await this.chloeMemory.getHighImportanceMemories();
           highImportanceMemories = memories.map(m => m.content);
-          
+        
           this.logThought(`Found ${highImportanceMemories.length} high importance memories to review`);
           
           if (this.taskLogger) {

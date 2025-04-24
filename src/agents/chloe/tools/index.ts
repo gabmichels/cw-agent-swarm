@@ -6,6 +6,8 @@ interface SimpleTool {
 }
 
 import { ChloeMemory } from '../memory';
+import { codaIntegration } from './coda';
+import { createMarketScanner, MarketScanner } from './marketScanner';
 
 /**
  * Searches through Chloe's memory for relevant information
@@ -213,6 +215,91 @@ export class NotifyDiscordTool implements SimpleTool {
   }
 }
 
+/**
+ * Tool to interact with Coda documents
+ */
+export class CodaDocumentTool implements SimpleTool {
+  name = 'coda_document';
+  description = 'Create, read, or update documents in Coda workspace';
+
+  async _call(input: string): Promise<string> {
+    try {
+      const [action, ...args] = input.split('|').map(arg => arg.trim());
+
+      switch (action.toLowerCase()) {
+        case 'list':
+          const docs = await codaIntegration.listDocs();
+          if (docs.length === 0) {
+            return "No documents found in the Coda workspace.";
+          }
+          return docs.map(doc => `${doc.name} (ID: ${doc.id})`).join('\n');
+
+        case 'read':
+          if (!args[0]) {
+            return "Error: Document ID is required for reading.";
+          }
+          const content = await codaIntegration.readDoc(args[0]);
+          return content || "No content found or document not accessible.";
+
+        case 'create':
+          if (args.length < 2) {
+            return "Error: Title and content are required for document creation.";
+          }
+          const [title, ...contentParts] = args;
+          const newDocContent = contentParts.join('|');
+          const newDoc = await codaIntegration.createDoc(title, newDocContent);
+          return `Document created: "${newDoc.name}" (ID: ${newDoc.id})`;
+
+        case 'update':
+          if (args.length < 2) {
+            return "Error: Document ID and content are required for updating.";
+          }
+          const [docId, ...updateParts] = args;
+          const updateContent = updateParts.join('|');
+          await codaIntegration.updateDoc(docId, updateContent);
+          return `Document updated successfully (ID: ${docId})`;
+
+        default:
+          return `Unknown action: ${action}. Available actions: list, read, create, update`;
+      }
+    } catch (error) {
+      console.error('Error using Coda document tool:', error);
+      return `Error using Coda document tool: ${error instanceof Error ? error.message : String(error)}`;
+    }
+  }
+}
+
+/**
+ * Tool to run market scans
+ */
+export class MarketScanTool implements SimpleTool {
+  name = 'market_scan';
+  description = 'Scan market sources for trends, news, and insights';
+  private scanner: MarketScanner;
+
+  constructor() {
+    this.scanner = createMarketScanner();
+  }
+
+  async _call(input: string): Promise<string> {
+    try {
+      const categories = input.trim() ? input.split(',').map(c => c.trim()) : undefined;
+      
+      const scanCount = await this.scanner.runMarketScan(categories);
+      
+      if (scanCount === 0) {
+        return "No new market signals found or scanner is disabled.";
+      }
+      
+      return `Market scan complete! Processed ${scanCount} signals${categories ? ` in categories: ${categories.join(', ')}` : ''}.
+The signals have been saved to memory and can be retrieved using the search_memory tool.`;
+    } catch (error) {
+      console.error('Error running market scan:', error);
+      return `Error running market scan: ${error instanceof Error ? error.message : String(error)}`;
+    }
+  }
+}
+
 // Export all tools in a factory function
 export const createChloeTools = (memory: ChloeMemory, model: any, discordWebhookUrl?: string) => {
   return {
@@ -221,6 +308,8 @@ export const createChloeTools = (memory: ChloeMemory, model: any, discordWebhook
     proposeContentIdeas: new ProposeContentIdeasTool(model, memory),
     reflectOnPerformance: new ReflectOnPerformanceTool(model, memory),
     notifyDiscord: new NotifyDiscordTool(discordWebhookUrl),
+    codaDocument: new CodaDocumentTool(),
+    marketScan: new MarketScanTool(),
   };
 };
 
@@ -231,4 +320,6 @@ export const chloeTools = {
   proposeContentIdeas: async (topic: string) => "Tools not initialized. Please use createChloeTools().",
   reflectOnPerformance: async () => "Tools not initialized. Please use createChloeTools().",
   notifyDiscord: async (message: string) => "Tools not initialized. Please use createChloeTools().",
+  codaDocument: async (input: string) => "Tools not initialized. Please use createChloeTools().",
+  marketScan: async (input: string) => "Tools not initialized. Please use createChloeTools().",
 }; 
