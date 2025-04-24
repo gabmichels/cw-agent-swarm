@@ -46,7 +46,73 @@ module.exports = {
           text2: '#d1d5db',
         },
       },
+      typography: {
+        DEFAULT: {
+          css: {
+            color: '#f9fafb',
+            a: {
+              color: '#8b5cf6',
+              '&:hover': {
+                color: '#a78bfa',
+              },
+            },
+            h1: {
+              color: '#f9fafb',
+            },
+            h2: {
+              color: '#f9fafb',
+            },
+            h3: {
+              color: '#f9fafb',
+            },
+            h4: {
+              color: '#f9fafb',
+            },
+            h5: {
+              color: '#f9fafb',
+            },
+            h6: {
+              color: '#f9fafb',
+            },
+            strong: {
+              color: '#c4b5fd',
+            },
+            code: {
+              color: '#f9fafb',
+              backgroundColor: '#1f2937',
+              padding: '0.2em 0.4em',
+              borderRadius: '0.25rem',
+            },
+            pre: {
+              backgroundColor: '#1f2937',
+              color: '#f9fafb',
+              padding: '1rem',
+              borderRadius: '0.5rem',
+            },
+            blockquote: {
+              color: '#d1d5db',
+              borderLeftColor: '#4c1d95',
+            },
+            ul: {
+              li: {
+                '&::marker': {
+                  color: '#8b5cf6',
+                },
+              },
+            },
+            ol: {
+              li: {
+                '&::marker': {
+                  color: '#8b5cf6',
+                },
+              },
+            },
+          },
+        },
+      },
     },
   },
-  plugins: [],
+  plugins: [
+    require('@tailwindcss/typography'),
+  ],
 }; 

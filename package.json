@@ -17,7 +17,7 @@
     "autoprefixer": "^10.4.21",
     "cron": "4.3.0",
     "discord.js": "14.14.1",
-    "langchain": "^0.0.225",
+    "langchain": "^0.3.24",
     "lucide-react": "^0.344.0",
     "marked": "^15.0.8",
     "next": "^15.4.0-canary.0",
@@ -34,6 +34,7 @@
     "zod": "^3.24.3"
   },
   "devDependencies": {
+    "@tailwindcss/typography": "^0.5.10",
     "@types/marked": "^5.0.2",
     "@types/node": "^20.17.30",
     "@types/react": "^18.3.20",

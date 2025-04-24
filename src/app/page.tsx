@@ -2,13 +2,7 @@
 
 import React, { useState, FormEvent, useEffect, useRef, useCallback } from 'react';
 import { ChevronDown, Send, Menu, X } from 'lucide-react';
-import { marked } from 'marked';
-
-// Configure marked options for better formatting
-marked.setOptions({
-  gfm: true,    // GitHub Flavored Markdown
-  breaks: true  // Add <br> on single line breaks
-});
+import MarkdownRenderer from '../components/MarkdownRenderer';
 
 // Define message type for better type safety
 interface Message {
@@ -18,84 +12,6 @@ interface Message {
   memory?: string[];
   thoughts?: string[];
 }
-
-// Function to safely parse markdown
-const renderMarkdown = (content: string) => {
-  try {
-    // Pre-process the content to handle escaped newlines and improve markdown formatting
-    let processedContent = content
-      .replace(/\\n/g, '\n') // Replace escaped newlines with actual newlines
-      .replace(/\\"/g, '"'); // Handle escaped quotes
-      
-    // Special case: Check if this is a numbered list with indented descriptions
-    // This pattern is common in responses like marketing rules
-    if (processedContent.includes("1. **") && processedContent.includes("\n   ")) {
-      try {
-        // Split into introduction and list items
-        const parts = processedContent.split("\n\n1. ");
-        const intro = parts[0].trim();
-        
-        // Start building the HTML
-        let result = intro ? `<p>${intro}</p>\n` : '';
-        result += '<ol class="list-decimal pl-5">';
-        
-        // Process list items
-        const listText = "1. " + parts.slice(1).join("\n\n1. ");
-        const listItems = listText.split(/\n\n\d+\.\s+/);
-        
-        for (let i = 0; i < listItems.length; i++) {
-          if (!listItems[i].trim()) continue;
-          
-          let item = listItems[i].trim();
-          
-          // Check if this item has a bold title and a description
-          if (item.startsWith('**') && item.includes('**\n')) {
-            const titleEndIndex = item.indexOf('**\n');
-            const title = item.substring(2, titleEndIndex);
-            const rest = item.substring(titleEndIndex + 3).trim();
-            
-            result += `\n  <li class="mb-2">
-    <strong class="text-indigo-300">${title}</strong>
-    <br>
-    <span class="text-gray-300">${rest}</span>
-  </li>`;
-          } else if (item.startsWith('**')) {
-            // Item with just a bold title
-            const endBoldIndex = item.indexOf('**', 2);
-            if (endBoldIndex !== -1) {
-              const title = item.substring(2, endBoldIndex);
-              const rest = item.substring(endBoldIndex + 2).trim();
-              
-              result += `\n  <li class="mb-2">
-    <strong class="text-indigo-300">${title}</strong>
-    ${rest ? `<span class="text-gray-300">${rest}</span>` : ''}
-  </li>`;
-            } else {
-              // Just add the item as is
-              result += `\n  <li class="mb-2">${item}</li>`;
-            }
-          } else {
-            // Regular list item
-            result += `\n  <li class="mb-2">${item}</li>`;
-          }
-        }
-        
-        result += '\n</ol>';
-        return result;
-      } catch (err) {
-        console.error('Error in special list parsing:', err);
-        // Fall back to standard markdown if our special parsing fails
-        return marked(processedContent);
-      }
-    }
-    
-    // For all other content, use regular markdown parsing
-    return marked(processedContent);
-  } catch (error) {
-    console.error('Error parsing markdown:', error);
-    return content;
-  }
-};
 
 export default function Home() {
   const [selectedDepartment, setSelectedDepartment] = useState('Marketing');
@@ -775,9 +691,10 @@ For detailed instructions, see the Debug panel.`,
                           <div className="font-medium text-xs md:text-sm text-gray-400 mb-1">{message.sender}</div>
                         )}
                         <div 
-                          className="text-sm md:text-base prose prose-invert prose-ul:pl-5 prose-ul:my-1 prose-ol:pl-5 prose-ol:my-1 prose-ol:list-decimal prose-li:my-0.5 prose-li:pl-1 prose-li:marker:text-indigo-400 prose-p:my-1 prose-headings:mt-2 prose-headings:mb-1 prose-strong:text-indigo-300 max-w-none" 
-                          dangerouslySetInnerHTML={{ __html: renderMarkdown(message.content) }}
-                        />
+                          className="text-sm md:text-base"
+                        >
+                          <MarkdownRenderer content={message.content} />
+                        </div>
                         <div className={`text-xs mt-1 flex items-center justify-between ${message.sender === 'You' ? 'text-indigo-300' : 'text-gray-500'}`}>
                           <span>{message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                           {message.sender !== 'You' && (
