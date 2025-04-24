@@ -1072,4 +1072,86 @@ export async function diagnoseDatabaseHealth(): Promise<{
       recentMessages: []
     };
   }
+}
+
+// Add a function to get recent chat messages with timestamp filtering
+export async function getRecentChatMessages(options: {
+  since?: Date;
+  until?: Date;
+  limit?: number;
+  roles?: string[];
+}): Promise<MemoryRecord[]> {
+  if (!qdrantInstance) {
+    await initMemory();
+  }
+  
+  try {
+    // Build filter with timestamp and roles
+    const filter: Record<string, any> = {};
+    
+    // Add timestamp range if provided
+    if (options.since || options.until) {
+      const timestampFilter: Record<string, any> = {};
+      
+      if (options.since) {
+        timestampFilter.$gte = options.since.toISOString();
+      }
+      
+      if (options.until) {
+        timestampFilter.$lte = options.until.toISOString();
+      }
+      
+      filter.timestamp = timestampFilter;
+    }
+    
+    // Add role filter if provided
+    if (options.roles && options.roles.length > 0) {
+      filter.role = { $in: options.roles };
+    }
+    
+    // Get messages with the constructed filter
+    return qdrantInstance!.searchMemory(
+      'message', 
+      "", // Empty query to get all messages matching filter
+      { 
+        limit: options.limit || 20,
+        filter
+      }
+    );
+  } catch (error) {
+    console.error('Error retrieving recent chat messages:', error);
+    return [];
+  }
+}
+
+// Function to summarize chat history using timestamps
+export async function summarizeChat(options: {
+  since: Date;
+  until?: Date;
+  limit?: number;
+}): Promise<string> {
+  try {
+    // Get messages in the date range
+    const messages = await getRecentChatMessages({
+      since: options.since,
+      until: options.until,
+      limit: options.limit || 50
+    });
+    
+    if (messages.length === 0) {
+      return "No chat history found in the specified time range.";
+    }
+    
+    // Format messages for summary
+    const formattedMessages = messages.map(msg => {
+      const role = msg.metadata.role || "unknown";
+      return `${role.toUpperCase()} (${new Date(msg.timestamp).toLocaleTimeString()}): ${msg.text}`;
+    }).join("\n\n");
+    
+    // Create a summary using a simple template
+    return `Chat history from ${options.since.toLocaleString()} ${options.until ? `to ${options.until.toLocaleString()}` : 'to now'}:\n\n${formattedMessages}`;
+  } catch (error) {
+    console.error('Error summarizing chat:', error);
+    return "Failed to generate chat summary due to an error.";
+  }
 } 

@@ -10,7 +10,7 @@ export { MemoryTagger } from './memory-tagger';
 export { Persona } from './persona';
 export { PersonaLoader } from './persona-loader';
 export { TaskLogger } from './task-logger';
-export { ChloeScheduler } from './scheduler';
+export { ChloeScheduler, setupScheduler, setupDefaultSchedule } from './scheduler';
 
 // Export LangGraph workflow components
 export { ChloeGraph } from './graph/graph';
@@ -32,6 +32,14 @@ export {
   attachPlanAndExecute
 } from './planAndExecute';
 export type { PlanAndExecuteOptions } from './planAndExecute';
+
+// Export autonomy system
+export {
+  initializeChloeAutonomy,
+  diagnoseAutonomySystem,
+  getRecentChatMessages,
+  summarizeChat
+} from './autonomy';
 
 // Attach the planAndExecute method on import
 import './planAndExecute';

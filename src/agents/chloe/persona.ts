@@ -1,5 +1,6 @@
-import fs from 'fs';
-import path from 'path';
+// Replace with proper TypeScript imports
+import * as fs from 'fs';
+import * as path from 'path';
 
 /**
  * Interface for persona components
@@ -442,6 +443,20 @@ Chloe is a professional marketing executive with the following core traits:
       console.log(`Saved trait "${trait.name}" to ${filePath}`);
     } catch (error) {
       console.error(`Error saving trait "${trait.name}":`, error);
+    }
+  }
+
+  /**
+   * Create a default file if it doesn't exist
+   */
+  createDefaultFile(file: string, defaultContent: string): void {
+    if (!fs.existsSync(file)) {
+      const dirPath = path.dirname(file);
+      if (!fs.existsSync(dirPath)) {
+        fs.mkdirSync(dirPath, { recursive: true });
+      }
+      fs.writeFileSync(file, defaultContent, 'utf-8');
+      console.log(`Created default file: ${file}`);
     }
   }
 } 

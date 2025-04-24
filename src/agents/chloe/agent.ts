@@ -13,6 +13,11 @@ import { Persona } from './persona';
 import { PersonaLoader } from './persona-loader';
 import { ChloeMemory } from './memory';
 import { MemoryTagger } from './memory-tagger';
+import * as serverQdrant from '../../server/qdrant';
+import path from 'path';
+// Import the planning functionality
+import { planTask } from '../../server/agents/planner';
+import { executePlan } from '../../server/agents/executor';
 
 interface ChloeState {
   messages: Message[];
@@ -159,6 +164,40 @@ export class ChloeAgent {
 
     console.log('ChloeAgent.processMessage called with message:', message);
 
+    // Check for special commands related to conversation history
+    const lowerMessage = message.toLowerCase().trim();
+    if (lowerMessage === "what did we talk about earlier today?" || 
+        lowerMessage === "what did we talk about today?" ||
+        lowerMessage === "summarize our conversations today") {
+      try {
+        // Get today's messages
+        const today = new Date();
+        today.setHours(0, 0, 0, 0); // Start of today
+        
+        const summary = await serverQdrant.summarizeChat({ since: today });
+        return summary;
+      } catch (error) {
+        console.error("Error summarizing today's conversations:", error);
+        return "I'm having trouble retrieving our conversation history right now.";
+      }
+    }
+    
+    if (lowerMessage === "can you summarize our chat so far?" || 
+        lowerMessage === "summarize our chat" || 
+        lowerMessage === "summarize our conversation so far") {
+      try {
+        // Get last 24 hours of conversations
+        const yesterday = new Date();
+        yesterday.setDate(yesterday.getDate() - 1);
+        
+        const summary = await serverQdrant.summarizeChat({ since: yesterday });
+        return summary;
+      } catch (error) {
+        console.error("Error summarizing recent conversations:", error);
+        return "I'm having trouble summarizing our recent conversations right now.";
+      }
+    }
+
     try {
       // Log user message
       if (this.taskLogger) {
@@ -206,7 +245,7 @@ export class ChloeAgent {
         }
       }
 
-      // Get relevant memories
+      // Get relevant memories from long-term memory
       let memories: string[] = [];
       if (this.chloeMemory) {
         try {
@@ -231,6 +270,56 @@ export class ChloeAgent {
             });
           }
         }
+      }
+
+      // Get recent chat messages for immediate context
+      let recentChatContext = "";
+      try {
+        // Get both time-based and count-based contexts
+        
+        // 1. Get messages from the last 3 hours (time-based context)
+        const threeHoursAgo = new Date();
+        threeHoursAgo.setHours(threeHoursAgo.getHours() - 3);
+        const recentTimeBasedMessages = await serverQdrant.getRecentChatMessages({
+          since: threeHoursAgo,
+          limit: 5,
+          roles: ['user', 'assistant'] // Only include actual conversation
+        });
+        
+        // 2. Get the last 30 messages regardless of time (count-based context)
+        const lastMessages = await serverQdrant.getRecentChatMessages({
+          limit: 30,
+          roles: ['user', 'assistant']
+        });
+        
+        // 3. Combine and deduplicate messages
+        const allMessages = [...recentTimeBasedMessages];
+        const existingIds = new Set(allMessages.map(msg => msg.id));
+        
+        // Add messages from count-based context that aren't already included
+        for (const msg of lastMessages) {
+          if (!existingIds.has(msg.id)) {
+            allMessages.push(msg);
+            existingIds.add(msg.id);
+          }
+        }
+        
+        // Sort by timestamp (newest first) and limit to 30 most recent
+        const sortedMessages = allMessages
+          .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+          .slice(0, 30);
+        
+        if (sortedMessages.length > 0) {
+          recentChatContext = "### Recent Conversation\n" + 
+            sortedMessages.map(msg => {
+              const role = msg.metadata.role || "unknown";
+              return `${role.toUpperCase()}: ${msg.text}`;
+            }).join("\n\n");
+            
+          console.log(`Added ${sortedMessages.length} recent messages to context`);
+        }
+      } catch (error) {
+        console.error('Error retrieving recent chat context:', error);
       }
 
       // Get system prompt
@@ -329,7 +418,15 @@ export class ChloeAgent {
         }
       }
 
-      // Add memory context if available
+      // Add recent chat context right after persona info for maximum relevance
+      if (recentChatContext) {
+        messages.push({
+          role: 'system',
+          content: recentChatContext
+        });
+      }
+
+      // Add long-term memory context if available
       if (memories.length > 0) {
         console.log(`Adding ${memories.length} relevant memories to messages`);
         const memoryText = "### Relevant Previous Interactions\n" + 
@@ -454,43 +551,243 @@ export class ChloeAgent {
   // Run daily tasks
   async runDailyTasks(): Promise<void> {
     try {
-      // Log start of daily tasks
+      // Create a new session for the daily tasks
       if (this.taskLogger) {
-        this.taskLogger.createSession('Daily Tasks', ['scheduled', 'maintenance']);
-        this.taskLogger.logAction('Starting daily tasks', {
+        this.taskLogger.createSession('Daily Tasks', ['scheduled', 'maintenance', 'planning']);
+        this.taskLogger.logAction('Starting daily tasks routine', {
           timestamp: new Date().toISOString()
         });
       }
       
-      // Get high importance memories first
-      if (this.chloeMemory) {
-        const highImportanceMemories = this.chloeMemory.getHighImportanceMemories();
+      // Try to send a notification that daily tasks are starting
+      try {
+        const { notifyDiscord } = require('./notifiers');
+        await notifyDiscord('Starting daily tasks routine', 'update');
         
-        if (highImportanceMemories.length > 0) {
-          // Log retrieving high importance memories
+        // Also send as DM if configured
+        if (process.env.DISCORD_USER_ID) {
+          const { sendDiscordDm } = require('./notifiers');
+          await sendDiscordDm('Starting your daily tasks routine', 'update');
+        }
+      } catch (error) {
+        console.error('Error sending start notification:', error);
+      }
+      
+      // Step 1: Review high importance memories
+      if (this.taskLogger) {
+        this.taskLogger.logAction('Starting memory review', {
+          timestamp: new Date().toISOString()
+        });
+      }
+      
+      let highImportanceMemories: string[] = [];
+      if (this.chloeMemory) {
+        try {
+          const memories = await this.chloeMemory.getHighImportanceMemories();
+          highImportanceMemories = memories.map(m => m.content);
+          
+          this.logThought(`Found ${highImportanceMemories.length} high importance memories to review`);
+          
           if (this.taskLogger) {
             this.taskLogger.logAction(`Retrieved ${highImportanceMemories.length} high importance memories`, {
               count: highImportanceMemories.length,
               timestamp: new Date().toISOString()
             });
           }
-          
-          // Process high importance memories
-          // In a real implementation, you'd do something with these memories
-          console.log(`Found ${highImportanceMemories.length} high importance memories to review`);
+        } catch (error) {
+          console.error('Error retrieving high importance memories:', error);
+          this.logThought(`Error retrieving high importance memories: ${error}`);
         }
       }
       
-      // Implement daily tasks here
-      console.log('Running daily tasks...');
+      // Step 2: Generate a daily plan using LangGraph planner
+      this.logThought("Creating a daily plan for the CMO function");
+      if (this.taskLogger) {
+        this.taskLogger.logAction('Starting daily planning', {
+          timestamp: new Date().toISOString()
+        });
+      }
       
-      // Example: Daily reflection
-      await this.reflect('What have I learned today?');
+      // Default set of tasks to plan
+      const planningPrompt = `As Chloe, the Chief Marketing Officer, create a plan for today's work. 
+      Consider the following activities:
+      1. Review the content calendar
+      2. Check social media performance
+      3. Analyze recent marketing campaigns
+      4. Plan upcoming content
+      5. Research industry trends`;
+      
+      try {
+        const planResult = await planTask(planningPrompt);
+        
+        if (this.taskLogger) {
+          this.taskLogger.logAction('Generated daily plan', {
+            planStepCount: planResult.plan.steps.length,
+            planSummary: planResult.plan.description,
+            timestamp: new Date().toISOString()
+          });
+        }
+        
+        this.logThought(`Successfully created a daily plan with ${planResult.plan.steps.length} steps:`);
+        this.logThought(`Plan description: ${planResult.plan.description}`);
+        
+        // Send plan summary to Discord
+        try {
+          const { notifyDiscord, sendDiscordDm } = require('./notifiers');
+          
+          const planSummary = `
+## Daily Marketing Plan
+          
+${planResult.plan.description}
+
+### Tasks (${planResult.plan.steps.length})
+${planResult.plan.steps.map((step, idx) => `${idx+1}. ${step.action}: ${step.description}`).join('\n')}
+          `;
+          
+          await notifyDiscord(planSummary, 'summary');
+          
+          // Also send as DM if configured
+          if (process.env.DISCORD_USER_ID) {
+            await sendDiscordDm(planSummary, 'summary');
+          }
+          
+          this.logThought("Sent daily plan summary to Discord");
+        } catch (error) {
+          console.error('Error sending plan to Discord:', error);
+        }
+        
+        // Log each step of the plan
+        planResult.plan.steps.forEach((step, index) => {
+          this.logThought(`Step ${index + 1}: ${step.action} - ${step.description}`);
+          
+          if (this.taskLogger) {
+            this.taskLogger.logAction(`Plan step ${index + 1}`, {
+              action: step.action,
+              description: step.description,
+              timestamp: new Date().toISOString()
+            });
+          }
+        });
+        
+        // Step 3: Execute the plan using LangGraph executor
+        this.logThought("Beginning execution of the daily plan");
+        if (this.taskLogger) {
+          this.taskLogger.logAction('Starting plan execution', {
+            timestamp: new Date().toISOString()
+          });
+        }
+        
+        const executionResult = await executePlan(planResult.plan);
+        
+        // Send execution results to Discord
+        try {
+          const { notifyDiscord, sendDiscordDm } = require('./notifiers');
+          
+          const executionSummary = `
+## Daily Plan Execution Results
+
+${executionResult.summary}
+
+### Steps Completed: ${executionResult.steps.filter(s => s.success).length}/${executionResult.steps.length}
+          `;
+          
+          await notifyDiscord(executionSummary, 'update');
+          
+          // Also send as DM if configured
+          if (process.env.DISCORD_USER_ID) {
+            await sendDiscordDm(executionSummary, 'update');
+          }
+          
+          this.logThought("Sent execution results to Discord");
+        } catch (error) {
+          console.error('Error sending execution results to Discord:', error);
+        }
+        
+        // Log the execution results
+        this.logThought(`Plan execution completed with ${executionResult.steps.length} steps executed`);
+        
+        if (this.taskLogger) {
+          this.taskLogger.logAction('Plan execution completed', {
+            stepsExecuted: executionResult.steps.length,
+            success: executionResult.success,
+            summary: executionResult.summary,
+            timestamp: new Date().toISOString()
+          });
+          
+          // Log each step's execution result
+          executionResult.steps.forEach((step, index) => {
+            this.taskLogger.logAction(`Executed step ${index + 1}`, {
+              action: step.action,
+              result: step.result.substring(0, 200) + (step.result.length > 200 ? '...' : ''),
+              success: step.success,
+              timestamp: new Date().toISOString()
+            });
+          });
+        }
+        
+        // Step 4: Daily reflection on what was accomplished
+        this.logThought("Performing daily reflection");
+        const reflection = await this.reflect('What were the key accomplishments from today\'s plan execution?');
+        
+        // Send daily reflection to Discord
+        try {
+          const { notifyDiscord, sendDiscordDm } = require('./notifiers');
+          await notifyDiscord(`## Daily Reflection\n\n${reflection}`, 'update');
+          
+          // Also send as DM if configured
+          if (process.env.DISCORD_USER_ID) {
+            await sendDiscordDm(`## Daily Reflection\n\n${reflection}`, 'update');
+          }
+          
+          this.logThought("Sent daily reflection to Discord");
+        } catch (error) {
+          console.error('Error sending reflection to Discord:', error);
+        }
+        
+        // Save a summary of the day's work to memory
+        if (this.chloeMemory) {
+          const daySummary = `Daily work summary: ${executionResult.summary}`;
+          await this.chloeMemory.addMemory(
+            daySummary,
+            'daily_summary',
+            'high',
+            'system'
+          );
+          
+          this.logThought("Saved daily work summary to memory");
+        }
+        
+        // Send daily task summary to Discord
+        await this.sendDailySummaryToDiscord();
+      } catch (error) {
+        console.error('Error in daily planning or execution:', error);
+        this.logThought(`Error in daily tasks: ${error}`);
+        
+        if (this.taskLogger) {
+          this.taskLogger.logAction(`Error in daily planning/execution: ${error instanceof Error ? error.message : String(error)}`, {
+            error: true,
+            timestamp: new Date().toISOString()
+          });
+        }
+        
+        // Send error notification to Discord
+        try {
+          const { notifyDiscord, sendDiscordDm } = require('./notifiers');
+          await notifyDiscord(`Error in daily tasks: ${error instanceof Error ? error.message : String(error)}`, 'alert', true);
+          
+          // Also send as DM if configured
+          if (process.env.DISCORD_USER_ID) {
+            await sendDiscordDm(`Error in daily tasks: ${error instanceof Error ? error.message : String(error)}`, 'alert');
+          }
+        } catch (notifyError) {
+          console.error('Error sending error notification:', notifyError);
+        }
+      }
       
       // Notify about completion
-      this.notify('Daily tasks completed successfully.');
+      this.notify('Daily tasks completed');
       
-      // Log completion
+      // End the session
       if (this.taskLogger) {
         this.taskLogger.logAction('Daily tasks completed', {
           success: true,
@@ -512,6 +809,14 @@ export class ChloeAgent {
       }
       
       this.notify('Error running daily tasks: ' + errorMessage);
+      
+      // Try to send error notification to Discord
+      try {
+        const { notifyDiscord } = require('./notifiers');
+        await notifyDiscord(`Fatal error in daily tasks: ${errorMessage}`, 'alert', true);
+      } catch (notifyError) {
+        console.error('Error sending error notification to Discord:', notifyError);
+      }
     }
   }
   
@@ -793,6 +1098,264 @@ export class ChloeAgent {
       }
       
       return 'Failed to generate conversation summary.';
+    }
+  }
+
+  /**
+   * Perform weekly reflection on tasks and performance
+   * Analyzes the past week, summarizes accomplishments and challenges,
+   * and stores the reflection in memory
+   */
+  async runWeeklyReflection(): Promise<string> {
+    try {
+      // Log reflection start
+      if (this.taskLogger) {
+        this.taskLogger.createSession('Weekly Reflection', ['reflection', 'weekly', 'analysis']);
+        this.taskLogger.logAction('Starting weekly reflection process', {
+          timestamp: new Date().toISOString()
+        });
+      }
+
+      console.log('Running weekly reflection process...');
+      this.logThought("Beginning weekly reflection to analyze performance and identify insights");
+      
+      // Calculate date range for the past week
+      const today = new Date();
+      const oneWeekAgo = new Date();
+      oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+      
+      // Fetch relevant data from memory for the past week
+      let memories: any[] = [];
+      let tasks: any[] = [];
+      
+      // Get tasks and thoughts from memory
+      if (this.chloeMemory) {
+        try {
+          // Fetch task memories
+          const taskMemories = await this.chloeMemory.getMemoriesByDateRange(
+            'task',
+            oneWeekAgo,
+            today,
+            30 // Limit to reasonable number
+          );
+          
+          // Fetch thought memories
+          const thoughtMemories = await this.chloeMemory.getMemoriesByDateRange(
+            'thought',
+            oneWeekAgo,
+            today,
+            30
+          );
+          
+          memories = [...thoughtMemories];
+          tasks = [...taskMemories];
+          
+          if (this.taskLogger) {
+            this.taskLogger.logAction(`Retrieved ${taskMemories.length} tasks and ${thoughtMemories.length} thoughts for reflection`, {
+              dateRange: `${oneWeekAgo.toISOString()} to ${today.toISOString()}`,
+              timestamp: new Date().toISOString()
+            });
+          }
+          
+          this.logThought(`Found ${taskMemories.length} tasks and ${thoughtMemories.length} thoughts from the past week to analyze`);
+        } catch (error) {
+          console.error('Error retrieving memories for weekly reflection:', error);
+          this.logThought(`Error retrieving memories for reflection: ${error}`);
+          
+          if (this.taskLogger) {
+            this.taskLogger.logAction(`Error retrieving memories: ${error instanceof Error ? error.message : String(error)}`, {
+              error: true,
+              timestamp: new Date().toISOString()
+            });
+          }
+        }
+      }
+      
+      // Prepare prompt for reflection
+      const reflectionPrompt = `
+      # Weekly Reflection (${oneWeekAgo.toLocaleDateString()} to ${today.toLocaleDateString()})
+      
+      As Chloe, the Chief Marketing Officer, reflect on your performance and activities over the past week.
+      
+      ## Tasks Completed (${tasks.length})
+      ${tasks.map(t => `- ${t.content}`).join('\n')}
+      
+      ## Thoughts and Insights (${memories.length})
+      ${memories.map(m => `- ${m.content}`).join('\n')}
+      
+      Please provide a thoughtful reflection that covers:
+      1. Key accomplishments and successes this week
+      2. Challenges faced and how they were handled
+      3. Insights gained about marketing strategies or processes
+      4. Areas for improvement in the coming week
+      5. Priorities for next week
+      
+      Format your response as a well-structured reflection that could be shared with the team.
+      `;
+      
+      this.logThought("Generating weekly reflection from tasks and thoughts data");
+      
+      // Generate reflection using LLM
+      const messages = [
+        { role: 'system', content: 'You are Chloe, the Chief Marketing Officer AI assistant. Create a thoughtful weekly reflection.' },
+        { role: 'user', content: reflectionPrompt }
+      ];
+      
+      const response = await this.model!.invoke(messages);
+      const reflection = response.content;
+      
+      // Store reflection in memory
+      if (this.chloeMemory) {
+        try {
+          await this.chloeMemory.addMemory(
+            reflection,
+            'weekly_reflection',
+            'high',
+            'chloe'
+          );
+          
+          this.logThought("Stored weekly reflection in memory with high importance");
+          
+          if (this.taskLogger) {
+            this.taskLogger.logAction('Stored weekly reflection in memory', {
+              importance: 'high',
+              timestamp: new Date().toISOString()
+            });
+          }
+        } catch (error) {
+          console.error('Error storing weekly reflection in memory:', error);
+          
+          if (this.taskLogger) {
+            this.taskLogger.logAction(`Error storing reflection: ${error instanceof Error ? error.message : String(error)}`, {
+              error: true,
+              timestamp: new Date().toISOString()
+            });
+          }
+        }
+      }
+      
+      // Log the reflection
+      if (this.taskLogger) {
+        this.taskLogger.logReflection(reflection, {
+          type: 'weekly',
+          timestamp: new Date().toISOString()
+        });
+        this.taskLogger.logAction('Weekly reflection completed', {
+          success: true,
+          timestamp: new Date().toISOString()
+        });
+        this.taskLogger.endSession();
+      }
+      
+      // Send reflection to Discord if available
+      try {
+        // Import at usage to avoid circular dependencies
+        const { notifyDiscord } = require('./notifiers');
+        
+        // Format a condensed version for Discord
+        const discordSummary = `
+## Weekly Reflection (${oneWeekAgo.toLocaleDateString()} to ${today.toLocaleDateString()})
+
+${reflection.substring(0, 1500)}${reflection.length > 1500 ? '...' : ''}
+        `;
+        
+        await notifyDiscord(discordSummary, 'summary');
+        this.logThought("Sent weekly reflection summary to Discord");
+      } catch (error) {
+        console.error('Error sending reflection to Discord:', error);
+      }
+      
+      console.log('Weekly reflection completed');
+      return reflection;
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error('Error during weekly reflection:', errorMessage);
+      
+      // Log the error
+      if (this.taskLogger) {
+        this.taskLogger.logAction(`Error during weekly reflection: ${errorMessage}`, {
+          error: true,
+          timestamp: new Date().toISOString()
+        });
+        this.taskLogger.endSession();
+      }
+      
+      return `Failed to complete weekly reflection: ${errorMessage}`;
+    }
+  }
+
+  /**
+   * Send a daily summary of tasks and accomplishments to Discord
+   */
+  async sendDailySummaryToDiscord(): Promise<boolean> {
+    try {
+      console.log('Preparing daily summary for Discord...');
+      
+      // Get today's date
+      const today = new Date();
+      today.setHours(0, 0, 0, 0); // Start of today
+      
+      const endOfDay = new Date(today);
+      endOfDay.setHours(23, 59, 59, 999); // End of today
+      
+      // Fetch today's tasks
+      let todaysTasks: any[] = [];
+      if (this.chloeMemory) {
+        try {
+          todaysTasks = await this.chloeMemory.getMemoriesByDateRange(
+            'task',
+            today,
+            endOfDay,
+            20 // Reasonable limit
+          );
+          
+          this.logThought(`Found ${todaysTasks.length} tasks completed today`);
+        } catch (error) {
+          console.error('Error retrieving daily tasks:', error);
+        }
+      }
+      
+      // Get execution trace from task logger if available
+      let executionSummary = '';
+      if (this.taskLogger) {
+        try {
+          // This would get the summary of today's task execution
+          // Implementation depends on TaskLogger capabilities
+          executionSummary = await this.taskLogger.summarizeExecutionTraces(today) || '';
+        } catch (error) {
+          console.error('Error getting execution summary:', error);
+        }
+      }
+      
+      // Format the daily summary
+      const summary = `
+## Daily Summary for ${today.toLocaleDateString()}
+
+### Tasks Completed (${todaysTasks.length})
+${todaysTasks.length > 0 
+  ? todaysTasks.map(t => `- ${t.content.substring(0, 100)}${t.content.length > 100 ? '...' : ''}`).join('\n')
+  : '- No tasks recorded today'}
+
+${executionSummary ? `### Execution Summary\n${executionSummary}` : ''}
+
+### Status
+Successfully completed daily operations.
+      `;
+      
+      // Send to Discord
+      try {
+        // Import at usage to avoid circular dependencies
+        const { notifyDiscord } = require('./notifiers');
+        await notifyDiscord(summary, 'summary');
+        console.log('Daily summary sent to Discord');
+        return true;
+      } catch (error) {
+        console.error('Error sending daily summary to Discord:', error);
+        return false;
+      }
+    } catch (error) {
+      console.error('Error preparing daily summary:', error);
+      return false;
     }
   }
 

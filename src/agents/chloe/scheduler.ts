@@ -239,7 +239,20 @@ export class ChloeScheduler {
       // Update last run timestamp
       taskConfig.lastRun = new Date();
       
-      // Create options for planAndExecute
+      // Special handling for specific task types
+      if (id === 'daily-summary') {
+        // Execute the daily summary method directly
+        await this.agent.sendDailySummaryToDiscord();
+        console.log(`Completed daily summary task`);
+        return;
+      } else if (id === 'weekly-reflection') {
+        // Execute the weekly reflection method directly
+        await this.agent.runWeeklyReflection();
+        console.log(`Completed weekly reflection task`);
+        return;
+      }
+      
+      // For standard tasks, use planAndExecute
       const options: PlanAndExecuteOptions = {
         goalPrompt: taskConfig.goalPrompt,
         autonomyMode: true,
@@ -250,9 +263,25 @@ export class ChloeScheduler {
       // Execute the task
       const result = await (this.agent as any).planAndExecute(options);
       
-      console.log(`Completed scheduled task ${id}, output: ${result.finalOutput}`);
+      console.log(`Completed scheduled task ${id}, output: ${result?.finalOutput || 'No output'}`);
+      
+      // Send notification to Discord for completed task
+      try {
+        const { notifyDiscord } = require('./notifiers');
+        await notifyDiscord(`Task completed: ${taskConfig.goalPrompt.substring(0, 100)}...`, 'update');
+      } catch (error) {
+        console.error('Failed to send task completion notification:', error);
+      }
     } catch (error) {
       console.error(`Error executing scheduled task ${id}:`, error);
+      
+      // Try to send error notification
+      try {
+        const { notifyDiscord } = require('./notifiers');
+        await notifyDiscord(`Error in task ${id}: ${error instanceof Error ? error.message : String(error)}`, 'alert', true);
+      } catch (notifyError) {
+        console.error('Failed to send error notification:', notifyError);
+      }
     }
   }
 
@@ -325,4 +354,87 @@ export class ChloeScheduler {
     
     return true;
   }
+}
+
+// Set up default scheduled tasks for Chloe
+export function setupDefaultSchedule(scheduler: ChloeScheduler): void {
+  console.log('Setting up default scheduled tasks for Chloe');
+  
+  // Daily planning task - runs at 8:00 AM every day
+  scheduler.scheduleTask(
+    'daily-planning',
+    '0 8 * * *',
+    'Create a detailed plan for today\'s marketing tasks, prioritizing the most important items.',
+    ['planning', 'daily', 'marketing']
+  );
+  
+  // Daily summary - runs at 5:00 PM every day
+  scheduler.scheduleTask(
+    'daily-summary',
+    '0 17 * * *',
+    'Create and send a daily summary of tasks and accomplishments for today.',
+    ['summary', 'daily', 'reporting']
+  );
+  
+  // Weekly reflection - runs every Sunday at 6:00 PM
+  scheduler.scheduleTask(
+    'weekly-reflection',
+    '0 18 * * 0',
+    'Perform a weekly reflection on performance, accomplishments, and areas for improvement.',
+    ['reflection', 'weekly', 'analysis']
+  );
+  
+  // Content strategy review - runs every Monday at 9:00 AM
+  scheduler.scheduleTask(
+    'weekly-content-review',
+    '0 9 * * 1',
+    'Review our content strategy for the week ahead. Analyze performance of last week\'s content and suggest improvements.',
+    ['content', 'weekly', 'planning']
+  );
+  
+  // Marketing performance analysis - runs every Friday at 2:00 PM
+  scheduler.scheduleTask(
+    'weekly-performance-analysis',
+    '0 14 * * 5',
+    'Analyze the performance of our marketing campaigns this week. Identify trends, successes, and areas for improvement.',
+    ['analytics', 'weekly', 'performance']
+  );
+  
+  // Social media planning - runs every Tuesday and Thursday at 10:00 AM
+  scheduler.scheduleTask(
+    'social-media-planning',
+    '0 10 * * 2,4',
+    'Plan social media content for the next few days. Consider trending topics, audience engagement metrics, and our content calendar.',
+    ['social-media', 'content', 'planning']
+  );
+  
+  // Industry research - runs every Wednesday at 1:00 PM
+  scheduler.scheduleTask(
+    'industry-research',
+    '0 13 * * 3',
+    'Research the latest trends and innovations in our industry. Identify opportunities for new content or marketing strategies.',
+    ['research', 'industry', 'innovation']
+  );
+  
+  console.log('Default scheduled tasks have been set up');
+}
+
+// Main initialization for Chloe's autonomy system
+export function initializeAutonomy(agent: ChloeAgent): { 
+  scheduler: ChloeScheduler, 
+  tasks: ReturnType<typeof setupScheduler>
+} {
+  const scheduler = new ChloeScheduler(agent);
+  const tasks = setupScheduler(agent);
+  
+  // Set up default schedule
+  setupDefaultSchedule(scheduler);
+  
+  // Start the scheduler in autonomous mode
+  scheduler.setAutonomyMode(true);
+  tasks.start();
+  
+  console.log('Chloe autonomy system initialized');
+  
+  return { scheduler, tasks };
 } 
