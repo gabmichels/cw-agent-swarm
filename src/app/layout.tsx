@@ -5,8 +5,13 @@ import { Inter } from 'next/font/google';
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: 'Crowd Wisdom Employees',
-  description: 'Agent dashboard for Crowd Wisdom Employees',
+  title: 'Crowd Wisdom',
+  description: 'AI Agent platform for enterprise knowledge management',
+  icons: {
+    icon: '/favicon.ico',
+    apple: '/apple-icon.png',
+    shortcut: '/favicon-16x16.png',
+  },
 };
 
 export default function RootLayout({

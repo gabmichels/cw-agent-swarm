@@ -3,6 +3,7 @@
 import React, { useState, FormEvent, useEffect, useRef, useCallback } from 'react';
 import { ChevronDown, Send, Menu, X } from 'lucide-react';
 import MarkdownRenderer from '../components/MarkdownRenderer';
+import Image from 'next/image';
 
 // Define message type for better type safety
 interface Message {
@@ -529,7 +530,15 @@ For detailed instructions, see the Debug panel.`,
           >
             {isSidebarOpen ? <X size={20} /> : <Menu size={20} />}
           </button>
-          <div className="text-xl font-bold text-gray-100">Crowd Wisdom</div>
+          <div className="text-xl font-bold text-gray-100">
+            <Image
+              src="/assets/images/cw_fulltext.svg"
+              alt="Crowd Wisdom"
+              width={160}
+              height={40}
+              className="h-8 w-auto"
+            />
+          </div>
         </div>
         <nav>
           <ul className="hidden md:flex space-x-6">
