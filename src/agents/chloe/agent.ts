@@ -23,6 +23,9 @@ import { createChloeTools } from './tools';
 import { CognitiveMemory } from '../../lib/memory/src/cognitive-memory';
 import { KnowledgeGraph } from '../../lib/memory/src/knowledge-graph';
 import { IntentRouterTool } from './tools/intentRouter';
+import { FeedbackLoopSystem, createFeedbackLoopSystem } from '../../lib/memory/src/feedback-loop';
+import { IntegrationLayer, createIntegrationLayer } from '../../lib/memory/src/integration-layer';
+import { SelfImprovementMechanism, createSelfImprovementMechanism } from '../../lib/memory/src/self-improvement';
 
 interface ChloeState {
   messages: Message[];
@@ -52,6 +55,9 @@ export class ChloeAgent {
   private enhancedMemory: EnhancedMemory;
   private cognitiveMemory: CognitiveMemory;
   private knowledgeGraph: KnowledgeGraph;
+  private feedbackLoop: FeedbackLoopSystem;
+  private integrationLayer: IntegrationLayer;
+  private selfImprovement: SelfImprovementMechanism;
   
   constructor(config?: Partial<AgentConfig>) {
     // Set default configuration
@@ -163,8 +169,34 @@ export class ChloeAgent {
         await this.cognitiveMemory.initialize();
         await this.knowledgeGraph.initialize();
         console.log('Enhanced memory systems initialized successfully');
+        
+        // Initialize feedback loop system
+        this.feedbackLoop = createFeedbackLoopSystem(this.enhancedMemory);
+        await this.feedbackLoop.initialize();
+        console.log('Feedback loop system initialized successfully');
+        
+        // Initialize integration layer
+        this.integrationLayer = createIntegrationLayer(this.enhancedMemory, this.feedbackLoop);
+        await this.integrationLayer.initialize();
+        console.log('Integration layer initialized successfully');
+        
+        // Initialize self-improvement mechanism
+        this.selfImprovement = createSelfImprovementMechanism(
+          this.feedbackLoop,
+          this.enhancedMemory,
+          this.integrationLayer,
+          {
+            reviewSchedule: {
+              daily: true,
+              weekly: true,
+              monthly: true
+            }
+          }
+        );
+        await this.selfImprovement.initialize();
+        console.log('Self-improvement mechanism initialized successfully');
       } catch (error) {
-        console.error('Failed to initialize enhanced memory systems:', error);
+        console.error('Failed to initialize advanced cognitive systems:', error);
       }
 
       this.initialized = true;
@@ -1536,5 +1568,57 @@ Successfully completed daily operations.
   // Add new method to access knowledge graph
   getKnowledgeGraph(): KnowledgeGraph {
     return this.knowledgeGraph;
+  }
+
+  /**
+   * Get the feedback loop system
+   */
+  getFeedbackLoop(): FeedbackLoopSystem {
+    return this.feedbackLoop;
+  }
+
+  /**
+   * Get the integration layer
+   */
+  getIntegrationLayer(): IntegrationLayer {
+    return this.integrationLayer;
+  }
+
+  /**
+   * Get the self-improvement mechanism
+   */
+  getSelfImprovement(): SelfImprovementMechanism {
+    return this.selfImprovement;
+  }
+  
+  /**
+   * Run a performance review manually
+   */
+  async runPerformanceReview(reviewType: 'daily' | 'weekly' | 'monthly' = 'daily'): Promise<any> {
+    if (!this.initialized) {
+      await this.initialize();
+    }
+    
+    try {
+      this.logThought(`Running ${reviewType} performance review...`);
+      
+      const metrics = await this.selfImprovement.runPerformanceReview(reviewType);
+      
+      this.logThought(`Performance review complete: Success Rate: ${Math.round(metrics.intentSuccessRate * 100)}%`);
+      
+      // Notify about the performance review
+      this.notify(`${reviewType.charAt(0).toUpperCase() + reviewType.slice(1)} performance review completed. Success Rate: ${Math.round(metrics.intentSuccessRate * 100)}%, Task Completion: ${Math.round(metrics.taskCompletionRate * 100)}%`);
+      
+      return {
+        success: true,
+        metrics
+      };
+    } catch (error) {
+      console.error(`Error running ${reviewType} performance review:`, error);
+      return {
+        success: false,
+        error: `Failed to run performance review: ${error.message}`
+      };
+    }
   }
 } 
