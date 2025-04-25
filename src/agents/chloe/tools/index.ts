@@ -181,34 +181,96 @@ export class NotifyDiscordTool implements SimpleTool {
   name = 'notify_discord';
   description = 'Send a notification or message to a Discord channel';
   private discordWebhookUrl: string | null;
+  private botToken: string | null;
+  private channelId: string | null;
+  private userId: string | null;
+  private enabled: boolean = false;
 
   constructor(discordWebhookUrl: string | null = null) {
+    // Try both webhook and direct API approaches
     this.discordWebhookUrl = discordWebhookUrl || process.env.DISCORD_WEBHOOK_URL || null;
+    this.botToken = process.env.DISCORD_BOT_TOKEN || null;
+    this.channelId = process.env.DISCORD_CHANNEL_ID || null;
+    this.userId = process.env.DISCORD_USER_ID || null;
+    
+    // Check if either webhook or direct API is configured
+    this.enabled = !!(this.discordWebhookUrl || (this.botToken && this.channelId));
+    
+    // Log configuration status with more details
+    console.log('Discord notification configuration:');
+    console.log('- WebhookURL:', this.discordWebhookUrl ? '✓ Set' : '✗ Not set');
+    console.log('- Bot Token:', this.botToken ? '✓ Set' : '✗ Not set');
+    console.log('- Channel ID:', this.channelId ? '✓ Set' : '✗ Not set');
+    console.log('- User ID:', this.userId ? '✓ Set' : '✗ Not set');
+    console.log('- Enabled:', this.enabled ? '✓ Yes' : '✗ No');
+    
+    if (this.enabled) {
+      console.log('Discord notifier initialized and enabled.');
+      if (this.discordWebhookUrl) console.log('- Using webhook URL');
+      if (this.botToken && this.channelId) console.log('- Using direct API with bot token and channel ID');
+    } else {
+      console.warn('Discord notifier initialized but not enabled. Missing token, channelId, or webhookUrl.');
+    }
   }
 
-  async _call(message: string): Promise<string> {
+  async _call(input: string): Promise<string> {
     try {
-      if (!this.discordWebhookUrl) {
-        console.warn('Discord webhook URL not configured');
-        return "Discord notifications are not configured. Message not sent.";
+      if (!this.enabled) {
+        console.warn('Discord notifier is not enabled. Message not sent:', input.substring(0, 100) + '...');
+        return "Discord notifications are not configured. Message not sent. Please set DISCORD_WEBHOOK_URL or DISCORD_BOT_TOKEN and DISCORD_CHANNEL_ID in your environment variables.";
       }
       
-      const response = await fetch(this.discordWebhookUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          content: message,
-          username: 'Chloe CMO',
-        }),
-      });
+      console.log('Attempting to send Discord notification...');
       
-      if (!response.ok) {
-        throw new Error(`Discord notification failed: ${response.status}`);
+      // Try webhook first if available
+      if (this.discordWebhookUrl) {
+        console.log('Using webhook method for Discord notification');
+        const response = await fetch(this.discordWebhookUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            content: input,
+            username: 'Chloe CMO',
+          }),
+        });
+        
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error(`Discord webhook error: Status ${response.status} - ${errorText}`);
+          throw new Error(`Discord webhook notification failed: ${response.status} - ${errorText}`);
+        }
+        
+        console.log('Discord notification sent successfully via webhook.');
+        return "Discord notification sent successfully via webhook.";
       }
       
-      return "Discord notification sent successfully.";
+      // Fall back to direct API if webhook is not available
+      if (this.botToken && this.channelId) {
+        console.log('Using direct API method for Discord notification');
+        const response = await fetch(`https://discord.com/api/v10/channels/${this.channelId}/messages`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bot ${this.botToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            content: input,
+          }),
+        });
+        
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error(`Discord API error: Status ${response.status} - ${errorText}`);
+          throw new Error(`Discord API notification failed: ${response.status} - ${errorText}`);
+        }
+        
+        console.log('Discord notification sent successfully via API.');
+        return "Discord notification sent successfully via API.";
+      }
+      
+      return "Discord notification not sent - no valid configuration.";
     } catch (error: unknown) {
       console.error('Error sending Discord notification:', error);
       return `Error sending Discord notification: ${error instanceof Error ? error.message : String(error)}`;
@@ -326,9 +388,17 @@ export class IntentRouterTool implements SimpleTool {
       if (this.actualTool) {
         console.log('Delegating to actual IntentRouterTool');
         const result = await this.actualTool.execute({ input });
-        console.log('IntentRouter result:', result);
+        console.log('IntentRouter result:', JSON.stringify(result, null, 2));
         
         if (result.success) {
+          // Use the formatted display output if available
+          if (result.display) {
+            console.log('Using display property from result:', result.display);
+            return result.display;
+          } else {
+            console.log('No display property found in result');
+          }
+          
           if (result.result && typeof result.result === 'object') {
             // Handle different result formats based on the action
             if (result.action === 'propose_content_ideas' && Array.isArray(result.result.ideas)) {
@@ -341,7 +411,8 @@ export class IntentRouterTool implements SimpleTool {
           }
           return `Intent matched: ${result.intent} (${Math.round((result.confidence || 0) * 100)}% confidence)`;
         } else {
-          return result.message || 'Intent routing failed';
+          // Use display message for errors if available
+          return result.display || result.message || 'Intent routing failed';
         }
       }
       
@@ -368,40 +439,6 @@ export const createChloeTools = (memory: ChloeMemory, model: any, discordWebhook
     intentRouter: new ActualIntentRouterTool()
   };
 };
-
-// Export all tools from this file for easy access
-
-// Import tools
-import { SearchMemoryTool } from './searchMemory';
-import { SummarizeRecentActivityTool } from './summarizeActivity';
-import { ProposeContentIdeasTool } from './proposeContent';
-import { ReflectOnPerformanceTool } from './reflectOnPerformance';
-import { NotifyDiscordTool } from './notifyDiscord';
-import { IntentRouterTool } from './intentRouter';
-
-// Export individual tools
-export {
-  SearchMemoryTool,
-  SummarizeRecentActivityTool,
-  ProposeContentIdeasTool,
-  ReflectOnPerformanceTool,
-  NotifyDiscordTool,
-  ActualIntentRouterTool
-};
-
-/**
- * Create all available tools for Chloe
- */
-export function createChloeTools(): any[] {
-  return [
-    new SearchMemoryTool(),
-    new SummarizeRecentActivityTool(),
-    new ProposeContentIdeasTool(),
-    new ReflectOnPerformanceTool(),
-    new NotifyDiscordTool(),
-    new ActualIntentRouterTool()
-  ];
-}
 
 // For backward compatibility
 export const chloeTools = {

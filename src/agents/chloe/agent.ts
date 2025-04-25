@@ -43,6 +43,7 @@ export class ChloeAgent {
   private model: ChatOpenAI | null = null;
   protected initialized: boolean = false;
   private taskLogger: TaskLogger | null = null;
+  private _autonomySystem: any | null = null;
   
   constructor(config?: Partial<AgentConfig>) {
     // Set default configuration
@@ -182,7 +183,13 @@ export class ChloeAgent {
           });
         }
         
-        // If we have a result, return it directly
+        // If we have a formatted display response, use it directly
+        if (result.display) {
+          console.log("Using formatted display property from result:", result.display.substring(0, 100) + "...");
+          return { success: true, response: result.display };
+        }
+        
+        // Otherwise format the response based on the action and result
         if (result.result) {
           let responseText;
           
@@ -1444,5 +1451,28 @@ Successfully completed daily operations.
    */
   isInitialized(): boolean {
     return this.initialized;
+  }
+
+  /**
+   * Get the agent's autonomy system
+   * Used by scheduler API endpoints
+   */
+  async getAutonomySystem(): Promise<any> {
+    // Initialize autonomy system if needed
+    if (!this._autonomySystem) {
+      try {
+        const { initializeChloeAutonomy } = await import('./autonomy');
+        const result = await initializeChloeAutonomy(this);
+        if (result.status === 'success' && result.autonomySystem) {
+          this._autonomySystem = result.autonomySystem;
+        } else {
+          console.error('Failed to initialize autonomy system:', result.message);
+        }
+      } catch (error) {
+        console.error('Error initializing autonomy system:', error);
+      }
+    }
+    
+    return this._autonomySystem;
   }
 } 

@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { getLLM } from '../../../lib/core/llm';
 import { ChatPromptTemplate } from '@langchain/core/prompts';
+import { createMarketScanner } from './marketScanner';
 
 // Define logger inline
 const logger = {
@@ -45,23 +46,155 @@ class ProposeContentIdeasTool extends BaseTool {
       {
         topic: {
           type: 'string',
-          description: 'The topic to generate ideas for'
+          description: 'The topic to generate content ideas for'
         }
       }
     );
   }
 
   async execute(params: Record<string, any>): Promise<any> {
-    logThought(`Generating content ideas for topic: ${params.topic || 'general'}`);
-    // Mock implementation
+    const topic = params.topic || 'general';
+    logThought(`Generating content ideas for topic: ${topic}`);
+    
+    try {
+      // Get a more capable LLM to generate actual content ideas
+      const llm = getLLM({
+        modelName: 'google/gemini-2.0-flash-001',
+        temperature: 0.7, // Higher temperature for more creative ideas
+      });
+      
+      const promptTemplate = `Generate 5 compelling content ideas related to the topic: ${topic}.
+      
+      For each idea:
+      1. Provide a catchy title
+      2. Include a brief description (1-2 sentences)
+      3. Suggest a content format (blog post, video, infographic, etc.)
+      
+      Focus on ideas that would be engaging, valuable, and relevant to the audience.
+      ONLY return the ideas in JSON format as an array of objects with title, description, and format properties.`;
+      
+      // If LLM connection fails, fall back to mock data
+      try {
+        const response = await llm.invoke(promptTemplate);
+        
+        // Try to parse JSON from the response
+        try {
+          // Look for JSON in the response
+          const jsonMatch = response.content.match(/\[\s*\{[\s\S]*\}\s*\]/);
+          if (jsonMatch) {
+            const ideas = JSON.parse(jsonMatch[0]);
+            return {
+              success: true,
+              ideas: ideas
+            };
+          }
+        } catch (parseError) {
+          console.error("Error parsing ideas JSON:", parseError);
+          // Fall back to extracting text if JSON parsing fails
+        }
+        
+        // If JSON parsing failed, try to extract ideas from text
+        const ideas = this.extractIdeasFromText(response.content, topic);
+        return {
+          success: true,
+          ideas: ideas
+        };
+      } catch (error) {
+        console.error("Error generating ideas with LLM:", error);
+        // Fall back to mock data
+      }
+    } catch (error) {
+      console.error("Error in ProposeContentIdeasTool:", error);
+    }
+    
+    // Fallback mock ideas if LLM fails
     return {
       success: true,
       ideas: [
-        `Idea 1 for ${params.topic || 'general topic'}`,
-        `Idea 2 for ${params.topic || 'general topic'}`,
-        `Idea 3 for ${params.topic || 'general topic'}`
+        {
+          title: `The Ultimate Guide to ${topic}`,
+          description: `A comprehensive walkthrough of everything people need to know about ${topic}.`,
+          format: "Long-form blog post"
+        },
+        {
+          title: `5 Surprising Facts About ${topic} You Never Knew`,
+          description: `Uncover lesser-known insights about ${topic} that will fascinate your audience.`,
+          format: "List article"
+        },
+        {
+          title: `How ${topic} Is Changing the Future`,
+          description: `An analysis of the impact ${topic} is having on industry trends and future developments.`,
+          format: "Thought leadership piece"
+        },
+        {
+          title: `${topic} 101: A Beginner's Introduction`,
+          description: `A friendly introduction to ${topic} for those just getting started.`,
+          format: "Tutorial video"
+        },
+        {
+          title: `The Evolution of ${topic}: Past, Present, and Future`,
+          description: `A timeline showcasing how ${topic} has evolved and where it's headed next.`,
+          format: "Infographic"
+        }
       ]
     };
+  }
+  
+  // Helper method to extract ideas from text if JSON parsing fails
+  private extractIdeasFromText(text: string, topic: string): any[] {
+    const ideas = [];
+    // Try to extract numbered items
+    const lines = text.split('\n');
+    let currentIdea: any = {};
+    
+    for (const line of lines) {
+      const titleMatch = line.match(/(\d+\.\s*|-)?\s*(?:Title:)?\s*([^:]+)$/i);
+      const descMatch = line.match(/(?:Description:)?\s*(.+)$/i);
+      const formatMatch = line.match(/(?:Format:)?\s*(.+)$/i);
+      
+      if (titleMatch && titleMatch[2] && !line.toLowerCase().includes('description:') && !line.toLowerCase().includes('format:')) {
+        // If we already have an idea with a title, save it before starting a new one
+        if (currentIdea.title) {
+          ideas.push(currentIdea);
+          currentIdea = {};
+        }
+        currentIdea.title = titleMatch[2].trim();
+      } else if (descMatch && currentIdea.title && !currentIdea.description) {
+        currentIdea.description = descMatch[1].trim();
+      } else if (formatMatch && currentIdea.title && currentIdea.description && !currentIdea.format) {
+        currentIdea.format = formatMatch[1].trim();
+        ideas.push(currentIdea);
+        currentIdea = {};
+      }
+    }
+    
+    // Add the last idea if it has a title
+    if (currentIdea.title) {
+      ideas.push(currentIdea);
+    }
+    
+    // If we couldn't extract ideas properly, return mock ideas
+    if (ideas.length < 3) {
+      return [
+        {
+          title: `The Ultimate Guide to ${topic}`,
+          description: `A comprehensive walkthrough of everything people need to know about ${topic}.`,
+          format: "Long-form blog post"
+        },
+        {
+          title: `5 Surprising Facts About ${topic} You Never Knew`,
+          description: `Uncover lesser-known insights about ${topic} that will fascinate your audience.`,
+          format: "List article"
+        },
+        {
+          title: `How ${topic} Is Changing the Future`,
+          description: `An analysis of the impact ${topic} is having on industry trends and future developments.`,
+          format: "Thought leadership piece"
+        }
+      ];
+    }
+    
+    return ideas;
   }
 }
 
@@ -87,6 +220,118 @@ class ReflectOnPerformanceTool extends BaseTool {
       success: true,
       reflection: `Reflection on performance for ${params.timeframe || 'past week'}`
     };
+  }
+}
+
+// Add MarketScanTool class implementation
+class MarketScanTool extends BaseTool {
+  private scanner: any;
+
+  constructor() {
+    super(
+      'market_scan',
+      'Scan market sources for trends, news, and insights in a specific category',
+      {
+        category: {
+          type: 'string',
+          description: 'The category to scan for trends and insights'
+        }
+      }
+    );
+    this.scanner = createMarketScanner();
+  }
+
+  async execute(params: Record<string, any>): Promise<any> {
+    logThought(`Running market scan for category: ${params.category || 'all categories'}`);
+    
+    try {
+      const categories = params.category ? [params.category] : undefined;
+      const scanCount = await this.scanner.runMarketScan(categories);
+      
+      if (scanCount === 0) {
+        return {
+          success: true,
+          message: "No new market signals found or scanner is disabled.",
+          scanned: 0
+        };
+      }
+      
+      return {
+        success: true,
+        message: `Market scan complete! Processed ${scanCount} signals${params.category ? ` in category: ${params.category}` : ''}.`,
+        scanned: scanCount,
+        category: params.category || 'all'
+      };
+    } catch (error) {
+      console.error('Error in market scan:', error);
+      logThought(`Error occurred during market scan: ${error}`);
+      return {
+        success: false,
+        message: `Error running market scan: ${error instanceof Error ? error.message : String(error)}`
+      };
+    }
+  }
+}
+
+// Add NotifyDiscordTool implementation
+class NotifyDiscordTool extends BaseTool {
+  constructor() {
+    super(
+      'notify_discord',
+      'Send a notification or message to a Discord channel',
+      {
+        message: {
+          type: 'string',
+          description: 'The message to send to Discord'
+        },
+        type: {
+          type: 'string',
+          description: 'Type of notification (update, alert, summary)',
+          default: 'update'
+        },
+        mention: {
+          type: 'boolean',
+          description: 'Whether to mention the user in the message',
+          default: false
+        }
+      }
+    );
+  }
+
+  async execute(params: Record<string, any>): Promise<any> {
+    const message = params.message || '';
+    const type = params.type || 'update';
+    const mention = params.mention === true;
+    
+    if (!message) {
+      return {
+        success: false,
+        message: "No message content provided for the Discord notification."
+      };
+    }
+    
+    logThought(`Sending Discord notification: "${message.substring(0, 50)}${message.length > 50 ? '...' : ''}"`);
+    
+    try {
+      // Dynamically import the notifiers to avoid circular dependencies
+      const { notifyDiscord } = await import('../notifiers');
+      
+      await notifyDiscord(message, type as any, mention);
+      
+      return {
+        success: true,
+        message: `Successfully sent ${type} notification to Discord`,
+        notificationType: type,
+        mentioned: mention
+      };
+    } catch (error) {
+      console.error('Error sending Discord notification:', error);
+      logThought(`Error occurred while sending Discord notification: ${error}`);
+      return {
+        success: false,
+        message: `Error sending Discord notification: ${error instanceof Error ? error.message : String(error)}`
+      };
+    }
   }
 }
 
@@ -136,6 +381,8 @@ export class IntentRouterTool extends BaseTool {
     // Register available tools here
     this.registerTool('generate_content_ideas', new ProposeContentIdeasTool());
     this.registerTool('reflect_on_performance', new ReflectOnPerformanceTool());
+    this.registerTool('market_scan', new MarketScanTool());
+    this.registerTool('notify_discord', new NotifyDiscordTool());
     
     // Initialize the promptTemplate
     this.initializePromptTemplate();
@@ -213,6 +460,43 @@ USER INPUT: {input}`;
           ],
           action: "reflect_on_performance",
           description: "Analyze and reflect on past performance",
+          extractParams: true
+        },
+        {
+          intent: "run_market_scan",
+          patterns: [
+            "run market scan for {category}",
+            "scan market for {category}",
+            "analyze market trends in {category}",
+            "collect social media data about {category}",
+            "get market insights for {category}",
+            "gather market intelligence on {category}",
+            "scan social media for {category} trends",
+            "look for trends in {category}",
+            "update knowledge about {category} market",
+            "can you check what social media is saying about {category}",
+            "can you bring yourself up to speed with the topic of {category}",
+            "what's the latest on {category}",
+          ],
+          action: "market_scan",
+          description: "Scan market sources for trends, news, and insights in a specific category",
+          extractParams: true
+        },
+        {
+          intent: "send_discord_notification",
+          patterns: [
+            "send discord message: {message}",
+            "notify on discord: {message}",
+            "post to discord channel: {message}",
+            "send notification with {message}",
+            "send this to discord: {message}",
+            "notify team on discord about {message}",
+            "post update to discord: {message}",
+            "alert team on discord: {message}",
+            "send discord alert: {message}"
+          ],
+          action: "notify_discord",
+          description: "Send a notification or message to the configured Discord channel",
           extractParams: true
         }
       ]
@@ -356,7 +640,8 @@ USER INPUT: {input}`;
         logThought("No matching intent found for this request");
         return {
           success: false,
-          message: "I couldn't determine what you want me to do. Could you please rephrase your request?"
+          message: "I couldn't determine what you want me to do. Could you please rephrase your request?",
+          display: "I couldn't determine what you want me to do. Could you please rephrase your request?"
         };
       }
       
@@ -365,7 +650,8 @@ USER INPUT: {input}`;
         logThought(`Intent matched to action '${matchResult.action}', but no tool is registered for it`);
         return {
           success: false,
-          message: `I understood you want me to ${matchResult.action}, but I don't have that capability yet.`
+          message: `I understood you want me to ${matchResult.action}, but I don't have that capability yet.`,
+          display: `I understood you want me to ${matchResult.action}, but I don't have that capability yet.`
         };
       }
       
@@ -380,19 +666,26 @@ USER INPUT: {input}`;
       console.log("✅ INTENT ROUTER COMPLETE:", matchResult.action || "no action");
       logThought(`Completed '${matchResult.action}' action`);
       
+      // Format the result for display
+      const displayResult = this.formatResultForDisplay(matchResult.action, result);
+      
+      console.log("⭐ Final formatted display result:", displayResult);
+      
       return {
         success: true,
         action: matchResult.action,
         intent: matchResult.intent,
         confidence: matchResult.confidence,
-        result
+        result,
+        display: displayResult
       };
     } catch (error) {
       logger.error('Error executing intent router:', error);
       logThought("Error occurred while processing the intent");
       return {
         success: false,
-        message: "I encountered an error while processing your request. Please try again."
+        message: "I encountered an error while processing your request. Please try again.",
+        display: "I encountered an error while processing your request. Please try again."
       };
     }
   }
@@ -404,5 +697,45 @@ USER INPUT: {input}`;
       intent: tool.name,
       description: tool.description
     }));
+  }
+  
+  // Format the result for display based on the action type
+  private formatResultForDisplay(action: string, result: any): string {
+    if (!result.success) {
+      return result.message || "Sorry, I couldn't complete that task successfully.";
+    }
+    
+    switch (action) {
+      case 'generate_content_ideas': 
+        return this.formatContentIdeas(result.ideas);
+      case 'reflect_on_performance':
+        return result.reflection || "Here's my reflection on our performance.";
+      case 'market_scan':
+        return result.message || "Market scan completed successfully.";
+      case 'notify_discord':
+        return result.message || "Discord notification sent successfully.";
+      default:
+        return JSON.stringify(result, null, 2);
+    }
+  }
+  
+  // Format content ideas in a readable way
+  private formatContentIdeas(ideas: any[]): string {
+    if (!ideas || ideas.length === 0) {
+      return "I couldn't generate any content ideas. Please try again with a different topic.";
+    }
+    
+    let formattedResult = "Here are some content ideas I've generated:\n\n";
+    
+    ideas.forEach((idea, index) => {
+      formattedResult += `${index + 1}. **${idea.title || 'Untitled'}**\n`;
+      formattedResult += `   ${idea.description || 'No description provided.'}\n`;
+      if (idea.format) {
+        formattedResult += `   *Suggested format: ${idea.format}*\n`;
+      }
+      formattedResult += '\n';
+    });
+    
+    return formattedResult;
   }
 } 

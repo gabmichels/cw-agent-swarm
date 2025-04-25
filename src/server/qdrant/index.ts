@@ -1154,4 +1154,58 @@ export async function summarizeChat(options: {
     console.error('Error summarizing chat:', error);
     return "Failed to generate chat summary due to an error.";
   }
+}
+
+/**
+ * Get all memories of a specific type
+ * @param type Memory type to get (message, thought, document)
+ * @param limit Maximum number of memories to return
+ * @returns Array of memory entries
+ */
+export async function getAllMemories(
+  type: string | null, 
+  limit: number = 100
+): Promise<any[]> {
+  if (!qdrantInstance) {
+    await initMemory();
+  }
+  
+  try {
+    if (!qdrantInstance) {
+      console.error('Failed to initialize qdrantInstance');
+      return [];
+    }
+    
+    const collectionName = type ? COLLECTIONS[type as keyof typeof COLLECTIONS] : null;
+    
+    // If no specific collection is requested or Qdrant is unavailable, combine results from all collections
+    if (!collectionName || !qdrantInstance.isInitialized()) {
+      console.log('Fetching memories from multiple collections or using fallback');
+      const collectionsToSearch = type 
+        ? [COLLECTIONS[type as keyof typeof COLLECTIONS]] 
+        : Object.values(COLLECTIONS);
+      
+      // Use search with empty query to get all memories
+      const results = await Promise.all(
+        collectionsToSearch.map(collection => 
+          qdrantInstance!.searchMemory(type as any, "", { limit })
+        )
+      );
+      
+      return results.flat();
+    }
+    
+    // Get memories from a specific collection using scroll API
+    try {
+      // Since we can't directly access the client, we'll use the searchMemory method 
+      // with an empty query which will return all memories of the specified type
+      return qdrantInstance.searchMemory(type as any, "", { limit });
+    } catch (error) {
+      console.error(`Error getting memories from collection ${collectionName}:`, error);
+      return [];
+    }
+  } catch (error) {
+    console.error('Error getting all memories:', error);
+    return [];
+  }
 } 

@@ -1,7 +1,12 @@
 /** @type {import("eslint").Linter.Config} */
 module.exports = {
   root: true,
-  extends: ["@crowd-wisdom/eslint-config/base"],
+  extends: [
+    "next/core-web-vitals",
+    "eslint:recommended",
+    "plugin:@typescript-eslint/recommended"
+  ],
+  plugins: ["@typescript-eslint"],
   parser: "@typescript-eslint/parser",
   parserOptions: {
     project: true,

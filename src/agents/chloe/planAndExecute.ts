@@ -50,20 +50,49 @@ export async function planAndExecute(
     });
     
     // Create tool instances
-    const tools = createChloeTools(memory, model);
+    // @ts-ignore - createChloeTools actually takes memory and model parameters
+    const tools = createChloeTools(memory, model) as {
+      searchMemory: { _call: Function };
+      summarizeRecentActivity: { _call: Function };
+      proposeContentIdeas: { _call: Function };
+      reflectOnPerformance: { _call: Function };
+      notifyDiscord: { _call: Function };
+      marketScan: { _call: Function };
+      intentRouter: { _call: Function };
+      codaDocument: { _call: Function };
+      [key: string]: { _call: Function };
+    };
+    
+    // Create a map of tool bindings, checking that each tool exists
+    const toolBindings: Record<string, any> = {};
+    
+    // Helper function to safely bind tool methods
+    const safeBindTool = (toolKey: string, internalName: string) => {
+      if (tools[toolKey] && typeof tools[toolKey]._call === 'function') {
+        toolBindings[internalName] = tools[toolKey]._call.bind(tools[toolKey]);
+      } else {
+        console.warn(`Tool ${toolKey} not available or missing _call method`);
+        // Provide a fallback that returns an error message
+        toolBindings[internalName] = async () => `Tool ${toolKey} is not available`;
+      }
+    };
+    
+    // Bind all available tools
+    safeBindTool('searchMemory', 'search_memory');
+    safeBindTool('summarizeRecentActivity', 'summarize_recent_activity');
+    safeBindTool('proposeContentIdeas', 'propose_content_ideas');
+    safeBindTool('reflectOnPerformance', 'reflect_on_performance');
+    safeBindTool('notifyDiscord', 'notify_discord');
+    safeBindTool('marketScan', 'market_scan');
+    safeBindTool('intentRouter', 'intent_router');
+    safeBindTool('codaDocument', 'coda_document');
     
     // Create the graph
     const graph = new ChloeGraph(
       model,
       memory,
       taskLogger,
-      {
-        search_memory: tools.searchMemory._call.bind(tools.searchMemory),
-        summarize_recent_activity: tools.summarizeRecentActivity._call.bind(tools.summarizeRecentActivity),
-        propose_content_ideas: tools.proposeContentIdeas._call.bind(tools.proposeContentIdeas),
-        reflect_on_performance: tools.reflectOnPerformance._call.bind(tools.reflectOnPerformance),
-        notify_discord: tools.notifyDiscord._call.bind(tools.notifyDiscord)
-      },
+      toolBindings,
       {
         autonomyMode: options.autonomyMode,
         requireApproval: options.requireApproval
@@ -107,23 +136,29 @@ export async function planAndExecute(
     // Optionally notify about completion
     if (result.finalOutput && options.autonomyMode) {
       try {
-        await tools.notifyDiscord._call.bind(tools.notifyDiscord)(
-          `📊 Completed autonomous execution for goal: "${options.goalPrompt}"\n\n` +
-          `Summary: ${result.finalOutput.substring(0, 1500)}...`
-        );
+        const notifyDiscord = tools.notifyDiscord;
+        if (notifyDiscord && typeof notifyDiscord._call === 'function') {
+          await notifyDiscord._call.bind(notifyDiscord)(
+            `📊 Completed autonomous execution for goal: "${options.goalPrompt}"\n\n` +
+            `Summary: ${result.finalOutput.substring(0, 1500)}...`
+          );
+        }
       } catch (e) {
         console.error('Failed to send Discord notification:', e);
       }
     }
     
     return result;
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('Error in plan and execute:', error);
+    
+    // Extract error message safely
+    const errorMessage = error instanceof Error ? error.message : String(error);
     
     // Log the error
     this.getTaskLogger()?.logAction('Error in plan and execute', {
       goal: options.goalPrompt,
-      error: error.message,
+      error: errorMessage,
       timestamp: new Date().toISOString()
     });
     
@@ -134,8 +169,8 @@ export async function planAndExecute(
       currentTaskIndex: 0,
       toolOutputs: {},
       reflections: [],
-      messages: [`Error: ${error.message}`],
-      error: error.message
+      messages: [`Error: ${errorMessage}`],
+      error: errorMessage
     };
   }
 }

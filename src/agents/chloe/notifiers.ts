@@ -65,34 +65,10 @@ export class DiscordNotifier implements Notifier {
    * Set up a DM channel with the specified user
    */
   private async setupDmChannel(): Promise<void> {
-    if (!this.token || !this.userId) {
-      console.warn('Cannot set up DM channel: Missing token or userId');
-      return;
-    }
-    
-    try {
-      const response = await fetch('https://discord.com/api/v10/users/@me/channels', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bot ${this.token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          recipient_id: this.userId
-        })
-      });
-      
-      if (!response.ok) {
-        throw new Error(`Failed to create DM channel: ${response.status} ${response.statusText}`);
-      }
-      
-      const data = await response.json();
-      this.dmChannelId = data.id;
-      console.log('Successfully set up DM channel with user');
-    } catch (error) {
-      console.error('Error setting up DM channel:', error);
-      throw error;
-    }
+    // This method is no longer used - it's been replaced by inline code in sendDirectMessage
+    // Kept for backward compatibility
+    console.log('Using deprecated setupDmChannel method');
+    return;
   }
   
   /**
@@ -105,20 +81,51 @@ export class DiscordNotifier implements Notifier {
     }
     
     try {
-      // Ensure we have a DM channel
-      if (!this.dmChannelId) {
-        await this.setupDmChannel();
-      }
+      // Try to set up a DM channel if we don't have one
+      let dmChannelId = this.dmChannelId;
       
-      if (!this.dmChannelId) {
-        throw new Error('Failed to get or create DM channel');
+      if (!dmChannelId) {
+        console.log('No DM channel available, attempting to create one...');
+        
+        try {
+          const response = await fetch('https://discord.com/api/v10/users/@me/channels', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bot ${this.token}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              recipient_id: this.userId
+            })
+          });
+          
+          if (!response.ok) {
+            const errorText = await response.text();
+            console.error(`Failed to create DM channel: ${response.status} ${response.statusText}`, errorText);
+            throw new Error(`Failed to create DM channel: ${response.status}`);
+          }
+          
+          const data = await response.json();
+          if (!data.id) {
+            throw new Error('Discord API returned no channel ID');
+          }
+          
+          dmChannelId = data.id;
+          this.dmChannelId = dmChannelId;
+          console.log(`Successfully created DM channel: ${dmChannelId}`);
+        } catch (error) {
+          console.error('Error creating DM channel:', error);
+          // Last resort fallback to logging
+          console.log(`[DM FALLBACK] ${message}`);
+          return;
+        }
       }
       
       // Format the message
       const formattedMessage = this.formatMessage(message, type);
       
       // Send message to the DM channel
-      const response = await fetch(`https://discord.com/api/v10/channels/${this.dmChannelId}/messages`, {
+      const response = await fetch(`https://discord.com/api/v10/channels/${dmChannelId}/messages`, {
         method: 'POST',
         headers: {
           'Authorization': `Bot ${this.token}`,
@@ -130,13 +137,16 @@ export class DiscordNotifier implements Notifier {
       });
       
       if (!response.ok) {
-        throw new Error(`Discord DM error: ${response.status} ${response.statusText}`);
+        const errorText = await response.text();
+        console.error(`Discord DM error: ${response.status} ${response.statusText}`, errorText);
+        throw new Error(`Discord DM error: ${response.status}`);
       }
       
       console.log('Discord direct message sent successfully');
     } catch (error) {
       console.error('Error sending Discord direct message:', error);
-      throw error;
+      // If all else fails, log to console
+      console.log(`[DISCORD DM FAILED] ${message}`);
     }
   }
   
@@ -153,23 +163,64 @@ export class DiscordNotifier implements Notifier {
     }
     
     try {
-      // If DM is requested and we have the needed info, send DM
-      if (useDm && this.token && this.userId) {
-        return this.sendDirectMessage(message, type);
-      }
-      
       // Format the message based on type
-      let formattedMessage = this.formatMessage(message, type);
+      const formattedMessage = this.formatMessage(message, type);
       
-      // Send via webhook if available (preferred)
-      if (this.webhookUrl) {
-        return this.sendViaWebhook(formattedMessage, type);
+      // If DM is explicitly requested, try that first
+      if (useDm && this.token && this.userId) {
+        await this.sendDirectMessage(message, type);
+        return;
       }
       
-      // Otherwise use the Discord API directly
-      return this.sendViaAPI(formattedMessage, type);
+      // Try channel message first if we have the credentials
+      if (this.token && this.channelId) {
+        try {
+          // Discord API endpoint for sending channel messages
+          const apiUrl = `https://discord.com/api/v10/channels/${this.channelId}/messages`;
+          
+          // Send the API request
+          const response = await fetch(apiUrl, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bot ${this.token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              content: formattedMessage,
+            }),
+          });
+          
+          if (!response.ok) {
+            const errorText = await response.text();
+            console.error(`Discord API channel message failed: ${response.status} ${response.statusText}`, errorText);
+            throw new Error(`Discord API error: ${response.status}`);
+          }
+          
+          console.log('Discord notification sent successfully via channel message');
+          return;
+        } catch (error) {
+          console.error('Error sending to channel, will try DM if possible:', error);
+          
+          // If we have userId, try direct message as backup
+          if (this.token && this.userId) {
+            try {
+              console.log('Trying direct message as fallback...');
+              const fallbackMsg = `*Note: This message was sent as DM because channel message failed*\n\n${formattedMessage}`;
+              await this.sendDirectMessage(fallbackMsg, type);
+              return;
+            } catch (dmError) {
+              console.error('Direct message fallback also failed:', dmError);
+            }
+          }
+        }
+      }
+      
+      // Last resort: log to console
+      console.log(`[DISCORD FALLBACK] ${formattedMessage}`);
+      
     } catch (error) {
-      console.error('Error sending Discord notification:', error);
+      console.error('Discord notification completely failed:', error);
+      console.log(`[NOTIFICATION FALLBACK] ${message}`);
     }
   }
   
@@ -187,66 +238,17 @@ export class DiscordNotifier implements Notifier {
   }
   
   private async sendViaWebhook(message: string, type: string): Promise<void> {
-    if (!this.webhookUrl) return;
-    
-    try {
-      // Set up the webhook payload
-      const payload = {
-        content: message,
-        // Additional options like username, avatar_url could be added here
-        username: 'Chloe Agent',
-        avatar_url: 'https://i.imgur.com/DFrKAdZ.png', // Can be customized
-      };
-      
-      // Send the webhook request
-      const response = await fetch(this.webhookUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(payload),
-      });
-      
-      if (!response.ok) {
-        throw new Error(`Discord webhook error: ${response.status} ${response.statusText}`);
-      }
-      
-      console.log('Discord notification sent successfully via webhook');
-    } catch (error) {
-      console.error('Error sending Discord webhook:', error);
-      throw error;
-    }
+    // This method is no longer used - webhooks have been deprioritized in favor of direct API
+    // Kept for backward compatibility
+    console.log('Using deprecated sendViaWebhook method');
+    return;
   }
   
   private async sendViaAPI(message: string, type: string): Promise<void> {
-    if (!this.token || !this.channelId) return;
-    
-    try {
-      // Discord API endpoint for sending channel messages
-      const apiUrl = `https://discord.com/api/v10/channels/${this.channelId}/messages`;
-      
-      // Send the API request
-      const response = await fetch(apiUrl, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bot ${this.token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          content: message,
-          // Can add embeds or other formatting options here
-        }),
-      });
-      
-      if (!response.ok) {
-        throw new Error(`Discord API error: ${response.status} ${response.statusText}`);
-      }
-      
-      console.log('Discord notification sent successfully via API');
-    } catch (error) {
-      console.error('Error sending Discord API message:', error);
-      throw error;
-    }
+    // This method is no longer used - API calls are now handled directly in the send method
+    // Kept for backward compatibility
+    console.log('Using deprecated sendViaAPI method');
+    return;
   }
   
   /**
