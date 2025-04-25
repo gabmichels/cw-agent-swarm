@@ -3,6 +3,7 @@ import * as path from 'path';
 import { getLLM } from '../../../lib/core/llm';
 import { ChatPromptTemplate } from '@langchain/core/prompts';
 import { createMarketScanner } from './marketScanner';
+import { EnhancedMemory, createEnhancedMemory } from '../../../lib/memory/src/enhanced-memory';
 
 // Define logger inline
 const logger = {
@@ -340,6 +341,98 @@ class NotifyDiscordTool extends BaseTool {
   }
 }
 
+// Add CreateTaskTool class after the NotifyDiscordTool
+class CreateTaskTool extends BaseTool {
+  private enhancedMemory: EnhancedMemory;
+
+  constructor() {
+    super(
+      'create_task',
+      'Create a new task with a deadline and priority',
+      {
+        title: {
+          type: 'string',
+          description: 'The title of the task'
+        },
+        description: {
+          type: 'string', 
+          description: 'Detailed description of the task'
+        },
+        deadline: {
+          type: 'string',
+          description: 'Optional deadline for the task (ISO string)'
+        },
+        priority: {
+          type: 'string',
+          description: 'Priority of the task (high, medium, low)',
+          default: 'medium'
+        }
+      }
+    );
+    this.enhancedMemory = createEnhancedMemory();
+  }
+
+  async execute(params: Record<string, any>): Promise<any> {
+    const { title, description, deadline, priority = 'medium' } = params;
+    
+    if (!title) {
+      return {
+        success: false,
+        message: "A task title is required.",
+        display: "A task title is required."
+      };
+    }
+    
+    logThought(`Creating task: "${title}" with priority: ${priority}`);
+    
+    try {
+      // Generate a unique task ID
+      const taskId = `task_${Date.now()}`;
+      
+      // Create task metadata
+      const taskMetadata = {
+        id: taskId,
+        title,
+        description: description || title,
+        priority,
+        status: 'pending',
+        created: new Date().toISOString(),
+        deadline: deadline || null,
+        tags: ['task']
+      };
+      
+      // Store in memory
+      await this.enhancedMemory.addMemory(
+        `Task: ${title}\n\nDescription: ${description || 'No description provided'}`,
+        taskMetadata,
+        'task'
+      );
+      
+      // Format response for display
+      const deadlineText = deadline ? ` with deadline ${new Date(deadline).toDateString()}` : '';
+      const displayMessage = `I've created a new ${priority} priority task: "${title}"${deadlineText}`;
+      
+      return {
+        success: true,
+        message: `Task created with ID: ${taskId}`,
+        id: taskId,
+        title,
+        priority,
+        deadline,
+        display: displayMessage
+      };
+    } catch (error) {
+      console.error('Error creating task:', error);
+      logThought(`Error occurred while creating task: ${error}`);
+      return {
+        success: false,
+        message: `Error creating task: ${error instanceof Error ? error.message : String(error)}`,
+        display: `I wasn't able to create that task. Please try again.`
+      };
+    }
+  }
+}
+
 interface Pattern {
   intent: string;
   patterns: string[];
@@ -365,6 +458,7 @@ export class IntentRouterTool extends BaseTool {
   private llm: any = null;
   private tools: Record<string, BaseTool> = {};
   private promptTemplate: any;
+  private enhancedMemory: EnhancedMemory;
   
   constructor() {
     super(
@@ -383,15 +477,20 @@ export class IntentRouterTool extends BaseTool {
       }
     );
     
+    // Initialize enhanced memory
+    this.enhancedMemory = createEnhancedMemory();
+    
     // Register available tools here
     this.registerTool('propose_content_ideas', new ProposeContentIdeasTool());
     this.registerTool('reflect_on_performance', new ReflectOnPerformanceTool());
     this.registerTool('market_scan', new MarketScanTool());
     this.registerTool('notify_discord', new NotifyDiscordTool());
+    this.registerTool('create_task', new CreateTaskTool());
     
     // Alias the tools by intent name for easier lookup
     this.registerToolAlias('generate_content_ideas', 'propose_content_ideas');
     this.registerToolAlias('run_market_scan', 'market_scan');
+    this.registerToolAlias('schedule_task', 'create_task');
     
     // Initialize the promptTemplate
     this.initializePromptTemplate();
@@ -648,6 +747,13 @@ USER INPUT: {input}`;
     logger.info(`Routing intent for input: ${input}`);
     
     try {
+      // Get relevant memories that might help with intent understanding
+      const relevantMemories = await this.enhancedMemory.getRelevantMemories(input, 3);
+      if (relevantMemories.length > 0) {
+        logThought(`Found ${relevantMemories.length} memories that might be relevant to this request`);
+      }
+      
+      // Match intent using LLM
       const matchResult = await this.matchIntentWithLLM(input);
       
       console.log("🎯 INTENT MATCH:", JSON.stringify(matchResult, null, 2));
@@ -662,40 +768,41 @@ USER INPUT: {input}`;
       }
       
       // Try to find tool by intent name first, then by action name
-      const toolName = matchResult.intent || matchResult.action;
-      if (!toolName || !this.tools[toolName]) {
-        // Fall back to action if provided
-        if (matchResult.action && this.tools[matchResult.action]) {
-          console.log(`Using fallback action '${matchResult.action}' for intent '${matchResult.intent}'`);
-        } else {
-          logThought(`Intent matched to '${matchResult.intent}', but no tool is registered for it`);
-          return {
-            success: false,
-            message: `I understood you want me to ${matchResult.intent || "do something"}, but I don't have that capability yet.`,
-            display: `I understood you want me to ${matchResult.intent || "do something"}, but I don't have that capability yet.`
-          };
-        }
+      let tool: BaseTool | undefined;
+      
+      // Check if we have a valid tool name
+      if (matchResult.intent && typeof matchResult.intent === 'string' && this.tools[matchResult.intent]) {
+        tool = this.tools[matchResult.intent];
+      } 
+      // Fall back to action if provided and valid
+      else if (matchResult.action && typeof matchResult.action === 'string' && this.tools[matchResult.action]) {
+        tool = this.tools[matchResult.action];
+        console.log(`Using fallback action '${matchResult.action}' for intent '${matchResult.intent}'`);
       }
       
-      // Get the tool to execute (either by intent name or action name)
-      const tool = this.tools[toolName] || (matchResult.action ? this.tools[matchResult.action] : undefined);
-      
       if (!tool) {
-        logThought(`No tool found for intent '${matchResult.intent}' or action '${matchResult.action}'`);
+        logThought(`Intent matched to '${matchResult.intent}', but no tool is registered for it`);
         return {
           success: false,
-          message: `I understood your request, but couldn't find the right tool to execute it.`,
-          display: `I understood your request, but couldn't find the right tool to execute it.`
+          message: `I understood you want me to ${matchResult.intent || "do something"}, but I don't have that capability yet.`,
+          display: `I understood you want me to ${matchResult.intent || "do something"}, but I don't have that capability yet.`
         };
       }
       
-      const toolParams = matchResult.params || {};
+      // Enhance the extracted parameters with natural language understanding
+      const enhancedParams = await this.enhanceParameters(matchResult.params || {}, input, tool.name);
       
-      logThought(`Executing '${tool.name}' with parameters: ${JSON.stringify(toolParams)}`);
-      logger.info(`Executing tool ${tool.name} with params:`, toolParams);
-      console.log(`🔧 EXECUTING TOOL: ${tool.name} with params:`, toolParams);
+      logThought(`Executing '${tool.name}' with parameters: ${JSON.stringify(enhancedParams)}`);
+      logger.info(`Executing tool ${tool.name} with params:`, enhancedParams);
+      console.log(`🔧 EXECUTING TOOL: ${tool.name} with params:`, enhancedParams);
       
-      const result = await tool.execute(toolParams);
+      const result = await tool.execute(enhancedParams);
+      
+      // Record successful intent match to improve future matching
+      if (matchResult.intent && matchResult.confidence && matchResult.confidence > 0.7) {
+        await this.enhancedMemory.storeIntentPattern(matchResult.intent, input);
+        logThought(`Learned new pattern for intent '${matchResult.intent}'`);
+      }
       
       console.log("✅ INTENT ROUTER COMPLETE:", tool.name);
       logThought(`Completed '${tool.name}' action`);
@@ -748,6 +855,8 @@ USER INPUT: {input}`;
         return result.message || "Market scan completed successfully.";
       case 'notify_discord':
         return result.message || "Discord notification sent successfully.";
+      case 'create_task':
+        return result.message || "Task created successfully.";
       default:
         return JSON.stringify(result, null, 2);
     }
@@ -771,5 +880,89 @@ USER INPUT: {input}`;
     });
     
     return formattedResult;
+  }
+  
+  /**
+   * Enhance parameters with natural language understanding
+   */
+  private async enhanceParameters(
+    params: Record<string, any>,
+    input: string,
+    toolName: string
+  ): Promise<Record<string, any>> {
+    // Create a copy of the parameters
+    const enhancedParams = { ...params };
+    
+    try {
+      // Enhance based on tool type
+      switch (toolName) {
+        case 'market_scan':
+          // No special enhancements needed for market_scan yet
+          break;
+          
+        case 'propose_content_ideas':
+          // Make sure we have a topic parameter
+          if (!enhancedParams.topic) {
+            // Try to extract a topic from the input
+            const topicMatch = input.match(/(?:about|for|on|related to)\s+([^,.?!]+)/i);
+            if (topicMatch && topicMatch[1]) {
+              enhancedParams.topic = topicMatch[1].trim();
+              logThought(`Extracted topic: ${enhancedParams.topic}`);
+            }
+          }
+          break;
+          
+        case 'reflect_on_performance':
+          // Try to extract timeframe if not present
+          if (!enhancedParams.timeframe) {
+            // Look for time indicators
+            const timeMatch = input.match(/(?:in|for|during|over the|last|past)\s+([^,.?!]+)/i);
+            if (timeMatch && timeMatch[1]) {
+              enhancedParams.timeframe = timeMatch[1].trim();
+              logThought(`Extracted timeframe: ${enhancedParams.timeframe}`);
+            } else {
+              // Default to "past week"
+              enhancedParams.timeframe = "past week";
+            }
+          }
+          break;
+          
+        case 'notify_discord':
+          // Extract priority for notifications
+          if (!enhancedParams.priority) {
+            const priority = this.enhancedMemory.extractPriority(input);
+            enhancedParams.priority = priority;
+            
+            // If high priority, also set the mention flag
+            if (priority === 'high') {
+              enhancedParams.mention = true;
+              logThought(`Detected high priority message, will mention user`);
+            }
+          }
+          break;
+      }
+      
+      // Extract any dates and add as deadline if relevant
+      if (['create_task', 'schedule_task'].includes(toolName) && !enhancedParams.deadline) {
+        const extractedDate = this.enhancedMemory.extractDateFromText(input);
+        if (extractedDate) {
+          enhancedParams.deadline = extractedDate.toISOString();
+          logThought(`Extracted deadline: ${extractedDate.toDateString()}`);
+        }
+      }
+      
+      // Extract priority for any task-related actions
+      if (['create_task', 'schedule_task'].includes(toolName) && !enhancedParams.priority) {
+        const priority = this.enhancedMemory.extractPriority(input);
+        enhancedParams.priority = priority;
+        logThought(`Extracted priority: ${priority}`);
+      }
+      
+      return enhancedParams;
+    } catch (error) {
+      console.error('Error enhancing parameters:', error);
+      // Return original params if enhancement fails
+      return params;
+    }
   }
 } 

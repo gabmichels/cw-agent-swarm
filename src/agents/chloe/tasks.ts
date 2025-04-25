@@ -1,5 +1,8 @@
 import fs from 'fs';
 import path from 'path';
+import { CognitiveMemory } from '../../lib/memory/src/cognitive-memory';
+import { KnowledgeGraph } from '../../lib/memory/src/knowledge-graph';
+import { ChloeAgent } from './agent';
 
 export interface Task {
   id: string;
@@ -210,5 +213,71 @@ export class TaskManager {
       fs.mkdirSync(dirPath, { recursive: true });
       console.log(`Created directory: ${dirPath}`);
     }
+  }
+}
+
+/**
+ * Run memory consolidation process
+ */
+export async function runMemoryConsolidation(agent: ChloeAgent): Promise<boolean> {
+  console.log('📚 Starting memory consolidation process...');
+  const startTime = Date.now();
+
+  try {
+    // Get cognitive memory and knowledge graph from agent
+    const cognitiveMemory = agent.getCognitiveMemory();
+    const knowledgeGraph = agent.getKnowledgeGraph();
+    
+    if (!cognitiveMemory || !knowledgeGraph) {
+      console.error('❌ Cognitive memory systems are not initialized');
+      return false;
+    }
+    
+    // Run memory consolidation
+    console.log('🧠 Running memory decay and consolidation...');
+    const consolidatedCount = await cognitiveMemory.consolidateMemories();
+    console.log(`✅ Processed ${consolidatedCount} memories for consolidation`);
+    
+    // Find concept nodes in knowledge graph
+    console.log('🔍 Finding important concepts in knowledge graph...');
+    const conceptNodes = await knowledgeGraph.findNodes('', ['concept'], 20);
+    console.log(`📊 Found ${conceptNodes.length} concept nodes`);
+    
+    // Infer new connections for top concept nodes
+    console.log('🔄 Inferring new connections in knowledge graph...');
+    let totalInferences = 0;
+    
+    for (const node of conceptNodes) {
+      const inferences = await knowledgeGraph.inferNewEdges(node.id, 0.7);
+      
+      if (inferences.length > 0) {
+        console.log(`🔗 Found ${inferences.length} potential new connections for "${node.label}"`);
+        
+        // Add high confidence inferences automatically
+        for (const inference of inferences) {
+          if (inference.confidence > 0.8) {
+            await knowledgeGraph.addEdge(
+              inference.source,
+              inference.target,
+              inference.type,
+              inference.confidence
+            );
+            
+            totalInferences++;
+          }
+        }
+      }
+    }
+    
+    console.log(`✅ Added ${totalInferences} new inferred connections to knowledge graph`);
+    
+    // Calculate completion time
+    const duration = (Date.now() - startTime) / 1000;
+    console.log(`🎉 Memory consolidation complete in ${duration.toFixed(2)} seconds`);
+    
+    return true;
+  } catch (error) {
+    console.error('❌ Error during memory consolidation:', error);
+    return false;
   }
 } 

@@ -229,59 +229,61 @@ export class ChloeScheduler {
   private async executeTask(id: string): Promise<void> {
     const taskConfig = this.scheduledTasks.get(id);
     if (!taskConfig) {
-      console.error(`Task ${id} not found`);
+      console.error(`Task ${id} not found during execution`);
       return;
     }
-
+    
+    console.log(`Executing scheduled task: ${id}`);
+    
     try {
-      console.log(`Executing scheduled task ${id}: ${taskConfig.goalPrompt}`);
-      
       // Update last run timestamp
       taskConfig.lastRun = new Date();
       
-      // Special handling for specific task types
-      if (id === 'daily-summary') {
-        // Execute the daily summary method directly
-        await this.agent.sendDailySummaryToDiscord();
-        console.log(`Completed daily summary task`);
-        return;
-      } else if (id === 'weekly-reflection') {
-        // Execute the weekly reflection method directly
-        await this.agent.runWeeklyReflection();
-        console.log(`Completed weekly reflection task`);
+      // Handle special tasks
+      if (id === 'memory-consolidation') {
+        try {
+          const { runMemoryConsolidation } = await import('./tasks');
+          const success = await runMemoryConsolidation(this.agent);
+          if (success) {
+            console.log('Memory consolidation completed successfully');
+          } else {
+            console.error('Memory consolidation failed');
+          }
+          return;
+        } catch (error) {
+          console.error('Error running memory consolidation:', error);
+          return;
+        }
+      }
+      
+      // Get the autonomy system for plan & execute
+      const autonomySystem = await this.agent.getAutonomySystem();
+      if (!autonomySystem) {
+        console.error('Autonomy system not initialized');
         return;
       }
       
-      // For standard tasks, use planAndExecute
+      // Standard execution process for most tasks
       const options: PlanAndExecuteOptions = {
         goalPrompt: taskConfig.goalPrompt,
         autonomyMode: true,
         requireApproval: false,
-        tags: [...taskConfig.tags, 'scheduled']
+        tags: taskConfig.tags
       };
       
       // Execute the task
-      const result = await (this.agent as any).planAndExecute(options);
+      console.log(`Running task ${id} with goal: ${taskConfig.goalPrompt.substring(0, 100)}...`);
+      const result = await autonomySystem.planAndExecute(options);
       
-      console.log(`Completed scheduled task ${id}, output: ${result?.finalOutput || 'No output'}`);
-      
-      // Send notification to Discord for completed task
-      try {
-        const { notifyDiscord } = require('./notifiers');
-        await notifyDiscord(`Task completed: ${taskConfig.goalPrompt.substring(0, 100)}...`, 'update');
-      } catch (error) {
-        console.error('Failed to send task completion notification:', error);
+      // Log the result
+      if (result.success) {
+        console.log(`Task ${id} completed successfully`);
+        console.log(`Final output: ${result.output.substring(0, 100)}...`);
+      } else {
+        console.error(`Task ${id} failed: ${result.error}`);
       }
     } catch (error) {
-      console.error(`Error executing scheduled task ${id}:`, error);
-      
-      // Try to send error notification
-      try {
-        const { notifyDiscord } = require('./notifiers');
-        await notifyDiscord(`Error in task ${id}: ${error instanceof Error ? error.message : String(error)}`, 'alert', true);
-      } catch (notifyError) {
-        console.error('Failed to send error notification:', notifyError);
-      }
+      console.error(`Error executing task ${id}:`, error);
     }
   }
 
@@ -359,6 +361,14 @@ export class ChloeScheduler {
 // Set up default scheduled tasks for Chloe
 export function setupDefaultSchedule(scheduler: ChloeScheduler): void {
   console.log('Setting up default scheduled tasks for Chloe');
+  
+  // Memory consolidation - runs daily at midnight
+  scheduler.scheduleTask(
+    'memory-consolidation',
+    '0 0 * * *',
+    'Run cognitive memory consolidation to strengthen important memories, remove low-importance ones, and infer new knowledge connections.',
+    ['memory', 'daily', 'cognitive', 'maintenance']
+  );
   
   // Daily planning task - runs at 8:00 AM every day
   scheduler.scheduleTask(

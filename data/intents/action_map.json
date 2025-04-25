@@ -33,10 +33,17 @@
         "add task to do {task} at {time}",
         "remind me to {task} on {time}",
         "create reminder for {task} at {time}",
-        "plan {task} for {time}"
+        "plan {task} for {time}",
+        "we need to {task} by {time}",
+        "add {task} to my list",
+        "create a task for {task}",
+        "this is crucial: {task}",
+        "urgent task: {task}",
+        "high priority: {task}",
+        "please remember to {task}"
       ],
-      "action": "schedule_task",
-      "description": "Schedules a marketing task for later execution",
+      "action": "create_task",
+      "description": "Creates a task with specified details, deadline, and priority",
       "extractParams": true
     },
     {
@@ -53,16 +60,23 @@
       "extractParams": true
     },
     {
-      "intent": "retrieve_information",
+      "intent": "run_market_scan",
       "patterns": [
-        "find information on {topic}",
-        "search for {topic}",
-        "look up {topic}",
-        "tell me about {topic}",
-        "research {topic}"
+        "run market scan for {category}",
+        "scan market for {category}",
+        "analyze market trends in {category}",
+        "collect social media data about {category}",
+        "get market insights for {category}",
+        "gather market intelligence on {category}",
+        "scan social media for {category} trends",
+        "look for trends in {category}",
+        "update knowledge about {category} market",
+        "can you check what social media is saying about {category}",
+        "can you bring yourself up to speed with the topic of {category}",
+        "what's the latest on {category}"
       ],
-      "action": "search_knowledge",
-      "description": "Retrieves information from internal knowledge base",
+      "action": "market_scan",
+      "description": "Scan market sources for trends, news, and insights in a specific category",
       "extractParams": true
     }
   ]

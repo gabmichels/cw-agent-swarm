@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "typecheck": "tsc --noEmit --jsx react-jsx --esModuleInterop"
+    "typecheck": "tsc --noEmit --jsx react-jsx --esModuleInterop",
+    "memory:consolidate": "ts-node scripts/consolidate-memory.ts"
   },
   "dependencies": {
     "@langchain/core": "^0.3.45",
@@ -36,7 +37,8 @@
     "styled-jsx": "^5.1.6",
     "tailwindcss": "^3.4.17",
     "tsup": "8.0.2",
-    "zod": "^3.24.3"
+    "zod": "^3.24.3",
+    "luxon": "^3.4.3"
   },
   "devDependencies": {
     "@tailwindcss/typography": "^0.5.10",
@@ -48,7 +50,8 @@
     "eslint-config-next": "^15.4.0-canary.0",
     "prettier": "^3.5.3",
     "rimraf": "^6.0.1",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "@types/luxon": "^3.3.3"
   },
   "engines": {
     "node": ">=18"

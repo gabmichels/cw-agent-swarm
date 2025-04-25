@@ -18,6 +18,11 @@ import path from 'path';
 // Import the planning functionality
 import { planTask } from '../../server/agents/planner';
 import { executePlan } from '../../server/agents/executor';
+import { EnhancedMemory, createEnhancedMemory } from '../../lib/memory/src/enhanced-memory';
+import { createChloeTools } from './tools';
+import { CognitiveMemory } from '../../lib/memory/src/cognitive-memory';
+import { KnowledgeGraph } from '../../lib/memory/src/knowledge-graph';
+import { IntentRouterTool } from './tools/intentRouter';
 
 interface ChloeState {
   messages: Message[];
@@ -44,6 +49,9 @@ export class ChloeAgent {
   protected initialized: boolean = false;
   private taskLogger: TaskLogger | null = null;
   private _autonomySystem: any | null = null;
+  private enhancedMemory: EnhancedMemory;
+  private cognitiveMemory: CognitiveMemory;
+  private knowledgeGraph: KnowledgeGraph;
   
   constructor(config?: Partial<AgentConfig>) {
     // Set default configuration
@@ -60,6 +68,15 @@ export class ChloeAgent {
     };
     
     console.log('ChloeAgent instance created');
+    
+    // Initialize enhanced memory
+    this.enhancedMemory = createEnhancedMemory('chloe');
+    this.cognitiveMemory = new CognitiveMemory({ 
+      namespace: 'chloe',
+      workingMemoryCapacity: 9, // Slightly higher than average
+      consolidationInterval: 12  // Consolidate twice daily
+    });
+    this.knowledgeGraph = new KnowledgeGraph('chloe');
   }
   
   /**
@@ -140,6 +157,16 @@ export class ChloeAgent {
         timestamp: new Date().toISOString()
       });
 
+      // Initialize enhanced memory systems
+      try {
+        await this.enhancedMemory.initialize();
+        await this.cognitiveMemory.initialize();
+        await this.knowledgeGraph.initialize();
+        console.log('Enhanced memory systems initialized successfully');
+      } catch (error) {
+        console.error('Failed to initialize enhanced memory systems:', error);
+      }
+
       this.initialized = true;
       console.log('ChloeAgent initialized successfully');
     } catch (error) {
@@ -156,66 +183,73 @@ export class ChloeAgent {
 
   // Add this method to integrate with intent router
   private async processIntentWithRouter(message: string): Promise<{ success: boolean; response?: string }> {
-    if (!this.initialized) {
-      return { success: false };
-    }
-
     try {
-      this.logThought(`Analyzing message intent: "${message.substring(0, 50)}${message.length > 50 ? '...' : ''}"`);
+      // Get relevant memories to provide context
+      const relevantMemories = await this.cognitiveMemory.getRelevantMemories(message, 3);
       
-      // Dynamically import the IntentRouterTool to avoid circular dependencies
-      const { IntentRouterTool } = await import('./tools/intentRouter');
+      // Use working memory items as additional context
+      const workingMemItems = this.cognitiveMemory.getWorkingMemory();
+      
+      // Log working memory contents for debugging
+      this.logThought(`Working memory contains ${workingMemItems.length} items`);
+      
+      // For important messages, store in episodic memory
+      await this.cognitiveMemory.addEpisodicMemory(
+        message,
+        { source: 'user', category: 'message', created: new Date().toISOString() }
+      );
+      
+      // Process with intent router
       const intentRouter = new IntentRouterTool();
-      
-      this.logThought(`Using intent router to detect user intent`);
       const result = await intentRouter.execute({ input: message });
       
-      if (result.success && result.action) {
-        this.logThought(`✓ Intent detected: ${result.intent} (${Math.round((result.confidence || 0) * 100)}% confidence)`);
-        this.logThought(`✓ Executing action: ${result.action}`);
-        
-        if (this.taskLogger) {
-          this.taskLogger.logAction(`Intent detected and routed`, {
-            intent: result.intent,
-            action: result.action,
-            confidence: result.confidence,
-            timestamp: new Date().toISOString()
-          });
-        }
-        
-        // If we have a formatted display response, use it directly
-        if (result.display) {
-          console.log("Using formatted display property from result:", result.display.substring(0, 100) + "...");
-          return { success: true, response: result.display };
-        }
-        
-        // Otherwise format the response based on the action and result
-        if (result.result) {
-          let responseText;
+      // If successful, store result in knowledge graph
+      if (result.success && result.intent) {
+        try {
+          // Create nodes and edges in knowledge graph
+          const messageNodeId = await this.knowledgeGraph.addNode(
+            message.substring(0, 100), // Use truncated message as label
+            'event',
+            { type: 'user_message', full_content: message }
+          );
           
-          // Format the response based on the action type
-          if (result.action === 'propose_content_ideas' && Array.isArray(result.result.ideas)) {
-            responseText = `Here are some content ideas I generated:\n\n${result.result.ideas.join('\n\n')}`;
-          } else if (result.action === 'reflect_on_performance' && result.result.reflection) {
-            responseText = result.result.reflection;
-          } else {
-            // Generic response formatting
-            responseText = typeof result.result === 'string' 
-              ? result.result 
-              : `I completed the ${result.action} action successfully.`;
-          }
+          const intentNodeId = await this.knowledgeGraph.addNode(
+            result.intent,
+            'concept',
+            { type: 'intent' }
+          );
           
-          return { success: true, response: responseText };
+          // Connect message to intent
+          await this.knowledgeGraph.addEdge(
+            messageNodeId,
+            intentNodeId,
+            'causes',
+            result.confidence || 0.7
+          );
+          
+          this.logThought(`Added knowledge graph connections for intent: ${result.intent}`);
+        } catch (error) {
+          console.error('Error adding to knowledge graph:', error);
         }
-      } else {
-        this.logThought(`No specific intent detected or no matching tool found`);
       }
       
-      return { success: false };
+      // Use display property if available, otherwise fall back to original response formatting
+      const response = result.display || (result.success 
+        ? (typeof result.result === 'string' 
+            ? result.result 
+            : JSON.stringify(result.result, null, 2))
+        : result.message || "I couldn't process that request.");
+        
+      return { 
+        success: result.success, 
+        response 
+      };
     } catch (error) {
-      console.error('Error in intent routing:', error);
-      this.logThought(`Error occurred during intent detection: ${error instanceof Error ? error.message : String(error)}`);
-      return { success: false };
+      console.error('Error in intent router:', error);
+      return { 
+        success: false, 
+        response: "I encountered an error processing your request. Please try again." 
+      };
     }
   }
 
@@ -287,7 +321,7 @@ export class ChloeAgent {
       }
 
       // Tag memory if available
-      if (this.memoryTagger && this.chloeMemory) {
+      if (this.memoryTagger) {
         try {
           const tag = await this.memoryTagger.tagMemory(message);
           
@@ -299,9 +333,19 @@ export class ChloeAgent {
             });
           }
           
-          // Add to memory if important enough
+          // Add to memory if important enough 
           if (['medium', 'high'].includes(tag.importance)) {
-            await this.chloeMemory.addMemory(message, tag);
+            // Use enhanced memory instead
+            await this.enhancedMemory.addMemory(
+              message, 
+              {
+                category: tag.category,
+                importance: tag.importance,
+                source: 'user',
+                tags: tag.tags
+              },
+              'message'
+            );
             
             // Log memory addition
             if (this.taskLogger) {
@@ -327,28 +371,26 @@ export class ChloeAgent {
 
       // Get relevant memories from long-term memory
       let memories: string[] = [];
-      if (this.chloeMemory) {
-        try {
-          memories = await this.chloeMemory.getRelevantMemories(message, 5);
-          
-          // Log memory retrieval
-          if (this.taskLogger && memories.length > 0) {
-            this.taskLogger.logMemoryRetrieval(`Retrieved ${memories.length} relevant memories`, {
-              count: memories.length,
-              samples: memories.slice(0, 2).map(m => m.substring(0, 50) + '...'),
-              timestamp: new Date().toISOString()
-            });
-          }
-        } catch (error) {
-          console.error('Error retrieving memories:', error);
-          
-          // Log memory retrieval error
-          if (this.taskLogger) {
-            this.taskLogger.logAction(`Memory retrieval error: ${error instanceof Error ? error.message : String(error)}`, {
-              error: true,
-              timestamp: new Date().toISOString()
-            });
-          }
+      try {
+        memories = await this.enhancedMemory.getRelevantMemories(message, 5);
+        
+        // Log memory retrieval
+        if (this.taskLogger && memories.length > 0) {
+          this.taskLogger.logMemoryRetrieval(`Retrieved ${memories.length} relevant memories`, {
+            count: memories.length,
+            samples: memories.slice(0, 2).map(m => m.substring(0, 50) + '...'),
+            timestamp: new Date().toISOString()
+          });
+        }
+      } catch (error) {
+        console.error('Error retrieving memories:', error);
+        
+        // Log memory retrieval error
+        if (this.taskLogger) {
+          this.taskLogger.logAction(`Memory retrieval error: ${error instanceof Error ? error.message : String(error)}`, {
+            error: true,
+            timestamp: new Date().toISOString()
+          });
         }
       }
 
@@ -610,6 +652,16 @@ export class ChloeAgent {
       }
       
       console.log('Agent response:', agentResponse);
+      
+      // Store message in episodic memory with emotional context
+      await this.cognitiveMemory.addEpisodicMemory(
+        message,
+        { 
+          source: 'user', 
+          category: 'message', 
+          importance: this.cognitiveMemory.extractPriority(message) === 'high' ? 'high' : 'medium'
+        }
+      );
       
       return agentResponse;
     } catch (error) {
@@ -1474,5 +1526,15 @@ Successfully completed daily operations.
     }
     
     return this._autonomySystem;
+  }
+
+  // Add new method to access cognitive memory
+  getCognitiveMemory(): CognitiveMemory {
+    return this.cognitiveMemory;
+  }
+
+  // Add new method to access knowledge graph
+  getKnowledgeGraph(): KnowledgeGraph {
+    return this.knowledgeGraph;
   }
 } 
