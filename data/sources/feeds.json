@@ -6,7 +6,8 @@
       "url": "https://moz.com/blog/feed",
       "category": "SEO",
       "theme": "Marketing",
-      "refresh_interval": 24
+      "refresh_interval": 24,
+      "last_checked": "2025-04-25T15:26:52.378Z"
     },
     {
       "id": "travel-leisure",
@@ -22,7 +23,8 @@
       "url": "https://techcrunch.com/tag/artificial-intelligence/feed/",
       "category": "AI News",
       "theme": "Technology",
-      "refresh_interval": 6
+      "refresh_interval": 6,
+      "last_checked": "2025-04-25T15:27:03.382Z"
     },
     {
       "id": "hubspot-marketing",
@@ -30,7 +32,8 @@
       "url": "https://blog.hubspot.com/marketing/rss.xml",
       "category": "Marketing Strategy",
       "theme": "Marketing",
-      "refresh_interval": 12
+      "refresh_interval": 12,
+      "last_checked": "2025-04-25T15:27:10.075Z"
     },
     {
       "id": "lonely-planet",
@@ -38,7 +41,8 @@
       "url": "https://www.lonelyplanet.com/blog/feed/atom/",
       "category": "Travel",
       "theme": "Travel",
-      "refresh_interval": 12
+      "refresh_interval": 12,
+      "last_checked": "2025-04-25T15:27:17.742Z"
     },
     {
       "id": "language-learning-magazine",
@@ -46,7 +50,8 @@
       "url": "https://www.fluentu.com/blog/feed/",
       "category": "Language Learning",
       "theme": "Education",
-      "refresh_interval": 24
+      "refresh_interval": 24,
+      "last_checked": "2025-04-25T15:27:23.993Z"
     }
   ]
-} 
+}

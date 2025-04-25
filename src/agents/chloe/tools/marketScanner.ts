@@ -253,22 +253,94 @@ export class MarketScanner {
   }
 
   /**
-   * Scan Reddit (fallback implementation with basic scraping)
-   * In a production environment, use snoowrap or Reddit API
+   * Scan Reddit (enhanced scraping implementation)
    */
   private async scanRedditSource(source: Source): Promise<MarketSignal[]> {
     try {
-      const response = await fetch(`https://www.reddit.com/${source.url}.json`);
-      const data = await response.json();
+      logger.info(`Scanning Reddit source: ${source.url}`);
+      
+      // Extract subreddit name - ensure it doesn't have r/ prefix in the URL
+      const subredditName = source.url.replace(/^r\//, '');
+      
+      // Try multiple endpoints in case one fails
+      const endpoints = [
+        `https://www.reddit.com/r/${subredditName}/hot.json?limit=10`,
+        `https://www.reddit.com/r/${subredditName}/top.json?t=week&limit=10`,
+        `https://old.reddit.com/r/${subredditName}.json?limit=10`
+      ];
+      
+      let responseData = null;
+      let successfulEndpoint = '';
+      
+      // Try each endpoint until one works
+      for (const endpoint of endpoints) {
+        try {
+          // Use a more browser-like User-Agent to avoid being blocked
+          const response = await fetch(endpoint, {
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.110 Safari/537.36',
+              'Accept': 'application/json',
+              'Accept-Language': 'en-US,en;q=0.9',
+              'Connection': 'keep-alive'
+            }
+          });
+          
+          if (response.ok) {
+            responseData = await response.json();
+            successfulEndpoint = endpoint;
+            break;
+          }
+        } catch (endpointError) {
+          logger.warn(`Failed to fetch from Reddit endpoint ${endpoint}:`, endpointError);
+          // Continue to the next endpoint
+        }
+      }
+      
+      if (!responseData) {
+        logger.error(`All Reddit API endpoints failed for subreddit: ${subredditName}`);
+        return [];
+      }
+      
+      logger.info(`Successfully fetched Reddit data from: ${successfulEndpoint}`);
       const signals: MarketSignal[] = [];
 
-      if (data.data && data.data.children) {
-        for (const post of data.data.children.slice(0, 10)) { // Limit to 10 most recent posts
+      if (responseData.data && responseData.data.children) {
+        for (const post of responseData.data.children) {
           const { data: postData } = post;
+          
+          // Skip ads, pinned posts or removed content
+          if (postData.promoted || postData.stickied || postData.removed || postData.over_18) {
+            continue;
+          }
+          
+          // Format content for better readability
+          let content = postData.selftext || '';
+          if (content.length === 0 && postData.url) {
+            content = `Link: ${postData.url}`;
+          }
+          
+          // Truncate content if it's too long
+          if (content.length > 1000) {
+            content = content.substring(0, 1000) + '... (content truncated)';
+          }
+          
+          // Process content to clean up any markdown or HTML
+          content = content.replace(/&amp;/g, '&')
+                          .replace(/&lt;/g, '<')
+                          .replace(/&gt;/g, '>')
+                          .replace(/&quot;/g, '"')
+                          .replace(/&apos;/g, "'");
+          
+          // Add engagement metrics
+          content += `\n\nUpvotes: ${postData.ups || 0}, Comments: ${postData.num_comments || 0}`;
+          if (postData.awards_received) {
+            content += `, Awards: ${postData.awards_received}`;
+          }
+          
           signals.push({
             title: postData.title || 'No title',
-            content: postData.selftext || `Upvotes: ${postData.ups}, Comments: ${postData.num_comments}`,
-            source: `Reddit - ${source.url}`,
+            content: content,
+            source: `Reddit - r/${subredditName}`,
             sourceType: 'Reddit',
             category: source.category,
             theme: source.theme,
@@ -288,22 +360,208 @@ export class MarketScanner {
   }
 
   /**
-   * Scan Twitter (fallback implementation)
-   * In a production environment, use X API or snscrape
+   * Scan Twitter/X using improved scraping approach with multiple fallbacks
    */
   private async scanTwitterSource(source: Source): Promise<MarketSignal[]> {
-    // Note: This is a mock implementation since Twitter/X API access might be restricted
-    // In a real implementation, you would use the X API or a scraping tool like snscrape
-    logger.warn(`Twitter scanning for ${source.id} is mocked. Use X API in production.`);
-    
+    try {
+      logger.info(`Scanning Twitter source: ${source.url}`);
+      
+      // Parse the search query from the URL
+      const searchQuery = source.url.replace('search:', '').trim();
+      if (!searchQuery) {
+        logger.warn(`Invalid Twitter source format: ${source.url}. Should be "search:query"`);
+        return [];
+      }
+      
+      const encodedQuery = encodeURIComponent(searchQuery);
+      
+      // Define multiple alternative frontends to try
+      const endpoints = [
+        {
+          name: 'Nitter.net',
+          url: `https://nitter.net/search?f=tweets&q=${encodedQuery}&since=7d`,
+          tweetSelector: '.timeline-item',
+          contentSelector: '.tweet-content',
+          authorSelector: '.username',
+          dateSelector: '.tweet-date a',
+          linkSelector: '.tweet-link'
+        },
+        {
+          name: 'Nitter.lacontrevoie.fr',
+          url: `https://nitter.lacontrevoie.fr/search?f=tweets&q=${encodedQuery}&since=7d`,
+          tweetSelector: '.timeline-item',
+          contentSelector: '.tweet-content',
+          authorSelector: '.username',
+          dateSelector: '.tweet-date a',
+          linkSelector: '.tweet-link'
+        }
+      ];
+      
+      let html = '';
+      let successfulEndpoint = null;
+      
+      // Try each endpoint until one works
+      for (const endpoint of endpoints) {
+        try {
+          logger.info(`Trying Twitter scraping endpoint: ${endpoint.name}`);
+          
+          // Use a more browser-like User-Agent with rotating properties
+          const userAgents = [
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.110 Safari/537.36',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Safari/605.1.15',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:95.0) Gecko/20100101 Firefox/95.0'
+          ];
+          
+          const randomUserAgent = userAgents[Math.floor(Math.random() * userAgents.length)];
+          
+          const response = await fetch(endpoint.url, {
+            headers: {
+              'User-Agent': randomUserAgent,
+              'Accept': 'text/html,application/xhtml+xml,application/xml',
+              'Accept-Language': 'en-US,en;q=0.9',
+              'Cache-Control': 'no-cache',
+              'Pragma': 'no-cache'
+            }
+          });
+          
+          if (response.ok) {
+            html = await response.text();
+            successfulEndpoint = endpoint;
+            logger.info(`Successfully scraped Twitter data from: ${endpoint.name}`);
+            break;
+          }
+        } catch (endpointError) {
+          logger.warn(`Failed to fetch from Twitter endpoint ${endpoint.name}:`, endpointError);
+          // Continue to the next endpoint
+        }
+      }
+      
+      if (!html || !successfulEndpoint) {
+        logger.error(`All Twitter scraping endpoints failed for query: ${searchQuery}`);
+        return this.getTwitterFallbackResult(source, searchQuery, encodedQuery);
+      }
+      
+      // Extract tweets using regex - ideally would use a DOM parser in production
+      const tweets: MarketSignal[] = [];
+      
+      // Extract tweet content, authors and dates using the selectors for the successful endpoint
+      const contentRegex = new RegExp(`<div class="${successfulEndpoint.contentSelector.replace('.', '')}[^>]*>(.*?)<\\/div>`, 'gs');
+      const authorRegex = new RegExp(`<a[^>]*class="${successfulEndpoint.authorSelector.replace('.', '')}"[^>]*>@([^<]+)<\\/a>`, 'gs');
+      const dateRegex = new RegExp(`<${successfulEndpoint.dateSelector.replace('.', '').replace(' ', '[^>]*')}[^>]*>([^<]+)<\\/a>`, 'gs');
+      const linkRegex = new RegExp(`<a[^>]*class="${successfulEndpoint.linkSelector.replace('.', '')}"[^>]*href="([^"]+)"`, 'gs');
+      
+      let contents: string[] = [];
+      let authors: string[] = [];
+      let dates: string[] = [];
+      let links: string[] = [];
+      let match;
+      
+      // Extract tweet contents
+      while ((match = contentRegex.exec(html)) !== null) {
+        let content = match[1].trim();
+        // Clean up HTML entities and tags
+        content = content.replace(/<[^>]*>/g, ' ')
+                         .replace(/&amp;/g, '&')
+                         .replace(/&lt;/g, '<')
+                         .replace(/&gt;/g, '>')
+                         .replace(/&quot;/g, '"')
+                         .replace(/&apos;/g, "'")
+                         .replace(/\s+/g, ' ');
+        contents.push(content);
+      }
+      
+      // Extract authors
+      while ((match = authorRegex.exec(html)) !== null) {
+        authors.push(match[1].trim());
+      }
+      
+      // Extract dates
+      while ((match = dateRegex.exec(html)) !== null) {
+        dates.push(match[1].trim());
+      }
+      
+      // Extract links
+      while ((match = linkRegex.exec(html)) !== null) {
+        links.push(match[1].trim());
+      }
+      
+      // Combine the results
+      const limit = Math.min(10, contents.length); // Get up to 10 tweets
+      for (let i = 0; i < limit; i++) {
+        if (contents[i]) {
+          const author = authors[i] || 'unknown';
+          const date = dates[i] || 'recent';
+          const tweetUrl = links[i] ? 
+            (links[i].startsWith('http') ? links[i] : `https://twitter.com${links[i]}`) : 
+            `https://twitter.com/search?q=${encodedQuery}`;
+          
+          tweets.push({
+            title: `Tweet by @${author}`,
+            content: `${contents[i]}\n\nPosted: ${date}`,
+            source: `Twitter - ${searchQuery}`,
+            sourceType: 'Twitter',
+            category: source.category,
+            theme: source.theme,
+            url: tweetUrl,
+            published: this.parseTweetDate(date),
+            retrieved: new Date()
+          });
+        }
+      }
+      
+      // Return results if we found any
+      if (tweets.length > 0) {
+        logger.info(`Scanned Twitter source ${source.id} and found ${tweets.length} items`);
+        return tweets;
+      } else {
+        logger.warn(`Twitter scraping found no results for ${searchQuery}`);
+        return this.getTwitterFallbackResult(source, searchQuery, encodedQuery);
+      }
+    } catch (error) {
+      logger.error(`Error scanning Twitter source ${source.id}:`, error);
+      return this.getTwitterFallbackResult(source, source.url, encodeURIComponent(source.url.replace('search:', '')));
+    }
+  }
+  
+  /**
+   * Helper method to parse Twitter dates
+   */
+  private parseTweetDate(dateStr: string): Date {
+    try {
+      // Handle relative dates like "2d", "5h", etc.
+      if (/^\d+[smhdw]$/.test(dateStr)) {
+        const now = new Date();
+        const value = parseInt(dateStr.slice(0, -1));
+        const unit = dateStr.slice(-1);
+        
+        switch (unit) {
+          case 's': return new Date(now.getTime() - value * 1000);
+          case 'm': return new Date(now.getTime() - value * 60 * 1000);
+          case 'h': return new Date(now.getTime() - value * 60 * 60 * 1000);
+          case 'd': return new Date(now.getTime() - value * 24 * 60 * 60 * 1000);
+          case 'w': return new Date(now.getTime() - value * 7 * 24 * 60 * 60 * 1000);
+        }
+      }
+      
+      // Handle actual date strings
+      return new Date(dateStr);
+    } catch (e) {
+      return new Date(); // Fallback to current date
+    }
+  }
+  
+  /**
+   * Create fallback results when Twitter scraping fails
+   */
+  private getTwitterFallbackResult(source: Source, searchQuery: string, encodedQuery: string): MarketSignal[] {
     return [{
-      title: `Market scan from Twitter source: ${source.id}`,
-      content: `This is a placeholder for Twitter content from: ${source.url}. In a production environment, you would implement proper Twitter API integration or use web scraping.`,
-      source: `Twitter - ${source.url}`,
+      title: `Twitter search for: ${searchQuery}`,
+      content: `Unable to retrieve live Twitter data for "${searchQuery}". This is a placeholder result. The Twitter scraping feature encountered technical limitations. For production use, consider implementing the official Twitter API.`,
+      source: `Twitter - ${searchQuery}`,
       sourceType: 'Twitter',
       category: source.category,
       theme: source.theme,
-      url: 'https://twitter.com/search',
+      url: `https://twitter.com/search?q=${encodedQuery}`,
       published: new Date(),
       retrieved: new Date()
     }];

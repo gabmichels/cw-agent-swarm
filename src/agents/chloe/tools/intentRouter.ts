@@ -252,22 +252,27 @@ class MarketScanTool extends BaseTool {
         return {
           success: true,
           message: "No new market signals found or scanner is disabled.",
-          scanned: 0
+          scanned: 0,
+          display: "No new market signals found or scanner is disabled."
         };
       }
+      
+      const displayMessage = `Market scan complete! Processed ${scanCount} signals${params.category ? ` in category: ${params.category}` : ''}.\n\nThe signals have been saved to memory and can be retrieved using the search_memory tool.`;
       
       return {
         success: true,
         message: `Market scan complete! Processed ${scanCount} signals${params.category ? ` in category: ${params.category}` : ''}.`,
         scanned: scanCount,
-        category: params.category || 'all'
+        category: params.category || 'all',
+        display: displayMessage
       };
     } catch (error) {
       console.error('Error in market scan:', error);
       logThought(`Error occurred during market scan: ${error}`);
       return {
         success: false,
-        message: `Error running market scan: ${error instanceof Error ? error.message : String(error)}`
+        message: `Error running market scan: ${error instanceof Error ? error.message : String(error)}`,
+        display: `Error running market scan: ${error instanceof Error ? error.message : String(error)}`
       };
     }
   }
@@ -379,15 +384,26 @@ export class IntentRouterTool extends BaseTool {
     );
     
     // Register available tools here
-    this.registerTool('generate_content_ideas', new ProposeContentIdeasTool());
+    this.registerTool('propose_content_ideas', new ProposeContentIdeasTool());
     this.registerTool('reflect_on_performance', new ReflectOnPerformanceTool());
     this.registerTool('market_scan', new MarketScanTool());
     this.registerTool('notify_discord', new NotifyDiscordTool());
+    
+    // Alias the tools by intent name for easier lookup
+    this.registerToolAlias('generate_content_ideas', 'propose_content_ideas');
+    this.registerToolAlias('run_market_scan', 'market_scan');
     
     // Initialize the promptTemplate
     this.initializePromptTemplate();
   }
   
+  // Add a method to register tool aliases
+  private registerToolAlias(intentName: string, actionName: string) {
+    if (this.tools[actionName]) {
+      this.tools[intentName] = this.tools[actionName];
+    }
+  }
+
   private initializePromptTemplate(): void {
     const systemTemplate = `You are an intent classifier for an AI assistant named Chloe.
 Your job is to determine if a user input matches one of the available intents, and extract any parameters.
@@ -636,7 +652,7 @@ USER INPUT: {input}`;
       
       console.log("🎯 INTENT MATCH:", JSON.stringify(matchResult, null, 2));
       
-      if (!matchResult.matched || !matchResult.action) {
+      if (!matchResult.matched) {
         logThought("No matching intent found for this request");
         return {
           success: false,
@@ -645,35 +661,53 @@ USER INPUT: {input}`;
         };
       }
       
-      // Check if we have the tool registered
-      if (!this.tools[matchResult.action]) {
-        logThought(`Intent matched to action '${matchResult.action}', but no tool is registered for it`);
+      // Try to find tool by intent name first, then by action name
+      const toolName = matchResult.intent || matchResult.action;
+      if (!toolName || !this.tools[toolName]) {
+        // Fall back to action if provided
+        if (matchResult.action && this.tools[matchResult.action]) {
+          console.log(`Using fallback action '${matchResult.action}' for intent '${matchResult.intent}'`);
+        } else {
+          logThought(`Intent matched to '${matchResult.intent}', but no tool is registered for it`);
+          return {
+            success: false,
+            message: `I understood you want me to ${matchResult.intent || "do something"}, but I don't have that capability yet.`,
+            display: `I understood you want me to ${matchResult.intent || "do something"}, but I don't have that capability yet.`
+          };
+        }
+      }
+      
+      // Get the tool to execute (either by intent name or action name)
+      const tool = this.tools[toolName] || (matchResult.action ? this.tools[matchResult.action] : undefined);
+      
+      if (!tool) {
+        logThought(`No tool found for intent '${matchResult.intent}' or action '${matchResult.action}'`);
         return {
           success: false,
-          message: `I understood you want me to ${matchResult.action}, but I don't have that capability yet.`,
-          display: `I understood you want me to ${matchResult.action}, but I don't have that capability yet.`
+          message: `I understood your request, but couldn't find the right tool to execute it.`,
+          display: `I understood your request, but couldn't find the right tool to execute it.`
         };
       }
       
-      // Execute the matched tool with extracted parameters
-      const tool = this.tools[matchResult.action];
       const toolParams = matchResult.params || {};
       
-      logThought(`Executing '${matchResult.action}' with parameters: ${JSON.stringify(toolParams)}`);
-      logger.info(`Executing tool ${matchResult.action} with params:`, toolParams);
+      logThought(`Executing '${tool.name}' with parameters: ${JSON.stringify(toolParams)}`);
+      logger.info(`Executing tool ${tool.name} with params:`, toolParams);
+      console.log(`🔧 EXECUTING TOOL: ${tool.name} with params:`, toolParams);
+      
       const result = await tool.execute(toolParams);
       
-      console.log("✅ INTENT ROUTER COMPLETE:", matchResult.action || "no action");
-      logThought(`Completed '${matchResult.action}' action`);
+      console.log("✅ INTENT ROUTER COMPLETE:", tool.name);
+      logThought(`Completed '${tool.name}' action`);
       
       // Format the result for display
-      const displayResult = this.formatResultForDisplay(matchResult.action, result);
+      const displayResult = this.formatResultForDisplay(tool.name, result);
       
       console.log("⭐ Final formatted display result:", displayResult);
       
       return {
         success: true,
-        action: matchResult.action,
+        action: tool.name,
         intent: matchResult.intent,
         confidence: matchResult.confidence,
         result,
