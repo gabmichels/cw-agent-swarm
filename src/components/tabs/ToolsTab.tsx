@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Message } from '../../types';
 
 interface ToolsTabProps {
@@ -30,6 +30,139 @@ const ToolsTab: React.FC<ToolsTabProps> = ({
   fixInstructions,
   isDebugMode,
 }) => {
+  const [debugResults, setDebugResults] = useState<any>(null);
+  const [isDebugLoading, setIsDebugLoading] = useState(false);
+
+  // Function to delete chat history
+  const handleDeleteChatHistory = async () => {
+    if (!confirm('Are you sure you want to delete your chat history? This cannot be undone.')) {
+      return;
+    }
+    
+    setIsDebugLoading(true);
+    try {
+      const response = await fetch('/api/debug/reset-chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ userId: 'default-user' }),
+      });
+      
+      const data = await response.json();
+      setDebugResults(data);
+      
+      if (data.success) {
+        alert(`Successfully deleted chat history. Deleted ${data.deletedMessageCount} messages.`);
+        // Reload the page to refresh the UI
+        window.location.reload();
+      } else {
+        alert(`Failed to delete chat history: ${data.error}`);
+      }
+    } catch (error) {
+      console.error('Error deleting chat history:', error);
+      alert('An error occurred while deleting chat history. See console for details.');
+    } finally {
+      setIsDebugLoading(false);
+    }
+  };
+
+  // Function to clear image data and attachments
+  const handleClearImages = async () => {
+    if (!confirm('Are you sure you want to delete all your images and attachments? This cannot be undone.')) {
+      return;
+    }
+    
+    setIsDebugLoading(true);
+    try {
+      // 1. Clear server-side image data
+      const serverResponse = await fetch('/api/debug/clear-images', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ userId: 'default-user' }),
+      });
+      
+      const serverData = await serverResponse.json();
+      
+      // 2. Clear local storage
+      // Get instructions for clearing local storage
+      const localStorageResponse = await fetch('/api/debug/clear-local-storage');
+      const localStorageData = await localStorageResponse.json();
+      
+      if (localStorageData.success) {
+        // Execute the instructions
+        localStorageData.storagesToClear.forEach((key: string) => {
+          localStorage.removeItem(key);
+        });
+      }
+      
+      // Combine the results
+      setDebugResults({
+        server: serverData,
+        localStorage: localStorageData
+      });
+      
+      alert('Successfully cleared image data. Please reload the page to see the changes.');
+      // Reload the page to refresh the UI
+      window.location.reload();
+    } catch (error) {
+      console.error('Error clearing images:', error);
+      alert('An error occurred while clearing images. See console for details.');
+    } finally {
+      setIsDebugLoading(false);
+    }
+  };
+
+  // Function to delete all data (chat history and images)
+  const handleDeleteAllData = async () => {
+    if (!confirm('Are you sure you want to delete ALL your data including chat history and images? This cannot be undone.')) {
+      return;
+    }
+    
+    setIsDebugLoading(true);
+    try {
+      // Delete chat history
+      await fetch('/api/debug/reset-chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ userId: 'default-user' }),
+      });
+      
+      // Clear server-side image data
+      await fetch('/api/debug/clear-images', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ userId: 'default-user' }),
+      });
+      
+      // Clear local storage
+      const localStorageResponse = await fetch('/api/debug/clear-local-storage');
+      const localStorageData = await localStorageResponse.json();
+      
+      if (localStorageData.success) {
+        // Execute the instructions
+        localStorageData.storagesToClear.forEach((key: string) => {
+          localStorage.removeItem(key);
+        });
+      }
+      
+      alert('Successfully deleted all data. The page will now reload.');
+      // Reload the page to refresh the UI
+      window.location.reload();
+    } catch (error) {
+      console.error('Error deleting all data:', error);
+      alert('An error occurred while deleting all data. See console for details.');
+    } finally {
+      setIsDebugLoading(false);
+    }
+  };
+
   return (
     <div className="bg-gray-800 rounded-lg p-4">
       <h2 className="text-xl font-bold mb-4">Tools & Diagnostics</h2>
@@ -110,6 +243,35 @@ const ToolsTab: React.FC<ToolsTabProps> = ({
             </button>
           </div>
         </div>
+
+        {/* New Debug Menu Section */}
+        <div className="bg-gray-700 p-4 rounded-lg">
+          <h3 className="font-semibold mb-2">Debug Menu</h3>
+          <p className="text-sm text-gray-300 mb-4">Manage your chat history and images.</p>
+          <div className="flex flex-col space-y-2">
+            <button
+              onClick={handleDeleteChatHistory}
+              className="px-3 py-1 bg-red-600 hover:bg-red-700 rounded text-white text-sm"
+              disabled={isDebugLoading}
+            >
+              Delete Chat History
+            </button>
+            <button
+              onClick={handleClearImages}
+              className="px-3 py-1 bg-red-600 hover:bg-red-700 rounded text-white text-sm"
+              disabled={isDebugLoading}
+            >
+              Clear Images
+            </button>
+            <button
+              onClick={handleDeleteAllData}
+              className="px-3 py-1 bg-red-800 hover:bg-red-900 rounded text-white text-sm"
+              disabled={isDebugLoading}
+            >
+              Delete All Data
+            </button>
+          </div>
+        </div>
       </div>
       
       {isDebugMode && (
@@ -134,12 +296,21 @@ const ToolsTab: React.FC<ToolsTabProps> = ({
           )}
           
           {fixInstructions && (
-            <div>
+            <div className="mb-4">
               <h4 className="text-sm font-medium mb-1">Fix Instructions:</h4>
               <div className="bg-gray-900 p-2 rounded text-xs">
                 <h5 className="font-bold">{fixInstructions.title}</h5>
                 <div className="mt-2 whitespace-pre-wrap">{fixInstructions.content}</div>
               </div>
+            </div>
+          )}
+          
+          {debugResults && (
+            <div>
+              <h4 className="text-sm font-medium mb-1">Debug Operation Results:</h4>
+              <pre className="bg-gray-900 p-2 rounded overflow-auto text-xs">
+                {JSON.stringify(debugResults, null, 2)}
+              </pre>
             </div>
           )}
         </div>
