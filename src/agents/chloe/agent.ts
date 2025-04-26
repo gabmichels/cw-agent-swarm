@@ -1621,4 +1621,9 @@ Successfully completed daily operations.
       };
     }
   }
+
+  // Get enhanced memory
+  getEnhancedMemory(): EnhancedMemory {
+    return this.enhancedMemory;
+  }
 } 

@@ -1,0 +1,56 @@
+{
+  "pref_content_detail": {
+    "id": "pref_content_detail",
+    "category": "content",
+    "name": "Content Detail Level",
+    "value": 0.5,
+    "importance": 0.7,
+    "lastUpdated": "2025-04-26T11:11:34.447Z",
+    "source": "default"
+  },
+  "pref_proactivity": {
+    "id": "pref_proactivity",
+    "category": "behavior",
+    "name": "Proactive Suggestions",
+    "value": 0.3,
+    "importance": 0.8,
+    "lastUpdated": "2025-04-26T11:11:34.447Z",
+    "source": "default"
+  },
+  "pref_task_automation": {
+    "id": "pref_task_automation",
+    "category": "tasks",
+    "name": "Task Automation Level",
+    "value": 0.4,
+    "importance": 0.6,
+    "lastUpdated": "2025-04-26T11:11:34.447Z",
+    "source": "default"
+  },
+  "pref_communication_style": {
+    "id": "pref_communication_style",
+    "category": "communication",
+    "name": "Communication Style",
+    "value": 0.5,
+    "importance": 0.7,
+    "lastUpdated": "2025-04-26T11:11:34.447Z",
+    "source": "default"
+  },
+  "pref_notification_frequency": {
+    "id": "pref_notification_frequency",
+    "category": "notifications",
+    "name": "Notification Frequency",
+    "value": 0.4,
+    "importance": 0.8,
+    "lastUpdated": "2025-04-26T11:11:34.447Z",
+    "source": "default"
+  },
+  "pref_data_privacy": {
+    "id": "pref_data_privacy",
+    "category": "privacy",
+    "name": "Data Privacy Level",
+    "value": 0.8,
+    "importance": 0.9,
+    "lastUpdated": "2025-04-26T11:11:34.447Z",
+    "source": "default"
+  }
+}

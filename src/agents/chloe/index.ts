@@ -50,5 +50,30 @@ export type { PersonaOptions } from './persona';
 
 // Import ChloeAgent for default export
 import { ChloeAgent } from './agent';
+
+/**
+ * Get or create a singleton instance of the Chloe agent
+ */
+export async function getChloeInstance(): Promise<ChloeAgent | null> {
+  // Check if we already have an instance in the global scope
+  if ((global as any).chloeAgent) {
+    return (global as any).chloeAgent;
+  }
+  
+  try {
+    // Create and initialize a new instance
+    const agent = new ChloeAgent();
+    await agent.initialize();
+    
+    // Store for future use
+    (global as any).chloeAgent = agent;
+    
+    return agent;
+  } catch (error) {
+    console.error('Error initializing Chloe agent:', error);
+    return null;
+  }
+}
+
 // Default export
 export default ChloeAgent; 

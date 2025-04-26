@@ -178,6 +178,38 @@ export class MemoryTagger {
     
     return tags;
   }
+  
+  /**
+   * Process a memory entry and extract tags
+   */
+  async processEntry(text: string): Promise<string[]> {
+    // Extract relevant keywords
+    const tags: Set<string> = new Set();
+    
+    // Add tags for files
+    if (text.includes('file uploaded') || text.includes('added to memory')) {
+      tags.add('file');
+    }
+    
+    if (text.toLowerCase().includes('.pdf') || text.toLowerCase().includes('pdf')) {
+      tags.add('pdf');
+    }
+    
+    if (text.toLowerCase().includes('.docx') || text.toLowerCase().includes('word document')) {
+      tags.add('document');
+    }
+    
+    if (text.toLowerCase().includes('.jpg') || text.toLowerCase().includes('.png') || 
+        text.toLowerCase().includes('.jpeg') || text.toLowerCase().includes('image')) {
+      tags.add('image');
+    }
+    
+    if (text.toLowerCase().includes('.txt') || text.toLowerCase().includes('text file')) {
+      tags.add('text');
+    }
+    
+    return Array.from(tags);
+  }
 
   /**
    * Store important memories in the agent's long-term memory

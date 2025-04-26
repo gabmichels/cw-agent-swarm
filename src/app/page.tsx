@@ -5,6 +5,8 @@ import { ChevronDown, Send, Menu, X, PlayIcon, PauseIcon } from 'lucide-react';
 import MarkdownRenderer from '../components/MarkdownRenderer';
 import Image from 'next/image';
 import { MenuIcon, PinIcon, MinimizeIcon, MaximizeIcon } from 'lucide-react';
+import FilesTable from '../components/FilesTable';
+import FileUploadButton from '../components/FileUploadButton';
 
 // Define message type for better type safety
 interface Message {
@@ -13,6 +15,13 @@ interface Message {
   timestamp: Date;
   memory?: string[];
   thoughts?: string[];
+}
+
+// Define interface for file attachment
+interface FileAttachment {
+  file: File;
+  preview: string;
+  type: 'image' | 'document' | 'text' | 'pdf' | 'other';
 }
 
 // Define interface for memory item
@@ -505,6 +514,7 @@ export default function Home() {
   const [isSidebarPinned, setIsSidebarPinned] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isDebugMode, setIsDebugMode] = useState(false);
+  const [pendingAttachments, setPendingAttachments] = useState<FileAttachment[]>([]);
   const [diagnosticResults, setDiagnosticResults] = useState<any>(null);
   const [chloeCheckResults, setChloeCheckResults] = useState<any>(null);
   const [fixInstructions, setFixInstructions] = useState<any>(null);
@@ -654,81 +664,154 @@ export default function Home() {
     }
   }, []);
 
-  const handleSendMessage = async (e: FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    
-    console.log("Form submitted with:", inputMessage);
-    
-    if (!inputMessage.trim()) return;
+  // Handle file selection for preview
+  const handleFileSelect = async (file: File) => {
+    try {
+      // Determine file type for appropriate handling
+      let fileType: FileAttachment['type'] = 'other';
+      let preview = '';
+      
+      if (file.type.startsWith('image/')) {
+        fileType = 'image';
+        preview = URL.createObjectURL(file);
+      } else if (file.type === 'application/pdf') {
+        fileType = 'pdf';
+        preview = URL.createObjectURL(file);
+      } else if (file.type.includes('document') || file.name.endsWith('.docx') || file.name.endsWith('.doc')) {
+        fileType = 'document';
+      } else if (file.type.includes('text') || file.name.endsWith('.txt') || file.name.endsWith('.md')) {
+        fileType = 'text';
+        // For text files, we can read and preview the content
+        const text = await file.text();
+        preview = text.substring(0, 150) + (text.length > 150 ? '...' : '');
+      }
+      
+      // Add to pending attachments
+      setPendingAttachments(prev => [...prev, {
+        file,
+        preview,
+        type: fileType
+      }]);
 
-    // Add user message
-    const userMessage: Message = {
-      sender: 'You',
-      content: inputMessage,
-      timestamp: new Date()
+      // Focus the input field for user to add context
+      if (inputRef.current) {
+        inputRef.current.focus();
+      }
+    } catch (error) {
+      console.error('Error processing file:', error);
+      handleFileUploadError('Failed to process file for preview');
+    }
+  };
+  
+  // Remove a pending attachment
+  const removePendingAttachment = (index: number) => {
+    setPendingAttachments(prev => {
+      const updated = [...prev];
+      // Revoke the object URL if it's an image to prevent memory leaks
+      if (updated[index].preview && updated[index].type === 'image') {
+        URL.revokeObjectURL(updated[index].preview);
+      }
+      updated.splice(index, 1);
+      return updated;
+    });
+  };
+  
+  // Handle clipboard paste events
+  useEffect(() => {
+    const handlePaste = (e: ClipboardEvent) => {
+      // Check if the input is focused
+      if (document.activeElement !== inputRef.current) return;
+      
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      
+      let foundImage = false;
+      
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        
+        // If it's an image, create a File and add it to pending attachments
+        if (item.type.indexOf('image') !== -1) {
+          const file = item.getAsFile();
+          if (file) {
+            e.preventDefault(); // Prevent the default paste behavior
+            // Generate a unique name for the pasted image
+            const timestamp = new Date().getTime();
+            const modifiedFile = new File([file], `pasted-image-${timestamp}.png`, { type: file.type });
+            handleFileSelect(modifiedFile);
+            foundImage = true;
+          }
+        }
+      }
+      
+      // If we found and processed an image, stop here
+      if (foundImage) {
+        console.log('Image pasted from clipboard and added to pending attachments');
+      }
     };
     
-    setMessages(prev => [...prev, userMessage]);
+    // Add the paste event listener to the document
+    document.addEventListener('paste', handlePaste as EventListener);
     
-    // Store and clear input
-    const sentMessage = inputMessage;
-    setInputMessage('');
+    // Clean up
+    return () => {
+      document.removeEventListener('paste', handlePaste as EventListener);
+    };
+  }, []);
+  
+  // Handle drag and drop on the input area
+  useEffect(() => {
+    const handleDrop = (e: Event) => {
+      e.preventDefault();
+      e.stopPropagation();
+      
+      const dragEvent = e as DragEvent;
+      if (dragEvent.dataTransfer?.files) {
+        const files = Array.from(dragEvent.dataTransfer.files);
+        files.forEach(file => handleFileSelect(file));
+      }
+    };
     
-    // Set loading state
-    setIsLoading(true);
+    const handleDragOver = (e: Event) => {
+      e.preventDefault();
+      e.stopPropagation();
+    };
     
-    try {
-      // Call the actual API
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          message: sentMessage,
-          userId: 'default-user', // We can improve this later
-        }),
-      });
-      
-      if (!response.ok) {
-        throw new Error(`API error: ${response.status}`);
+    const inputArea = document.querySelector('.chat-input-area');
+    if (inputArea) {
+      inputArea.addEventListener('drop', handleDrop);
+      inputArea.addEventListener('dragover', handleDragOver);
+    }
+    
+    return () => {
+      if (inputArea) {
+        inputArea.removeEventListener('drop', handleDrop);
+        inputArea.removeEventListener('dragover', handleDragOver);
       }
-      
-      const data = await response.json();
-      
-      // Use the actual response from the API
-      const agentResponse: Message = {
-        sender: selectedAgent,
-        content: data.reply,
-        timestamp: new Date(),
-        memory: data.memory,
-        thoughts: data.thoughts
-      };
-      
-      // Log memory and thoughts for debugging
-      if (data.memory && data.memory.length > 0) {
-        console.log('Memory context used:', data.memory);
-      }
-      
-      if (data.thoughts && data.thoughts.length > 0) {
-        console.log('Agent thoughts:', data.thoughts);
-      }
-      
-      setMessages(prev => [...prev, agentResponse]);
-    } catch (error) {
-      console.error("Error calling API:", error);
-      
-      // Show error message
-      const errorResponse: Message = {
-        sender: selectedAgent,
-        content: `Sorry, I encountered an error: ${error instanceof Error ? error.message : "Unknown error"}`,
+    };
+  }, []);
+
+  // Handle file upload completion
+  const handleFileUploadComplete = async (result: any) => {
+    // Create a system message about the file
+    const fileMessage: Message = {
+      sender: 'System',
+      content: `📁 File uploaded: ${result.filename}\n${result.summary ? `\nSummary: ${result.summary}` : ''}\n\nThe file has been processed and added to memory. You can reference it in your conversation or view it in the Files tab.`,
         timestamp: new Date()
       };
       
-      setMessages(prev => [...prev, errorResponse]);
-    } finally {
-      setIsLoading(false);
+    // Add to messages
+    setMessages(prevMessages => [...prevMessages, fileMessage]);
+    
+    // Refresh the Files list
+    if (selectedTab === 'files') {
+      fetchAllMemories();
     }
+    
+    // Scroll to bottom
+    setTimeout(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, 100);
   };
 
   // Test Chloe agent directly
@@ -1218,6 +1301,132 @@ For detailed instructions, see the Debug panel.`,
     }
   };
 
+  // Add function to handle file upload errors
+  const handleFileUploadError = (error: string) => {
+    // Create an error message
+    const errorMessage: Message = {
+      sender: 'System',
+      content: `❌ Error uploading file: ${error}`,
+      timestamp: new Date()
+    };
+    
+    // Add to messages
+    setMessages(prevMessages => [...prevMessages, errorMessage]);
+    
+    // Scroll to bottom
+    setTimeout(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, 100);
+  };
+
+  // Enhanced to include file attachments
+  const handleSendMessage = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    
+    console.log("Form submitted with:", inputMessage);
+    
+    if (!inputMessage.trim() && pendingAttachments.length === 0) return;
+
+    // Add user message with file context if attachments exist
+    const messageContent = pendingAttachments.length > 0 
+      ? inputMessage || "(Attached file without context)"
+      : inputMessage;
+      
+    const userMessage: Message = {
+      sender: 'You',
+      content: messageContent,
+      timestamp: new Date()
+    };
+    
+    setMessages(prev => [...prev, userMessage]);
+    
+    // Store and clear input
+    const sentMessage = inputMessage;
+    setInputMessage('');
+    
+    // Set loading state
+    setIsLoading(true);
+    
+    try {
+      // Prepare form data if we have attachments
+      let response;
+      
+      if (pendingAttachments.length > 0) {
+        const formData = new FormData();
+        formData.append('message', sentMessage); // Send user's context about the file
+        formData.append('userId', 'default-user');
+        
+        // Log the context being sent with files
+        console.log("Sending files with context:", sentMessage);
+        
+        // Add each file to the formData
+        pendingAttachments.forEach((attachment, index) => {
+          formData.append(`file_${index}`, attachment.file);
+        });
+        
+        // Send to server with multipart/form-data
+        response = await fetch('/api/chat-with-files', {
+          method: 'POST',
+          body: formData,
+        });
+      } else {
+        // Standard JSON request without files
+        response = await fetch('/api/chat', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            message: sentMessage,
+            userId: 'default-user', // We can improve this later
+          }),
+        });
+      }
+      
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      // Use the actual response from the API
+      const agentResponse: Message = {
+        sender: selectedAgent,
+        content: data.reply,
+        timestamp: new Date(),
+        memory: data.memory,
+        thoughts: data.thoughts
+      };
+      
+      // Log memory and thoughts for debugging
+      if (data.memory && data.memory.length > 0) {
+        console.log('Memory context used:', data.memory);
+      }
+      
+      if (data.thoughts && data.thoughts.length > 0) {
+        console.log('Agent thoughts:', data.thoughts);
+      }
+      
+      setMessages(prev => [...prev, agentResponse]);
+      
+      // Clear pending attachments after sending
+      setPendingAttachments([]);
+    } catch (error) {
+      console.error("Error calling API:", error);
+      
+      // Show error message
+      const errorResponse: Message = {
+        sender: selectedAgent,
+        content: `Sorry, I encountered an error: ${error instanceof Error ? error.message : "Unknown error"}`,
+        timestamp: new Date()
+      };
+      
+      setMessages(prev => [...prev, errorResponse]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   return (
     <div className="flex flex-col h-screen bg-gray-900 text-white">
       {/* Header - hide in fullscreen mode */}
@@ -1411,7 +1620,7 @@ For detailed instructions, see the Debug panel.`,
             {/* Chat header with tabs and fullscreen toggle */}
             <div className="bg-gray-800 border-b border-gray-700 p-2 flex justify-between items-center">
               <div className="flex space-x-1">
-                {['Chat', 'Tools', 'Tasks', 'Memory', 'Social'].map((tab) => (
+                {['Chat', 'Tools', 'Tasks', 'Memory', 'Social', 'Files'].map((tab) => (
               <button 
                     key={tab}
                     onClick={() => setSelectedTab(tab.toLowerCase())}
@@ -1607,29 +1816,29 @@ For detailed instructions, see the Debug panel.`,
                   >
                           Run Market Scan
                   </button>
-                </div>
-                        </div>
-                      </div>
+              </div>
+              </div>
+            </div>
                       
                   {isDebugMode && (
                     <div className="mt-6 p-4 bg-gray-700 rounded-lg">
                       <h3 className="font-semibold mb-2">Debug Info</h3>
                       {diagnosticResults && (
-                        <div className="mb-4">
+                <div className="mb-4">
                           <h4 className="text-sm font-medium mb-1">Diagnostic Results:</h4>
                           <pre className="bg-gray-900 p-2 rounded overflow-auto text-xs">
                             {JSON.stringify(diagnosticResults, null, 2)}
                           </pre>
-                  </div>
-                )}
-                      
+                </div>
+              )}
+              
                       {chloeCheckResults && (
                 <div className="mb-4">
                           <h4 className="text-sm font-medium mb-1">Chloe Check Results:</h4>
                           <pre className="bg-gray-900 p-2 rounded overflow-auto text-xs">
                             {JSON.stringify(chloeCheckResults, null, 2)}
                           </pre>
-                </div>
+                        </div>
               )}
               
                       {fixInstructions && (
@@ -1639,49 +1848,133 @@ For detailed instructions, see the Debug panel.`,
                             <h5 className="font-bold">{fixInstructions.title}</h5>
                             <div className="mt-2 whitespace-pre-wrap">{fixInstructions.content}</div>
                           </div>
+                        </div>
+                )}
                   </div>
                 )}
-            </div>
-          )}
-            </div>
+              </div>
           )}
           
               {selectedTab === 'social' && (
                 <SocialMediaTable />
               )}
-            </div>
+              
+              {selectedTab === 'files' && (
+                <FilesTable onRefresh={fetchAllMemories} />
+              )}
+                        </div>
 
             {/* Input area */}
             <div className="border-t border-gray-700 p-4">
               {selectedTab === 'chat' && (
-                <form onSubmit={handleSendMessage} className="flex items-center">
-                  <input
-                    type="text"
-                    ref={inputRef}
-                    value={inputMessage}
-                    onChange={(e) => setInputMessage(e.target.value)}
-                    placeholder="Type your message..."
-                    className="flex-1 bg-gray-700 border border-gray-600 rounded-l-lg py-2 px-3 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    disabled={isLoading}
-                  />
-                  <button
-                    type="submit"
-                    className="bg-blue-600 hover:bg-blue-700 rounded-r-lg py-2 px-4 text-white font-semibold focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                    disabled={isLoading || !inputMessage.trim()}
-                  >
-                    {isLoading ? (
-                      <div className="animate-spin h-5 w-5 border-t-2 border-b-2 border-white rounded-full" />
-                    ) : (
-                      <Send className="h-5 w-5" />
-                    )}
-                  </button>
-                </form>
-              )}
+                        <div>
+                  {/* File attachment previews */}
+                  {pendingAttachments.length > 0 && (
+                    <div className="flex flex-wrap gap-2 mb-3">
+                      {pendingAttachments.map((attachment, index) => (
+                        <div key={index} className="relative bg-gray-800 rounded p-2 flex items-center" style={{ maxWidth: '200px' }}>
+                          {attachment.type === 'image' && (
+                            <div className="relative w-12 h-12 mr-2">
+                              <img 
+                                src={attachment.preview} 
+                                alt="attachment preview" 
+                                className="w-full h-full object-cover rounded"
+                              />
+                          </div>
+                          )}
+                          {attachment.type === 'pdf' && (
+                            <div className="bg-red-700 text-white rounded p-1 mr-2 text-xs">PDF</div>
+                          )}
+                          {attachment.type === 'document' && (
+                            <div className="bg-blue-700 text-white rounded p-1 mr-2 text-xs">DOC</div>
+                          )}
+                          {attachment.type === 'text' && (
+                            <div className="bg-gray-700 text-white rounded p-1 mr-2 text-xs">TXT</div>
+                          )}
+                          
+                          <div className="flex-1 min-w-0">
+                            <div className="text-sm text-white truncate">{attachment.file.name}</div>
+                            <div className="text-xs text-gray-400">
+                              {(attachment.file.size / 1024).toFixed(1)} KB
+                        </div>
+                      </div>
+                      
+                          <button 
+                            onClick={() => removePendingAttachment(index)}
+                            className="ml-1 text-gray-400 hover:text-white"
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                            </div>
+                          ))}
+                  </div>
+                )}
+                  
+                  {/* Message input form */}
+                  <form onSubmit={handleSendMessage} className="flex items-center chat-input-area">
+                    <input
+                      type="file"
+                      id="hidden-file-input"
+                      className="hidden"
+                      onChange={(e) => {
+                        if (e.target.files && e.target.files.length > 0) {
+                          handleFileSelect(e.target.files[0]);
+                          // Reset the input
+                          e.target.value = '';
+                        }
+                      }}
+                      accept=".txt,.pdf,.docx,.md,.csv,.jpg,.jpeg,.png,.gif"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => document.getElementById('hidden-file-input')?.click()}
+                      className="p-2 rounded hover:bg-gray-700 text-gray-300 hover:text-white"
+                      title="Attach file"
+                      disabled={isLoading}
+                    >
+                      <svg 
+                        xmlns="http://www.w3.org/2000/svg" 
+                        className="h-5 w-5" 
+                        fill="none" 
+                        viewBox="0 0 24 24" 
+                        stroke="currentColor"
+                      >
+                        <path 
+                          strokeLinecap="round" 
+                          strokeLinejoin="round" 
+                          strokeWidth={2} 
+                          d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" 
+                        />
+                      </svg>
+                    </button>
+                    <input
+                      type="text"
+                      ref={inputRef}
+                      value={inputMessage}
+                      onChange={(e) => setInputMessage(e.target.value)}
+                      placeholder={pendingAttachments.length > 0 ? "Add context about the file..." : "Type your message..."}
+                      className="flex-1 bg-gray-700 border border-gray-600 rounded-l-lg py-2 px-3 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      disabled={isLoading}
+                    />
+                    <button
+                      type="submit"
+                      className="bg-blue-600 hover:bg-blue-700 rounded-r-lg py-2 px-4 text-white font-semibold focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                      disabled={isLoading}
+                    >
+                      {isLoading ? (
+                        <div className="animate-spin h-5 w-5 border-t-2 border-b-2 border-white rounded-full" />
+                      ) : (
+                        <Send className="h-5 w-5" />
+                      )}
+                    </button>
+                  </form>
+            </div>
+          )}
               <div ref={messagesEndRef} />
+                          </div>
+                      </div>
                   </div>
               </div>
-            </div>
-        </div>
     </div>
   );
 } 
