@@ -38,6 +38,17 @@ interface ChloeState {
 }
 
 /**
+ * Interface for strategic insights
+ */
+interface StrategicInsight {
+  insight: string;
+  source: string;
+  tags: string[];
+  timestamp: string;
+  category: string;
+}
+
+/**
  * ChloeAgent class implements a marketing assistant agent using LangGraph
  */
 export class ChloeAgent {
@@ -58,6 +69,7 @@ export class ChloeAgent {
   private feedbackLoop: FeedbackLoopSystem;
   private integrationLayer: IntegrationLayer;
   private selfImprovement: SelfImprovementMechanism;
+  private strategicInsightsCollection: string = 'strategic_insights';
   
   constructor(config?: Partial<AgentConfig>) {
     // Set default configuration
@@ -197,6 +209,18 @@ export class ChloeAgent {
         console.log('Self-improvement mechanism initialized successfully');
       } catch (error) {
         console.error('Failed to initialize advanced cognitive systems:', error);
+      }
+
+      // Initialize strategic insights collection
+      try {
+        await serverQdrant.createCollection(this.strategicInsightsCollection, {
+          size: 1536,
+          distance: 'Cosine'
+        });
+        console.log('Strategic insights collection initialized');
+      } catch (error) {
+        // Collection might already exist
+        console.log('Strategic insights collection may already exist:', error);
       }
 
       this.initialized = true;
@@ -948,6 +972,38 @@ ${executionResult.summary}
         }
       }
       
+      // New: Run trend summarization weekly (on Mondays)
+      const today = new Date();
+      if (today.getDay() === 1) { // Monday
+        try {
+          this.logThought("It's Monday, running weekly trend summarization");
+          const trendResult = await this.summarizeTrends();
+          
+          if (trendResult.success) {
+            this.logThought("Successfully summarized weekly trends");
+            
+            if (this.taskLogger) {
+              this.taskLogger.logAction('Completed weekly trend summarization', {
+                success: true,
+                timestamp: new Date().toISOString()
+              });
+            }
+          } else {
+            this.logThought(`Failed to summarize trends: ${trendResult.error}`);
+            
+            if (this.taskLogger) {
+              this.taskLogger.logAction('Failed weekly trend summarization', {
+                error: trendResult.error,
+                timestamp: new Date().toISOString()
+              });
+            }
+          }
+        } catch (error) {
+          console.error('Error in weekly trend summarization:', error);
+          this.logThought(`Error in weekly trend summarization: ${error}`);
+        }
+      }
+      
       // Notify about completion
       this.notify('Daily tasks completed');
       
@@ -1266,9 +1322,7 @@ ${executionResult.summary}
   }
 
   /**
-   * Perform weekly reflection on tasks and performance
-   * Analyzes the past week, summarizes accomplishments and challenges,
-   * and stores the reflection in memory
+   * Perform weekly reflection with enhanced market awareness
    */
   async runWeeklyReflection(): Promise<string> {
     try {
@@ -1335,6 +1389,22 @@ ${executionResult.summary}
         }
       }
       
+      // Get recent strategic insights
+      let strategicInsights: StrategicInsight[] = [];
+      try {
+        strategicInsights = await this.getRecentStrategicInsights(10);
+        this.logThought(`Retrieved ${strategicInsights.length} recent strategic insights for reflection`);
+        
+        if (this.taskLogger) {
+          this.taskLogger.logAction(`Retrieved ${strategicInsights.length} strategic insights for reflection`, {
+            timestamp: new Date().toISOString()
+          });
+        }
+      } catch (error) {
+        console.error('Error retrieving strategic insights for reflection:', error);
+        this.logThought(`Error retrieving strategic insights: ${error}`);
+      }
+      
       // Prepare prompt for reflection
       const reflectionPrompt = `
       # Weekly Reflection (${oneWeekAgo.toLocaleDateString()} to ${today.toLocaleDateString()})
@@ -1347,6 +1417,9 @@ ${executionResult.summary}
       ## Thoughts and Insights (${memories.length})
       ${memories.map(m => `- ${m.content}`).join('\n')}
       
+      ## Market Observations This Week (${strategicInsights.length})
+      ${strategicInsights.map(si => `- ${si.category}: ${si.insight.substring(0, 150)}...`).join('\n')}
+      
       Please provide a thoughtful reflection that covers:
       1. Key accomplishments and successes this week
       2. Challenges faced and how they were handled
@@ -1354,14 +1427,19 @@ ${executionResult.summary}
       4. Areas for improvement in the coming week
       5. Priorities for next week
       
+      Additionally, include a detailed "Market Observations This Week" section that:
+      1. Summarizes key trends spotted
+      2. Reflects on whether you leveraged these trends properly
+      3. Suggests new areas to watch
+      
       Format your response as a well-structured reflection that could be shared with the team.
       `;
       
-      this.logThought("Generating weekly reflection from tasks and thoughts data");
+      this.logThought("Generating weekly reflection with market awareness");
       
       // Generate reflection using LLM
       const messages = [
-        { role: 'system', content: 'You are Chloe, the Chief Marketing Officer AI assistant. Create a thoughtful weekly reflection.' },
+        { role: 'system', content: 'You are Chloe, the Chief Marketing Officer AI assistant. Create a thoughtful weekly reflection that includes market trend awareness.' },
         { role: 'user', content: reflectionPrompt }
       ];
       
@@ -1625,5 +1703,386 @@ Successfully completed daily operations.
   // Get enhanced memory
   getEnhancedMemory(): EnhancedMemory {
     return this.enhancedMemory;
+  }
+
+  /**
+   * Summarizes trends from market scanner results
+   * Collects weekly data, groups by theme, and stores strategic insights
+   */
+  async summarizeTrends(): Promise<{ success: boolean; summary?: string; error?: string }> {
+    try {
+      if (!this.initialized) {
+        throw new Error('Agent not initialized');
+      }
+
+      this.logThought("Starting trend summarization from market scanner results");
+      
+      if (this.taskLogger) {
+        this.taskLogger.createSession('Trend Summarization', ['market-scanner', 'trends', 'analysis']);
+        this.taskLogger.logAction('Starting trend summarization process', {
+          timestamp: new Date().toISOString()
+        });
+      }
+
+      // Calculate date range for the past week
+      const today = new Date();
+      const oneWeekAgo = new Date();
+      oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+      
+      // Fetch market scanner memories from the past week
+      // These could be from RSS feeds, Reddit, Twitter, etc.
+      let marketScannerMemories: any[] = [];
+      if (this.chloeMemory) {
+        try {
+          // Get all memories related to market scanning
+          marketScannerMemories = await this.chloeMemory.getMemoriesByTags(
+            ['market_scanner', 'rss', 'reddit', 'twitter', 'trends', 'news'],
+            30, // Reasonable limit
+            oneWeekAgo,
+            today
+          );
+          
+          if (marketScannerMemories.length === 0) {
+            // Fallback to get any external content memories
+            marketScannerMemories = await this.chloeMemory.getMemoriesByCategory(
+              'external_content',
+              30,
+              oneWeekAgo,
+              today
+            );
+          }
+          
+          this.logThought(`Found ${marketScannerMemories.length} market scanner memories from the past week`);
+          
+          if (this.taskLogger) {
+            this.taskLogger.logAction(`Retrieved ${marketScannerMemories.length} market scanner memories`, {
+              dateRange: `${oneWeekAgo.toISOString()} to ${today.toISOString()}`,
+              timestamp: new Date().toISOString()
+            });
+          }
+        } catch (error) {
+          console.error('Error retrieving market scanner memories:', error);
+          this.logThought(`Error retrieving market scanner memories: ${error}`);
+          
+          if (this.taskLogger) {
+            this.taskLogger.logAction(`Error retrieving market scanner memories: ${error instanceof Error ? error.message : String(error)}`, {
+              error: true,
+              timestamp: new Date().toISOString()
+            });
+          }
+        }
+      }
+      
+      // If we don't have enough data, return early
+      if (marketScannerMemories.length < 3) {
+        const errorMessage = 'Not enough market scanner data to generate trends';
+        console.warn(errorMessage);
+        
+        if (this.taskLogger) {
+          this.taskLogger.logAction(errorMessage, {
+            warning: true,
+            count: marketScannerMemories.length,
+            timestamp: new Date().toISOString()
+          });
+          this.taskLogger.endSession();
+        }
+        
+        return { 
+          success: false, 
+          error: errorMessage 
+        };
+      }
+      
+      // Prepare the prompt for trend summarization
+      const trendPrompt = `
+      # Market Trend Analysis
+
+      As Chloe, the Chief Marketing Officer, analyze the following market scanner results from the past week (${oneWeekAgo.toLocaleDateString()} to ${today.toLocaleDateString()}) and identify key trends and strategic insights.
+
+      ## Market Scanner Results
+      ${marketScannerMemories.map(m => `- ${m.content}`).join('\n')}
+
+      ## Your Task
+      1. Identify 3-5 major themes or trends from these results
+      2. For each theme/trend:
+         a. Write a concise name/title for the trend
+         b. Summarize the key observations and evidence
+         c. Provide strategic implications for marketing
+         d. Suggest potential actions to leverage this trend
+      3. Provide relevant tags for each trend
+
+      Format each trend as:
+      
+      ### [Trend Name]
+      
+      **Observations**: [Summary of observations and evidence]
+      
+      **Strategic Implications**: [How this affects marketing strategy]
+      
+      **Potential Actions**: [Ideas to leverage this trend]
+      
+      **Tags**: [comma-separated list of relevant tags]
+      `;
+      
+      this.logThought("Generating trend summary using LLM");
+      
+      // Generate trend summary using LLM
+      const messages = [
+        { role: 'system', content: 'You are Chloe, the Chief Marketing Officer AI assistant. Create insightful trend summaries from market scanner data.' },
+        { role: 'user', content: trendPrompt }
+      ];
+      
+      const response = await this.model!.invoke(messages);
+      const trendSummary = response.content;
+      
+      // Parse the response to extract individual trends
+      const trends = this.parseTrendSummary(trendSummary);
+      
+      // Store each trend as a strategic insight
+      for (const trend of trends) {
+        await this.addStrategicInsight(
+          trend.insight,
+          trend.tags,
+          trend.category,
+          'market_scanner'
+        );
+        
+        this.logThought(`Stored strategic insight: ${trend.category}`);
+      }
+      
+      // Log the trend summary
+      if (this.taskLogger) {
+        this.taskLogger.logAction('Generated trend summary', {
+          trendCount: trends.length,
+          timestamp: new Date().toISOString()
+        });
+        
+        // Log each trend
+        trends.forEach((trend, index) => {
+          this.taskLogger.logAction(`Trend ${index + 1}: ${trend.category}`, {
+            tags: trend.tags.join(', '),
+            timestamp: new Date().toISOString()
+          });
+        });
+        
+        this.taskLogger.endSession();
+      }
+      
+      // Send trend summary to Discord if available
+      try {
+        const { notifyDiscord } = require('./notifiers');
+        
+        // Format a condensed version for Discord
+        const discordSummary = `
+## Weekly Market Trends Summary (${oneWeekAgo.toLocaleDateString()} to ${today.toLocaleDateString()})
+
+${trendSummary.substring(0, 1900)}${trendSummary.length > 1900 ? '...' : ''}
+        `;
+        
+        await notifyDiscord(discordSummary, 'summary');
+        this.logThought("Sent trend summary to Discord");
+      } catch (error) {
+        console.error('Error sending trend summary to Discord:', error);
+      }
+      
+      return {
+        success: true,
+        summary: trendSummary
+      };
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error('Error summarizing trends:', errorMessage);
+      
+      // Log the error
+      if (this.taskLogger) {
+        this.taskLogger.logAction(`Error summarizing trends: ${errorMessage}`, {
+          error: true,
+          timestamp: new Date().toISOString()
+        });
+        this.taskLogger.endSession();
+      }
+      
+      return {
+        success: false,
+        error: errorMessage
+      };
+    }
+  }
+
+  /**
+   * Parse the trend summary to extract individual trends
+   */
+  private parseTrendSummary(summary: string): Array<{
+    insight: string;
+    tags: string[];
+    category: string;
+  }> {
+    const trends: Array<{
+      insight: string;
+      tags: string[];
+      category: string;
+    }> = [];
+    
+    try {
+      // Split by trend sections (marked by ### or similar)
+      const trendSections = summary.split(/###\s+/);
+      
+      // Skip the first element if it's empty or doesn't contain a trend
+      const startIndex = trendSections[0].trim().length === 0 || !trendSections[0].includes("Trend") ? 1 : 0;
+      
+      for (let i = startIndex; i < trendSections.length; i++) {
+        const section = trendSections[i].trim();
+        if (!section) continue;
+        
+        // Extract trend title/category
+        const categoryMatch = section.match(/^([^\n]+)/);
+        const category = categoryMatch ? categoryMatch[1].trim() : `Trend ${i}`;
+        
+        // Extract tags
+        const tagsMatch = section.match(/\*\*Tags\*\*:\s*([^\n]+)/);
+        const tagsString = tagsMatch ? tagsMatch[1].trim() : '';
+        const tags = tagsString.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0);
+        
+        // Use the entire section as the insight
+        const insight = section;
+        
+        trends.push({
+          insight,
+          tags: tags.length > 0 ? tags : ['trend', 'market_analysis'],
+          category
+        });
+      }
+    } catch (error) {
+      console.error('Error parsing trend summary:', error);
+    }
+    
+    // If parsing failed, create at least one trend with the entire summary
+    if (trends.length === 0) {
+      trends.push({
+        insight: summary,
+        tags: ['trend', 'market_analysis'],
+        category: 'Market Trends Summary'
+      });
+    }
+    
+    return trends;
+  }
+
+  /**
+   * Add a strategic insight to memory
+   */
+  async addStrategicInsight(insight: string, tags: string[], category: string = 'general', source: string = 'system'): Promise<boolean> {
+    try {
+      if (!this.initialized) {
+        throw new Error('Agent not initialized');
+      }
+      
+      const timestamp = new Date().toISOString();
+      
+      // Prepare the strategic insight
+      const strategicInsight: StrategicInsight = {
+        insight,
+        source,
+        tags,
+        timestamp,
+        category
+      };
+      
+      // Get embeddings for the insight
+      const embeddingResponse = await serverQdrant.getEmbedding(insight);
+      
+      if (!embeddingResponse || !embeddingResponse.embedding) {
+        throw new Error('Failed to generate embedding for strategic insight');
+      }
+      
+      // Add to strategic insights collection
+      await serverQdrant.addToCollection(
+        this.strategicInsightsCollection,
+        embeddingResponse.embedding,
+        strategicInsight
+      );
+      
+      this.logThought(`Added strategic insight to ${this.strategicInsightsCollection}: ${category}`);
+      
+      // Also add to regular memory with appropriate tags
+      if (this.chloeMemory) {
+        await this.chloeMemory.addMemory(
+          `Strategic Insight - ${category}: ${insight.substring(0, 200)}${insight.length > 200 ? '...' : ''}`,
+          'strategic_insight',
+          'high',
+          source,
+          [...tags, 'strategic_insight']
+        );
+      }
+      
+      return true;
+    } catch (error) {
+      console.error('Error adding strategic insight:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Search for strategic insights based on a query
+   */
+  async searchStrategicInsights(query: string, options?: { limit?: number; tags?: string[] }): Promise<StrategicInsight[]> {
+    try {
+      if (!this.initialized) {
+        throw new Error('Agent not initialized');
+      }
+      
+      const limit = options?.limit || 5;
+      
+      // Get embedding for the query
+      const embeddingResponse = await serverQdrant.getEmbedding(query);
+      
+      if (!embeddingResponse || !embeddingResponse.embedding) {
+        throw new Error('Failed to generate embedding for query');
+      }
+      
+      // Search the strategic insights collection
+      const searchResults = await serverQdrant.search(
+        this.strategicInsightsCollection,
+        embeddingResponse.embedding,
+        limit
+      );
+      
+      // Filter by tags if provided
+      let results = searchResults;
+      if (options?.tags && options.tags.length > 0) {
+        results = results.filter(result => {
+          const insight = result.payload as StrategicInsight;
+          return options.tags!.some(tag => insight.tags.includes(tag));
+        });
+      }
+      
+      // Extract the insights from the search results
+      return results.map(result => result.payload as StrategicInsight);
+    } catch (error) {
+      console.error('Error searching strategic insights:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Get the most recent strategic insights
+   */
+  async getRecentStrategicInsights(limit: number = 5): Promise<StrategicInsight[]> {
+    try {
+      if (!this.initialized) {
+        throw new Error('Agent not initialized');
+      }
+      
+      // Retrieve recent insights from the collection
+      const recentInsights = await serverQdrant.getRecentPoints(
+        this.strategicInsightsCollection,
+        limit
+      );
+      
+      return recentInsights.map(result => result.payload as StrategicInsight);
+    } catch (error) {
+      console.error('Error getting recent strategic insights:', error);
+      return [];
+    }
   }
 } 
