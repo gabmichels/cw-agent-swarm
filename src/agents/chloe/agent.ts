@@ -286,7 +286,7 @@ export class ChloeAgent {
   }
 
   // Process a user message
-  async processMessage(message: string): Promise<string> {
+  async processMessage(message: string, p0: { userId: any; attachments: any; }): Promise<string> {
     console.log('!!!!!!!!!!!!!! UNMISTAKABLE MARKER - THIS IS THE EDITED AGENT FILE !!!!!!!!!!!!!!');
     console.log('!!!!!!!!!!!!!! MESSAGE WAS: ' + message + ' !!!!!!!!!!!!!!');
     

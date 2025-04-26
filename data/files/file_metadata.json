@@ -139,5 +139,181 @@
     ],
     "chunkCount": 1,
     "summary": "This is a placeholder for image content from pasted-image-1745679887273.png. In a real implementation, we would use a vision model to describe the image.... (1 chunks total)"
+  },
+  "file_1745688080168_714": {
+    "fileId": "file_1745688080168_714",
+    "filename": "pasted-image-1745688071217.png",
+    "originalFilename": "pasted-image-1745688071217.png",
+    "mimeType": "image/png",
+    "size": 2762332,
+    "uploadDate": "2025-04-26T17:21:20.168Z",
+    "processingStatus": "completed",
+    "processingModel": "gemini-pro-vision",
+    "tags": [
+      "user:default-user",
+      "source:chat"
+    ],
+    "chunkCount": 1,
+    "summary": "This is a placeholder for image content from pasted-image-1745688071217.png. In a real implementation, we would use a vision model to describe the image.... (1 chunks total)"
+  },
+  "file_1745688555753_219": {
+    "fileId": "file_1745688555753_219",
+    "filename": "pasted-image-1745688543200.png",
+    "originalFilename": "pasted-image-1745688543200.png",
+    "mimeType": "image/png",
+    "size": 1591283,
+    "uploadDate": "2025-04-26T17:29:15.753Z",
+    "processingStatus": "completed",
+    "processingModel": "gemini-pro-vision",
+    "tags": [
+      "user:default-user",
+      "source:chat"
+    ],
+    "chunkCount": 1,
+    "summary": "This is a placeholder for image content from pasted-image-1745688543200.png. In a real implementation, we would use a vision model to describe the image.... (1 chunks total)"
+  },
+  "file_1745691769723_330": {
+    "fileId": "file_1745691769723_330",
+    "filename": "pasted-image-1745691761532.png",
+    "originalFilename": "pasted-image-1745691761532.png",
+    "mimeType": "image/png",
+    "size": 2700661,
+    "uploadDate": "2025-04-26T18:22:49.723Z",
+    "processingStatus": "completed",
+    "processingModel": "gemini-pro-vision",
+    "tags": [
+      "user:default-user",
+      "source:chat"
+    ],
+    "chunkCount": 1,
+    "summary": "This is a placeholder for image content from pasted-image-1745691761532.png. In a real implementation, we would use a vision model to describe the image.... (1 chunks total)"
+  },
+  "file_1745692189918_303": {
+    "fileId": "file_1745692189918_303",
+    "filename": "pasted-image-1745692183090.png",
+    "originalFilename": "pasted-image-1745692183090.png",
+    "mimeType": "image/png",
+    "size": 4764736,
+    "uploadDate": "2025-04-26T18:29:49.918Z",
+    "processingStatus": "completed",
+    "processingModel": "gemini-pro-vision",
+    "tags": [
+      "user:default-user",
+      "source:chat"
+    ],
+    "chunkCount": 1,
+    "summary": "This is a placeholder for image content from pasted-image-1745692183090.png. In a real implementation, we would use a vision model to describe the image.... (1 chunks total)"
+  },
+  "file_1745692643869_270": {
+    "fileId": "file_1745692643869_270",
+    "filename": "pasted-image-1745692629727.png",
+    "originalFilename": "pasted-image-1745692629727.png",
+    "mimeType": "image/png",
+    "size": 5374320,
+    "uploadDate": "2025-04-26T18:37:23.869Z",
+    "processingStatus": "completed",
+    "processingModel": "gemini-pro-vision",
+    "tags": [
+      "user:default-user",
+      "source:chat"
+    ],
+    "chunkCount": 1,
+    "summary": "This is a placeholder for image content from pasted-image-1745692629727.png. In a real implementation, we would use a vision model to describe the image.... (1 chunks total)"
+  },
+  "file_1745693287729_372": {
+    "fileId": "file_1745693287729_372",
+    "filename": "pasted-image-1745693283031.png",
+    "originalFilename": "pasted-image-1745693283031.png",
+    "mimeType": "image/png",
+    "size": 38874,
+    "uploadDate": "2025-04-26T18:48:07.729Z",
+    "processingStatus": "completed",
+    "processingModel": "gemini-pro-vision",
+    "tags": [
+      "user:default-user",
+      "source:chat"
+    ],
+    "chunkCount": 1,
+    "summary": "This is a placeholder for image content from pasted-image-1745693283031.png. In a real implementation, we would use a vision model to describe the image.... (1 chunks total)"
+  },
+  "file_1745694034954_635": {
+    "fileId": "file_1745694034954_635",
+    "filename": "pasted-image-1745694026561.png",
+    "originalFilename": "pasted-image-1745694026561.png",
+    "mimeType": "image/png",
+    "size": 6428319,
+    "uploadDate": "2025-04-26T19:00:34.954Z",
+    "processingStatus": "completed",
+    "processingModel": "gemini-pro-vision",
+    "tags": [
+      "user:default-user",
+      "source:chat"
+    ],
+    "chunkCount": 1,
+    "summary": "This is a placeholder for image content from pasted-image-1745694026561.png. In a real implementation, we would use a vision model to describe the image.... (1 chunks total)"
+  },
+  "file_1745694935036_947": {
+    "fileId": "file_1745694935036_947",
+    "filename": "pasted-image-1745694926074.png",
+    "originalFilename": "pasted-image-1745694926074.png",
+    "mimeType": "image/png",
+    "size": 2176301,
+    "uploadDate": "2025-04-26T19:15:35.036Z",
+    "processingStatus": "completed",
+    "processingModel": "gemini-pro-vision",
+    "tags": [
+      "user:default-user",
+      "source:chat"
+    ],
+    "chunkCount": 1,
+    "summary": "This is a placeholder for image content from pasted-image-1745694926074.png. In a real implementation, we would use a vision model to describe the image.... (1 chunks total)"
+  },
+  "file_1745695982998_865": {
+    "fileId": "file_1745695982998_865",
+    "filename": "pasted-image-1745695977715.png",
+    "originalFilename": "pasted-image-1745695977715.png",
+    "mimeType": "image/png",
+    "size": 314251,
+    "uploadDate": "2025-04-26T19:33:02.998Z",
+    "processingStatus": "completed",
+    "processingModel": "gemini-pro-vision",
+    "tags": [
+      "user:default-user",
+      "source:chat"
+    ],
+    "chunkCount": 1,
+    "summary": "This is a placeholder for image content from pasted-image-1745695977715.png. In a real implementation, we would use a vision model to describe the image.... (1 chunks total)"
+  },
+  "file_1745696535534_136": {
+    "fileId": "file_1745696535534_136",
+    "filename": "pasted-image-1745696527155.png",
+    "originalFilename": "pasted-image-1745696527155.png",
+    "mimeType": "image/png",
+    "size": 131385,
+    "uploadDate": "2025-04-26T19:42:15.534Z",
+    "processingStatus": "completed",
+    "processingModel": "gemini-pro-vision",
+    "tags": [
+      "user:default-user",
+      "source:chat"
+    ],
+    "chunkCount": 1,
+    "summary": "This is a placeholder for image content from pasted-image-1745696527155.png. In a real implementation, we would use a vision model to describe the image.... (1 chunks total)"
+  },
+  "file_1745697721336_243": {
+    "fileId": "file_1745697721336_243",
+    "filename": "pasted-image-1745697715780.png",
+    "originalFilename": "pasted-image-1745697715780.png",
+    "mimeType": "image/png",
+    "size": 110866,
+    "uploadDate": "2025-04-26T20:02:01.336Z",
+    "processingStatus": "completed",
+    "processingModel": "gemini-pro-vision",
+    "tags": [
+      "user:default-user",
+      "source:chat"
+    ],
+    "chunkCount": 1,
+    "summary": "This is a placeholder for image content from pasted-image-1745697715780.png. In a real implementation, we would use a vision model to describe the image.... (1 chunks total)"
   }
 }

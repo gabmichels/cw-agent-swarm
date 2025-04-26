@@ -14,6 +14,12 @@ import FilesTable from '../components/FilesTable';
 import { formatCronExpression } from '../utils/cronFormatter';
 import { Message, FileAttachment, MemoryItem, Task, ScheduledTask } from '../types';
 
+// Add constants for storage
+const SAVED_ATTACHMENTS_KEY = 'crowd-wisdom-saved-attachments';
+const IMAGE_DATA_STORAGE_KEY = 'crowd-wisdom-image-data';
+const INDEXED_DB_NAME = 'crowd-wisdom-storage';
+const ATTACHMENT_STORE = 'file-attachments';
+
 export default function Home() {
   const [selectedDepartment, setSelectedDepartment] = useState('Marketing');
   const [selectedAgent, setSelectedAgent] = useState('Chloe');
@@ -105,79 +111,164 @@ export default function Home() {
     setIsAgentDropdownOpen(false);
   };
 
-  // Load initial chat history from the server
-  useEffect(() => {
-    async function loadInitialChat() {
-      setIsLoading(true);
+  // Define function to initialize IndexedDB for file storage
+  const initializeDB = (): Promise<IDBDatabase> => {
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open(INDEXED_DB_NAME, 1);
+      
+      request.onerror = (event) => {
+        console.error("Error opening IndexedDB", event);
+        reject("Failed to open IndexedDB");
+      };
+      
+      request.onsuccess = (event) => {
+        const db = (event.target as IDBOpenDBRequest).result;
+        console.log("IndexedDB opened successfully");
+        resolve(db);
+      };
+      
+      request.onupgradeneeded = (event) => {
+        const db = (event.target as IDBOpenDBRequest).result;
+        console.log("Creating attachment store in IndexedDB");
+        
+        // Create object store for attachments if it doesn't exist
+        if (!db.objectStoreNames.contains(ATTACHMENT_STORE)) {
+          const store = db.createObjectStore(ATTACHMENT_STORE, { keyPath: 'id' });
+          store.createIndex('timestamp', 'timestamp', { unique: false });
+          console.log("Attachment store created");
+        }
+      };
+    });
+  };
+
+  // Function to save file data to IndexedDB
+  const saveFileToIndexedDB = async (fileData: { id: string, data: string, type: string, filename: string, timestamp: number }): Promise<string> => {
+    try {
+      const db = await initializeDB();
+      
+      return new Promise((resolve, reject) => {
+        const transaction = db.transaction([ATTACHMENT_STORE], 'readwrite');
+        const store = transaction.objectStore(ATTACHMENT_STORE);
+        
+        const request = store.put(fileData);
+        
+        request.onsuccess = () => {
+          console.log(`File ${fileData.filename} saved to IndexedDB`);
+          resolve(fileData.id);
+        };
+        
+        request.onerror = (event) => {
+          console.error("Error saving file to IndexedDB", event);
+          reject("Failed to save file");
+        };
+      });
+    } catch (error) {
+      console.error("IndexedDB error:", error);
+      throw error;
+    }
+  };
+
+  // Function to retrieve file data from IndexedDB
+  const getFileFromIndexedDB = async (id: string): Promise<string | null> => {
+    try {
+      const db = await initializeDB();
+      
+      return new Promise((resolve, reject) => {
+        const transaction = db.transaction([ATTACHMENT_STORE], 'readonly');
+        const store = transaction.objectStore(ATTACHMENT_STORE);
+        
+        const request = store.get(id);
+        
+        request.onsuccess = () => {
+          const file = request.result;
+          if (file) {
+            console.log(`File ${id} retrieved from IndexedDB`);
+            resolve(file.data);
+          } else {
+            console.log(`File ${id} not found in IndexedDB`);
+            resolve(null);
+          }
+        };
+        
+        request.onerror = (event) => {
+          console.error("Error retrieving file from IndexedDB", event);
+          reject("Failed to retrieve file");
+        };
+      });
+    } catch (error) {
+      console.error("IndexedDB error:", error);
+      return null;
+    }
+  };
+
+  // Save image data separately from chat messages
+  const saveImageDataToStorage = (id: string, data: string) => {
+    try {
+      const imageStorage = JSON.parse(localStorage.getItem(IMAGE_DATA_STORAGE_KEY) || '{}');
+      imageStorage[id] = data;
+      localStorage.setItem(IMAGE_DATA_STORAGE_KEY, JSON.stringify(imageStorage));
+      return true;
+    } catch (error) {
+      console.error('Error saving image data to storage:', error);
+      return false;
+    }
+  };
+
+  // Get image data from separate storage
+  const getImageDataFromStorage = (id: string) => {
+    try {
+      const imageStorage = JSON.parse(localStorage.getItem(IMAGE_DATA_STORAGE_KEY) || '{}');
+      return imageStorage[id] || null;
+    } catch (error) {
+      console.error('Error getting image data from storage:', error);
+      return null;
+    }
+  };
+
+  // Create a thumbnail from an image data URL
+  const createThumbnail = (dataUrl: string, maxDimension = 100): Promise<string> => {
+    return new Promise((resolve, reject) => {
       try {
-        const response = await fetch('/api/chat?userId=default-user');
-        
-        if (!response.ok) {
-          throw new Error(`Failed to load chat history: ${response.status}`);
-        }
-        
-        const data = await response.json();
-        
-        if (data.history && data.history.length > 0) {
-          // Convert server messages to our client format
-          const formattedMessages = data.history.map((msg: any) => ({
-            sender: msg.role === 'user' ? 'You' : selectedAgent,
-            content: msg.content,
-            timestamp: new Date(msg.timestamp),
-            memory: msg.memory || [],
-            thoughts: msg.thoughts || []
-          }));
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          let width = img.width;
+          let height = img.height;
           
-          setMessages(formattedMessages);
-        } else {
-          // Fallback to default welcome message if no history
-          setMessages([{
-            sender: selectedAgent,
-            content: `Hello! I'm ${selectedAgent}, your marketing expert. How can I help you today?`,
-            timestamp: new Date()
-          }]);
-        }
+          // Calculate new dimensions while maintaining aspect ratio
+          if (width > height) {
+            if (width > maxDimension) {
+              height = Math.round(height * (maxDimension / width));
+              width = maxDimension;
+            }
+          } else {
+            if (height > maxDimension) {
+              width = Math.round(width * (maxDimension / height));
+              height = maxDimension;
+            }
+          }
+          
+          canvas.width = width;
+          canvas.height = height;
+          
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(img, 0, 0, width, height);
+            resolve(canvas.toDataURL('image/jpeg', 0.5));
+          } else {
+            reject(new Error('Failed to get canvas context'));
+          }
+        };
+        
+        img.onerror = () => reject(new Error('Failed to load image'));
+        img.src = dataUrl;
       } catch (error) {
-        console.error("Error loading initial chat:", error);
-        // Set a basic welcome message on error
-        setMessages([{
-          sender: selectedAgent,
-          content: `Hello! I'm ${selectedAgent}. There was an error loading our previous conversation.`,
-          timestamp: new Date()
-        }]);
-      } finally {
-        setIsLoading(false);
+        reject(error);
       }
-    }
-    
-    loadInitialChat();
-  }, [selectedAgent]);
+    });
+  };
 
-  // Scroll to bottom of messages when messages change
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
-
-  // Focus input field when component mounts or after sending message
-  useEffect(() => {
-    // Focus the input field with a slight delay to ensure DOM has updated
-    setTimeout(() => {
-      if (inputRef.current) {
-        inputRef.current.focus();
-        console.log('Input auto-focused by useEffect');
-      }
-    }, 100);
-  }, [messages]);
-
-  // Add a separate useEffect for initial focus
-  useEffect(() => {
-    if (inputRef.current) {
-      inputRef.current.focus();
-      console.log('Input focused on mount');
-    }
-  }, []);
-
-  // Handle file selection for preview
+  // Enhanced file selection that creates and stores thumbnails
   const handleFileSelect = async (file: File) => {
     try {
       // Determine file type for appropriate handling
@@ -186,25 +277,83 @@ export default function Home() {
       
       if (file.type.startsWith('image/')) {
         fileType = 'image';
-        preview = URL.createObjectURL(file);
+        
+        // Create a unique ID for this image
+        const imageId = `img_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+        
+        // Read as data URL
+        preview = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+
+        // Save the full image data to a separate storage
+        const savedFullImage = saveImageDataToStorage(imageId, preview);
+        console.log(`Full image data ${savedFullImage ? 'successfully stored' : 'failed to store'} for ID: ${imageId}`);
+        
+        try {
+          // Create a thumbnail for preview
+          const thumbnail = await createThumbnail(preview);
+          console.log(`Created thumbnail: ${thumbnail.substring(0, 50)}...`);
+          
+          // Add to pending attachments with both thumbnail and reference to full image
+          setPendingAttachments(prev => [...prev, {
+            file,
+            preview: thumbnail,
+            type: fileType,
+            filename: file.name,
+            fileId: imageId // Store image ID to reference the full data
+          }]);
+        } catch (thumbError) {
+          console.error('Error creating thumbnail:', thumbError);
+          // Fall back to the original preview if thumbnail creation fails
+          setPendingAttachments(prev => [...prev, {
+            file,
+            preview,
+            type: fileType
+          }]);
+        }
       } else if (file.type === 'application/pdf') {
         fileType = 'pdf';
         preview = URL.createObjectURL(file);
+        
+        // Add to pending attachments
+        setPendingAttachments(prev => [...prev, {
+          file,
+          preview,
+          type: fileType
+        }]);
       } else if (file.type.includes('document') || file.name.endsWith('.docx') || file.name.endsWith('.doc')) {
         fileType = 'document';
+        
+        // Add to pending attachments
+        setPendingAttachments(prev => [...prev, {
+          file,
+          preview: '',
+          type: fileType
+        }]);
       } else if (file.type.includes('text') || file.name.endsWith('.txt') || file.name.endsWith('.md')) {
         fileType = 'text';
         // For text files, we can read and preview the content
         const text = await file.text();
         preview = text.substring(0, 150) + (text.length > 150 ? '...' : '');
+        
+        // Add to pending attachments
+        setPendingAttachments(prev => [...prev, {
+          file,
+          preview,
+          type: fileType
+        }]);
+      } else {
+        // Add to pending attachments for other file types
+        setPendingAttachments(prev => [...prev, {
+          file,
+          preview: '',
+          type: fileType
+        }]);
       }
-      
-      // Add to pending attachments
-      setPendingAttachments(prev => [...prev, {
-        file,
-        preview,
-        type: fileType
-      }]);
 
       // Focus the input field for user to add context
       if (inputRef.current) {
@@ -251,6 +400,8 @@ export default function Home() {
             // Generate a unique name for the pasted image
             const timestamp = new Date().getTime();
             const modifiedFile = new File([file], `pasted-image-${timestamp}.png`, { type: file.type });
+            
+            // Handle file with special flag to ensure data URL is created
             handleFileSelect(modifiedFile);
             foundImage = true;
           }
@@ -832,7 +983,280 @@ For detailed instructions, see the Debug panel.`,
     }, 100);
   };
 
-  // Enhanced to include file attachments
+  // Modified to use our enhanced image storage
+  const saveAttachmentsToLocalStorage = (newMessages: Message[]) => {
+    try {
+      // Find messages with attachments
+      const messagesWithAttachments = newMessages.filter(msg => 
+        msg.attachments && msg.attachments.length > 0
+      );
+
+      // Also find AI responses to messages with images
+      let lastImageMessageTimestamp: string | null = null;
+      const allSavedMessages = [...messagesWithAttachments];
+      
+      // Go through messages in order to match responses to image uploads
+      for (let i = 0; i < newMessages.length; i++) {
+        const msg = newMessages[i];
+        
+        // If this is a user message with image attachments, remember its timestamp
+        if (msg.sender === 'You' && msg.attachments && msg.attachments.some(att => att.type === 'image')) {
+          lastImageMessageTimestamp = msg.timestamp.toISOString();
+          console.log(`Found image message with timestamp: ${lastImageMessageTimestamp}`);
+        } 
+        // If this is an AI response and the previous message had image attachments
+        else if (lastImageMessageTimestamp && msg.sender === selectedAgent) {
+          // Create a copy of the message and add a reference to the image message
+          const visionResponseMsg = {
+            ...msg,
+            visionResponseFor: lastImageMessageTimestamp
+          };
+          
+          // Make sure we're not adding duplicates
+          const isDuplicate = allSavedMessages.some(existing => 
+            existing.sender === msg.sender && 
+            existing.content === msg.content &&
+            existing.visionResponseFor === lastImageMessageTimestamp
+          );
+          
+          if (!isDuplicate) {
+            console.log(`Adding vision response for message with timestamp: ${lastImageMessageTimestamp}`);
+            allSavedMessages.push(visionResponseMsg);
+          }
+          
+          lastImageMessageTimestamp = null; // Reset after finding a response
+        }
+      }
+      
+      if (allSavedMessages.length > 0) {
+        // Before saving, ensure all saved messages have proper Date timestamps
+        // that will be correctly restored when loaded
+        allSavedMessages.forEach(msg => {
+          // Create a fresh copy that will serialize properly
+          if (msg.timestamp instanceof Date) {
+            // Keep the timestamp as an ISO string for storage
+            (msg as any).timestampString = msg.timestamp.toISOString();
+          }
+        });
+        
+        localStorage.setItem(SAVED_ATTACHMENTS_KEY, JSON.stringify(allSavedMessages));
+        console.log(`Saved ${messagesWithAttachments.length} messages with attachments and ${allSavedMessages.length - messagesWithAttachments.length} vision responses to localStorage`);
+      }
+    } catch (error) {
+      console.error('Error saving attachments to local storage:', error);
+    }
+  };
+
+  // Modified to restore image data from our separate storage and handle vision responses
+  const loadAttachmentsFromLocalStorage = () => {
+    try {
+      const savedAttachments = localStorage.getItem(SAVED_ATTACHMENTS_KEY);
+      if (savedAttachments) {
+        const savedMessages = JSON.parse(savedAttachments) as Message[];
+        console.log(`Loaded ${savedMessages.length} messages with attachments from local storage`);
+        
+        // Ensure timestamps are converted to Date objects
+        savedMessages.forEach(msg => {
+          // Convert string timestamp to Date object
+          if (msg.timestamp && !(msg.timestamp instanceof Date)) {
+            msg.timestamp = new Date(msg.timestamp);
+          }
+          
+          // Check for timestampString property (added in our improved save function)
+          if ((msg as any).timestampString) {
+            msg.timestamp = new Date((msg as any).timestampString);
+            console.log(`Converted timestampString to Date: ${(msg as any).timestampString}`);
+          }
+          
+          // If visionResponseFor exists, make sure it's properly formatted
+          if (msg.visionResponseFor) {
+            // Log that we found a vision response
+            console.log(`Found vision response message referring to: ${msg.visionResponseFor}`);
+          }
+          
+          // Restore full image data for each image attachment
+          if (msg.attachments) {
+            msg.attachments.forEach(att => {
+              if (att.type === 'image' && att.fileId && (!att.preview || att.preview === '')) {
+                // Try to get the full image data from storage
+                const fullImageData = getImageDataFromStorage(att.fileId);
+                if (fullImageData) {
+                  console.log(`Restored full image data for ${att.fileId}`);
+                  att.preview = fullImageData;
+                } else {
+                  console.log(`Could not restore image data for ${att.fileId}`);
+                }
+              }
+            });
+          }
+        });
+        
+        return savedMessages;
+      }
+    } catch (error) {
+      console.error('Error loading attachments from local storage:', error);
+    }
+    return [];
+  };
+
+  // Listen for storage events from other tabs
+  useEffect(() => {
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === SAVED_ATTACHMENTS_KEY || e.key === IMAGE_DATA_STORAGE_KEY) {
+        // Force a reload of the page when storage changes in another tab
+        window.location.reload();
+      }
+    };
+    
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, []);
+
+  // Load initial chat history from the server
+  useEffect(() => {
+    // Define the function inside to have access to state
+    async function loadInitialChat() {
+      setIsLoading(true);
+      try {
+        console.log("Loading chat history from server...");
+        const response = await fetch('/api/chat?userId=default-user');
+        
+        if (!response.ok) {
+          throw new Error(`Failed to load chat history: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        console.log("Received chat history data:", data);
+        
+        // Load attachments from local storage
+        const savedAttachmentMessages = loadAttachmentsFromLocalStorage();
+        console.log(`Loaded ${savedAttachmentMessages.length} messages with attachments from localStorage`);
+        
+        // Track vision response messages separately
+        const visionResponses = savedAttachmentMessages.filter(msg => 
+          msg.sender === selectedAgent && 
+          msg.attachments === undefined &&
+          msg.visionResponseFor !== undefined
+        );
+        
+        if (visionResponses.length > 0) {
+          console.log(`Found ${visionResponses.length} vision response messages in localStorage`);
+        }
+        
+        // Create a map of user messages with attachments by timestamp (as string)
+        const userAttachmentMap = new Map();
+        savedAttachmentMessages.forEach(msg => {
+          if (msg.sender === 'You' && msg.attachments && msg.attachments.length > 0) {
+            const key = msg.timestamp.toISOString();
+            userAttachmentMap.set(key, msg);
+          }
+        });
+        
+        // Create a map of vision responses by their reference timestamp
+        const visionResponseMap = new Map();
+        visionResponses.forEach(msg => {
+          if (msg.visionResponseFor) {
+            visionResponseMap.set(msg.visionResponseFor, msg);
+          }
+        });
+        
+        if (data.history && data.history.length > 0) {
+          console.log("Raw history from server:", JSON.stringify(data.history).substring(0, 200) + "...");
+          
+          // Convert server messages to our client format
+          const formattedMessages = data.history.map((msg: any) => {
+            return {
+              sender: msg.role === 'user' ? 'You' : selectedAgent,
+              content: msg.content,
+              timestamp: new Date(msg.timestamp),
+              memory: msg.memory || [],
+              thoughts: msg.thoughts || [],
+              attachments: undefined
+            };
+          });
+          
+          // Now let's add saved messages with attachments and their responses
+          savedAttachmentMessages.forEach(savedMsg => {
+            if (savedMsg.sender === 'You' && savedMsg.attachments && savedMsg.attachments.length > 0) {
+              // Check if this message is already in our formatted messages (match by timestamp)
+              const matchingIndex = formattedMessages.findIndex((m: Message) => 
+                m.sender === 'You' && 
+                Math.abs(new Date(m.timestamp).getTime() - new Date(savedMsg.timestamp).getTime()) < 5000 &&
+                m.content === savedMsg.content
+              );
+              
+              if (matchingIndex >= 0) {
+                // Add attachments to the existing message
+                formattedMessages[matchingIndex].attachments = savedMsg.attachments;
+                console.log(`Added attachments to existing message at index ${matchingIndex}`);
+              } else {
+                // This is a new message with attachments, add it
+                formattedMessages.push(savedMsg);
+                console.log(`Added new message with attachments: "${savedMsg.content.substring(0, 20)}..."`);
+              }
+              
+              // Find corresponding vision response
+              const visionResponse = visionResponseMap.get(savedMsg.timestamp.toISOString());
+              if (visionResponse) {
+                // Check if we already have this response
+                const hasResponse = formattedMessages.some((m: Message) => 
+                  m.sender === selectedAgent && 
+                  m.content === visionResponse.content &&
+                  Math.abs(new Date(m.timestamp).getTime() - new Date(visionResponse.timestamp).getTime()) < 10000
+                );
+                
+                if (!hasResponse) {
+                  // Create proper vision response message with correct reference
+                  const responseMsg: Message = {
+                    ...visionResponse,
+                    // Ensure timestamp is a Date object
+                    timestamp: new Date(visionResponse.timestamp),
+                    // Store reference to the originating message
+                    visionResponseFor: savedMsg.timestamp.toISOString()
+                  };
+                  
+                  // Insert the vision response right after the message with attachment
+                  const insertIndex = matchingIndex >= 0 ? matchingIndex + 1 : formattedMessages.length;
+                  formattedMessages.splice(insertIndex, 0, responseMsg);
+                  console.log(`Added vision response for message at index ${insertIndex}: "${savedMsg.content.substring(0, 20)}..."`);
+                }
+              }
+            }
+          });
+          
+          // Sort messages by timestamp
+          formattedMessages.sort((a: Message, b: Message) => {
+            return new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime();
+          });
+          
+          console.log(`Setting ${formattedMessages.length} formatted messages`);
+          setMessages(formattedMessages);
+        } else {
+          console.log("No history found, using welcome message");
+          // Fallback to default welcome message if no history
+          setMessages([{
+            sender: selectedAgent,
+            content: `Hello! I'm ${selectedAgent}, your marketing expert. How can I help you today?`,
+            timestamp: new Date()
+          }]);
+        }
+      } catch (error) {
+        console.error("Error loading initial chat:", error);
+        // Set a basic welcome message on error
+        setMessages([{
+          sender: selectedAgent,
+          content: `Hello! I'm ${selectedAgent}. There was an error loading our previous conversation.`,
+          timestamp: new Date()
+        }]);
+      } finally {
+        setIsLoading(false);
+      }
+    }
+    
+    loadInitialChat();
+  }, [selectedAgent]);
+
+  // Enhanced to include file attachments and use our improved storage system
   const handleSendMessage = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     
@@ -845,17 +1269,31 @@ For detailed instructions, see the Debug panel.`,
       ? inputMessage || "(Attached file without context)"
       : inputMessage;
       
+    // Make a local copy of pendingAttachments to avoid race conditions
+    const currentAttachments = [...pendingAttachments];
+    
+    // Use the attachments directly - we've already created thumbnails and stored full images
     const userMessage: Message = {
       sender: 'You',
       content: messageContent,
-      timestamp: new Date()
+      timestamp: new Date(),
+      attachments: currentAttachments.length > 0 ? currentAttachments : undefined
     };
     
-    setMessages(prev => [...prev, userMessage]);
+    const newMessages = [...messages, userMessage];
+    setMessages(newMessages);
+    
+    // Save user message with attachments to local storage
+    if (currentAttachments.length > 0) {
+      saveAttachmentsToLocalStorage(newMessages);
+    }
     
     // Store and clear input
     const sentMessage = inputMessage;
     setInputMessage('');
+    
+    // Clear pending attachments early to avoid race conditions
+    setPendingAttachments([]);
     
     // Set loading state
     setIsLoading(true);
@@ -863,8 +1301,9 @@ For detailed instructions, see the Debug panel.`,
     try {
       // Prepare form data if we have attachments
       let response;
+      let data;
       
-      if (pendingAttachments.length > 0) {
+      if (currentAttachments.length > 0) {
         const formData = new FormData();
         formData.append('message', sentMessage); // Send user's context about the file
         formData.append('userId', 'default-user');
@@ -872,9 +1311,23 @@ For detailed instructions, see the Debug panel.`,
         // Log the context being sent with files
         console.log("Sending files with context:", sentMessage);
         
-        // Add each file to the formData
-        pendingAttachments.forEach((attachment, index) => {
-          formData.append(`file_${index}`, attachment.file);
+        // Add each file to the formData with proper metadata
+        currentAttachments.forEach((attachment, index) => {
+          // Only add the file if it exists
+          if (attachment.file) {
+            // Add the actual file
+            formData.append(`file_${index}`, attachment.file);
+            
+            // Add metadata as regular string values (not files)
+            formData.append(`metadata_${index}_type`, attachment.type);
+            formData.append(`metadata_${index}_fileId`, attachment.fileId || '');
+            
+            // Don't send the full preview data URLs to the server - they're too large
+            // The server doesn't need them, and we already store them in local storage
+            console.log(`Adding file ${index}: ${attachment.filename || attachment.file.name}`);
+          } else {
+            console.warn(`Warning: Attachment ${index} has no file property`);
+          }
         });
         
         // Send to server with multipart/form-data
@@ -884,15 +1337,37 @@ For detailed instructions, see the Debug panel.`,
         });
       } else {
         // Standard JSON request without files
+        const requestBody: any = {
+          message: sentMessage,
+          userId: 'default-user',
+        };
+        
+        // Check the previous message to see if this is a reply to a message with images
+        // Find the most recent message before this one that has image attachments
+        const previousImageMessage = messages.slice().reverse().find(msg => 
+          msg.sender === 'You' && 
+          msg.attachments && 
+          msg.attachments.some(att => att.type === 'image')
+        );
+        
+        if (previousImageMessage && previousImageMessage.timestamp) {
+          // If the previous message was recent (within last 2 messages), consider this a vision response
+          const messageIndex = messages.findIndex(m => 
+            m.timestamp && m.timestamp.getTime() === previousImageMessage.timestamp.getTime()
+          );
+          
+          if (messageIndex >= messages.length - 3) {
+            requestBody.visionResponseFor = previousImageMessage.timestamp.toISOString();
+            console.log(`Including visionResponseFor in request: ${requestBody.visionResponseFor}`);
+          }
+        }
+        
         response = await fetch('/api/chat', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({
-            message: sentMessage,
-            userId: 'default-user', // We can improve this later
-          }),
+          body: JSON.stringify(requestBody),
         });
       }
       
@@ -900,15 +1375,24 @@ For detailed instructions, see the Debug panel.`,
         throw new Error(`API error: ${response.status}`);
       }
       
-      const data = await response.json();
+      data = await response.json();
       
-      // Use the actual response from the API
+      // Check if this is a vision response (has containsImageRequest flag)
+      const isVisionResponse = data.containsImageRequest === true;
+      console.log(`Received ${isVisionResponse ? 'vision' : 'standard'} response from API`);
+      
+      // For vision responses, add a reference to the original image message timestamp
+      // but DON'T include the attachments in the AI response
       const agentResponse: Message = {
         sender: selectedAgent,
         content: data.reply,
         timestamp: new Date(),
         memory: data.memory,
-        thoughts: data.thoughts
+        thoughts: data.thoughts,
+        // For vision responses, use the requestTimestamp or generate a fresh reference to the user message
+        visionResponseFor: isVisionResponse 
+          ? (data.requestTimestamp || userMessage.timestamp.toISOString()) 
+          : undefined
       };
       
       // Log memory and thoughts for debugging
@@ -920,10 +1404,14 @@ For detailed instructions, see the Debug panel.`,
         console.log('Agent thoughts:', data.thoughts);
       }
       
-      setMessages(prev => [...prev, agentResponse]);
+      const updatedMessages = [...newMessages, agentResponse];
+      setMessages(updatedMessages);
       
-      // Clear pending attachments after sending
-      setPendingAttachments([]);
+      // Save to localStorage if there were attachments or if this was a vision response
+      if (currentAttachments.length > 0 || isVisionResponse) {
+        console.log("Saving messages with attachments to localStorage, including vision API response");
+        saveAttachmentsToLocalStorage(updatedMessages);
+      }
     } catch (error) {
       console.error("Error calling API:", error);
       
@@ -934,7 +1422,13 @@ For detailed instructions, see the Debug panel.`,
         timestamp: new Date()
       };
       
-      setMessages(prev => [...prev, errorResponse]);
+      const errorMessages = [...newMessages, errorResponse];
+      setMessages(errorMessages);
+      
+      // Save error messages to local storage if there are attachments
+      if (currentAttachments.length > 0) {
+        saveAttachmentsToLocalStorage(errorMessages);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -979,7 +1473,7 @@ For detailed instructions, see the Debug panel.`,
               setSelectedAgent={setSelectedAgent}
             />
           )}
-        </div>
+          </div>
 
         {/* Chat container */}
         <div className={`flex-1 flex flex-col ${isFullscreen ? 'w-full' : ''}`}>
@@ -1004,15 +1498,15 @@ For detailed instructions, see the Debug panel.`,
                   toggleTaskEnabled={toggleTaskEnabled}
                   formatCronExpression={formatCronExpression}
                 />
-              )}
+                          )}
               
               {selectedTab === 'memory' && (
                 <MemoryTab
                   isLoadingMemories={isLoadingMemories}
                   allMemories={allMemories}
                 />
-              )}
-              
+                )}
+                
               {selectedTab === 'tools' && (
                 <ToolsTab
                   isLoading={isLoading}
@@ -1033,7 +1527,7 @@ For detailed instructions, see the Debug panel.`,
               {selectedTab === 'social' && <SocialMediaTable />}
               
               {selectedTab === 'files' && <FilesTable onRefresh={fetchAllMemories} />}
-            </div>
+                        </div>
 
             {/* Input area */}
             <div className="border-t border-gray-700 p-4">
@@ -1048,12 +1542,12 @@ For detailed instructions, see the Debug panel.`,
                   handleFileSelect={handleFileSelect}
                   inputRef={inputRef}
                 />
-              )}
+          )}
               <div ref={messagesEndRef} />
-            </div>
-          </div>
-        </div>
-      </div>
+                          </div>
+                      </div>
+                  </div>
+              </div>
     </div>
   );
-}
+} 

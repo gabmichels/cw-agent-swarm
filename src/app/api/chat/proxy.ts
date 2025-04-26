@@ -66,6 +66,34 @@ async function loadChatHistoryFromQdrant(specificUserId?: string) {
     // Log IDs to help debug
     console.log('Message IDs:', recentMessages.map(m => m.id).join(', '));
     
+    // Show the full metadata of the last few messages
+    if (recentMessages.length > 0) {
+      console.log('Last 3 messages full details:');
+      recentMessages.slice(-3).forEach((msg, i) => {
+        const hasAttachments = msg.metadata && 
+                           msg.metadata.attachments && 
+                           Array.isArray(msg.metadata.attachments) && 
+                           msg.metadata.attachments.length > 0;
+        
+        console.log(`Message ${i + 1}:`, {
+          id: msg.id,
+          text: msg.text.substring(0, 50) + '...',
+          timestamp: msg.timestamp,
+          metadata: {
+            userId: msg.metadata?.userId,
+            role: msg.metadata?.role,
+            source: msg.metadata?.source,
+            hasAttachments: hasAttachments,
+            attachmentsCount: hasAttachments ? msg.metadata.attachments.length : 0
+          }
+        });
+        
+        if (hasAttachments) {
+          console.log('Attachments sample:', JSON.stringify(msg.metadata.attachments[0]).substring(0, 200) + '...');
+        }
+      });
+    }
+    
     // Clear existing history if loading for a specific user
     if (specificUserId) {
       chatHistory.delete(specificUserId);
@@ -73,6 +101,7 @@ async function loadChatHistoryFromQdrant(specificUserId?: string) {
     
     // Group messages by userId
     const userCounts: Record<string, number> = {};
+    let messagesWithAttachments = 0;
     
     for (const message of recentMessages) {
       if (message.metadata && message.metadata.userId) {
@@ -88,6 +117,20 @@ async function loadChatHistoryFromQdrant(specificUserId?: string) {
         
         const role = message.metadata.role || 'user';
         
+        // Handle attachments - ensure it's an array and properly structured
+        let attachments = [];
+        if (message.metadata.attachments && Array.isArray(message.metadata.attachments)) {
+          attachments = message.metadata.attachments;
+          messagesWithAttachments++;
+        }
+        
+        const hasAttachments = attachments.length > 0;
+        console.log(`Processing message for user ${userId}, has attachments: ${hasAttachments}`);
+        if (hasAttachments) {
+          console.log(`Message has ${attachments.length} attachments:`, 
+            JSON.stringify(attachments).substring(0, 200) + '...');
+        }
+        
         if (!chatHistory.has(userId)) {
           chatHistory.set(userId, []);
         }
@@ -95,7 +138,8 @@ async function loadChatHistoryFromQdrant(specificUserId?: string) {
         chatHistory.get(userId)!.push({
           role,
           content: message.text,
-          timestamp: message.timestamp
+          timestamp: message.timestamp,
+          attachments: attachments.length > 0 ? attachments : undefined
         });
       } else {
         console.log(`Message missing userId metadata: ${message.id}`);
@@ -106,6 +150,7 @@ async function loadChatHistoryFromQdrant(specificUserId?: string) {
     Object.entries(userCounts).forEach(([userId, count]) => {
       console.log(`Found ${count} messages for user ${userId}`);
     });
+    console.log(`Found ${messagesWithAttachments} messages with attachments across all users`);
     
     // Sort messages for each user by timestamp
     const usersToSort = specificUserId ? [specificUserId] : Array.from(chatHistory.keys());
@@ -115,6 +160,20 @@ async function loadChatHistoryFromQdrant(specificUserId?: string) {
       
       const messages = chatHistory.get(userId) || [];
       console.log(`Sorting ${messages.length} messages for user ${userId}`);
+      
+      // Log messages with attachments
+      const messagesWithAttachments = messages.filter(m => m.attachments && m.attachments.length > 0);
+      if (messagesWithAttachments.length > 0) {
+        console.log(`Found ${messagesWithAttachments.length} messages with attachments for user ${userId}`);
+        messagesWithAttachments.forEach((msg, i) => {
+          console.log(`Attachment message ${i + 1}:`, {
+            role: msg.role,
+            content: msg.content.substring(0, 50) + '...',
+            timestamp: msg.timestamp,
+            attachmentsCount: msg.attachments?.length
+          });
+        });
+      }
       
       chatHistory.set(userId, messages.sort((a: { timestamp: string }, b: { timestamp: string }) => 
         new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
@@ -148,7 +207,7 @@ loadChatHistoryFromQdrant();
 let chloeInstance: any = null;
 
 // In-memory chat history storage (userId -> messages)
-const chatHistory: Map<string, Array<{ role: string; content: string; timestamp: string }>> = new Map();
+const chatHistory: Map<string, Array<{ role: string; content: string; timestamp: string; attachments?: any[] }>> = new Map();
 
 // Capture Chloe's thoughts from logs
 const captureThoughts = () => {
@@ -336,7 +395,7 @@ See server logs for specific error messages.`,
 }
 
 // Save a message to chat history
-async function saveToHistory(userId: string, role: 'user' | 'assistant', content: string) {
+async function saveToHistory(userId: string, role: 'user' | 'assistant', content: string, attachments?: any[], visionResponseFor?: string) {
   // Ensure we have a user ID
   if (!userId) {
     userId = 'default-user';
@@ -354,8 +413,12 @@ async function saveToHistory(userId: string, role: 'user' | 'assistant', content
   const message = {
     role,
     content,
-    timestamp
+    timestamp,
+    attachments
   };
+  
+  console.log(`Saving ${role} message with ${attachments ? attachments.length : 0} attachments:`, 
+    attachments ? JSON.stringify(attachments).substring(0, 200) + '...' : 'none');
   
   chatHistory.get(userId)!.push(message);
   console.log(`Added ${role} message to in-memory history for user ${userId}`);
@@ -381,11 +444,44 @@ async function saveToHistory(userId: string, role: 'user' | 'assistant', content
       
       // Try to add memory with timeout protection
       console.log(`Saving ${role} message to Qdrant for user ${userId}: "${content.substring(0, 50)}..."`);
-      const addMemoryPromise = serverQdrant.addMemory('message', content, {
+      
+      if (attachments && attachments.length > 0) {
+        console.log(`Message has ${attachments.length} attachments`);
+        
+        // For each attachment, ensure preview URLs aren't too long for Qdrant
+        const processedAttachments = attachments.map(attachment => {
+          // If it has a data URL preview that's too long, truncate it or remove it
+          if (attachment.preview && attachment.preview.length > 1000 && attachment.preview.startsWith('data:')) {
+            // For image attachments, keep a token part of the data URL to indicate it exists
+            const truncatedPreview = attachment.preview.substring(0, 100) + '...[truncated for storage]';
+            return {
+              ...attachment,
+              preview: truncatedPreview,
+              has_full_preview: true // Flag to indicate there was a preview
+            };
+          }
+          return attachment;
+        });
+        
+        console.log(`Processed attachments for storage:`, JSON.stringify(processedAttachments).substring(0, 200) + '...');
+      }
+      
+      const metadata: Record<string, any> = {
         userId,
         role,
-        source: role === 'user' ? 'user' : 'chloe'
-      });
+        source: role === 'user' ? 'user' : 'chloe',
+        attachments: attachments || []
+      };
+      
+      // Add visionResponseFor if it exists
+      if (visionResponseFor) {
+        metadata.visionResponseFor = visionResponseFor;
+        console.log(`Including visionResponseFor in metadata: ${visionResponseFor}`);
+      }
+      
+      console.log(`Saving message metadata to Qdrant:`, JSON.stringify(metadata).substring(0, 200) + '...');
+      
+      const addMemoryPromise = serverQdrant.addMemory('message', content, metadata);
       
       // Race the promises to handle timeouts
       const messageId = await Promise.race([addMemoryPromise, timeoutPromise]);
@@ -404,15 +500,29 @@ async function saveToHistory(userId: string, role: 'user' | 'assistant', content
     try {
       if (qdrantSuccess) {
         const recentMessages = await serverQdrant.getRecentMemories('message', 100);
-        const userMessages = recentMessages.filter(m => m.metadata.userId === userId);
+        const userMessages = recentMessages.filter(m => m.metadata && m.metadata.userId === userId);
         console.log(`Verification: Found ${userMessages.length} messages for user ${userId} in Qdrant`);
+        
+        // Check if the last message has attachments
+        const lastMessage = userMessages[userMessages.length - 1];
+        if (lastMessage && lastMessage.metadata && lastMessage.metadata.attachments) {
+          console.log(`Last message has ${lastMessage.metadata.attachments.length} attachments`);
+          if (lastMessage.metadata.attachments.length > 0) {
+            console.log(`Attachment sample:`, JSON.stringify(lastMessage.metadata.attachments[0]).substring(0, 200) + '...');
+          }
+        } else {
+          console.log('Last message has no attachments');
+        }
       }
     } catch (verifyError) {
       console.warn('Error verifying message count:', verifyError);
     }
   }
   
-  return message;
+  return {
+    ...message,
+    visionResponseFor
+  };
 }
 
 // Get chat history for a user
@@ -422,7 +532,8 @@ function getUserHistory(userId: string) {
 
 export async function POST(request: Request) {
   try {
-    const { message, userId = 'default-user' } = await request.json();
+    const body = await request.json();
+    const { message, userId = 'default-user', attachments, visionResponseFor } = body;
     
     if (!message || typeof message !== 'string') {
       return NextResponse.json(
@@ -433,8 +544,13 @@ export async function POST(request: Request) {
     
     console.log(`Processing request from ${userId}: "${message}"`);
     
+    // Check if this is a vision response
+    if (visionResponseFor) {
+      console.log(`This is a vision response for message with timestamp: ${visionResponseFor}`);
+    }
+    
     // Save user message to history - use await since we modified to be async
-    const userMsg = await saveToHistory(userId, 'user', message);
+    const userMsg = await saveToHistory(userId, 'user', message, attachments, visionResponseFor);
     console.log(`User message saved to history with timestamp: ${userMsg.timestamp}`);
     
     // Process the message with the real agent
@@ -444,8 +560,14 @@ export async function POST(request: Request) {
     // This helps ensure the messages have different timestamps for proper ordering
     await new Promise(resolve => setTimeout(resolve, 100));
     
-    // Save assistant response to history - use await since we modified to be async
-    const assistantMsg = await saveToHistory(userId, 'assistant', reply);
+    // Save assistant response to history, including visionResponseFor if present
+    const assistantMsg = await saveToHistory(
+      userId, 
+      'assistant', 
+      reply, 
+      undefined, 
+      visionResponseFor
+    );
     console.log(`Assistant message saved to history with timestamp: ${assistantMsg.timestamp}`);
     
     // Verify the history after saving

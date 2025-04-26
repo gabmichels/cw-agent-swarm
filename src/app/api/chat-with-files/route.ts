@@ -7,6 +7,14 @@ import process from 'process';
 // Mark as server-only
 export const runtime = 'nodejs';
 
+// Define types for processed files
+interface ProcessedFile {
+  filename: string;
+  fileId?: string;
+  summary?: string;
+  error?: string;
+}
+
 /**
  * Get conversation history for a user
  */
@@ -56,6 +64,9 @@ async function processWithVisionModel(message: string, images: Array<{fileId: st
       conversationHistory: conversationHistory
     };
     
+    // Generate a timestamp for tracking the vision response relationship
+    const requestTimestamp = new Date().toISOString();
+    
     // Call the vision API endpoint that handles base64 encoding
     const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
     const apiUrl = new URL('/api/vision', baseUrl).toString();
@@ -73,7 +84,46 @@ async function processWithVisionModel(message: string, images: Array<{fileId: st
       throw new Error(`Vision API error: ${response.status}`);
     }
     
-    return await response.json();
+    const responseData = await response.json();
+    
+    // Store this message in Qdrant with proper metadata
+    // First, save the user's message with attached images
+    try {
+      if (serverQdrant.isInitialized()) {
+        // Add the user message with attachments
+        await serverQdrant.addMemory('message', message, {
+          userId,
+          role: 'user',
+          source: 'user',
+          attachments: images.map(img => ({
+            filename: img.filename,
+            type: 'image',
+            fileId: img.fileId
+          })),
+          timestamp: requestTimestamp
+        });
+        
+        console.log(`Saved user message with images to Qdrant with timestamp: ${requestTimestamp}`);
+        
+        // Add the assistant's response with reference to the user's message
+        await serverQdrant.addMemory('message', responseData.reply, {
+          userId,
+          role: 'assistant',
+          source: 'chloe',
+          visionResponseFor: requestTimestamp
+        });
+        
+        console.log(`Saved assistant vision response to Qdrant with reference to: ${requestTimestamp}`);
+      }
+    } catch (error) {
+      console.error('Error saving vision conversation to Qdrant:', error);
+      // Continue anyway, non-critical error
+    }
+    
+    return {
+      ...responseData,
+      requestTimestamp // Include the timestamp for the client to use
+    };
   } catch (error: any) {
     console.error('Error processing with vision model:', error);
     
@@ -123,9 +173,12 @@ export async function POST(request: NextRequest) {
     
     // Process each file in the form data
     const fileKeys = Array.from(formData.keys()).filter(key => key.startsWith('file_'));
-    const processedFiles = [];
+    const metadataKeys = Array.from(formData.keys()).filter(key => key.startsWith('metadata_'));
+    const processedFiles: ProcessedFile[] = [];
     const imageFiles = [];
     
+    console.log(`Found ${fileKeys.length} files and ${metadataKeys.length} metadata entries`);
+
     for (const key of fileKeys) {
       const file = formData.get(key) as File | null;
       
@@ -135,7 +188,17 @@ export async function POST(request: NextRequest) {
       }
       
       try {
-        console.log(`Processing file: ${file.name} (${file.type}, ${file.size} bytes)`);
+        // Extract the index from the key (e.g., file_0 -> 0)
+        const index = parseInt(key.replace('file_', ''));
+        
+        // Get associated metadata
+        const typeKey = `metadata_${index}_type`;
+        const fileIdKey = `metadata_${index}_fileId`;
+        
+        const fileType = formData.get(typeKey) as string || '';
+        const fileId = formData.get(fileIdKey) as string || '';
+        
+        console.log(`Processing file: ${file.name} (${file.type}, ${file.size} bytes), type: ${fileType}`);
         
         // Convert file to buffer
         const fileBuffer = Buffer.from(await file.arrayBuffer());
@@ -157,9 +220,6 @@ export async function POST(request: NextRequest) {
         
         // Process file using the correct parameter structure with appropriate options
         const result = await fileProcessor.processFile(fileBuffer, fileMetadata);
-        
-        // Get the base URL for files
-        const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
         
         // Track image files separately
         if (file.type.startsWith('image/')) {
@@ -227,6 +287,26 @@ export async function POST(request: NextRequest) {
       fileContext = `\n\n[SYSTEM: Files processed and stored: ${processedFiles.length}. ${processedFiles.length > 2 ? 'Key files' : 'Files'}: \n${fileInfos}]`;
     }
     
+    // Extract file attachments metadata for storage in Qdrant
+    const attachments = processedFiles.map((processedFile, index) => {
+      const file = formData.get(`file_${index}`) as File;
+      
+      if (!file) {
+        return null;
+      }
+      
+      const type = formData.get(`metadata_${index}_type`) as string || 
+        (file.type.startsWith('image/') ? 'image' : 'document');
+      
+      return {
+        filename: file.name,
+        type,
+        fileId: processedFile.fileId || '',
+        size: file.size,
+        mimeType: file.type
+      };
+    }).filter(Boolean); // Remove null entries
+    
     // Create a new request object to pass to the standard chat endpoint
     const chatRequest = new Request('http://localhost/api/chat', {
       method: 'POST',
@@ -236,7 +316,8 @@ export async function POST(request: NextRequest) {
       },
       body: JSON.stringify({
         message: message + fileContext,
-        userId: userId
+        userId: userId,
+        attachments: attachments // Include attachments data for storing in Qdrant
       }),
     });
     

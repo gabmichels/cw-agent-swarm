@@ -3,6 +3,8 @@
 
 import { OpenAI } from 'openai';
 import { QdrantClient } from '@qdrant/js-client-rest';
+import { Message } from '../../types';
+import { v4 as uuidv4 } from 'uuid';
 
 // Make sure this file is only executed on the server
 if (typeof window !== 'undefined') {
@@ -1076,66 +1078,157 @@ export async function diagnoseDatabaseHealth(): Promise<{
 
 // Add a function to get recent chat messages with timestamp filtering
 export async function getRecentChatMessages(options: {
+  userId?: string;
+  limit?: number;
   since?: Date;
   until?: Date;
-  limit?: number;
   roles?: string[];
-}): Promise<MemoryRecord[]> {
-  if (!qdrantInstance) {
-    await initMemory();
-  }
+}): Promise<Message[]> {
+  const { userId = 'default', limit = 100 } = options;
   
   try {
-    // Build filter with timestamp and roles
-    const filter: Record<string, any> = {};
-    
-    // Add timestamp range if provided
-    if (options.since || options.until) {
-      const timestampFilter: Record<string, any> = {};
-      
-      if (options.since) {
-        timestampFilter.$gte = options.since.toISOString();
-      }
-      
-      if (options.until) {
-        timestampFilter.$lte = options.until.toISOString();
-      }
-      
-      filter.timestamp = timestampFilter;
+    // Make sure Qdrant is initialized
+    if (!qdrantInstance) {
+      await initMemory();
     }
     
-    // Add role filter if provided
+    if (!qdrantInstance || !qdrantInstance.isInitialized()) {
+      console.error('Qdrant not initialized for getRecentChatMessages');
+      return [];
+    }
+    
+    // Get the collection for this user
+    const collectionName = COLLECTIONS['message'];
+    
+    // Search for chat messages only, with appropriate filtering
+    const filter: any = {
+      must: [
+        { key: 'type', match: { value: 'message' } }
+      ]
+    };
+    
+    // Add userId filter if specified
+    if (userId !== 'default') {
+      filter.must.push({ key: 'metadata.userId', match: { value: userId } });
+    }
+    
+    // Add role filter if specified
     if (options.roles && options.roles.length > 0) {
-      filter.role = { $in: options.roles };
+      filter.must.push({ 
+        key: 'metadata.role', 
+        match: { 
+          any: options.roles.map(role => ({ value: role }))
+        } 
+      });
     }
     
-    // Get messages with the constructed filter
-    return qdrantInstance!.searchMemory(
-      'message', 
-      "", // Empty query to get all messages matching filter
-      { 
-        limit: options.limit || 20,
-        filter
-      }
-    );
+    console.log(`Fetching recent chat messages for user: ${userId}, limit: ${limit}`);
+    if (options.since) console.log(`With date range from: ${options.since.toISOString()}`);
+    if (options.until) console.log(`Until: ${options.until.toISOString()}`);
+    
+    // Get recent messages sorted by timestamp (newest first)
+    const searchResponse = await qdrantInstance.searchMemory('message', '', { 
+      limit,
+      filter
+    });
+    
+    if (!searchResponse || !Array.isArray(searchResponse)) {
+      console.error('Invalid response from Qdrant search:', searchResponse);
+      return [];
+    }
+    
+    // Filter by date range if needed
+    let filteredResults = searchResponse;
+    
+    if (options.since) {
+      const sinceTime = options.since.getTime();
+      filteredResults = filteredResults.filter(record => 
+        new Date(record.timestamp).getTime() >= sinceTime
+      );
+    }
+    
+    if (options.until) {
+      const untilTime = options.until.getTime();
+      filteredResults = filteredResults.filter(record => 
+        new Date(record.timestamp).getTime() <= untilTime
+      );
+    }
+    
+    // If this is called with roles (for agent usage), transform to Message format
+    // but still return the correct type
+    if (options.roles) {
+      const agentMessages: Message[] = filteredResults.map(record => {
+        const { metadata = {} } = record;
+        return {
+          sender: metadata.role || 'unknown',
+          content: record.text,
+          timestamp: new Date(record.timestamp),
+          memory: metadata.memory,
+          thoughts: metadata.thoughts,
+          attachments: metadata.attachments,
+          visionResponseFor: metadata.visionResponseFor
+        };
+      });
+      return agentMessages;
+    }
+    
+    // For client-side (UI) usage, transform to Message objects
+    const messages: Message[] = filteredResults.map(record => {
+      // Extract the metadata and content from the Qdrant record
+      const { metadata = {} } = record;
+      
+      // Create a properly formatted message object
+      const message: Message = {
+        sender: metadata.role === 'user' ? 'You' : 'Chloe',
+        content: record.text,
+        timestamp: new Date(record.timestamp),
+        // Only include attachments for user messages - AI responses should never have attachments
+        attachments: metadata.role === 'user' && metadata.attachments && Array.isArray(metadata.attachments) 
+          ? metadata.attachments.map(att => ({
+              ...att,
+              // Handle File type which can't be directly serialized
+              file: att.file ? null : undefined
+            }))
+          : undefined,
+        // Preserve visionResponseFor field if present for AI messages
+        visionResponseFor: metadata.role === 'assistant' && metadata.visionResponseFor
+          ? metadata.visionResponseFor 
+          : undefined
+      };
+      
+      return message;
+    });
+    
+    // Count messages with attachments for logging
+    const messagesWithAttachments = messages.filter(m => m.attachments && m.attachments.length > 0);
+    console.log(`Found ${messagesWithAttachments.length} messages with attachments for user ${userId}`);
+    
+    // Log vision responses for debugging
+    const visionResponses = messages.filter(m => m.visionResponseFor);
+    console.log(`Found ${visionResponses.length} vision responses for user ${userId}`);
+    
+    // Sort by timestamp (oldest first)
+    return messages.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
   } catch (error) {
-    console.error('Error retrieving recent chat messages:', error);
+    console.error('Error fetching recent chat messages:', error);
     return [];
   }
 }
 
 // Function to summarize chat history using timestamps
 export async function summarizeChat(options: {
-  since: Date;
-  until?: Date;
+  userId?: string;
   limit?: number;
+  since?: Date;
+  until?: Date;
 }): Promise<string> {
   try {
     // Get messages in the date range
     const messages = await getRecentChatMessages({
+      userId: options.userId,
+      limit: options.limit || 50,
       since: options.since,
-      until: options.until,
-      limit: options.limit || 50
+      until: options.until
     });
     
     if (messages.length === 0) {
@@ -1144,12 +1237,11 @@ export async function summarizeChat(options: {
     
     // Format messages for summary
     const formattedMessages = messages.map(msg => {
-      const role = msg.metadata.role || "unknown";
-      return `${role.toUpperCase()} (${new Date(msg.timestamp).toLocaleTimeString()}): ${msg.text}`;
+      return `${msg.sender.toUpperCase()} (${new Date(msg.timestamp).toLocaleTimeString()}): ${msg.content}`;
     }).join("\n\n");
     
     // Create a summary using a simple template
-    return `Chat history from ${options.since.toLocaleString()} ${options.until ? `to ${options.until.toLocaleString()}` : 'to now'}:\n\n${formattedMessages}`;
+    return `Chat history from ${options.since ? options.since.toLocaleString() : 'beginning'} ${options.until ? `to ${options.until.toLocaleString()}` : 'to now'}:\n\n${formattedMessages}`;
   } catch (error) {
     console.error('Error summarizing chat:', error);
     return "Failed to generate chat summary due to an error.";

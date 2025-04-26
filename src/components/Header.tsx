@@ -44,7 +44,11 @@ const Header: React.FC<HeaderProps> = ({
         >
           <MenuIcon className="h-5 w-5" />
         </button>
-        <h1 className="text-xl font-bold">Crowd Wisdom</h1>
+        <img 
+          src="/assets/images/cw_fulltext.svg" 
+          alt="Crowd Wisdom" 
+          className="h-8" 
+        />
         
         <div className="ml-4 flex space-x-2">
           {/* Department dropdown */}

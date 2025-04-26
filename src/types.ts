@@ -3,15 +3,23 @@ export interface Message {
   sender: string;
   content: string;
   timestamp: Date;
-  memory?: string[];
+  memory?: MemoryItem[];
   thoughts?: string[];
+  attachments?: FileAttachment[];
+  visionResponseFor?: string; // Timestamp string of the message this is a vision response for
 }
 
 // Define interface for file attachment
 export interface FileAttachment {
   file: File;
+  type: 'image' | 'pdf' | 'document' | 'text' | 'other';
   preview: string;
-  type: 'image' | 'document' | 'text' | 'pdf' | 'other';
+  filename?: string;
+  fileId?: string;
+  size?: number;
+  mimeType?: string;
+  truncated?: boolean;
+  originalPreviewSize?: number;
 }
 
 // Define interface for memory item
