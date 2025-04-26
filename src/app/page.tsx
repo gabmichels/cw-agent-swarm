@@ -1,507 +1,18 @@
 'use client';
 
-import React, { useState, FormEvent, useEffect, useRef, useCallback, useMemo } from 'react';
-import { ChevronDown, Send, Menu, X, PlayIcon, PauseIcon } from 'lucide-react';
-import MarkdownRenderer from '../components/MarkdownRenderer';
-import Image from 'next/image';
-import { MenuIcon, PinIcon, MinimizeIcon, MaximizeIcon } from 'lucide-react';
+import React, { useState, FormEvent, useEffect, useRef, useCallback } from 'react';
+import Header from '../components/Header';
+import Sidebar from '../components/Sidebar';
+import TabsNavigation from '../components/TabsNavigation';
+import ChatMessages from '../components/ChatMessages';
+import ChatInput from '../components/ChatInput';
+import ToolsTab from '../components/tabs/ToolsTab';
+import TasksTab from '../components/tabs/TasksTab';
+import MemoryTab from '../components/tabs/MemoryTab';
+import SocialMediaTable from '../components/SocialMediaTable';
 import FilesTable from '../components/FilesTable';
-import FileUploadButton from '../components/FileUploadButton';
-
-// Define message type for better type safety
-interface Message {
-  sender: string;
-  content: string;
-  timestamp: Date;
-  memory?: string[];
-  thoughts?: string[];
-}
-
-// Define interface for file attachment
-interface FileAttachment {
-  file: File;
-  preview: string;
-  type: 'image' | 'document' | 'text' | 'pdf' | 'other';
-}
-
-// Define interface for memory item
-interface MemoryItem {
-  id?: string;
-  timestamp?: string;
-  created?: string;
-  content?: string;
-  category?: string;
-  importance?: number;
-  tags?: string[];
-}
-
-// Define interfaces for Task and ScheduledTask
-interface Task {
-  id: string;
-  name: string;
-  description?: string;
-  status: string;
-  date?: string;
-}
-
-interface ScheduledTask {
-  id: string;
-  name: string;
-  description: string;
-  cronExpression: string;
-  enabled: boolean;
-  lastRun?: string;
-  nextRun?: string;
-}
-
-// Define interface for social media data
-interface SocialMediaItem {
-  id: string;
-  text: string;
-  timestamp: string;
-  source: string;
-  topic: string;
-  author: string;
-  url: string | null;
-  engagement: Record<string, any>;
-  sentiment: string | null;
-}
-
-// Add a new MemoryTable component right after the imports section
-// This will create a filterable table to display memory contents
-const MemoryTable = ({ memories }: { memories: MemoryItem[] }) => {
-  const [search, setSearch] = useState('');
-  const [categoryFilter, setCategoryFilter] = useState<string>('');
-  const [tagFilter, setTagFilter] = useState<string>('');
-  const [sortField, setSortField] = useState<keyof MemoryItem>('timestamp');
-  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
-
-  const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setSearch(e.target.value);
-  };
-
-  const handleCategoryChange = (cat: string) => {
-    setCategoryFilter(cat);
-  };
-
-  const handleTagChange = (tag: string) => {
-    setTagFilter(tag);
-  };
-
-  const handleSort = (field: keyof MemoryItem) => {
-    if (sortField === field) {
-      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortField(field);
-      setSortOrder('desc');
-    }
-  };
-
-  // Filter memories based on search, category, and tags
-  const filteredMemories = memories.filter((memory) => {
-    const matchesSearch = search === '' || 
-      (memory.content && memory.content.toLowerCase().includes(search.toLowerCase()));
-    
-    const matchesCategory = categoryFilter === '' || 
-      (memory.category && memory.category === categoryFilter);
-    
-    const matchesTag = tagFilter === '' || 
-      (memory.tags && memory.tags.includes(tagFilter));
-    
-    return matchesSearch && matchesCategory && matchesTag;
-  });
-
-  // Sort memories based on sortField and sortOrder
-  const sortedMemories = [...filteredMemories].sort((a, b) => {
-    const fieldA = a[sortField];
-    const fieldB = b[sortField];
-    
-    if (fieldA === undefined && fieldB === undefined) return 0;
-    if (fieldA === undefined) return sortOrder === 'asc' ? 1 : -1;
-    if (fieldB === undefined) return sortOrder === 'asc' ? -1 : 1;
-    
-    if (typeof fieldA === 'string' && typeof fieldB === 'string') {
-      return sortOrder === 'asc' 
-        ? fieldA.localeCompare(fieldB)
-        : fieldB.localeCompare(fieldA);
-    }
-    
-    if (typeof fieldA === 'number' && typeof fieldB === 'number') {
-      return sortOrder === 'asc' 
-        ? fieldA - fieldB
-        : fieldB - fieldA;
-    }
-    
-    return 0;
-  });
-
-  // Get unique categories for filtering
-  const categories = Array.from(new Set(memories
-    .map(m => m.category)
-    .filter(Boolean) as string[]
-  ));
-
-  // Get unique tags for filtering
-  const tags = Array.from(new Set(
-    memories.flatMap(m => m.tags || [])
-  ));
-
-  return (
-    <div className="overflow-auto">
-      <div className="flex space-x-2 mb-2">
-        <input
-          type="text"
-          placeholder="Search memories..."
-          value={search}
-          onChange={handleSearch}
-          className="border p-1 rounded"
-        />
-        <select 
-          value={categoryFilter} 
-          onChange={(e) => handleCategoryChange(e.target.value)}
-          className="border p-1 rounded"
-        >
-          <option value="">All Categories</option>
-          {categories.map((cat, index) => (
-            <option key={index} value={cat}>{cat}</option>
-          ))}
-        </select>
-        <select 
-          value={tagFilter} 
-          onChange={(e) => handleTagChange(e.target.value)}
-          className="border p-1 rounded"
-        >
-          <option value="">All Tags</option>
-          {tags.map((tag, tagIdx) => (
-            <option key={tagIdx} value={tag}>{tag}</option>
-          ))}
-        </select>
-      </div>
-      
-      <table className="min-w-full divide-y divide-gray-200">
-        <thead className="bg-gray-50">
-          <tr>
-            <th onClick={() => handleSort('timestamp')} className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer">
-              Timestamp {sortField === 'timestamp' && (sortOrder === 'asc' ? '↑' : '↓')}
-            </th>
-            <th onClick={() => handleSort('content')} className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer">
-              Content {sortField === 'content' && (sortOrder === 'asc' ? '↑' : '↓')}
-            </th>
-            <th onClick={() => handleSort('category')} className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer">
-              Category {sortField === 'category' && (sortOrder === 'asc' ? '↑' : '↓')}
-            </th>
-            <th onClick={() => handleSort('importance')} className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer">
-              Importance {sortField === 'importance' && (sortOrder === 'asc' ? '↑' : '↓')}
-            </th>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-              Tags
-            </th>
-          </tr>
-        </thead>
-        <tbody className="bg-white divide-y divide-gray-200">
-          {sortedMemories.length > 0 ? (
-            sortedMemories.map((memory, index) => (
-              <tr key={memory.id || index} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                  {memory.timestamp || memory.created || 'Unknown date'}
-                </td>
-                <td className="px-6 py-4 text-sm text-gray-500">
-                  {memory.content || 'No content'}
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                  {memory.category || 'Uncategorized'}
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                  {memory.importance !== undefined ? memory.importance : 'N/A'}
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                  {memory.tags && memory.tags.length > 0 
-                    ? memory.tags.join(', ') 
-                    : 'No tags'}
-                </td>
-              </tr>
-            ))
-          ) : (
-            <tr>
-              <td colSpan={5} className="px-6 py-4 text-center text-sm text-gray-500">
-                No memories found matching the current filters
-              </td>
-            </tr>
-          )}
-        </tbody>
-      </table>
-    </div>
-  );
-};
-
-// Function to convert cron expressions to human-readable format
-const formatCronExpression = (cronExp: string): string => {
-  try {
-    const parts = cronExp.split(' ');
-    if (parts.length !== 5) return cronExp; // Invalid format
-    
-    const [minute, hour, dayOfMonth, month, dayOfWeek] = parts;
-    
-    // Helper to format time in 12-hour format
-    const formatTime = (h: number, m: number): string => {
-      const period = h >= 12 ? 'PM' : 'AM';
-      const hour12 = h % 12 || 12;
-      const minuteStr = m === 0 ? '' : `:${m.toString().padStart(2, '0')}`;
-      return `${hour12}${minuteStr} ${period}`;
-    };
-    
-    // Special case for market-scanner: "0 7,15 * * *" (twice daily at 7am and 3pm)
-    if (minute === '0' && hour === '7,15' && dayOfMonth === '*' && month === '*' && dayOfWeek === '*') {
-      return 'Twice daily at 7 AM and 3 PM';
-    }
-    
-    // For simple expressions
-    if (dayOfMonth === '*' && month === '*') {
-      if (dayOfWeek === '*') {
-        // Every day at specific time
-        if (minute === '0' && hour.match(/^\d+$/)) {
-          return `Daily at ${formatTime(parseInt(hour), 0)}`;
-        }
-        // Every day at multiple times
-        if (minute === '0' && hour.includes(',')) {
-          const times = hour.split(',').map(h => formatTime(parseInt(h), 0)).join(' and ');
-          return `Daily at ${times}`;
-        }
-      } else if (dayOfWeek.match(/^\d+$/)) {
-        // Specific day of week
-        const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-        if (minute === '0' && hour.match(/^\d+$/)) {
-          return `Every ${days[parseInt(dayOfWeek)]} at ${formatTime(parseInt(hour), 0)}`;
-        }
-      } else if (dayOfWeek.includes(',')) {
-        // Multiple days
-        const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-        const dayNames = dayOfWeek.split(',').map(d => days[parseInt(d)]).join(' & ');
-        if (minute === '0' && hour.match(/^\d+$/)) {
-          return `Every ${dayNames} at ${formatTime(parseInt(hour), 0)}`;
-        }
-      }
-    }
-    
-    // Fallback for complex expressions - more readable than raw cron
-    let readable = 'At ';
-    
-    // Minute
-    if (minute === '0') {
-      // Don't display minutes for on-the-hour times
-    } else if (minute === '*') {
-      readable += 'every minute ';
-    } else {
-      readable += `minute ${minute} `;
-    }
-    
-    // Hour
-    if (hour === '*') {
-      readable += 'of every hour ';
-    } else if (hour.includes(',')) {
-      const hours = hour.split(',').map(h => formatTime(parseInt(h), 0)).join(' and ');
-      readable += `${hours} `;
-            } else {
-      readable += `${formatTime(parseInt(hour), parseInt(minute))} `;
-    }
-    
-    // Day of week
-    if (dayOfWeek !== '*') {
-      const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-      if (dayOfWeek.includes(',')) {
-        const dayNames = dayOfWeek.split(',').map(d => days[parseInt(d)]).join(' and ');
-        readable += `on ${dayNames} `;
-      } else if (dayOfWeek.includes('-')) {
-        const [start, end] = dayOfWeek.split('-').map(d => parseInt(d));
-        readable += `from ${days[start]} to ${days[end]} `;
-          } else {
-        readable += `on ${days[parseInt(dayOfWeek)]} `;
-      }
-    } else if (dayOfMonth !== '*') {
-      // Day of month
-      if (dayOfMonth.includes(',')) {
-        const dates = dayOfMonth.split(',').join(', ');
-        readable += `on the ${dates} of the month `;
-      } else {
-        readable += `on the ${dayOfMonth} of the month `;
-      }
-    } else {
-      readable += 'every day ';
-    }
-    
-    return readable.trim();
-  } catch (error) {
-    console.error('Error formatting cron expression:', error);
-    return cronExp;
-  }
-};
-
-// Add a SocialMediaTable component right after the MemoryTable component
-const SocialMediaTable = () => {
-  const [socialData, setSocialData] = useState<SocialMediaItem[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [timeframe, setTimeframe] = useState('all');
-  const [source, setSource] = useState('');
-  const [topic, setTopic] = useState('');
-  
-  // Fetch social media data when filters change
-  useEffect(() => {
-    const fetchSocialMediaData = async () => {
-      setIsLoading(true);
-      try {
-        const queryParams = new URLSearchParams();
-        if (searchTerm) queryParams.set('query', searchTerm);
-        if (timeframe) queryParams.set('timeframe', timeframe);
-        if (source) queryParams.set('source', source);
-        if (topic) queryParams.set('topic', topic);
-        
-        const response = await fetch(`/api/social-media-data?${queryParams.toString()}`);
-        if (!response.ok) {
-          throw new Error('Failed to fetch social media data');
-        }
-        
-        const result = await response.json();
-        if (result.success) {
-          setSocialData(result.data);
-        } else {
-          console.error('Error fetching social media data:', result.error);
-        }
-  } catch (error) {
-        console.error('Error fetching social media data:', error);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    
-    fetchSocialMediaData();
-  }, [searchTerm, timeframe, source, topic]);
-  
-  // Generate unique list of topics from data
-  const topics = useMemo(() => {
-    const uniqueTopics = Array.from(new Set(socialData.map(item => item.topic)));
-    return uniqueTopics;
-  }, [socialData]);
-  
-  // Generate unique list of sources from data
-  const sources = useMemo(() => {
-    const uniqueSources = Array.from(new Set(socialData.map(item => item.source)));
-    return uniqueSources;
-  }, [socialData]);
-  
-  return (
-    <div className="bg-gray-800 rounded-lg p-4">
-      <h2 className="text-xl font-bold mb-4">Social Media Data</h2>
-      
-      <div className="flex flex-wrap gap-2 mb-4">
-        {/* Search input */}
-        <input
-          type="text"
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          placeholder="Search content..."
-          className="bg-gray-700 border border-gray-600 rounded py-1 px-2 text-sm"
-        />
-        
-        {/* Timeframe filter */}
-        <select
-          value={timeframe}
-          onChange={(e) => setTimeframe(e.target.value)}
-          className="bg-gray-700 border border-gray-600 rounded py-1 px-2 text-sm"
-        >
-          <option value="all">All Time</option>
-          <option value="day">Last 24 Hours</option>
-          <option value="week">Last 7 Days</option>
-          <option value="month">Last 30 Days</option>
-        </select>
-        
-        {/* Source filter */}
-        <select
-          value={source}
-          onChange={(e) => setSource(e.target.value)}
-          className="bg-gray-700 border border-gray-600 rounded py-1 px-2 text-sm"
-        >
-          <option value="">All Sources</option>
-          {sources.map((src) => (
-            <option key={src} value={src}>{src}</option>
-          ))}
-        </select>
-        
-        {/* Topic filter */}
-        <select
-          value={topic}
-          onChange={(e) => setTopic(e.target.value)}
-          className="bg-gray-700 border border-gray-600 rounded py-1 px-2 text-sm"
-        >
-          <option value="">All Topics</option>
-          {topics.map((t) => (
-            <option key={t} value={t}>{t}</option>
-          ))}
-        </select>
-      </div>
-      
-      {isLoading ? (
-        <div className="flex justify-center py-4">
-          <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500"></div>
-        </div>
-      ) : socialData.length === 0 ? (
-        <p className="text-gray-400">No social media data found. Try running a market scan first.</p>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-700">
-            <thead>
-              <tr>
-                <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Date</th>
-                <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Source</th>
-                <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Topic</th>
-                <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Content</th>
-                <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Author</th>
-                <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Sentiment</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-700">
-              {socialData.map((item) => (
-                <tr key={item.id}>
-                  <td className="px-4 py-3 whitespace-nowrap text-sm">
-                    {new Date(item.timestamp).toLocaleString()}
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap text-sm">
-                    {item.source}
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap text-sm">
-                    {item.topic}
-                  </td>
-                  <td className="px-4 py-3 text-sm">
-                    <div className="max-w-md truncate">
-                      {item.text}
-                      {item.url && (
-                        <a href={item.url} target="_blank" rel="noopener noreferrer" className="ml-2 text-blue-400 hover:text-blue-300">
-                          Link
-                        </a>
-                      )}
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap text-sm">
-                    {item.author}
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap text-sm">
-                    <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                      item.sentiment === 'positive' ? 'bg-green-100 text-green-800' : 
-                      item.sentiment === 'negative' ? 'bg-red-100 text-red-800' : 
-                      'bg-yellow-100 text-yellow-800'
-                    }`}>
-                      {item.sentiment || 'neutral'}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
-  );
-};
+import { formatCronExpression } from '../utils/cronFormatter';
+import { Message, FileAttachment, MemoryItem, Task, ScheduledTask } from '../types';
 
 export default function Home() {
   const [selectedDepartment, setSelectedDepartment] = useState('Marketing');
@@ -539,13 +50,15 @@ export default function Home() {
   const toggleFullscreen = () => setIsFullscreen(!isFullscreen);
   
   // Toggle department dropdown
-  const toggleDeptDropdown = () => {
+  const toggleDeptDropdown = (e: React.MouseEvent) => {
+    e.stopPropagation();
     setIsDeptDropdownOpen(!isDeptDropdownOpen);
     setIsAgentDropdownOpen(false);
   };
   
   // Toggle agent dropdown
-  const toggleAgentDropdown = () => {
+  const toggleAgentDropdown = (e: React.MouseEvent) => {
+    e.stopPropagation();
     setIsAgentDropdownOpen(!isAgentDropdownOpen);
     setIsDeptDropdownOpen(false);
   };
@@ -1431,116 +944,22 @@ For detailed instructions, see the Debug panel.`,
     <div className="flex flex-col h-screen bg-gray-900 text-white">
       {/* Header - hide in fullscreen mode */}
       {!isFullscreen && (
-        <header className="bg-gray-800 border-b border-gray-700 py-2 px-4 flex justify-between items-center">
-        <div className="flex items-center">
-          <button 
-            onClick={toggleSidebar}
-              className="p-2 mr-2 rounded hover:bg-gray-700"
-              aria-label="Toggle sidebar"
-          >
-              <MenuIcon className="h-5 w-5" />
-          </button>
-            <h1 className="text-xl font-bold">Crowd Wisdom</h1>
-            
-            <div className="ml-4 flex space-x-2">
-              {/* Department dropdown */}
-              <div className="relative">
-              <button 
-                  className="flex items-center px-3 py-1 bg-gray-700 rounded text-sm"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    toggleDeptDropdown();
-                  }}
-                >
-                  <span>{selectedDepartment}</span>
-                  <ChevronDown className="h-4 w-4 ml-1" />
-                </button>
-                
-                {isDeptDropdownOpen && (
-                  <div className="absolute z-10 mt-1 w-40 bg-gray-700 rounded shadow-lg">
-                    <ul className="py-1">
-                      {departments.map((dept) => (
-                        <li key={dept}>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleDepartmentChange(dept);
-                            }}
-                            className={`w-full text-left px-4 py-2 text-sm hover:bg-gray-600 ${
-                              selectedDepartment === dept ? 'bg-blue-600' : ''
-                            }`}
-                          >
-                            {dept}
-              </button>
-            </li>
-                      ))}
-          </ul>
-                  </div>
-                )}
-              </div>
-              
-              {/* Agent dropdown */}
-            <div className="relative">
-                <button 
-                  className="flex items-center px-3 py-1 bg-gray-700 rounded text-sm"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    toggleAgentDropdown();
-                  }}
-                >
-                  <span>{selectedAgent}</span>
-                  <ChevronDown className="h-4 w-4 ml-1" />
-                </button>
-                
-                {isAgentDropdownOpen && (
-                  <div className="absolute z-10 mt-1 w-40 bg-gray-700 rounded shadow-lg">
-                    <ul className="py-1">
-                      {(agentsByDepartment[selectedDepartment as keyof typeof agentsByDepartment] || []).map((agent) => (
-                        <li key={agent}>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleAgentChange(agent);
-                            }}
-                            className={`w-full text-left px-4 py-2 text-sm ${
-                              agent.includes('Soon') ? 'text-gray-500 cursor-not-allowed' : 'hover:bg-gray-600'
-                            } ${selectedAgent === agent ? 'bg-blue-600' : ''}`}
-                          >
-                            {agent}
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-              </div>
-                )}
-            </div>
-          </div>
-          </div>
-          <div className="flex items-center space-x-4">
-            <nav>
-              <ul className="flex space-x-4">
-                <li>
-                  <a href="#" className="text-sm hover:text-blue-400">Dashboard</a>
-              </li>
-                <li>
-                  <a href="#" className="text-sm hover:text-blue-400">Projects</a>
-              </li>
-                <li>
-                  <a href="#" className="text-sm hover:text-blue-400">Analytics</a>
-                </li>
-                <li>
-                  <a href="#" className="text-sm hover:text-blue-400">Settings</a>
-              </li>
-            </ul>
-            </nav>
-              <button
-              onClick={() => setIsDebugMode(!isDebugMode)}
-              className={`p-2 rounded ${isDebugMode ? 'bg-blue-600' : 'hover:bg-gray-700'}`}
-              >
-              <PinIcon className="h-4 w-4" />
-              </button>
-            </div>
-        </header>
+        <Header
+          selectedDepartment={selectedDepartment}
+          selectedAgent={selectedAgent}
+          isDeptDropdownOpen={isDeptDropdownOpen}
+          isAgentDropdownOpen={isAgentDropdownOpen}
+          isDebugMode={isDebugMode}
+          isSidebarOpen={isSidebarOpen}
+          toggleSidebar={toggleSidebar}
+          toggleDeptDropdown={toggleDeptDropdown}
+          toggleAgentDropdown={toggleAgentDropdown}
+          handleDepartmentChange={handleDepartmentChange}
+          handleAgentChange={handleAgentChange}
+          setIsDebugMode={setIsDebugMode}
+          departments={departments}
+          agentsByDepartment={agentsByDepartment}
+        />
       )}
 
       {/* Main content area */}
@@ -1552,429 +971,89 @@ For detailed instructions, see the Debug panel.`,
             ${isFullscreen ? 'hidden' : 'block'}`}
         >
           {isSidebarOpen && (
-            <>
-              <div className="p-4 border-b border-gray-700 flex justify-between items-center">
-                <h2 className="font-semibold">Quick Actions</h2>
-              <button
-                  onClick={toggleSidebarPin} 
-                  className={`p-1 rounded ${isSidebarPinned ? 'bg-blue-600' : 'hover:bg-gray-700'}`}
-                  title={isSidebarPinned ? "Unpin sidebar" : "Pin sidebar"}
-                >
-                  <PinIcon className="h-4 w-4" />
-              </button>
-              </div>
-              <div className="flex-1 overflow-y-auto p-4">
-                <h3 className="text-sm font-semibold mb-2 text-gray-400">AGENTS</h3>
-                <ul className="space-y-1 mb-4">
-                  <li>
-              <button
-                      onClick={() => setSelectedAgent('Chloe')}
-                      className={`w-full text-left block p-2 rounded ${selectedAgent === 'Chloe' ? 'bg-blue-600' : 'hover:bg-gray-700'}`}
-              >
-                      Chloe (Marketing)
-              </button>
-                  </li>
-                  <li>
-                    <button className="w-full text-left block p-2 rounded text-gray-500 cursor-not-allowed">
-                      Emma (HR) - Coming Soon
-                    </button>
-                  </li>
-                  <li>
-                    <button className="w-full text-left block p-2 rounded text-gray-500 cursor-not-allowed">
-                      Alex (Finance) - Coming Soon
-                    </button>
-                  </li>
-                </ul>
-                
-                <h3 className="text-sm font-semibold mb-2 text-gray-400">COMMON TASKS</h3>
-                <ul className="space-y-1">
-                  <li>
-                    <button className="w-full text-left block p-2 rounded hover:bg-gray-700">
-                      Content Planning
-                    </button>
-                  </li>
-                  <li>
-                    <button className="w-full text-left block p-2 rounded hover:bg-gray-700">
-                      Social Monitoring
-                    </button>
-                  </li>
-                  <li>
-                    <button className="w-full text-left block p-2 rounded hover:bg-gray-700">
-                      Create Campaign
-                    </button>
-                  </li>
-                  <li>
-                    <button className="w-full text-left block p-2 rounded hover:bg-gray-700">
-                      Analyze Metrics
-                    </button>
-                  </li>
-                </ul>
-            </div>
-            </>
+            <Sidebar
+              isSidebarOpen={isSidebarOpen}
+              isSidebarPinned={isSidebarPinned}
+              selectedAgent={selectedAgent}
+              toggleSidebarPin={toggleSidebarPin}
+              setSelectedAgent={setSelectedAgent}
+            />
           )}
-          </div>
+        </div>
 
         {/* Chat container */}
         <div className={`flex-1 flex flex-col ${isFullscreen ? 'w-full' : ''}`}>
           <div className="flex-1 flex flex-col overflow-hidden">
             {/* Chat header with tabs and fullscreen toggle */}
-            <div className="bg-gray-800 border-b border-gray-700 p-2 flex justify-between items-center">
-              <div className="flex space-x-1">
-                {['Chat', 'Tools', 'Tasks', 'Memory', 'Social', 'Files'].map((tab) => (
-              <button 
-                    key={tab}
-                    onClick={() => setSelectedTab(tab.toLowerCase())}
-                    className={`px-3 py-1 rounded-t ${
-                      selectedTab === tab.toLowerCase()
-                        ? 'bg-gray-700 text-white'
-                        : 'hover:bg-gray-700/50'
-                    }`}
-                  >
-                    {tab}
-              </button>
-                ))}
-              </div>
-              <button 
-                onClick={toggleFullscreen}
-                className="p-2 rounded hover:bg-gray-700"
-                aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
-              >
-                {isFullscreen ? (
-                  <MinimizeIcon className="h-5 w-5" />
-                ) : (
-                  <MaximizeIcon className="h-5 w-5" />
-                )}
-              </button>
-            </div>
+            <TabsNavigation
+              selectedTab={selectedTab}
+              setSelectedTab={setSelectedTab}
+              isFullscreen={isFullscreen}
+              toggleFullscreen={toggleFullscreen}
+            />
 
             {/* Main chat area */}
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
-              {selectedTab === 'chat' && (
-                /* Display messages */
-                messages.map((message, index) => (
-                  <div key={index} className={`flex ${message.sender === 'You' ? 'justify-end' : 'justify-start'}`}>
-                    <div className={`max-w-[75%] rounded-lg p-2 shadow ${
-                      message.sender === 'You' ? 'bg-blue-600 text-white' : 'bg-gray-700'
-                    }`}>
-                      <MarkdownRenderer content={message.content} />
-                    </div>
-                  </div>
-                ))
-              )}
+              {selectedTab === 'chat' && <ChatMessages messages={messages} />}
               
               {selectedTab === 'tasks' && (
-                <div className="bg-gray-800 rounded-lg p-4">
-                  <h2 className="text-xl font-bold mb-4">Scheduled Tasks</h2>
-                  {isLoadingTasks ? (
-                    <div className="flex justify-center py-4">
-                      <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500"></div>
-                    </div>
-                  ) : scheduledTasks.length === 0 ? (
-                    <p className="text-gray-400">No scheduled tasks found.</p>
-                  ) : (
-                    <div className="overflow-x-auto">
-                      <table className="min-w-full divide-y divide-gray-700">
-                        <thead>
-                          <tr>
-                            <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Name</th>
-                            <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Description</th>
-                            <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Schedule</th>
-                            <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Last Run</th>
-                            <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Next Run</th>
-                            <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Status</th>
-                            <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-700">
-                          {scheduledTasks.map((task) => (
-                            <tr key={task.id}>
-                              <td className="px-4 py-3 whitespace-nowrap text-sm">{task.name}</td>
-                              <td className="px-4 py-3 text-sm">{task.description}</td>
-                              <td className="px-4 py-3 whitespace-nowrap text-sm">{formatCronExpression(task.cronExpression)}</td>
-                              <td className="px-4 py-3 whitespace-nowrap text-sm">{task.lastRun ? new Date(task.lastRun).toLocaleString() : 'Never'}</td>
-                              <td className="px-4 py-3 whitespace-nowrap text-sm">{task.nextRun ? new Date(task.nextRun).toLocaleString() : 'Unknown'}</td>
-                              <td className="px-4 py-3 whitespace-nowrap text-sm">
-                                <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${task.enabled ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-                                  {task.enabled ? 'Active' : 'Disabled'}
-                                </span>
-                              </td>
-                              <td className="px-4 py-3 whitespace-nowrap text-sm">
-                                <div className="flex space-x-2">
-              <button 
-                                    onClick={() => runTaskNow(task.id)}
-                                    className="text-blue-400 hover:text-blue-300"
-                                    title="Run now"
-              >
-                                    <PlayIcon className="h-5 w-5" />
-              </button>
-              <button 
-                                    onClick={() => toggleTaskEnabled(task.id, !task.enabled)}
-                                    className={`${task.enabled ? 'text-red-400 hover:text-red-300' : 'text-green-400 hover:text-green-300'}`}
-                                    title={task.enabled ? 'Disable' : 'Enable'}
-                                  >
-                                    {task.enabled ? <PauseIcon className="h-5 w-5" /> : <PlayIcon className="h-5 w-5" />}
-              </button>
-            </div>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-          </div>
-                              )}
-                            </div>
-                          )}
+                <TasksTab
+                  isLoadingTasks={isLoadingTasks}
+                  scheduledTasks={scheduledTasks}
+                  runTaskNow={runTaskNow}
+                  toggleTaskEnabled={toggleTaskEnabled}
+                  formatCronExpression={formatCronExpression}
+                />
+              )}
               
               {selectedTab === 'memory' && (
-                <div className="bg-gray-800 rounded-lg p-4">
-                  <h2 className="text-xl font-bold mb-4">Memory Explorer</h2>
-                  {isLoadingMemories ? (
-                    <div className="flex justify-center py-4">
-                      <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500"></div>
-                      </div>
-                  ) : (
-                    <MemoryTable memories={allMemories} />
-                  )}
-                  </div>
-                )}
-                
+                <MemoryTab
+                  isLoadingMemories={isLoadingMemories}
+                  allMemories={allMemories}
+                />
+              )}
+              
               {selectedTab === 'tools' && (
-                <div className="bg-gray-800 rounded-lg p-4">
-                  <h2 className="text-xl font-bold mb-4">Tools & Diagnostics</h2>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    <div className="bg-gray-700 p-4 rounded-lg">
-                      <h3 className="font-semibold mb-2">Agent Diagnostics</h3>
-                      <p className="text-sm text-gray-300 mb-4">Run tests to check Chloe's configuration and functionality.</p>
-                      <div className="flex space-x-2">
-                    <button
-                          onClick={checkChloe}
-                          className="px-3 py-1 bg-blue-600 hover:bg-blue-700 rounded text-white text-sm"
-                      disabled={isLoading}
-                    >
-                          Check Agent
-                    </button>
-                        <button 
-                          onClick={runDiagnostics}
-                          className="px-3 py-1 bg-blue-600 hover:bg-blue-700 rounded text-white text-sm"
-                          disabled={isLoading}
-                        >
-                          Run Diagnostics
-                        </button>
-                      </div>
-                    </div>
-                    
-                    <div className="bg-gray-700 p-4 rounded-lg">
-                      <h3 className="font-semibold mb-2">Memory Management</h3>
-                      <p className="text-sm text-gray-300 mb-4">Examine and manage Chloe's memory system.</p>
-                      <div className="flex space-x-2">
-                    <button
-                      onClick={inspectChloeMemory}
-                          className="px-3 py-1 bg-blue-600 hover:bg-blue-700 rounded text-white text-sm"
-                      disabled={isLoading}
-                    >
-                      Inspect Memory
-                    </button>
-                    <button
-                          onClick={resetChatHistory}
-                          className="px-3 py-1 bg-red-600 hover:bg-red-700 rounded text-white text-sm"
-                      disabled={isLoading}
-                    >
-                          Reset Chat
-                    </button>
-                      </div>
-                    </div>
-                    
-                    <div className="bg-gray-700 p-4 rounded-lg">
-                      <h3 className="font-semibold mb-2">Test Connection</h3>
-                      <p className="text-sm text-gray-300 mb-4">Test Chloe's connection to backend services.</p>
-                      <div className="flex space-x-2">
-                    <button
-                          onClick={testChloeAgent}
-                          className="px-3 py-1 bg-blue-600 hover:bg-blue-700 rounded text-white text-sm"
-                      disabled={isLoading}
-                    >
-                          Test Connection
-                    </button>
-                    <button
-                      onClick={showFixInstructions}
-                          className="px-3 py-1 bg-yellow-600 hover:bg-yellow-700 rounded text-white text-sm"
-                      disabled={isLoading}
-                    >
-                      Fix Instructions
-                    </button>
-                  </div>
-              </div>
-
-                    <div className="bg-gray-700 p-4 rounded-lg">
-                      <h3 className="font-semibold mb-2">Direct Market Scan</h3>
-                      <p className="text-sm text-gray-300 mb-4">Run a market scan directly without using the intent router.</p>
-                      <div className="flex space-x-2">
-                  <button
-                          onClick={runDirectMarketScan}
-                          className="px-3 py-1 bg-green-600 hover:bg-green-700 rounded text-white text-sm"
-                          disabled={isLoading}
-                  >
-                          Run Market Scan
-                  </button>
-              </div>
-              </div>
+                <ToolsTab
+                  isLoading={isLoading}
+                  checkChloe={checkChloe}
+                  runDiagnostics={runDiagnostics}
+                  inspectChloeMemory={inspectChloeMemory}
+                  resetChatHistory={resetChatHistory}
+                  testChloeAgent={testChloeAgent}
+                  showFixInstructions={showFixInstructions}
+                  runDirectMarketScan={runDirectMarketScan}
+                  diagnosticResults={diagnosticResults}
+                  chloeCheckResults={chloeCheckResults}
+                  fixInstructions={fixInstructions}
+                  isDebugMode={isDebugMode}
+                />
+              )}
+              
+              {selectedTab === 'social' && <SocialMediaTable />}
+              
+              {selectedTab === 'files' && <FilesTable onRefresh={fetchAllMemories} />}
             </div>
-                      
-                  {isDebugMode && (
-                    <div className="mt-6 p-4 bg-gray-700 rounded-lg">
-                      <h3 className="font-semibold mb-2">Debug Info</h3>
-                      {diagnosticResults && (
-                <div className="mb-4">
-                          <h4 className="text-sm font-medium mb-1">Diagnostic Results:</h4>
-                          <pre className="bg-gray-900 p-2 rounded overflow-auto text-xs">
-                            {JSON.stringify(diagnosticResults, null, 2)}
-                          </pre>
-                </div>
-              )}
-              
-                      {chloeCheckResults && (
-                <div className="mb-4">
-                          <h4 className="text-sm font-medium mb-1">Chloe Check Results:</h4>
-                          <pre className="bg-gray-900 p-2 rounded overflow-auto text-xs">
-                            {JSON.stringify(chloeCheckResults, null, 2)}
-                          </pre>
-                        </div>
-              )}
-              
-                      {fixInstructions && (
-                        <div>
-                          <h4 className="text-sm font-medium mb-1">Fix Instructions:</h4>
-                          <div className="bg-gray-900 p-2 rounded text-xs">
-                            <h5 className="font-bold">{fixInstructions.title}</h5>
-                            <div className="mt-2 whitespace-pre-wrap">{fixInstructions.content}</div>
-                          </div>
-                        </div>
-                )}
-                  </div>
-                )}
-              </div>
-          )}
-          
-              {selectedTab === 'social' && (
-                <SocialMediaTable />
-              )}
-              
-              {selectedTab === 'files' && (
-                <FilesTable onRefresh={fetchAllMemories} />
-              )}
-                        </div>
 
             {/* Input area */}
             <div className="border-t border-gray-700 p-4">
               {selectedTab === 'chat' && (
-                        <div>
-                  {/* File attachment previews */}
-                  {pendingAttachments.length > 0 && (
-                    <div className="flex flex-wrap gap-2 mb-3">
-                      {pendingAttachments.map((attachment, index) => (
-                        <div key={index} className="relative bg-gray-800 rounded p-2 flex items-center" style={{ maxWidth: '200px' }}>
-                          {attachment.type === 'image' && (
-                            <div className="relative w-12 h-12 mr-2">
-                              <img 
-                                src={attachment.preview} 
-                                alt="attachment preview" 
-                                className="w-full h-full object-cover rounded"
-                              />
-                          </div>
-                          )}
-                          {attachment.type === 'pdf' && (
-                            <div className="bg-red-700 text-white rounded p-1 mr-2 text-xs">PDF</div>
-                          )}
-                          {attachment.type === 'document' && (
-                            <div className="bg-blue-700 text-white rounded p-1 mr-2 text-xs">DOC</div>
-                          )}
-                          {attachment.type === 'text' && (
-                            <div className="bg-gray-700 text-white rounded p-1 mr-2 text-xs">TXT</div>
-                          )}
-                          
-                          <div className="flex-1 min-w-0">
-                            <div className="text-sm text-white truncate">{attachment.file.name}</div>
-                            <div className="text-xs text-gray-400">
-                              {(attachment.file.size / 1024).toFixed(1)} KB
-                        </div>
-                      </div>
-                      
-                          <button 
-                            onClick={() => removePendingAttachment(index)}
-                            className="ml-1 text-gray-400 hover:text-white"
-                          >
-                            <X className="h-4 w-4" />
-                          </button>
-                            </div>
-                          ))}
-                  </div>
-                )}
-                  
-                  {/* Message input form */}
-                  <form onSubmit={handleSendMessage} className="flex items-center chat-input-area">
-                    <input
-                      type="file"
-                      id="hidden-file-input"
-                      className="hidden"
-                      onChange={(e) => {
-                        if (e.target.files && e.target.files.length > 0) {
-                          handleFileSelect(e.target.files[0]);
-                          // Reset the input
-                          e.target.value = '';
-                        }
-                      }}
-                      accept=".txt,.pdf,.docx,.md,.csv,.jpg,.jpeg,.png,.gif"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => document.getElementById('hidden-file-input')?.click()}
-                      className="p-2 rounded hover:bg-gray-700 text-gray-300 hover:text-white"
-                      title="Attach file"
-                      disabled={isLoading}
-                    >
-                      <svg 
-                        xmlns="http://www.w3.org/2000/svg" 
-                        className="h-5 w-5" 
-                        fill="none" 
-                        viewBox="0 0 24 24" 
-                        stroke="currentColor"
-                      >
-                        <path 
-                          strokeLinecap="round" 
-                          strokeLinejoin="round" 
-                          strokeWidth={2} 
-                          d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" 
-                        />
-                      </svg>
-                    </button>
-                    <input
-                      type="text"
-                      ref={inputRef}
-                      value={inputMessage}
-                      onChange={(e) => setInputMessage(e.target.value)}
-                      placeholder={pendingAttachments.length > 0 ? "Add context about the file..." : "Type your message..."}
-                      className="flex-1 bg-gray-700 border border-gray-600 rounded-l-lg py-2 px-3 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      disabled={isLoading}
-                    />
-                    <button
-                      type="submit"
-                      className="bg-blue-600 hover:bg-blue-700 rounded-r-lg py-2 px-4 text-white font-semibold focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                      disabled={isLoading}
-                    >
-                      {isLoading ? (
-                        <div className="animate-spin h-5 w-5 border-t-2 border-b-2 border-white rounded-full" />
-                      ) : (
-                        <Send className="h-5 w-5" />
-                      )}
-                    </button>
-                  </form>
-            </div>
-          )}
+                <ChatInput
+                  inputMessage={inputMessage}
+                  setInputMessage={setInputMessage}
+                  pendingAttachments={pendingAttachments}
+                  removePendingAttachment={removePendingAttachment}
+                  handleSendMessage={handleSendMessage}
+                  isLoading={isLoading}
+                  handleFileSelect={handleFileSelect}
+                  inputRef={inputRef}
+                />
+              )}
               <div ref={messagesEndRef} />
-                          </div>
-                      </div>
-                  </div>
-              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
-} 
+}
