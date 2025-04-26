@@ -51,6 +51,9 @@ export type { PersonaOptions } from './persona';
 // Import ChloeAgent for default export
 import { ChloeAgent } from './agent';
 
+// Import required modules for the LangChain cognitive tools
+import { createLangChainCognitiveTools } from './tools/cognitiveTools';
+
 /**
  * Get or create a singleton instance of the Chloe agent
  */
@@ -64,6 +67,12 @@ export async function getChloeInstance(): Promise<ChloeAgent | null> {
     // Create and initialize a new instance
     const agent = new ChloeAgent();
     await agent.initialize();
+    
+    // Initialize LangChain compatible cognitive tools using the agent's cognitive systems
+    const langChainCognitiveTools = createLangChainCognitiveTools(
+      agent.getCognitiveMemory(),
+      agent.getKnowledgeGraph()
+    );
     
     // Store for future use
     (global as any).chloeAgent = agent;

@@ -26,6 +26,7 @@ import { IntentRouterTool } from './tools/intentRouter';
 import { FeedbackLoopSystem, createFeedbackLoopSystem } from '../../lib/memory/src/feedback-loop';
 import { IntegrationLayer, createIntegrationLayer } from '../../lib/memory/src/integration-layer';
 import { SelfImprovementMechanism, createSelfImprovementMechanism } from '../../lib/memory/src/self-improvement';
+import { ToolCreationSystem } from './tools/integration';
 
 interface ChloeState {
   messages: Message[];
@@ -70,6 +71,7 @@ export class ChloeAgent {
   private integrationLayer: IntegrationLayer;
   private selfImprovement: SelfImprovementMechanism;
   private strategicInsightsCollection: string = 'strategic_insights';
+  private toolCreationSystem: ToolCreationSystem | null = null;
   
   constructor(config?: Partial<AgentConfig>) {
     // Set default configuration
@@ -221,6 +223,18 @@ export class ChloeAgent {
       } catch (error) {
         // Collection might already exist
         console.log('Strategic insights collection may already exist:', error);
+      }
+
+      // Initialize tool creation system
+      try {
+        this.toolCreationSystem = new ToolCreationSystem(this);
+        await this.toolCreationSystem.initialize();
+        console.log('Tool creation system initialized successfully');
+        
+        // Start periodic tool creation every 24 hours
+        this.toolCreationSystem.schedulePeriodicToolCreation(24);
+      } catch (error) {
+        console.error('Error initializing tool creation system:', error);
       }
 
       this.initialized = true;
@@ -2082,6 +2096,48 @@ ${trendSummary.substring(0, 1900)}${trendSummary.length > 1900 ? '...' : ''}
       return recentInsights.map(result => result.payload as StrategicInsight);
     } catch (error) {
       console.error('Error getting recent strategic insights:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Get the tool creation system
+   */
+  getToolCreationSystem(): ToolCreationSystem {
+    if (!this.toolCreationSystem) {
+      throw new Error('Tool creation system not initialized');
+    }
+    return this.toolCreationSystem;
+  }
+  
+  /**
+   * Create a new tool from description
+   */
+  async createTool(description: string): Promise<any> {
+    if (!this.toolCreationSystem) {
+      throw new Error('Tool creation system not initialized');
+    }
+    
+    try {
+      return await this.toolCreationSystem.createToolFromDescription(description);
+    } catch (error) {
+      console.error('Error creating tool:', error);
+      throw error;
+    }
+  }
+  
+  /**
+   * Find tools for a specific task
+   */
+  async findToolsForTask(task: string): Promise<any[]> {
+    if (!this.toolCreationSystem) {
+      throw new Error('Tool creation system not initialized');
+    }
+    
+    try {
+      return await this.toolCreationSystem.getToolsForTask(task);
+    } catch (error) {
+      console.error('Error finding tools for task:', error);
       return [];
     }
   }

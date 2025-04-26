@@ -3,6 +3,10 @@ import path from 'path';
 import Parser from 'rss-parser';
 import { logger } from '../../../lib/logging';
 import { addMemory as qdrantAddMemory } from '../../../server/qdrant';
+import { ChatOpenAI } from '@langchain/openai';
+import axios from 'axios';
+import { z } from 'zod';
+import { StructuredTool } from '@langchain/core/tools';
 
 interface Source {
   id: string;
@@ -31,16 +35,63 @@ interface MarketSignal {
 }
 
 /**
- * Market Scanner implementation
- * Scans multiple sources for market intelligence and trends
+ * Interface representing a market trend in AI and automation
+ */
+export interface MarketTrend {
+  id: string;
+  name: string;
+  description: string;
+  score: number; // 0-100 relevance score
+  category: 'ai' | 'automation' | 'integration' | 'analytics' | 'other';
+  keywords: string[];
+  sources: string[];
+  firstDetected: Date;
+  lastUpdated: Date;
+  stage: 'emerging' | 'growing' | 'mainstream' | 'declining';
+  relevantUserNeeds: string[];
+  estimatedBusinessImpact: number; // 0-100 score
+}
+
+/**
+ * Configuration for the market scanner
+ */
+export interface MarketScannerConfig {
+  maxResults?: number;
+  scanFrequency?: number; // in milliseconds
+  apiKeys?: {
+    news?: string;
+    research?: string;
+    trends?: string;
+  };
+  sources?: string[];
+}
+
+/**
+ * Result of a market scan operation
+ */
+export interface MarketScanResult {
+  trends: MarketTrend[];
+  timestamp: Date;
+  source: string;
+  scanDuration: number; // in milliseconds
+}
+
+/**
+ * Market Scanner class that detects and analyzes market trends
+ * for AI tools and automation opportunities
  */
 export class MarketScanner {
   private sources: Source[] = [];
   private rssParser: Parser;
   private dataDir: string;
   private isEnabled: boolean = false;
+  private config: MarketScannerConfig;
+  private cachedTrends: MarketTrend[] = [];
+  private lastScanTime: Date | null = null;
+  private isScanning: boolean = false;
+  private model: ChatOpenAI | null = null;
 
-  constructor() {
+  constructor(config: MarketScannerConfig = {}) {
     this.rssParser = new Parser();
     this.dataDir = path.join(process.cwd(), 'data', 'sources');
     
@@ -58,6 +109,19 @@ export class MarketScanner {
     }
 
     this.loadSources();
+
+    this.config = {
+      maxResults: config.maxResults || 100,
+      scanFrequency: config.scanFrequency || 24 * 60 * 60 * 1000, // Default: daily
+      apiKeys: config.apiKeys || {},
+      sources: config.sources || [
+        'news',
+        'research',
+        'social',
+        'conferences',
+        'llm'
+      ]
+    };
   }
 
   /**
@@ -659,6 +723,390 @@ export class MarketScanner {
     
     logger.info(`Market scan complete, processed ${scanCount} signals`);
     return scanCount;
+  }
+
+  /**
+   * Initialize the market scanner with an LLM
+   */
+  async initialize(model?: ChatOpenAI): Promise<void> {
+    this.model = model || new ChatOpenAI({
+      temperature: 0.2,
+      modelName: 'gpt-4',
+    });
+    
+    // Load initial trends if cache is empty
+    if (this.cachedTrends.length === 0) {
+      await this.refreshTrends();
+    }
+  }
+  
+  /**
+   * Get current market trends
+   */
+  async getTrends(
+    category?: string, 
+    minScore: number = 0, 
+    limit: number = 10
+  ): Promise<MarketTrend[]> {
+    // Check if we need to refresh trends based on scanFrequency
+    const now = new Date();
+    if (
+      !this.lastScanTime || 
+      now.getTime() - this.lastScanTime.getTime() > this.config.scanFrequency!
+    ) {
+      await this.refreshTrends();
+    }
+    
+    // Filter trends based on params
+    let filteredTrends = [...this.cachedTrends];
+    
+    if (category) {
+      filteredTrends = filteredTrends.filter(
+        trend => trend.category === category
+      );
+    }
+    
+    if (minScore > 0) {
+      filteredTrends = filteredTrends.filter(
+        trend => trend.score >= minScore
+      );
+    }
+    
+    // Sort by score descending and limit results
+    return filteredTrends
+      .sort((a, b) => b.score - a.score)
+      .slice(0, limit);
+  }
+  
+  /**
+   * Refresh market trends from all configured sources
+   */
+  async refreshTrends(): Promise<MarketTrend[]> {
+    if (this.isScanning) {
+      return this.cachedTrends;
+    }
+    
+    this.isScanning = true;
+    const startTime = Date.now();
+    
+    try {
+      // Scan each source in parallel
+      const scanPromises = this.config.sources!.map(source => 
+        this.scanSource(source)
+      );
+      
+      const results = await Promise.all(scanPromises);
+      
+      // Merge and deduplicate trends
+      const allTrends: MarketTrend[] = [];
+      const trendIds = new Set<string>();
+      
+      for (const result of results) {
+        for (const trend of result.trends) {
+          if (!trendIds.has(trend.id)) {
+            allTrends.push(trend);
+            trendIds.add(trend.id);
+          } else {
+            // Update existing trend with new information
+            const existingIndex = allTrends.findIndex(t => t.id === trend.id);
+            if (existingIndex >= 0) {
+              const existing = allTrends[existingIndex];
+              allTrends[existingIndex] = {
+                ...existing,
+                score: Math.max(existing.score, trend.score),
+                keywords: [...Array.from(new Set([...existing.keywords, ...trend.keywords]))],
+                sources: [...Array.from(new Set([...existing.sources, ...trend.sources]))],
+                lastUpdated: new Date(),
+                relevantUserNeeds: [...Array.from(new Set([...existing.relevantUserNeeds, ...trend.relevantUserNeeds]))],
+                estimatedBusinessImpact: Math.max(existing.estimatedBusinessImpact, trend.estimatedBusinessImpact)
+              };
+            }
+          }
+        }
+      }
+      
+      // Sort by score and limit results
+      this.cachedTrends = allTrends
+        .sort((a, b) => b.score - a.score)
+        .slice(0, this.config.maxResults);
+      
+      this.lastScanTime = new Date();
+      return this.cachedTrends;
+    } catch (error) {
+      console.error('Error refreshing market trends:', error);
+      throw error;
+    } finally {
+      this.isScanning = false;
+    }
+  }
+  
+  /**
+   * Scan a specific source for market trends
+   */
+  private async scanSource(source: string): Promise<MarketScanResult> {
+    const startTime = Date.now();
+    let trends: MarketTrend[] = [];
+    
+    try {
+      switch (source) {
+        case 'news':
+          trends = await this.scanNewsSource();
+          break;
+        case 'research':
+          trends = await this.scanResearchSource();
+          break;
+        case 'social':
+          trends = await this.scanSocialSource();
+          break;
+        case 'conferences':
+          trends = await this.scanConferenceSource();
+          break;
+        case 'llm':
+          trends = await this.generateTrendsWithLLM();
+          break;
+        default:
+          throw new Error(`Unknown market trend source: ${source}`);
+      }
+      
+      return {
+        trends,
+        timestamp: new Date(),
+        source,
+        scanDuration: Date.now() - startTime
+      };
+    } catch (error) {
+      console.error(`Error scanning source ${source}:`, error);
+      return {
+        trends: [],
+        timestamp: new Date(),
+        source,
+        scanDuration: Date.now() - startTime
+      };
+    }
+  }
+  
+  /**
+   * Scan news sources for AI and automation trends
+   */
+  private async scanNewsSource(): Promise<MarketTrend[]> {
+    if (!this.config.apiKeys?.news) {
+      // Fall back to LLM-based synthesis if no API key
+      return this.generateTrendsWithLLM('news');
+    }
+    
+    try {
+      // TODO: Replace with actual API call when ready
+      // Simulated implementation for now
+      return this.simulateNewsApiResults();
+    } catch (error) {
+      console.error('Error scanning news source:', error);
+      return [];
+    }
+  }
+  
+  /**
+   * Scan research sources for AI and automation trends
+   */
+  private async scanResearchSource(): Promise<MarketTrend[]> {
+    if (!this.config.apiKeys?.research) {
+      // Fall back to LLM-based synthesis if no API key
+      return this.generateTrendsWithLLM('research');
+    }
+    
+    try {
+      // TODO: Replace with actual API call when ready
+      // Simulated implementation for now
+      return this.simulateResearchApiResults();
+    } catch (error) {
+      console.error('Error scanning research source:', error);
+      return [];
+    }
+  }
+  
+  /**
+   * Scan social media for AI and automation trends
+   */
+  private async scanSocialSource(): Promise<MarketTrend[]> {
+    // For now, we'll generate this with an LLM
+    return this.generateTrendsWithLLM('social');
+  }
+  
+  /**
+   * Scan conference proceedings for AI and automation trends
+   */
+  private async scanConferenceSource(): Promise<MarketTrend[]> {
+    // For now, we'll generate this with an LLM
+    return this.generateTrendsWithLLM('conferences');
+  }
+  
+  /**
+   * Generate market trends using an LLM
+   */
+  private async generateTrendsWithLLM(context?: string): Promise<MarketTrend[]> {
+    if (!this.model) {
+      throw new Error('Market scanner not initialized with an LLM model');
+    }
+    
+    try {
+      // Different prompt based on context
+      let prompt = `
+        You are an expert market analyst specializing in AI and automation technologies.
+        Generate a list of 5 current market trends in AI tools and automation.
+        
+        For each trend, provide:
+        1. A unique ID (short alphanumeric)
+        2. Name (concise title)
+        3. Description (1-2 sentences)
+        4. Relevance score (0-100)
+        5. Category (one of: ai, automation, integration, analytics, other)
+        6. 3-5 relevant keywords
+        7. Possible sources (where this trend might be observed)
+        8. Stage (one of: emerging, growing, mainstream, declining)
+        9. 2-3 relevant user needs this trend addresses
+        10. Estimated business impact score (0-100)
+        
+        Format the response as a valid JSON array of trend objects.
+      `;
+      
+      if (context) {
+        prompt += `\nFocus specifically on trends appearing in ${context} sources.`;
+      }
+      
+      const completion = await this.model.invoke(prompt);
+      const responseText = completion.content as string;
+      
+      // Extract JSON from the response
+      const jsonMatch = responseText.match(/\[[\s\S]*\]/);
+      if (!jsonMatch) {
+        throw new Error('Could not extract valid JSON from LLM response');
+      }
+      
+      const jsonString = jsonMatch[0];
+      const trends = JSON.parse(jsonString);
+      
+      // Convert string dates to Date objects
+      return trends.map((trend: any) => ({
+        ...trend,
+        firstDetected: new Date(),
+        lastUpdated: new Date()
+      }));
+    } catch (error) {
+      console.error('Error generating trends with LLM:', error);
+      return [];
+    }
+  }
+  
+  /**
+   * Create a market trend finder tool for use in LLM agents
+   */
+  createMarketTrendTool(): StructuredTool {
+    const schema = z.object({
+      category: z.enum(['ai', 'automation', 'integration', 'analytics', 'other']).optional(),
+      minScore: z.number().min(0).max(100).optional(),
+      limit: z.number().min(1).max(20).optional(),
+      refresh: z.boolean().optional()
+    });
+    
+    return new StructuredTool({
+      name: 'find_market_trends',
+      description: 'Find current market trends in AI and automation technologies',
+      schema: schema,
+      func: async ({ 
+        category, 
+        minScore = 50, 
+        limit = 5, 
+        refresh = false 
+      }: { 
+        category?: string; 
+        minScore?: number; 
+        limit?: number; 
+        refresh?: boolean; 
+      }) => {
+        if (refresh) {
+          await this.refreshTrends();
+        }
+        
+        const trends = await this.getTrends(
+          category,
+          minScore,
+          limit
+        );
+        
+        return JSON.stringify(trends, null, 2);
+      }
+    });
+  }
+  
+  /**
+   * Simulate news API results for testing
+   */
+  private simulateNewsApiResults(): MarketTrend[] {
+    return [
+      {
+        id: 'trend_news_1',
+        name: 'Multimodal AI Assistants',
+        description: 'AI systems that can process and generate multiple types of media including text, images, and audio.',
+        score: 95,
+        category: 'ai',
+        keywords: ['multimodal', 'assistants', 'generative AI', 'vision', 'speech'],
+        sources: ['TechCrunch', 'Wired', 'The Verge'],
+        firstDetected: new Date(Date.now() - 60 * 24 * 60 * 60 * 1000),
+        lastUpdated: new Date(),
+        stage: 'growing',
+        relevantUserNeeds: ['content creation', 'accessibility', 'natural interaction'],
+        estimatedBusinessImpact: 90
+      },
+      {
+        id: 'trend_news_2',
+        name: 'AI Tool Integration Platforms',
+        description: 'Platforms that connect and orchestrate multiple AI tools and services to create integrated workflows.',
+        score: 88,
+        category: 'integration',
+        keywords: ['orchestration', 'workflow', 'integration', 'platform'],
+        sources: ['VentureBeat', 'TechCrunch', 'Forbes'],
+        firstDetected: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000),
+        lastUpdated: new Date(),
+        stage: 'growing',
+        relevantUserNeeds: ['productivity', 'workflow automation', 'tool consolidation'],
+        estimatedBusinessImpact: 85
+      }
+    ];
+  }
+  
+  /**
+   * Simulate research API results for testing
+   */
+  private simulateResearchApiResults(): MarketTrend[] {
+    return [
+      {
+        id: 'trend_research_1',
+        name: 'Small Specialized Language Models',
+        description: 'Task-specific language models that are smaller, more efficient, and specialized for particular domains.',
+        score: 92,
+        category: 'ai',
+        keywords: ['SLM', 'efficient AI', 'domain-specific', 'specialized models'],
+        sources: ['ArXiv', 'ACL', 'NeurIPS'],
+        firstDetected: new Date(Date.now() - 45 * 24 * 60 * 60 * 1000),
+        lastUpdated: new Date(),
+        stage: 'emerging',
+        relevantUserNeeds: ['deployment efficiency', 'domain expertise', 'cost reduction'],
+        estimatedBusinessImpact: 80
+      },
+      {
+        id: 'trend_research_2',
+        name: 'Self-Improving AI Systems',
+        description: 'AI systems that can autonomously learn from their mistakes and improve their performance over time.',
+        score: 90,
+        category: 'ai',
+        keywords: ['self-improvement', 'autonomous learning', 'feedback loops'],
+        sources: ['ICLR', 'NeurIPS', 'AAAI'],
+        firstDetected: new Date(Date.now() - 75 * 24 * 60 * 60 * 1000),
+        lastUpdated: new Date(),
+        stage: 'emerging',
+        relevantUserNeeds: ['continuous improvement', 'adaptive systems', 'reduced maintenance'],
+        estimatedBusinessImpact: 85
+      }
+    ];
   }
 }
 
