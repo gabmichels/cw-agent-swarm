@@ -41,6 +41,14 @@ export {
   summarizeChat
 } from './autonomy';
 
+// Export the Chloe agent implementation
+export * from './agent';
+export * from './tools';
+export * from './memory';
+export * from './persona';
+export * from './autonomy';
+export * from './knowledge';
+
 // Attach the planAndExecute method on import
 import './planAndExecute';
 
