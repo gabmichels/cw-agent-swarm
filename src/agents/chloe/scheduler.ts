@@ -1,6 +1,17 @@
 import { CronJob } from 'cron';
 import { ChloeAgent } from './agent';
 import { PlanAndExecuteOptions } from './planAndExecute';
+import { logger } from '../../lib/logging';
+import { runMemoryConsolidation } from './tasks/memoryConsolidation';
+import { 
+  runMarketScanTask, 
+  runNewsScanTask, 
+  runTrendingTopicResearchTask, 
+  runSocialMediaTrendsTask 
+} from './tasks/marketScanTask';
+
+// Types for scheduler
+export type TaskId = string;
 
 // Setup scheduler for the agent's recurring tasks
 export function setupScheduler(agent: ChloeAgent) {
@@ -239,48 +250,81 @@ export class ChloeScheduler {
       // Update last run timestamp
       taskConfig.lastRun = new Date();
       
-      // Handle special tasks
-      if (id === 'memory-consolidation') {
-        try {
-          const { runMemoryConsolidation } = await import('./tasks');
-          const success = await runMemoryConsolidation(this.agent);
-          if (success) {
-            console.log('Memory consolidation completed successfully');
-          } else {
-            console.error('Memory consolidation failed');
+      // Handle special task cases
+      switch (id) {
+        case 'memory-consolidation':
+          try {
+            const success = await runMemoryConsolidation(this.agent);
+            console.log(`Memory consolidation ${success ? 'completed successfully' : 'failed'}`);
+          } catch (error) {
+            console.error('Error running memory consolidation:', error);
           }
-          return;
-        } catch (error) {
-          console.error('Error running memory consolidation:', error);
-          return;
-        }
-      }
-      
-      // Get the autonomy system for plan & execute
-      const autonomySystem = await this.agent.getAutonomySystem();
-      if (!autonomySystem) {
-        console.error('Autonomy system not initialized');
-        return;
-      }
-      
-      // Standard execution process for most tasks
-      const options: PlanAndExecuteOptions = {
-        goalPrompt: taskConfig.goalPrompt,
-        autonomyMode: true,
-        requireApproval: false,
-        tags: taskConfig.tags
-      };
-      
-      // Execute the task
-      console.log(`Running task ${id} with goal: ${taskConfig.goalPrompt.substring(0, 100)}...`);
-      const result = await autonomySystem.planAndExecute(options);
-      
-      // Log the result
-      if (result.success) {
-        console.log(`Task ${id} completed successfully`);
-        console.log(`Final output: ${result.output.substring(0, 100)}...`);
-      } else {
-        console.error(`Task ${id} failed: ${result.error}`);
+          break;
+          
+        case 'market-scan':
+          try {
+            const success = await runMarketScanTask(this.agent);
+            console.log(`Market scan ${success ? 'completed successfully' : 'failed'}`);
+          } catch (error) {
+            console.error('Error running market scan:', error);
+          }
+          break;
+          
+        case 'news-scan':
+          try {
+            const success = await runNewsScanTask(this.agent);
+            console.log(`News scan ${success ? 'completed successfully' : 'failed'}`);
+          } catch (error) {
+            console.error('Error running news scan:', error);
+          }
+          break;
+          
+        case 'trending-topic-research':
+          try {
+            const success = await runTrendingTopicResearchTask(this.agent);
+            console.log(`Trending topic research ${success ? 'completed successfully' : 'failed'}`);
+          } catch (error) {
+            console.error('Error running trending topic research:', error);
+          }
+          break;
+          
+        case 'social-media-trends':
+          try {
+            const success = await runSocialMediaTrendsTask(this.agent);
+            console.log(`Social media trends analysis ${success ? 'completed successfully' : 'failed'}`);
+          } catch (error) {
+            console.error('Error running social media trends analysis:', error);
+          }
+          break;
+          
+        default:
+          // Standard execution process for most tasks
+          // Get the autonomy system for plan & execute
+          const autonomySystem = await this.agent.getAutonomySystem();
+          if (!autonomySystem) {
+            console.error('Autonomy system not initialized');
+            return;
+          }
+          
+          // Standard execution process for most tasks
+          const options: PlanAndExecuteOptions = {
+            goalPrompt: taskConfig.goalPrompt,
+            autonomyMode: true,
+            requireApproval: false,
+            tags: taskConfig.tags
+          };
+          
+          // Execute the task
+          console.log(`Running task ${id} with goal: ${taskConfig.goalPrompt.substring(0, 100)}...`);
+          const result = await autonomySystem.planAndExecute(options);
+          
+          // Log the result
+          if (result && result.success) {
+            console.log(`Task ${id} completed successfully`);
+          } else {
+            console.error(`Task ${id} failed: ${result?.error || 'Unknown error'}`);
+          }
+          break;
       }
     } catch (error) {
       console.error(`Error executing task ${id}:`, error);
@@ -362,84 +406,84 @@ export class ChloeScheduler {
 export function setupDefaultSchedule(scheduler: ChloeScheduler): void {
   console.log('Setting up default scheduled tasks for Chloe');
   
-  // Memory consolidation - runs daily at midnight
+  // Daily morning briefing - Generate a summary of what's happening and what's planned
+  scheduler.scheduleTask(
+    'daily-briefing',
+    '0 8 * * *', // 8 AM daily
+    'Create a morning briefing summarizing recent marketing activities, trends, and goals for the day.',
+    ['daily', 'planning']
+  );
+  
+  // Weekly marketing review - Analyze marketing performance
+  scheduler.scheduleTask(
+    'weekly-marketing-review',
+    '0 10 * * 1', // Monday at 10 AM
+    'Review the previous week\'s marketing performance. Analyze key metrics, campaign results, and social media engagement. Provide insights and recommendations.',
+    ['weekly', 'analytics']
+  );
+  
+  // Content idea generation - Generate content ideas twice a week
+  scheduler.scheduleTask(
+    'content-idea-generation',
+    '0 14 * * 2,4', // Tuesday and Thursday at 2 PM
+    'Generate 5-10 fresh content ideas for our blog, social media, and newsletter. Consider current trends, customer interests, and business objectives.',
+    ['content', 'creativity']
+  );
+  
+  // Memory consolidation - Process and organize memories
   scheduler.scheduleTask(
     'memory-consolidation',
-    '0 0 * * *',
-    'Run cognitive memory consolidation to strengthen important memories, remove low-importance ones, and infer new knowledge connections.',
-    ['memory', 'daily', 'cognitive', 'maintenance']
+    '0 2 * * *', // 2 AM daily
+    'Review recent memories and conversations. Identify important insights, action items, and recurring themes. Organize and categorize this information to improve knowledge retrieval.',
+    ['memory', 'maintenance']
   );
   
-  // Daily planning task - runs at 8:00 AM every day
-  scheduler.scheduleTask(
-    'daily-planning',
-    '0 8 * * *',
-    'Create a detailed plan for today\'s marketing tasks, prioritizing the most important items.',
-    ['planning', 'daily', 'marketing']
-  );
-  
-  // Daily summary - runs at 5:00 PM every day
-  scheduler.scheduleTask(
-    'daily-summary',
-    '0 17 * * *',
-    'Create and send a daily summary of tasks and accomplishments for today.',
-    ['summary', 'daily', 'reporting']
-  );
-  
-  // Weekly reflection - runs every Sunday at 6:00 PM
-  scheduler.scheduleTask(
-    'weekly-reflection',
-    '0 18 * * 0',
-    'Perform a weekly reflection on performance, accomplishments, and areas for improvement.',
-    ['reflection', 'weekly', 'analysis']
-  );
-  
-  // Content strategy review - runs every Monday at 9:00 AM
-  scheduler.scheduleTask(
-    'weekly-content-review',
-    '0 9 * * 1',
-    'Review our content strategy for the week ahead. Analyze performance of last week\'s content and suggest improvements.',
-    ['content', 'weekly', 'planning']
-  );
-  
-  // Marketing performance analysis - runs every Friday at 2:00 PM
-  scheduler.scheduleTask(
-    'weekly-performance-analysis',
-    '0 14 * * 5',
-    'Analyze the performance of our marketing campaigns this week. Identify trends, successes, and areas for improvement.',
-    ['analytics', 'weekly', 'performance']
-  );
-  
-  // Social media planning - runs every Tuesday and Thursday at 10:00 AM
-  scheduler.scheduleTask(
-    'social-media-planning',
-    '0 10 * * 2,4',
-    'Plan social media content for the next few days. Consider trending topics, audience engagement metrics, and our content calendar.',
-    ['social-media', 'content', 'planning']
-  );
-  
-  // Industry research - runs every Wednesday at 1:00 PM
-  scheduler.scheduleTask(
-    'industry-research',
-    '0 13 * * 3',
-    'Research the latest trends and innovations in our industry. Identify opportunities for new content or marketing strategies.',
-    ['research', 'industry', 'innovation']
-  );
-  
-  // Market scanner - runs twice a day at 7:00 AM and 3:00 PM
+  // Market scan integration - Runs a comprehensive market scan
   scheduler.scheduleTask(
     'market-scan',
-    '0 7,15 * * *',
-    'Run a comprehensive market scan to identify trending topics, news, and insights from RSS feeds, Reddit, and Twitter. Focus on marketing trends, travel content, and social media shifts. After scanning, analyze the findings, identify opportunities, and update our content strategy accordingly.',
-    ['market-scan', 'research', 'trends', 'intelligence']
+    '0 7 * * 1,3,5', // Monday, Wednesday, Friday at 7 AM
+    'Run a comprehensive market scan to identify trends, competitor activities, and industry news. Store valuable insights in the knowledge base for future reference.',
+    ['research', 'marketing', 'knowledge']
   );
   
-  // Coda document sync - runs daily at 6:00 PM
+  // News scan for daily monitoring
   scheduler.scheduleTask(
-    'coda-documents-sync',
-    '0 18 * * *',
-    'Review and update our Coda documents with the latest marketing insights, campaign performance, and content ideas. Create new research documents for any trending topics identified in today\'s market scans.',
-    ['coda', 'documentation', 'sync', 'knowledge-management']
+    'news-scan',
+    '0 9,15 * * *', // 9 AM and 3 PM daily
+    'Scan recent news sources for marketing-related updates, industry changes, and relevant events. Flag any critical information that requires attention.',
+    ['news', 'monitoring', 'alerts']
+  );
+  
+  // Trending topic research - Weekly research into trending topics
+  scheduler.scheduleTask(
+    'trending-topic-research',
+    '0 13 * * 3', // Wednesday at 1 PM
+    'Analyze current trending topics in marketing and customer experience. Research emerging patterns and assess how they might impact our marketing strategy.',
+    ['trends', 'research', 'strategy']
+  );
+  
+  // Social media trend detection - Monitors social media trends
+  scheduler.scheduleTask(
+    'social-media-trends',
+    '0 11 * * 2,5', // Tuesday and Friday at 11 AM
+    'Monitor and detect trending topics and conversations on social media platforms. Identify opportunities for engagement and content creation.',
+    ['social-media', 'trends', 'engagement']
+  );
+  
+  // Monthly strategic planning
+  scheduler.scheduleTask(
+    'monthly-strategic-planning',
+    '0 9 1 * *', // 1st day of each month at 9 AM
+    'Develop a strategic marketing plan for the upcoming month. Consider business objectives, past performance, market conditions, and available resources.',
+    ['monthly', 'planning', 'strategy']
+  );
+  
+  // Quarterly performance evaluation
+  scheduler.scheduleTask(
+    'quarterly-performance-review',
+    '0 10 1 1,4,7,10 *', // First day of each quarter at 10 AM
+    'Conduct a comprehensive review of the previous quarter\'s marketing performance. Analyze KPIs, campaign effectiveness, budget utilization, and strategic alignment.',
+    ['quarterly', 'review', 'analytics']
   );
   
   console.log('Default scheduled tasks have been set up');
