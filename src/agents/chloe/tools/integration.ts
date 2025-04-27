@@ -18,7 +18,7 @@ export class ToolCreationSystem {
     
     // Get the model from the agent if available
     this.model = agent.getModel() || new ChatOpenAI({
-      modelName: process.env.OPENAI_MODEL_NAME || 'gpt-3.5-turbo',
+      modelName: process.env.OPENAI_MODEL_NAME || 'gpt-4.1-2025-04-14',
       temperature: 0.7,
     });
     

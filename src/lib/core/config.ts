@@ -58,7 +58,7 @@ export const systemConfig = {
     description: 'AI agent platform for marketers'
   },
   llm: {
-    defaultModel: 'gpt-3.5-turbo',
+    defaultModel: 'gpt-4.1-2025-04-14',
     defaultTemperature: 0.7,
     defaultMaxTokens: 2000
   },

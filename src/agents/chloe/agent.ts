@@ -110,7 +110,7 @@ export class ChloeAgent {
 
       // Initialize OpenAI model
       this.model = new ChatOpenAI({
-        modelName: process.env.OPENAI_MODEL_NAME || 'gpt-3.5-turbo',
+        modelName: process.env.OPENAI_MODEL_NAME || 'gpt-4.1-2025-04-14',
         temperature: 0.7,
         openAIApiKey: process.env.OPENROUTER_API_KEY,
         configuration: {

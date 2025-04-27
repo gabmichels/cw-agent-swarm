@@ -412,7 +412,7 @@ Analyze the conversation and return a JSON array of knowledge gaps, with each ga
     try {
       // Use OpenAI to suggest learning sources
       const response = await openai.chat.completions.create({
-        model: "gpt-3.5-turbo",
+        model: "gpt-4.1-2025-04-14",
         messages: [
           {
             role: "system",

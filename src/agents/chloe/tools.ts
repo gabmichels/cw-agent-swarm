@@ -111,7 +111,7 @@ export class ProposeContentIdeasTool {
       if (!this.llmClient) {
         const { ChatOpenAI } = require('@langchain/openai');
         this.llmClient = new ChatOpenAI({
-          modelName: process.env.OPENAI_MODEL_NAME || 'gpt-3.5-turbo',
+          modelName: process.env.OPENAI_MODEL_NAME || 'gpt-4.1-2025-04-14',
           temperature: 0.7,
           openAIApiKey: process.env.OPENROUTER_API_KEY,
           configuration: {
@@ -165,7 +165,7 @@ export class ReflectOnPerformanceTool {
       if (!this.llmClient) {
         const { ChatOpenAI } = require('@langchain/openai');
         this.llmClient = new ChatOpenAI({
-          modelName: process.env.OPENAI_MODEL_NAME || 'gpt-3.5-turbo',
+          modelName: process.env.OPENAI_MODEL_NAME || 'gpt-4.1-2025-04-14',
           temperature: 0.7,
           openAIApiKey: process.env.OPENROUTER_API_KEY,
           configuration: {

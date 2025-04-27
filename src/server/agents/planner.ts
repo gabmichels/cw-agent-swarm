@@ -61,7 +61,7 @@ TASK: ${task}${relevantContext}`;
     // Get the LLM
     const llm = getLLM({
       temperature: 0.2, // Lower temperature for planning
-      modelName: process.env.OPENAI_MODEL_NAME || 'gpt-3.5-turbo'
+      modelName: process.env.OPENAI_MODEL_NAME || 'gpt-4.1-2025-04-14'
     });
     
     // Generate the plan using direct LLM call

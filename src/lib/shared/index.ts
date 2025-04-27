@@ -7,7 +7,7 @@ export * from './types';
 export * from './utils';
 
 export const DEFAULT_LLM_TEMPERATURE = 0.7;
-export const DEFAULT_LLM_MODEL = 'gpt-3.5-turbo';
+export const DEFAULT_LLM_MODEL = 'gpt-4.1-2025-04-14';
 
 // System prompts for agents
 export const SYSTEM_PROMPTS = {

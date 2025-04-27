@@ -85,7 +85,7 @@ SUCCESS: [YES or NO]
       // Execute the step
       const llm = getLLM({
         temperature: 0.3,
-        modelName: process.env.OPENAI_MODEL_NAME || 'gpt-3.5-turbo'
+        modelName: process.env.OPENAI_MODEL_NAME || 'gpt-4.1-2025-04-14'
       });
       
       // Use direct LLM call instead of a prompt template chain

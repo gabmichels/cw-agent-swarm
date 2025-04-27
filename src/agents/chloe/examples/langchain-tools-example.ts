@@ -27,7 +27,7 @@ async function runAgentWithCognitiveTool() {
 
     // Initialize LLM
     const llm = new ChatOpenAI({
-      modelName: process.env.OPENAI_MODEL_NAME || 'gpt-3.5-turbo-1106',
+      modelName: process.env.OPENAI_MODEL_NAME || 'gpt-4.1-2025-04-14-1106',
       temperature: 0.7,
       openAIApiKey: process.env.OPENAI_API_KEY
     }) as any; // Type assertion to bypass type checking issues
