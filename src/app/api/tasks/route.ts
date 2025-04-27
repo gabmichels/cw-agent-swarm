@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { ChloeAgent } from '../../../agents/chloe';
+import { getGlobalChloeAgent } from '../../../lib/singletons/chloeAgent';
 
 // Mark as server-side only
 export const runtime = 'nodejs';
@@ -13,23 +13,11 @@ export async function GET() {
   try {
     console.log('Fetching Chloe scheduled tasks');
     
-    // Create a temporary Chloe instance to access the scheduler
-    const chloe = new ChloeAgent();
-    
-    // Initialize the agent
-    try {
-      await chloe.initialize();
-    } catch (error) {
-      console.error('Error initializing Chloe agent:', error);
-      return NextResponse.json({
-        success: false,
-        message: 'Failed to initialize Chloe agent',
-        error: error instanceof Error ? error.message : String(error)
-      }, { status: 500 });
-    }
+    // Use the global instance instead of creating a new one
+    const chloe = await getGlobalChloeAgent();
     
     // Access tasks via autonomy system
-    const autonomySystem = await (chloe as any).getAutonomySystem();
+    const autonomySystem = await chloe.getAutonomySystem();
     if (!autonomySystem || !autonomySystem.scheduler) {
       return NextResponse.json({
         success: false,

@@ -17,6 +17,11 @@ const TasksTab: React.FC<TasksTabProps> = ({
   toggleTaskEnabled,
   formatCronExpression,
 }) => {
+  // Function to clean task names by removing department names in braces
+  const cleanTaskName = (name: string) => {
+    return name.replace(/\s*\([^)]*\)\s*/g, '');
+  };
+  
   return (
     <div className="bg-gray-800 rounded-lg p-4">
       <h2 className="text-xl font-bold mb-4">Scheduled Tasks</h2>
@@ -43,7 +48,16 @@ const TasksTab: React.FC<TasksTabProps> = ({
             <tbody className="divide-y divide-gray-700">
               {scheduledTasks.map((task) => (
                 <tr key={task.id}>
-                  <td className="px-4 py-3 whitespace-nowrap text-sm">{task.name}</td>
+                  <td className="px-4 py-3 whitespace-nowrap text-sm">
+                    <div className="flex items-center space-x-2">
+                      <span>{cleanTaskName(task.name)}</span>
+                      {task.enabled && (
+                        <span className="px-2 py-0.5 text-xs leading-5 font-semibold rounded-full bg-blue-800 text-blue-100">
+                          Autonomous
+                        </span>
+                      )}
+                    </div>
+                  </td>
                   <td className="px-4 py-3 text-sm">{task.description}</td>
                   <td className="px-4 py-3 whitespace-nowrap text-sm">{formatCronExpression(task.cronExpression)}</td>
                   <td className="px-4 py-3 whitespace-nowrap text-sm">{task.lastRun ? new Date(task.lastRun).toLocaleString() : 'Never'}</td>

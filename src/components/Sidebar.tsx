@@ -38,7 +38,12 @@ const Sidebar: React.FC<SidebarProps> = ({
               onClick={() => setSelectedAgent('Chloe')}
               className={`w-full text-left block p-2 rounded ${selectedAgent === 'Chloe' ? 'bg-blue-600' : 'hover:bg-gray-700'}`}
             >
-              Chloe (Marketing)
+              <div className="flex items-center space-x-2">
+                <span>Chloe</span>
+                <span className="px-2 py-0.5 text-xs leading-5 font-semibold rounded-full bg-blue-800 text-blue-100">
+                  Autonomous
+                </span>
+              </div>
             </button>
           </li>
           <li>
