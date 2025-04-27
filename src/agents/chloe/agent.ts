@@ -27,6 +27,7 @@ import { FeedbackLoopSystem, createFeedbackLoopSystem } from '../../lib/memory/s
 import { IntegrationLayer, createIntegrationLayer } from '../../lib/memory/src/integration-layer';
 import { SelfImprovementMechanism, createSelfImprovementMechanism } from '../../lib/memory/src/self-improvement';
 import { ToolCreationSystem } from './tools/integration';
+import { KnowledgeFlaggingService } from '../../lib/knowledge/flagging/KnowledgeFlaggingService';
 
 interface ChloeState {
   messages: Message[];
@@ -72,6 +73,7 @@ export class ChloeAgent {
   private selfImprovement: SelfImprovementMechanism;
   private strategicInsightsCollection: string = 'strategic_insights';
   private toolCreationSystem: ToolCreationSystem | null = null;
+  private knowledgeFlaggingService: KnowledgeFlaggingService | null = null;
   
   constructor(config?: Partial<AgentConfig>) {
     // Set default configuration
@@ -237,6 +239,11 @@ export class ChloeAgent {
         console.error('Error initializing tool creation system:', error);
       }
 
+      // Initialize Knowledge Flagging Service
+      this.knowledgeFlaggingService = new KnowledgeFlaggingService(this.knowledgeGraph);
+      await this.knowledgeFlaggingService.load(); // Load existing flagged items
+      console.log('Knowledge Flagging Service initialized successfully');
+
       this.initialized = true;
       console.log('ChloeAgent initialized successfully');
     } catch (error) {
@@ -324,10 +331,12 @@ export class ChloeAgent {
   }
 
   // Process a user message
-  async processMessage(message: string, p0: { userId: any; attachments: any; }): Promise<string> {
+  async processMessage(message: string, options: { userId: any; attachments?: any; }): Promise<string> {
     console.log('!!!!!!!!!!!!!! UNMISTAKABLE MARKER - THIS IS THE EDITED AGENT FILE !!!!!!!!!!!!!!');
     console.log('!!!!!!!!!!!!!! MESSAGE WAS: ' + message + ' !!!!!!!!!!!!!!');
     
+    const { userId, attachments } = options;
+
     if (!this.initialized) {
       throw new Error('Agent not initialized');
     }
@@ -732,6 +741,52 @@ export class ChloeAgent {
           importance: this.cognitiveMemory.extractPriority(message) === 'high' ? 'high' : 'medium'
         }
       );
+      
+      // --- **NEW: Asynchronous Knowledge Flagging** --- 
+      if (this.knowledgeFlaggingService) {
+        const conversationText = `User: ${message}\nAgent: ${agentResponse}`;
+        const flaggingContext = `User ID: ${userId}, Timestamp: ${new Date().toISOString()}`;
+        
+        // Run flagging in the background (don't await the promise directly here 
+        // to avoid blocking the chat response)
+        this.knowledgeFlaggingService.flagFromConversation(conversationText, flaggingContext)
+          .then(flaggingResult => {
+            if (flaggingResult.success && flaggingResult.itemId) {
+              console.log(`Successfully flagged potential knowledge from conversation. Item ID: ${flaggingResult.itemId}`);
+              // Optional: Log success to task logger
+              if (this.taskLogger) {
+                  this.taskLogger.logAction('Flagged potential knowledge', {
+                    itemId: flaggingResult.itemId,
+                    confidence: 'N/A', // Confidence is within the flagged item itself
+                    timestamp: new Date().toISOString()
+                  });
+              }
+            } else if (!flaggingResult.success && flaggingResult.error !== 'No relevant knowledge was extracted from the conversation') {
+              // Log error only if it's not the expected "nothing found" case
+              console.warn('Failed to flag knowledge from conversation:', flaggingResult.error);
+               if (this.taskLogger) {
+                  this.taskLogger.logAction('Knowledge flagging failed', {
+                    error: flaggingResult.error,
+                    timestamp: new Date().toISOString()
+                  });
+              }
+            }
+          })
+          .catch(flaggingError => {
+            console.error('Error during asynchronous knowledge flagging:', flaggingError);
+             if (this.taskLogger) {
+                this.taskLogger.logAction('Knowledge flagging system error', {
+                  error: flaggingError instanceof Error ? flaggingError.message : String(flaggingError),
+                  timestamp: new Date().toISOString()
+                });
+            }
+          });
+      } else {
+        console.warn('Knowledge Flagging Service not initialized, skipping flagging.');
+      }
+      // --- **END: Asynchronous Knowledge Flagging** --- 
+
+      console.log('Agent response prepared:', agentResponse.substring(0, 50) + '...');
       
       return agentResponse;
     } catch (error) {
@@ -1659,6 +1714,9 @@ Successfully completed daily operations.
 
   // Add new method to access knowledge graph
   getKnowledgeGraph(): KnowledgeGraph {
+    if (!this.knowledgeGraph) {
+      throw new Error('Knowledge Graph not initialized');
+    }
     return this.knowledgeGraph;
   }
 
