@@ -8,7 +8,9 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit --jsx react-jsx --esModuleInterop",
-    "memory:consolidate": "ts-node scripts/consolidate-memory.ts"
+    "memory:consolidate": "ts-node scripts/consolidate-memory.ts",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@langchain/core": "^0.3.45",
@@ -52,7 +54,8 @@
     "eslint-config-next": "^15.4.0-canary.0",
     "prettier": "^3.5.3",
     "rimraf": "^6.0.1",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "vitest": "^1.6.1"
   },
   "engines": {
     "node": ">=18"
