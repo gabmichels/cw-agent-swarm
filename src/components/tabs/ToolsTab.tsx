@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Message } from '../../types';
+import AdvancedSearchTool from '../tools/AdvancedSearchTool';
 
 interface ToolsTabProps {
   isLoading: boolean;
@@ -166,6 +167,12 @@ const ToolsTab: React.FC<ToolsTabProps> = ({
   return (
     <div className="bg-gray-800 rounded-lg p-4">
       <h2 className="text-xl font-bold mb-4">Tools & Diagnostics</h2>
+      
+      {/* Add the new Advanced Search Tool at the top */}
+      <div className="mb-6">
+        <AdvancedSearchTool />
+      </div>
+      
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         <div className="bg-gray-700 p-4 rounded-lg">
           <h3 className="font-semibold mb-2">Agent Diagnostics</h3>
