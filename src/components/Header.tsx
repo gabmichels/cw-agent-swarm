@@ -131,6 +131,9 @@ const Header: React.FC<HeaderProps> = ({
               <a href="#" className="text-sm hover:text-blue-400">Analytics</a>
             </li>
             <li>
+              <a href="/knowledge-gaps" className="text-sm hover:text-blue-400">Knowledge Gaps</a>
+            </li>
+            <li>
               <a href="#" className="text-sm hover:text-blue-400">Settings</a>
             </li>
           </ul>

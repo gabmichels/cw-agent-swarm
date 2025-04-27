@@ -82,6 +82,16 @@ const KnowledgeTab: React.FC<KnowledgeTabProps> = () => {
         <KnowledgeStats isLoading={isLoadingStats} stats={stats} />
       </div>
 
+      {/* Knowledge Gaps Link */}
+      <div className="mb-6">
+        <a 
+          href="/knowledge-gaps" 
+          className="block w-full bg-blue-600 hover:bg-blue-700 text-center py-2 px-4 rounded"
+        >
+          View Knowledge Gaps Analysis
+        </a>
+      </div>
+
       <div className="mb-6">
         <div className="bg-gray-700 p-4 rounded-lg mb-4">
           <h3 className="text-lg font-medium mb-3">Filter Flagged Items</h3>
