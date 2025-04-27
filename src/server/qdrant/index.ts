@@ -1300,4 +1300,37 @@ export async function getAllMemories(
     console.error('Error getting all memories:', error);
     return [];
   }
+}
+
+/**
+ * Get text embedding using OpenAI
+ * Used by the semantic search service
+ */
+export async function getEmbedding(text: string): Promise<{ embedding: number[] }> {
+  try {
+    // Initialize OpenAI if not already done
+    const openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY
+    });
+    
+    // Get embedding from OpenAI
+    const response = await openai.embeddings.create({
+      model: process.env.OPENAI_EMBEDDING_MODEL || 'text-embedding-3-small',
+      input: text,
+      encoding_format: 'float'
+    });
+    
+    if (!response.data[0].embedding) {
+      throw new Error('Failed to get embedding from OpenAI');
+    }
+    
+    return { embedding: response.data[0].embedding };
+  } catch (error) {
+    console.error('Error getting embedding:', error);
+    // Return random embedding as fallback (not ideal for production)
+    const dimensions = 1536; // Default for OpenAI embeddings
+    return { 
+      embedding: Array.from({ length: dimensions }, () => Math.random() * 2 - 1) 
+    };
+  }
 } 

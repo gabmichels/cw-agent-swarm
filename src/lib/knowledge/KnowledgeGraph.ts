@@ -85,6 +85,27 @@ export class KnowledgeGraph {
     return Array.from(this.concepts.values());
   }
 
+  /**
+   * Get all principles in the knowledge graph
+   */
+  public getAllPrinciples(): Principle[] {
+    return Array.from(this.principles.values());
+  }
+
+  /**
+   * Get all frameworks in the knowledge graph
+   */
+  public getAllFrameworks(): Framework[] {
+    return Array.from(this.frameworks.values());
+  }
+
+  /**
+   * Get all research entries in the knowledge graph
+   */
+  public getAllResearch(): Research[] {
+    return Array.from(this.research.values());
+  }
+
   public findConcepts(name: string): Concept[] {
     console.warn(`findConcepts not fully implemented for name: ${name}`);
     const lowerName = name.toLowerCase();
