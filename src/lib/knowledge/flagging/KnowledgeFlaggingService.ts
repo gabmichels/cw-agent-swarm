@@ -19,6 +19,8 @@ import {
   SuggestedRelationshipProperties
 } from './types';
 import { KnowledgeGraph } from '../KnowledgeGraph';
+import { KnowledgeGraphService } from '../KnowledgeGraphService';
+import { logger } from '../../logging';
 
 // Initialize OpenAI client
 const openai = new OpenAI({
@@ -31,6 +33,7 @@ const openai = new OpenAI({
 export class KnowledgeFlaggingService {
   private flaggedItems: Map<string, FlaggedKnowledgeItem> = new Map();
   private knowledgeGraph: KnowledgeGraph;
+  private knowledgeGraphService: KnowledgeGraphService;
   private dataDir: string;
   
   /**
@@ -38,6 +41,7 @@ export class KnowledgeFlaggingService {
    */
   constructor(knowledgeGraph: KnowledgeGraph, dataDir?: string) {
     this.knowledgeGraph = knowledgeGraph;
+    this.knowledgeGraphService = new KnowledgeGraphService(knowledgeGraph);
     
     // Set default data directory in the knowledge graph's data directory
     this.dataDir = dataDir || path.join(process.cwd(), 'data', 'knowledge', 
@@ -490,28 +494,12 @@ export class KnowledgeFlaggingService {
     }
     
     try {
-      // Process the item based on its suggested type
-      switch (item.suggestedType) {
-        case 'concept':
-          await this.processConceptItem(item);
-          break;
-        case 'principle':
-          await this.processPrincipleItem(item);
-          break;
-        case 'framework':
-          await this.processFrameworkItem(item);
-          break;
-        case 'research':
-          await this.processResearchItem(item);
-          break;
-        case 'relationship':
-          await this.processRelationshipItem(item);
-          break;
-        default:
-          return { 
-            success: false, 
-            error: `Unknown suggested type: ${item.suggestedType}` 
-          };
+      // Use the KnowledgeGraphService to add the item with quality scoring and relationship suggestions
+      logger.info(`Processing approved item: ${item.title}`);
+      const itemId = await this.knowledgeGraphService.addApprovedItem(item);
+      
+      if (!itemId) {
+        return { success: false, error: `Failed to add item to knowledge graph` };
       }
       
       // Mark as processed
@@ -521,7 +509,7 @@ export class KnowledgeFlaggingService {
       
       return { success: true, itemId: id };
     } catch (error) {
-      console.error(`Error processing approved item ${id}:`, error);
+      logger.error(`Error processing approved item ${id}:`, error);
       return { 
         success: false, 
         error: error instanceof Error ? error.message : 'Unknown error'
