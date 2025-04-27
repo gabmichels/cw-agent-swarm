@@ -3,6 +3,9 @@ import { fileProcessor } from '../../../lib/file-processing/index';
 import { POST as chatPost } from '../chat/route';
 import * as serverQdrant from '../../../server/qdrant';
 import process from 'process';
+// Import necessary services for flagging
+import { KnowledgeGraph } from '../../../lib/knowledge/KnowledgeGraph';
+import { KnowledgeFlaggingService } from '../../../lib/knowledge/flagging/KnowledgeFlaggingService';
 
 // Mark as server-only
 export const runtime = 'nodejs';
@@ -13,6 +16,27 @@ interface ProcessedFile {
   fileId?: string;
   summary?: string;
   error?: string;
+}
+
+// --- Helper: Initialize Flagging Service --- 
+// Avoid initializing multiple times per request if possible
+let flaggingServiceInstance: KnowledgeFlaggingService | null = null;
+async function getFlaggingService(): Promise<KnowledgeFlaggingService | null> {
+    if (flaggingServiceInstance) {
+        return flaggingServiceInstance;
+    }
+    try {
+        // Assuming 'default' or a relevant domain for general file flagging
+        const knowledgeGraph = new KnowledgeGraph('default'); 
+        await knowledgeGraph.load(); // Ensure graph is loaded
+        flaggingServiceInstance = new KnowledgeFlaggingService(knowledgeGraph);
+        await flaggingServiceInstance.load(); // Load existing flagged items
+        console.log("Initialized KnowledgeFlaggingService for file processing.");
+        return flaggingServiceInstance;
+    } catch (error) {
+        console.error("Failed to initialize KnowledgeFlaggingService:", error);
+        return null;
+    }
 }
 
 /**
@@ -152,7 +176,6 @@ async function processWithVisionModel(message: string, images: Array<{fileId: st
  */
 export async function POST(request: NextRequest) {
   try {
-    // Parse form data
     const formData = await request.formData();
     const message = formData.get('message') as string | null;
     const userId = formData.get('userId') as string || 'default-user';
@@ -166,51 +189,28 @@ export async function POST(request: NextRequest) {
     
     console.log(`Processing chat with files request from ${userId}: "${message}"`);
     
-    // Initialize file processor if needed
     if (!fileProcessor.isInitialized) {
       await fileProcessor.initialize();
     }
     
-    // Process each file in the form data
     const fileKeys = Array.from(formData.keys()).filter(key => key.startsWith('file_'));
-    const metadataKeys = Array.from(formData.keys()).filter(key => key.startsWith('metadata_'));
-    const processedFiles: ProcessedFile[] = [];
-    const imageFiles = [];
-    
-    console.log(`Found ${fileKeys.length} files and ${metadataKeys.length} metadata entries`);
+    const processedFilesData: Array<{ metadata: any, fullText: string | null }> = []; // To store results
+    const imageFiles = []; // For vision model
 
     for (const key of fileKeys) {
       const file = formData.get(key) as File | null;
-      
-      if (!file) {
-        console.warn(`No file found for key ${key}`);
-        continue;
-      }
+      if (!file) continue;
       
       try {
-        // Extract the index from the key (e.g., file_0 -> 0)
         const index = parseInt(key.replace('file_', ''));
-        
-        // Get associated metadata
         const typeKey = `metadata_${index}_type`;
-        const fileIdKey = `metadata_${index}_fileId`;
-        
+        const fileIdKey = `metadata_${index}_fileId`; // Although we generate a new one in processFile
         const fileType = formData.get(typeKey) as string || '';
-        const fileId = formData.get(fileIdKey) as string || '';
-        
-        console.log(`Processing file: ${file.name} (${file.type}, ${file.size} bytes), type: ${fileType}`);
-        
-        // Convert file to buffer
+
+        console.log(`Processing file: ${file.name} (${file.type}, ${file.size} bytes)`);
         const fileBuffer = Buffer.from(await file.arrayBuffer());
         
-        // If this is an image file, convert it to base64 for vision processing
-        let base64Data = null;
-        if (file.type.startsWith('image/')) {
-          base64Data = fileBuffer.toString('base64');
-        }
-        
-        // Create file metadata with proper structure
-        const fileMetadata = {
+        const fileMetadataInput = {
           filename: file.name,
           originalFilename: file.name,
           mimeType: file.type,
@@ -218,122 +218,151 @@ export async function POST(request: NextRequest) {
           tags: [`user:${userId}`, 'source:chat']
         };
         
-        // Process file using the correct parameter structure with appropriate options
-        const result = await fileProcessor.processFile(fileBuffer, fileMetadata);
-        
-        // Track image files separately
+        // Process file, get metadata AND full text
+        const { metadata: processedMetadata, fullText } = await fileProcessor.processFile(
+            fileBuffer, 
+            fileMetadataInput
+        );
+
+        // Store result for later flagging and response
+        processedFilesData.push({ metadata: processedMetadata, fullText });
+
+        // Separate images for vision model if needed
         if (file.type.startsWith('image/')) {
           imageFiles.push({
-            fileId: result.fileId,
+            fileId: processedMetadata.fileId, // Use the ID generated by fileProcessor
             filename: file.name,
-            base64Data: base64Data,
             mimeType: file.type
           });
         }
-        
-        processedFiles.push({
-          filename: file.name,
-          fileId: result.fileId,
-          summary: result.summary
-        });
       } catch (fileError: any) {
         console.error(`Error processing file ${file.name}:`, fileError);
-        processedFiles.push({
-          filename: file.name,
-          error: fileError.message || 'Unknown error'
-        });
+        // Still add metadata even if processing failed, for reporting
+         processedFilesData.push({ 
+             metadata: { 
+                 filename: file.name, 
+                 processingStatus: 'failed', 
+                 processingError: fileError.message || 'Unknown error' 
+             }, 
+             fullText: null 
+         });
       }
     }
     
-    // If we have image files, use the vision model to process them
+    // --- Vision Model Handling (remains mostly the same) --- 
     if (imageFiles.length > 0) {
-      console.log(`Processing ${imageFiles.length} image files with vision model`);
-      
-      // Check if the message contains an image-related request
-      const containsImageRequest = /describe|what.*see|analyze|explain|tell.*about.*image|what.*in.*picture|what.*in.*image/i.test(message);
-      
-      if (containsImageRequest) {
-        console.log("Image-related request detected. Prioritizing image analysis.");
-      }
-      
-      const visionResponse = await processWithVisionModel(message, imageFiles, userId);
-      
-      // Return the response from the vision model
-      return NextResponse.json({
-        ...visionResponse,
-        files: processedFiles,
-        containsImageRequest // Include this flag for the client
-      });
-    }
-    
-    // For non-image files, proceed with standard processing
-    // Create a new request with the message that includes file context
-    let fileContext = '';
-    if (processedFiles.length > 0) {
-      // Make this more concise to save tokens
-      const fileInfos = processedFiles.map(file => {
-        if ('error' in file) {
-          return `- ${file.filename} (Error: ${file.error})`;
+        console.log(`Processing ${imageFiles.length} image files with vision model`);
+        const containsImageRequest = /describe|what.*see|analyze|explain|tell.*about.*image|what.*in.*picture|what.*in.*image/i.test(message);
+        if (containsImageRequest) {
+            console.log("Image-related request detected. Prioritizing image analysis.");
         }
-        
-        // Truncate long summaries
-        const summary = file.summary && file.summary.length > 200 
-          ? file.summary.substring(0, 200) + "..." 
-          : file.summary;
-          
-        return `- ${file.filename}${summary ? ` - Summary: ${summary}` : ''}`;
-      }).join('\n');
-      
-      fileContext = `\n\n[SYSTEM: Files processed and stored: ${processedFiles.length}. ${processedFiles.length > 2 ? 'Key files' : 'Files'}: \n${fileInfos}]`;
+        const visionResponse = await processWithVisionModel(message, imageFiles, userId);
+        // Note: We aren't flagging image content in this flow yet.
+         return NextResponse.json({
+            ...visionResponse,
+            files: processedFilesData.map(p => p.metadata), // Return only metadata to client
+            containsImageRequest
+         });
     }
     
-    // Extract file attachments metadata for storage in Qdrant
-    const attachments = processedFiles.map((processedFile, index) => {
-      const file = formData.get(`file_${index}`) as File;
-      
-      if (!file) {
-        return null;
-      }
-      
-      const type = formData.get(`metadata_${index}_type`) as string || 
-        (file.type.startsWith('image/') ? 'image' : 'document');
-      
-      return {
-        filename: file.name,
-        type,
-        fileId: processedFile.fileId || '',
-        size: file.size,
-        mimeType: file.type
-      };
-    }).filter(Boolean); // Remove null entries
+    // --- Standard File Processing & Chat Response --- 
+    let fileContext = '';
+    const successfulFiles = processedFilesData.filter(p => p.metadata.processingStatus === 'completed');
+    if (successfulFiles.length > 0) {
+      const fileInfos = successfulFiles.map(fileData => {
+        const summary = fileData.metadata.summary && fileData.metadata.summary.length > 200 
+          ? fileData.metadata.summary.substring(0, 200) + "..." 
+          : fileData.metadata.summary;
+        return `- ${fileData.metadata.filename}${summary ? ` - Summary: ${summary}` : ''}`;
+      }).join('\n');
+      fileContext = `\n\n[SYSTEM: Files processed: ${successfulFiles.length}. Files: \n${fileInfos}]`;
+    }
     
-    // Create a new request object to pass to the standard chat endpoint
-    const chatRequest = new Request('http://localhost/api/chat', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Has-Attachments': 'true'
-      },
-      body: JSON.stringify({
-        message: message + fileContext,
-        userId: userId,
-        attachments: attachments // Include attachments data for storing in Qdrant
-      }),
+    const attachmentsForChat = successfulFiles.map(p => ({
+        filename: p.metadata.filename,
+        type: p.metadata.mimeType.startsWith('image/') ? 'image' : 'document',
+        fileId: p.metadata.fileId,
+        size: p.metadata.size,
+        mimeType: p.metadata.mimeType
+    }));
+    
+    // Create the body for the chat request
+    const requestBody = JSON.stringify({ 
+        message: message + fileContext, 
+        userId, 
+        attachments: attachmentsForChat 
     });
     
-    // Process the chat request using the existing POST handler
+    // Update headers on the original request instead of creating a new Request
+    const chatHeaders = new Headers(request.headers);
+    chatHeaders.set('Content-Type', 'application/json');
+    chatHeaders.set('X-Has-Attachments', 'true');
+    
+    // Create a modified NextRequest with our updated body and headers
+    const chatRequest = new NextRequest(
+        new URL(request.url),
+        {
+            headers: chatHeaders,
+            method: 'POST',
+            body: requestBody
+        }
+    );
+    
     const chatResponse = await chatPost(chatRequest);
     const responseData = await chatResponse.json();
     
-    // Return response with file information
+    // --- **NEW: Asynchronous Knowledge Flagging for Files** --- 
+    const flaggingService = await getFlaggingService();
+    if (flaggingService) {
+        successfulFiles.forEach(fileData => {
+            if (fileData.fullText && fileData.metadata.processingStatus === 'completed') {
+                const metadataForFlagging = { 
+                    fileId: fileData.metadata.fileId,
+                    originalFilename: fileData.metadata.originalFilename,
+                    mimeType: fileData.metadata.mimeType,
+                    size: fileData.metadata.size,
+                    uploadDate: fileData.metadata.uploadDate.toISOString(),
+                    tags: fileData.metadata.tags,
+                    extractedMetadata: fileData.metadata.extractedMetadata, // Pass extracted PDF metadata etc.
+                    documentType: fileData.metadata.documentType || 'unknown', // Include document type classification
+                    language: fileData.metadata.language || 'unknown' // Include detected language
+                };
+
+                // Log detected document type and language for monitoring
+                console.log(`Flagging file "${fileData.metadata.filename}" - Type: ${fileData.metadata.documentType || 'unknown'}, Language: ${fileData.metadata.language || 'unknown'}`);
+
+                flaggingService.flagFromFile(
+                    fileData.fullText,
+                    fileData.metadata.filename,
+                    fileData.metadata.mimeType, 
+                    metadataForFlagging
+                )
+                .then(flaggingResult => {
+                    if (flaggingResult.success && flaggingResult.itemId) {
+                        console.log(`Successfully flagged knowledge from file: ${fileData.metadata.filename} (Item ID: ${flaggingResult.itemId})`);
+                    } else if (!flaggingResult.success && flaggingResult.error !== 'No relevant knowledge was extracted from the file') {
+                        console.warn(`Failed to flag knowledge from file ${fileData.metadata.filename}:`, flaggingResult.error);
+                    }
+                })
+                .catch(flaggingError => {
+                    console.error(`Error during async knowledge flagging for file ${fileData.metadata.filename}:`, flaggingError);
+                });
+            }
+        });
+    } else {
+        console.warn("Knowledge Flagging Service not available, skipping file flagging.");
+    }
+    // --- **END: Asynchronous Knowledge Flagging for Files** --- 
+
+    // Return response with file processing metadata (not full text)
     return NextResponse.json({
       ...responseData,
-      files: processedFiles
+      files: processedFilesData.map(p => p.metadata) // Send only metadata back
     });
+
   } catch (error: any) {
     console.error('Error processing chat with files:', error);
-    
-    return NextResponse.json(
+     return NextResponse.json(
       { 
         success: false, 
         error: `Failed to process chat with files: ${error.message || 'Unknown error'}` 
