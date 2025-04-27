@@ -1,6 +1,5 @@
-// Use CommonJS require for path
-// @ts-ignore
-const path = require('path');
+// Remove CommonJS require and @ts-ignore
+import path from 'path';
 import { AgentMemory } from '../../lib/memory';
 // Use server-only Qdrant implementation
 import * as serverQdrant from '../../server/qdrant';

@@ -10,6 +10,10 @@ export interface AgentConfig {
   model: string;
   temperature: number;
   maxTokens: number;
+  name?: string;
+  description?: string;
+  capabilities?: string[];
+  verbose?: boolean;
 }
 
 // Schema for agent configurations
@@ -31,6 +35,8 @@ export interface Message {
   content: string;
   timestamp?: Date;
   metadata?: Record<string, any>;
+  id?: string;
+  text?: string;
 }
 
 // Task interface for agent tasks

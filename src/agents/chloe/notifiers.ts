@@ -308,16 +308,57 @@ export function createNotifier(type: 'console' | 'discord', options: any = {}): 
  */
 export async function notifyDiscord(
   message: string, 
-  type: "update" | "alert" | "summary" = "update", 
-  withMention: boolean = false,
-  useDm: boolean = false
-): Promise<void> {
-  const discordNotifier = new DiscordNotifier({ useDm });
-  
-  if (withMention) {
-    return discordNotifier.sendWithMention(message, type);
-  } else {
-    return discordNotifier.send(message, type, useDm);
+  type: 'update' | 'alert' | 'summary' | string = 'update',
+  mention: boolean = false
+): Promise<boolean> {
+  try {
+    console.log(`Sending Discord notification: ${message.substring(0, 30)}...`);
+    
+    // Get the webhook URL from environment
+    const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
+    if (!webhookUrl) {
+      console.warn('Discord webhook URL not configured. Notification not sent.');
+      return false;
+    }
+    
+    // Normalize type to one of the standard types
+    const normalizedType = ['update', 'alert', 'summary'].includes(type) 
+      ? type as 'update' | 'alert' | 'summary'
+      : 'update';
+    
+    // Format the message based on type
+    let emoji = '📢';
+    if (normalizedType === 'alert') emoji = '⚠️';
+    if (normalizedType === 'summary') emoji = '📊';
+    
+    // Add mentions if requested
+    const userId = process.env.DISCORD_USER_ID;
+    const mentionText = mention && userId ? `<@${userId}> ` : '';
+    
+    // Format the final message
+    const formattedMessage = `${emoji} ${mentionText}${message}`;
+    
+    // Send to Discord
+    const response = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        content: formattedMessage,
+        username: 'Chloe CMO'
+      })
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Discord API returned ${response.status}: ${await response.text()}`);
+    }
+    
+    console.log('Discord notification sent successfully.');
+    return true;
+  } catch (error) {
+    console.error('Error sending Discord notification:', error);
+    return false;
   }
 }
 

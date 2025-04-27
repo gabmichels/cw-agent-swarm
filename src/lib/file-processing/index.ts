@@ -1,14 +1,38 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { EnhancedMemory } from '../memory/src/enhanced-memory';
+
+// Define types for the libraries
+interface PdfParse {
+  (dataBuffer: Buffer, options?: any): Promise<{
+    numpages: number;
+    numrender: number;
+    info: any;
+    metadata: any;
+    text: string;
+    version: string;
+  }>;
+}
+
+interface Mammoth {
+  convertToHtml: (options: {
+    // Use any for buffer to avoid type conflicts
+    buffer: any; 
+    styleMap?: string;
+  }) => Promise<{
+    value: string;
+    messages: any[];
+  }>;
+}
+
 // Import extraction libraries with error handling
 // Use dynamic imports to handle potential missing libraries
-let pdfParse: any = null;
-let mammothLib: any = null;
+let pdfParse: PdfParse | null = null;
+let mammothLib: Mammoth | null = null;
 
 // Try to load pdf-parse
 try {
-  // @ts-ignore - Types might not be installed or recognized yet
+  // Load pdf-parse dynamically
   pdfParse = require('pdf-parse');
 } catch (error) {
   console.warn('pdf-parse module not found or failed to load. PDF processing will be limited.');
@@ -16,7 +40,7 @@ try {
 
 // Try to load mammoth
 try {
-  // @ts-ignore - No official types available for mammoth
+  // Load mammoth dynamically
   mammothLib = require('mammoth');
 } catch (error) {
   console.warn('mammoth module not found or failed to load. DOCX processing will be limited.');
@@ -384,7 +408,7 @@ export class FileProcessor {
         throw new Error('DOCX processing library not available. Try installing mammoth package.');
       }
       
-      const result = await mammothLib.extractRawText({ buffer: fileBuffer });
+      const result = await mammothLib.convertToHtml({ buffer: fileBuffer });
       const text = result.value;
       // Note: Mammoth doesn't easily extract standard metadata like author/title
       // We could potentially parse the XML directly if needed, but keeping it simple for now.

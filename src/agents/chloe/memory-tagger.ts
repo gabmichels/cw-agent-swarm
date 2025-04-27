@@ -1,12 +1,18 @@
 import { AgentMemory } from '../../lib/memory';
 
+/**
+ * TaggedMemory interface for the output of the memory tagger
+ */
 export interface TaggedMemory {
+  id: string;
   content: string;
-  timestamp: string;
-  importance: number;
+  importance: number; // Keep this as number only for calculations
+  importanceLevel: 'low' | 'medium' | 'high'; // Add a string representation for display
+  category: string;
   tags: string[];
-  source: string;
-  contextId?: string;
+  sentiment?: string;
+  entities?: string[];
+  created: Date;
 }
 
 export interface MemoryTaggerOptions {
@@ -31,32 +37,42 @@ export class MemoryTagger {
   /**
    * Analyze text to determine its importance and appropriate tags
    */
-  async tagMemory(content: string, source: string, contextId?: string): Promise<TaggedMemory> {
-    // Calculate importance based on content characteristics
-    const importance = this.calculateImportance(content);
-    
-    // Generate tags based on content
-    const tags = this.generateTags(content);
-    
-    const memory: TaggedMemory = {
-      content,
-      timestamp: new Date().toISOString(),
-      importance,
-      tags,
-      source,
-      contextId
-    };
-    
-    // Store the memory with a unique ID based on content hash
-    const memoryId = this.hashContent(content);
-    this.memories.set(memoryId, memory);
-    
-    // If the memory is important enough, add it to long-term memory
-    if (importance >= this.importanceThreshold) {
-      await this.storeImportantMemory(memory);
+  async tagMemory(content: string, source?: string, contextId?: string): Promise<TaggedMemory> {
+    // Default source to 'system' if not provided
+    const sourceValue = source || 'system';
+
+    try {
+      // Calculate importance based on content characteristics
+      const importance = this.calculateImportance(content);
+      
+      // Generate tags based on content
+      const tags = this.generateTags(content);
+      
+      const memory: TaggedMemory = {
+        id: this.hashContent(content),
+        content,
+        importance,
+        importanceLevel: this.determineImportanceLevel(importance),
+        category: this.determineCategory(content),
+        tags,
+        sentiment: this.determineSentiment(content),
+        entities: this.extractEntities(content),
+        created: new Date()
+      };
+      
+      // Store the memory with a unique ID based on content hash
+      this.memories.set(memory.id, memory);
+      
+      // If the memory is important enough, add it to long-term memory
+      if (this.shouldAddToMemory(importance)) {
+        await this.storeImportantMemory(memory);
+      }
+      
+      return memory;
+    } catch (error) {
+      console.error('Failed to tag memory:', error);
+      throw error;
     }
-    
-    return memory;
   }
 
   /**
@@ -218,11 +234,12 @@ export class MemoryTagger {
     try {
       // Create a formatted memory entry with metadata
       const formattedMemory = `
-IMPORTANCE: ${memory.importance.toFixed(2)}
+IMPORTANCE: ${memory.importance.toFixed(2)} (${memory.importanceLevel})
 TAGS: ${memory.tags.join(', ')}
-SOURCE: ${memory.source}
-TIMESTAMP: ${memory.timestamp}
-${memory.contextId ? `CONTEXT: ${memory.contextId}` : ''}
+SOURCE: ${memory.category}
+TIMESTAMP: ${memory.created.toISOString()}
+${memory.sentiment ? `SENTIMENT: ${memory.sentiment}` : ''}
+${memory.entities ? `ENTITIES: ${memory.entities.join(', ')}` : ''}
 
 ${memory.content}
       `.trim();
@@ -269,5 +286,45 @@ ${memory.content}
     }
     
     return hash.toString() + Date.now().toString(36);
+  }
+
+  private determineCategory(content: string): string {
+    // Implement category determination logic based on content
+    return 'Uncategorized';
+  }
+
+  private determineSentiment(content: string): string | undefined {
+    // Implement sentiment determination logic based on content
+    return undefined;
+  }
+
+  private extractEntities(content: string): string[] | undefined {
+    // Implement entity extraction logic based on content
+    return undefined;
+  }
+
+  private determineImportanceLevel(importance: number): 'low' | 'medium' | 'high' {
+    if (importance < 0.3) return 'low';
+    if (importance < 0.7) return 'medium';
+    return 'high';
+  }
+
+  private shouldAddToMemory(importance: number): boolean {
+    return importance >= this.importanceThreshold;
+  }
+
+  private logMemory(memory: TaggedMemory) {
+    console.log(`
+MEMORY TAGGED:
+ID: ${memory.id}
+IMPORTANCE: ${memory.importance.toFixed(2)} (${memory.importanceLevel})
+TAGS: ${memory.tags.join(', ')}
+SOURCE: ${memory.category}
+TIMESTAMP: ${memory.created.toISOString()}
+${memory.sentiment ? `SENTIMENT: ${memory.sentiment}` : ''}
+${memory.entities ? `ENTITIES: ${memory.entities.join(', ')}` : ''}
+
+${memory.content}
+    `);
   }
 } 

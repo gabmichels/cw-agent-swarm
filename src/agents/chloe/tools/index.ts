@@ -1,5 +1,6 @@
 // Simple tool interface that doesn't rely on external packages
-interface SimpleTool {
+// This should match the definition in src/lib/shared/types/agent.ts
+export interface SimpleTool {
   name: string;
   description: string;
   _call(input: string): Promise<string>;
@@ -427,7 +428,9 @@ export class IntentRouterTool implements SimpleTool {
 }
 
 // Export all tools in a factory function
-export const createChloeTools = (memory: ChloeMemory, model: any, discordWebhookUrl?: string) => {
+export const createChloeTools = (memory: ChloeMemory, model: any, discordWebhookUrl?: string): { 
+  [key: string]: SimpleTool; // Use only the index signature for flexibility
+} => {
   return {
     searchMemory: new SearchMemoryTool(memory),
     summarizeRecentActivity: new SummarizeRecentActivityTool(memory, model),
@@ -436,7 +439,7 @@ export const createChloeTools = (memory: ChloeMemory, model: any, discordWebhook
     notifyDiscord: new NotifyDiscordTool(discordWebhookUrl),
     codaDocument: new CodaDocumentTool(),
     marketScan: new MarketScanTool(),
-    intentRouter: new ActualIntentRouterTool()
+    intentRouter: new ActualIntentRouterTool() as unknown as SimpleTool // Use type assertion to satisfy TypeScript
   };
 };
 

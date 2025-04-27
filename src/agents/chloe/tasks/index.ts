@@ -1,18 +1,16 @@
 import { ChloeAgent } from '../agent';
 import { runMemoryConsolidation } from './memoryConsolidation';
-import { 
-  runMarketScanTask,
+import {
   runNewsScanTask,
   runTrendingTopicResearchTask,
   runSocialMediaTrendsTask
-} from './marketScanTask';
+} from './allTasks';
 
 /**
  * Export all task functions
  */
 export {
   runMemoryConsolidation,
-  runMarketScanTask,
   runNewsScanTask,
   runTrendingTopicResearchTask,
   runSocialMediaTrendsTask

@@ -251,8 +251,9 @@ export class NotifyDiscordTool {
 
 /**
  * Create all available tools for Chloe
+ * @deprecated Use the named version from tools/index.ts instead
  */
-export function createChloeTools(): any[] {
+export function createChloeToolsArray(): any[] {
   return [
     new SearchMemoryTool(),
     new SummarizeRecentActivityTool(),
@@ -260,4 +261,7 @@ export function createChloeTools(): any[] {
     new ReflectOnPerformanceTool(),
     new NotifyDiscordTool()
   ];
-} 
+}
+
+// Re-export the object-based version from tools/index.ts
+export { createChloeTools } from './tools/index'; 

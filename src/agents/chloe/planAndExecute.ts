@@ -1,6 +1,8 @@
 import { ChloeAgent } from './agent';
 import { ChloeGraph, GraphState } from './graph/graph';
-import { createChloeTools } from './tools';
+import { createChloeTools } from './tools/index';
+import type { ChloeMemory } from './memory';
+import type { SimpleTool } from '../../lib/shared/types/agent';
 
 /**
  * Options for the plan and execute functionality
@@ -10,6 +12,22 @@ export interface PlanAndExecuteOptions {
   autonomyMode?: boolean;
   requireApproval?: boolean;
   tags?: string[];
+}
+
+/**
+ * Type definition for the tools object returned by createChloeTools
+ */
+export interface ChloeTools {
+  searchMemory: SimpleTool;
+  summarizeRecentActivity: SimpleTool;
+  proposeContentIdeas: SimpleTool;
+  reflectOnPerformance: SimpleTool;
+  notifyDiscord: SimpleTool;
+  codaDocument: SimpleTool;
+  marketScan: SimpleTool;
+  intentRouter: SimpleTool;
+  // Allow string indexing
+  [key: string]: SimpleTool;
 }
 
 /**
@@ -49,19 +67,8 @@ export async function planAndExecute(
       timestamp: new Date().toISOString()
     });
     
-    // Create tool instances
-    // @ts-ignore - createChloeTools actually takes memory and model parameters
-    const tools = createChloeTools(memory, model) as {
-      searchMemory: { _call: Function };
-      summarizeRecentActivity: { _call: Function };
-      proposeContentIdeas: { _call: Function };
-      reflectOnPerformance: { _call: Function };
-      notifyDiscord: { _call: Function };
-      marketScan: { _call: Function };
-      intentRouter: { _call: Function };
-      codaDocument: { _call: Function };
-      [key: string]: { _call: Function };
-    };
+    // Create tool instances with proper typing
+    const tools = createChloeTools(memory, model);
     
     // Create a map of tool bindings, checking that each tool exists
     const toolBindings: Record<string, any> = {};
@@ -71,9 +78,9 @@ export async function planAndExecute(
       if (tools[toolKey] && typeof tools[toolKey]._call === 'function') {
         toolBindings[internalName] = tools[toolKey]._call.bind(tools[toolKey]);
       } else {
-        console.warn(`Tool ${toolKey} not available or missing _call method`);
+        console.warn(`Tool ${String(toolKey)} not available or missing _call method`);
         // Provide a fallback that returns an error message
-        toolBindings[internalName] = async () => `Tool ${toolKey} is not available`;
+        toolBindings[internalName] = async () => `Tool ${String(toolKey)} is not available`;
       }
     };
     
@@ -136,7 +143,8 @@ export async function planAndExecute(
     // Optionally notify about completion
     if (result.finalOutput && options.autonomyMode) {
       try {
-        const notifyDiscord = tools.notifyDiscord;
+        // Access notifyDiscord tool properly using an index signature
+        const notifyDiscord = tools['notifyDiscord'];
         if (notifyDiscord && typeof notifyDiscord._call === 'function') {
           await notifyDiscord._call.bind(notifyDiscord)(
             `📊 Completed autonomous execution for goal: "${options.goalPrompt}"\n\n` +

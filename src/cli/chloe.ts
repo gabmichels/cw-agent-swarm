@@ -3,16 +3,14 @@
  * CLI for Chloe - allows manual triggering of autonomous features
  */
 
-// Using CommonJS style imports to avoid TypeScript module issues
-// @ts-ignore
-const dotenv = require('dotenv');
+// Import dotenv and commander using ES modules
+import dotenv from 'dotenv';
 dotenv.config();
 
-// @ts-ignore
-const { Command } = require('commander');
-const { ChloeAgent } = require('../agents/chloe/agent');
-const { initializeChloeAutonomy, diagnoseAutonomySystem } = require('../agents/chloe/autonomy');
-const { notifyDiscord } = require('../agents/chloe/notifiers');
+import { Command } from 'commander';
+import { ChloeAgent } from '../agents/chloe/agent';
+import { initializeChloeAutonomy, diagnoseAutonomySystem } from '../agents/chloe/autonomy';
+import { notifyDiscord } from '../agents/chloe/notifiers';
 
 // Define interfaces for CLI options
 interface NotificationOptions {
