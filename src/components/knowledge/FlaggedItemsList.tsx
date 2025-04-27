@@ -1,25 +1,11 @@
 import React, { useState } from 'react';
 import { AlertCircle, CheckCircle, XCircle, ChevronDown, ChevronUp, RefreshCw } from 'lucide-react';
-
-interface FlaggedItem {
-  id: string;
-  title: string;
-  content: string;
-  sourceType: string;
-  sourceReference: string;
-  suggestedType: string;
-  suggestedCategory: string;
-  suggestedSubcategory?: string;
-  confidence: number;
-  status: 'pending' | 'approved' | 'rejected';
-  createdAt: string;
-  updatedAt: string;
-  processedAt?: string;
-}
+import KnowledgePreview from './KnowledgePreview';
+import { FlaggedKnowledgeItem, SuggestedRelationship } from '../../lib/knowledge/flagging/types';
 
 interface FlaggedItemsListProps {
   isLoading: boolean;
-  items: FlaggedItem[];
+  items: FlaggedKnowledgeItem[];
   onRefresh: () => void;
 }
 
@@ -42,6 +28,12 @@ const FlaggedItemsList: React.FC<FlaggedItemsListProps> = ({
   };
 
   const updateItemStatus = async (id: string, status: 'approved' | 'rejected') => {
+    const actionVerb = status === 'approved' ? 'approve' : 'reject';
+    const confirmationMessage = `Are you sure you want to ${actionVerb} this item?`;
+    if (!window.confirm(confirmationMessage)) {
+      return;
+    }
+    
     setProcessingItems(prev => new Set(prev).add(id));
     
     try {
@@ -54,23 +46,33 @@ const FlaggedItemsList: React.FC<FlaggedItemsListProps> = ({
       });
       
       if (response.ok) {
-        // If status is approved, process the item
         if (status === 'approved') {
           await processItem(id);
         } else {
+          setProcessingItems(prev => {
+            const newSet = new Set(prev);
+            newSet.delete(id);
+            return newSet;
+          });
           onRefresh();
         }
       } else {
         console.error('Failed to update item status');
+        alert(`Failed to ${actionVerb} item. Please check console for details.`);
+        setProcessingItems(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(id);
+          return newSet;
+         });
       }
     } catch (error) {
       console.error('Error updating item status:', error);
-    } finally {
+      alert(`An error occurred while trying to ${actionVerb} the item.`);
       setProcessingItems(prev => {
         const newSet = new Set(prev);
         newSet.delete(id);
         return newSet;
-      });
+       });
     }
   };
 
@@ -87,16 +89,30 @@ const FlaggedItemsList: React.FC<FlaggedItemsListProps> = ({
       if (response.ok) {
         onRefresh();
       } else {
-        console.error('Failed to process item');
+        const errorData = await response.json().catch(() => ({ error: 'Failed to process item' }));
+        console.error('Failed to process item:', errorData);
+        alert(`Failed to add approved item to knowledge graph: ${errorData.error || 'Unknown error'}`);
       }
     } catch (error) {
       console.error('Error processing item:', error);
+      alert('An error occurred while adding the item to the knowledge graph.');
+    } finally {
+       setProcessingItems(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(id);
+        return newSet;
+       });
     }
   };
 
   const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+    if (!dateString) return 'N/A';
+    try {
+      const date = new Date(dateString);
+      return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+    } catch (e) {
+        return dateString;
+    }
   };
 
   const getStatusBadge = (status: string) => {
@@ -187,20 +203,20 @@ const FlaggedItemsList: React.FC<FlaggedItemsListProps> = ({
       
       <div className="space-y-3">
         {items.map(item => (
-          <div key={item.id} className="bg-gray-800 rounded-lg overflow-hidden">
+          <div key={item.id} className="bg-gray-800 rounded-lg overflow-hidden border border-gray-700">
             <div 
               className="p-3 cursor-pointer flex justify-between items-center hover:bg-gray-750"
               onClick={() => toggleItemExpanded(item.id)}
             >
-              <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-                <span className="font-medium">{item.title}</span>
-                <div className="flex gap-2 flex-wrap">
+              <div className="flex-1 flex flex-col sm:flex-row sm:items-center gap-2 pr-4">
+                <span className="font-medium truncate" title={item.title}>{item.title}</span>
+                <div className="flex gap-1 flex-wrap">
                   {getStatusBadge(item.status)}
                   {getTypeBadge(item.suggestedType)}
                   {getSourceBadge(item.sourceType)}
                 </div>
               </div>
-              <div className="flex items-center">
+              <div className="flex items-center flex-shrink-0">
                 {item.status === 'pending' && !processingItems.has(item.id) && (
                   <div className="flex mr-2">
                     <button
@@ -208,8 +224,9 @@ const FlaggedItemsList: React.FC<FlaggedItemsListProps> = ({
                         e.stopPropagation();
                         updateItemStatus(item.id, 'approved');
                       }}
-                      className="p-1 text-green-400 hover:text-green-300 mr-1"
+                      className="p-1 text-green-400 hover:text-green-300 rounded-full hover:bg-green-900/30"
                       aria-label="Approve"
+                      title="Approve"
                     >
                       <CheckCircle className="h-5 w-5" />
                     </button>
@@ -218,66 +235,113 @@ const FlaggedItemsList: React.FC<FlaggedItemsListProps> = ({
                         e.stopPropagation();
                         updateItemStatus(item.id, 'rejected');
                       }}
-                      className="p-1 text-red-400 hover:text-red-300"
+                      className="p-1 text-red-400 hover:text-red-300 rounded-full hover:bg-red-900/30"
                       aria-label="Reject"
+                      title="Reject"
                     >
                       <XCircle className="h-5 w-5" />
                     </button>
                   </div>
                 )}
-                {processingItems.has(item.id) ? (
+                {processingItems.has(item.id) && (
                   <div className="animate-spin rounded-full h-5 w-5 border-t-2 border-b-2 border-blue-500 mr-2"></div>
-                ) : null}
-                {expandedItems.has(item.id) ? (
-                  <ChevronUp className="h-5 w-5" />
-                ) : (
-                  <ChevronDown className="h-5 w-5" />
                 )}
+                <button 
+                  onClick={() => toggleItemExpanded(item.id)}
+                  className="p-1 rounded-full hover:bg-gray-600"
+                  aria-label={expandedItems.has(item.id) ? "Collapse" : "Expand"}
+                >
+                  {expandedItems.has(item.id) ? (
+                    <ChevronUp className="h-5 w-5" />
+                  ) : (
+                    <ChevronDown className="h-5 w-5" />
+                  )}
+                </button>
               </div>
             </div>
             
             {expandedItems.has(item.id) && (
-              <div className="p-4 border-t border-gray-700">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+              <div className="p-4 border-t border-gray-700 bg-gray-850">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
                   <div>
-                    <p className="text-sm text-gray-400 mb-1">Category</p>
+                    <p className="text-xs text-gray-400 mb-1 font-medium">Category</p>
                     <p>{item.suggestedCategory}{item.suggestedSubcategory ? ` › ${item.suggestedSubcategory}` : ''}</p>
                   </div>
                   <div>
-                    <p className="text-sm text-gray-400 mb-1">Source</p>
-                    <p>{item.sourceReference}</p>
+                    <p className="text-xs text-gray-400 mb-1 font-medium">Source Ref</p>
+                    <p className="truncate" title={item.sourceReference}>{item.sourceReference}</p>
                   </div>
                   <div>
-                    <p className="text-sm text-gray-400 mb-1">Created</p>
+                    <p className="text-xs text-gray-400 mb-1 font-medium">Confidence</p>
+                    <p>{(item.confidence * 100).toFixed(0)}%</p>
+                  </div>
+                   <div>
+                    <p className="text-xs text-gray-400 mb-1 font-medium">Created</p>
                     <p>{formatDate(item.createdAt)}</p>
                   </div>
                   <div>
-                    <p className="text-sm text-gray-400 mb-1">Confidence</p>
-                    <p>{(item.confidence * 100).toFixed(0)}%</p>
+                    <p className="text-xs text-gray-400 mb-1 font-medium">Updated</p>
+                    <p>{formatDate(item.updatedAt)}</p>
                   </div>
+                   {item.processedAt && (
+                    <div>
+                      <p className="text-xs text-gray-400 mb-1 font-medium">Processed</p>
+                      <p>{formatDate(item.processedAt)}</p>
+                    </div>
+                   )}
                 </div>
                 
                 <div className="mb-4">
-                  <p className="text-sm text-gray-400 mb-1">Content</p>
-                  <div className="bg-gray-900 p-3 rounded whitespace-pre-wrap">{item.content}</div>
+                  <p className="text-xs text-gray-400 mb-1 font-medium">Flagged Content</p>
+                  <div className="bg-gray-900 p-3 rounded max-h-40 overflow-y-auto text-sm whitespace-pre-wrap">{item.content}</div>
                 </div>
+
+                {item.suggestedProperties && (
+                  <KnowledgePreview 
+                    suggestedType={item.suggestedType}
+                    properties={item.suggestedProperties}
+                  />
+                )}
+
+                {item.suggestedRelationships && item.suggestedRelationships.length > 0 && (
+                  <div className="mt-4">
+                    <p className="text-xs text-gray-400 mb-1 font-medium">Suggested Relationships</p>
+                    <div className="bg-gray-900 p-3 rounded space-y-2">
+                      {item.suggestedRelationships.map((rel, index) => (
+                        <div key={index} className="text-sm">
+                          <span className="font-semibold">{rel.sourceConceptName}</span>
+                          <span className="text-purple-400 mx-1">→[{rel.relationshipType}]→</span>
+                          <span className="font-semibold">{rel.targetConceptName}</span>
+                          <span className="text-gray-400 ml-2">({(rel.strength * 100).toFixed(0)}%)</span>
+                          {rel.description && <p className="text-xs text-gray-400 pl-2">- {rel.description}</p>}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 
-                {/* Actions */}
+                <div className="mt-4">
+                    <p className="text-xs text-gray-400 mb-1 font-medium">Suggested Properties (Raw)</p>
+                    <pre className="bg-gray-900 p-3 rounded max-h-40 overflow-y-auto text-xs">{JSON.stringify(item.suggestedProperties, null, 2)}</pre>
+                  </div>
+
                 {item.status === 'pending' && (
-                  <div className="flex justify-end space-x-2 mt-4">
+                  <div className="flex justify-end space-x-3 mt-4 pt-4 border-t border-gray-700">
                     <button
                       onClick={() => updateItemStatus(item.id, 'rejected')}
-                      className="px-3 py-1 bg-red-700 hover:bg-red-600 rounded"
+                      className="px-4 py-2 bg-red-700 hover:bg-red-600 rounded text-sm font-medium transition-colors duration-150"
                       disabled={processingItems.has(item.id)}
+                      aria-label="Reject Item"
                     >
                       Reject
                     </button>
                     <button
                       onClick={() => updateItemStatus(item.id, 'approved')}
-                      className="px-3 py-1 bg-green-700 hover:bg-green-600 rounded"
+                      className="px-4 py-2 bg-green-700 hover:bg-green-600 rounded text-sm font-medium transition-colors duration-150"
                       disabled={processingItems.has(item.id)}
+                      aria-label="Approve Item"
                     >
-                      Approve
+                      {processingItems.has(item.id) ? 'Processing...' : 'Approve'}
                     </button>
                   </div>
                 )}
