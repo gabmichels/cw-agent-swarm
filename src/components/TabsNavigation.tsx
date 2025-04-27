@@ -14,7 +14,7 @@ const TabsNavigation: React.FC<TabsNavigationProps> = ({
   isFullscreen,
   toggleFullscreen,
 }) => {
-  const tabs = ['Chat', 'Tools', 'Tasks', 'Memory', 'Social', 'Files'];
+  const tabs = ['Chat', 'Tools', 'Tasks', 'Memory', 'Knowledge', 'Social', 'Files'];
 
   return (
     <div className="bg-gray-800 border-b border-gray-700 p-2 flex justify-between items-center">

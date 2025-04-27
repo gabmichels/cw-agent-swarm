@@ -9,6 +9,7 @@ import ChatInput from '../components/ChatInput';
 import ToolsTab from '../components/tabs/ToolsTab';
 import TasksTab from '../components/tabs/TasksTab';
 import MemoryTab from '../components/tabs/MemoryTab';
+import KnowledgeTab from '../components/tabs/KnowledgeTab';
 import SocialMediaTable from '../components/SocialMediaTable';
 import FilesTable from '../components/FilesTable';
 import { formatCronExpression } from '../utils/cronFormatter';
@@ -1527,7 +1528,9 @@ For detailed instructions, see the Debug panel.`,
               {selectedTab === 'social' && <SocialMediaTable />}
               
               {selectedTab === 'files' && <FilesTable onRefresh={fetchAllMemories} />}
-                        </div>
+              
+              {selectedTab === 'knowledge' && <KnowledgeTab />}
+            </div>
 
             {/* Input area */}
             <div className="border-t border-gray-700 p-4">
