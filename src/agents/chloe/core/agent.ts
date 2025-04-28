@@ -17,6 +17,14 @@ import { ThoughtManager } from './thoughtManager';
 import { MarketScannerManager } from './marketScannerManager';
 import { KnowledgeGapsManager } from './knowledgeGapsManager';
 
+// Add these to the existing imports from agentTypes.ts
+import {
+  PlanAndExecuteOptions,
+  PlanAndExecuteResult,
+  ScheduledTask,
+  MessageOptions,
+} from '../../../lib/shared/types/agentTypes';
+
 export interface ChloeAgentOptions {
   config?: Partial<AgentConfig>;
   useOpenAI?: boolean;
@@ -203,9 +211,9 @@ export class ChloeAgent {
   }
   
   /**
-   * Process a user message
+   * Process a message and generate a response
    */
-  async processMessage(message: string, options: { userId: string; attachments?: any; }): Promise<string> {
+  async processMessage(message: string, options: MessageOptions): Promise<string> {
     try {
       if (!this.initialized) {
         await this.initialize();
@@ -564,19 +572,21 @@ ${insightsText}
   async getAutonomySystem(): Promise<AutonomySystem | null> {
     // If autonomySystem is not initialized but we have planAndExecute method,
     // create an adapter that implements the AutonomySystem interface
-    if (!this.autonomySystem && typeof (this as any).planAndExecute === 'function') {
+    if (!this.autonomySystem && typeof this.planAndExecute === 'function') {
       // Create a minimal implementation of AutonomySystem that delegates to this.planAndExecute
       return {
         status: 'active',
         scheduledTasks: [],
         // Use our planAndExecute method
-        planAndExecute: (options: any) => (this as any).planAndExecute(options),
+        planAndExecute: async (options: PlanAndExecuteOptions): Promise<PlanAndExecuteResult> => {
+          return await this.planAndExecute(options.goalPrompt, options);
+        },
         // Stub implementations for other required methods
         runTask: async (taskName: string) => {
           console.log(`Running task: ${taskName}`);
           return true;
         },
-        scheduleTask: async (task: any) => {
+        scheduleTask: async (task: ScheduledTask) => {
           console.log(`Scheduling task: ${task.id}`);
           return true;
         },
@@ -594,7 +604,7 @@ ${insightsText}
    * Get the cognitive memory system
    * Required by tasks.ts for memory consolidation
    */
-  getCognitiveMemory(): any {
+  getCognitiveMemory(): unknown {
     // Pass through to memory manager
     return this.memoryManager?.getCognitiveMemory() || null;
   }
@@ -603,8 +613,46 @@ ${insightsText}
    * Get the knowledge graph
    * Required by tasks.ts for memory consolidation
    */
-  getKnowledgeGraph(): any {
+  getKnowledgeGraph(): unknown {
     // Pass through to memory manager
     return this.memoryManager?.getKnowledgeGraph() || null;
+  }
+  
+  /**
+   * Plan and execute a task 
+   */
+  async planAndExecute(goal: string, options?: Partial<PlanAndExecuteOptions>): Promise<PlanAndExecuteResult> {
+    if (!this.planningManager) {
+      return {
+        success: false,
+        message: "Planning manager not available",
+        error: "Planning manager not available"
+      };
+    }
+    
+    try {
+      // Default values for options
+      const defaultOptions: PlanAndExecuteOptions = {
+        goalPrompt: goal,
+        autonomyMode: false,
+        maxSteps: 10,
+        timeLimit: 300 // 5 minutes in seconds
+      };
+      
+      // Merge with provided options
+      const mergedOptions: PlanAndExecuteOptions = {
+        ...defaultOptions,
+        ...options
+      };
+      
+      return await this.planningManager.planAndExecuteWithOptions(mergedOptions);
+    } catch (error) {
+      console.error('Error in planAndExecute:', error);
+      return {
+        success: false,
+        message: `Error executing plan: ${error}`,
+        error: error instanceof Error ? error.message : String(error)
+      };
+    }
   }
 }

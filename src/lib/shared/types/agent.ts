@@ -1,7 +1,20 @@
 import { ChatOpenAI } from '@langchain/openai';
-import { type AgentConfig } from '../types';
 import { type StateGraph } from '@langchain/langgraph';
 import { type Message, type Task } from '../types';
+
+/**
+ * Agent configuration with all required properties
+ */
+export interface AgentConfig {
+  systemPrompt: string;
+  model?: string;
+  modelName?: string;
+  temperature?: number;
+  maxTokens?: number;
+  topP?: number;
+  agentId: string;
+  logDir?: string;
+}
 
 /**
  * Type definitions for the Chloe agent system

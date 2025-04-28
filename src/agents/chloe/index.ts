@@ -4,35 +4,36 @@
 
 // Export core components
 export { ChloeAgent } from './core/agent';
-export { MemoryManager } from './core/memoryManager';
+export { ChloeAgent as Agent } from './core/agent'; // Legacy export
+export { ChloeAgent as ChloeAgentImplementation } from './core/@agent'; // New implementation
+
+// Export additional components
 export { ToolManager } from './core/toolManager';
 export { PlanningManager } from './core/planningManager';
+export { MemoryManager } from './core/memoryManager';
 export { ReflectionManager } from './core/reflectionManager';
 export { ThoughtManager } from './core/thoughtManager';
 export { MarketScannerManager } from './core/marketScannerManager';
+export { KnowledgeGapsManager } from './core/knowledgeGapsManager';
 
-// Export supporting components
-export { ChloeMemory } from './memory';
-export type { MemoryEntry } from './memory';
+// Export notifiers
+export type { Notifier } from './notifiers';
+export type { DiscordNotifier } from './notifiers/discord';
+
+// Export memory components
+export type { ChloeMemory } from './memory';
 export { MemoryTagger } from './memory-tagger';
-export { Persona } from './persona';
-export { PersonaLoader } from './persona-loader';
 export { TaskLogger } from './task-logger';
-export { ChloeScheduler, setupScheduler, setupDefaultSchedule } from './scheduler';
+
+// Export autonomy components
+export { setupScheduler, ChloeScheduler, setupDefaultSchedule, initializeAutonomy } from './scheduler';
+
+// Export tools
+export { createChloeTools } from './tools';
 
 // Export LangGraph workflow components
 export { ChloeGraph } from './graph/graph';
 export type { GraphState } from './graph/graph';
-
-// Export tools
-export { 
-  SearchMemoryTool,
-  SummarizeRecentActivityTool,
-  ProposeContentIdeasTool,
-  ReflectOnPerformanceTool,
-  NotifyDiscordTool,
-  createChloeTools
-} from './tools';
 
 // Export planAndExecute functionality
 export { 
@@ -50,7 +51,6 @@ export {
 } from './autonomy';
 
 // Re-export types
-export type { ChloeMemoryOptions } from './memory';
 export type { PersonaOptions } from './persona';
 
 // Import for singleton

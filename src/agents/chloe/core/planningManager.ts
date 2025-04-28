@@ -1,7 +1,7 @@
 import { ChatOpenAI } from '@langchain/openai';
 import { ChloeMemory } from '../memory';
 import { TaskLogger } from '../task-logger';
-import { AutonomySystem } from '../../../lib/shared/types/agent';
+import { AutonomySystem, PlanAndExecuteOptions, PlanAndExecuteResult, PlanWithSteps as AgentPlanWithSteps } from '../../../lib/shared/types/agentTypes';
 import { planTask, PlanResult } from '../../../server/agents/planner';
 import { executePlan } from '../../../server/agents/executor';
 
@@ -252,5 +252,45 @@ export class PlanningManager {
    */
   isInitialized(): boolean {
     return this.initialized;
+  }
+
+  /**
+   * Adapter method for executing plans with the format expected by the agent
+   * @param options Options for plan execution
+   * @returns The execution result in the format expected by the agent
+   */
+  async planAndExecuteWithOptions(options: PlanAndExecuteOptions): Promise<PlanAndExecuteResult> {
+    try {
+      // First plan the task based on the goal prompt
+      const plan = await this.planTask(options.goalPrompt);
+      
+      // Then execute the plan
+      const result = await this.executePlan(plan);
+      
+      // Convert ExecutionResult to PlanAndExecuteResult
+      const planAndExecuteResult: PlanAndExecuteResult = {
+        success: result.success,
+        message: result.output || "Plan execution completed",
+        plan: {
+          goal: options.goalPrompt,
+          steps: result.stepResults?.map(step => ({
+            id: String(Math.random()).substring(2, 10),
+            description: step.step,
+            status: step.success ? 'completed' : 'failed'
+          })) || [],
+          reasoning: "Plan execution from planning manager"
+        },
+        error: result.error
+      };
+      
+      return planAndExecuteResult;
+    } catch (error) {
+      console.error('Error in plan and execute with options:', error);
+      return {
+        success: false,
+        message: `Error executing plan: ${error}`,
+        error: error instanceof Error ? error.message : String(error)
+      };
+    }
   }
 } 

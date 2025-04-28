@@ -304,6 +304,16 @@ export class MemoryManager {
     }
   }
 
+  /**
+   * Adapter method to get recent memories in the expected format
+   * @param limit Maximum number of memories to return
+   */
+  async getRecentMemoriesAdapter(limit: number = 10): Promise<any[]> {
+    // The actual implementation would fetch from the memory provider
+    // This is a stub that returns an empty array
+    return Promise.resolve([]);
+  }
+
   getMemory(): AgentMemory | null {
     return this.memory;
   }

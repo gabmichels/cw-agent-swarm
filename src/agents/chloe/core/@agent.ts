@@ -10,33 +10,52 @@ import { ThoughtManager } from './thoughtManager';
 import { MarketScannerManager } from './marketScannerManager';
 import { KnowledgeGapsManager } from './knowledgeGapsManager';
 import { logger } from '../../../lib/logging';
+import { 
+  IAgent, 
+  MessageOptions, 
+  AutonomySystem,
+  MemoryManagerOptions, 
+  ToolManagerOptions,
+  PlanningManagerOptions,
+  ReflectionManagerOptions,
+  ThoughtManagerOptions,
+  MarketScannerManagerOptions,
+  KnowledgeGapsManagerOptions,
+  ChloeState,
+  PlanAndExecuteOptions,
+  PlanAndExecuteResult,
+  TaggedMemory
+} from '../../../lib/shared/types/agentTypes';
+import { AgentConfig } from '../../../lib/shared/types/agent';
+import { Persona } from '../persona';
+import { ChloeMemory } from '../memory';
+import { CognitiveMemory as ICognitiveMemory } from '../memory/cognitive';
+import { KnowledgeGraph as IKnowledgeGraph } from '../knowledge/graph';
 
-// Type definitions
-interface ChloeMemory {
-  getMemoriesByDateRange(type: string, startDate: Date, endDate: Date): Promise<any[]>;
+// Fix the global model declaration
+declare global {
+  namespace NodeJS {
+    interface Global {
+      model: ChatOpenAI | undefined;
+    }
+  }
 }
 
+// Type definitions
 interface StrategicInsight {
   insight: string;
   category: string;
 }
 
 // Agent state type
-export interface ChloeState {
-  messages: any[];
+export interface ChloeAgentState {
+  messages: Array<{
+    role: string;
+    content: string;
+    metadata?: Record<string, unknown>;
+  }>;
   currentTask: string | null;
   thoughts: string[];
-}
-
-// Configuration options for the agent
-export interface AgentConfig {
-  agentId: string;
-  systemPrompt: string;
-  modelName: string;
-  temperature: number;
-  maxTokens: number;
-  topP: number;
-  logDir: string;
 }
 
 // Options for initializing the agent
@@ -55,7 +74,7 @@ export interface ChloeAgentOptions {
  * - Modular design with manager components
  * - Asynchronous operations with proper Promise handling
  */
-export class ChloeAgent {
+export class ChloeAgent implements IAgent {
   // Core properties
   private readonly agentId: string;
   private agent: StateGraph<ChloeState> | null = null;
@@ -66,8 +85,8 @@ export class ChloeAgent {
   // Core systems
   private model: ChatOpenAI | null = null;
   private taskLogger: TaskLogger | null = null;
-  private persona: any | null = null;
-  private autonomySystem: any | null = null;
+  private persona: Persona | null = null;
+  private autonomySystem: AutonomySystem | null = null;
   
   // Manager systems
   private memoryManager: MemoryManager | null = null;
@@ -102,48 +121,147 @@ export class ChloeAgent {
   }
 
   /**
-   * Initialize the agent and all its systems
+   * Initialize the agent and all its components
    */
   async initialize(): Promise<void> {
+    if (this.initialized) {
+      console.log('Agent already initialized');
+      return;
+    }
+
     try {
-      logger.info(`Initializing ChloeAgent with ID: ${this.agentId}...`);
+      console.log('Initializing ChloeAgent...');
       
-      // Initialize the OpenAI model
+      // Initialize OpenAI model
       this.model = new ChatOpenAI({
-        modelName: this.config.modelName,
-        temperature: this.config.temperature,
-        maxTokens: this.config.maxTokens,
-        topP: this.config.topP
+        modelName: process.env.OPENAI_MODEL_NAME || 'gpt-4-turbo',
+        temperature: this.config.temperature || 0.7,
+        openAIApiKey: process.env.OPENAI_API_KEY,
       });
       
-      // Initialize task logger for tracking agent actions
+      // Make model available globally for TaskLogger to use
+      global.model = this.model;
+      
+      // Initialize task logger
       this.taskLogger = new TaskLogger({
         logsPath: this.config.logDir,
-        maxSessionsInMemory: 10,
         persistToFile: true
       });
       await this.taskLogger.initialize();
       
-      // Initialize the memory manager
-      // The actual implementation would initialize all required managers
-      this.memoryManager = new MemoryManager({
-        agentId: this.agentId
-      });
+      // Create a new session
+      this.createNewSession();
+      
+      // Initialize persona system
+      this.persona = new Persona();
+      await this.persona.initialize();
+      
+      // Initialize memory manager
+      const memoryOptions: MemoryManagerOptions = {
+        agentId: this.agentId,
+        namespace: `chloe-${this.agentId}`,
+        workingMemoryCapacity: 100,
+        consolidationInterval: 24 * 60 * 60 * 1000, // 24 hours
+        useOpenAI: true
+      };
+      
+      this.memoryManager = new MemoryManager(memoryOptions);
       await this.memoryManager.initialize();
       
-      // Mark as initialized
+      // Get the base memory for initializing other managers
+      const chloeMemory = this.memoryManager.getChloeMemory();
+      if (!chloeMemory) {
+        throw new Error('Failed to initialize ChloeMemory');
+      }
+      
+      // Initialize tool manager
+      const toolOptions: ToolManagerOptions = {
+        agentId: this.agentId,
+        model: this.model,
+        memory: chloeMemory,
+        logger: this.taskLogger
+      };
+      
+      this.toolManager = new ToolManager(toolOptions);
+      await this.toolManager.initialize();
+      
+      // Initialize planning manager
+      const planningOptions: PlanningManagerOptions = {
+        agentId: this.agentId,
+        memory: chloeMemory,
+        model: this.model,
+        taskLogger: this.taskLogger,
+        notifyFunction: async (message: string) => this.notify(message)
+      };
+      
+      this.planningManager = new PlanningManager(planningOptions);
+      await this.planningManager.initialize();
+      
+      // Initialize reflection manager
+      const reflectionOptions: ReflectionManagerOptions = {
+        agentId: this.agentId,
+        memory: chloeMemory,
+        model: this.model,
+        taskLogger: this.taskLogger,
+        notifyFunction: async (message: string) => this.notify(message)
+      };
+      
+      this.reflectionManager = new ReflectionManager(reflectionOptions);
+      await this.reflectionManager.initialize();
+      
+      // Initialize thought manager
+      const thoughtOptions: ThoughtManagerOptions = {
+        agentId: this.agentId,
+        memory: chloeMemory,
+        model: this.model,
+        taskLogger: this.taskLogger
+      };
+      
+      this.thoughtManager = new ThoughtManager(thoughtOptions);
+      await this.thoughtManager.initialize();
+      
+      // Initialize market scanner manager
+      const marketScannerOptions: MarketScannerManagerOptions = {
+        agentId: this.agentId,
+        memory: chloeMemory,
+        model: this.model,
+        taskLogger: this.taskLogger,
+        notifyFunction: async (message: string) => this.notify(message)
+      };
+      
+      this.marketScannerManager = new MarketScannerManager(marketScannerOptions);
+      await this.marketScannerManager.initialize();
+      
+      // Initialize knowledge gaps manager
+      const knowledgeGapsOptions: KnowledgeGapsManagerOptions = {
+        agentId: this.agentId,
+        memory: chloeMemory,
+        openaiApiKey: process.env.OPENAI_API_KEY || '',
+        logger: this.taskLogger,
+        notifyFunction: async (message: string) => this.notify(message)
+      };
+      
+      this.knowledgeGapsManager = new KnowledgeGapsManager({
+        agentId: this.agentId,
+        memory: chloeMemory,
+        openaiApiKey: process.env.OPENAI_API_KEY || '',
+        logger: this.taskLogger,
+        notifyFunction: async (message: string) => this.notify(message)
+      });
+      await this.knowledgeGapsManager.initialize();
+      
       this.initialized = true;
-      logger.info('ChloeAgent initialization complete');
+      console.log('ChloeAgent initialization complete.');
     } catch (error) {
-      logger.error('Error initializing ChloeAgent:', error);
-      throw new Error(`Failed to initialize ChloeAgent: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      console.error('Error initializing ChloeAgent:', error);
+      throw error;
     }
   }
 
   /**
    * Process a user message and generate a response
    */
-  async processMessage(message: string, options: { userId: string; attachments?: any }): Promise<string> {
+  async processMessage(message: string, options: MessageOptions): Promise<string> {
     try {
       // Ensure the agent is initialized
       if (!this.initialized || !this.model || !this.taskLogger) {
@@ -168,201 +286,162 @@ export class ChloeAgent {
       
       // Simplified version for this implementation:
       // Create messages for the model in a type-safe way
-      const messages = [
-        { role: 'system', content: this.config.systemPrompt },
-        { role: 'user', content: message }
-      ];
+      const systemMessage = { role: 'system', content: this.config.systemPrompt };
+      const userMessage = { role: 'user', content: message };
       
       // Use a more careful approach to handle the model invocation
       let result;
       if (this.model) {
-        // Use any type only where needed to bypass the type checking
-        result = await (this.model as any).invoke(messages);
+        result = await this.model.invoke(
+          `System: ${this.config.systemPrompt}\nUser: ${message}`
+        );
       } else {
         throw new Error('Model not initialized');
       }
       
-      const response = result.content as string;
+      const response = result.content.toString();
       
       // Log agent response
       this.taskLogger.logAgentMessage(response);
       
       return response;
     } catch (error) {
-      logger.error('Error processing message:', error);
-      
-      // Log the error - using a console fallback if taskLogger method isn't available
-      if (this.taskLogger) {
-        try {
-          // Try using logAction for error logging if logError doesn't exist
-          this.taskLogger.logAction(`ERROR: ${error instanceof Error ? error.message : 'Unknown error'}`);
-        } catch (loggingError) {
-          console.error('Error during error logging:', loggingError);
-        }
-      }
-      
-      return "I'm sorry, I encountered an error while processing your message. Please try again.";
+      console.error('Error processing message:', error);
+      return `I'm sorry, I encountered an error while processing your message: ${error}`;
     }
   }
 
   /**
-   * Create a new session for tracking the conversation
+   * Shutdown the agent and all its components
+   */
+  async shutdown(): Promise<void> {
+    try {
+      console.log('Shutting down ChloeAgent...');
+      
+      // Perform any necessary cleanup with proper error handling
+      const shutdownTasks: Promise<void>[] = [];
+      
+      // Close task logger if it exists
+      if (this.taskLogger) {
+        shutdownTasks.push(this.taskLogger.close());
+      }
+      
+      // Wait for all shutdown tasks to complete
+      await Promise.all(shutdownTasks);
+      
+      this.initialized = false;
+      console.log('ChloeAgent shutdown complete.');
+    } catch (error) {
+      console.error('Error during shutdown:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Create a new session for logging
    */
   private createNewSession(): void {
     if (this.taskLogger) {
-      this.taskLogger.createSession(`Session-${Date.now()}`, ['conversation']);
-      this.taskLogger.logAction('Created new session');
-    }
-  }
-  
-  /**
-   * Run daily maintenance and scanning tasks
-   */
-  async runDailyTasks(): Promise<void> {
-    try {
-      logger.info('Running daily tasks...');
-      this.taskLogger?.logAction('Starting daily tasks');
-      
-      // In a real implementation, we would run various tasks here
-      // such as market scanning, reflections, etc.
-      
-      this.taskLogger?.logAction('Completed daily tasks');
-      logger.info('Daily tasks completed');
-    } catch (error) {
-      logger.error('Error running daily tasks:', error);
-      this.taskLogger?.logAction(`ERROR: Error in daily tasks: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      const sessionInfo = this.taskLogger.createSession(`Chloe Session ${new Date().toISOString()}`, ['chloe', 'agent']);
+      console.log(`Created new session with ID: ${typeof sessionInfo === 'string' ? sessionInfo : 'unknown'}`);
+    } else {
+      console.error('Cannot create session: TaskLogger not initialized');
     }
   }
 
-  /**
-   * Run weekly reflection process
-   */
-  async runWeeklyReflection(): Promise<string> {
-    try {
-      logger.info('Running weekly reflection...');
-      this.taskLogger?.logAction('Starting weekly reflection');
-      
-      // Simplified implementation - in a real system we would:
-      // - Get recent memories and events
-      // - Analyze performance
-      // - Generate insights
-      
-      const reflectionResult = "Weekly reflection completed. This is a placeholder result.";
-      this.taskLogger?.logAction('Completed weekly reflection');
-      
-      return reflectionResult;
-    } catch (error) {
-      logger.error('Error running weekly reflection:', error);
-      this.taskLogger?.logAction(`ERROR: Error in weekly reflection: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      return `Error running weekly reflection: ${error instanceof Error ? error.message : 'Unknown error'}`;
-    }
-  }
-
-  /**
-   * Run a reflection on a specific question
-   */
-  async reflect(question: string): Promise<string> {
-    try {
-      logger.info(`Running reflection on: "${question}"`);
-      this.taskLogger?.logAction(`Starting reflection on: ${question}`);
-      
-      // Simplified implementation - in a real system we would:
-      // - Get relevant memories and context
-      // - Use the model to generate a thoughtful reflection
-
-      const reflectionResult = `Reflection on "${question}" completed. This is a placeholder result.`;
-      this.taskLogger?.logAction('Completed reflection');
-      
-      return reflectionResult;
-    } catch (error) {
-      logger.error('Error running reflection:', error);
-      this.taskLogger?.logAction(`ERROR: Error in reflection: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      return `Error running reflection: ${error instanceof Error ? error.message : 'Unknown error'}`;
-    }
-  }
-
-  /**
-   * Send a daily summary to Discord
-   */
-  async sendDailySummaryToDiscord(): Promise<boolean> {
-    try {
-      logger.info('Sending daily summary to Discord...');
-      
-      // In a real implementation, this would:
-      // - Gather recent activities and insights
-      // - Generate a summary
-      // - Send it to Discord via a tool
-      
-      // For now, just simulate success
-      logger.info('Daily summary sent to Discord');
-      return true;
-    } catch (error) {
-      logger.error('Error sending daily summary to Discord:', error);
-      return false;
-    }
-  }
-  
   /**
    * Add a notifier for sending notifications
    */
   addNotifier(notifier: Notifier): void {
     this.notifiers.push(notifier);
-    logger.info(`Added notifier: ${notifier.name}`);
+    console.log(`Added notifier: ${notifier.name}`);
   }
-  
+
   /**
    * Send a notification to all registered notifiers
    */
   notify(message: string): void {
-    // Log the notification
-    logger.info(`[Notification] ${message}`);
+    console.log(`[Notification] ${message}`);
     
-    // Send to all notifiers
     for (const notifier of this.notifiers) {
       try {
-        // Check which method is available on the notifier
         if (typeof notifier.send === 'function') {
-          // Using void to ignore the promise since this is a synchronous method
-          void notifier.send(message).catch(err => {
-            logger.error(`Error in notifier ${notifier.name}:`, err);
-          });
-        } else {
-          logger.warn(`Notifier ${notifier.name} has no send method`);
+          void notifier.send(message);
         }
       } catch (error) {
-        logger.error(`Error in notifier ${notifier.name}:`, error);
+        console.error(`Error in notifier ${notifier.name}:`, error);
       }
     }
   }
-  
+
   /**
-   * Shutdown the agent and all its systems
+   * Plan and execute a task
+   * @param goal The goal to plan for
+   * @param options Additional options for planning
+   * @returns The result of executing the plan
    */
-  async shutdown(): Promise<void> {
+  async planAndExecute(goal: string, options?: Partial<PlanAndExecuteOptions>): Promise<PlanAndExecuteResult> {
     try {
-      logger.info('Shutting down ChloeAgent...');
-      
-      // Perform any necessary cleanup
-      if (this.taskLogger) {
-        this.taskLogger.logAction('Agent shutdown');
-        await this.taskLogger.close();
+      if (!this.initialized) {
+        throw new Error('Agent not initialized');
       }
       
-      // Shutdown all notifiers with a graceful fallback
-      for (const notifier of this.notifiers) {
-        try {
-          // Check if shutdown exists before calling it
-          if (typeof (notifier as any).shutdown === 'function') {
-            await (notifier as any).shutdown();
-          }
-        } catch (error) {
-          logger.error(`Error shutting down notifier ${notifier.name}:`, error);
-        }
+      const planningManager = this.planningManager;
+      if (!planningManager) {
+        throw new Error('Planning manager not available');
       }
       
-      logger.info('ChloeAgent shutdown complete.');
+      // Default options for planning
+      const defaultOptions: PlanAndExecuteOptions = {
+        goalPrompt: goal,
+        autonomyMode: false,
+        maxSteps: 10,
+        timeLimit: 300 // 5 minutes in seconds
+      };
+      
+      // Merge default options with provided options
+      const mergedOptions: PlanAndExecuteOptions = {
+        ...defaultOptions,
+        ...options
+      };
+      
+      // Try to use the planAndExecuteWithOptions method first
+      if (typeof planningManager.planAndExecuteWithOptions === 'function') {
+        return await planningManager.planAndExecuteWithOptions(mergedOptions);
+      }
+      
+      // Fall back to planAndExecuteTask if it exists
+      if (planningManager.planAndExecuteTask) {
+        const result = await planningManager.planAndExecuteTask(mergedOptions.goalPrompt);
+        return {
+          success: result.success,
+          message: result.success ? "Plan executed successfully" : "Plan execution failed",
+          plan: {
+            goal: mergedOptions.goalPrompt,
+            steps: result.stepResults?.map((step, index) => ({
+              id: String(index),
+              description: step.step,
+              status: step.success ? 'completed' : 'failed'
+            })) || [],
+            reasoning: result.output || "Plan execution complete"
+          },
+          error: result.success ? undefined : "Failed to execute plan"
+        };
+      }
+      
+      // If no methods are available, return a default failed result
+      return {
+        success: false,
+        message: "No planning execution methods available",
+        error: "No planning execution methods available"
+      };
     } catch (error) {
-      logger.error('Error during shutdown:', error);
+      console.error('Error in planAndExecute:', error);
+      return {
+        success: false,
+        message: `Error executing plan: ${error}`,
+        error: error instanceof Error ? error.message : String(error)
+      };
     }
   }
   
@@ -372,7 +451,7 @@ export class ChloeAgent {
     return this.memoryManager?.getChloeMemory() || null;
   }
   
-  getPersona(): any | null {
+  getPersona(): Persona | null {
     return this.persona;
   }
   
@@ -387,60 +466,94 @@ export class ChloeAgent {
   isInitialized(): boolean {
     return this.initialized;
   }
-  
-  // Getters for all managers
-  
-  getMemoryManager(): MemoryManager | null {
-    return this.memoryManager;
-  }
-  
-  getToolManager(): ToolManager | null {
-    return this.toolManager;
-  }
-  
-  getPlanningManager(): PlanningManager | null {
-    return this.planningManager;
-  }
-  
-  getReflectionManager(): ReflectionManager | null {
-    return this.reflectionManager;
-  }
-  
-  getThoughtManager(): ThoughtManager | null {
-    return this.thoughtManager;
-  }
-  
-  getMarketScannerManager(): MarketScannerManager | null {
-    return this.marketScannerManager;
-  }
-  
-  getKnowledgeGapsManager(): KnowledgeGapsManager | null {
-    return this.knowledgeGapsManager;
-  }
-  
+
   /**
-   * Get the autonomy system
-   * Required by scheduler.ts
+   * Get recent memories
    */
-  getAutonomySystem(): any | null {
-    return this.autonomySystem;
+  async getRecentMemories(limit: number = 10): Promise<TaggedMemory[]> {
+    if (!this.memoryManager) {
+      throw new Error('Memory manager not initialized');
+    }
+    
+    try {
+      // Try to call the adapter method if it exists
+      if (typeof this.memoryManager.getRecentMemoriesAdapter === 'function') {
+        return this.memoryManager.getRecentMemoriesAdapter(limit);
+      }
+      
+      // Otherwise return an empty array
+      return [];
+    } catch (error) {
+      console.error('Error getting recent memories:', error);
+      return [];
+    }
   }
   
   /**
    * Get the cognitive memory system
-   * Required by tasks.ts for memory consolidation
    */
-  getCognitiveMemory(): any | null {
-    // In the full implementation, this would return the cognitive memory from memory manager
-    return this.memoryManager?.getCognitiveMemory?.() || null;
+  getCognitiveMemory(): ICognitiveMemory | null {
+    if (!this.memoryManager) {
+      return null;
+    }
+    
+    try {
+      // Two-step assertion through unknown
+      return this.memoryManager.getCognitiveMemory() as unknown as ICognitiveMemory;
+    } catch (error) {
+      console.error('Error getting cognitive memory:', error);
+      return null;
+    }
   }
   
   /**
    * Get the knowledge graph
-   * Required by tasks.ts for memory consolidation
    */
-  getKnowledgeGraph(): any | null {
-    // In the full implementation, this would return the knowledge graph from memory manager
-    return this.memoryManager?.getKnowledgeGraph?.() || null;
+  getKnowledgeGraph(): IKnowledgeGraph | null {
+    if (!this.memoryManager) {
+      return null;
+    }
+    
+    try {
+      // Two-step assertion through unknown
+      return this.memoryManager.getKnowledgeGraph() as unknown as IKnowledgeGraph;
+    } catch (error) {
+      console.error('Error getting knowledge graph:', error);
+      return null;
+    }
+  }
+  
+  /**
+   * Get the autonomy system
+   */
+  async getAutonomySystem(): Promise<AutonomySystem | null> {
+    // If autonomySystem is not initialized but we have planAndExecute method,
+    // create an adapter that implements the AutonomySystem interface
+    if (!this.autonomySystem && typeof this.planAndExecute === 'function') {
+      // Create a minimal implementation of AutonomySystem that delegates to this.planAndExecute
+      return {
+        status: 'active',
+        scheduledTasks: [],
+        // Use our planAndExecute method as an adapter
+        planAndExecute: async (options: PlanAndExecuteOptions): Promise<PlanAndExecuteResult> => {
+          return this.planAndExecute(options.goalPrompt, options);
+        },
+        // Stub implementations for other required methods
+        runTask: async (taskName: string) => {
+          console.log(`Running task: ${taskName}`);
+          return true;
+        },
+        scheduleTask: async (task) => {
+          console.log(`Scheduling task: ${task.id}`);
+          return true;
+        },
+        initialize: async () => {
+          console.log('Initializing autonomy system');
+          return true;
+        }
+      };
+    }
+    
+    return this.autonomySystem;
   }
 } 

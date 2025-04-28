@@ -6,4 +6,9 @@
 export * from './agent';
 
 // Re-export the core types from the parent shared directory
-export * from '../types'; 
+export {
+  type Message,
+  type Task,
+  // Explicitly exclude AgentConfig to avoid conflicts
+  // AgentConfig is now exported from './agent'
+} from '../types'; 
