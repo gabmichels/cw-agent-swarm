@@ -3,21 +3,12 @@ import { ChloeMemory } from '../memory';
 import { TaskLogger } from '../task-logger';
 import { createMarketScanner, MarketScanner, MarketTrend } from '../tools/marketScanner';
 import * as serverQdrant from '../../../server/qdrant';
+import { IManager, BaseManagerOptions } from '../../../lib/shared/types/agentTypes';
+import { logger } from '../../../lib/logging';
 
 // Add a declaration to extend the serverQdrant type
 declare module '../../../server/qdrant' {
   export function addToCollection(collection: string, embedding: number[], payload: any): Promise<boolean>;
-}
-
-/**
- * Interface for MarketScannerManager options
- */
-export interface MarketScannerManagerOptions {
-  agentId: string;
-  memory: ChloeMemory;
-  model: ChatOpenAI;
-  taskLogger: TaskLogger;
-  notifyFunction?: (message: string) => Promise<void>;
 }
 
 /**
@@ -39,16 +30,29 @@ export interface TrendSummaryResponse {
 }
 
 /**
+ * Options for initializing the market scanner manager
+ */
+export interface MarketScannerManagerOptions extends BaseManagerOptions {
+  memory: ChloeMemory;
+  model: ChatOpenAI;
+  logger?: TaskLogger;
+  notifyFunction?: (message: string) => Promise<void>;
+}
+
+/**
  * Manages market scanning and trend analysis for the Chloe agent
  */
-export class MarketScannerManager {
+export class MarketScannerManager implements IManager {
+  // Required core properties
   private agentId: string;
+  private initialized: boolean = false;
+  private taskLogger: TaskLogger | null = null;
+  
+  // Manager-specific properties
   private memory: ChloeMemory;
   private model: ChatOpenAI;
-  private taskLogger: TaskLogger;
   private notifyFunction?: (message: string) => Promise<void>;
   private scanner: MarketScanner | null = null;
-  private initialized: boolean = false;
   private readonly strategicInsightsCollection = 'strategic_insights';
 
   /**
@@ -59,30 +63,79 @@ export class MarketScannerManager {
     this.agentId = options.agentId;
     this.memory = options.memory;
     this.model = options.model;
-    this.taskLogger = options.taskLogger;
+    this.taskLogger = options.logger || null;
     this.notifyFunction = options.notifyFunction;
   }
 
   /**
+   * Get the agent ID this manager belongs to
+   * Required by IManager interface
+   */
+  getAgentId(): string {
+    return this.agentId;
+  }
+
+  /**
+   * Log an action performed by this manager
+   * Required by IManager interface
+   */
+  logAction(action: string, metadata?: Record<string, unknown>): void {
+    if (this.taskLogger) {
+      this.taskLogger.logAction(`MarketScannerManager: ${action}`, metadata);
+    } else {
+      logger.info(`MarketScannerManager: ${action}`, metadata);
+    }
+  }
+
+  /**
    * Initialize the market scanner system
+   * Required by IManager interface
    * @returns Promise that resolves when initialization is complete
    */
   async initialize(): Promise<void> {
     try {
-      this.taskLogger.logAction('Initializing market scanner system');
+      this.logAction('Initializing market scanner system');
       
       // Initialize market scanner
       this.scanner = createMarketScanner();
       await this.scanner.initialize(this.model);
       
       this.initialized = true;
-      this.taskLogger.logAction('Market scanner system initialized successfully');
+      this.logAction('Market scanner system initialized successfully');
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      this.taskLogger.logAction('Error initializing market scanner', { error: errorMessage });
-      console.error('Error initializing market scanner system:', errorMessage);
+      this.logAction('Error initializing market scanner', { error: errorMessage });
       throw error;
     }
+  }
+
+  /**
+   * Shutdown and cleanup resources
+   * Optional but recommended method in IManager interface
+   */
+  async shutdown(): Promise<void> {
+    try {
+      this.logAction('Shutting down market scanner system');
+      
+      // Add cleanup logic here if needed
+      if (this.scanner) {
+        // Cleanup scanner resources if applicable
+      }
+      
+      this.logAction('Market scanner system shutdown complete');
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logAction('Error during market scanner system shutdown', { error: errorMessage });
+      throw error;
+    }
+  }
+
+  /**
+   * Check if the manager is initialized
+   * Required by IManager interface
+   */
+  isInitialized(): boolean {
+    return this.initialized;
   }
 
   /**
@@ -92,7 +145,7 @@ export class MarketScannerManager {
    */
   async scanMarketTrends(query: string): Promise<string> {
     try {
-      if (!this.initialized) {
+      if (!this.isInitialized()) {
         await this.initialize();
       }
       
@@ -100,7 +153,7 @@ export class MarketScannerManager {
         throw new Error('Market scanner not initialized');
       }
       
-      this.taskLogger.logAction('Scanning market trends', { query });
+      this.logAction('Scanning market trends', { query });
       
       // Run market scan - use getTrends method which is available in MarketScanner
       const trends = await this.scanner.getTrends(query, 0, 20);
@@ -121,11 +174,10 @@ export class MarketScannerManager {
       return scanResults;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      this.taskLogger.logAction('Error scanning market trends', { 
+      this.logAction('Error scanning market trends', { 
         query, 
         error: errorMessage 
       });
-      console.error('Error scanning market trends:', errorMessage);
       return `Error scanning market trends: ${errorMessage}`;
     }
   }
@@ -159,11 +211,11 @@ RELEVANCE: ${trend.score}/100
    */
   async summarizeTrends(): Promise<TrendSummaryResponse> {
     try {
-      if (!this.initialized) {
+      if (!this.isInitialized()) {
         await this.initialize();
       }
       
-      this.taskLogger.logAction('Summarizing market trends');
+      this.logAction('Summarizing market trends');
       
       // Get recent market scan memories
       const recentScans = await this.memory.getRelevantMemories('market trends analysis scan', 10);
@@ -218,8 +270,7 @@ Focus on actionable insights that have strategic implications for marketing effo
       return { success: true, summary: trendSummary };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      this.taskLogger.logAction('Error summarizing trends', { error: errorMessage });
-      console.error('Error summarizing trends:', errorMessage);
+      this.logAction('Error summarizing trends', { error: errorMessage });
       
       if (this.notifyFunction) {
         await this.notifyFunction(`Error in trend summarization: ${errorMessage}`);
@@ -271,8 +322,7 @@ Focus on actionable insights that have strategic implications for marketing effo
       return trends;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      this.taskLogger.logAction('Error parsing trend summary', { error: errorMessage });
-      console.error('Error parsing trend summary:', errorMessage);
+      this.logAction('Error parsing trend summary', { error: errorMessage });
       return [];
     }
   }
@@ -293,7 +343,7 @@ Focus on actionable insights that have strategic implications for marketing effo
       // Get embeddings for the insight
       const embeddingResponse = await serverQdrant.getEmbedding(insight);
       if (!embeddingResponse || !embeddingResponse.embedding) {
-        console.error('Failed to get embedding for strategic insight');
+        this.logAction('Failed to get embedding for strategic insight', { insight: insight.substring(0, 50) });
         return false;
       }
       
@@ -324,7 +374,7 @@ Focus on actionable insights that have strategic implications for marketing effo
         tags
       );
       
-      this.taskLogger.logAction('Added strategic insight', { 
+      this.logAction('Added strategic insight', { 
         category, 
         tags: tags.join(', '),
         insight: insight.substring(0, 50) + (insight.length > 50 ? '...' : '')
@@ -333,17 +383,8 @@ Focus on actionable insights that have strategic implications for marketing effo
       return true;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      this.taskLogger.logAction('Error adding strategic insight', { error: errorMessage });
-      console.error('Error adding strategic insight from market scanner:', errorMessage);
+      this.logAction('Error adding strategic insight', { error: errorMessage });
       return false;
     }
-  }
-
-  /**
-   * Check if the market scanner system is initialized
-   * @returns Boolean indicating initialization status
-   */
-  isInitialized(): boolean {
-    return this.initialized;
   }
 } 

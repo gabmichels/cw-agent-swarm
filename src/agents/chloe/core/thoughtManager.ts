@@ -1,43 +1,98 @@
 import { ChatOpenAI } from '@langchain/openai';
 import { ChloeMemory } from '../memory';
 import { TaskLogger } from '../task-logger';
+import { IManager, BaseManagerOptions } from '../../../lib/shared/types/agentTypes';
+import { logger } from '../../../lib/logging';
 
-export interface ThoughtManagerOptions {
-  agentId: string;
+/**
+ * Options for initializing the thought manager
+ */
+export interface ThoughtManagerOptions extends BaseManagerOptions {
   memory: ChloeMemory;
   model: ChatOpenAI;
-  taskLogger: TaskLogger;
+  logger?: TaskLogger;
 }
 
 /**
  * Manages thought capture and reasoning trails for the Chloe agent
  */
-export class ThoughtManager {
+export class ThoughtManager implements IManager {
+  // Required core properties
   private agentId: string;
+  private initialized: boolean = false;
+  private taskLogger: TaskLogger | null = null;
+  
+  // Manager-specific properties
   private memory: ChloeMemory;
   private model: ChatOpenAI;
-  private taskLogger: TaskLogger;
-  private initialized: boolean = false;
 
   constructor(options: ThoughtManagerOptions) {
     this.agentId = options.agentId;
     this.memory = options.memory;
     this.model = options.model;
-    this.taskLogger = options.taskLogger;
+    this.taskLogger = options.logger || null;
+  }
+
+  /**
+   * Get the agent ID this manager belongs to
+   * Required by IManager interface
+   */
+  getAgentId(): string {
+    return this.agentId;
+  }
+
+  /**
+   * Log an action performed by this manager
+   * Required by IManager interface
+   */
+  logAction(action: string, metadata?: Record<string, unknown>): void {
+    if (this.taskLogger) {
+      this.taskLogger.logAction(`ThoughtManager: ${action}`, metadata);
+    } else {
+      logger.info(`ThoughtManager: ${action}`, metadata);
+    }
   }
 
   /**
    * Initialize the thought system
+   * Required by IManager interface
    */
   async initialize(): Promise<void> {
     try {
-      console.log('Initializing thought system...');
+      this.logAction('Initializing thought system');
       this.initialized = true;
-      console.log('Thought system initialized successfully');
+      this.logAction('Thought system initialized successfully');
     } catch (error) {
-      console.error('Error initializing thought system:', error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logAction('Error initializing thought system', { error: errorMessage });
       throw error;
     }
+  }
+
+  /**
+   * Shutdown and cleanup resources
+   * Optional but recommended method in IManager interface
+   */
+  async shutdown(): Promise<void> {
+    try {
+      this.logAction('Shutting down thought system');
+      
+      // Add cleanup logic here if needed
+      
+      this.logAction('Thought system shutdown complete');
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logAction('Error during thought system shutdown', { error: errorMessage });
+      throw error;
+    }
+  }
+
+  /**
+   * Check if the manager is initialized
+   * Required by IManager interface
+   */
+  isInitialized(): boolean {
+    return this.initialized;
   }
 
   /**
@@ -45,12 +100,12 @@ export class ThoughtManager {
    */
   async captureThought(thought: string, category: string = 'general', importance: 'low' | 'medium' | 'high' = 'medium'): Promise<void> {
     try {
-      if (!this.initialized) {
+      if (!this.isInitialized()) {
         await this.initialize();
       }
       
       // Log the thought
-      this.taskLogger.logAction('Captured thought', { 
+      this.logAction('Captured thought', { 
         thought: thought.substring(0, 100) + (thought.length > 100 ? '...' : ''),
         category,
         importance
@@ -64,7 +119,8 @@ export class ThoughtManager {
         'chloe'
       );
     } catch (error) {
-      console.error('Error capturing thought:', error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logAction('Error capturing thought', { error: errorMessage });
     }
   }
 
@@ -73,12 +129,12 @@ export class ThoughtManager {
    */
   async generateReasoningTrail(question: string, context: string = ''): Promise<string> {
     try {
-      if (!this.initialized) {
+      if (!this.isInitialized()) {
         await this.initialize();
       }
       
       // Log the reasoning request
-      this.taskLogger.logAction('Generating reasoning trail', { question });
+      this.logAction('Generating reasoning trail', { question });
       
       // Get relevant context from memory if none provided
       let fullContext = context;
@@ -120,8 +176,9 @@ My detailed reasoning:`;
       
       return reasoning;
     } catch (error) {
-      console.error('Error generating reasoning trail:', error);
-      return `Error generating reasoning: ${error}`;
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logAction('Error generating reasoning trail', { error: errorMessage });
+      return `Error generating reasoning: ${errorMessage}`;
     }
   }
 
@@ -130,9 +187,11 @@ My detailed reasoning:`;
    */
   async analyzeReasoning(topic: string): Promise<string> {
     try {
-      if (!this.initialized) {
+      if (!this.isInitialized()) {
         await this.initialize();
       }
+      
+      this.logAction('Analyzing reasoning', { topic });
       
       // Get relevant reasoning and thoughts from memory
       const relevantThoughts = await this.memory.getRelevantMemories(`reasoning thoughts ${topic}`, 10);
@@ -170,8 +229,9 @@ My analysis:`;
       
       return analysis;
     } catch (error) {
-      console.error('Error analyzing reasoning:', error);
-      return `Error analyzing reasoning: ${error}`;
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logAction('Error analyzing reasoning', { error: errorMessage });
+      return `Error analyzing reasoning: ${errorMessage}`;
     }
   }
 
@@ -180,8 +240,8 @@ My analysis:`;
    */
   logThought(message: string): void {
     try {
-      if (!this.initialized) {
-        this.initialize().catch(console.error);
+      if (!this.isInitialized()) {
+        this.initialize().catch(err => this.logAction('Error initializing during thought logging', { error: String(err) }));
       }
       
       // Add timestamp
@@ -189,7 +249,7 @@ My analysis:`;
       const formattedThought = `[${timestamp}] ${message}`;
       
       // Log to the task logger
-      this.taskLogger.logAction('Thought', { thought: message });
+      this.logAction('Thought', { thought: message });
       
       // Asynchronously add to memory without waiting
       this.memory.addMemory(
@@ -198,19 +258,12 @@ My analysis:`;
         'low',
         'chloe'
       ).catch(error => {
-        console.error('Error adding thought to memory:', error);
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        this.logAction('Error adding thought to memory', { error: errorMessage });
       });
-      
-      console.log(`Chloe thought: ${message}`);
     } catch (error) {
-      console.error('Error logging thought:', error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logAction('Error logging thought', { error: errorMessage });
     }
-  }
-
-  /**
-   * Check if the thought system is initialized
-   */
-  isInitialized(): boolean {
-    return this.initialized;
   }
 } 

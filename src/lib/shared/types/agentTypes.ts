@@ -22,8 +22,30 @@ export interface IAgent {
  * Base interface for all manager components
  */
 export interface IManager {
+  /**
+   * Initialize the manager with necessary resources
+   */
   initialize(): Promise<void>;
+  
+  /**
+   * Check if the manager has been initialized
+   */
   isInitialized(): boolean;
+
+  /**
+   * Get the ID of the agent this manager belongs to
+   */
+  getAgentId(): string;
+  
+  /**
+   * Shutdown the manager and cleanup resources
+   */
+  shutdown?(): Promise<void>;
+  
+  /**
+   * Log an event or action taken by the manager
+   */
+  logAction?(action: string, metadata?: Record<string, unknown>): void;
 }
 
 /**
@@ -59,6 +81,7 @@ export interface MemoryManagerOptions extends BaseManagerOptions {
   workingMemoryCapacity?: number;
   consolidationInterval?: number;
   useOpenAI?: boolean;
+  logger?: TaskLogger;
 }
 
 /**

@@ -1,7 +1,7 @@
 import { ChatOpenAI } from '@langchain/openai';
 import { ChloeMemory } from '../memory';
 import { TaskLogger } from '../task-logger';
-import { AutonomySystem, PlanAndExecuteOptions, PlanAndExecuteResult, PlanWithSteps as AgentPlanWithSteps } from '../../../lib/shared/types/agentTypes';
+import { AutonomySystem, PlanAndExecuteOptions, PlanAndExecuteResult, PlanWithSteps as AgentPlanWithSteps, IManager } from '../../../lib/shared/types/agentTypes';
 import { planTask, PlanResult } from '../../../server/agents/planner';
 import { executePlan } from '../../../server/agents/executor';
 
@@ -47,7 +47,7 @@ export interface PlanningManagerOptions {
 /**
  * Manages planning and execution for the Chloe agent
  */
-export class PlanningManager {
+export class PlanningManager implements IManager {
   private agentId: string;
   private memory: ChloeMemory;
   private model: ChatOpenAI;
@@ -66,15 +66,45 @@ export class PlanningManager {
   }
 
   /**
+   * Get the agent ID this manager belongs to
+   */
+  getAgentId(): string {
+    return this.agentId;
+  }
+
+  /**
+   * Log an action performed by this manager
+   */
+  logAction(action: string, metadata?: Record<string, unknown>): void {
+    this.taskLogger.logAction(`PlanningManager: ${action}`, metadata);
+  }
+
+  /**
    * Initialize the planning system
    */
   async initialize(): Promise<void> {
     try {
-      console.log('Initializing planning system...');
+      this.logAction('Initializing planning system');
       this.initialized = true;
-      console.log('Planning system initialized successfully');
+      this.logAction('Planning system initialized successfully');
     } catch (error) {
-      console.error('Error initializing planning system:', error);
+      this.logAction('Error initializing planning system', { error: String(error) });
+      throw error;
+    }
+  }
+
+  /**
+   * Shutdown and cleanup resources
+   */
+  async shutdown(): Promise<void> {
+    try {
+      this.logAction('Shutting down planning system');
+      
+      // Add cleanup logic here if needed
+      
+      this.logAction('Planning system shutdown complete');
+    } catch (error) {
+      this.logAction('Error during planning system shutdown', { error: String(error) });
       throw error;
     }
   }
@@ -90,7 +120,7 @@ export class PlanningManager {
         await this.initialize();
       }
       
-      this.taskLogger.logAction('Planning task', { task });
+      this.logAction('Planning task', { task });
       
       // Get relevant context from memory
       const memoryContext = await this.memory.getRelevantMemories(task, 5);
@@ -113,7 +143,7 @@ export class PlanningManager {
       
       return formattedPlan;
     } catch (error) {
-      console.error('Error planning task:', error);
+      this.logAction('Error planning task', { error: String(error) });
       throw error;
     }
   }
@@ -129,7 +159,7 @@ export class PlanningManager {
         await this.initialize();
       }
       
-      this.taskLogger.logAction('Executing plan', { planDescription: plan.description });
+      this.logAction('Executing plan', { planDescription: plan.description });
       
       // Convert PlanWithSteps to string[] for executePlan
       const planSteps = plan.steps.map(step => step.description);
@@ -150,7 +180,7 @@ export class PlanningManager {
       // Log each step execution
       if (result.stepResults) {
         result.stepResults.forEach((step, index) => {
-          this.taskLogger.logAction(`Completed step ${index + 1}`, { 
+          this.logAction(`Completed step ${index + 1}`, { 
             step: step.step,
             success: step.success,
             output: step.output.substring(0, 100) + (step.output.length > 100 ? '...' : '')
@@ -166,7 +196,7 @@ export class PlanningManager {
       
       return result;
     } catch (error) {
-      console.error('Error executing plan:', error);
+      this.logAction('Error executing plan', { error: String(error) });
       throw error;
     }
   }
@@ -186,7 +216,7 @@ export class PlanningManager {
       
       return result;
     } catch (error) {
-      console.error('Error in plan and execute:', error);
+      this.logAction('Error in plan and execute', { error: String(error) });
       throw error;
     }
   }
@@ -200,7 +230,7 @@ export class PlanningManager {
         await this.initialize();
       }
       
-      this.taskLogger.logAction('Running daily tasks');
+      this.logAction('Running daily tasks');
       
       // Generate a plan for daily tasks
       const dailyTaskPlan = await this.planTask(
@@ -220,7 +250,7 @@ export class PlanningManager {
       }
       
       // Log the execution result
-      this.taskLogger.logAction('Completed daily tasks', {
+      this.logAction('Completed daily tasks', {
         success: executionResult.success,
         output: executionResult.output
       });
@@ -233,14 +263,14 @@ export class PlanningManager {
         'system'
       );
     } catch (error) {
-      console.error('Error running daily tasks:', error);
+      this.logAction('Error running daily tasks', { error: String(error) });
       
       if (this.notifyFunction) {
         this.notifyFunction(`Error running daily tasks: ${error}`);
       }
       
       // Log the error
-      this.taskLogger.logAction('Error in daily tasks', {
+      this.logAction('Error in daily tasks', {
         error: error instanceof Error ? error.message : String(error)
       });
     }
@@ -285,7 +315,7 @@ export class PlanningManager {
       
       return planAndExecuteResult;
     } catch (error) {
-      console.error('Error in plan and execute with options:', error);
+      this.logAction('Error in plan and execute with options', { error: String(error) });
       return {
         success: false,
         message: `Error executing plan: ${error}`,

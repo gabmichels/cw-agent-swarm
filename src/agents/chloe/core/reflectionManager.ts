@@ -1,46 +1,101 @@
 import { ChatOpenAI } from '@langchain/openai';
 import { ChloeMemory } from '../memory';
 import { TaskLogger } from '../task-logger';
+import { IManager, BaseManagerOptions } from '../../../lib/shared/types/agentTypes';
+import { logger } from '../../../lib/logging';
 
-export interface ReflectionManagerOptions {
-  agentId: string;
+/**
+ * Options for initializing the reflection manager
+ */
+export interface ReflectionManagerOptions extends BaseManagerOptions {
   memory: ChloeMemory;
   model: ChatOpenAI;
-  taskLogger: TaskLogger;
-  notifyFunction?: (message: string) => void;
+  logger?: TaskLogger;
+  notifyFunction?: (message: string) => Promise<void>;
 }
 
 /**
  * Manages reflection, review, and performance evaluation for the Chloe agent
  */
-export class ReflectionManager {
+export class ReflectionManager implements IManager {
+  // Required core properties
   private agentId: string;
+  private initialized: boolean = false;
+  private taskLogger: TaskLogger | null = null;
+  
+  // Manager-specific properties
   private memory: ChloeMemory;
   private model: ChatOpenAI;
-  private taskLogger: TaskLogger;
-  private notifyFunction?: (message: string) => void;
-  private initialized: boolean = false;
+  private notifyFunction?: (message: string) => Promise<void>;
 
   constructor(options: ReflectionManagerOptions) {
     this.agentId = options.agentId;
     this.memory = options.memory;
     this.model = options.model;
-    this.taskLogger = options.taskLogger;
+    this.taskLogger = options.logger || null;
     this.notifyFunction = options.notifyFunction;
   }
 
   /**
+   * Get the agent ID this manager belongs to
+   * Required by IManager interface
+   */
+  getAgentId(): string {
+    return this.agentId;
+  }
+
+  /**
+   * Log an action performed by this manager
+   * Required by IManager interface
+   */
+  logAction(action: string, metadata?: Record<string, unknown>): void {
+    if (this.taskLogger) {
+      this.taskLogger.logAction(`ReflectionManager: ${action}`, metadata);
+    } else {
+      logger.info(`ReflectionManager: ${action}`, metadata);
+    }
+  }
+
+  /**
    * Initialize the reflection system
+   * Required by IManager interface
    */
   async initialize(): Promise<void> {
     try {
-      console.log('Initializing reflection system...');
+      this.logAction('Initializing reflection system');
       this.initialized = true;
-      console.log('Reflection system initialized successfully');
+      this.logAction('Reflection system initialized successfully');
     } catch (error) {
-      console.error('Error initializing reflection system:', error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logAction('Error initializing reflection system', { error: errorMessage });
       throw error;
     }
+  }
+
+  /**
+   * Shutdown and cleanup resources
+   * Optional but recommended method in IManager interface
+   */
+  async shutdown(): Promise<void> {
+    try {
+      this.logAction('Shutting down reflection system');
+      
+      // Add cleanup logic here if needed
+      
+      this.logAction('Reflection system shutdown complete');
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logAction('Error during reflection system shutdown', { error: errorMessage });
+      throw error;
+    }
+  }
+
+  /**
+   * Check if the manager is initialized
+   * Required by IManager interface
+   */
+  isInitialized(): boolean {
+    return this.initialized;
   }
 
   /**
@@ -48,11 +103,11 @@ export class ReflectionManager {
    */
   async reflect(question: string): Promise<string> {
     try {
-      if (!this.initialized) {
+      if (!this.isInitialized()) {
         await this.initialize();
       }
       
-      this.taskLogger.logAction('Reflecting on question', { question });
+      this.logAction('Reflecting on question', { question });
       
       // Get relevant memories for context
       const relevantMemories = await this.memory.getRelevantMemories(question, 10);
@@ -82,8 +137,9 @@ Your reflection should be thoughtful, strategic, and provide nuanced marketing p
       
       return reflection;
     } catch (error) {
-      console.error('Error during reflection:', error);
-      return `Error generating reflection: ${error}`;
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logAction('Error during reflection', { error: errorMessage });
+      return `Error generating reflection: ${errorMessage}`;
     }
   }
 
@@ -92,11 +148,11 @@ Your reflection should be thoughtful, strategic, and provide nuanced marketing p
    */
   async runWeeklyReflection(): Promise<string> {
     try {
-      if (!this.initialized) {
+      if (!this.isInitialized()) {
         await this.initialize();
       }
       
-      this.taskLogger.logAction('Running weekly reflection');
+      this.logAction('Running weekly reflection');
       
       // Get memories from the past week
       const oneWeekAgo = new Date();
@@ -151,18 +207,19 @@ Your reflection should be professional, insightful, and focused on continuous im
       
       // Notify about the reflection if notification function is available
       if (this.notifyFunction) {
-        this.notifyFunction(`Completed weekly reflection: ${reflection.substring(0, 200)}...`);
+        await this.notifyFunction(`Completed weekly reflection: ${reflection.substring(0, 200)}...`);
       }
       
       return reflection;
     } catch (error) {
-      console.error('Error during weekly reflection:', error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logAction('Error during weekly reflection', { error: errorMessage });
       
       if (this.notifyFunction) {
-        this.notifyFunction(`Error in weekly reflection: ${error}`);
+        await this.notifyFunction(`Error in weekly reflection: ${errorMessage}`);
       }
       
-      return `Error generating weekly reflection: ${error}`;
+      return `Error generating weekly reflection: ${errorMessage}`;
     }
   }
 
@@ -171,11 +228,11 @@ Your reflection should be professional, insightful, and focused on continuous im
    */
   async runPerformanceReview(reviewType: 'daily' | 'weekly' | 'monthly' = 'daily'): Promise<any> {
     try {
-      if (!this.initialized) {
+      if (!this.isInitialized()) {
         await this.initialize();
       }
       
-      this.taskLogger.logAction(`Running ${reviewType} performance review`);
+      this.logAction(`Running ${reviewType} performance review`);
       
       // Define the time range based on review type
       const startDate = new Date();
@@ -248,18 +305,12 @@ Be objective, data-driven, and focused on continuous improvement as a CMO.`;
       
       return structuredReview;
     } catch (error) {
-      console.error(`Error during ${reviewType} performance review:`, error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logAction('Error during performance review', { error: errorMessage });
       return {
-        error: `Error generating ${reviewType} performance review: ${error}`,
-        fullText: `Failed to generate performance review due to an error: ${error}`
+        error: `Error generating ${reviewType} performance review: ${errorMessage}`,
+        fullText: `Failed to generate performance review due to an error: ${errorMessage}`
       };
     }
-  }
-
-  /**
-   * Check if the reflection system is initialized
-   */
-  isInitialized(): boolean {
-    return this.initialized;
   }
 } 

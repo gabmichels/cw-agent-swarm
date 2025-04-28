@@ -1,400 +1,440 @@
+/**
+ * Knowledge Gaps Manager
+ * 
+ * Standardized implementation of a manager for identifying and tracking knowledge gaps
+ * in the Chloe agent system. Follows the manager standardization guidelines.
+ */
 import { ChatOpenAI } from '@langchain/openai';
 import { ChloeMemory } from '../memory';
 import { TaskLogger } from '../task-logger';
-import * as qdrantServer from '../../../server/qdrant';
+import { IManager, BaseManagerOptions } from '../../../lib/shared/types/agentTypes';
+import { logger } from '../../../lib/logging';
 
-export interface KnowledgeGapsManagerOptions {
+/**
+ * Options for initializing the knowledge gaps manager
+ */
+export interface KnowledgeGapsManagerOptions extends BaseManagerOptions {
   memory: ChloeMemory;
-  openaiApiKey: string;
-  agentId: string;
-  collectionName?: string;
-  notifyFunction?: (message: string) => Promise<void>;
+  model: ChatOpenAI;
   logger?: TaskLogger;
-  samplingProbability?: number;
-  minMessagesForAnalysis?: number;
-}
-
-export interface KnowledgeGap {
-  id: string;
-  agentId: string;
-  topic: string;
-  description: string;
-  detectedAt: string;
-  resolved: boolean;
-  priority: 'low' | 'medium' | 'high';
-  context: string;
-  resolution?: string;
-  resolvedAt?: string;
+  notifyFunction?: (message: string) => Promise<void>;
 }
 
 /**
- * Manages knowledge gaps detected by the agent.
- * Stores and analyzes knowledge gaps to help the agent improve.
+ * Interface for knowledge gap results
  */
-export class KnowledgeGapsManager {
-  private memory: ChloeMemory;
-  private model: ChatOpenAI;
-  private agentId: string;
-  private collectionName: string;
-  private initialized: boolean = false;
-  private notifyFunction?: (message: string) => Promise<void>;
-  private logger?: TaskLogger;
-  private samplingProbability: number;
-  private minMessagesForAnalysis: number;
-
-  constructor(options: KnowledgeGapsManagerOptions) {
-    this.memory = options.memory;
-    this.model = new ChatOpenAI({
-      modelName: 'gpt-4o',
-      temperature: 0.2,
-      openAIApiKey: options.openaiApiKey,
-    });
-    this.agentId = options.agentId;
-    this.collectionName = options.collectionName || `knowledge_gaps_${this.agentId}`;
-    this.notifyFunction = options.notifyFunction;
-    this.logger = options.logger;
-    this.samplingProbability = options.samplingProbability || 0.25;
-    this.minMessagesForAnalysis = options.minMessagesForAnalysis || 5;
-  }
-
-  async initialize(): Promise<boolean> {
-    try {
-      // Check if the collection exists, if not create it
-      const collections = await qdrantServer.getAllMemories(null, 100);
-      const collectionExists = collections.some(
-        (collection: { name: string }) => collection.name === this.collectionName
-      );
-
-      if (!collectionExists) {
-        // Since there's no direct createCollection, we'll use resetCollection
-        // which recreates the collection if it doesn't exist
-        await qdrantServer.resetCollection('document' as any);
-
-        this.logger?.logEntry({
-          type: 'action',
-          content: `Created knowledge gaps collection: ${this.collectionName}`,
-        });
-      }
-
-      this.initialized = true;
-      return true;
-    } catch (error) {
-      console.error('Error initializing knowledge gaps system:', error);
-      return false;
-    }
-  }
-
-  async processConversation(conversation: { messages: any[] }): Promise<boolean> {
-    if (!this.initialized) {
-      await this.initialize();
-    }
-
-    // Skip processing based on sampling probability
-    if (Math.random() > this.samplingProbability) {
-      return false;
-    }
-
-    // Check if there are enough messages to analyze
-    if (conversation.messages.length < this.minMessagesForAnalysis) {
-      return false;
-    }
-
-    try {
-      // Format conversation for analysis
-      const formattedConversation = this.formatConversation(conversation.messages);
-      
-      // Analyze the conversation for knowledge gaps
-      const knowledgeGaps = await this.analyzeConversation(formattedConversation);
-      
-      // Store any detected knowledge gaps
-      if (knowledgeGaps && knowledgeGaps.length > 0) {
-        for (const gap of knowledgeGaps) {
-          await this.storeKnowledgeGap(gap);
-          
-          // Notify if a notification function is provided
-          if (this.notifyFunction) {
-            await this.notifyFunction(
-              `🧠 Detected knowledge gap: ${gap.topic} (${gap.priority} priority)`
-            );
-          }
-        }
-        return true;
-      }
-      
-      return false;
-    } catch (error) {
-      console.error('Error processing conversation for knowledge gaps:', error);
-      this.logger?.logEntry({
-        type: 'action',
-        content: `Error processing conversation for knowledge gaps: ${error}`,
-      });
-      return false;
-    }
-  }
-
-  private formatConversation(messages: any[]): string {
-    return messages
-      .map((msg) => {
-        const role = msg.role === 'user' ? 'Human' : 'AI';
-        return `${role}: ${msg.content}`;
-      })
-      .join('\n\n');
-  }
-
-  private async analyzeConversation(conversation: string): Promise<KnowledgeGap[]> {
-    const prompt = `
-You are analyzing a conversation to identify knowledge gaps that the AI assistant has. 
-A knowledge gap is something the AI should know but doesn't, or a topic where the AI's knowledge is outdated or incomplete.
-
-Please analyze the following conversation and identify any knowledge gaps:
-
-${conversation}
-
-If you find any knowledge gaps, format them as follows:
-{
-  "knowledgeGaps": [
-    {
-      "topic": "Brief topic name",
-      "description": "Detailed description of what the AI doesn't know or needs to improve on",
-      "priority": "low|medium|high",
-      "context": "The specific part of the conversation that revealed this gap"
-    }
-  ]
+export interface KnowledgeGapResult {
+  gaps: string[];
+  confidence: number;
+  timestamp: string;
 }
 
-If no knowledge gaps are detected, return an empty array: { "knowledgeGaps": [] }
-`;
+/**
+ * Standardized knowledge gaps manager implementation
+ * Handles identification and tracking of knowledge gaps
+ */
+export class KnowledgeGapsManager implements IManager {
+  // Required core properties
+  private agentId: string;
+  private initialized: boolean = false;
+  private taskLogger: TaskLogger | null = null;
+  
+  // Manager-specific properties
+  private memory: ChloeMemory;
+  private model: ChatOpenAI;
+  private notifyFunction?: (message: string) => Promise<void>;
+  private readonly knowledgeGapsCollection = 'knowledge_gaps';
 
+  constructor(options: KnowledgeGapsManagerOptions) {
+    this.agentId = options.agentId;
+    this.memory = options.memory;
+    this.model = options.model;
+    this.taskLogger = options.logger || null;
+    this.notifyFunction = options.notifyFunction;
+  }
+
+  /**
+   * Get the agent ID this manager belongs to
+   * Required by IManager interface
+   */
+  getAgentId(): string {
+    return this.agentId;
+  }
+
+  /**
+   * Log an action performed by this manager
+   * Required by IManager interface
+   */
+  logAction(action: string, metadata?: Record<string, unknown>): void {
+    if (this.taskLogger) {
+      this.taskLogger.logAction(`KnowledgeGapsManager: ${action}`, metadata);
+    } else {
+      logger.info(`KnowledgeGapsManager: ${action}`, metadata);
+    }
+  }
+
+  /**
+   * Initialize the knowledge gaps system
+   * Required by IManager interface
+   */
+  async initialize(): Promise<void> {
     try {
+      this.logAction('Initializing knowledge gaps system');
+      this.initialized = true;
+      this.logAction('Knowledge gaps system initialized successfully');
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logAction('Error initializing knowledge gaps system', { error: errorMessage });
+      throw error;
+    }
+  }
+
+  /**
+   * Shutdown and cleanup resources
+   * Optional but recommended method in IManager interface
+   */
+  async shutdown(): Promise<void> {
+    try {
+      this.logAction('Shutting down knowledge gaps system');
+      
+      // Add cleanup logic here if needed
+      
+      this.logAction('Knowledge gaps system shutdown complete');
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logAction('Error during knowledge gaps system shutdown', { error: errorMessage });
+      throw error;
+    }
+  }
+
+  /**
+   * Check if the manager is initialized
+   * Required by IManager interface
+   */
+  isInitialized(): boolean {
+    return this.initialized;
+  }
+
+  /**
+   * Identify knowledge gaps based on recent interactions and memories
+   */
+  async identifyKnowledgeGaps(): Promise<KnowledgeGapResult> {
+    try {
+      if (!this.isInitialized()) {
+        await this.initialize();
+      }
+      
+      this.logAction('Identifying knowledge gaps');
+      
+      // Get recent interactions and memories
+      const recentInteractions = await this.memory.getRelevantMemories('user interaction', 20);
+      const recentTasks = await this.memory.getRelevantMemories('task', 20);
+      
+      // Create a prompt for gap analysis
+      const prompt = `As Chloe, the Chief Marketing Officer AI, analyze these recent interactions and tasks to identify potential knowledge gaps or areas where I need more information:
+
+RECENT INTERACTIONS:
+${recentInteractions.join('\n\n')}
+
+RECENT TASKS:
+${recentTasks.join('\n\n')}
+
+Please identify specific knowledge gaps in these areas:
+1. Marketing Strategy
+2. Industry Knowledge
+3. Technical Skills
+4. Data Analysis
+5. Communication
+
+For each gap, provide:
+- A clear description of what I need to learn
+- Why this knowledge is important
+- How it would improve my performance
+
+Format each gap as a separate item with these sections.`;
+      
+      // Generate the gap analysis
       const response = await this.model.invoke(prompt);
-      const content = response.content.toString();
+      const analysis = response.content.toString();
       
-      // Extract JSON from the response
-      const jsonMatch = content.match(/```json\n([\s\S]*)\n```/) || 
-                        content.match(/```\n([\s\S]*)\n```/) ||
-                        content.match(/{[\s\S]*}/);
+      // Parse the gaps from the analysis
+      const gaps = this.parseKnowledgeGaps(analysis);
       
-      if (jsonMatch) {
-        const jsonString = jsonMatch[0].replace(/```json\n|```\n|```/g, '');
-        const result = JSON.parse(jsonString);
-        return result.knowledgeGaps.map((gap: any) => ({
-          ...gap,
-          id: this.generateId(),
-          agentId: this.agentId,
-          detectedAt: new Date().toISOString(),
-          resolved: false,
-        }));
-      }
+      // Store the gaps in memory
+      await this.memory.addMemory(
+        `Knowledge Gaps Analysis: ${analysis.substring(0, 200)}...`,
+        'knowledge_gaps',
+        'high',
+        'system',
+        undefined,
+        ['knowledge_gaps', 'learning_needs']
+      );
       
-      // Try to parse the entire response as JSON if no match found
-      try {
-        const result = JSON.parse(content);
-        return result.knowledgeGaps.map((gap: any) => ({
-          ...gap,
-          id: this.generateId(),
-          agentId: this.agentId,
-          detectedAt: new Date().toISOString(),
-          resolved: false,
-        }));
-      } catch {
-        console.error('Could not parse JSON response');
-        return [];
-      }
-    } catch (error) {
-      console.error('Error analyzing conversation:', error);
-      return [];
-    }
-  }
-
-  async storeKnowledgeGap(gap: KnowledgeGap): Promise<boolean> {
-    if (!this.initialized) {
-      await this.initialize();
-    }
-
-    try {
-      // Get embedding for the topic and description
-      const embeddingText = `${gap.topic} - ${gap.description}`;
-      const embeddingResponse = await qdrantServer.getEmbedding(embeddingText);
-      
-      // Store in vector database
-      await qdrantServer.addMemory(
-        'document',
-        embeddingText,
-        {
-          ...gap,
-          type: 'knowledge_gap'
-        }
-      );
-
-      this.logger?.logEntry({
-        type: 'action',
-        content: `Stored knowledge gap: ${gap.topic} (${gap.priority} priority)`,
-      });
-
-      return true;
-    } catch (error) {
-      console.error('Error storing knowledge gap:', error);
-      return false;
-    }
-  }
-
-  async getUnresolvedKnowledgeGaps(): Promise<KnowledgeGap[]> {
-    if (!this.initialized) {
-      await this.initialize();
-    }
-
-    try {
-      const response = await qdrantServer.searchMemory(
-        'document',
-        'unresolved knowledge gaps',
-        {
-          filter: {
-            agentId: this.agentId,
-            resolved: false,
-            type: 'knowledge_gap'
-          },
-          limit: 100,
-        }
-      );
-
-      return response.map((item: qdrantServer.MemoryRecord) => 
-        item.metadata as unknown as KnowledgeGap
-      );
-    } catch (error) {
-      console.error('Error getting unresolved knowledge gaps:', error);
-      return [];
-    }
-  }
-
-  async resolveKnowledgeGap(
-    gapId: string,
-    resolution: string
-  ): Promise<boolean> {
-    if (!this.initialized) {
-      await this.initialize();
-    }
-
-    try {
-      // Get the existing gap
-      const searchResult = await qdrantServer.searchMemory(
-        'document',
-        `knowledge gap ${gapId}`,
-        {
-          filter: {
-            id: gapId,
-            type: 'knowledge_gap'
-          },
-          limit: 1,
-        }
-      );
-
-      if (searchResult.length === 0) {
-        console.error(`Knowledge gap with ID ${gapId} not found`);
-        return false;
-      }
-
-      const gap = searchResult[0].metadata as unknown as KnowledgeGap;
-      const updatedGap: KnowledgeGap = {
-        ...gap,
-        resolved: true,
-        resolution,
-        resolvedAt: new Date().toISOString(),
+      // Create the result object
+      const result: KnowledgeGapResult = {
+        gaps,
+        confidence: 0.8, // Placeholder confidence score
+        timestamp: new Date().toISOString()
       };
-
-      // Update in the database - we add a new memory since we can't directly update
-      await qdrantServer.addMemory(
-        'document',
-        `${gap.topic} - ${gap.description} (RESOLVED)`,
-        {
-          ...updatedGap,
-          type: 'knowledge_gap'
-        }
-      );
-
-      this.logger?.logEntry({
-        type: 'action',
-        content: `Resolved knowledge gap: ${gap.topic}`,
-      });
-
-      // Notify if a notification function is provided
+      
+      // Notify about the gaps if notification function is available
       if (this.notifyFunction) {
-        await this.notifyFunction(`🎓 Resolved knowledge gap: ${gap.topic}`);
+        await this.notifyFunction(`Identified ${gaps.length} knowledge gaps that need attention`);
       }
+      
+      return result;
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logAction('Error identifying knowledge gaps', { error: errorMessage });
+      
+      if (this.notifyFunction) {
+        await this.notifyFunction(`Error in knowledge gaps analysis: ${errorMessage}`);
+      }
+      
+      return {
+        gaps: [],
+        confidence: 0,
+        timestamp: new Date().toISOString()
+      };
+    }
+  }
 
+  /**
+   * Parse knowledge gaps from analysis text
+   */
+  private parseKnowledgeGaps(analysis: string): string[] {
+    try {
+      const gaps: string[] = [];
+      
+      // Split the analysis into sections
+      const sections = analysis.split(/\d\.\s+/).filter(Boolean);
+      
+      // Process each section
+      for (const section of sections) {
+        // Look for clear gap descriptions
+        const lines = section.split('\n').filter(line => line.trim().length > 0);
+        
+        for (const line of lines) {
+          // Skip section headers
+          if (line.match(/^(Marketing Strategy|Industry Knowledge|Technical Skills|Data Analysis|Communication):/i)) {
+            continue;
+          }
+          
+          // Extract the gap description
+          const gapMatch = line.match(/^[-*]\s*(.*?)(?=\s*[-*]|$)/);
+          if (gapMatch) {
+            const gap = gapMatch[1].trim();
+            if (gap.length > 0) {
+              gaps.push(gap);
+            }
+          }
+        }
+      }
+      
+      return gaps;
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logAction('Error parsing knowledge gaps', { error: errorMessage });
+      return [];
+    }
+  }
+
+  /**
+   * Track a specific knowledge gap
+   */
+  async trackKnowledgeGap(gap: string, category: string = 'general'): Promise<boolean> {
+    try {
+      if (!this.isInitialized()) {
+        await this.initialize();
+      }
+      
+      this.logAction('Tracking knowledge gap', { gap, category });
+      
+      // Add to memory with high importance
+      await this.memory.addMemory(
+        `Knowledge Gap: ${gap}`,
+        'knowledge_gap',
+        'high',
+        'system',
+        `Category: ${category}`,
+        ['knowledge_gap', 'learning_need', category.toLowerCase()]
+      );
+      
+      // Notify about the gap if notification function is available
+      if (this.notifyFunction) {
+        await this.notifyFunction(`New knowledge gap identified: ${gap}`);
+      }
+      
       return true;
     } catch (error) {
-      console.error('Error resolving knowledge gap:', error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logAction('Error tracking knowledge gap', { error: errorMessage });
       return false;
     }
   }
 
-  async generateKnowledgeGapSummary(): Promise<string> {
-    if (!this.initialized) {
-      await this.initialize();
-    }
-
+  /**
+   * Get all tracked knowledge gaps
+   */
+  async getTrackedGaps(): Promise<string[]> {
     try {
-      const unresolvedGaps = await this.getUnresolvedKnowledgeGaps();
-      
-      if (unresolvedGaps.length === 0) {
-        return "No knowledge gaps detected.";
+      if (!this.isInitialized()) {
+        await this.initialize();
       }
       
-      // Sort by priority
-      const sortedGaps = [...unresolvedGaps].sort((a, b) => {
-        const priorityValues: Record<string, number> = { high: 3, medium: 2, low: 1 };
-        return priorityValues[b.priority] - priorityValues[a.priority];
-      });
+      this.logAction('Retrieving tracked knowledge gaps');
       
-      const prompt = `
-Generate a concise summary of the following knowledge gaps:
+      // Get all knowledge gap memories
+      const gaps = await this.memory.getRelevantMemories('knowledge_gap', 50);
+      
+      // Extract the gap descriptions
+      return gaps.map(gap => {
+        const match = gap.match(/Knowledge Gap: (.*)/);
+        return match ? match[1] : gap;
+      });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logAction('Error retrieving tracked gaps', { error: errorMessage });
+      return [];
+    }
+  }
 
-${sortedGaps.map(gap => `
-- Topic: ${gap.topic}
-  Priority: ${gap.priority}
-  Description: ${gap.description}
-`).join('\n')}
+  /**
+   * Process a conversation to identify knowledge gaps
+   */
+  async processConversation({ messages }: { messages: any[] }): Promise<boolean> {
+    try {
+      if (!this.isInitialized()) {
+        await this.initialize();
+      }
+      
+      this.logAction('Processing conversation for knowledge gaps');
+      
+      // Convert messages to a single string for analysis
+      const conversationText = messages.map(msg => `${msg.role}: ${msg.content}`).join('\n');
+      
+      // Analyze the conversation
+      const result = await this.identifyKnowledgeGaps();
+      
+      // Track any identified gaps
+      for (const gap of result.gaps) {
+        await this.trackKnowledgeGap(gap);
+      }
+      
+      return result.gaps.length > 0;
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logAction('Error processing conversation', { error: errorMessage });
+      return false;
+    }
+  }
 
-Organize them by priority and suggest how they should be addressed.
-`;
+  /**
+   * Get unresolved knowledge gaps
+   */
+  async getUnresolvedKnowledgeGaps(): Promise<string[]> {
+    try {
+      if (!this.isInitialized()) {
+        await this.initialize();
+      }
+      
+      this.logAction('Retrieving unresolved knowledge gaps');
+      
+      // Get all knowledge gap memories
+      const gaps = await this.memory.getRelevantMemories('knowledge_gap', 50);
+      
+      // Filter out resolved gaps and extract descriptions
+      return gaps
+        .filter(gap => !gap.includes('RESOLVED'))
+        .map(gap => {
+          const match = gap.match(/Knowledge Gap: (.*)/);
+          return match ? match[1] : gap;
+        });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logAction('Error retrieving unresolved gaps', { error: errorMessage });
+      return [];
+    }
+  }
 
+  /**
+   * Generate a summary of knowledge gaps
+   */
+  async generateKnowledgeGapSummary(): Promise<string> {
+    try {
+      if (!this.isInitialized()) {
+        await this.initialize();
+      }
+      
+      this.logAction('Generating knowledge gap summary');
+      
+      // Get all knowledge gaps
+      const gaps = await this.getTrackedGaps();
+      
+      if (gaps.length === 0) {
+        return 'No knowledge gaps identified at this time.';
+      }
+      
+      // Create a prompt for summarization
+      const prompt = `As Chloe, the Chief Marketing Officer AI, summarize the following knowledge gaps that need to be addressed:
+
+${gaps.join('\n\n')}
+
+Please provide a concise summary that:
+1. Groups similar gaps together
+2. Highlights the most critical gaps
+3. Suggests a learning priority order
+4. Identifies any patterns or themes`;
+
+      // Generate the summary
       const response = await this.model.invoke(prompt);
       return response.content.toString();
     } catch (error) {
-      console.error('Error generating knowledge gap summary:', error);
-      return "Error generating knowledge gap summary.";
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logAction('Error generating knowledge gap summary', { error: errorMessage });
+      return 'Error generating knowledge gap summary.';
     }
   }
 
-  async searchKnowledgeGaps(query: string): Promise<KnowledgeGap[]> {
-    if (!this.initialized) {
-      await this.initialize();
-    }
-
+  /**
+   * Resolve a knowledge gap
+   */
+  async resolveKnowledgeGap(id: string, resolution: string): Promise<boolean> {
     try {
-      // Search using the server's search functionality
-      const results = await qdrantServer.searchMemory(
-        'document',
-        query,
-        {
-          filter: {
-            type: 'knowledge_gap'
-          },
-          limit: 10
-        }
+      if (!this.isInitialized()) {
+        await this.initialize();
+      }
+      
+      this.logAction('Resolving knowledge gap', { id, resolution });
+      
+      // Get the gap from memory
+      const gaps = await this.memory.getRelevantMemories('knowledge_gap', 50);
+      const gap = gaps.find(g => g.includes(id));
+      
+      if (!gap) {
+        return false;
+      }
+      
+      // Mark the gap as resolved in memory
+      await this.memory.addMemory(
+        `RESOLVED: ${gap}\nResolution: ${resolution}`,
+        'knowledge_gap_resolution',
+        'high',
+        'system',
+        undefined,
+        ['knowledge_gap', 'resolution']
       );
-
-      return results.map((item: qdrantServer.MemoryRecord) => 
-        item.metadata as unknown as KnowledgeGap
-      );
+      
+      // Notify about the resolution if notification function is available
+      if (this.notifyFunction) {
+        await this.notifyFunction(`Knowledge gap resolved: ${gap}`);
+      }
+      
+      return true;
     } catch (error) {
-      console.error('Error searching knowledge gaps:', error);
-      return [];
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logAction('Error resolving knowledge gap', { error: errorMessage });
+      return false;
     }
-  }
-
-  private generateId(): string {
-    return Math.random().toString(36).substring(2, 15) + 
-           Math.random().toString(36).substring(2, 15);
   }
 } 

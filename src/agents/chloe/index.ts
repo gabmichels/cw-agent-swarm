@@ -5,7 +5,6 @@
 // Export core components
 export { ChloeAgent } from './core/agent';
 export { ChloeAgent as Agent } from './core/agent'; // Legacy export
-export { ChloeAgent as ChloeAgentImplementation } from './core/@agent'; // New implementation
 
 // Export additional components
 export { ToolManager } from './core/toolManager';

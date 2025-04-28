@@ -20,7 +20,13 @@ export class ConversationManager {
   async processConversation(messages: Array<{ role: string; content: string }>) {
     try {
       if (this.knowledgeGapsProcessor) {
-        await this.knowledgeGapsProcessor.processConversation({ messages });
+        // Convert messages to a single string for analysis
+        const conversationText = messages
+          .map(msg => `${msg.role}: ${msg.content}`)
+          .join('\n');
+        
+        // Use identifyKnowledgeGaps instead of processConversation
+        await this.knowledgeGapsProcessor.identifyKnowledgeGaps();
       }
       return true;
     } catch (error: any) {

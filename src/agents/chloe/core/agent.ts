@@ -159,7 +159,7 @@ export class ChloeAgent {
         agentId: 'chloe',
         memory: chloeMemory,
         model: this.model,
-        taskLogger: this.taskLogger,
+        logger: this.taskLogger,
         notifyFunction: (message: string) => {
           this.notify(message);
           return Promise.resolve();
@@ -172,7 +172,7 @@ export class ChloeAgent {
         agentId: 'chloe',
         memory: chloeMemory,
         model: this.model,
-        taskLogger: this.taskLogger
+        logger: this.taskLogger
       });
       await this.thoughtManager.initialize();
       
@@ -181,7 +181,7 @@ export class ChloeAgent {
         agentId: 'chloe',
         memory: chloeMemory,
         model: this.model,
-        taskLogger: this.taskLogger,
+        logger: this.taskLogger,
         notifyFunction: (message: string) => {
           this.notify(message);
           return Promise.resolve();
@@ -191,9 +191,9 @@ export class ChloeAgent {
       
       // Initialize knowledge gaps manager
       this.knowledgeGapsManager = new KnowledgeGapsManager({
-        memory: chloeMemory,
-        openaiApiKey: process.env.OPENAI_API_KEY || '',
         agentId: 'chloe',
+        memory: chloeMemory,
+        model: this.model,
         logger: this.taskLogger,
         notifyFunction: async (message) => {
           this.notify(message);
@@ -653,6 +653,32 @@ ${insightsText}
         message: `Error executing plan: ${error}`,
         error: error instanceof Error ? error.message : String(error)
       };
+    }
+  }
+  
+  /**
+   * Summarize a conversation with optional parameters
+   */
+  public async summarizeConversation(options: { maxEntries?: number; maxLength?: number } = {}): Promise<string | null> {
+    try {
+      if (!this.initialized) {
+        await this.initialize();
+      }
+      
+      if (!this.taskLogger) {
+        throw new Error('Task logger not initialized');
+      }
+      
+      const session = this.taskLogger.getCurrentSession();
+      if (!session) {
+        return null;
+      }
+      
+      return await this.taskLogger.summarizeConversation(session.id, options);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error(`Error summarizing conversation: ${errorMessage}`, { error });
+      return null;
     }
   }
 }

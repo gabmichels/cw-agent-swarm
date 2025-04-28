@@ -1,4 +1,4 @@
-import { ChloeAgent } from '../agent';
+import type { ChloeAgent } from '../core/agent';
 import { logger } from '../../../lib/logging';
 
 /**
@@ -25,11 +25,9 @@ export async function runMemoryConsolidation(agent: ChloeAgent): Promise<boolean
       logger.info('Conversation summarization completed');
       
       // Ask agent to reflect on the summary
-      if (summary) {
-        await agent.reflect(
-          `Based on this summary of recent conversations, what are the key themes and priorities I should focus on?\n\nSummary: ${summary}`
-        );
-      }
+      await agent.reflect(
+        `Based on this summary of recent conversations, what are the key themes and priorities I should focus on?\n\nSummary: ${summary}`
+      );
     } catch (summarizeError) {
       logger.error('Error during conversation summarization:', summarizeError);
     }
@@ -45,22 +43,22 @@ export async function runMemoryConsolidation(agent: ChloeAgent): Promise<boolean
         // Parse insights into individual points
         const insights = strategicInsights
           .split('\n')
-          .filter(line => line.trim().startsWith('-') || line.trim().startsWith('•'))
-          .map(line => line.replace(/^[-•]\s+/, '').trim());
+          .filter((line: string) => line.trim().startsWith('-') || line.trim().startsWith('•'))
+          .map((line: string) => line.replace(/^[-•]\s+/, '').trim());
         
-        // Add each insight to the strategic insights collection
-        for (const insight of insights) {
-          try {
-            await agent.addStrategicInsight(
-              insight,
-              ['marketing', 'memory_consolidation'],
-              'strategic',
-              'memory_consolidation'
-            );
-            logger.info(`Added strategic insight: ${insight.substring(0, 50)}...`);
-          } catch (insightError) {
-            logger.error('Error adding strategic insight:', insightError);
+        // Add each insight to memory using the memory manager
+        const memoryManager = agent.getMemoryManager();
+        if (memoryManager) {
+          for (const insight of insights) {
+            try {
+              await memoryManager.addMemory(insight, 'strategic', 'high', 'system', undefined, ['marketing', 'memory_consolidation']);
+              logger.info(`Added strategic insight: ${insight.substring(0, 50)}...`);
+            } catch (insightError) {
+              logger.error('Error adding strategic insight:', insightError);
+            }
           }
+        } else {
+          logger.warn('Memory manager not available for storing insights');
         }
       }
     } catch (strategicError) {

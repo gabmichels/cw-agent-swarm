@@ -8,19 +8,15 @@ import { FeedbackLoopSystem } from '../../../lib/memory/src/feedback-loop';
 import { IntegrationLayer } from '../../../lib/memory/src/integration-layer';
 import { SelfImprovementMechanism } from '../../../lib/memory/src/self-improvement';
 import * as serverQdrant from '../../../server/qdrant';
-import { StrategicInsight } from '../../../lib/shared/types/agent';
+import { StrategicInsight, IManager, BaseManagerOptions, MemoryManagerOptions } from '../../../lib/shared/types/agentTypes';
 import { KnowledgeFlaggingService } from '../../../lib/knowledge/flagging/KnowledgeFlaggingService';
 import { logger } from '../../../lib/logging';
-
-export interface MemoryManagerOptions {
-  agentId: string;
-  useOpenAI?: boolean;
-}
+import { TaskLogger } from '../task-logger';
 
 /**
  * Manages all memory systems for the Chloe agent
  */
-export class MemoryManager {
+export class MemoryManager implements IManager {
   private agentId: string;
   private memory: AgentMemory | null = null;
   private chloeMemory: ChloeMemory | null = null;
@@ -34,9 +30,11 @@ export class MemoryManager {
   private knowledgeFlaggingService: KnowledgeFlaggingService;
   private strategicInsightsCollection: string = 'strategic_insights';
   private initialized: boolean = false;
+  private taskLogger: TaskLogger | null = null;
 
   constructor(options: MemoryManagerOptions) {
     this.agentId = options.agentId;
+    this.taskLogger = options.logger || null;
     
     // Initialize enhanced memory systems
     this.enhancedMemory = new EnhancedMemory({
@@ -45,8 +43,8 @@ export class MemoryManager {
     
     this.cognitiveMemory = new CognitiveMemory({ 
       namespace: this.agentId,
-      workingMemoryCapacity: 9, 
-      consolidationInterval: 12
+      workingMemoryCapacity: options.workingMemoryCapacity || 9, 
+      consolidationInterval: options.consolidationInterval || 12
     });
     
     this.knowledgeGraph = new KnowledgeGraph('marketing');
@@ -56,11 +54,29 @@ export class MemoryManager {
   }
 
   /**
+   * Get the agent ID this manager belongs to
+   */
+  getAgentId(): string {
+    return this.agentId;
+  }
+
+  /**
+   * Log an action performed by this manager
+   */
+  logAction(action: string, metadata?: Record<string, unknown>): void {
+    if (this.taskLogger) {
+      this.taskLogger.logAction(`MemoryManager: ${action}`, metadata);
+    } else {
+      logger.info(`MemoryManager: ${action}`, metadata);
+    }
+  }
+
+  /**
    * Initialize all memory systems
    */
   async initialize(useOpenAI: boolean = false): Promise<void> {
     try {
-      logger.info('Initializing memory systems...');
+      this.logAction('Initializing memory systems');
 
       // Initialize base memory system with OpenAI embeddings if configured
       this.memory = new AgentMemory({
@@ -93,7 +109,7 @@ export class MemoryManager {
         await this.enhancedMemory.initialize();
         await this.cognitiveMemory.initialize();
         await this.knowledgeGraph.load();
-        logger.info('Enhanced memory systems initialized successfully');
+        this.logAction('Enhanced memory systems initialized successfully');
         
         // Initialize feedback loop system
         this.feedbackLoop = new FeedbackLoopSystem(this.enhancedMemory);
@@ -118,13 +134,37 @@ export class MemoryManager {
         await this.knowledgeFlaggingService.load();
         
       } catch (error) {
-        logger.error('Error initializing enhanced memory systems:', error);
+        this.logAction('Error initializing enhanced memory systems', { error: String(error) });
       }
 
       this.initialized = true;
-      logger.info('Memory systems initialized successfully');
+      this.logAction('Memory systems initialized successfully');
     } catch (error) {
-      logger.error('Error initializing memory systems:', error);
+      this.logAction('Error initializing memory systems', { error: String(error) });
+      throw error;
+    }
+  }
+
+  /**
+   * Shutdown and cleanup resources
+   */
+  async shutdown(): Promise<void> {
+    try {
+      this.logAction('Shutting down memory systems');
+      
+      // Close any open connections or save any pending data
+      if (this.chloeMemory) {
+        const memoryWithClose = this.chloeMemory as unknown as { close?: () => Promise<void> };
+        if (typeof memoryWithClose.close === 'function') {
+          await memoryWithClose.close();
+        }
+      }
+      
+      // Additional cleanup as needed
+      
+      this.logAction('Memory systems shutdown complete');
+    } catch (error) {
+      this.logAction('Error during memory systems shutdown', { error: String(error) });
       throw error;
     }
   }
@@ -350,6 +390,9 @@ export class MemoryManager {
     return this.knowledgeFlaggingService;
   }
 
+  /**
+   * Check if the manager is initialized
+   */
   isInitialized(): boolean {
     return this.initialized;
   }

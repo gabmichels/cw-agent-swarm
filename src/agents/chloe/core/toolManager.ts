@@ -32,11 +32,25 @@ export class ToolManager implements IManager {
   }
 
   /**
+   * Get the agent ID this manager belongs to
+   */
+  getAgentId(): string {
+    return this.agentId;
+  }
+
+  /**
+   * Log an action performed by this manager
+   */
+  logAction(action: string, metadata?: Record<string, unknown>): void {
+    this.logger.logAction(`ToolManager: ${action}`, metadata);
+  }
+
+  /**
    * Initialize the tool manager and load default tools
    */
   async initialize(): Promise<void> {
     try {
-      console.log('Initializing ToolManager');
+      this.logAction('Initializing ToolManager');
 
       // Register default tools - add discord webhook URL if needed later
       const defaultTools = createChloeTools(this.memory, this.model);
@@ -52,7 +66,7 @@ export class ToolManager implements IManager {
       this.registerTool(intentRouter);
       
       // Log the initialization
-      this.logger.logAction('ToolManager initialized', {
+      this.logAction('ToolManager initialized', {
         toolCount: Object.keys(this.tools).length,
         toolNames: Object.keys(this.tools)
       });
@@ -60,7 +74,30 @@ export class ToolManager implements IManager {
       this.initialized = true;
       console.log(`ToolManager initialized with ${Object.keys(this.tools).length} tools`);
     } catch (error) {
-      console.error('Error initializing ToolManager:', error);
+      this.logAction('Error initializing ToolManager', { error: String(error) });
+      throw error;
+    }
+  }
+
+  /**
+   * Shutdown and cleanup resources
+   */
+  async shutdown(): Promise<void> {
+    try {
+      this.logAction('Shutting down ToolManager');
+      
+      // Perform any necessary cleanup
+      // For example, unregister tools that need cleanup
+      for (const toolName in this.tools) {
+        const tool = this.tools[toolName];
+        if (typeof (tool as unknown as { cleanup?: () => Promise<void> }).cleanup === 'function') {
+          await (tool as unknown as { cleanup: () => Promise<void> }).cleanup();
+        }
+      }
+      
+      this.logAction('ToolManager shutdown complete');
+    } catch (error) {
+      this.logAction('Error during ToolManager shutdown', { error: String(error) });
       throw error;
     }
   }
@@ -115,7 +152,7 @@ export class ToolManager implements IManager {
       }
       
       // Log the tool execution
-      this.logger.logAction('Executing tool', {
+      this.logAction('Executing tool', {
         tool: name,
         params: JSON.stringify(params)
       });
@@ -124,7 +161,7 @@ export class ToolManager implements IManager {
       const result = await tool.execute(params);
       
       // Log the result
-      this.logger.logAction('Tool execution result', {
+      this.logAction('Tool execution result', {
         tool: name,
         success: result.success,
         response: result.response ? result.response.substring(0, 100) : undefined,
@@ -282,7 +319,7 @@ List the top 3 tools that would be most useful for this task, in order of releva
   ): Promise<boolean> {
     try {
       // Log the scheduled creation
-      this.logger.logAction('Scheduling tool creation', {
+      this.logAction('Scheduling tool creation', {
         description,
         delay: delayMs
       });
