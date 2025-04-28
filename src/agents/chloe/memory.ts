@@ -13,6 +13,8 @@ import {
   isMessageMemory,
   isThoughtMemory
 } from '../../lib/shared/types/agentTypes';
+import { MemoryError } from '../../lib/errors/MemoryError';
+import { handleError } from '../../lib/errors/errorHandler';
 
 // Define a custom memory type that includes 'insight' for this implementation
 export type ChloeMemoryType = MemoryType | 'insight' | 'execution_result' | 'plan' | 'performance_review' | 'search_result';
@@ -110,7 +112,11 @@ export class ChloeMemory {
       this.initialized = true;
       return true;
     } catch (error) {
-      console.error('Error initializing memory system:', error);
+      handleError(MemoryError.initFailed(
+        'Error initializing memory system',
+        { agentId: this.agentId },
+        error instanceof Error ? error : undefined
+      ));
       return false;
     }
   }
@@ -131,6 +137,7 @@ export class ChloeMemory {
     }
     
     const memoryId = `memory_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+    const baseType = this.convertToBaseMemoryType(type);
     const newMemory: MemoryEntry = {
       id: memoryId,
       content,
@@ -140,13 +147,13 @@ export class ChloeMemory {
       source,
       context,
       tags,
-      type: this.convertToBaseMemoryType(type)
+      type: baseType
     };
     
     // Add to server-side Qdrant (only when running server-side)
     if (typeof window === 'undefined') {
       await serverQdrant.addMemory(
-        this.convertToBaseMemoryType(type) as QdrantMemoryType,
+        baseType as 'message' | 'thought' | 'document' | 'task',
         content,
         {
           category: type,
@@ -249,14 +256,17 @@ export class ChloeMemory {
           // Convert to memory entries
           return this.convertRecordsToMemoryEntries(records);
         } catch (error) {
-          console.error('Error searching external memory:', error);
-          return [];
+          throw MemoryError.retrievalFailed(
+            'Error searching external memory',
+            { type, startDate: startDateISO, endDate: endDateISO, limit },
+            error instanceof Error ? error : undefined
+          );
         }
       }
       
       return [];
     } catch (error) {
-      console.error('Error getting memories by date range:', error);
+      handleError(error instanceof Error ? error : new Error(String(error)));
       return [];
     }
   }
@@ -357,7 +367,11 @@ export class ChloeMemory {
           // Convert to memory entries
           return this.convertRecordsToMemoryEntries(records);
         } catch (error) {
-          console.error('Error searching similar memories:', error);
+          handleError(MemoryError.retrievalFailed(
+            'Error searching similar memories',
+            { query, limit },
+            error instanceof Error ? error : undefined
+          ));
           
           // In case of error, try using server-side Qdrant directly
           if (typeof window === 'undefined') {
@@ -399,7 +413,11 @@ export class ChloeMemory {
       
       return [];
     } catch (error) {
-      console.error('Error getting relevant memories:', error);
+      handleError(MemoryError.retrievalFailed(
+        'Error getting relevant memories',
+        { query, limit },
+        error instanceof Error ? error : undefined
+      ));
       return [];
     }
   }
@@ -419,14 +437,22 @@ export class ChloeMemory {
           const stats = await this.externalMemory.getStats();
           return stats.messageCount || 0;
         } catch (error) {
-          console.error('Error getting stats from external memory:', error);
+          handleError(MemoryError.retrievalFailed(
+            'Error getting stats from external memory',
+            { agentId: this.agentId },
+            error instanceof Error ? error : undefined
+          ));
           return 0;
         }
       }
       
       return 0;
     } catch (error) {
-      console.error('Error getting message count:', error);
+      handleError(MemoryError.retrievalFailed(
+        'Error getting message count',
+        { agentId: this.agentId },
+        error instanceof Error ? error : undefined
+      ));
       return 0;
     }
   }
