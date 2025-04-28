@@ -190,6 +190,17 @@ export interface KnowledgeGapsManagerOptions extends BaseManagerOptions {
 // ============= MEMORY TYPES =============
 
 /**
+ * Options for configuring the ChloeMemory system.
+ */
+export interface ChloeMemoryOptions {
+  namespace?: string;
+  collectionName?: string;
+  useOpenAI?: boolean;
+  memoryType?: 'local' | 'chroma' | 'pinecone'; // Example types
+  config?: Record<string, any>; // Specific config for memory type
+}
+
+/**
  * Base memory entry interface
  */
 export interface MemoryEntry {

@@ -3,6 +3,8 @@ import { ChloeGraph, GraphState } from './graph/graph';
 import { createChloeTools } from './tools/index';
 import type { ChloeMemory } from './memory';
 import type { SimpleTool } from '../../lib/shared/types/agent';
+import { ChatOpenAI } from '@langchain/openai';
+import { TaskLogger } from './task-logger';
 
 /**
  * Options for the plan and execute functionality
@@ -28,6 +30,22 @@ export interface ChloeTools {
   intentRouter: SimpleTool;
   // Allow string indexing
   [key: string]: SimpleTool;
+}
+
+/**
+ * Type for tool function bindings
+ */
+export type ToolFunctionBinding = (input: string) => Promise<string>;
+
+/**
+ * Extend the ChloeAgent interface to add the methods we need
+ */
+declare module './core/agent' {
+  interface ChloeAgent {
+    getModel(): ChatOpenAI | null;
+    getChloeMemory(): ChloeMemory | null;
+    getTaskLogger(): TaskLogger | null;
+  }
 }
 
 /**
@@ -71,7 +89,7 @@ export async function planAndExecute(
     const tools = createChloeTools(memory, model);
     
     // Create a map of tool bindings, checking that each tool exists
-    const toolBindings: Record<string, any> = {};
+    const toolBindings: Record<string, ToolFunctionBinding> = {};
     
     // Helper function to safely bind tool methods
     const safeBindTool = (toolKey: string, internalName: string) => {
@@ -178,6 +196,7 @@ export async function planAndExecute(
       toolOutputs: {},
       reflections: [],
       messages: [`Error: ${errorMessage}`],
+      waitingForHuman: false,
       error: errorMessage
     };
   }
@@ -188,7 +207,11 @@ export async function planAndExecute(
  */
 export function attachPlanAndExecute(): void {
   // Add the method to the prototype to make it available on all instances
-  (ChloeAgent.prototype as any).planAndExecute = planAndExecute;
+  Object.defineProperty(ChloeAgent.prototype, 'planAndExecute', {
+    value: planAndExecute,
+    writable: false,
+    configurable: true
+  });
 }
 
 // Automatically attach the method

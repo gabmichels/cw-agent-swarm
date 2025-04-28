@@ -12,21 +12,28 @@ export interface KnowledgeConcept {
   category: string;
   subcategory?: string;
   relatedConcepts?: string[];
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
+  confidence?: number; // 0-1 scale indicating confidence
+  source?: string; // Source of this concept
+  lastUpdated?: Date;
+  examples?: string[]; // Concrete examples of the concept
 }
 
 /**
- * Represents a principle or rule within a domain
+ * Knowledge principle that defines a guideline or rule
  */
 export interface KnowledgePrinciple {
   id: string;
   name: string;
   description: string;
-  examples: string[];
-  applications: string[];
   category: string;
-  importance: number; // 1-10 scale
-  metadata?: Record<string, any>;
+  subcategory?: string;
+  supportingEvidence?: string[];
+  exceptions?: string[];
+  metadata?: Record<string, unknown>;
+  importance: number; // 0-1 scale
+  source?: string;
+  lastUpdated?: Date;
 }
 
 /**
@@ -38,41 +45,60 @@ export interface KnowledgeRelationship {
   type: string; // Relationship type: "influences", "includes", "specifies", etc.
   description: string;
   strength: number; // 0-1 scale indicating relationship strength
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
+  bidirectional?: boolean; // Whether the relationship works both ways
+  created?: Date;
+  lastUpdated?: Date;
+  confidence?: number; // 0-1 scale of confidence in this relationship
 }
 
 /**
- * Represents a research entry or evidence for a concept
- */
-export interface ResearchEntry {
-  id: string;
-  title: string;
-  content: string;
-  source: string;
-  domain: string;
-  tags: string[];
-  year: number;
-  relevance: number; // 0-1 scale
-  url?: string;
-  metadata?: Record<string, any>;
-}
-
-/**
- * Represents a framework or model in a domain
+ * Represents a complete framework or methodology
  */
 export interface DomainFramework {
   id: string;
   name: string;
   description: string;
-  steps: {
+  category: string;
+  subcategory?: string;
+  principles: string[]; // IDs of principles that belong to this framework
+  steps: Array<{
+    id: string;
     name: string;
     description: string;
     order: number;
-  }[];
-  applications: string[];
-  relatedConcepts: string[];
+    outputs?: string[];
+    duration?: {
+      min: number;
+      max: number;
+      unit: 'minutes' | 'hours' | 'days' | 'weeks';
+    };
+  }>;
+  source?: string;
+  author?: string;
+  year?: number;
+  metadata?: Record<string, unknown>;
+  lastUpdated?: Date;
+}
+
+/**
+ * Represents a research entry supporting a concept or principle
+ */
+export interface ResearchEntry {
+  id: string;
+  title: string;
+  abstract: string;
+  findings: string[];
+  authors: string[];
+  year: number;
+  source: string;
+  url?: string;
+  doi?: string;
   category: string;
-  metadata?: Record<string, any>;
+  relatedConcepts: string[]; // IDs of related concepts
+  metadata?: Record<string, unknown>;
+  lastUpdated?: Date;
+  relevance: number; // 0-1 scale of relevance to the domain
 }
 
 /**
@@ -87,5 +113,22 @@ export interface KnowledgeBootstrapSource {
   content: string;
   author?: string;
   year?: number;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
+  reliability?: number; // 0-1 scale of reliability of the source
+  license?: string; // License information for the content
+}
+
+/**
+ * Summary of a knowledge graph's contents
+ */
+export interface KnowledgeGraphSummary {
+  totalConcepts: number;
+  totalPrinciples: number;
+  totalFrameworks: number;
+  totalResearch: number;
+  totalRelationships: number;
+  categories: string[];
+  lastUpdated: Date;
+  topConcepts: Array<{id: string, name: string, connectedness: number}>;
+  coverage: Record<string, number>; // Coverage of different categories (0-1 scale)
 } 

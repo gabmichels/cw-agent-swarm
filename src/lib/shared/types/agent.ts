@@ -116,6 +116,15 @@ export interface AutonomySystem {
   }>;
 }
 
+/**
+ * Type for the result of the autonomy system diagnosis
+ */
+export interface AutonomyDiagnosis {
+  memory: { status: string; messageCount: number };
+  scheduler: { status: string; activeTasks: number };
+  planning: { status: string };
+}
+
 export interface ScheduledTask {
   id: string;
   name: string;

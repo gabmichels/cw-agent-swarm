@@ -1,37 +1,99 @@
-import { AgentMemory } from '../../lib/memory';
+import { ChatOpenAI } from '@langchain/openai';
+import { ChatPromptTemplate } from '@langchain/core/prompts';
+import { ChloeMemory, ChloeMemoryType } from './memory';
 
 /**
- * TaggedMemory interface for the output of the memory tagger
+ * Importance levels for memory entries
+ */
+export enum ImportanceLevel {
+  LOW = 'low',
+  MEDIUM = 'medium',
+  HIGH = 'high'
+}
+
+/**
+ * Memory source types
+ */
+export enum MemorySource {
+  USER = 'user',
+  CHLOE = 'chloe',
+  SYSTEM = 'system',
+  TOOL = 'tool',
+  WEB = 'web'
+}
+
+/**
+ * Sentiment values for memory entries
+ */
+export type SentimentType = 'positive' | 'negative' | 'neutral';
+
+/**
+ * Interface for tagging results applied to memory
+ */
+export interface TaggingResult {
+  tags: string[];
+  importance: ImportanceLevel;
+  sentiment?: SentimentType;
+  entities?: string[];
+  categories?: string[];
+  confidence: number; // 0-1 scale
+}
+
+/**
+ * Interface for a memory entry with tagged metadata
  */
 export interface TaggedMemory {
   id: string;
   content: string;
-  importance: number; // Keep this as number only for calculations
-  importanceLevel: 'low' | 'medium' | 'high'; // Add a string representation for display
+  importance: ImportanceLevel;
   category: string;
   tags: string[];
-  sentiment?: string;
+  sentiment?: SentimentType;
   entities?: string[];
   created: Date;
-}
-
-export interface MemoryTaggerOptions {
-  agentMemory: AgentMemory;
-  importanceThreshold?: number;
+  source: MemorySource;
+  context?: string;
 }
 
 /**
- * MemoryTagger is responsible for determining the importance of memories
- * and tagging them appropriately for future retrieval
+ * Interface for entity extraction results
+ */
+export interface EntityExtractionResult {
+  entities: Array<{
+    name: string;
+    type: string;
+    relevance: number; // 0-1 scale
+    context?: string;
+  }>;
+  confidence: number;
+}
+
+/**
+ * Options for memory tagger initialization
+ */
+export interface MemoryTaggerOptions {
+  model?: ChatOpenAI;
+  memory?: ChloeMemory;
+  verbose?: boolean;
+}
+
+/**
+ * MemoryTagger adds metadata and tags to memory entries
+ * to improve retrieval and organization
  */
 export class MemoryTagger {
-  private agentMemory: AgentMemory;
-  private importanceThreshold: number;
+  private model: ChatOpenAI;
+  private memory?: ChloeMemory;
+  private verbose: boolean;
   private memories: Map<string, TaggedMemory> = new Map();
-
-  constructor(options: MemoryTaggerOptions) {
-    this.agentMemory = options.agentMemory;
-    this.importanceThreshold = options.importanceThreshold || 0.7;
+  
+  constructor(options?: MemoryTaggerOptions) {
+    this.model = options?.model || new ChatOpenAI({
+      modelName: process.env.OPENAI_MODEL || 'gpt-3.5-turbo',
+      temperature: 0.2,
+    });
+    this.memory = options?.memory;
+    this.verbose = options?.verbose || false;
   }
 
   /**
@@ -42,8 +104,11 @@ export class MemoryTagger {
     const sourceValue = source || 'system';
 
     try {
-      // Calculate importance based on content characteristics
-      const importance = this.calculateImportance(content);
+      // Calculate importance score 
+      const importanceScore = this.calculateImportance(content);
+      
+      // Convert numeric score to ImportanceLevel enum
+      const importance = this.scoreToImportanceLevel(importanceScore);
       
       // Generate tags based on content
       const tags = this.generateTags(content);
@@ -52,19 +117,20 @@ export class MemoryTagger {
         id: this.hashContent(content),
         content,
         importance,
-        importanceLevel: this.determineImportanceLevel(importance),
         category: this.determineCategory(content),
         tags,
         sentiment: this.determineSentiment(content),
         entities: this.extractEntities(content),
-        created: new Date()
+        created: new Date(),
+        source: this.determineSource(sourceValue),
+        context: contextId
       };
       
       // Store the memory with a unique ID based on content hash
       this.memories.set(memory.id, memory);
       
       // If the memory is important enough, add it to long-term memory
-      if (this.shouldAddToMemory(importance)) {
+      if (this.shouldAddToMemory(importanceScore)) {
         await this.storeImportantMemory(memory);
       }
       
@@ -73,6 +139,15 @@ export class MemoryTagger {
       console.error('Failed to tag memory:', error);
       throw error;
     }
+  }
+
+  /**
+   * Convert numeric importance score to ImportanceLevel enum
+   */
+  private scoreToImportanceLevel(score: number): ImportanceLevel {
+    if (score >= 0.7) return ImportanceLevel.HIGH;
+    if (score >= 0.4) return ImportanceLevel.MEDIUM;
+    return ImportanceLevel.LOW;
   }
 
   /**
@@ -234,9 +309,9 @@ export class MemoryTagger {
     try {
       // Create a formatted memory entry with metadata
       const formattedMemory = `
-IMPORTANCE: ${memory.importance.toFixed(2)} (${memory.importanceLevel})
+IMPORTANCE: ${memory.importance}
 TAGS: ${memory.tags.join(', ')}
-SOURCE: ${memory.category}
+SOURCE: ${memory.source}
 TIMESTAMP: ${memory.created.toISOString()}
 ${memory.sentiment ? `SENTIMENT: ${memory.sentiment}` : ''}
 ${memory.entities ? `ENTITIES: ${memory.entities.join(', ')}` : ''}
@@ -245,7 +320,7 @@ ${memory.content}
       `.trim();
       
       // Add the memory to the agent's memory system
-      await this.agentMemory.addMemory(formattedMemory);
+      await this.memory?.addMemory(formattedMemory);
       
       console.log(`Added important memory to long-term storage: "${memory.content.substring(0, 50)}..."`);
     } catch (error) {
@@ -267,9 +342,27 @@ ${memory.content}
    * Get all memories with importance above a threshold
    */
   getImportantMemories(threshold = 0.7): TaggedMemory[] {
+    // Convert threshold to ImportanceLevel for comparison
+    const thresholdLevel = this.scoreToImportanceLevel(threshold);
+    
+    // Define importance level values for comparison
+    const importanceValues = {
+      [ImportanceLevel.LOW]: 0,
+      [ImportanceLevel.MEDIUM]: 1,
+      [ImportanceLevel.HIGH]: 2
+    };
+    
     return Array.from(this.memories.values())
-      .filter(memory => memory.importance >= threshold)
-      .sort((a, b) => b.importance - a.importance);
+      .filter(memory => {
+        const memoryImportanceValue = importanceValues[memory.importance];
+        const thresholdImportanceValue = importanceValues[thresholdLevel];
+        return memoryImportanceValue >= thresholdImportanceValue;
+      })
+      .sort((a, b) => {
+        const aValue = importanceValues[a.importance];
+        const bValue = importanceValues[b.importance];
+        return bValue - aValue; // Sort in descending order of importance
+      });
   }
 
   /**
@@ -293,33 +386,73 @@ ${memory.content}
     return 'Uncategorized';
   }
 
-  private determineSentiment(content: string): string | undefined {
-    // Implement sentiment determination logic based on content
+  private determineSentiment(content: string): SentimentType | undefined {
+    // Simple sentiment analysis
+    const positiveWords = ['happy', 'good', 'excellent', 'great', 'love', 'like'];
+    const negativeWords = ['bad', 'terrible', 'hate', 'dislike', 'awful', 'angry'];
+    
+    const contentLower = content.toLowerCase();
+    let positiveCount = 0;
+    let negativeCount = 0;
+    
+    positiveWords.forEach(word => {
+      if (contentLower.includes(word)) positiveCount++;
+    });
+    
+    negativeWords.forEach(word => {
+      if (contentLower.includes(word)) negativeCount++;
+    });
+    
+    if (positiveCount > negativeCount) return 'positive';
+    if (negativeCount > positiveCount) return 'negative';
+    if (positiveCount > 0 || negativeCount > 0) return 'neutral';
+    
     return undefined;
   }
 
   private extractEntities(content: string): string[] | undefined {
     // Implement entity extraction logic based on content
-    return undefined;
+    // Placeholder implementation
+    const entities: string[] = [];
+    
+    // Find potential entities (very simplistic approach)
+    const words = content.split(/\s+/);
+    for (const word of words) {
+      // Simple heuristic: capitalize words might be entities
+      if (word.length > 1 && word[0] === word[0].toUpperCase() && word[1] === word[1].toLowerCase()) {
+        entities.push(word.replace(/[.,;!?]$/, '')); // Remove trailing punctuation
+      }
+    }
+    
+    return entities.length > 0 ? entities : undefined;
   }
 
-  private determineImportanceLevel(importance: number): 'low' | 'medium' | 'high' {
-    if (importance < 0.3) return 'low';
-    if (importance < 0.7) return 'medium';
-    return 'high';
+  private determineSource(source: string): MemorySource {
+    switch (source.toLowerCase()) {
+      case 'user':
+        return MemorySource.USER;
+      case 'chloe':
+        return MemorySource.CHLOE;
+      case 'tool':
+        return MemorySource.TOOL;
+      case 'web':
+        return MemorySource.WEB;
+      default:
+        return MemorySource.SYSTEM;
+    }
   }
 
   private shouldAddToMemory(importance: number): boolean {
-    return importance >= this.importanceThreshold;
+    return importance >= 0.7;
   }
 
   private logMemory(memory: TaggedMemory) {
     console.log(`
 MEMORY TAGGED:
 ID: ${memory.id}
-IMPORTANCE: ${memory.importance.toFixed(2)} (${memory.importanceLevel})
+IMPORTANCE: ${memory.importance}
 TAGS: ${memory.tags.join(', ')}
-SOURCE: ${memory.category}
+SOURCE: ${memory.source}
 TIMESTAMP: ${memory.created.toISOString()}
 ${memory.sentiment ? `SENTIMENT: ${memory.sentiment}` : ''}
 ${memory.entities ? `ENTITIES: ${memory.entities.join(', ')}` : ''}

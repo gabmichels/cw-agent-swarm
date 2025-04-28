@@ -11,46 +11,84 @@ import { DateTime } from 'luxon';
  * - Supports inferring new connections
  */
 
-// Relationship types between nodes
-export type RelationType = 
-  'causes' | 
-  'causedBy' | 
-  'similarTo' | 
-  'partOf' | 
-  'contains' | 
-  'follows' | 
-  'precedes' | 
-  'contradicts' | 
-  'supports' |
-  'relatedTo';
+/**
+ * Enumeration of relationship types for Knowledge Graph edges
+ */
+export enum RelationType {
+  RELATED_TO = 'RELATED_TO',
+  INCLUDES = 'INCLUDES',
+  CAUSES = 'CAUSES',
+  INFLUENCES = 'INFLUENCES',
+  CONTRADICTS = 'CONTRADICTS',
+  SIMILAR_TO = 'SIMILAR_TO',
+  DEPENDS_ON = 'DEPENDS_ON',
+  PRECEDES = 'PRECEDES',
+  FOLLOWS = 'FOLLOWS',
+  IMPLIES = 'IMPLIES',
+  SPECIALIZES = 'SPECIALIZES',
+  GENERALIZES = 'GENERALIZES',
+  INSTANCE_OF = 'INSTANCE_OF',
+  MEMBER_OF = 'MEMBER_OF'
+}
 
+/**
+ * Node types for the knowledge graph
+ */
+export enum NodeType {
+  CONCEPT = 'concept',
+  ENTITY = 'entity',
+  EVENT = 'event',
+  FACT = 'fact',
+  PRINCIPLE = 'principle',
+  INSIGHT = 'insight'
+}
+
+/**
+ * Interface for a node in the knowledge graph
+ */
 export interface GraphNode {
   id: string;
-  type: 'concept' | 'entity' | 'event' | 'fact';
+  type: NodeType;
   label: string;
+  description?: string;
   created: Date;
   lastUpdated: Date;
   importance: number; // 0-1 scale
-  metadata: Record<string, any>;
+  metadata: Record<string, unknown>;
+  source?: string;
+  confidence?: number; // 0-1 scale of confidence
+  properties?: Record<string, string | number | boolean | null>;
 }
 
+/**
+ * Interface for an edge/relationship in the knowledge graph
+ */
 export interface GraphEdge {
   id: string;
   source: string; // Node ID
   target: string; // Node ID
   type: RelationType;
+  description?: string;
   strength: number; // 0-1 scale
   created: Date;
   lastUpdated: Date;
-  metadata: Record<string, any>;
+  metadata: Record<string, unknown>;
+  bidirectional: boolean;
+  properties?: Record<string, string | number | boolean | null>;
 }
 
+/**
+ * Interface for querying the knowledge graph
+ */
 export interface GraphQuery {
   startNode?: string;
   relationTypes?: RelationType[];
-  nodeTypes?: string[];
+  nodeTypes?: NodeType[];
   maxDepth?: number;
   minStrength?: number;
+  limit?: number;
+  includePaths?: boolean;
+  includeMetadata?: boolean;
 }
 
 /**
@@ -95,7 +133,7 @@ export class KnowledgeGraph {
    */
   async addNode(
     label: string,
-    type: 'concept' | 'entity' | 'event' | 'fact',
+    type: NodeType,
     metadata: Record<string, any> = {},
     importance: number = 0.5
   ): Promise<string> {
@@ -169,7 +207,9 @@ export class KnowledgeGraph {
         metadata: {
           ...metadata,
           namespace: this.namespace
-        }
+        },
+        bidirectional: false,
+        properties: {}
       };
       
       // Store edge in knowledge_graph_edges collection
@@ -321,7 +361,9 @@ export class KnowledgeGraph {
             strength: result.metadata.strength || 0.5,
             created: new Date(result.metadata.created),
             lastUpdated: new Date(result.metadata.lastUpdated),
-            metadata: result.metadata
+            metadata: result.metadata,
+            bidirectional: result.metadata.bidirectional || false,
+            properties: result.metadata.properties || {}
           }));
           
           edges.push(...convertedEdges);
@@ -435,17 +477,17 @@ export class KnowledgeGraph {
               // Same relationship type can sometimes be transitive
               inferredType = edge1.type;
               confidence = edge1.strength * edge2.strength * 0.8;
-            } else if (edge1.type === 'partOf' && edge2.type === 'partOf') {
+            } else if (edge1.type === RelationType.MEMBER_OF && edge2.type === RelationType.MEMBER_OF) {
               // Transitive part-of relationship
-              inferredType = 'partOf';
+              inferredType = RelationType.MEMBER_OF;
               confidence = edge1.strength * edge2.strength * 0.9;
-            } else if (edge1.type === 'causes' && edge2.type === 'causes') {
+            } else if (edge1.type === RelationType.CAUSES && edge2.type === RelationType.CAUSES) {
               // Causal chains can be transitive
-              inferredType = 'causes';
+              inferredType = RelationType.CAUSES;
               confidence = edge1.strength * edge2.strength * 0.7;
             } else {
               // Default to general relationship
-              inferredType = 'relatedTo';
+              inferredType = RelationType.RELATED_TO;
               confidence = edge1.strength * edge2.strength * 0.5;
             }
             

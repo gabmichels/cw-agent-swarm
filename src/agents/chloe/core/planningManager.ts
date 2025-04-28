@@ -1,7 +1,14 @@
 import { ChatOpenAI } from '@langchain/openai';
-import { ChloeMemory } from '../memory';
+import { ChloeMemory, ChloeMemoryType } from '../memory';
 import { TaskLogger } from '../task-logger';
-import { AutonomySystem, PlanAndExecuteOptions, PlanAndExecuteResult, PlanWithSteps as AgentPlanWithSteps, IManager } from '../../../lib/shared/types/agentTypes';
+import { 
+  AutonomySystem, 
+  PlanAndExecuteOptions, 
+  PlanAndExecuteResult, 
+  PlanWithSteps as AgentPlanWithSteps, 
+  IManager,
+  PlanStep
+} from '../../../lib/shared/types/agentTypes';
 import { planTask, PlanResult } from '../../../server/agents/planner';
 import { executePlan } from '../../../server/agents/executor';
 
@@ -11,20 +18,8 @@ export interface PlanWithSteps {
   steps: { action: string; description: string }[];
 }
 
-export interface ExecutionStep {
-  step: string;
-  success: boolean;
-  output: string;
-}
-
-export interface ExecutionWithSteps {
-  success: boolean;
-  summary: string;
-  steps: ExecutionStep[];
-}
-
-// Type for ExecutionResult from executePlan function
-export interface ExecutionResult {
+// Original format from server
+interface ServerExecutionResult {
   success: boolean;
   output: string;
   stepResults: {
@@ -35,27 +30,43 @@ export interface ExecutionResult {
   error?: string;
 }
 
+// Our consistent interface
+export interface ExecutionResult {
+  success: boolean;
+  message: string;
+  completedSteps: number;
+  totalSteps: number;
+  error?: string;
+  plan?: PlanWithSteps;
+  output?: string; // For backward compatibility
+  stepResults?: Array<{
+    step: string;
+    success: boolean;
+    output: string;
+  }>; // For backward compatibility
+}
+
 export interface PlanningManagerOptions {
   agentId: string;
   memory: ChloeMemory;
   model: ChatOpenAI;
   taskLogger: TaskLogger;
   autonomySystem?: AutonomySystem;
-  notifyFunction?: (message: string) => void;
+  notifyFunction?: (message: string) => Promise<void>;
 }
 
 /**
- * Manages planning and execution for the Chloe agent
+ * Planning manager for the Chloe agent
  */
 export class PlanningManager implements IManager {
   private agentId: string;
   private memory: ChloeMemory;
   private model: ChatOpenAI;
   private taskLogger: TaskLogger;
-  private autonomySystem?: AutonomySystem;
-  private notifyFunction?: (message: string) => void;
   private initialized: boolean = false;
-
+  private autonomySystem?: AutonomySystem;
+  private notifyFunction?: (message: string) => Promise<void>;
+  
   constructor(options: PlanningManagerOptions) {
     this.agentId = options.agentId;
     this.memory = options.memory;
@@ -155,43 +166,39 @@ export class PlanningManager implements IManager {
    */
   async executePlan(plan: PlanWithSteps): Promise<ExecutionResult> {
     try {
-      if (!this.initialized) {
-        await this.initialize();
-      }
+      this.logAction('Executing plan', { description: plan.description });
       
-      this.logAction('Executing plan', { planDescription: plan.description });
+      // Convert to the format expected by the executor
+      const planSteps = plan.steps.map(step => step.action);
       
-      // Convert PlanWithSteps to string[] for executePlan
-      const planSteps = plan.steps.map(step => step.description);
-      
-      // Generate context from the plan description
-      const context = `Executing plan: ${plan.description}\n\nThis plan has ${planSteps.length} steps.`;
-      
-      // Execute the plan
-      const result = await executePlan(
+      // Execute the plan using the server execution function
+      const serverResult = await executePlan(
         planSteps,
-        context,
-        {
-          memory: this.memory,
-          stopOnFailure: false
-        }
-      );
+        this.agentId
+      ) as ServerExecutionResult;
       
-      // Log each step execution
-      if (result.stepResults) {
-        result.stepResults.forEach((step, index) => {
-          this.logAction(`Completed step ${index + 1}`, { 
-            step: step.step,
-            success: step.success,
-            output: step.output.substring(0, 100) + (step.output.length > 100 ? '...' : '')
-          });
-        });
-      }
+      // Convert to our consistent format
+      const result: ExecutionResult = {
+        success: serverResult.success,
+        message: serverResult.output,
+        output: serverResult.output, // For backward compatibility
+        completedSteps: serverResult.stepResults.filter(step => step.success).length,
+        totalSteps: serverResult.stepResults.length,
+        error: serverResult.error,
+        stepResults: serverResult.stepResults // For backward compatibility
+      };
+
+      // Log the execution result
+      this.logAction('Completed plan execution', {
+        success: result.success,
+        stepsCompleted: result.completedSteps,
+        totalSteps: result.totalSteps
+      });
       
       // Notify about the execution if notification function is available
       if (this.notifyFunction) {
         const successText = result.success ? 'Successfully' : 'Failed to';
-        this.notifyFunction(`${successText} executed plan: ${plan.description}. ${result.output.substring(0, 200)}`);
+        this.notifyFunction(`${successText} executed plan: ${plan.description}. ${result.message.substring(0, 200)}`);
       }
       
       return result;
@@ -246,19 +253,19 @@ export class PlanningManager implements IManager {
       
       if (this.notifyFunction) {
         const statusMessage = executionResult.success ? 'Successfully executed' : 'Failed to execute';
-        this.notifyFunction(`${statusMessage} daily tasks. ${executionResult.output.substring(0, 200)}`);
+        this.notifyFunction(`${statusMessage} daily tasks. ${executionResult.message.substring(0, 200)}`);
       }
       
       // Log the execution result
       this.logAction('Completed daily tasks', {
         success: executionResult.success,
-        output: executionResult.output
+        output: executionResult.message
       });
       
       // Store results in memory
       await this.memory.addMemory(
-        `Daily tasks execution: ${executionResult.output}`,
-        'daily_tasks',
+        `Daily tasks execution: ${executionResult.message}`,
+        'task' as ChloeMemoryType,
         executionResult.success ? 'medium' : 'high',
         'system'
       );
@@ -300,7 +307,7 @@ export class PlanningManager implements IManager {
       // Convert ExecutionResult to PlanAndExecuteResult
       const planAndExecuteResult: PlanAndExecuteResult = {
         success: result.success,
-        message: result.output || "Plan execution completed",
+        message: result.message,
         plan: {
           goal: options.goalPrompt,
           steps: result.stepResults?.map(step => ({

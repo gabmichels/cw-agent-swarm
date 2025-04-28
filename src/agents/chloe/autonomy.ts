@@ -1,8 +1,9 @@
 // Chloe Autonomy System Integration
 
-import { ChloeAgent } from './agent';
+import { ChloeAgent } from './core/agent';
 import { initializeAutonomy } from './scheduler';
 import * as serverQdrant from '../../server/qdrant';
+import { AutonomySystem } from '../../lib/shared/types/agentTypes';
 
 /**
  * Initialize Chloe's full autonomy system with:
@@ -13,7 +14,7 @@ import * as serverQdrant from '../../server/qdrant';
 export async function initializeChloeAutonomy(agent: ChloeAgent): Promise<{
   status: 'success' | 'partial' | 'failed';
   message: string;
-  autonomySystem?: any;
+  autonomySystem?: AutonomySystem;
 }> {
   try {
     console.log('Initializing Chloe autonomy system...');

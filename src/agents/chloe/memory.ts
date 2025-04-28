@@ -3,7 +3,22 @@ import path from 'path';
 import { AgentMemory } from '../../lib/memory';
 // Use server-only Qdrant implementation
 import * as serverQdrant from '../../server/qdrant';
-import { MemoryEntry as BaseMemoryEntry, MemoryType, MemorySource, ImportanceLevel } from '../../lib/shared/types/agentTypes';
+import { 
+  MemoryEntry as BaseMemoryEntry, 
+  MemoryType, 
+  MemorySource, 
+  ImportanceLevel,
+  MessageMemory,
+  ThoughtMemory,
+  isMessageMemory,
+  isThoughtMemory
+} from '../../lib/shared/types/agentTypes';
+
+// Define a custom memory type that includes 'insight' for this implementation
+export type ChloeMemoryType = MemoryType | 'insight' | 'execution_result' | 'plan' | 'performance_review' | 'search_result';
+
+// Define internal type for compatibility with serverQdrant
+type QdrantMemoryType = 'message' | 'thought' | 'document' | 'task';
 
 export interface MemoryEntry extends BaseMemoryEntry {
   category: string;
@@ -11,10 +26,40 @@ export interface MemoryEntry extends BaseMemoryEntry {
   tags?: string[];
 }
 
+// Define external memory record interface
+export interface ExternalMemoryRecord {
+  id: string;
+  text: string;
+  timestamp: string;
+  type: string;
+  metadata: {
+    category?: string;
+    tag?: string;
+    source?: string;
+    importance?: string;
+    tags?: string[];
+    [key: string]: unknown;
+  };
+}
+
+// Define memory search options
+export interface MemorySearchOptions {
+  limit?: number;
+  filter?: Record<string, unknown>;
+  sortBy?: string;
+  sortDirection?: 'asc' | 'desc';
+}
+
+// Define AgentMemory interface for external memory interactions
+export interface ExtendedAgentMemory extends AgentMemory {
+  searchSimilar?(query: string, limit: number): Promise<ExternalMemoryRecord[]>;
+  getStats?(): Promise<{ messageCount: number; [key: string]: any }>;
+}
+
 export interface ChloeMemoryOptions {
   agentId?: string;
   useExternalMemory?: boolean;
-  externalMemory?: AgentMemory;
+  externalMemory?: ExtendedAgentMemory;
   useOpenAI?: boolean;
 }
 
@@ -24,7 +69,7 @@ export interface ChloeMemoryOptions {
 export class ChloeMemory {
   private agentId: string;
   private useExternalMemory: boolean;
-  private externalMemory?: AgentMemory;
+  private externalMemory?: ExtendedAgentMemory;
   private initialized: boolean = false;
 
   constructor(options?: ChloeMemoryOptions) {
@@ -75,7 +120,7 @@ export class ChloeMemory {
    */
   async addMemory(
     content: string,
-    category: string,
+    type: ChloeMemoryType = 'message',
     importance: ImportanceLevel = 'medium',
     source: MemorySource = 'system',
     context?: string,
@@ -90,29 +135,33 @@ export class ChloeMemory {
       id: memoryId,
       content,
       created: new Date(),
-      category,
+      category: type, // Use type as category for backward compatibility
       importance,
       source,
       context,
       tags,
-      type: 'message' // Default type
+      type: this.convertToBaseMemoryType(type)
     };
     
     // Add to server-side Qdrant (only when running server-side)
     if (typeof window === 'undefined') {
-      await serverQdrant.addMemory('thought', content, {
-        category,
-        importance,
-        source,
-        tags
-      });
+      await serverQdrant.addMemory(
+        this.convertToBaseMemoryType(type) as QdrantMemoryType,
+        content,
+        {
+          category: type,
+          importance,
+          source,
+          tags
+        }
+      );
     }
     
     // Add to external memory if enabled
     if (this.useExternalMemory && this.externalMemory) {
       const memoryText = this.formatMemoryForExternal(newMemory);
       await this.externalMemory.addMemory(memoryText, {
-        tag: category,
+        tag: type,
         importance: importance,
         source: source,
         tags: tags
@@ -121,6 +170,29 @@ export class ChloeMemory {
     
     console.log(`Added new memory: ${memoryId} - ${content.substring(0, 50)}...`);
     return newMemory;
+  }
+
+  /**
+   * Convert ChloeMemoryType to a base MemoryType
+   * This is a helper method to ensure type compatibility
+   */
+  private convertToBaseMemoryType(type: ChloeMemoryType): MemoryType {
+    // If the type is already a base memory type, return it directly
+    if (['message', 'thought', 'task', 'document'].includes(type as string)) {
+      return type as MemoryType;
+    }
+    // Otherwise map to the closest base type
+    switch (type) {
+      case 'insight':
+      case 'performance_review':
+      case 'plan':
+        return 'thought';
+      case 'execution_result':
+      case 'search_result':
+        return 'document';
+      default:
+        return 'message';
+    }
   }
 
   /**
@@ -163,7 +235,7 @@ export class ChloeMemory {
       if (this.externalMemory) {
         try {
           // Create a combined search options object
-          const searchOptions = {
+          const searchOptions: MemorySearchOptions = {
             limit,
             filter
           };
@@ -172,20 +244,10 @@ export class ChloeMemory {
           const records = await this.externalMemory.searchMemory(
             type,
             searchOptions
-          );
+          ) as ExternalMemoryRecord[];
           
           // Convert to memory entries
-          return records.map(record => ({
-            id: record.id,
-            content: record.text,
-            created: new Date(record.timestamp),
-            timestamp: record.timestamp,
-            type: record.type as MemoryType,
-            category: record.metadata.category || record.metadata.tag || type,
-            source: record.metadata.source || 'system',
-            importance: (record.metadata.importance || 'medium') as ImportanceLevel,
-            tags: record.metadata.tags || []
-          }));
+          return this.convertRecordsToMemoryEntries(records);
         } catch (error) {
           console.error('Error searching external memory:', error);
           return [];
@@ -197,6 +259,22 @@ export class ChloeMemory {
       console.error('Error getting memories by date range:', error);
       return [];
     }
+  }
+
+  /**
+   * Convert external memory records to MemoryEntry objects
+   */
+  private convertRecordsToMemoryEntries(records: ExternalMemoryRecord[]): MemoryEntry[] {
+    return records.map(record => ({
+      id: record.id,
+      content: record.text,
+      created: new Date(record.timestamp),
+      type: (record.type as MemoryType) || 'message',
+      category: record.metadata.category || record.metadata.tag || record.type,
+      source: (record.metadata.source as MemorySource) || 'system',
+      importance: (record.metadata.importance as ImportanceLevel) || 'medium',
+      tags: record.metadata.tags || []
+    }));
   }
 
   /**
@@ -218,12 +296,12 @@ export class ChloeMemory {
       if (this.externalMemory) {
         try {
           // Create search options objects
-          const messageOptions = {
+          const messageOptions: MemorySearchOptions = {
             limit: Math.floor(limit / 2),
             filter
           };
           
-          const thoughtOptions = {
+          const thoughtOptions: MemorySearchOptions = {
             limit: Math.floor(limit / 2),
             filter
           };
@@ -232,142 +310,196 @@ export class ChloeMemory {
           const messageRecords = await this.externalMemory.searchMemory(
             'message',
             messageOptions
-          );
+          ) as ExternalMemoryRecord[];
           
           const thoughtRecords = await this.externalMemory.searchMemory(
             'thought',
             thoughtOptions
-          );
+          ) as ExternalMemoryRecord[];
           
           // Combine records
           const records = [...messageRecords, ...thoughtRecords];
           
           // Convert to memory entries
-          return records.map(record => ({
-            id: record.id,
-            content: record.text,
-            created: new Date(record.timestamp),
-            timestamp: record.timestamp,
-            type: record.type as any,
-            category: record.metadata.category || record.metadata.tag || record.type,
-            source: record.metadata.source || 'system',
-            importance: (record.metadata.importance || 'high') as 'low' | 'medium' | 'high',
-            tags: record.metadata.tags || []
-          }));
+          return this.convertRecordsToMemoryEntries(records);
         } catch (error) {
-          console.error(`Error retrieving high importance memories from external memory:`, error);
-          // Fall back to server-side implementation
+          console.error('Error searching external memory:', error);
+          return [];
         }
       }
-      
-      // Use server-side implementation
-      if (typeof window === 'undefined') {
-        try {
-          // Search for high importance memories across all memory types
-          const messageOptions = {
-            limit: Math.floor(limit / 2),
-            filter
-          };
-          
-          const messageRecords = await serverQdrant.searchMemory('message', '', messageOptions);
-          const thoughtRecords = await serverQdrant.searchMemory('thought', '', messageOptions);
-          
-          // Combine records
-          const records = [...messageRecords, ...thoughtRecords];
-          
-          // Convert to memory entries
-          return records.map(record => ({
-            id: record.id,
-            content: record.text,
-            created: new Date(record.timestamp),
-            timestamp: record.timestamp,
-            type: record.type,
-            category: record.metadata.category || record.metadata.tag || record.type,
-            source: record.metadata.source || 'system',
-            importance: (record.metadata.importance || 'high') as 'low' | 'medium' | 'high',
-            tags: record.metadata.tags || []
-          }));
-        } catch (error) {
-          console.error(`Error retrieving high importance memories from server:`, error);
-        }
-      }
-      
-      // If we reach here, we have no available memory sources
+
+      // No records found if we don't have external memory
       return [];
     } catch (error) {
-      console.error('Error retrieving high importance memories:', error);
+      console.error('Error getting high importance memories:', error);
       return [];
     }
   }
 
   /**
-   * Get relevant memories for a query, using server-side Qdrant
+   * Get memories related to a query
    */
-  async getRelevantMemories(query: string, limit: number = 5): Promise<string[]> {
-    if (!this.initialized) {
-      await this.initialize();
-    }
-    
-    // Use server-side Qdrant for semantic retrieval
-    if (typeof window === 'undefined') {
-      try {
-        const results = await serverQdrant.searchMemory(null, query, { limit });
-        
-        // If no results, try external memory if available
-        if (results.length === 0 && this.useExternalMemory && this.externalMemory) {
-          try {
-            const externalResults = await this.externalMemory.getContext(query);
-            if (externalResults && externalResults.length > 0) {
-              return externalResults;
-            }
-          } catch (error) {
-            console.error('Error retrieving context from external memory:', error);
-          }
-        }
-        
-        // Format the results as strings
-        if (results.length === 0) {
-          return ["No relevant memories found."];
-        }
-        
-        return results.map(result => {
-          const importance = result.metadata.importance;
-          const importanceMarker = importance === 'high' ? '[IMPORTANT] ' : '';
-          const category = result.metadata.category || result.metadata.tag || result.type;
-          return `${importanceMarker}${category}: ${result.text} (${new Date(result.timestamp).toISOString()})`;
-        });
-      } catch (error) {
-        console.error('Error searching memory:', error);
-        return ["Error accessing memory."];
+  async getRelevantMemories(query: string, limit: number = 5): Promise<MemoryEntry[]> {
+    try {
+      if (!this.initialized) {
+        await this.initialize();
       }
+      
+      // Use external memory if available
+      if (this.externalMemory && typeof this.externalMemory.searchSimilar === 'function') {
+        try {
+          // searchSimilar expects (query, limit) in this implementation
+          const records = await this.externalMemory.searchSimilar(
+            query,
+            limit
+          ) as ExternalMemoryRecord[];
+          
+          // Convert to memory entries
+          return this.convertRecordsToMemoryEntries(records);
+        } catch (error) {
+          console.error('Error searching similar memories:', error);
+          
+          // In case of error, try using server-side Qdrant directly
+          if (typeof window === 'undefined') {
+            // Pass limit as an array as expected by the API
+            const results = await serverQdrant.search(query, [limit]);
+            
+            return results.map(result => ({
+              id: `result_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+              content: result.text,
+              created: new Date(),
+              type: 'message',
+              category: 'search_result',
+              importance: 'medium',
+              source: 'system',
+              tags: ['search_result']
+            }));
+          }
+          
+          return [];
+        }
+      }
+      
+      // If external memory not available, try using server-side Qdrant directly
+      if (typeof window === 'undefined') {
+        // Pass limit as an array as expected by the API
+        const results = await serverQdrant.search(query, [limit]);
+        
+        return results.map(result => ({
+          id: `result_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+          content: result.text,
+          created: new Date(),
+          type: 'message',
+          category: 'search_result',
+          importance: 'medium',
+          source: 'system',
+          tags: ['search_result']
+        }));
+      }
+      
+      return [];
+    } catch (error) {
+      console.error('Error getting relevant memories:', error);
+      return [];
     }
-    
-    return ["Memory search unavailable in browser environment."];
   }
 
   /**
    * Get the total number of messages in memory
    */
   async getMessageCount(): Promise<number> {
-    if (!this.initialized) {
-      await this.initialize();
-    }
-
-    if (this.useExternalMemory && this.externalMemory) {
-      return this.externalMemory.getMessageCount();
-    }
-
-    // If using server-side Qdrant, get count from there
-    if (typeof window === 'undefined') {
-      try {
-        const count = await serverQdrant.getMessageCount();
-        return count;
-      } catch (error) {
-        console.error('Error getting message count from Qdrant:', error);
-        return 0;
+    try {
+      if (!this.initialized) {
+        await this.initialize();
       }
+      
+      // Use external memory if available
+      if (this.externalMemory && typeof this.externalMemory.getStats === 'function') {
+        try {
+          const stats = await this.externalMemory.getStats();
+          return stats.messageCount || 0;
+        } catch (error) {
+          console.error('Error getting stats from external memory:', error);
+          return 0;
+        }
+      }
+      
+      return 0;
+    } catch (error) {
+      console.error('Error getting message count:', error);
+      return 0;
     }
+  }
 
-    return 0;
+  /**
+   * Run a diagnostic check on the memory system
+   */
+  async diagnose(): Promise<{ status: string; messageCount: number }> {
+    try {
+      if (!this.initialized) {
+        await this.initialize();
+      }
+      
+      const messageCount = await this.getMessageCount();
+      
+      return {
+        status: this.initialized ? 'operational' : 'not_initialized',
+        messageCount
+      };
+    } catch (error) {
+      console.error('Error running memory diagnosis:', error);
+      return {
+        status: 'error',
+        messageCount: 0
+      };
+    }
+  }
+
+  /**
+   * Get recent strategic insights (specialized memory retrieval)
+   */
+  async getRecentStrategicInsights(limit: number = 5): Promise<{ insight: string; category: string }[]> {
+    try {
+      if (!this.initialized) {
+        await this.initialize();
+      }
+      
+      // Build filter for insights
+      const filter = {
+        type: 'insight'
+      };
+      
+      // Use external memory if available
+      if (this.externalMemory) {
+        try {
+          const searchOptions: MemorySearchOptions = {
+            limit,
+            filter,
+            sortBy: 'timestamp',
+            sortDirection: 'desc'
+          };
+          
+          // searchMemory expects (type, options) in this implementation
+          const records = await this.externalMemory.searchMemory(
+            'insight',
+            searchOptions
+          ) as ExternalMemoryRecord[];
+          
+          // Convert to simplified format
+          return records.map(record => ({
+            insight: record.text,
+            category: record.metadata.category || record.metadata.tag || 'insight'
+          }));
+        } catch (error) {
+          console.error('Error searching strategic insights:', error);
+          return [];
+        }
+      }
+      
+      return [];
+    } catch (error) {
+      console.error('Error getting strategic insights:', error);
+      return [];
+    }
   }
 } 

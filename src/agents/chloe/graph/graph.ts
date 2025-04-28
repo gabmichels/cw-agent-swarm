@@ -3,28 +3,55 @@
  * This version avoids direct dependencies on LangGraph/StateGraph that are causing issues
  */
 
-import { ChloeMemory } from '../memory';
+import { ChatOpenAI } from '@langchain/openai';
+import { ChloeMemory, ChloeMemoryType } from '../memory';
 import { TaskLogger } from '../task-logger';
 
-// Types for the graph state
+/**
+ * Interface for the graph state
+ */
 export interface GraphState {
   input: string;
-  plan: Array<{
-    task: string;
-    tool: string;
-    status: 'pending' | 'in_progress' | 'completed' | 'failed';
-  }>;
+  plan: GraphTask[];
   currentTaskIndex: number;
   toolOutputs: Record<string, string>;
   reflections: string[];
   messages: string[];
+  waitingForHuman: boolean;
   finalOutput?: string;
   error?: string;
   humanApproval?: boolean;
-  waitingForHuman?: boolean;
 }
 
-// Tool mapping
+/**
+ * Interface for a task in the graph
+ */
+export interface GraphTask {
+  id?: string;
+  task: string;
+  tool: string;
+  status: 'pending' | 'in_progress' | 'completed' | 'failed';
+  result?: string;
+}
+
+/**
+ * Interface for tool functions
+ */
+export type ToolFunction = (input: string) => Promise<string>;
+
+/**
+ * Interface for graph options
+ */
+export interface GraphOptions {
+  autonomyMode?: boolean;
+  requireApproval?: boolean;
+  maxSteps?: number;
+  timeLimit?: number;
+}
+
+/**
+ * Tool mapping
+ */
 export interface ToolMapping {
   [key: string]: (input: string) => Promise<string>;
 }
@@ -34,33 +61,43 @@ export interface ToolMapping {
  * This is a simplified version that doesn't rely on LangGraph
  */
 export class ChloeGraph {
-  private model: any;
+  private model: ChatOpenAI;
   private memory: ChloeMemory;
   private taskLogger: TaskLogger;
-  private tools: ToolMapping;
-  private autonomyMode: boolean = false;
-  private requireApproval: boolean = true;
-  private currentState: GraphState | null = null;
+  private toolFunctions: Record<string, ToolFunction>;
+  private autonomyMode: boolean;
+  private requireApproval: boolean;
+  private currentState: GraphState;
 
   constructor(
-    model: any,
+    model: ChatOpenAI,
     memory: ChloeMemory,
     taskLogger: TaskLogger,
-    tools: ToolMapping,
-    options?: {
-      autonomyMode?: boolean;
-      requireApproval?: boolean;
-    }
+    toolFunctions: Record<string, ToolFunction>,
+    options?: GraphOptions
   ) {
     this.model = model;
     this.memory = memory;
     this.taskLogger = taskLogger;
-    this.tools = tools;
-    
-    if (options) {
-      this.autonomyMode = options.autonomyMode ?? false;
-      this.requireApproval = options.requireApproval ?? true;
-    }
+    this.toolFunctions = toolFunctions;
+    this.autonomyMode = options?.autonomyMode ?? false;
+    this.requireApproval = options?.requireApproval ?? true;
+    this.currentState = this.createInitialState();
+  }
+
+  /**
+   * Create an initial state for the graph
+   */
+  private createInitialState(): GraphState {
+    return {
+      input: '',
+      plan: [],
+      currentTaskIndex: 0,
+      toolOutputs: {},
+      reflections: [],
+      messages: [],
+      waitingForHuman: false
+    };
   }
 
   /**
@@ -159,7 +196,7 @@ export class ChloeGraph {
     
     try {
       // Check if we have this tool
-      if (!this.tools[currentTask.tool]) {
+      if (!this.toolFunctions[currentTask.tool]) {
         const errorMsg = `Tool "${currentTask.tool}" not found`;
         console.error(errorMsg);
         currentTask.status = 'failed';
@@ -176,7 +213,7 @@ export class ChloeGraph {
       
       // Execute the tool
       console.log(`Executing tool "${currentTask.tool}" for task: ${currentTask.task}`);
-      const result = await this.tools[currentTask.tool](currentTask.task);
+      const result = await this.toolFunctions[currentTask.tool](currentTask.task);
       
       // Update task status
       currentTask.status = 'completed';
@@ -405,7 +442,7 @@ export class ChloeGraph {
       try {
         await this.memory.addMemory(
           summary,
-          'execution_summary',
+          'execution_result' as ChloeMemoryType,
           'high',
           'chloe',
           `Goal: ${input}`,
@@ -440,7 +477,8 @@ export class ChloeGraph {
         toolOutputs: {},
         reflections: [],
         messages: [`Error executing workflow: ${error instanceof Error ? error.message : String(error)}`],
-        error: error instanceof Error ? error.message : String(error)
+        error: error instanceof Error ? error.message : String(error),
+        waitingForHuman: false
       };
     }
   }

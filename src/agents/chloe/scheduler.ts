@@ -9,6 +9,7 @@ import {
   runTrendingTopicResearchTask, 
   runSocialMediaTrendsTask 
 } from './tasks/marketScanTask';
+import { ScheduledTask as AgentScheduledTask } from '../../lib/shared/types/agentTypes';
 
 // Types for scheduler
 export type TaskId = string;
@@ -490,10 +491,7 @@ export function setupDefaultSchedule(scheduler: ChloeScheduler): void {
 }
 
 // Main initialization for Chloe's autonomy system
-export function initializeAutonomy(agent: ChloeAgent): { 
-  scheduler: ChloeScheduler, 
-  tasks: ReturnType<typeof setupScheduler>
-} {
+export function initializeAutonomy(agent: ChloeAgent): import('../../lib/shared/types/agentTypes').AutonomySystem {
   const scheduler = new ChloeScheduler(agent);
   const tasks = setupScheduler(agent);
   
@@ -506,5 +504,162 @@ export function initializeAutonomy(agent: ChloeAgent): {
   
   console.log('Chloe autonomy system initialized');
   
-  return { scheduler, tasks };
+  // Helper function to convert between scheduler task format and agent task format
+  const mapToAgentTask = (task: ScheduledTask): AgentScheduledTask => ({
+    id: task.id,
+    name: task.id, // Use ID as name if not available
+    description: task.goalPrompt,
+    schedule: task.cronExpression,
+    goalPrompt: task.goalPrompt,
+    lastRun: task.lastRun,
+    enabled: task.enabled,
+    tags: task.tags
+  });
+  
+  // Return an object that implements AutonomySystem interface
+  return {
+    // Core properties
+    status: 'active',
+    scheduledTasks: scheduler.getScheduledTasks().map(mapToAgentTask),
+    
+    // Scheduler interface
+    scheduler: {
+      runTaskNow: async (taskId: string) => scheduler.runTaskNow(taskId),
+      getScheduledTasks: () => scheduler.getScheduledTasks().map(mapToAgentTask),
+      setTaskEnabled: (taskId: string, enabled: boolean) => scheduler.setTaskEnabled(taskId, enabled),
+      setAutonomyMode: (enabled: boolean) => scheduler.setAutonomyMode(enabled),
+      getAutonomyMode: () => scheduler.getAutonomyMode()
+    },
+    
+    // Core methods
+    initialize: async (): Promise<boolean> => {
+      try {
+        // We've already initialized in this function, so just return true
+        return true;
+      } catch (error) {
+        console.error('Failed to initialize autonomy system:', error);
+        return false;
+      }
+    },
+    
+    shutdown: async (): Promise<void> => {
+      try {
+        // Stop all tasks
+        tasks.stop();
+        scheduler.setAutonomyMode(false);
+      } catch (error) {
+        console.error('Error shutting down autonomy system:', error);
+      }
+    },
+    
+    // Task management
+    runTask: async (taskName: string): Promise<boolean> => {
+      try {
+        switch (taskName) {
+          case 'dailyTasks':
+            await agent.runDailyTasks();
+            break;
+          case 'weeklyReflection':
+            await agent.runWeeklyReflection();
+            break;
+          default:
+            // Try to find a scheduled task with this name or id
+            const tasks = scheduler.getScheduledTasks();
+            const task = tasks.find(t => t.id === taskName || t.goalPrompt.includes(taskName));
+            if (!task) {
+              throw new Error(`Unknown task: ${taskName}`);
+            }
+            return await scheduler.runTaskNow(task.id);
+        }
+        return true;
+      } catch (error) {
+        console.error(`Error running task ${taskName}:`, error);
+        return false;
+      }
+    },
+    
+    scheduleTask: async (task: AgentScheduledTask): Promise<boolean> => {
+      return scheduler.scheduleTask(
+        task.id,
+        task.schedule, // Cron pattern
+        task.goalPrompt || task.description,
+        task.tags || []
+      );
+    },
+    
+    cancelTask: async (taskId: string): Promise<boolean> => {
+      return scheduler.removeTask(taskId);
+    },
+    
+    // Planning and execution
+    planAndExecute: async (options): Promise<import('../../lib/shared/types/agentTypes').PlanAndExecuteResult> => {
+      try {
+        return await agent.planAndExecute(options.goalPrompt, options);
+      } catch (error) {
+        console.error('Error in planAndExecute:', error);
+        return {
+          success: false,
+          message: `Error executing plan: ${error instanceof Error ? error.message : String(error)}`,
+          error: error instanceof Error ? error.message : String(error)
+        };
+      }
+    },
+    
+    // Diagnostics
+    diagnose: async (): Promise<{
+      memory: { status: string; messageCount: number };
+      scheduler: { status: string; activeTasks: number };
+      planning: { status: string };
+    }> => {
+      try {
+        // Get scheduler status
+        const schedulerStatus = scheduler.getAutonomyMode() ? 'active' : 'inactive';
+        const activeTasks = scheduler.getScheduledTasks().filter(t => t.enabled).length;
+        
+        // Get memory status - default placeholder values
+        let memoryStatus = { status: 'unknown', messageCount: 0 };
+        
+        try {
+          // Try to get memory status from the agent
+          const memoryManager = agent['getMemoryManager'] ? agent.getMemoryManager() : null;
+          if (memoryManager && typeof memoryManager.diagnose === 'function') {
+            const memoryDiagnosis = await memoryManager.diagnose();
+            memoryStatus = {
+              status: memoryDiagnosis?.status || 'unknown',
+              messageCount: memoryDiagnosis?.messageCount || 0
+            };
+          }
+        } catch (memoryError) {
+          console.error('Error getting memory status:', memoryError);
+        }
+        
+        // Get planning status
+        let planningStatus = 'unknown';
+        try {
+          const planningManager = agent['getPlanningManager'] ? agent.getPlanningManager() : null;
+          planningStatus = (planningManager && planningManager.isInitialized()) ? 'operational' : 'not initialized';
+        } catch (planningError) {
+          console.error('Error getting planning status:', planningError);
+        }
+        
+        return {
+          memory: memoryStatus,
+          scheduler: {
+            status: schedulerStatus,
+            activeTasks
+          },
+          planning: {
+            status: planningStatus
+          }
+        };
+      } catch (error) {
+        console.error('Error diagnosing autonomy system:', error);
+        return {
+          memory: { status: 'error', messageCount: 0 },
+          scheduler: { status: 'error', activeTasks: 0 },
+          planning: { status: 'error' }
+        };
+      }
+    }
+  };
 } 

@@ -3,12 +3,13 @@ import { Message as ChloeMessage } from '../types/message';
 import { ChatOpenAI } from '@langchain/openai';
 import { AgentConfig } from '../../../lib/shared';
 import { SYSTEM_PROMPTS } from '../../../lib/shared';
-import { AutonomySystem } from '../../../lib/shared/types/agent';
+import { AutonomySystem, AutonomyDiagnosis } from '../../../lib/shared/types/agent';
 import { Notifier } from '../notifiers';
 import { TaskLogger } from './taskLogger';
 import { Persona } from '../persona';
 import { ChloeMemory } from '../memory';
-import { IAgent } from '../../../lib/shared/types/agentTypes';
+import { IAgent, ChloeMemoryOptions, MemoryEntry } from '../../../lib/shared/types/agentTypes';
+import { IManager } from '../../../lib/shared/types/manager'; // Assuming IManager exists
 
 // Import all the managers
 import { MemoryManager } from './memoryManager';
@@ -31,7 +32,6 @@ import {
 
 export interface ChloeAgentOptions {
   config?: Partial<AgentConfig>;
-  useOpenAI?: boolean;
 }
 
 /**
@@ -134,16 +134,14 @@ export class ChloeAgent implements IAgent {
       await this.taskLogger.initialize();
       
       // Create a new session for this initialization
-      this.taskLogger.createSession('Chloe Agent Session', ['agent-init']);
-      this.taskLogger.logAction('Agent initialized', {
+      this.taskLogger?.createSession('Chloe Agent Session', ['agent-init']);
+      this.taskLogger?.logAction('Agent initialized', {
         agentId: this.agentId,
         timestamp: new Date().toISOString()
       });
       
       // Initialize memory manager
-      this.memoryManager = new MemoryManager({
-        agentId: this.agentId
-      });
+      this.memoryManager = new MemoryManager({ agentId: this.agentId });
       await this.memoryManager.initialize();
       
       // Get the base memory for initializing other managers
@@ -156,7 +154,7 @@ export class ChloeAgent implements IAgent {
       this.toolManager = new ToolManager({
         logger: this.taskLogger,
         memory: chloeMemory,
-        model: this.model,
+        model: this.model!,
         agentId: this.agentId
       });
       await this.toolManager.initialize();
@@ -165,11 +163,10 @@ export class ChloeAgent implements IAgent {
       this.planningManager = new PlanningManager({
         agentId: this.agentId,
         memory: chloeMemory,
-        model: this.model,
+        model: this.model!,
         taskLogger: this.taskLogger,
-        notifyFunction: (message: string) => {
+        notifyFunction: async (message: string): Promise<void> => {
           this.notify(message);
-          return Promise.resolve();
         }
       });
       await this.planningManager.initialize();
@@ -178,11 +175,10 @@ export class ChloeAgent implements IAgent {
       this.reflectionManager = new ReflectionManager({
         agentId: this.agentId,
         memory: chloeMemory,
-        model: this.model,
+        model: this.model!,
         logger: this.taskLogger,
-        notifyFunction: (message: string) => {
+        notifyFunction: async (message: string): Promise<void> => {
           this.notify(message);
-          return Promise.resolve();
         }
       });
       await this.reflectionManager.initialize();
@@ -191,7 +187,7 @@ export class ChloeAgent implements IAgent {
       this.thoughtManager = new ThoughtManager({
         agentId: this.agentId,
         memory: chloeMemory,
-        model: this.model,
+        model: this.model!,
         logger: this.taskLogger
       });
       await this.thoughtManager.initialize();
@@ -200,11 +196,10 @@ export class ChloeAgent implements IAgent {
       this.marketScannerManager = new MarketScannerManager({
         agentId: this.agentId,
         memory: chloeMemory,
-        model: this.model,
+        model: this.model!,
         logger: this.taskLogger,
-        notifyFunction: (message: string) => {
+        notifyFunction: async (message: string): Promise<void> => {
           this.notify(message);
-          return Promise.resolve();
         }
       });
       await this.marketScannerManager.initialize();
@@ -213,11 +208,10 @@ export class ChloeAgent implements IAgent {
       this.knowledgeGapsManager = new KnowledgeGapsManager({
         agentId: this.agentId,
         memory: chloeMemory,
-        model: this.model,
+        model: this.model!,
         logger: this.taskLogger,
-        notifyFunction: async (message) => {
+        notifyFunction: async (message: string): Promise<void> => {
           this.notify(message);
-          return Promise.resolve();
         }
       });
       await this.knowledgeGapsManager.initialize();
@@ -239,28 +233,33 @@ export class ChloeAgent implements IAgent {
         await this.initialize();
       }
       
-      if (!this.thoughtManager || !this.memoryManager || !this.taskLogger) {
+      // Use getters which throw if manager is null
+      const thoughtManager = this.getThoughtManager();
+      const memoryManager = this.getMemoryManager();
+      const taskLogger = this.taskLogger;
+      
+      if (!thoughtManager || !memoryManager || !taskLogger) {
         throw new Error('Required managers not initialized');
       }
       
       // Log the received message
-      this.taskLogger.logAction('Received message', {
+      taskLogger.logAction('Received message', {
         message: message.substring(0, 100) + (message.length > 100 ? '...' : ''),
         userId: options.userId,
         hasAttachments: !!options.attachments
       });
       
       // Log the thought process
-      this.thoughtManager.logThought(`Processing message: ${message.substring(0, 100)}...`);
+      thoughtManager.logThought(`Processing message: ${message.substring(0, 100)}...`);
       
       // First, try to process with intent router
       if (this.toolManager) {
         try {
-          // Passing an empty object as params for now
+          // TODO: Define proper params type for processIntent
           const intentResult = await this.toolManager.processIntent(message, {});
           if (intentResult.success && intentResult.response) {
             // Store the user message in memory
-            await this.memoryManager.addMemory(
+            await this.getMemoryManager().addMemory(
               message,
               'message',
               'medium',
@@ -269,7 +268,7 @@ export class ChloeAgent implements IAgent {
             );
             
             // Store the response in memory
-            await this.memoryManager.addMemory(
+            await this.getMemoryManager().addMemory(
               intentResult.response,
               'message',
               'medium',
@@ -290,15 +289,29 @@ export class ChloeAgent implements IAgent {
       }
       
       // Get relevant memory context
-      const memoryContext = await this.memoryManager.getRelevantMemories(message, 5);
-      
+      const rawMemoryContext = await this.getMemoryManager().getRelevantMemories(message, 5);
+      const memoryContextString = Array.isArray(rawMemoryContext)
+        ? rawMemoryContext.map((entry: string | MemoryEntry) => {
+            if (typeof entry === 'string') {
+              return `- ${entry}`;
+            } else if (typeof entry === 'object' && entry && 'content' in entry) {
+              // Assuming MemoryEntry structure
+              return `- ${entry.content} (Type: ${entry.type}, Importance: ${entry.importance})`;
+            } else {
+              return '- Invalid memory entry format';
+            }
+          }).join('\n')
+        : 'No relevant memory context found.';
+
       // Create a context-aware prompt
-      const contextPrompt = `You are Chloe, a Chief Marketing Officer AI. 
+      const contextPrompt = `You are Chloe, a Chief Marketing Officer AI.
 
 ${this.config.systemPrompt}
 
-Here's relevant context from your memory that might help with this request:
-${memoryContext.join('\n')}
+Here\'s relevant context from your memory that might help with this request:
+---
+${memoryContextString}
+---
 
 User message: ${message}`;
       
@@ -307,7 +320,7 @@ User message: ${message}`;
       const responseText = response.content.toString();
       
       // Store the user message in memory
-      await this.memoryManager.addMemory(
+      await this.getMemoryManager().addMemory(
         message,
         'message',
         'medium',
@@ -316,7 +329,7 @@ User message: ${message}`;
       );
       
       // Store the response in memory
-      await this.memoryManager.addMemory(
+      await this.getMemoryManager().addMemory(
         responseText,
         'message',
         'medium',
@@ -340,27 +353,34 @@ User message: ${message}`;
         await this.initialize();
       }
       
-      if (!this.memoryManager || !this.planningManager || !this.marketScannerManager || !this.reflectionManager || !this.taskLogger) {
+      // Use getters
+      const memoryManager = this.getMemoryManager();
+      const planningManager = this.getPlanningManager();
+      const marketScannerManager = this.getMarketScannerManager();
+      const reflectionManager = this.getReflectionManager();
+      const taskLogger = this.taskLogger;
+      
+      if (!memoryManager || !planningManager || !marketScannerManager || !reflectionManager || !taskLogger) {
         throw new Error('Required managers not initialized');
       }
       
-      this.taskLogger.logAction('Starting daily tasks', {
+      taskLogger.logAction('Starting daily tasks', {
         timestamp: new Date().toISOString()
       });
       
       // First run a market scan to gather fresh data
-      await this.marketScannerManager.summarizeTrends();
+      await this.getMarketScannerManager().summarizeTrends();
       
       // Run the daily tasks
-      await this.planningManager.runDailyTasks();
+      await this.getPlanningManager().runDailyTasks();
       
       // Run a daily performance review
-      await this.reflectionManager.runPerformanceReview('daily');
+      await this.getReflectionManager().runPerformanceReview('daily');
       
       // Send a daily summary to Discord
       await this.sendDailySummaryToDiscord();
       
-      this.taskLogger.logAction('Daily tasks completed', {
+      taskLogger.logAction('Daily tasks completed', {
         timestamp: new Date().toISOString()
       });
     } catch (error) {
@@ -381,12 +401,15 @@ User message: ${message}`;
         await this.initialize();
       }
       
-      if (!this.reflectionManager) {
+      // Use getter
+      const reflectionManager = this.getReflectionManager();
+      
+      if (!reflectionManager) {
         throw new Error('Reflection manager not initialized');
       }
       
       // Run the weekly reflection
-      const reflection = await this.reflectionManager.runWeeklyReflection();
+      const reflection = await this.getReflectionManager().runWeeklyReflection();
       
       // Notify about the reflection
       this.notify('Weekly reflection completed.');
@@ -407,12 +430,15 @@ User message: ${message}`;
         await this.initialize();
       }
       
-      if (!this.reflectionManager) {
+      // Use getter
+      const reflectionManager = this.getReflectionManager();
+      
+      if (!reflectionManager) {
         throw new Error('Reflection manager not initialized');
       }
       
       // Run the reflection
-      return await this.reflectionManager.reflect(question);
+      return await this.getReflectionManager().reflect(question);
     } catch (error) {
       console.error('Error during reflection:', error);
       return `Error during reflection: ${error}`;
@@ -428,7 +454,12 @@ User message: ${message}`;
         await this.initialize();
       }
       
-      if (!this.toolManager || !this.memoryManager || !this.reflectionManager) {
+      // Use getters
+      const toolManager = this.getToolManager();
+      const memoryManager = this.getMemoryManager();
+      const reflectionManager = this.getReflectionManager();
+      
+      if (!toolManager || !memoryManager || !reflectionManager) {
         throw new Error('Required managers not initialized');
       }
       
@@ -436,14 +467,18 @@ User message: ${message}`;
       const oneDayAgo = new Date();
       oneDayAgo.setDate(oneDayAgo.getDate() - 1);
       
-      const memories = await this.memoryManager.getChloeMemory()?.getMemoriesByDateRange(
+      const chloeMemory = this.getMemoryManager().getChloeMemory();
+      if (!chloeMemory) {
+        throw new Error('ChloeMemory not available');
+      }
+      const memories = await chloeMemory.getMemoriesByDateRange(
         'message',
         oneDayAgo,
         new Date()
       );
       
       // Get recent strategic insights
-      const strategicInsights = await this.memoryManager.getRecentStrategicInsights(3);
+      const strategicInsights = await memoryManager.getRecentStrategicInsights(3);
       
       // Format the strategic insights
       const insightsText = strategicInsights.length > 0
@@ -452,12 +487,22 @@ User message: ${message}`;
         : 'No recent strategic insights found.';
       
       // Format the daily summary
-      const dailySummary = `Daily Summary\n\n${memories ? memories.map(memory => 
-        `• ${memory.content} [${memory.category}]`).join('\n') : 'No activities recorded.'}\n\n${insightsText}`;
+      const dailySummary = `Daily Summary\\n\\n${memories ? memories.map((memory: MemoryEntry) => 
+        `• ${memory.content} [Type: ${memory.type}]`).join('\\n') : 'No activities recorded.'}\\n\\n${insightsText}`;
       
+      // Ensure toolManager is available before using it (added getter usage earlier)
+      const notifyTool = await toolManager?.getTool('notify_discord');
+
       // Send the daily summary to Discord
-      await this.notify(dailySummary);
-      
+      if (notifyTool && 'execute' in notifyTool && typeof notifyTool.execute === 'function') {
+        await notifyTool.execute({ message: dailySummary });
+      } else {
+        // Fallback or log warning if notify tool is not available/executable
+        console.warn('notify_discord tool not available or cannot be executed.');
+        // Optionally use the direct notify method as a fallback
+        // this.notify(dailySummary);
+      }
+
       return true;
     } catch (error) {
       console.error('Error sending daily summary to Discord:', error);
@@ -542,49 +587,86 @@ User message: ${message}`;
   /**
    * Get the memory manager
    */
-  getMemoryManager(): MemoryManager | null {
+  getMemoryManager(): MemoryManager {
+    if (!this.memoryManager) throw new Error("MemoryManager not initialized");
     return this.memoryManager;
   }
   
   /**
    * Get the tool manager
    */
-  getToolManager(): ToolManager | null {
+  getToolManager(): ToolManager {
+    if (!this.toolManager) throw new Error("ToolManager not initialized");
     return this.toolManager;
   }
   
   /**
    * Get the planning manager
    */
-  getPlanningManager(): PlanningManager | null {
+  getPlanningManager(): PlanningManager {
+    if (!this.planningManager) throw new Error("PlanningManager not initialized");
     return this.planningManager;
   }
   
   /**
    * Get the reflection manager
    */
-  getReflectionManager(): ReflectionManager | null {
+  getReflectionManager(): ReflectionManager {
+    if (!this.reflectionManager) throw new Error("ReflectionManager not initialized");
     return this.reflectionManager;
   }
   
   /**
    * Get the knowledge gaps manager
    */
-  getKnowledgeGapsManager(): KnowledgeGapsManager | null {
+  getKnowledgeGapsManager(): KnowledgeGapsManager {
+    if (!this.knowledgeGapsManager) throw new Error("KnowledgeGapsManager not initialized");
     return this.knowledgeGapsManager;
+  }
+  
+  /**
+   * Get the thought manager
+   */
+  getThoughtManager(): ThoughtManager {
+    if (!this.thoughtManager) throw new Error("ThoughtManager not initialized");
+    return this.thoughtManager;
+  }
+  
+  /**
+   * Get the market scanner manager
+   */
+  getMarketScannerManager(): MarketScannerManager {
+    if (!this.marketScannerManager) throw new Error("MarketScannerManager not initialized");
+    return this.marketScannerManager;
+  }
+  
+  /**
+   * Get the Chloe memory instance
+   */
+  getChloeMemory(): ChloeMemory | null {
+    return this.memoryManager ? this.memoryManager.getChloeMemory() : null;
+  }
+
+  /**
+   * Get the model instance
+   */
+  getModel(): ChatOpenAI | null {
+    return this.model;
+  }
+
+  /**
+   * Get the task logger instance
+   */
+  getTaskLogger(): TaskLogger | null {
+    return this.taskLogger || null;
   }
   
   /**
    * Plan and execute a task
    */
   async planAndExecute(goal: string, options?: PlanAndExecuteOptions): Promise<PlanAndExecuteResult> {
-    if (!this.planningManager) {
-      return {
-        success: false,
-        message: "Planning manager not available",
-        error: "Planning manager not available"
-      };
-    }
+    // Use getter which throws if not initialized
+    const planningManager = this.getPlanningManager();
     
     try {
       // Default values for options
@@ -601,7 +683,7 @@ User message: ${message}`;
         ...options
       };
       
-      return await this.planningManager.planAndExecuteWithOptions(mergedOptions);
+      return await planningManager.planAndExecuteWithOptions(mergedOptions);
     } catch (error) {
       console.error('Error in planAndExecute:', error);
       return {
@@ -616,6 +698,9 @@ User message: ${message}`;
    * Get the autonomy system
    */
   async getAutonomySystem(): Promise<AutonomySystem | null> {
+    if (!this.initialized) {
+      await this.initialize();
+    }
     if (!this.autonomySystem) {
       // Create a new autonomy system instance
       this.autonomySystem = {
@@ -636,7 +721,7 @@ User message: ${message}`;
             }
           },
           getScheduledTasks: () => this.scheduledTasks,
-          setTaskEnabled: (taskId: string, enabled: boolean) => {
+          setTaskEnabled: (taskId: string, enabled: boolean): boolean => {
             const task = this.scheduledTasks.find(t => t.id === taskId);
             if (!task) {
               return false;
@@ -652,9 +737,9 @@ User message: ${message}`;
               this.stopAutonomousTasks();
             }
           },
-          getAutonomyMode: () => this.autonomyMode
+          getAutonomyMode: (): boolean => this.autonomyMode
         },
-        initialize: async () => {
+        initialize: async (): Promise<boolean> => {
           try {
             await this.initialize();
             return true;
@@ -670,7 +755,7 @@ User message: ${message}`;
             console.error('Error during autonomy system shutdown:', error);
           }
         },
-        runTask: async (taskName: string) => {
+        runTask: async (taskName: string): Promise<boolean> => {
           try {
             switch (taskName) {
               case 'dailyTasks':
@@ -680,10 +765,10 @@ User message: ${message}`;
                 await this.runWeeklyReflection();
                 break;
               case 'marketScan':
-                await this.marketScannerManager?.scanMarket();
+                await this.getMarketScannerManager().scanMarket();
                 break;
               case 'knowledgeGaps':
-                await this.knowledgeGapsManager?.analyzeGaps();
+                await this.getKnowledgeGapsManager().analyzeGaps();
                 break;
               default:
                 throw new Error(`Unknown task: ${taskName}`);
@@ -694,7 +779,7 @@ User message: ${message}`;
             return false;
           }
         },
-        scheduleTask: async (task: ScheduledTask) => {
+        scheduleTask: async (task: ScheduledTask): Promise<boolean> => {
           try {
             this.scheduledTasks.push(task);
             if (task.enabled) {
@@ -706,7 +791,7 @@ User message: ${message}`;
             return false;
           }
         },
-        cancelTask: async (taskId: string) => {
+        cancelTask: async (taskId: string): Promise<boolean> => {
           try {
             const taskIndex = this.scheduledTasks.findIndex(t => t.id === taskId);
             if (taskIndex === -1) {
@@ -733,9 +818,11 @@ User message: ${message}`;
             };
           }
         },
-        diagnose: async () => {
+        diagnose: async (): Promise<AutonomyDiagnosis> => {
           try {
-            const memoryStatus = await this.memoryManager?.diagnose();
+            const memoryManager = this.getMemoryManager();
+            const memoryStatus = await memoryManager.diagnose();
+            const planningManager = this.planningManager;
             const activeTasks = this.scheduledTasks.filter(t => t.enabled).length;
             
             return {
@@ -748,7 +835,7 @@ User message: ${message}`;
                 activeTasks
               },
               planning: {
-                status: this.planningManager?.isInitialized() ? 'operational' : 'not initialized'
+                status: (planningManager && planningManager.isInitialized()) ? 'operational' : 'not initialized'
               }
             };
           } catch (error) {
@@ -826,7 +913,7 @@ User message: ${message}`;
   }
 
   /**
-   * Run a task by name
+   * Run a task by name (throws if task unknown)
    */
   private async runTask(taskName: string): Promise<void> {
     switch (taskName) {
@@ -837,10 +924,10 @@ User message: ${message}`;
         await this.runWeeklyReflection();
         break;
       case 'marketScan':
-        await this.marketScannerManager?.scanMarket();
+        await this.getMarketScannerManager().scanMarket();
         break;
       case 'knowledgeGaps':
-        await this.knowledgeGapsManager?.analyzeGaps();
+        await this.getKnowledgeGapsManager().analyzeGaps();
         break;
       default:
         throw new Error(`Unknown task: ${taskName}`);
@@ -885,7 +972,7 @@ User message: ${message}`;
   }
 
   /**
-   * Initialize state node handler
+   * Initialize state node handler (LangGraph Node)
    */
   private async initializeState(state: ChloeState): Promise<ChloeState> {
     try {
@@ -913,18 +1000,19 @@ User message: ${message}`;
   }
 
   /**
-   * Process state node handler
+   * Process state node handler (LangGraph Node)
    */
   private async processState(state: ChloeState): Promise<ChloeState> {
     try {
       // Get relevant context from memory
-      const context = await this.memoryManager?.getRelevantMemories(
+      const memoryManager = this.getMemoryManager();
+      const context = await memoryManager.getRelevantMemories(
         state.messages[state.messages.length - 1]?.content || '',
         5
       ) || [];
 
       // Convert string memories to Memory objects
-      const memoryContext: Memory[] = context.map(content => {
+      const memoryContext: Memory[] = context.map((content: any) => {
         if (typeof content === 'string') {
           return {
             id: `memory_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
@@ -937,7 +1025,7 @@ User message: ${message}`;
             accessCount: 1
           };
         }
-        return content;
+        return content as Memory;
       });
 
       const newState: ChloeState = {
@@ -958,13 +1046,11 @@ User message: ${message}`;
   }
 
   /**
-   * Plan state node handler
+   * Plan state node handler (LangGraph Node)
    */
   private async planState(state: ChloeState): Promise<ChloeState> {
     try {
-      if (!this.planningManager) {
-        throw new Error('Planning manager not initialized');
-      }
+      const planningManager = this.getPlanningManager(); // Use getter
 
       const lastMessage = state.messages[state.messages.length - 1];
       if (!lastMessage) {
@@ -974,7 +1060,7 @@ User message: ${message}`;
       // Create checkpoint before planning
       await this.stateManager.createCheckpoint(state, { type: 'pre_planning' });
 
-      const planResult = await this.planningManager.planAndExecuteWithOptions({
+      const planResult = await planningManager.planAndExecuteWithOptions({
         goalPrompt: lastMessage.content,
         autonomyMode: this.autonomyMode
       });
@@ -1017,7 +1103,7 @@ User message: ${message}`;
   }
 
   /**
-   * Execute state node handler
+   * Execute state node handler (LangGraph Node)
    */
   private async executeState(state: ChloeState): Promise<ChloeState> {
     try {
@@ -1064,18 +1150,16 @@ User message: ${message}`;
   }
 
   /**
-   * Reflect state node handler
+   * Reflect state node handler (LangGraph Node)
    */
   private async reflectState(state: ChloeState): Promise<ChloeState> {
     try {
-      if (!this.reflectionManager) {
-        throw new Error('Reflection manager not initialized');
-      }
+      const reflectionManager = this.getReflectionManager(); // Use getter
 
       // Create checkpoint before reflection
       await this.stateManager.createCheckpoint(state, { type: 'pre_reflection' });
 
-      const reflectionContent = await this.reflectionManager.reflect(
+      const reflectionContent = await reflectionManager.reflect(
         `Review the execution of task: ${state.currentTask?.description}`
       );
 
@@ -1114,27 +1198,29 @@ User message: ${message}`;
   }
 
   /**
-   * Recovery state node handler
+   * Recovery state node handler (LangGraph Node)
    */
   private async recoverState(state: ChloeState): Promise<ChloeState> {
     try {
       // Log the error
-      this.taskLogger?.logAction('Error recovery triggered', {
-        error: state.error,
-        currentTask: state.currentTask,
-        lastMessage: state.messages[state.messages.length - 1]
-      });
+      if (this.taskLogger) {
+        this.taskLogger.logAction('Error recovery triggered', {
+          error: state.error,
+          currentTask: state.currentTask,
+          lastMessage: state.messages[state.messages.length - 1]
+        });
+      }
 
       // Try to find the last successful checkpoint
       const checkpoints = this.stateManager.getCheckpoints();
       const lastSuccessfulCheckpoint = checkpoints.find(cp => 
-        cp.metadata?.type && ['post_planning', 'post_execution', 'post_reflection'].includes(cp.metadata.type)
+        cp.metadata?.type && ['post_planning', 'post_execution', 'post_reflection'].includes(String(cp.metadata.type))
       );
 
       if (lastSuccessfulCheckpoint) {
         // Rollback to the last successful state
         await this.stateManager.rollback(lastSuccessfulCheckpoint.id);
-        return lastSuccessfulCheckpoint.state;
+        return lastSuccessfulCheckpoint.state as ChloeState;
       }
 
       // If no successful checkpoint found, clear the error and current task
@@ -1146,7 +1232,9 @@ User message: ${message}`;
       };
     } catch (error) {
       // If recovery itself fails, we're in trouble
-      this.taskLogger?.logAction('Recovery failed', { error });
+      if (this.taskLogger) {
+        this.taskLogger.logAction('Recovery failed', { error });
+      }
       return {
         ...state,
         error: 'Critical error: Recovery failed'
@@ -1187,7 +1275,7 @@ User message: ${message}`;
       }
 
       // Execute the task with enhanced circuit breaker pattern
-      let result;
+      let result: PlanAndExecuteResult; // Explicit type
       if (this.safeguards) {
         result = await this.safeguards.executeWithCircuitBreaker(
           'task_execution',
@@ -1227,10 +1315,12 @@ User message: ${message}`;
         message: result.message
       };
     } catch (error) {
-      this.taskLogger?.logAction('Task execution error', {
-        taskId: task.id,
-        error: error instanceof Error ? error.message : String(error)
-      });
+      if (this.taskLogger) {
+        this.taskLogger.logAction('Task execution error', {
+          taskId: task.id,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
       
       return {
         success: false,
