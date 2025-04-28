@@ -5,17 +5,61 @@ import { ChatOpenAI } from '@langchain/openai';
 import { StateGraph } from '@langchain/langgraph';
 import { TaskLogger } from '../../../agents/chloe/task-logger';
 import { ChloeMemory } from '../../../agents/chloe/memory';
+import { MemoryManager } from '../../../agents/chloe/core/memoryManager';
+import { ToolManager } from '../../../agents/chloe/core/toolManager';
+import { PlanningManager } from '../../../agents/chloe/core/planningManager';
+import { ReflectionManager } from '../../../agents/chloe/core/reflectionManager';
+import { Notifier } from '../../../agents/chloe/notifiers';
+import { KnowledgeGapsManager } from '@/agents/chloe/core/knowledgeGapsManager';
 
 // ============= CORE INTERFACES =============
 
 /**
- * Base interface for all agent implementations
+ * Core agent interface that all agent implementations must follow
  */
 export interface IAgent {
+  // Core properties
+  readonly agentId: string;
+  readonly initialized: boolean;
+  
+  // Core methods
   initialize(): Promise<void>;
-  processMessage(message: string, options: MessageOptions): Promise<string>;
   shutdown(): Promise<void>;
   isInitialized(): boolean;
+  
+  // Message processing
+  processMessage(message: string, options?: MessageOptions): Promise<string>;
+  
+  // Memory management
+  getMemoryManager(): MemoryManager | null;
+  
+  // Tool management
+  getToolManager(): ToolManager | null;
+  
+  // Planning and execution
+  getPlanningManager(): PlanningManager | null;
+  planAndExecute(goal: string, options?: PlanAndExecuteOptions): Promise<PlanAndExecuteResult>;
+  
+  // Reflection and learning
+  getReflectionManager(): ReflectionManager | null;
+  reflect(prompt: string): Promise<string>;
+  
+  // Autonomy
+  getAutonomySystem(): Promise<AutonomySystem | null>;
+  runDailyTasks(): Promise<void>;
+  runWeeklyReflection(): Promise<string>;
+  
+  // Notifications
+  getNotifiers(): Notifier[];
+  addNotifier(notifier: Notifier): void;
+  removeNotifier(notifierId: string): void;
+  notify(message: string): void;
+
+  // Memory consolidation
+  summarizeConversation(options?: { maxEntries?: number; maxLength?: number }): Promise<string | null>;
+
+  // Knowledge gaps
+  getKnowledgeGapsManager(): KnowledgeGapsManager | null;
 }
 
 /**
@@ -314,20 +358,40 @@ export interface ScheduledTask {
 }
 
 /**
- * Autonomy system interface
+ * Enhanced autonomy system interface
  */
 export interface AutonomySystem {
+  // Core properties
   status: 'active' | 'inactive';
   scheduledTasks: ScheduledTask[];
-  scheduler?: {
+  
+  // Scheduler interface
+  scheduler: {
     runTaskNow: (taskId: string) => Promise<boolean>;
     getScheduledTasks: () => ScheduledTask[];
     setTaskEnabled: (taskId: string, enabled: boolean) => boolean;
+    setAutonomyMode: (enabled: boolean) => void;
+    getAutonomyMode: () => boolean;
   };
-  planAndExecute(options: PlanAndExecuteOptions): Promise<PlanAndExecuteResult>;
+  
+  // Core methods
+  initialize(): Promise<boolean>;
+  shutdown(): Promise<void>;
+  
+  // Task management
   runTask(taskName: string): Promise<boolean>;
   scheduleTask(task: ScheduledTask): Promise<boolean>;
-  initialize(): Promise<boolean>;
+  cancelTask(taskId: string): Promise<boolean>;
+  
+  // Planning and execution
+  planAndExecute(options: PlanAndExecuteOptions): Promise<PlanAndExecuteResult>;
+  
+  // Diagnostics
+  diagnose(): Promise<{
+    memory: { status: string; messageCount: number };
+    scheduler: { status: string; activeTasks: number };
+    planning: { status: string };
+  }>;
 }
 
 // ============= AGENT STATE =============

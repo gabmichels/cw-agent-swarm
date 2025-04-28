@@ -1,6 +1,7 @@
 import { ChatOpenAI } from '@langchain/openai';
 import { type StateGraph } from '@langchain/langgraph';
 import { type Message, type Task } from '../types';
+import { PlanAndExecuteOptions, PlanAndExecuteResult } from './agentTypes';
 
 /**
  * Agent configuration with all required properties
@@ -82,17 +83,37 @@ export interface CognitiveFunctions {
  * Types for the autonomy system
  */
 export interface AutonomySystem {
+  // Core properties
   status: 'active' | 'inactive';
   scheduledTasks: ScheduledTask[];
-  scheduler?: {
+  
+  // Scheduler interface
+  scheduler: {
     runTaskNow: (taskId: string) => Promise<boolean>;
     getScheduledTasks: () => ScheduledTask[];
     setTaskEnabled: (taskId: string, enabled: boolean) => boolean;
+    setAutonomyMode: (enabled: boolean) => void;
+    getAutonomyMode: () => boolean;
   };
-  planAndExecute?: (options: any) => Promise<any>;
+  
+  // Core methods
+  initialize(): Promise<boolean>;
+  shutdown(): Promise<void>;
+  
+  // Task management
   runTask(taskName: string): Promise<boolean>;
   scheduleTask(task: ScheduledTask): Promise<boolean>;
-  initialize(): Promise<boolean>;
+  cancelTask(taskId: string): Promise<boolean>;
+  
+  // Planning and execution
+  planAndExecute(options: PlanAndExecuteOptions): Promise<PlanAndExecuteResult>;
+  
+  // Diagnostics
+  diagnose(): Promise<{
+    memory: { status: string; messageCount: number };
+    scheduler: { status: string; activeTasks: number };
+    planning: { status: string };
+  }>;
 }
 
 export interface ScheduledTask {

@@ -7,6 +7,7 @@ import { Notifier } from '../notifiers';
 import { TaskLogger } from '../task-logger';
 import { Persona } from '../persona';
 import { ChloeMemory } from '../memory';
+import { IAgent } from '../../../lib/shared/types/agentTypes';
 
 // Import all the managers
 import { MemoryManager } from './memoryManager';
@@ -33,10 +34,17 @@ export interface ChloeAgentOptions {
 /**
  * ChloeAgent class implements a marketing assistant agent using a modular architecture
  */
-export class ChloeAgent {
+export class ChloeAgent implements IAgent {
+  // Core properties
+  readonly agentId: string = 'chloe';
+  private _initialized: boolean = false;
+  
+  get initialized(): boolean {
+    return this._initialized;
+  }
+  
   private agent: StateGraph<ChloeState> | null = null;
   private config: AgentConfig;
-  private initialized: boolean = false;
   private notifiers: Notifier[] = [];
   
   // Core systems
@@ -202,7 +210,7 @@ export class ChloeAgent {
       });
       await this.knowledgeGapsManager.initialize();
       
-      this.initialized = true;
+      this._initialized = true;
       console.log('ChloeAgent initialization complete.');
     } catch (error) {
       console.error('Error initializing ChloeAgent:', error);
@@ -429,36 +437,27 @@ User message: ${message}`;
       const insightsText = strategicInsights.length > 0
         ? `\n\nRecent Strategic Insights:\n${strategicInsights.map(insight => 
             `• ${insight.insight} [${insight.category}]`).join('\n')}`
-        : '\n\nNo recent strategic insights.';
+        : 'No recent strategic insights found.';
       
-      // Get a daily review
-      const reviewResponse = await this.reflectionManager.runPerformanceReview('daily');
-      const reviewText = reviewResponse.fullText || 'No daily review available.';
+      // Format the daily summary
+      const dailySummary = `Daily Summary\n\n${memories ? memories.map(memory => 
+        `• ${memory.content} [${memory.category}]`).join('\n') : 'No activities recorded.'}\n\n${insightsText}`;
       
-      // Create the message
-      const message = `# Chloe CMO - Daily Summary (${new Date().toLocaleDateString()})
-
-## Daily Review
-${reviewText.substring(0, 500)}${reviewText.length > 500 ? '...' : ''}
-
-${insightsText}
-
----
-*This is an automated daily summary from Chloe, your AI Chief Marketing Officer.*`;
+      // Send the daily summary to Discord
+      await this.notify(dailySummary);
       
-      // Send to Discord using the notify_discord tool
-      const discordTool = await this.toolManager.getTool('notify_discord');
-      if (discordTool) {
-        await discordTool.execute({ message });
-        return true;
-      } else {
-        console.warn('Discord notification tool not available');
-        return false;
-      }
+      return true;
     } catch (error) {
       console.error('Error sending daily summary to Discord:', error);
       return false;
     }
+  }
+  
+  /**
+   * Get all registered notifiers
+   */
+  getNotifiers(): Notifier[] {
+    return this.notifiers;
   }
   
   /**
@@ -467,6 +466,14 @@ ${insightsText}
   addNotifier(notifier: Notifier): void {
     this.notifiers.push(notifier);
     console.log(`Added notifier: ${notifier.name}`);
+  }
+  
+  /**
+   * Remove a notifier by name
+   */
+  removeNotifier(notifierName: string): void {
+    this.notifiers = this.notifiers.filter(n => n.name !== notifierName);
+    console.log(`Removed notifier: ${notifierName}`);
   }
   
   /**
@@ -513,115 +520,52 @@ ${insightsText}
     }
   }
   
-  // Getters for accessing components
-  
-  getChloeMemory(): ChloeMemory | null {
-    return this.memoryManager?.getChloeMemory() || null;
-  }
-  
-  getPersona(): Persona | null {
-    return this.persona;
-  }
-  
-  getTaskLogger(): TaskLogger | null {
-    return this.taskLogger;
-  }
-  
-  getModel(): ChatOpenAI | null {
-    return this.model;
-  }
-  
+  /**
+   * Check if the agent is initialized
+   */
   isInitialized(): boolean {
-    return this.initialized;
+    return this._initialized;
   }
   
-  // Getters for all managers
-  
+  /**
+   * Get the memory manager
+   */
   getMemoryManager(): MemoryManager | null {
     return this.memoryManager;
   }
   
+  /**
+   * Get the tool manager
+   */
   getToolManager(): ToolManager | null {
     return this.toolManager;
   }
   
+  /**
+   * Get the planning manager
+   */
   getPlanningManager(): PlanningManager | null {
     return this.planningManager;
   }
   
+  /**
+   * Get the reflection manager
+   */
   getReflectionManager(): ReflectionManager | null {
     return this.reflectionManager;
   }
   
-  getThoughtManager(): ThoughtManager | null {
-    return this.thoughtManager;
-  }
-  
-  getMarketScannerManager(): MarketScannerManager | null {
-    return this.marketScannerManager;
-  }
-  
+  /**
+   * Get the knowledge gaps manager
+   */
   getKnowledgeGapsManager(): KnowledgeGapsManager | null {
     return this.knowledgeGapsManager;
   }
   
   /**
-   * Get the autonomy system
-   * Required by scheduler.ts
+   * Plan and execute a task
    */
-  async getAutonomySystem(): Promise<AutonomySystem | null> {
-    // If autonomySystem is not initialized but we have planAndExecute method,
-    // create an adapter that implements the AutonomySystem interface
-    if (!this.autonomySystem && typeof this.planAndExecute === 'function') {
-      // Create a minimal implementation of AutonomySystem that delegates to this.planAndExecute
-      return {
-        status: 'active',
-        scheduledTasks: [],
-        // Use our planAndExecute method
-        planAndExecute: async (options: PlanAndExecuteOptions): Promise<PlanAndExecuteResult> => {
-          return await this.planAndExecute(options.goalPrompt, options);
-        },
-        // Stub implementations for other required methods
-        runTask: async (taskName: string) => {
-          console.log(`Running task: ${taskName}`);
-          return true;
-        },
-        scheduleTask: async (task: ScheduledTask) => {
-          console.log(`Scheduling task: ${task.id}`);
-          return true;
-        },
-        initialize: async () => {
-          console.log('Initializing autonomy system');
-          return true;
-        }
-      };
-    }
-    
-    return this.autonomySystem;
-  }
-  
-  /**
-   * Get the cognitive memory system
-   * Required by tasks.ts for memory consolidation
-   */
-  getCognitiveMemory(): unknown {
-    // Pass through to memory manager
-    return this.memoryManager?.getCognitiveMemory() || null;
-  }
-  
-  /**
-   * Get the knowledge graph
-   * Required by tasks.ts for memory consolidation
-   */
-  getKnowledgeGraph(): unknown {
-    // Pass through to memory manager
-    return this.memoryManager?.getKnowledgeGraph() || null;
-  }
-  
-  /**
-   * Plan and execute a task 
-   */
-  async planAndExecute(goal: string, options?: Partial<PlanAndExecuteOptions>): Promise<PlanAndExecuteResult> {
+  async planAndExecute(goal: string, options?: PlanAndExecuteOptions): Promise<PlanAndExecuteResult> {
     if (!this.planningManager) {
       return {
         success: false,
@@ -655,11 +599,72 @@ ${insightsText}
       };
     }
   }
-  
+
+  /**
+   * Get the autonomy system
+   */
+  async getAutonomySystem(): Promise<AutonomySystem | null> {
+    // If autonomySystem is not initialized but we have planAndExecute method,
+    // create an adapter that implements the AutonomySystem interface
+    if (!this.autonomySystem && typeof this.planAndExecute === 'function') {
+      // Create a minimal implementation of AutonomySystem that delegates to this.planAndExecute
+      return {
+        status: 'active',
+        scheduledTasks: [],
+        scheduler: {
+          runTaskNow: async (taskId: string) => {
+            console.log(`Running task: ${taskId}`);
+            return true;
+          },
+          getScheduledTasks: () => [],
+          setTaskEnabled: (taskId: string, enabled: boolean) => {
+            console.log(`Setting task ${taskId} enabled: ${enabled}`);
+            return true;
+          },
+          setAutonomyMode: (enabled: boolean) => {
+            console.log(`Setting autonomy mode: ${enabled}`);
+          },
+          getAutonomyMode: () => true
+        },
+        // Use our planAndExecute method
+        planAndExecute: async (options: PlanAndExecuteOptions): Promise<PlanAndExecuteResult> => {
+          return await this.planAndExecute(options.goalPrompt, options);
+        },
+        // Stub implementations for other required methods
+        runTask: async (taskName: string) => {
+          console.log(`Running task: ${taskName}`);
+          return true;
+        },
+        scheduleTask: async (task: ScheduledTask) => {
+          console.log(`Scheduling task: ${task.id}`);
+          return true;
+        },
+        cancelTask: async (taskId: string) => {
+          console.log(`Canceling task: ${taskId}`);
+          return true;
+        },
+        initialize: async () => {
+          console.log('Initializing autonomy system');
+          return true;
+        },
+        shutdown: async () => {
+          console.log('Shutting down autonomy system');
+        },
+        diagnose: async () => ({
+          memory: { status: 'operational', messageCount: 0 },
+          scheduler: { status: 'operational', activeTasks: 0 },
+          planning: { status: 'operational' }
+        })
+      };
+    }
+    
+    return this.autonomySystem;
+  }
+
   /**
    * Summarize a conversation with optional parameters
    */
-  public async summarizeConversation(options: { maxEntries?: number; maxLength?: number } = {}): Promise<string | null> {
+  async summarizeConversation(options: { maxEntries?: number; maxLength?: number } = {}): Promise<string | null> {
     try {
       if (!this.initialized) {
         await this.initialize();
