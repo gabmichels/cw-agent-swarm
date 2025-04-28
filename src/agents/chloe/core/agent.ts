@@ -19,6 +19,8 @@ import { ThoughtManager } from './thoughtManager';
 import { MarketScannerManager } from './marketScannerManager';
 import { KnowledgeGapsManager } from './knowledgeGapsManager';
 import { StateManager } from './stateManager';
+import { NotificationManager } from './notificationManager';
+import { RobustSafeguards } from './robustSafeguards';
 
 // Add these to the existing imports from agentTypes.ts
 import {
@@ -28,7 +30,7 @@ import {
   MessageOptions,
 } from '../../../lib/shared/types/agentTypes';
 
-import { KnowledgeLoader } from './knowledgeLoader';
+import { KnowledgeLoader } from '../knowledge';
 import { KnowledgeEmbedder } from './knowledgeEmbedder';
 
 export interface ChloeAgentOptions {
@@ -40,7 +42,6 @@ export interface ChloeAgentOptions {
  * ChloeAgent class implements a marketing assistant agent using a modular architecture
  */
 export class ChloeAgent implements IAgent {
-  // Core properties
   readonly agentId: string = 'chloe';
   private _initialized: boolean = false;
   private autonomyMode: boolean = false;
@@ -69,6 +70,8 @@ export class ChloeAgent implements IAgent {
   private marketScannerManager: MarketScannerManager | null = null;
   private knowledgeGapsManager: KnowledgeGapsManager | null = null;
   private stateManager: StateManager;
+  private notificationManager: NotificationManager | null = null;
+  private safeguards: RobustSafeguards;
   
   private knowledgeLoader: KnowledgeLoader;
   private knowledgeEmbedder: KnowledgeEmbedder;
@@ -76,8 +79,7 @@ export class ChloeAgent implements IAgent {
   constructor(options?: ChloeAgentOptions) {
     // Set default configuration
     this.config = {
-      systemPrompt: SYSTEM_PROMPTS.CHLOE,
-      model: 'openrouter/anthropic/claude-3-opus:2024-05-01',
+      apiKey: process.env.OPENAI_API_KEY,
       temperature: 0.7,
       maxTokens: 4000,
       ...options?.config,
@@ -85,10 +87,14 @@ export class ChloeAgent implements IAgent {
     
     console.log('ChloeAgent instance created');
     this.stateManager = new StateManager(this.taskLogger || undefined);
+    this.safeguards = new RobustSafeguards(this.taskLogger || undefined);
     
     // Initialize knowledge system
     this.knowledgeLoader = new KnowledgeLoader();
-    this.knowledgeEmbedder = new KnowledgeEmbedder(this.knowledgeLoader);
+    this.knowledgeEmbedder = new KnowledgeEmbedder();
+    
+    // Initialize scheduled tasks
+    this.scheduledTasks = [];
     
     // Load knowledge (can be done asynchronously)
     this.initializeKnowledge().catch(error => {
@@ -136,22 +142,18 @@ export class ChloeAgent implements IAgent {
       }
 
       // Initialize task logger
-      this.taskLogger = new TaskLogger({
-        logsPath: process.env.TASK_LOGS_PATH,
-        persistToFile: true
-      });
       await this.taskLogger.initialize();
       
       // Create a new session for this initialization
       this.taskLogger.createSession('Chloe Agent Session', ['agent-init']);
       this.taskLogger.logAction('Agent initialized', {
-        agentId: 'chloe',
+        agentId: this.agentId,
         timestamp: new Date().toISOString()
       });
       
       // Initialize memory manager
       this.memoryManager = new MemoryManager({
-        agentId: 'chloe'
+        agentId: this.agentId
       });
       await this.memoryManager.initialize();
       
@@ -166,13 +168,13 @@ export class ChloeAgent implements IAgent {
         logger: this.taskLogger,
         memory: chloeMemory,
         model: this.model,
-        agentId: 'chloe'
+        agentId: this.agentId
       });
       await this.toolManager.initialize();
       
       // Initialize planning manager
       this.planningManager = new PlanningManager({
-        agentId: 'chloe',
+        agentId: this.agentId,
         memory: chloeMemory,
         model: this.model,
         taskLogger: this.taskLogger,
@@ -185,7 +187,7 @@ export class ChloeAgent implements IAgent {
       
       // Initialize reflection manager
       this.reflectionManager = new ReflectionManager({
-        agentId: 'chloe',
+        agentId: this.agentId,
         memory: chloeMemory,
         model: this.model,
         logger: this.taskLogger,
@@ -198,7 +200,7 @@ export class ChloeAgent implements IAgent {
       
       // Initialize thought manager
       this.thoughtManager = new ThoughtManager({
-        agentId: 'chloe',
+        agentId: this.agentId,
         memory: chloeMemory,
         model: this.model,
         logger: this.taskLogger
@@ -207,7 +209,7 @@ export class ChloeAgent implements IAgent {
       
       // Initialize market scanner manager
       this.marketScannerManager = new MarketScannerManager({
-        agentId: 'chloe',
+        agentId: this.agentId,
         memory: chloeMemory,
         model: this.model,
         logger: this.taskLogger,
@@ -220,7 +222,7 @@ export class ChloeAgent implements IAgent {
       
       // Initialize knowledge gaps manager
       this.knowledgeGapsManager = new KnowledgeGapsManager({
-        agentId: 'chloe',
+        agentId: this.agentId,
         memory: chloeMemory,
         model: this.model,
         logger: this.taskLogger,
@@ -1184,30 +1186,76 @@ User message: ${message}`;
     message: string;
   }> {
     try {
-      // Validate task parameters
+      // Validate task parameters using safeguards
       if (!task.description) {
         throw new Error('Task description is required');
       }
+      
+      if (this.safeguards && !this.safeguards.validateTask(task)) {
+        throw new Error('Task validation failed');
+      }
 
       // Check resource limits
-      if (!await this.checkResourceLimits()) {
+      if (this.safeguards && !await this.safeguards.checkResourceLimits()) {
         throw new Error('Resource limits exceeded');
       }
 
-      // Execute the task with circuit breaker pattern
-      const result = await this.executeWithCircuitBreaker(async () => {
-        return await this.planAndExecute(task.description, {
-          goalPrompt: task.description,
-          maxSteps: 10,
-          timeLimit: 300
+      // Register cleanup task before execution
+      let cleanupTaskId: string | undefined;
+      if (this.safeguards) {
+        cleanupTaskId = this.safeguards.registerCleanupTask(
+          `Cleanup for task: ${task.id}`,
+          ['memory', 'cache'],
+          'medium'
+        );
+      }
+
+      // Execute the task with enhanced circuit breaker pattern
+      let result;
+      if (this.safeguards) {
+        result = await this.safeguards.executeWithCircuitBreaker(
+          'task_execution',
+          async () => {
+            return await this.planAndExecute(task.description, {
+              goalPrompt: task.description,
+              maxSteps: 10,
+              timeLimit: 300
+            });
+          },
+          {
+            timeout: 600000, // 10 minutes timeout
+            fallback: {
+              success: false,
+              message: `Task execution timed out: ${task.description}`
+            }
+          }
+        );
+      } else {
+        // Fall back to original implementation if safeguards not available
+        result = await this.executeWithCircuitBreaker(async () => {
+          return await this.planAndExecute(task.description, {
+            goalPrompt: task.description,
+            maxSteps: 10,
+            timeLimit: 300
+          });
         });
-      });
+      }
+
+      // Execute cleanup task after completion
+      if (this.safeguards && cleanupTaskId) {
+        await this.safeguards.executeCleanupTask(cleanupTaskId);
+      }
 
       return {
         success: result.success,
         message: result.message
       };
     } catch (error) {
+      this.taskLogger?.logAction('Task execution error', {
+        taskId: task.id,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      
       return {
         success: false,
         message: error instanceof Error ? error.message : String(error)
@@ -1216,52 +1264,10 @@ User message: ${message}`;
   }
 
   /**
-   * Check system resource limits
+   * Execute with circuit breaker pattern
    */
-  private async checkResourceLimits(): Promise<boolean> {
-    try {
-      const memoryStatus = await this.memoryManager?.diagnose();
-      const activeTasks = this.scheduledTasks.filter(t => t.enabled).length;
-
-      // Define some reasonable limits
-      const MAX_MEMORY_MESSAGES = 10000;
-      const MAX_ACTIVE_TASKS = 20;
-
-      if ((memoryStatus?.messageCount || 0) > MAX_MEMORY_MESSAGES) {
-        throw new Error('Memory message limit exceeded');
-      }
-
-      if (activeTasks > MAX_ACTIVE_TASKS) {
-        throw new Error('Active tasks limit exceeded');
-      }
-
-      return true;
-    } catch (error) {
-      console.error('Error checking resource limits:', error);
-      return false;
-    }
-  }
-
-  /**
-   * Execute a function with circuit breaker pattern
-   */
-  private async executeWithCircuitBreaker<T>(fn: () => Promise<T>, maxRetries: number = 3): Promise<T> {
-    let retries = 0;
-    let lastError: Error | null = null;
-
-    while (retries < maxRetries) {
-      try {
-        return await fn();
-      } catch (error) {
-        lastError = error instanceof Error ? error : new Error(String(error));
-        retries++;
-        
-        // Exponential backoff
-        await new Promise(resolve => setTimeout(resolve, Math.pow(2, retries) * 1000));
-      }
-    }
-
-    throw lastError || new Error('Circuit breaker: max retries exceeded');
+  private async executeWithCircuitBreaker<T>(fn: () => Promise<T>): Promise<T> {
+    return this.safeguards.executeWithCircuitBreaker('agent_operation', fn);
   }
 
   /**

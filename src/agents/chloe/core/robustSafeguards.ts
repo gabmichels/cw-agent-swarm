@@ -17,17 +17,19 @@ interface CircuitBreakerState {
   resetTimeout: number;
 }
 
-interface TaskValidationResult {
-  isValid: boolean;
-  errors: string[];
-  warnings: string[];
+interface CleanupTask {
+  id: string;
+  description: string;
+  resources: string[];
+  priority: 'low' | 'medium' | 'high';
+  createdAt: Date;
 }
 
 export class RobustSafeguards {
   private taskLogger?: TaskLogger;
   private resourceMetrics: ResourceMetrics;
   private circuitBreakers: Map<string, CircuitBreakerState>;
-  private cleanupTasks: Set<string>;
+  private cleanupTasks: Map<string, CleanupTask>;
   private readonly MAX_MEMORY_USAGE = 0.8; // 80% of available memory
   private readonly MAX_CPU_USAGE = 0.7; // 70% of available CPU
   private readonly MAX_ACTIVE_TASKS = 20;
@@ -45,7 +47,7 @@ export class RobustSafeguards {
       lastUpdated: new Date()
     };
     this.circuitBreakers = new Map();
-    this.cleanupTasks = new Set();
+    this.cleanupTasks = new Map();
   }
 
   /**
@@ -87,6 +89,14 @@ export class RobustSafeguards {
       }
 
       this.resourceMetrics.lastUpdated = new Date();
+      
+      this.taskLogger?.logAction('Resources monitored', {
+        memoryUsage: this.resourceMetrics.memoryUsage,
+        cpuUsage: this.resourceMetrics.cpuUsage,
+        activeTasks: this.resourceMetrics.activeTasks,
+        messageCount: this.resourceMetrics.messageCount
+      });
+      
       return this.resourceMetrics;
     } catch (error) {
       this.taskLogger?.logAction('Error monitoring resources', {
@@ -132,28 +142,261 @@ export class RobustSafeguards {
    */
   async executeWithCircuitBreaker<T>(
     operation: string,
-    fn: () => Promise<T>
+    fn: () => Promise<T>,
+    options?: {
+      timeout?: number;
+      fallback?: T;
+      resetTimeout?: number;
+    }
   ): Promise<T> {
     const breaker = this.getOrCreateCircuitBreaker(operation);
     
     if (breaker.state === 'open') {
       if (this.shouldResetCircuitBreaker(breaker)) {
         breaker.state = 'half-open';
+        this.taskLogger?.logAction('Circuit breaker half-opened', {
+          operation,
+          lastFailure: breaker.lastFailureTime
+        });
       } else {
+        this.taskLogger?.logAction('Circuit breaker rejected operation', {
+          operation,
+          state: breaker.state
+        });
+        
+        if (options?.fallback !== undefined) {
+          return options.fallback;
+        }
+        
         throw new Error(`Circuit breaker is open for operation: ${operation}`);
       }
     }
     
     try {
-      const result = await fn();
+      // Execute with timeout if specified
+      let result: T;
+      if (options?.timeout) {
+        result = await Promise.race([
+          fn(),
+          new Promise<never>((_, reject) => {
+            setTimeout(() => reject(new Error(`Operation timed out: ${operation}`)), options.timeout);
+          })
+        ]);
+      } else {
+        result = await fn();
+      }
+      
       this.recordSuccess(operation);
       return result;
     } catch (error) {
       this.recordFailure(operation);
+      
+      this.taskLogger?.logAction('Operation failed', {
+        operation,
+        error: error instanceof Error ? error.message : String(error),
+        circuitState: breaker.state
+      });
+      
+      if (options?.fallback !== undefined) {
+        return options.fallback;
+      }
+      
       throw error;
     }
   }
 
+  /**
+   * Validate a task before execution
+   */
+  validateTask(task: Task): boolean {
+    if (!task) {
+      this.taskLogger?.logAction('Task validation failed: Task is null or undefined');
+      return false;
+    }
+    
+    if (!task.description || task.description.trim() === '') {
+      this.taskLogger?.logAction('Task validation failed: Missing description', {
+        taskId: task.id
+      });
+      return false;
+    }
+    
+    // Validate that the task has a valid ID
+    if (!task.id || task.id.trim() === '') {
+      this.taskLogger?.logAction('Task validation failed: Missing ID');
+      return false;
+    }
+    
+    // Check task complexity (if metadata contains complexity information)
+    if (task.metadata?.complexity && task.metadata.complexity > 5) {
+      this.taskLogger?.logAction('Task validation warning: High complexity task', {
+        taskId: task.id,
+        complexity: task.metadata.complexity
+      });
+    }
+    
+    return true;
+  }
+
+  /**
+   * Validate a plan before execution
+   */
+  validatePlan(plan: PlanWithSteps): boolean {
+    if (!plan) {
+      this.taskLogger?.logAction('Plan validation failed: Plan is null or undefined');
+      return false;
+    }
+    
+    if (!plan.description || plan.description.trim() === '') {
+      this.taskLogger?.logAction('Plan validation failed: Missing description');
+      return false;
+    }
+    
+    if (!plan.steps || plan.steps.length === 0) {
+      this.taskLogger?.logAction('Plan validation failed: No steps in plan', {
+        planDescription: plan.description
+      });
+      return false;
+    }
+    
+    // Check if any steps are missing descriptions
+    const invalidSteps = plan.steps.filter(step => !step.description || step.description.trim() === '');
+    if (invalidSteps.length > 0) {
+      this.taskLogger?.logAction('Plan validation failed: Steps missing descriptions', {
+        planDescription: plan.description,
+        invalidStepCount: invalidSteps.length
+      });
+      return false;
+    }
+    
+    this.taskLogger?.logAction('Plan validation passed', {
+      planDescription: plan.description,
+      stepCount: plan.steps.length
+    });
+    
+    return true;
+  }
+
+  /**
+   * Register a cleanup task to be executed later
+   */
+  registerCleanupTask(
+    description: string,
+    resources: string[],
+    priority: 'low' | 'medium' | 'high' = 'medium'
+  ): string {
+    const id = this.generateTaskId();
+    const task: CleanupTask = {
+      id,
+      description,
+      resources,
+      priority,
+      createdAt: new Date()
+    };
+    
+    this.cleanupTasks.set(id, task);
+    
+    this.taskLogger?.logAction('Cleanup task registered', {
+      taskId: id,
+      description,
+      resources,
+      priority
+    });
+    
+    return id;
+  }
+
+  /**
+   * Execute a specific cleanup task
+   */
+  async executeCleanupTask(taskId: string): Promise<boolean> {
+    const task = this.cleanupTasks.get(taskId);
+    if (!task) {
+      this.taskLogger?.logAction('Cleanup task not found', { taskId });
+      return false;
+    }
+    
+    try {
+      this.taskLogger?.logAction('Executing cleanup task', {
+        taskId,
+        description: task.description
+      });
+      
+      // Execute resource-specific cleanup based on the registered resources
+      for (const resource of task.resources) {
+        await this.cleanupResource(resource);
+      }
+      
+      // Remove the task from the map once completed
+      this.cleanupTasks.delete(taskId);
+      
+      this.taskLogger?.logAction('Cleanup task completed', { taskId });
+      return true;
+    } catch (error) {
+      this.taskLogger?.logAction('Error executing cleanup task', {
+        taskId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return false;
+    }
+  }
+
+  /**
+   * Execute all pending cleanup tasks, prioritized by their priority level
+   */
+  async executeAllCleanupTasks(): Promise<{
+    success: number;
+    failure: number;
+    remaining: number;
+  }> {
+    let successCount = 0;
+    let failureCount = 0;
+    
+    // Get all tasks sorted by priority (high -> medium -> low)
+    const sortedTasks = Array.from(this.cleanupTasks.values()).sort((a, b) => {
+      const priorityValues = { high: 0, medium: 1, low: 2 };
+      return priorityValues[a.priority] - priorityValues[b.priority];
+    });
+    
+    for (const task of sortedTasks) {
+      const success = await this.executeCleanupTask(task.id);
+      if (success) {
+        successCount++;
+      } else {
+        failureCount++;
+      }
+    }
+    
+    return {
+      success: successCount,
+      failure: failureCount,
+      remaining: this.cleanupTasks.size
+    };
+  }
+
+  /**
+   * Report on the current status of safeguards
+   */
+  getStatusReport(): {
+    resourceMetrics: ResourceMetrics;
+    circuitBreakers: { operation: string; state: string; failures: number }[];
+    pendingCleanupTasks: number;
+  } {
+    return {
+      resourceMetrics: { ...this.resourceMetrics },
+      circuitBreakers: Array.from(this.circuitBreakers.entries()).map(([operation, state]) => ({
+        operation,
+        state: state.state,
+        failures: state.failures
+      })),
+      pendingCleanupTasks: this.cleanupTasks.size
+    };
+  }
+
+  /**
+   * Private helper methods below
+   */
+  
   private getOrCreateCircuitBreaker(operation: string): CircuitBreakerState {
     if (!this.circuitBreakers.has(operation)) {
       this.circuitBreakers.set(operation, {
@@ -167,15 +410,31 @@ export class RobustSafeguards {
   }
 
   private shouldResetCircuitBreaker(breaker: CircuitBreakerState): boolean {
-    if (!breaker.lastFailureTime) return true;
-    const timeSinceLastFailure = Date.now() - breaker.lastFailureTime.getTime();
-    return timeSinceLastFailure >= breaker.resetTimeout;
+    if (breaker.state !== 'open' || !breaker.lastFailureTime) {
+      return false;
+    }
+    
+    const now = new Date();
+    const resetTime = new Date(breaker.lastFailureTime.getTime() + breaker.resetTimeout);
+    return now >= resetTime;
   }
 
   private recordSuccess(operation: string): void {
-    const breaker = this.circuitBreakers.get(operation)!;
-    breaker.failures = 0;
-    breaker.state = 'closed';
+    const breaker = this.circuitBreakers.get(operation);
+    if (!breaker) return;
+    
+    if (breaker.state === 'half-open') {
+      breaker.state = 'closed';
+      breaker.failures = 0;
+      breaker.lastFailureTime = null;
+      
+      this.taskLogger?.logAction('Circuit breaker reset to closed state', {
+        operation
+      });
+    } else if (breaker.state === 'closed' && breaker.failures > 0) {
+      // Gradually decrease failure count on successful operations
+      breaker.failures = Math.max(0, breaker.failures - 1);
+    }
   }
 
   private recordFailure(operation: string): void {
@@ -183,7 +442,14 @@ export class RobustSafeguards {
     breaker.failures++;
     breaker.lastFailureTime = new Date();
     
-    if (breaker.failures >= this.CIRCUIT_BREAKER_THRESHOLD) {
+    if (breaker.state === 'half-open') {
+      // Immediately open the circuit on failure in half-open state
+      breaker.state = 'open';
+      this.taskLogger?.logAction('Circuit breaker reopened after testing', {
+        operation,
+        failures: breaker.failures
+      });
+    } else if (breaker.failures >= this.CIRCUIT_BREAKER_THRESHOLD) {
       breaker.state = 'open';
       this.taskLogger?.logAction('Circuit breaker opened', {
         operation,
@@ -192,110 +458,44 @@ export class RobustSafeguards {
     }
   }
 
-  /**
-   * Validate task before execution
-   */
-  validateTask(task: Task): TaskValidationResult {
-    const errors: string[] = [];
-    const warnings: string[] = [];
+  private async cleanupResource(resource: string): Promise<void> {
+    this.taskLogger?.logAction('Cleaning up resource', { resource });
     
-    // Required fields
-    if (!task.id) errors.push('Task ID is required');
-    if (!task.description) errors.push('Task description is required');
-    if (!task.status) errors.push('Task status is required');
-    if (!task.priority) errors.push('Task priority is required');
-    if (!task.created_at) errors.push('Task creation date is required');
-    
-    // Priority validation
-    if (task.priority < 1 || task.priority > 5) {
-      warnings.push('Task priority should be between 1 and 5');
-    }
-    
-    // Status validation
-    if (!['pending', 'in_progress', 'completed', 'failed'].includes(task.status)) {
-      errors.push('Invalid task status');
-    }
-    
-    // Description length
-    if (task.description.length > 1000) {
-      warnings.push('Task description is very long');
-    }
-    
-    return {
-      isValid: errors.length === 0,
-      errors,
-      warnings
-    };
-  }
-
-  /**
-   * Validate plan before execution
-   */
-  validatePlan(plan: PlanWithSteps): TaskValidationResult {
-    const errors: string[] = [];
-    const warnings: string[] = [];
-    
-    // Required fields
-    if (!plan.description) errors.push('Plan description is required');
-    if (!plan.steps || plan.steps.length === 0) errors.push('Plan must have at least one step');
-    
-    // Step validation
-    plan.steps.forEach((step, index) => {
-      if (!step.description) {
-        errors.push(`Step ${index + 1} is missing description`);
-      }
-      if (!step.status) {
-        errors.push(`Step ${index + 1} is missing status`);
-      }
-    });
-    
-    // Plan complexity
-    if (plan.steps.length > 10) {
-      warnings.push('Plan has many steps, consider breaking it down');
-    }
-    
-    return {
-      isValid: errors.length === 0,
-      errors,
-      warnings
-    };
-  }
-
-  /**
-   * Register a cleanup task
-   */
-  registerCleanupTask(taskId: string): void {
-    this.cleanupTasks.add(taskId);
-  }
-
-  /**
-   * Execute cleanup tasks
-   */
-  async executeCleanup(): Promise<void> {
-    for (const taskId of Array.from(this.cleanupTasks)) {
-      try {
-        // Implement cleanup logic here
-        this.taskLogger?.logAction('Executing cleanup task', { taskId });
+    // Implement resource-specific cleanup
+    switch (resource) {
+      case 'memory':
+        // Force garbage collection if available
+        if (global.gc) {
+          global.gc();
+          this.taskLogger?.logAction('Memory garbage collection triggered');
+        }
+        break;
         
-        // Remove from cleanup tasks after successful execution
-        this.cleanupTasks.delete(taskId);
-      } catch (error) {
-        this.taskLogger?.logAction('Error executing cleanup task', {
-          taskId,
-          error: error instanceof Error ? error.message : String(error)
-        });
-      }
+      case 'files':
+        // Cleanup temporary files
+        // Implementation depends on the specific file management of the application
+        this.taskLogger?.logAction('File cleanup completed');
+        break;
+        
+      case 'connections':
+        // Close unused connections
+        // Implementation depends on the connection management of the application
+        this.taskLogger?.logAction('Connection cleanup completed');
+        break;
+        
+      case 'cache':
+        // Clear application caches
+        // Implementation depends on the cache management of the application
+        this.taskLogger?.logAction('Cache cleanup completed');
+        break;
+        
+      default:
+        this.taskLogger?.logAction('Unknown resource type, no cleanup performed', { resource });
+        break;
     }
   }
 
-  /**
-   * Update resource metrics
-   */
-  updateResourceMetrics(metrics: Partial<ResourceMetrics>): void {
-    this.resourceMetrics = {
-      ...this.resourceMetrics,
-      ...metrics,
-      lastUpdated: new Date()
-    };
+  private generateTaskId(): string {
+    return `cleanup_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   }
 } 

@@ -214,5 +214,32 @@
     "knowledgeUtilizationRate": 0.65,
     "memoryRetrievalAccuracy": 0.78,
     "updatedAt": "2025-04-28T00:08:26.026Z"
+  },
+  {
+    "intentSuccessRate": 0,
+    "taskCompletionRate": 0,
+    "averageResponseTime": 0,
+    "userSatisfactionScore": 4.2,
+    "knowledgeUtilizationRate": 0.65,
+    "memoryRetrievalAccuracy": 0.78,
+    "updatedAt": "2025-04-28T13:36:37.232Z"
+  },
+  {
+    "intentSuccessRate": 0,
+    "taskCompletionRate": 0,
+    "averageResponseTime": 0,
+    "userSatisfactionScore": 4.2,
+    "knowledgeUtilizationRate": 0.65,
+    "memoryRetrievalAccuracy": 0.78,
+    "updatedAt": "2025-04-28T13:36:39.322Z"
+  },
+  {
+    "intentSuccessRate": 0,
+    "taskCompletionRate": 0,
+    "averageResponseTime": 0,
+    "userSatisfactionScore": 4.2,
+    "knowledgeUtilizationRate": 0.65,
+    "memoryRetrievalAccuracy": 0.78,
+    "updatedAt": "2025-04-28T13:36:40.754Z"
   }
 ]
