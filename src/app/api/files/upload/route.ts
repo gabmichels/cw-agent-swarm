@@ -3,6 +3,18 @@ import { fileProcessor } from '../../../../lib/file-processing';
 import * as qdrantMemory from '../../../../server/qdrant';
 import path from 'path';
 import fs from 'fs';
+import { createEnhancedMemory } from '@/lib/memory/src/enhanced-memory';
+
+// Define types based on the qdrant memory module
+type MemoryType = 'message' | 'thought' | 'document' | 'task';
+type MemoryImportance = 'low' | 'medium' | 'high';
+type MemorySource = 'user' | 'system' | 'agent';
+
+// Create an instance of the EnhancedMemory class
+function createEnhancedMemoryAdapter() {
+  // Use the factory function from the memory module
+  return createEnhancedMemory('file-processor');
+}
 
 // Prepare memory for file storage
 async function prepareMemory() {
@@ -51,7 +63,9 @@ export async function POST(request: NextRequest) {
     const memoryReady = await prepareMemory();
     if (memoryReady) {
       console.log('Memory system initialized for file processing');
-      fileProcessor.setEnhancedMemory(qdrantMemory);
+      // Create an enhanced memory adapter that wraps the qdrantMemory module
+      const enhancedMemory = createEnhancedMemoryAdapter();
+      fileProcessor.setEnhancedMemory(enhancedMemory);
     } else {
       console.warn('Memory system initialization failed, proceeding without memory integration');
     }

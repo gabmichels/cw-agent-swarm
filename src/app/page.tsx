@@ -46,6 +46,10 @@ export default function Home() {
   const [isDeptDropdownOpen, setIsDeptDropdownOpen] = useState(false);
   const [isAgentDropdownOpen, setIsAgentDropdownOpen] = useState(false);
   const [isSocialDataLoading, setIsSocialDataLoading] = useState(false);
+  const [imageFiles, setImageFiles] = useState<string[]>([]);
+  const [modalImage, setModalImage] = useState<string | null>(null);
+  const [imageCaption, setImageCaption] = useState<string>('');
+  const [isImageModalOpen, setIsImageModalOpen] = useState(false);
   
   // Toggle functions for new UI features
   const toggleSidebar = () => setIsSidebarOpen(!isSidebarOpen);
@@ -172,6 +176,12 @@ export default function Home() {
   // Function to retrieve file data from IndexedDB
   const getFileFromIndexedDB = async (id: string): Promise<string | null> => {
     try {
+      // Validate ID parameter
+      if (!id || id.trim() === '') {
+        console.warn('Empty or invalid ID provided to getFileFromIndexedDB');
+        return null;
+      }
+      
       const db = await initializeDB();
       
       return new Promise((resolve, reject) => {
@@ -205,6 +215,12 @@ export default function Home() {
   // Get image data from separate storage
   const getImageDataFromStorage = async (id: string): Promise<string | null> => {
     try {
+      // Check if ID is valid
+      if (!id) {
+        console.warn('Empty image ID provided to getImageDataFromStorage');
+        return null;
+      }
+      
       // First try to get it from IndexedDB
       const imageData = await getFileFromIndexedDB(id);
       return imageData;
@@ -287,24 +303,24 @@ export default function Home() {
         });
 
         try {
-          // Save full image data to IndexedDB instead of localStorage
+          // Save full image data to IndexedDB
           await saveFileToIndexedDB({
             id: imageId,
-            data: preview,
+            data: preview, // Save the full image data
             type: file.type,
             filename: file.name,
             timestamp: Date.now()
           });
           console.log(`Full image data successfully stored in IndexedDB for ID: ${imageId}`);
           
-          // Create a thumbnail for preview
+          // Create a thumbnail for preview in chat
           const thumbnail = await createThumbnail(preview);
           console.log(`Created thumbnail: ${thumbnail.substring(0, 50)}...`);
           
           // Add to pending attachments with both thumbnail and reference to full image
           setPendingAttachments(prev => [...prev, {
             file,
-            preview: thumbnail,
+            preview: thumbnail, // Use the thumbnail for preview
             type: fileType,
             filename: file.name,
             fileId: imageId // Store image ID to reference the full data
@@ -315,7 +331,8 @@ export default function Home() {
           setPendingAttachments(prev => [...prev, {
             file,
             preview,
-            type: fileType
+            type: fileType,
+            fileId: imageId // Still store the ID even if thumbnail creation fails
           }]);
         }
       } else if (file.type === 'application/pdf') {
@@ -1258,11 +1275,42 @@ For detailed instructions, see the Debug panel.`,
   // Auto-scroll to bottom when messages change or when switching to chat tab
   useEffect(() => {
     if (selectedTab === 'chat') {
+      // Use a shorter timeout to make it feel more responsive
       setTimeout(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+        if (messagesEndRef.current) {
+          messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+        }
+      }, 50);
+    }
+  }, [messages, selectedTab, isLoading]);
+
+  // Ensure scroll to bottom after initial chat is loaded
+  useEffect(() => {
+    if (!isLoading && messages.length > 0 && selectedTab === 'chat') {
+      setTimeout(() => {
+        if (messagesEndRef.current) {
+          messagesEndRef.current.scrollIntoView({ behavior: 'auto' });
+        }
       }, 100);
     }
-  }, [messages, selectedTab]);
+  }, [isLoading, messages.length, selectedTab]);
+
+  // Function to handle file viewing from the Files tab
+  const handleFileImageClick = async (fileId: string, filename: string) => {
+    try {
+      // Construct the file view URL
+      const fileViewUrl = `/api/files/view/${fileId}`;
+      setImageCaption(filename);
+      
+      // Set the modal image directly to the file URL
+      setModalImage(fileViewUrl);
+      
+      // Open the modal dialog
+      setIsImageModalOpen(true);
+    } catch (error) {
+      console.error('Error loading image:', error);
+    }
+  };
 
   // Enhanced to include file attachments and use our improved storage system
   const handleSendMessage = async (e: FormEvent<HTMLFormElement>) => {
@@ -1295,6 +1343,13 @@ For detailed instructions, see the Debug panel.`,
     if (currentAttachments.length > 0) {
       saveAttachmentsToLocalStorage(newMessages);
     }
+    
+    // Scroll to bottom immediately after adding user message
+    setTimeout(() => {
+      if (messagesEndRef.current) {
+        messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+      }
+    }, 50);
     
     // Store and clear input
     const sentMessage = inputMessage;
@@ -1465,6 +1520,35 @@ For detailed instructions, see the Debug panel.`,
 
   // Add this mapping function just before the return statement
   const renderChatMessage = (message: Message, index: number) => {
+    // Handle image click to show in modal
+    const handleImageClick = async (attachment: FileAttachment, e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      
+      try {
+        // Try to get the full-sized image from storage
+        const fullImage = await getImageDataFromStorage(attachment.fileId || '');
+        
+        if (fullImage) {
+          setModalImage(fullImage);
+          setImageCaption(attachment.filename || '');
+          setIsImageModalOpen(true);
+          return;
+        }
+        
+        // Fall back to preview if full image not found
+        setModalImage(attachment.preview);
+        setImageCaption(attachment.filename || '');
+        setIsImageModalOpen(true);
+      } catch (error) {
+        console.error("Error retrieving full image:", error);
+        // Fall back to the preview
+        setModalImage(attachment.preview);
+        setImageCaption(attachment.filename || '');
+        setIsImageModalOpen(true);
+      }
+    };
+
     return (
       <div key={index} className={`flex ${message.sender === 'You' ? 'justify-end' : 'justify-start'} mb-4`}>
         <div className={`max-w-[75%] rounded-lg p-3 shadow ${
@@ -1487,7 +1571,8 @@ For detailed instructions, see the Debug panel.`,
                     <img 
                       src={attachment.preview} 
                       alt={attachment.filename || 'Image'} 
-                      className="max-h-40 max-w-40 rounded border border-gray-500"
+                      className="max-h-40 max-w-40 rounded border border-gray-500 cursor-pointer hover:opacity-90"
+                      onClick={(e) => handleImageClick(attachment, e)}
                     />
                   ) : (
                     <div className="p-2 bg-gray-800 rounded border border-gray-600">
@@ -1555,8 +1640,57 @@ For detailed instructions, see the Debug panel.`,
     return true; // Return true to maintain backward compatibility
   };
 
+  // Image modal component
+  const ImageModal = ({ isOpen, imageUrl, onClose, caption }: { isOpen: boolean; imageUrl: string | null; onClose: () => void; caption?: string }) => {
+    if (!isOpen || !imageUrl) return null;
+
+    return (
+      <div 
+        className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-90"
+        onClick={onClose}
+      >
+        <div 
+          className="relative flex flex-col items-center max-w-[90vw] max-h-[85vh]"
+          onClick={(e) => e.stopPropagation()} // Prevent closing when clicking on the modal content
+        >
+          <button
+            onClick={onClose}
+            className="absolute top-2 right-2 z-10 text-white bg-black bg-opacity-50 rounded-full p-2 hover:bg-opacity-70"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
+          
+          <div className="overflow-auto max-w-[90vw] max-h-[85vh]">
+            <img 
+              src={imageUrl} 
+              alt={caption || "Full size image"} 
+              className="object-contain max-w-[90vw] max-h-[85vh]"
+              style={{
+                objectFit: 'contain',
+                width: 'auto',
+                height: 'auto'
+              }}
+            />
+          </div>
+          
+          {caption && (
+            <div className="mt-2 px-4 py-2 bg-black bg-opacity-70 text-white rounded text-center max-w-full">
+              {caption}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="flex flex-col h-screen bg-gray-900 text-white">
+      {/* Image Modal */}
+      <ImageModal isOpen={isImageModalOpen} imageUrl={modalImage} onClose={() => setIsImageModalOpen(false)} caption={imageCaption} />
+
       {/* Header - hide in fullscreen mode */}
       {!isFullscreen && (
         <Header
@@ -1632,7 +1766,8 @@ For detailed instructions, see the Debug panel.`,
                         </div>
                       </div>
                     )}
-                    <div ref={messagesEndRef}></div>
+                    {/* Scroll anchor div - always place at the end of messages */}
+                    <div ref={messagesEndRef} className="h-1" />
                   </div>
                 </div>
               )}
@@ -1645,15 +1780,15 @@ For detailed instructions, see the Debug panel.`,
                   toggleTaskEnabled={toggleTaskEnabled}
                   formatCronExpression={formatCronExpression}
                 />
-                          )}
+              )}
               
               {selectedTab === 'memory' && (
                 <MemoryTab
                   isLoadingMemories={isLoadingMemories}
                   allMemories={allMemories}
                 />
-                )}
-                
+              )}
+              
               {selectedTab === 'tools' && (
                 <ToolsTab
                   isLoading={isLoading}
@@ -1673,7 +1808,12 @@ For detailed instructions, see the Debug panel.`,
               
               {selectedTab === 'social' && <SocialMediaTable />}
               
-              {selectedTab === 'files' && <FilesTable onRefresh={fetchAllMemories} />}
+              {selectedTab === 'files' && (
+                <FilesTable 
+                  onRefresh={fetchAllMemories} 
+                  onImageClick={handleFileImageClick}
+                />
+              )}
               
               {selectedTab === 'knowledge' && <KnowledgeTab />}
             </div>
@@ -1691,12 +1831,11 @@ For detailed instructions, see the Debug panel.`,
                   handleFileSelect={handleFileSelect}
                   inputRef={inputRef}
                 />
-          )}
-              <div ref={messagesEndRef} />
-                          </div>
-                      </div>
-                  </div>
-              </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 } 

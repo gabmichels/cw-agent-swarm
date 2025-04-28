@@ -24,12 +24,13 @@ interface FileMetadata {
  */
 interface FilesTableProps {
   onRefresh?: () => void;
+  onImageClick?: (imageId: string, filename: string) => void;
 }
 
 /**
  * Files table component that displays a list of uploaded files
  */
-export default function FilesTable({ onRefresh }: FilesTableProps) {
+export default function FilesTable({ onRefresh, onImageClick }: FilesTableProps) {
   const [files, setFiles] = useState<FileMetadata[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -202,6 +203,15 @@ export default function FilesTable({ onRefresh }: FilesTableProps) {
     }
   };
   
+  /**
+   * Handle clicking on a file name, especially for images
+   */
+  const handleFileClick = (file: FileMetadata) => {
+    if (file.mimeType.startsWith('image/') && onImageClick) {
+      onImageClick(file.fileId, file.filename);
+    }
+  };
+  
   // Fetch files on component mount
   useEffect(() => {
     fetchFiles();
@@ -253,9 +263,19 @@ export default function FilesTable({ onRefresh }: FilesTableProps) {
                 <tr key={file.fileId}>
                   <td className="px-4 py-3 whitespace-nowrap">
                     <div className="flex items-center">
-                      <span className="mr-2">{getFileTypeIcon(file.mimeType)}</span>
+                      <span 
+                        className={`mr-2 ${file.mimeType.startsWith('image/') ? 'cursor-pointer' : ''}`}
+                        onClick={() => file.mimeType.startsWith('image/') && onImageClick ? onImageClick(file.fileId, file.filename) : null}
+                      >
+                        {getFileTypeIcon(file.mimeType)}
+                      </span>
                       <div>
-                        <div className="font-medium">{file.filename}</div>
+                        <div 
+                          className={`font-medium ${file.mimeType.startsWith('image/') ? 'cursor-pointer hover:text-blue-300' : ''}`}
+                          onClick={() => handleFileClick(file)}
+                        >
+                          {file.filename}
+                        </div>
                         {file.tags && file.tags.length > 0 && (
                           <div className="text-xs text-gray-400 mt-1">
                             {file.tags.map(tag => (

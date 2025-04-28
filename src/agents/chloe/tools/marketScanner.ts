@@ -814,10 +814,10 @@ export class MarketScanner {
               allTrends[existingIndex] = {
                 ...existing,
                 score: Math.max(existing.score, trend.score),
-                keywords: [...Array.from(new Set([...existing.keywords, ...trend.keywords]))],
-                sources: [...Array.from(new Set([...existing.sources, ...trend.sources]))],
+                keywords: [...Array.from(new Set([...(Array.isArray(existing.keywords) ? existing.keywords : []), ...(Array.isArray(trend.keywords) ? trend.keywords : [])]))],
+                sources: [...Array.from(new Set([...(Array.isArray(existing.sources) ? existing.sources : []), ...(Array.isArray(trend.sources) ? trend.sources : [])]))],
                 lastUpdated: new Date(),
-                relevantUserNeeds: [...Array.from(new Set([...existing.relevantUserNeeds, ...trend.relevantUserNeeds]))],
+                relevantUserNeeds: [...Array.from(new Set([...(Array.isArray(existing.relevantUserNeeds) ? existing.relevantUserNeeds : []), ...(Array.isArray(trend.relevantUserNeeds) ? trend.relevantUserNeeds : [])]))],
                 estimatedBusinessImpact: Math.max(existing.estimatedBusinessImpact, trend.estimatedBusinessImpact)
               };
             }
@@ -959,10 +959,10 @@ export class MarketScanner {
         3. Description (1-2 sentences)
         4. Relevance score (0-100)
         5. Category (one of: ai, automation, integration, analytics, other)
-        6. 3-5 relevant keywords
-        7. Possible sources (where this trend might be observed)
+        6. 3-5 relevant keywords as an array of strings
+        7. Possible sources as an array of strings
         8. Stage (one of: emerging, growing, mainstream, declining)
-        9. 2-3 relevant user needs this trend addresses
+        9. 2-3 relevant user needs this trend addresses as an array of strings
         10. Estimated business impact score (0-100)
         
         Format the response as a valid JSON array of trend objects.
@@ -982,14 +982,25 @@ export class MarketScanner {
       }
       
       const jsonString = jsonMatch[0];
-      const trends = JSON.parse(jsonString);
+      const parsedTrends = JSON.parse(jsonString);
       
-      // Convert string dates to Date objects
-      return trends.map((trend: any) => ({
-        ...trend,
+      // Validate and ensure all required properties are present
+      const trends = parsedTrends.map((trend: any) => ({
+        id: trend.id || `trend_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+        name: trend.name || 'Unknown Trend',
+        description: trend.description || 'No description provided',
+        score: typeof trend.score === 'number' ? trend.score : 50,
+        category: trend.category || 'other',
+        keywords: Array.isArray(trend.keywords) ? trend.keywords : [],
+        sources: Array.isArray(trend.sources) ? trend.sources : [],
         firstDetected: new Date(),
-        lastUpdated: new Date()
+        lastUpdated: new Date(),
+        stage: trend.stage || 'emerging',
+        relevantUserNeeds: Array.isArray(trend.relevantUserNeeds) ? trend.relevantUserNeeds : [],
+        estimatedBusinessImpact: typeof trend.estimatedBusinessImpact === 'number' ? trend.estimatedBusinessImpact : 50
       }));
+      
+      return trends;
     } catch (error) {
       console.error('Error generating trends with LLM:', error);
       return [];

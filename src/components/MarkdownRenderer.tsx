@@ -19,9 +19,9 @@ interface CodeProps {
 const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content = '', className = '' }) => {
   // Pre-process content with null safety
   // Default to empty string if content is undefined or null
-  const processedContent = content 
+  const processedContent = content
     ? content
-        .replace(/\\n/g, '\n')
+    .replace(/\\n/g, '\n')
         .replace(/\\"/g, '"')
         .replace(/\\t/g, '\t')
         .replace(/\\'/g, "'")

@@ -225,9 +225,30 @@ export class ChloeAgent implements IAgent {
   }
   
   /**
-   * Process a message and generate a response
+   * Process a message from a user
+   * @param message The user's message
+   * @param options Additional processing options
+   * @returns The agent's response
    */
-  async processMessage(message: string, options: MessageOptions): Promise<string> {
+  async processMessage(message: string, options: MessageOptions = { userId: 'gab' }): Promise<string> {
+    // Check if this is a general knowledge question that shouldn't trigger specialized tools
+    if (this.isGeneralKnowledgeQuestion(message)) {
+      this.taskLogger?.logAction('Handling as general knowledge question', { message });
+      
+      try {
+        // Process directly with the model using the persona's system prompt
+        const response = await this.model!.invoke(
+          `${this.config.systemPrompt}\n\nUser: ${message}`
+        );
+        
+        return response.content as string;
+      } catch (error) {
+        console.error('Error processing general knowledge question:', error);
+        return "I'm sorry, I encountered an error while processing your question. Could you please try asking in a different way?";
+      }
+    }
+    
+    // Continue with normal processing for non-general questions
     try {
       if (!this.initialized) {
         await this.initialize();
@@ -342,6 +363,22 @@ User message: ${message}`;
       console.error('Error processing message:', error);
       return `I'm sorry, I encountered an error while processing your message: ${error}`;
     }
+  }
+  
+  /**
+   * Determines if a query is a general knowledge question that should bypass tool activation
+   * @param query The user's query to evaluate
+   * @returns True if this is a general knowledge question
+   */
+  private isGeneralKnowledgeQuestion(query: string): boolean {
+    const generalPatterns = [
+      /what (are|is) .*(metrics|tracking|measure|measuring|monitor|monitoring)/i,
+      /which (metrics|measures|indicators|kpis)/i,
+      /(tell me about|describe|explain) .*(metrics|measurements|kpis)/i,
+      /how (do|does|are|is) .*(metrics|measure|track|monitor)/i
+    ];
+    
+    return generalPatterns.some(pattern => pattern.test(query));
   }
   
   /**

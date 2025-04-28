@@ -11,7 +11,9 @@ export async function GET(
   { params }: { params: { fileId: string } }
 ) {
   try {
-    const fileId = params.fileId;
+    // Access params safely by ensuring it's awaited if it's a promise
+    const fileIdParam = params?.fileId ? await params.fileId : null;
+    const fileId = String(fileIdParam);
     
     if (!fileId) {
       return NextResponse.json(

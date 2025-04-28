@@ -60,3 +60,5 @@ debug_paths.bat
 /data/logs/
 *.lance/
 
+data/files/uploads/
+data/files/storage/
