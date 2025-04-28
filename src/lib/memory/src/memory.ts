@@ -131,4 +131,24 @@ export class Memory {
       return [];
     }
   }
+
+  /**
+   * Get the total number of messages in memory
+   */
+  async getMessageCount(): Promise<number> {
+    if (!this.isInitialized) {
+      await this.initialize();
+    }
+
+    try {
+      if (typeof window === 'undefined') {
+        const count = await serverQdrant.getMessageCount();
+        return count;
+      }
+      return 0;
+    } catch (error) {
+      console.error('Error getting message count:', error);
+      return 0;
+    }
+  }
 } 

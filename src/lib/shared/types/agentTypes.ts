@@ -479,6 +479,8 @@ export interface ScheduledTask {
   nextRun?: Date;
   enabled: boolean;
   tags?: string[];
+  interval?: number; // Interval in milliseconds for non-cron tasks
+  intervalId?: NodeJS.Timeout; // For tracking interval-based tasks
 }
 
 /**

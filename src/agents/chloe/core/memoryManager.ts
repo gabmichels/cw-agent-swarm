@@ -396,4 +396,34 @@ export class MemoryManager implements IManager {
   isInitialized(): boolean {
     return this.initialized;
   }
+
+  /**
+   * Diagnose the memory system's health
+   */
+  async diagnose(): Promise<{
+    status: string;
+    messageCount: number;
+  }> {
+    try {
+      const memory = this.getChloeMemory();
+      if (!memory) {
+        return {
+          status: 'not_initialized',
+          messageCount: 0
+        };
+      }
+
+      const messageCount = await memory.getMessageCount();
+      return {
+        status: 'operational',
+        messageCount
+      };
+    } catch (error) {
+      console.error('Error diagnosing memory system:', error);
+      return {
+        status: 'error',
+        messageCount: 0
+      };
+    }
+  }
 } 

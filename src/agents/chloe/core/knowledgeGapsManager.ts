@@ -437,4 +437,26 @@ Please provide a concise summary that:
       return false;
     }
   }
+
+  /**
+   * Analyze knowledge gaps in the agent's understanding
+   */
+  async analyzeGaps(): Promise<void> {
+    try {
+      this.logAction('Starting knowledge gaps analysis');
+
+      // Implement knowledge gaps analysis logic here
+      // This could include:
+      // - Analyzing conversation history for unanswered questions
+      // - Identifying areas where the agent lacks confidence
+      // - Reviewing failed tasks for patterns
+      // - Comparing current knowledge with expected knowledge
+
+      this.logAction('Knowledge gaps analysis completed');
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logAction('Knowledge gaps analysis failed', { error: errorMessage });
+      throw error;
+    }
+  }
 } 

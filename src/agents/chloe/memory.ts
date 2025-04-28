@@ -344,4 +344,30 @@ export class ChloeMemory {
     
     return ["Memory search unavailable in browser environment."];
   }
+
+  /**
+   * Get the total number of messages in memory
+   */
+  async getMessageCount(): Promise<number> {
+    if (!this.initialized) {
+      await this.initialize();
+    }
+
+    if (this.useExternalMemory && this.externalMemory) {
+      return this.externalMemory.getMessageCount();
+    }
+
+    // If using server-side Qdrant, get count from there
+    if (typeof window === 'undefined') {
+      try {
+        const count = await serverQdrant.getMessageCount();
+        return count;
+      } catch (error) {
+        console.error('Error getting message count from Qdrant:', error);
+        return 0;
+      }
+    }
+
+    return 0;
+  }
 } 

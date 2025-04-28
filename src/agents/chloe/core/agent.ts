@@ -1,8 +1,9 @@
-import { StateGraph } from '@langchain/langgraph';
+import { StateGraph, ChloeState, ChannelValue, Task, Memory, Reflection } from '../types/state';
+import { Message as ChloeMessage } from '../types/message';
 import { ChatOpenAI } from '@langchain/openai';
-import { AgentConfig, Message, Task } from '../../../lib/shared';
+import { AgentConfig } from '../../../lib/shared';
 import { SYSTEM_PROMPTS } from '../../../lib/shared';
-import { ChloeState, AutonomySystem } from '../../../lib/shared/types/agent';
+import { AutonomySystem } from '../../../lib/shared/types/agent';
 import { Notifier } from '../notifiers';
 import { TaskLogger } from '../task-logger';
 import { Persona } from '../persona';
@@ -17,6 +18,7 @@ import { ReflectionManager } from './reflectionManager';
 import { ThoughtManager } from './thoughtManager';
 import { MarketScannerManager } from './marketScannerManager';
 import { KnowledgeGapsManager } from './knowledgeGapsManager';
+import { StateManager } from './stateManager';
 
 // Add these to the existing imports from agentTypes.ts
 import {
@@ -38,6 +40,8 @@ export class ChloeAgent implements IAgent {
   // Core properties
   readonly agentId: string = 'chloe';
   private _initialized: boolean = false;
+  private autonomyMode: boolean = false;
+  private scheduledTasks: ScheduledTask[] = [];
   
   get initialized(): boolean {
     return this._initialized;
@@ -61,6 +65,7 @@ export class ChloeAgent implements IAgent {
   private thoughtManager: ThoughtManager | null = null;
   private marketScannerManager: MarketScannerManager | null = null;
   private knowledgeGapsManager: KnowledgeGapsManager | null = null;
+  private stateManager: StateManager;
   
   constructor(options?: ChloeAgentOptions) {
     // Set default configuration
@@ -73,6 +78,7 @@ export class ChloeAgent implements IAgent {
     };
     
     console.log('ChloeAgent instance created');
+    this.stateManager = new StateManager(this.taskLogger || undefined);
   }
   
   /**
@@ -604,61 +610,187 @@ User message: ${message}`;
    * Get the autonomy system
    */
   async getAutonomySystem(): Promise<AutonomySystem | null> {
-    // If autonomySystem is not initialized but we have planAndExecute method,
-    // create an adapter that implements the AutonomySystem interface
-    if (!this.autonomySystem && typeof this.planAndExecute === 'function') {
-      // Create a minimal implementation of AutonomySystem that delegates to this.planAndExecute
-      return {
+    if (!this.autonomySystem) {
+      // Create a new autonomy system instance
+      this.autonomySystem = {
         status: 'active',
         scheduledTasks: [],
         scheduler: {
           runTaskNow: async (taskId: string) => {
-            console.log(`Running task: ${taskId}`);
-            return true;
+            try {
+              const task = this.scheduledTasks.find(t => t.id === taskId);
+              if (!task) {
+                throw new Error(`Task ${taskId} not found`);
+              }
+              await this.runTask(task.name);
+              return true;
+            } catch (error) {
+              console.error(`Error running task ${taskId}:`, error);
+              return false;
+            }
           },
-          getScheduledTasks: () => [],
+          getScheduledTasks: () => this.scheduledTasks,
           setTaskEnabled: (taskId: string, enabled: boolean) => {
-            console.log(`Setting task ${taskId} enabled: ${enabled}`);
+            const task = this.scheduledTasks.find(t => t.id === taskId);
+            if (!task) {
+              return false;
+            }
+            task.enabled = enabled;
             return true;
           },
           setAutonomyMode: (enabled: boolean) => {
-            console.log(`Setting autonomy mode: ${enabled}`);
+            this.autonomyMode = enabled;
+            if (enabled) {
+              this.startAutonomousTasks();
+            } else {
+              this.stopAutonomousTasks();
+            }
           },
-          getAutonomyMode: () => true
-        },
-        // Use our planAndExecute method
-        planAndExecute: async (options: PlanAndExecuteOptions): Promise<PlanAndExecuteResult> => {
-          return await this.planAndExecute(options.goalPrompt, options);
-        },
-        // Stub implementations for other required methods
-        runTask: async (taskName: string) => {
-          console.log(`Running task: ${taskName}`);
-          return true;
-        },
-        scheduleTask: async (task: ScheduledTask) => {
-          console.log(`Scheduling task: ${task.id}`);
-          return true;
-        },
-        cancelTask: async (taskId: string) => {
-          console.log(`Canceling task: ${taskId}`);
-          return true;
+          getAutonomyMode: () => this.autonomyMode
         },
         initialize: async () => {
-          console.log('Initializing autonomy system');
-          return true;
+          try {
+            await this.initialize();
+            return true;
+          } catch (error) {
+            console.error('Failed to initialize autonomy system:', error);
+            return false;
+          }
         },
         shutdown: async () => {
-          console.log('Shutting down autonomy system');
+          try {
+            await this.shutdown();
+          } catch (error) {
+            console.error('Error during autonomy system shutdown:', error);
+          }
         },
-        diagnose: async () => ({
-          memory: { status: 'operational', messageCount: 0 },
-          scheduler: { status: 'operational', activeTasks: 0 },
-          planning: { status: 'operational' }
-        })
+        runTask: async (taskName: string) => {
+          try {
+            switch (taskName) {
+              case 'dailyTasks':
+                await this.runDailyTasks();
+                break;
+              case 'weeklyReflection':
+                await this.runWeeklyReflection();
+                break;
+              case 'marketScan':
+                await this.marketScannerManager?.scanMarket();
+                break;
+              case 'knowledgeGaps':
+                await this.knowledgeGapsManager?.analyzeGaps();
+                break;
+              default:
+                throw new Error(`Unknown task: ${taskName}`);
+            }
+            return true;
+          } catch (error) {
+            console.error(`Error running task ${taskName}:`, error);
+            return false;
+          }
+        },
+        scheduleTask: async (task: ScheduledTask) => {
+          try {
+            this.scheduledTasks.push(task);
+            if (task.enabled) {
+              this.startTask(task);
+            }
+            return true;
+          } catch (error) {
+            console.error(`Error scheduling task ${task.id}:`, error);
+            return false;
+          }
+        },
+        cancelTask: async (taskId: string) => {
+          try {
+            const taskIndex = this.scheduledTasks.findIndex(t => t.id === taskId);
+            if (taskIndex === -1) {
+              return false;
+            }
+            const task = this.scheduledTasks[taskIndex];
+            this.stopTask(task);
+            this.scheduledTasks.splice(taskIndex, 1);
+            return true;
+          } catch (error) {
+            console.error(`Error canceling task ${taskId}:`, error);
+            return false;
+          }
+        },
+        planAndExecute: async (options: PlanAndExecuteOptions): Promise<PlanAndExecuteResult> => {
+          try {
+            return await this.planAndExecute(options.goalPrompt, options);
+          } catch (error) {
+            console.error('Error in planAndExecute:', error);
+            return {
+              success: false,
+              message: `Error executing plan: ${error}`,
+              error: error instanceof Error ? error.message : String(error)
+            };
+          }
+        },
+        diagnose: async () => {
+          try {
+            const memoryStatus = await this.memoryManager?.diagnose();
+            const activeTasks = this.scheduledTasks.filter(t => t.enabled).length;
+            
+            return {
+              memory: {
+                status: memoryStatus?.status || 'unknown',
+                messageCount: memoryStatus?.messageCount || 0
+              },
+              scheduler: {
+                status: this.autonomyMode ? 'active' : 'inactive',
+                activeTasks
+              },
+              planning: {
+                status: this.planningManager?.isInitialized() ? 'operational' : 'not initialized'
+              }
+            };
+          } catch (error) {
+            console.error('Error diagnosing autonomy system:', error);
+            return {
+              memory: { status: 'error', messageCount: 0 },
+              scheduler: { status: 'error', activeTasks: 0 },
+              planning: { status: 'error' }
+            };
+          }
+        }
       };
     }
     
     return this.autonomySystem;
+  }
+
+  // Add private helper methods for task management
+  private startTask(task: ScheduledTask): void {
+    if (task.interval) {
+      const interval = setInterval(async () => {
+        if (task.enabled) {
+          await this.runTask(task.name);
+        }
+      }, task.interval);
+      task.intervalId = interval;
+    }
+  }
+
+  private stopTask(task: ScheduledTask): void {
+    if (task.intervalId) {
+      clearInterval(task.intervalId);
+      task.intervalId = undefined;
+    }
+  }
+
+  private startAutonomousTasks(): void {
+    this.scheduledTasks.forEach(task => {
+      if (task.enabled) {
+        this.startTask(task);
+      }
+    });
+  }
+
+  private stopAutonomousTasks(): void {
+    this.scheduledTasks.forEach(task => {
+      this.stopTask(task);
+    });
   }
 
   /**
@@ -685,5 +817,422 @@ User message: ${message}`;
       console.error(`Error summarizing conversation: ${errorMessage}`, { error });
       return null;
     }
+  }
+
+  /**
+   * Run a task by name
+   */
+  private async runTask(taskName: string): Promise<void> {
+    switch (taskName) {
+      case 'dailyTasks':
+        await this.runDailyTasks();
+        break;
+      case 'weeklyReflection':
+        await this.runWeeklyReflection();
+        break;
+      case 'marketScan':
+        await this.marketScannerManager?.scanMarket();
+        break;
+      case 'knowledgeGaps':
+        await this.knowledgeGapsManager?.analyzeGaps();
+        break;
+      default:
+        throw new Error(`Unknown task: ${taskName}`);
+    }
+  }
+
+  /**
+   * Set up the LangGraph state management system
+   */
+  private async setupLangGraph(): Promise<StateGraph<ChloeState>> {
+    const graph = new StateGraph<ChloeState>({
+      channels: {
+        messages: 'array' as ChannelValue<ChloeMessage[]>,
+        memory: 'array' as ChannelValue<Memory[]>,
+        tasks: 'array' as ChannelValue<Task[]>,
+        reflections: 'array' as ChannelValue<Reflection[]>,
+        response: 'single' as ChannelValue<string>,
+        error: 'single' as ChannelValue<string>
+      }
+    });
+
+    // Add nodes for different states
+    graph.addNode('initialize', this.initializeState.bind(this));
+    graph.addNode('process', this.processState.bind(this));
+    graph.addNode('plan', this.planState.bind(this));
+    graph.addNode('execute', this.executeState.bind(this));
+    graph.addNode('reflect', this.reflectState.bind(this));
+    graph.addNode('recover', this.recoverState.bind(this));
+
+    // Define state transitions
+    graph.addEdge('initialize', 'process');
+    graph.addEdge('process', 'plan');
+    graph.addEdge('plan', 'execute');
+    graph.addEdge('execute', 'reflect');
+    graph.addEdge('reflect', 'process');
+    
+    // Add error recovery paths
+    graph.addEdge('*', 'recover'); // From any state to recover
+    graph.addEdge('recover', 'process'); // After recovery, go back to processing
+
+    return graph;
+  }
+
+  /**
+   * Initialize state node handler
+   */
+  private async initializeState(state: ChloeState): Promise<ChloeState> {
+    try {
+      if (!this.initialized) {
+        await this.initialize();
+      }
+      const newState = {
+        ...state,
+        messages: [],
+        memory: [],
+        tasks: [],
+        reflections: []
+      };
+      
+      // Create initial checkpoint
+      await this.stateManager.createCheckpoint(newState, { type: 'initialization' });
+      
+      return newState;
+    } catch (error) {
+      return {
+        ...state,
+        error: error instanceof Error ? error.message : String(error)
+      };
+    }
+  }
+
+  /**
+   * Process state node handler
+   */
+  private async processState(state: ChloeState): Promise<ChloeState> {
+    try {
+      // Get relevant context from memory
+      const context = await this.memoryManager?.getRelevantMemories(
+        state.messages[state.messages.length - 1]?.content || '',
+        5
+      ) || [];
+
+      // Convert string memories to Memory objects
+      const memoryContext: Memory[] = context.map(content => {
+        if (typeof content === 'string') {
+          return {
+            id: `memory_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+            content,
+            type: 'message',
+            importance: 'medium',
+            source: 'system',
+            created: new Date(),
+            lastAccessed: new Date(),
+            accessCount: 1
+          };
+        }
+        return content;
+      });
+
+      const newState: ChloeState = {
+        ...state,
+        memory: [...state.memory, ...memoryContext]
+      };
+
+      // Create checkpoint before processing
+      await this.stateManager.createCheckpoint(newState, { type: 'pre_processing' });
+
+      return newState;
+    } catch (error) {
+      return {
+        ...state,
+        error: error instanceof Error ? error.message : String(error)
+      };
+    }
+  }
+
+  /**
+   * Plan state node handler
+   */
+  private async planState(state: ChloeState): Promise<ChloeState> {
+    try {
+      if (!this.planningManager) {
+        throw new Error('Planning manager not initialized');
+      }
+
+      const lastMessage = state.messages[state.messages.length - 1];
+      if (!lastMessage) {
+        throw new Error('No message to plan for');
+      }
+
+      // Create checkpoint before planning
+      await this.stateManager.createCheckpoint(state, { type: 'pre_planning' });
+
+      const planResult = await this.planningManager.planAndExecuteWithOptions({
+        goalPrompt: lastMessage.content,
+        autonomyMode: this.autonomyMode
+      });
+
+      if (!planResult.success) {
+        throw new Error(planResult.error || 'Planning failed');
+      }
+
+      const currentTask: Task = {
+        id: `task_${Date.now()}`,
+        description: lastMessage.content,
+        status: 'in_progress',
+        priority: 1,
+        created_at: new Date(),
+        updated_at: new Date()
+      };
+
+      const newState: ChloeState = {
+        ...state,
+        currentTask
+      };
+
+      // Create checkpoint after planning
+      await this.stateManager.createCheckpoint(newState, { type: 'post_planning' });
+
+      return newState;
+    } catch (error) {
+      // Try to rollback to pre-planning state
+      const checkpoints = this.stateManager.getCheckpoints();
+      const prePlanningCheckpoint = checkpoints.find(cp => cp.metadata?.type === 'pre_planning');
+      if (prePlanningCheckpoint) {
+        await this.stateManager.rollback(prePlanningCheckpoint.id);
+      }
+
+      return {
+        ...state,
+        error: error instanceof Error ? error.message : String(error)
+      };
+    }
+  }
+
+  /**
+   * Execute state node handler
+   */
+  private async executeState(state: ChloeState): Promise<ChloeState> {
+    try {
+      if (!state.currentTask) {
+        throw new Error('No task to execute');
+      }
+
+      // Create checkpoint before execution
+      await this.stateManager.createCheckpoint(state, { type: 'pre_execution' });
+
+      // Execute the current task
+      const result = await this.executeTask(state.currentTask);
+
+      const updatedTask: Task = {
+        ...state.currentTask,
+        status: result.success ? 'completed' : 'failed',
+        updated_at: new Date()
+      };
+
+      const newState: ChloeState = {
+        ...state,
+        tasks: [...state.tasks, updatedTask],
+        response: result.message,
+        currentTask: undefined
+      };
+
+      // Create checkpoint after execution
+      await this.stateManager.createCheckpoint(newState, { type: 'post_execution' });
+
+      return newState;
+    } catch (error) {
+      // Try to rollback to pre-execution state
+      const checkpoints = this.stateManager.getCheckpoints();
+      const preExecutionCheckpoint = checkpoints.find(cp => cp.metadata?.type === 'pre_execution');
+      if (preExecutionCheckpoint) {
+        await this.stateManager.rollback(preExecutionCheckpoint.id);
+      }
+
+      return {
+        ...state,
+        error: error instanceof Error ? error.message : String(error)
+      };
+    }
+  }
+
+  /**
+   * Reflect state node handler
+   */
+  private async reflectState(state: ChloeState): Promise<ChloeState> {
+    try {
+      if (!this.reflectionManager) {
+        throw new Error('Reflection manager not initialized');
+      }
+
+      // Create checkpoint before reflection
+      await this.stateManager.createCheckpoint(state, { type: 'pre_reflection' });
+
+      const reflectionContent = await this.reflectionManager.reflect(
+        `Review the execution of task: ${state.currentTask?.description}`
+      );
+
+      const newReflection: Reflection = {
+        id: `reflection_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        content: reflectionContent,
+        type: 'task',
+        insights: [],
+        recommendations: [],
+        created: new Date(),
+        relatedTasks: state.currentTask ? [state.currentTask.id] : undefined
+      };
+
+      const newState: ChloeState = {
+        ...state,
+        reflections: [...state.reflections, newReflection]
+      };
+
+      // Create checkpoint after reflection
+      await this.stateManager.createCheckpoint(newState, { type: 'post_reflection' });
+
+      return newState;
+    } catch (error) {
+      // Try to rollback to pre-reflection state
+      const checkpoints = this.stateManager.getCheckpoints();
+      const preReflectionCheckpoint = checkpoints.find(cp => cp.metadata?.type === 'pre_reflection');
+      if (preReflectionCheckpoint) {
+        await this.stateManager.rollback(preReflectionCheckpoint.id);
+      }
+
+      return {
+        ...state,
+        error: error instanceof Error ? error.message : String(error)
+      };
+    }
+  }
+
+  /**
+   * Recovery state node handler
+   */
+  private async recoverState(state: ChloeState): Promise<ChloeState> {
+    try {
+      // Log the error
+      this.taskLogger?.logAction('Error recovery triggered', {
+        error: state.error,
+        currentTask: state.currentTask,
+        lastMessage: state.messages[state.messages.length - 1]
+      });
+
+      // Try to find the last successful checkpoint
+      const checkpoints = this.stateManager.getCheckpoints();
+      const lastSuccessfulCheckpoint = checkpoints.find(cp => 
+        cp.metadata?.type && ['post_planning', 'post_execution', 'post_reflection'].includes(cp.metadata.type)
+      );
+
+      if (lastSuccessfulCheckpoint) {
+        // Rollback to the last successful state
+        await this.stateManager.rollback(lastSuccessfulCheckpoint.id);
+        return lastSuccessfulCheckpoint.state;
+      }
+
+      // If no successful checkpoint found, clear the error and current task
+      return {
+        ...state,
+        error: undefined,
+        currentTask: undefined,
+        response: `I encountered an error: ${state.error}. I'll try to handle your request differently.`
+      };
+    } catch (error) {
+      // If recovery itself fails, we're in trouble
+      this.taskLogger?.logAction('Recovery failed', { error });
+      return {
+        ...state,
+        error: 'Critical error: Recovery failed'
+      };
+    }
+  }
+
+  /**
+   * Execute a task with proper error handling and recovery
+   */
+  private async executeTask(task: Task): Promise<{
+    success: boolean;
+    message: string;
+  }> {
+    try {
+      // Validate task parameters
+      if (!task.description) {
+        throw new Error('Task description is required');
+      }
+
+      // Check resource limits
+      if (!await this.checkResourceLimits()) {
+        throw new Error('Resource limits exceeded');
+      }
+
+      // Execute the task with circuit breaker pattern
+      const result = await this.executeWithCircuitBreaker(async () => {
+        return await this.planAndExecute(task.description, {
+          goalPrompt: task.description,
+          maxSteps: 10,
+          timeLimit: 300
+        });
+      });
+
+      return {
+        success: result.success,
+        message: result.message
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: error instanceof Error ? error.message : String(error)
+      };
+    }
+  }
+
+  /**
+   * Check system resource limits
+   */
+  private async checkResourceLimits(): Promise<boolean> {
+    try {
+      const memoryStatus = await this.memoryManager?.diagnose();
+      const activeTasks = this.scheduledTasks.filter(t => t.enabled).length;
+
+      // Define some reasonable limits
+      const MAX_MEMORY_MESSAGES = 10000;
+      const MAX_ACTIVE_TASKS = 20;
+
+      if ((memoryStatus?.messageCount || 0) > MAX_MEMORY_MESSAGES) {
+        throw new Error('Memory message limit exceeded');
+      }
+
+      if (activeTasks > MAX_ACTIVE_TASKS) {
+        throw new Error('Active tasks limit exceeded');
+      }
+
+      return true;
+    } catch (error) {
+      console.error('Error checking resource limits:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Execute a function with circuit breaker pattern
+   */
+  private async executeWithCircuitBreaker<T>(fn: () => Promise<T>, maxRetries: number = 3): Promise<T> {
+    let retries = 0;
+    let lastError: Error | null = null;
+
+    while (retries < maxRetries) {
+      try {
+        return await fn();
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        retries++;
+        
+        // Exponential backoff
+        await new Promise(resolve => setTimeout(resolve, Math.pow(2, retries) * 1000));
+      }
+    }
+
+    throw lastError || new Error('Circuit breaker: max retries exceeded');
   }
 }

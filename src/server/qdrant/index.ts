@@ -108,6 +108,17 @@ class InMemoryStorage {
       this.storage.set(collectionName, []);
     });
   }
+
+  /**
+   * Get the total number of messages in memory
+   */
+  async getMessageCount(): Promise<number> {
+    const totalCount = Object.values(COLLECTIONS).reduce((total, collectionName) => {
+      const collection = this.storage.get(collectionName) || [];
+      return total + collection.length;
+    }, 0);
+    return totalCount;
+  }
 }
 
 // Class that handles Qdrant connections
@@ -891,6 +902,40 @@ class QdrantHandler {
       );
     }
   }
+
+  /**
+   * Get the total number of messages in memory
+   */
+  async getMessageCount(): Promise<number> {
+    if (!this.initialized) {
+      await this.initialize();
+    }
+
+    try {
+      if (!this.useQdrant) {
+        // Count all messages in in-memory storage
+        return this.fallbackStorage.getMessageCount();
+      }
+
+      // Count messages in Qdrant
+      const counts = await Promise.all(
+        Object.values(COLLECTIONS).map(async (collectionName) => {
+          try {
+            const count = await this.client.getCollection(collectionName);
+            return count.points_count || 0;
+          } catch (error) {
+            console.error(`Error getting count for collection ${collectionName}:`, error);
+            return 0;
+          }
+        })
+      );
+
+      return counts.reduce((total: number, count: number) => total + count, 0);
+    } catch (error) {
+      console.error('Error getting message count:', error);
+      return 0;
+    }
+  }
 }
 
 // Singleton instance
@@ -1408,4 +1453,12 @@ export async function getRecentPoints(collectionName: string, limit: number = 5)
     console.error(`Error getting recent points from ${collectionName}:`, error);
     return [];
   }
+}
+
+// Export the getMessageCount function
+export async function getMessageCount(): Promise<number> {
+  if (!qdrantInstance) {
+    await initMemory();
+  }
+  return qdrantInstance!.getMessageCount();
 } 
