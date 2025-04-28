@@ -28,6 +28,9 @@ import {
   MessageOptions,
 } from '../../../lib/shared/types/agentTypes';
 
+import { KnowledgeLoader } from './knowledgeLoader';
+import { KnowledgeEmbedder } from './knowledgeEmbedder';
+
 export interface ChloeAgentOptions {
   config?: Partial<AgentConfig>;
   useOpenAI?: boolean;
@@ -67,6 +70,9 @@ export class ChloeAgent implements IAgent {
   private knowledgeGapsManager: KnowledgeGapsManager | null = null;
   private stateManager: StateManager;
   
+  private knowledgeLoader: KnowledgeLoader;
+  private knowledgeEmbedder: KnowledgeEmbedder;
+  
   constructor(options?: ChloeAgentOptions) {
     // Set default configuration
     this.config = {
@@ -79,6 +85,15 @@ export class ChloeAgent implements IAgent {
     
     console.log('ChloeAgent instance created');
     this.stateManager = new StateManager(this.taskLogger || undefined);
+    
+    // Initialize knowledge system
+    this.knowledgeLoader = new KnowledgeLoader();
+    this.knowledgeEmbedder = new KnowledgeEmbedder(this.knowledgeLoader);
+    
+    // Load knowledge (can be done asynchronously)
+    this.initializeKnowledge().catch(error => {
+      console.error('Error initializing knowledge:', error);
+    });
   }
   
   /**
@@ -220,6 +235,19 @@ export class ChloeAgent implements IAgent {
       console.log('ChloeAgent initialization complete.');
     } catch (error) {
       console.error('Error initializing ChloeAgent:', error);
+      throw error;
+    }
+  }
+  
+  /**
+   * Initialize knowledge system
+   */
+  private async initializeKnowledge(): Promise<void> {
+    try {
+      await this.knowledgeLoader.loadAllKnowledge();
+      console.log('Knowledge system initialized successfully');
+    } catch (error) {
+      console.error('Failed to initialize knowledge system:', error);
       throw error;
     }
   }
@@ -1234,5 +1262,29 @@ User message: ${message}`;
     }
 
     throw lastError || new Error('Circuit breaker: max retries exceeded');
+  }
+
+  /**
+   * Process a user request with embedded knowledge
+   */
+  async processRequestWithKnowledge(request: string): Promise<string> {
+    try {
+      // Enhance the request with relevant knowledge
+      const enhancedRequest = await this.knowledgeEmbedder.embedKnowledgeForAgent(
+        this.agentId,
+        request
+      );
+      
+      // Process the enhanced request
+      // Replace this with your actual processing logic
+      // const response = await this.someProcessingMethod(enhancedRequest);
+      
+      // For example purposes, just return a sample response
+      return `Response to: ${request}`;
+    } catch (error: unknown) {
+      console.error('Error processing request with knowledge:', error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      return `I encountered an error processing your request: ${errorMessage}`;
+    }
   }
 }
