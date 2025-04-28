@@ -207,7 +207,7 @@ export interface MemoryEntry {
 /**
  * Types of memories
  */
-export type MemoryType = 'message' | 'thought' | 'insight' | 'fact' | 'reflection' | 'task';
+export type MemoryType = 'message' | 'thought' | 'insight' | 'fact' | 'reflection' | 'task' | 'document';
 
 /**
  * Importance levels for memories

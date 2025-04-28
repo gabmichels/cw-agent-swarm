@@ -3,19 +3,12 @@ import path from 'path';
 import { AgentMemory } from '../../lib/memory';
 // Use server-only Qdrant implementation
 import * as serverQdrant from '../../server/qdrant';
+import { MemoryEntry as BaseMemoryEntry, MemoryType, MemorySource, ImportanceLevel } from '../../lib/shared/types/agentTypes';
 
-export interface MemoryEntry {
-  id: string;
-  content: string;
-  created: Date;
+export interface MemoryEntry extends BaseMemoryEntry {
   category: string;
-  importance: 'low' | 'medium' | 'high';
-  source: 'user' | 'chloe' | 'system';
-  context?: string;
   expiresAt?: Date;
   tags?: string[];
-  type?: string;
-  timestamp?: string;
 }
 
 export interface ChloeMemoryOptions {
@@ -83,8 +76,8 @@ export class ChloeMemory {
   async addMemory(
     content: string,
     category: string,
-    importance: 'low' | 'medium' | 'high' = 'medium',
-    source: 'user' | 'chloe' | 'system' = 'system',
+    importance: ImportanceLevel = 'medium',
+    source: MemorySource = 'system',
     context?: string,
     tags?: string[]
   ): Promise<MemoryEntry> {
@@ -101,7 +94,8 @@ export class ChloeMemory {
       importance,
       source,
       context,
-      tags
+      tags,
+      type: 'message' // Default type
     };
     
     // Add to server-side Qdrant (only when running server-side)
@@ -141,14 +135,9 @@ export class ChloeMemory {
 
   /**
    * Get memories by date range and type
-   * @param type Type of memory to retrieve (message, thought, document, task)
-   * @param startDate Start date of range
-   * @param endDate End date of range
-   * @param limit Maximum number of memories to retrieve
-   * @returns Array of memory entries in the specified range
    */
   async getMemoriesByDateRange(
-    type: 'message' | 'thought' | 'document' | 'task',
+    type: MemoryType,
     startDate: Date,
     endDate: Date,
     limit: number = 50
@@ -191,49 +180,21 @@ export class ChloeMemory {
             content: record.text,
             created: new Date(record.timestamp),
             timestamp: record.timestamp,
-            type: record.type as any,
+            type: record.type as MemoryType,
             category: record.metadata.category || record.metadata.tag || type,
             source: record.metadata.source || 'system',
-            importance: (record.metadata.importance || 'medium') as 'low' | 'medium' | 'high',
+            importance: (record.metadata.importance || 'medium') as ImportanceLevel,
             tags: record.metadata.tags || []
           }));
         } catch (error) {
-          console.error(`Error retrieving memories by date range from external memory:`, error);
-          // Fall back to server-side implementation
+          console.error('Error searching external memory:', error);
+          return [];
         }
       }
       
-      // Use server-side implementation
-      if (typeof window === 'undefined') {
-        try {
-          const searchOptions = {
-            limit,
-            filter,
-            type
-          };
-          const records = await serverQdrant.searchMemory(type, '', searchOptions);
-          
-          // Convert to memory entries
-          return records.map(record => ({
-            id: record.id,
-            content: record.text,
-            created: new Date(record.timestamp),
-            timestamp: record.timestamp,
-            type: record.type,
-            category: record.metadata.category || record.metadata.tag || type,
-            source: record.metadata.source || 'system',
-            importance: (record.metadata.importance || 'medium') as 'low' | 'medium' | 'high',
-            tags: record.metadata.tags || []
-          }));
-        } catch (error) {
-          console.error(`Error retrieving memories by date range from server:`, error);
-        }
-      }
-      
-      // If we reach here, we have no available memory sources
       return [];
     } catch (error) {
-      console.error('Error retrieving memories by date range:', error);
+      console.error('Error getting memories by date range:', error);
       return [];
     }
   }
