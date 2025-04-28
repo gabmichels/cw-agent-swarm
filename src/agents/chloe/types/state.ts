@@ -1,14 +1,20 @@
 // Define all the necessary types
+export interface ChloeMessage {
+  id: string;
+  content: string;
+  timestamp: Date;
+  type: 'user' | 'system' | 'error';
+  metadata?: Record<string, any>;
+}
+
 export interface Task {
   id: string;
   description: string;
   status: 'pending' | 'in_progress' | 'completed' | 'failed';
   priority: number;
-  dependencies?: string[];
-  result?: any;
-  error?: string;
   created_at: Date;
   updated_at: Date;
+  metadata?: Record<string, any>;
 }
 
 export interface Message {
@@ -38,25 +44,22 @@ export interface Memory {
 export interface Reflection {
   id: string;
   content: string;
-  type: 'daily' | 'weekly' | 'monthly' | 'task' | 'error';
-  insights: string[];
-  recommendations: string[];
-  created: Date;
+  timestamp: Date;
+  type: 'success' | 'failure' | 'improvement';
   metadata?: Record<string, any>;
-  relatedTasks?: string[];
-  relatedMemories?: string[];
 }
 
 export type ChannelValue<T> = 'array' | 'single';
 
 export interface ChloeState {
-  messages: Message[];
+  messages: ChloeMessage[];
   memory: Memory[];
   tasks: Task[];
   reflections: Reflection[];
   response?: string;
   error?: string;
   currentTask?: Task;
+  metadata?: Record<string, any>;
 }
 
 export interface StateGraphConfig {

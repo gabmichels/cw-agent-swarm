@@ -1076,11 +1076,11 @@ User message: ${message}`;
       const newReflection: Reflection = {
         id: `reflection_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
         content: reflectionContent,
-        type: 'task',
-        insights: [],
-        recommendations: [],
-        created: new Date(),
-        relatedTasks: state.currentTask ? [state.currentTask.id] : undefined
+        type: 'improvement',
+        timestamp: new Date(),
+        metadata: {
+          relatedTasks: state.currentTask ? [state.currentTask.id] : undefined
+        }
       };
 
       const newState: ChloeState = {
