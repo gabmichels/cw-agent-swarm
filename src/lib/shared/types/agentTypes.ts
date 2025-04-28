@@ -220,6 +220,73 @@ export type ImportanceLevel = 'low' | 'medium' | 'high' | number;
 export type MemorySource = 'user' | 'chloe' | 'system' | 'tool' | 'web' | string;
 
 /**
+ * Message memory entry
+ */
+export interface MessageMemory extends MemoryEntry {
+  type: 'message';
+  sender: string;
+  recipient: string;
+  conversationId?: string;
+  metadata?: {
+    attachments?: Array<{
+      type: string;
+      url?: string;
+      data?: Buffer | string;
+      filename?: string;
+      contentType?: string;
+    }>;
+    [key: string]: unknown;
+  };
+}
+
+/**
+ * Thought memory entry
+ */
+export interface ThoughtMemory extends MemoryEntry {
+  type: 'thought';
+  category: string;
+  confidence: number;
+  relatedThoughts?: string[];
+  metadata?: {
+    reasoning?: string;
+    assumptions?: string[];
+    [key: string]: unknown;
+  };
+}
+
+/**
+ * Strategic insight memory entry
+ */
+export interface StrategicInsightMemory extends MemoryEntry {
+  type: 'insight';
+  category: string;
+  confidence: number;
+  impact: 'low' | 'medium' | 'high';
+  relatedInsights?: string[];
+  metadata?: {
+    evidence?: string[];
+    recommendations?: string[];
+    [key: string]: unknown;
+  };
+}
+
+/**
+ * Task memory entry
+ */
+export interface TaskMemory extends MemoryEntry {
+  type: 'task';
+  status: 'pending' | 'in_progress' | 'completed' | 'failed';
+  priority: 'low' | 'medium' | 'high';
+  dueDate?: Date;
+  assignedTo?: string;
+  metadata?: {
+    steps?: string[];
+    dependencies?: string[];
+    [key: string]: unknown;
+  };
+}
+
+/**
  * Tagged memory with additional metadata
  */
 export interface TaggedMemory extends MemoryEntry {
@@ -273,6 +340,41 @@ export interface ToolExecutionResult {
   data?: unknown;
 }
 
+/**
+ * Tool metadata interface
+ */
+export interface ToolMetadata {
+  name: string;
+  description: string;
+  version: string;
+  author?: string;
+  category: string;
+  tags: string[];
+  parameters: {
+    [key: string]: {
+      type: string;
+      description: string;
+      required: boolean;
+      default?: unknown;
+      enum?: unknown[];
+    };
+  };
+  returns: {
+    type: string;
+    description: string;
+  };
+  examples: Array<{
+    input: Record<string, unknown>;
+    output: unknown;
+    description: string;
+  }>;
+  metadata?: {
+    rateLimit?: number;
+    timeout?: number;
+    [key: string]: unknown;
+  };
+}
+
 // ============= PLANNING TYPES =============
 
 /**
@@ -293,10 +395,15 @@ export interface PlanStep {
   description: string;
   status: 'pending' | 'in_progress' | 'completed' | 'failed';
   tool?: string;
-  params?: Record<string, any>;
+  params?: Record<string, unknown>;
   result?: ToolExecutionResult;
   startTime?: Date;
   endTime?: Date;
+  metadata?: {
+    prerequisites?: string[];
+    estimatedDuration?: number;
+    [key: string]: unknown;
+  };
 }
 
 /**
@@ -309,6 +416,23 @@ export interface ExecutionResult {
   totalSteps: number;
   error?: string;
   plan?: PlanWithSteps;
+}
+
+/**
+ * Plan result interface
+ */
+export interface PlanResult {
+  success: boolean;
+  message: string;
+  steps: PlanStep[];
+  startTime: Date;
+  endTime?: Date;
+  metadata?: {
+    totalDuration?: number;
+    completedSteps: number;
+    failedSteps: number;
+    [key: string]: unknown;
+  };
 }
 
 // ============= AUTONOMY SYSTEM =============
@@ -419,4 +543,62 @@ export interface ChloeState {
   reflections: string[];
   response?: string;
   error?: string;
+}
+
+// ============= TYPE GUARDS =============
+
+/**
+ * Type guard for MessageMemory
+ */
+export function isMessageMemory(memory: MemoryEntry): memory is MessageMemory {
+  return memory.type === 'message';
+}
+
+/**
+ * Type guard for ThoughtMemory
+ */
+export function isThoughtMemory(memory: MemoryEntry): memory is ThoughtMemory {
+  return memory.type === 'thought';
+}
+
+/**
+ * Type guard for StrategicInsightMemory
+ */
+export function isStrategicInsightMemory(memory: MemoryEntry): memory is StrategicInsightMemory {
+  return memory.type === 'insight';
+}
+
+/**
+ * Type guard for TaskMemory
+ */
+export function isTaskMemory(memory: MemoryEntry): memory is TaskMemory {
+  return memory.type === 'task';
+}
+
+/**
+ * Type guard for successful plan result
+ */
+export function isSuccessfulPlanResult(result: PlanResult): result is PlanResult & { success: true } {
+  return result.success === true;
+}
+
+/**
+ * Type guard for failed plan result
+ */
+export function isFailedPlanResult(result: PlanResult): result is PlanResult & { success: false } {
+  return result.success === false;
+}
+
+/**
+ * Type guard for successful tool execution
+ */
+export function isSuccessfulToolExecution(result: ToolExecutionResult): result is ToolExecutionResult & { success: true } {
+  return result.success === true;
+}
+
+/**
+ * Type guard for failed tool execution
+ */
+export function isFailedToolExecution(result: ToolExecutionResult): result is ToolExecutionResult & { success: false } {
+  return result.success === false;
 } 
