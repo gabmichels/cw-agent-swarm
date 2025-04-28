@@ -5,10 +5,30 @@
  * with various components of the Chloe agent system.
  */
 
-import { TaskLogger } from '../task-logger';
+import { TaskLogger as CoreTaskLogger } from './taskLogger';
+import { TaskLogger as BaseTaskLogger } from '../task-logger';
 import { RobustSafeguards } from './robustSafeguards';
 import { Task } from '../types/state';
 import { PlanWithSteps } from '../types/planning';
+
+// Helper function to ensure we have the right TaskLogger type
+function ensureCompatibleLogger(logger?: BaseTaskLogger | CoreTaskLogger): CoreTaskLogger | undefined {
+  if (!logger) return undefined;
+  
+  // If it's already compatible, return it
+  if ('logAction' in logger) {
+    return logger as unknown as CoreTaskLogger;
+  }
+  
+  // Otherwise create a simple adapter
+  return {
+    logAction: (action: string, details?: Record<string, any>) => {
+      if ('logAction' in logger) {
+        (logger as any).logAction(action, details);
+      }
+    }
+  } as unknown as CoreTaskLogger;
+}
 
 /**
  * Example: Integrating RobustSafeguards with Task Execution
@@ -22,14 +42,15 @@ import { PlanWithSteps } from '../types/planning';
 export async function executeTaskWithSafeguards(
   task: Task,
   executeFunction: () => Promise<any>,
-  taskLogger?: TaskLogger
+  taskLogger?: BaseTaskLogger
 ): Promise<{
   success: boolean;
   result?: any;
   error?: string;
 }> {
-  // Initialize safeguards
-  const safeguards = new RobustSafeguards(taskLogger);
+  // Initialize safeguards with compatible logger
+  const compatibleLogger = ensureCompatibleLogger(taskLogger);
+  const safeguards = new RobustSafeguards(compatibleLogger);
   
   try {
     // Step 1: Validate the task
@@ -67,7 +88,7 @@ export async function executeTaskWithSafeguards(
       result
     };
   } catch (error) {
-    taskLogger?.logAction('Task execution error', {
+    compatibleLogger?.logAction('Task execution error', {
       taskId: task.id,
       error: error instanceof Error ? error.message : String(error)
     });
@@ -85,13 +106,14 @@ export async function executeTaskWithSafeguards(
 export async function executePlanWithSafeguards(
   plan: PlanWithSteps,
   executePlanFunction: () => Promise<any>,
-  taskLogger?: TaskLogger
+  taskLogger?: BaseTaskLogger
 ): Promise<{
   success: boolean;
   result?: any;
   error?: string;
 }> {
-  const safeguards = new RobustSafeguards(taskLogger);
+  const compatibleLogger = ensureCompatibleLogger(taskLogger);
+  const safeguards = new RobustSafeguards(compatibleLogger);
   
   try {
     // Validate the plan
@@ -114,7 +136,7 @@ export async function executePlanWithSafeguards(
       result
     };
   } catch (error) {
-    taskLogger?.logAction('Plan execution error', {
+    compatibleLogger?.logAction('Plan execution error', {
       planDescription: plan.description,
       error: error instanceof Error ? error.message : String(error)
     });
@@ -130,12 +152,13 @@ export async function executePlanWithSafeguards(
  * Example: Monitoring Resource Usage
  */
 export async function monitorResources(
-  taskLogger?: TaskLogger
+  taskLogger?: BaseTaskLogger
 ): Promise<{
   safeToExecute: boolean;
   metrics?: any;
 }> {
-  const safeguards = new RobustSafeguards(taskLogger);
+  const compatibleLogger = ensureCompatibleLogger(taskLogger);
+  const safeguards = new RobustSafeguards(compatibleLogger);
   
   // Monitor resources
   const metrics = await safeguards.monitorResources();
@@ -153,13 +176,14 @@ export async function monitorResources(
  * Example: Getting System Status Report
  */
 export function getSystemStatus(
-  taskLogger?: TaskLogger
+  taskLogger?: BaseTaskLogger
 ): {
   resourceMetrics: any;
   circuitBreakers: any[];
   pendingCleanupTasks: number;
 } {
-  const safeguards = new RobustSafeguards(taskLogger);
+  const compatibleLogger = ensureCompatibleLogger(taskLogger);
+  const safeguards = new RobustSafeguards(compatibleLogger);
   return safeguards.getStatusReport();
 }
 
@@ -170,11 +194,13 @@ export function getSystemStatus(
  */
 export class SafeExecutionManager {
   private safeguards: RobustSafeguards;
-  private taskLogger: TaskLogger;
+  private taskLogger: BaseTaskLogger;
+  private compatibleLogger: CoreTaskLogger;
   
-  constructor(taskLogger?: TaskLogger) {
-    this.taskLogger = taskLogger || new TaskLogger();
-    this.safeguards = new RobustSafeguards(this.taskLogger);
+  constructor(taskLogger?: BaseTaskLogger) {
+    this.taskLogger = taskLogger || new BaseTaskLogger();
+    this.compatibleLogger = ensureCompatibleLogger(this.taskLogger) as CoreTaskLogger;
+    this.safeguards = new RobustSafeguards(this.compatibleLogger);
   }
   
   async executeTask(task: Task, executeFn: () => Promise<any>): Promise<any> {
@@ -189,7 +215,7 @@ export class SafeExecutionManager {
     const resources = await this.safeguards.monitorResources();
     const status = this.safeguards.getStatusReport();
     
-    this.taskLogger.logAction('System health check', {
+    this.compatibleLogger.logAction('System health check', {
       memoryUsage: resources.memoryUsage,
       cpuUsage: resources.cpuUsage,
       circuitBreakers: status.circuitBreakers.length,
@@ -202,7 +228,7 @@ export class SafeExecutionManager {
   async cleanup(): Promise<void> {
     const result = await this.safeguards.executeAllCleanupTasks();
     
-    this.taskLogger.logAction('System cleanup completed', {
+    this.compatibleLogger.logAction('System cleanup completed', {
       successfulTasks: result.success,
       failedTasks: result.failure,
       remainingTasks: result.remaining

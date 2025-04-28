@@ -1,10 +1,15 @@
+// Re-export the TaskLogger class from the parent directory
+export { TaskLogger } from '../task-logger';
+// Re-export types using export type syntax
+export type { TaskLogEntry, TaskSession, TaskLoggerOptions } from '../task-logger';
+
 export interface LogAction {
   action: string;
   details?: Record<string, any>;
   timestamp?: Date;
 }
 
-export class TaskLogger {
+export class CoreTaskLogger {
   private logs: LogAction[] = [];
   private maxLogs: number;
 

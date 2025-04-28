@@ -5,7 +5,7 @@ import { AgentConfig } from '../../../lib/shared';
 import { SYSTEM_PROMPTS } from '../../../lib/shared';
 import { AutonomySystem } from '../../../lib/shared/types/agent';
 import { Notifier } from '../notifiers';
-import { TaskLogger } from '../task-logger';
+import { TaskLogger } from './taskLogger';
 import { Persona } from '../persona';
 import { ChloeMemory } from '../memory';
 import { IAgent } from '../../../lib/shared/types/agentTypes';
@@ -19,7 +19,6 @@ import { ThoughtManager } from './thoughtManager';
 import { MarketScannerManager } from './marketScannerManager';
 import { KnowledgeGapsManager } from './knowledgeGapsManager';
 import { StateManager } from './stateManager';
-import { NotificationManager } from './notificationManager';
 import { RobustSafeguards } from './robustSafeguards';
 
 // Add these to the existing imports from agentTypes.ts
@@ -29,9 +28,6 @@ import {
   ScheduledTask,
   MessageOptions,
 } from '../../../lib/shared/types/agentTypes';
-
-import { KnowledgeLoader } from '../knowledge';
-import { KnowledgeEmbedder } from './knowledgeEmbedder';
 
 export interface ChloeAgentOptions {
   config?: Partial<AgentConfig>;
@@ -57,7 +53,7 @@ export class ChloeAgent implements IAgent {
   
   // Core systems
   private model: ChatOpenAI | null = null;
-  private taskLogger: TaskLogger | null = null;
+  private taskLogger: TaskLogger;
   private persona: Persona | null = null;
   private autonomySystem: AutonomySystem | null = null;
   
@@ -70,36 +66,29 @@ export class ChloeAgent implements IAgent {
   private marketScannerManager: MarketScannerManager | null = null;
   private knowledgeGapsManager: KnowledgeGapsManager | null = null;
   private stateManager: StateManager;
-  private notificationManager: NotificationManager | null = null;
   private safeguards: RobustSafeguards;
   
-  private knowledgeLoader: KnowledgeLoader;
-  private knowledgeEmbedder: KnowledgeEmbedder;
-  
   constructor(options?: ChloeAgentOptions) {
+    // Initialize task logger first
+    this.taskLogger = new TaskLogger();
+    
     // Set default configuration
     this.config = {
-      apiKey: process.env.OPENAI_API_KEY,
+      systemPrompt: SYSTEM_PROMPTS.CHLOE,
+      model: 'gpt-4.1-2025-04-14', // Set a default model
       temperature: 0.7,
       maxTokens: 4000,
-      ...options?.config,
+      ...(options?.config || {}),
     };
     
     console.log('ChloeAgent instance created');
-    this.stateManager = new StateManager(this.taskLogger || undefined);
-    this.safeguards = new RobustSafeguards(this.taskLogger || undefined);
     
-    // Initialize knowledge system
-    this.knowledgeLoader = new KnowledgeLoader();
-    this.knowledgeEmbedder = new KnowledgeEmbedder();
+    // Initialize state manager and safeguards
+    this.stateManager = new StateManager(this.taskLogger);
+    this.safeguards = new RobustSafeguards(this.taskLogger);
     
     // Initialize scheduled tasks
     this.scheduledTasks = [];
-    
-    // Load knowledge (can be done asynchronously)
-    this.initializeKnowledge().catch(error => {
-      console.error('Error initializing knowledge:', error);
-    });
   }
   
   /**
@@ -237,19 +226,6 @@ export class ChloeAgent implements IAgent {
       console.log('ChloeAgent initialization complete.');
     } catch (error) {
       console.error('Error initializing ChloeAgent:', error);
-      throw error;
-    }
-  }
-  
-  /**
-   * Initialize knowledge system
-   */
-  private async initializeKnowledge(): Promise<void> {
-    try {
-      await this.knowledgeLoader.loadAllKnowledge();
-      console.log('Knowledge system initialized successfully');
-    } catch (error) {
-      console.error('Failed to initialize knowledge system:', error);
       throw error;
     }
   }
@@ -1268,29 +1244,5 @@ User message: ${message}`;
    */
   private async executeWithCircuitBreaker<T>(fn: () => Promise<T>): Promise<T> {
     return this.safeguards.executeWithCircuitBreaker('agent_operation', fn);
-  }
-
-  /**
-   * Process a user request with embedded knowledge
-   */
-  async processRequestWithKnowledge(request: string): Promise<string> {
-    try {
-      // Enhance the request with relevant knowledge
-      const enhancedRequest = await this.knowledgeEmbedder.embedKnowledgeForAgent(
-        this.agentId,
-        request
-      );
-      
-      // Process the enhanced request
-      // Replace this with your actual processing logic
-      // const response = await this.someProcessingMethod(enhancedRequest);
-      
-      // For example purposes, just return a sample response
-      return `Response to: ${request}`;
-    } catch (error: unknown) {
-      console.error('Error processing request with knowledge:', error);
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      return `I encountered an error processing your request: ${errorMessage}`;
-    }
   }
 }
