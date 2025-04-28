@@ -1,9 +1,11 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { getLLM } from '../../../lib/core/llm';
+import { getLLM as getLangchainLLM } from '../../../lib/core/llm';
 import { ChatPromptTemplate } from '@langchain/core/prompts';
 import { createMarketScanner } from './marketScanner';
 import { EnhancedMemory, createEnhancedMemory } from '../../../lib/memory/src/enhanced-memory';
+import { CodaDocumentTool } from './index';
+import { logger as appLogger } from '../../../lib/logging';
 
 // Define logger inline
 const logger = {
@@ -59,7 +61,7 @@ class ProposeContentIdeasTool extends BaseTool {
     
     try {
       // Get a more capable LLM to generate actual content ideas
-      const llm = getLLM({
+      const llm = getLangchainLLM({
         modelName: 'google/gemini-2.0-flash-001',
         temperature: 0.7, // Higher temperature for more creative ideas
       });
@@ -486,11 +488,13 @@ export class IntentRouterTool extends BaseTool {
     this.registerTool('market_scan', new MarketScanTool());
     this.registerTool('notify_discord', new NotifyDiscordTool());
     this.registerTool('create_task', new CreateTaskTool());
+    this.registerTool('coda_document', new CodaDocumentToolAdapter());
     
     // Alias the tools by intent name for easier lookup
     this.registerToolAlias('generate_content_ideas', 'propose_content_ideas');
     this.registerToolAlias('run_market_scan', 'market_scan');
     this.registerToolAlias('schedule_task', 'create_task');
+    this.registerToolAlias('create_coda_doc', 'coda_document');
     
     // Initialize the promptTemplate
     this.initializePromptTemplate();
@@ -613,6 +617,20 @@ USER INPUT: {input}`;
           action: "notify_discord",
           description: "Send a notification or message to the configured Discord channel",
           extractParams: true
+        },
+        {
+          intent: "create_coda_doc",
+          patterns: [
+            "create a Coda document about {topic}",
+            "make a Coda doc about {topic}",
+            "create a document in Coda about {topic}",
+            "write a Coda document on {topic}",
+            "start a new Coda doc for {topic}",
+            "generate a Coda document covering {topic}"
+          ],
+          action: "coda_document",
+          description: "Create a new document in Coda workspace",
+          extractParams: true
         }
       ]
     };
@@ -650,7 +668,7 @@ USER INPUT: {input}`;
         logThought("Failed to initialize LLM: Missing OpenRouter API key");
       }
       
-      this.llm = getLLM({
+      this.llm = getLangchainLLM({
         modelName: 'google/gemini-2.0-flash-001',
         temperature: 0.1,
         apiKey: openRouterApiKey
@@ -680,7 +698,7 @@ USER INPUT: {input}`;
       
       // Format the prompt with all the required parameters
       const prompt = await this.promptTemplate.invoke({
-        available_intents: JSON.stringify(this.getIntentsInfo(), null, 2),
+        available_intents: JSON.stringify(await this.getIntentsInfo(), null, 2),
         input: input,
       });
       
@@ -712,36 +730,39 @@ USER INPUT: {input}`;
         console.log("🎯 Parse successful, match result:", result);
         
         if (result.matched && result.intent) {
-          logThought(`✓ Detected intent: ${result.intent} with ${Math.round((result.confidence || 0) * 100)}% confidence`);
-          console.log(`🎉 Intent match successful: ${result.intent} with ${Math.round((result.confidence || 0) * 100)}% confidence`);
-          
-          if (result.params && Object.keys(result.params).length > 0) {
-            logThought(`Extracted parameters: ${JSON.stringify(result.params)}`);
-            console.log("📦 Parameters extracted:", result.params);
-          }
-        } else {
-          logThought("✗ No intent matched for this input");
-          console.log("❌ No intent matched for this input");
+          logThought(`Intent "${result.intent}" matched with confidence ${result.confidence}`);
+          return result;
         }
         
-        return result;
-      } catch (parseError) {
-        logger.error('Failed to parse LLM response:', parseError);
-        logger.debug('Raw LLM response:', response);
-        logThought("Failed to parse intent classification response");
+        // If we get here but no match, return default no match result
+        return { matched: false };
+      } catch (error) {
+        console.error('Error parsing intent match result:', error);
+        logThought('Failed to parse intent match result');
         return { matched: false };
       }
     } catch (error) {
-      logger.error('Error in intent matching:', error);
-      logThought("Error occurred during intent classification");
+      console.error('Error in intent matching:', error);
+      logThought('Failed to match intent');
       return { matched: false };
     }
   }
   
-  async execute(params: { input: string; extractParams?: boolean }): Promise<any> {
+  private async getIntentsInfo(): Promise<Record<string, string>> {
+    const intentsInfo: Record<string, string> = {};
+    for (const [name, tool] of Object.entries(this.tools)) {
+      intentsInfo[name] = tool.description;
+    }
+    return intentsInfo;
+  }
+
+  /**
+   * Execute method required by BaseTool abstract class
+   */
+  async execute(params: Record<string, any>): Promise<any> {
     const { input, extractParams = true } = params;
     
-    console.log("🔍 INTENT ROUTER TRIGGERED with input:", params.input);
+    console.log("🔍 INTENT ROUTER TRIGGERED with input:", input);
     logThought(`IntentRouter triggered: "${input}"`);
     
     logger.info(`Routing intent for input: ${input}`);
@@ -830,15 +851,6 @@ USER INPUT: {input}`;
       };
     }
   }
-
-  // Add method to get information about the registered intents
-  private getIntentsInfo(): any[] {
-    // Return array of intent metadata for the LLM prompt
-    return Object.values(this.tools).map(tool => ({
-      intent: tool.name,
-      description: tool.description
-    }));
-  }
   
   // Format the result for display based on the action type
   private formatResultForDisplay(action: string, result: any): string {
@@ -857,6 +869,8 @@ USER INPUT: {input}`;
         return result.message || "Discord notification sent successfully.";
       case 'create_task':
         return result.message || "Task created successfully.";
+      case 'coda_document':
+        return result.message || "Coda document created successfully.";
       default:
         return JSON.stringify(result, null, 2);
     }
@@ -930,7 +944,7 @@ USER INPUT: {input}`;
         case 'notify_discord':
           // Extract priority for notifications
           if (!enhancedParams.priority) {
-            const priority = this.enhancedMemory.extractPriority(input);
+            const priority = this.extractPriority(input);
             enhancedParams.priority = priority;
             
             // If high priority, also set the mention flag
@@ -944,7 +958,7 @@ USER INPUT: {input}`;
       
       // Extract any dates and add as deadline if relevant
       if (['create_task', 'schedule_task'].includes(toolName) && !enhancedParams.deadline) {
-        const extractedDate = this.enhancedMemory.extractDateFromText(input);
+        const extractedDate = this.extractDateFromText(input);
         if (extractedDate) {
           enhancedParams.deadline = extractedDate.toISOString();
           logThought(`Extracted deadline: ${extractedDate.toDateString()}`);
@@ -953,7 +967,7 @@ USER INPUT: {input}`;
       
       // Extract priority for any task-related actions
       if (['create_task', 'schedule_task'].includes(toolName) && !enhancedParams.priority) {
-        const priority = this.enhancedMemory.extractPriority(input);
+        const priority = this.extractPriority(input);
         enhancedParams.priority = priority;
         logThought(`Extracted priority: ${priority}`);
       }
@@ -965,4 +979,130 @@ USER INPUT: {input}`;
       return params;
     }
   }
-} 
+
+  // Helper methods for enhanceParameters
+  private extractPriority(text: string): string {
+    if (/\b(urgent|critical|high priority|asap|immediately)\b/i.test(text)) {
+      return 'high';
+    } else if (/\b(low priority|whenever|no rush|not urgent)\b/i.test(text)) {
+      return 'low';
+    }
+    return 'medium';
+  }
+
+  private extractDateFromText(text: string): Date | null {
+    // Simple date extraction for common formats like "tomorrow", "next Tuesday", "on May 1st"
+    const today = new Date();
+    
+    // Check for "tomorrow"
+    if (/\btomorrow\b/i.test(text)) {
+      const tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      return tomorrow;
+    }
+    
+    // Check for "next week"
+    if (/\bnext week\b/i.test(text)) {
+      const nextWeek = new Date(today);
+      nextWeek.setDate(nextWeek.getDate() + 7);
+      return nextWeek;
+    }
+    
+    // More complex date parsing would go here
+    
+    return null;
+  }
+}
+
+/**
+ * Adapter class to convert between CodaDocumentTool interface and BaseTool interface
+ * This allows us to use the existing CodaDocumentTool with the IntentRouterTool
+ */
+class CodaDocumentToolAdapter extends BaseTool {
+  private codaTool: CodaDocumentTool;
+  
+  constructor() {
+    super(
+      'coda_document',
+      'Create, read, or update documents in Coda workspace',
+      {
+        topic: {
+          type: 'string',
+          description: 'The topic to create a document about'
+        },
+        content: {
+          type: 'string',
+          description: 'Optional content for the document',
+          required: false
+        }
+      }
+    );
+    
+    // Create instance of the actual CodaDocumentTool
+    this.codaTool = new CodaDocumentTool();
+  }
+  
+  async execute(params: Record<string, any>): Promise<any> {
+    const { topic, content } = params;
+    
+    try {
+      // Format input for the CodaDocumentTool
+      // The tool expects input in format "create|title|content"
+      const inputString = `create|${topic}|${content || ''}`;
+      
+      // Call the actual tool
+      logThought(`Calling CodaDocumentTool with: "${inputString.substring(0, 50)}..."`);
+      const result = await this.codaTool._call(inputString);
+      
+      // Parse the result and return in the format expected by IntentRouterTool
+      const match = result.match(/Document created: "([^"]+)" \(ID: ([^)]+)\)/);
+      
+      if (match) {
+        return {
+          success: true,
+          message: result,
+          documentName: match[1],
+          documentId: match[2],
+          documentUrl: `https://coda.io/d/${match[2]}`
+        };
+      }
+      
+      // Handle error cases
+      if (result.startsWith('Error:')) {
+        return {
+          success: false,
+          message: result
+        };
+      }
+      
+      // Default success case
+      return {
+        success: true,
+        message: result
+      };
+    } catch (error) {
+      console.error('Error using CodaDocumentTool:', error);
+      return {
+        success: false,
+        message: `Error creating Coda document: ${error instanceof Error ? error.message : String(error)}`
+      };
+    }
+  }
+}
+
+/**
+ * Get the LLM instance to use for generating content
+ */
+async function getLLM() {
+  try {
+    // Fix dynamic import for ChatOpenAI by using a more modern path
+    const { ChatOpenAI } = await import('@langchain/openai');
+    return new ChatOpenAI({
+      modelName: 'gpt-4-0125-preview',
+      temperature: 0.7
+    });
+  } catch (error) {
+    console.error('Error getting LLM:', error);
+    throw new Error(`Failed to initialize LLM: ${error}`);
+  }
+}

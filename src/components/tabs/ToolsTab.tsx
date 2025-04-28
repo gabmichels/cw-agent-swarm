@@ -33,6 +33,9 @@ const ToolsTab: React.FC<ToolsTabProps> = ({
 }) => {
   const [debugResults, setDebugResults] = useState<any>(null);
   const [isDebugLoading, setIsDebugLoading] = useState(false);
+  const [codaResults, setCodaResults] = useState<any>(null);
+  const [isCodaLoading, setIsCodaLoading] = useState(false);
+  const [codaInputValue, setCodaInputValue] = useState('');
 
   // Function to delete chat history
   const handleDeleteChatHistory = async () => {
@@ -173,6 +176,145 @@ const ToolsTab: React.FC<ToolsTabProps> = ({
     }
   };
 
+  // New functions for Coda test tools
+  const createCodaTestDocument = async () => {
+    setIsCodaLoading(true);
+    setCodaResults(null);
+    try {
+      const response = await fetch('/api/tools/coda-test-doc', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ title: codaInputValue }),
+      });
+      const data = await response.json();
+      setCodaResults(data);
+    } catch (error) {
+      console.error('Error creating Coda test document:', error);
+      setCodaResults({ error: String(error) });
+    } finally {
+      setIsCodaLoading(false);
+    }
+  };
+
+  const readCodaPage = async () => {
+    setIsCodaLoading(true);
+    setCodaResults(null);
+    try {
+      const input = codaInputValue;
+      const isUrl = input.includes('coda.io/d/');
+      
+      let requestBody = {};
+      if (isUrl) {
+        requestBody = { browserLink: input };
+      } else {
+        requestBody = { pageId: input || 'dgkYnzkmckz' };
+      }
+      
+      const response = await fetch('/api/tools/coda-read-page', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestBody),
+      });
+      const data = await response.json();
+      setCodaResults(data);
+    } catch (error) {
+      console.error('Error reading Coda page:', error);
+      setCodaResults({ error: String(error) });
+    } finally {
+      setIsCodaLoading(false);
+    }
+  };
+
+  const appendCodaLine = async () => {
+    setIsCodaLoading(true);
+    setCodaResults(null);
+    try {
+      const response = await fetch('/api/tools/coda-append-line', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ line: codaInputValue }),
+      });
+      const data = await response.json();
+      setCodaResults(data);
+    } catch (error) {
+      console.error('Error appending to Coda page:', error);
+      setCodaResults({ error: String(error) });
+    } finally {
+      setIsCodaLoading(false);
+    }
+  };
+
+  // New function to resolve Coda browser links
+  const resolveCodaBrowserLink = async () => {
+    setIsCodaLoading(true);
+    setCodaResults(null);
+    try {
+      const browserLink = codaInputValue;
+      if (!browserLink || !browserLink.includes('coda.io')) {
+        setCodaResults({ 
+          success: false, 
+          error: "Please enter a valid Coda URL (e.g., https://coda.io/d/...)" 
+        });
+        setIsCodaLoading(false);
+        return;
+      }
+      
+      const response = await fetch('/api/tools/coda-resolve-link', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ browserLink }),
+      });
+      const data = await response.json();
+      setCodaResults(data);
+    } catch (error) {
+      console.error('Error resolving Coda browser link:', error);
+      setCodaResults({ error: String(error) });
+    } finally {
+      setIsCodaLoading(false);
+    }
+  };
+
+  // New function to directly test document access with different ID formats
+  const testDirectDocAccess = async () => {
+    setIsCodaLoading(true);
+    setCodaResults(null);
+    try {
+      const input = codaInputValue;
+      const isUrl = input.includes('coda.io/');
+      
+      let requestBody = {};
+      if (isUrl) {
+        requestBody = { url: input };
+      } else {
+        requestBody = { id: input };
+      }
+      
+      const response = await fetch('/api/tools/coda-direct-access', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestBody),
+      });
+      
+      const data = await response.json();
+      setCodaResults(data);
+    } catch (error) {
+      console.error('Error testing direct document access:', error);
+      setCodaResults({ error: String(error) });
+    } finally {
+      setIsCodaLoading(false);
+    }
+  };
+
   return (
     <div className="bg-gray-800 rounded-lg p-4">
       <h2 className="text-xl font-bold mb-4">Tools & Diagnostics</h2>
@@ -183,6 +325,57 @@ const ToolsTab: React.FC<ToolsTabProps> = ({
       </div>
       
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="bg-gray-700 p-4 rounded-lg">
+          <h3 className="font-semibold mb-2">Coda Document Tools</h3>
+          <p className="text-sm text-gray-300 mb-4">Test Coda document integration with these tools.</p>
+          <div className="flex flex-col space-y-2">
+            <input
+              type="text"
+              className="px-3 py-1 bg-gray-600 text-white rounded text-sm mb-2"
+              placeholder="Title/PageId/Line to add/Browser Link"
+              value={codaInputValue}
+              onChange={(e) => setCodaInputValue(e.target.value)}
+            />
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={createCodaTestDocument}
+                className="px-3 py-1 bg-blue-600 hover:bg-blue-700 rounded text-white text-sm"
+                disabled={isCodaLoading}
+              >
+                Create Doc
+              </button>
+              <button 
+                onClick={readCodaPage}
+                className="px-3 py-1 bg-green-600 hover:bg-green-700 rounded text-white text-sm"
+                disabled={isCodaLoading}
+              >
+                Read Page
+              </button>
+              <button
+                onClick={appendCodaLine}
+                className="px-3 py-1 bg-yellow-600 hover:bg-yellow-700 rounded text-white text-sm"
+                disabled={isCodaLoading}
+              >
+                Append Line
+              </button>
+              <button
+                onClick={resolveCodaBrowserLink}
+                className="px-3 py-1 bg-purple-600 hover:bg-purple-700 rounded text-white text-sm"
+                disabled={isCodaLoading}
+              >
+                Resolve Link
+              </button>
+              <button
+                onClick={testDirectDocAccess}
+                className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 rounded text-white text-sm"
+                disabled={isCodaLoading}
+              >
+                Test Access
+              </button>
+            </div>
+          </div>
+        </div>
+        
         <div className="bg-gray-700 p-4 rounded-lg">
           <h3 className="font-semibold mb-2">Agent Diagnostics</h3>
           <p className="text-sm text-gray-300 mb-4">Run tests to check Chloe's configuration and functionality.</p>
@@ -289,6 +482,16 @@ const ToolsTab: React.FC<ToolsTabProps> = ({
           </div>
         </div>
       </div>
+      
+      {/* Show Coda results if available */}
+      {codaResults && (
+        <div className="mt-6 p-4 bg-gray-700 rounded-lg">
+          <h3 className="font-semibold mb-2">Coda Tool Results</h3>
+          <pre className="bg-gray-900 p-2 rounded overflow-auto text-xs max-h-60">
+            {typeof codaResults === 'string' ? codaResults : JSON.stringify(codaResults, null, 2)}
+          </pre>
+        </div>
+      )}
       
       {isDebugMode && (
         <div className="mt-6 p-4 bg-gray-700 rounded-lg">

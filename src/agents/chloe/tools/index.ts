@@ -30,8 +30,8 @@ export class SearchMemoryTool implements SimpleTool {
         return "No relevant memories found.";
       }
       
-      return results.map((memory: string, index: number) => {
-        return `[${index + 1}] ${memory}`;
+      return results.map((memory, index) => {
+        return `[${index + 1}] ${typeof memory === 'string' ? memory : memory.content}`;
       }).join('\n\n');
     } catch (error) {
       console.error('Error searching memory:', error);
@@ -64,7 +64,7 @@ export class SummarizeRecentActivityTool implements SimpleTool {
       }
       
       // Use the model to summarize the activities
-      const memoryContent = recentMemories.map((m: string) => m).join('\n');
+      const memoryContent = recentMemories.map((m) => typeof m === 'string' ? m : m.content).join('\n');
       
       const response = await this.model.invoke(
         `I need a concise summary of my recent activities based on these memory entries:
@@ -101,7 +101,7 @@ export class ProposeContentIdeasTool implements SimpleTool {
       // Search memory for any relevant previous content ideas or themes
       const relevantMemories = await this.memory.getRelevantMemories('content ideas marketing themes', 3);
       const memoryContext = relevantMemories.length > 0 
-        ? `Based on previous content themes and ideas: ${relevantMemories.map((m: string) => m).join('; ')}`
+        ? `Based on previous content themes and ideas: ${relevantMemories.map((m) => typeof m === 'string' ? m : m.content).join('; ')}`
         : '';
       
       const response = await this.model.invoke(
@@ -151,7 +151,7 @@ export class ReflectOnPerformanceTool implements SimpleTool {
         return "Insufficient data for reflection. More actions and outcomes needed.";
       }
       
-      const memoryContent = relevantMemories.map((m: string) => m).join('\n');
+      const memoryContent = relevantMemories.map((m) => typeof m === 'string' ? m : m.content).join('\n');
       
       const response = await this.model.invoke(
         `As a reflective AI assistant, please analyze these recent actions and outcomes:
@@ -427,7 +427,93 @@ export class IntentRouterTool implements SimpleTool {
   }
 }
 
-// Export all tools in a factory function
+// Add temporary Coda test tools
+/**
+ * Temporary tool to create a test Coda document
+ */
+export class CreateCodaTestDocTool implements SimpleTool {
+  name = 'create_coda_test_doc';
+  description = 'Create a test document in Coda workspace';
+
+  async _call(input: string): Promise<string> {
+    try {
+      const title = input || `Test Document ${new Date().toISOString()}`;
+      const content = `# Test Document
+      
+This is a test document created at ${new Date().toLocaleString()}.
+
+## Test Section
+
+This document was created automatically to test the Coda integration.`;
+
+      const newDoc = await codaIntegration.createDoc(title, content);
+      return `Test document created successfully!\n\nTitle: "${newDoc.name}"\nID: ${newDoc.id}\nURL: ${newDoc.browserLink}`;
+    } catch (error) {
+      console.error('Error creating test Coda document:', error);
+      return `Error creating test Coda document: ${error instanceof Error ? error.message : String(error)}`;
+    }
+  }
+}
+
+/**
+ * Temporary tool to read a specific Coda page
+ */
+export class ReadCodaPageTool implements SimpleTool {
+  name = 'read_coda_page';
+  description = 'Read a specific page from Coda';
+
+  async _call(input: string): Promise<string> {
+    try {
+      const pageId = input || 'canvas-12gCwjgwEO';
+      const content = await codaIntegration.readDoc(pageId);
+      
+      if (!content) {
+        return `No content found for page ID: ${pageId}`;
+      }
+      
+      return `Content from page ${pageId}:\n\n${content}`;
+    } catch (error) {
+      console.error('Error reading Coda page:', error);
+      return `Error reading Coda page: ${error instanceof Error ? error.message : String(error)}`;
+    }
+  }
+}
+
+/**
+ * Temporary tool to append a test line to a specific Coda page
+ */
+export class AppendCodaLineTool implements SimpleTool {
+  name = 'append_coda_line';
+  description = 'Append a test line to a specific Coda page';
+
+  async _call(input: string): Promise<string> {
+    try {
+      const pageId = 'canvas-12gCwjgwEO';
+      
+      // First read the existing content
+      const existingContent = await codaIntegration.readDoc(pageId);
+      
+      if (!existingContent) {
+        return `No content found for page ID: ${pageId}`;
+      }
+      
+      // Append a new line
+      const timestamp = new Date().toLocaleString();
+      const testLine = input || `Test line added at ${timestamp}`;
+      const newContent = `${existingContent}\n\n${testLine}`;
+      
+      // Update the document
+      await codaIntegration.updateDoc(pageId, newContent);
+      
+      return `Successfully appended line to Coda page ${pageId}:\n"${testLine}"`;
+    } catch (error) {
+      console.error('Error appending to Coda page:', error);
+      return `Error appending to Coda page: ${error instanceof Error ? error.message : String(error)}`;
+    }
+  }
+}
+
+// Update the createChloeTools function to include the new test tools
 export const createChloeTools = (memory: ChloeMemory, model: any, discordWebhookUrl?: string): { 
   [key: string]: SimpleTool; // Use only the index signature for flexibility
 } => {
@@ -439,7 +525,12 @@ export const createChloeTools = (memory: ChloeMemory, model: any, discordWebhook
     notifyDiscord: new NotifyDiscordTool(discordWebhookUrl),
     codaDocument: new CodaDocumentTool(),
     marketScan: new MarketScanTool(),
-    intentRouter: new ActualIntentRouterTool() as unknown as SimpleTool // Use type assertion to satisfy TypeScript
+    intentRouter: new ActualIntentRouterTool() as unknown as SimpleTool, // Use type assertion to satisfy TypeScript
+    
+    // Add the new test tools
+    createCodaTestDoc: new CreateCodaTestDocTool(),
+    readCodaPage: new ReadCodaPageTool(),
+    appendCodaLine: new AppendCodaLineTool()
   };
 };
 
