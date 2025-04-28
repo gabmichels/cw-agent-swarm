@@ -174,4 +174,60 @@ body {
 
 .markdown-content th {
   background-color: #1f2937;
+}
+
+/* Custom prose size utilities */
+.prose-xs {
+  font-size: 0.75rem;
+  line-height: 1.25rem;
+}
+
+.prose-xs h1 {
+  font-size: 1.2rem;
+  margin-top: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.prose-xs h2 {
+  font-size: 1.1rem;
+  margin-top: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.prose-xs h3,
+.prose-xs h4,
+.prose-xs h5,
+.prose-xs h6 {
+  font-size: 0.9rem;
+  margin-top: 0.5rem;
+  margin-bottom: 0.25rem;
+}
+
+.prose-xs p {
+  margin-bottom: 0.5rem;
+}
+
+.prose-xs ul,
+.prose-xs ol {
+  margin: 0.5rem 0;
+  padding-left: 1.25rem;
+}
+
+.prose-xs li {
+  margin: 0.125rem 0;
+}
+
+.prose-xs blockquote {
+  margin: 0.5rem 0;
+  padding-left: 0.75rem;
+}
+
+.prose-xs pre {
+  padding: 0.5rem;
+  margin: 0.5rem 0;
+}
+
+.prose-xs code {
+  padding: 0.1rem 0.2rem;
+  font-size: 0.7rem;
 } 

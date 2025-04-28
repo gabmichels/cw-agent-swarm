@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { Send } from 'lucide-react';
+import MarkdownRenderer from './MarkdownRenderer';
 
 interface Message {
   id: string;
@@ -137,14 +138,32 @@ export default function ChatInterface() {
       const data = await response.json();
       console.log('API response received:', data);
       
-      // Add bot response
+      // Add bot response - handle both direct reply and nested response structure
+      let replyText = '';
+      let messageMemory = [];
+      let messageThoughts = [];
+      
+      // Check for both data structures to ensure compatibility
+      if (data.reply) {
+        replyText = data.reply;
+        messageMemory = data.memory || [];
+        messageThoughts = data.thoughts || [];
+      } else if (data.response) {
+        replyText = data.response;
+        messageMemory = data.memory || [];
+        messageThoughts = data.thoughts || [];
+      } else {
+        console.error('Unexpected API response format:', data);
+        replyText = "I'm sorry, I encountered an issue with my response format. Please try again.";
+      }
+      
       const botResponse: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: data.reply,
+        content: replyText,
         timestamp: new Date(),
-        memory: data.memory,
-        thoughts: data.thoughts,
+        memory: messageMemory,
+        thoughts: messageThoughts,
       };
       
       setMessages((prev) => [...prev, botResponse]);
@@ -263,17 +282,27 @@ export default function ChatInterface() {
                       : 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-100'
                   }`}
                 >
-                  <div className="prose dark:prose-invert max-w-none">
-                    {message.content}
-                  </div>
+                  <MarkdownRenderer 
+                    content={message.content} 
+                    className={`prose-sm ${
+                      message.role === 'user'
+                        ? 'dark:prose-invert prose-headings:text-gray-800 dark:prose-headings:text-gray-100 prose-p:text-gray-800 dark:prose-p:text-gray-100 prose-strong:text-gray-800 dark:prose-strong:text-purple-300 prose-em:text-gray-700 dark:prose-em:text-gray-300'
+                        : 'dark:prose-invert prose-headings:text-gray-800 dark:prose-headings:text-gray-100 prose-p:text-gray-800 dark:prose-p:text-gray-100 prose-strong:text-gray-800 dark:prose-strong:text-purple-300 prose-em:text-gray-700 dark:prose-em:text-gray-300'
+                    }`} 
+                  />
                   
                   {message.memory && message.memory.length > 0 && (
                     <details className="mt-2 text-sm">
                       <summary className="cursor-pointer text-blue-500">View Memory Context</summary>
                       <div className="mt-2 p-2 bg-gray-200 dark:bg-gray-600 rounded text-sm">
-                        <div className="prose dark:prose-invert max-w-none">
-                          {message.memory.join('\n\n')}
-                        </div>
+                        {message.memory.map((mem, idx) => (
+                          <div key={idx} className="mb-2 last:mb-0">
+                            <MarkdownRenderer 
+                              content={mem} 
+                              className="prose-sm dark:prose-invert prose-headings:text-gray-800 dark:prose-headings:text-gray-100 prose-p:text-gray-800 dark:prose-p:text-gray-100" 
+                            />
+                          </div>
+                        ))}
                       </div>
                     </details>
                   )}
@@ -282,9 +311,14 @@ export default function ChatInterface() {
                     <details className="mt-2 text-sm">
                       <summary className="cursor-pointer text-purple-500">View Thoughts</summary>
                       <div className="mt-2 p-2 bg-gray-200 dark:bg-gray-600 rounded text-sm">
-                        <div className="prose dark:prose-invert max-w-none">
-                          {message.thoughts.join('\n\n')}
-                        </div>
+                        {message.thoughts.map((thought, idx) => (
+                          <div key={idx} className="mb-2 last:mb-0">
+                            <MarkdownRenderer 
+                              content={thought} 
+                              className="prose-sm dark:prose-invert prose-headings:text-gray-800 dark:prose-headings:text-gray-100 prose-p:text-gray-800 dark:prose-p:text-gray-100" 
+                            />
+                          </div>
+                        ))}
                       </div>
                     </details>
                   )}

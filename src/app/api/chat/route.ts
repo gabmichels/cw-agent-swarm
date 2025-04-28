@@ -71,7 +71,11 @@ export async function POST(req: NextRequest) {
       attachments
     });
 
-    return NextResponse.json({ response });
+    return NextResponse.json({ 
+      reply: response,
+      memory: [],
+      thoughts: []
+    });
   } catch (error) {
     console.error('Error in chat route:', error);
     return NextResponse.json(

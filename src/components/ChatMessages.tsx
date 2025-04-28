@@ -62,10 +62,13 @@ const ChatMessages: React.FC<ChatMessagesProps> = ({ messages }) => {
     <>
       {messages.map((message, index) => (
         <div key={index} className={`flex ${message.sender === 'You' ? 'justify-end' : 'justify-start'}`}>
-          <div className={`max-w-[75%] rounded-lg p-2 shadow ${
+          <div className={`max-w-[75%] rounded-lg p-3 shadow ${
             message.sender === 'You' ? 'bg-blue-600 text-white' : 'bg-gray-700'
           }`}>
-            <MarkdownRenderer content={message.content} />
+            <MarkdownRenderer 
+              content={message.content} 
+              className={message.sender === 'You' ? 'prose-headings:text-white prose-p:text-white prose-strong:text-white prose-em:text-white prose-a:text-blue-200' : ''}
+            />
             
             {/* Check for file attachments */}
             {message.attachments && message.attachments.length > 0 && (

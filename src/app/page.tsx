@@ -13,6 +13,7 @@ import SocialMediaTable from '../components/SocialMediaTable';
 import FilesTable from '../components/FilesTable';
 import { formatCronExpression } from '../utils/cronFormatter';
 import { Message, FileAttachment, MemoryItem, Task, ScheduledTask } from '../types';
+import MarkdownRenderer from '../components/MarkdownRenderer';
 
 // Add constants for storage
 const SAVED_ATTACHMENTS_KEY = 'crowd-wisdom-saved-attachments';
@@ -1392,14 +1393,28 @@ For detailed instructions, see the Debug panel.`,
       console.log(`Received ${isVisionResponse ? 'vision' : 'standard'} response from API`);
       
       // Make sure data properties exist and are in the correct format
-      const messageMemory = data.memory ? (Array.isArray(data.memory) ? data.memory : [data.memory]) : [];
-      const messageThoughts = data.thoughts ? (Array.isArray(data.thoughts) ? data.thoughts : [data.thoughts]) : [];
+      // First check if we have data.reply or data.response.reply
+      const replyText = data.reply || (data.response ? data.response.reply : "I couldn't generate a response.");
+      
+      // Handle memory context - could be in different places based on API endpoint
+      const messageMemory = data.memory 
+        ? (Array.isArray(data.memory) ? data.memory : [data.memory]) 
+        : data.response && data.response.memory 
+          ? (Array.isArray(data.response.memory) ? data.response.memory : [data.response.memory])
+          : [];
+      
+      // Handle thoughts - could be in different places based on API endpoint  
+      const messageThoughts = data.thoughts 
+        ? (Array.isArray(data.thoughts) ? data.thoughts : [data.thoughts]) 
+        : data.response && data.response.thoughts
+          ? (Array.isArray(data.response.thoughts) ? data.response.thoughts : [data.response.thoughts])
+          : [];
       
       // For vision responses, add a reference to the original image message timestamp
       // but DON'T include the attachments in the AI response
       const agentResponse: Message = {
         sender: selectedAgent,
-        content: data.reply || "I'm sorry, I couldn't generate a response.",
+        content: replyText,
         timestamp: new Date(),
         memory: messageMemory,
         thoughts: messageThoughts,
@@ -1429,10 +1444,10 @@ For detailed instructions, see the Debug panel.`,
     } catch (error) {
       console.error("Error calling API:", error);
       
-      // Show error message
+      // Show error message but make it look normal like an agent response
       const errorResponse: Message = {
         sender: selectedAgent,
-        content: `Sorry, I encountered an error: ${error instanceof Error ? error.message : "Unknown error"}`,
+        content: "I apologize, but I'm having trouble responding right now. Please try asking again or try a different question.",
         timestamp: new Date()
       };
       
@@ -1455,7 +1470,13 @@ For detailed instructions, see the Debug panel.`,
         <div className={`max-w-[75%] rounded-lg p-3 shadow ${
           message.sender === 'You' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-white'
         }`}>
-          <div className="whitespace-pre-wrap">{message.content}</div>
+          <MarkdownRenderer 
+            content={message.content} 
+            className={message.sender === 'You' 
+              ? 'prose-sm prose-invert prose-headings:text-white prose-p:text-white prose-strong:text-white prose-em:text-white prose-a:text-blue-200'
+              : 'prose-sm prose-invert'
+            }
+          />
           
           {/* Render attachments if present */}
           {message.attachments && message.attachments.length > 0 && (
@@ -1482,11 +1503,14 @@ For detailed instructions, see the Debug panel.`,
           {message.memory && message.memory.length > 0 && (
             <details className="mt-2 text-sm">
               <summary className="cursor-pointer text-blue-300">View Memory Context</summary>
-              <div className="mt-2 p-2 bg-gray-800 rounded text-xs text-gray-300">
+              <div className="mt-2 p-2 bg-gray-800 rounded text-xs">
                 {Array.isArray(message.memory) 
                   ? message.memory.map((mem, i) => (
-                      <div key={i} className="mb-1">
-                        {typeof mem === 'string' ? mem : mem.content || ''}
+                      <div key={i} className="mb-2 last:mb-0">
+                        <MarkdownRenderer 
+                          content={typeof mem === 'string' ? mem : mem.content || ''} 
+                          className="prose-xs prose-invert" 
+                        />
                       </div>
                     ))
                   : 'No memory context available'}
@@ -1498,9 +1522,11 @@ For detailed instructions, see the Debug panel.`,
           {message.thoughts && message.thoughts.length > 0 && (
             <details className="mt-2 text-sm">
               <summary className="cursor-pointer text-purple-300">View Thoughts</summary>
-              <div className="mt-2 p-2 bg-gray-800 rounded text-xs text-gray-300">
+              <div className="mt-2 p-2 bg-gray-800 rounded text-xs">
                 {message.thoughts.map((thought, i) => (
-                  <div key={i} className="mb-1">{thought}</div>
+                  <div key={i} className="mb-2 last:mb-0">
+                    <MarkdownRenderer content={thought} className="prose-xs prose-invert" />
+                  </div>
                 ))}
               </div>
             </details>

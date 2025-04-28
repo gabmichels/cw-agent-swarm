@@ -55,6 +55,7 @@ export interface MemorySearchOptions {
 // Define AgentMemory interface for external memory interactions
 export interface ExtendedAgentMemory extends AgentMemory {
   searchSimilar?(query: string, limit: number): Promise<ExternalMemoryRecord[]>;
+  search?(query: string, limit: number): Promise<ExternalMemoryRecord[]>;
   getStats?(): Promise<{ messageCount: number; [key: string]: any }>;
 }
 
@@ -73,6 +74,7 @@ export class ChloeMemory {
   private useExternalMemory: boolean;
   private externalMemory?: ExtendedAgentMemory;
   private initialized: boolean = false;
+  private memoryStore: { entries: MemoryEntry[] } = { entries: [] }; // Add simple local memory store
 
   constructor(options?: ChloeMemoryOptions) {
     this.agentId = options?.agentId || 'chloe';
@@ -275,16 +277,67 @@ export class ChloeMemory {
    * Convert external memory records to MemoryEntry objects
    */
   private convertRecordsToMemoryEntries(records: ExternalMemoryRecord[]): MemoryEntry[] {
-    return records.map(record => ({
-      id: record.id,
-      content: record.text,
-      created: new Date(record.timestamp),
-      type: (record.type as MemoryType) || 'message',
-      category: record.metadata.category || record.metadata.tag || record.type,
-      source: (record.metadata.source as MemorySource) || 'system',
-      importance: (record.metadata.importance as ImportanceLevel) || 'medium',
-      tags: record.metadata.tags || []
-    }));
+    if (!Array.isArray(records)) {
+      console.error('Invalid records format - expected array but got:', typeof records);
+      return [];
+    }
+    
+    return records.map(record => {
+      try {
+        // Safely extract all properties with fallbacks
+        const id = record.id || `mem_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+        const content = record.text || '';
+        
+        // Handle timestamp safely - parse as Date if it's a string, or use current date as fallback
+        let created: Date;
+        try {
+          created = record.timestamp ? new Date(record.timestamp) : new Date();
+          // Check if date is valid
+          if (isNaN(created.getTime())) {
+            created = new Date();
+          }
+        } catch (e) {
+          created = new Date();
+        }
+        
+        // Safely access metadata properties
+        const metadata = record.metadata || {};
+        const category = metadata.category || metadata.tag || record.type || 'unknown';
+        const source = (metadata.source as MemorySource) || 'system';
+        const importance = (metadata.importance as ImportanceLevel) || 'medium';
+        const tags = Array.isArray(metadata.tags) ? metadata.tags : [];
+        
+        // Ensure type is a valid memory type
+        let memType: MemoryType = 'message';
+        if (['message', 'thought', 'task', 'document'].includes(record.type)) {
+          memType = record.type as MemoryType;
+        }
+        
+        return {
+          id,
+          content,
+          created,
+          type: memType,
+          category,
+          source,
+          importance,
+          tags
+        };
+      } catch (error) {
+        console.error('Error converting memory record:', error);
+        // Return a minimal valid memory entry
+        return {
+          id: `error_${Date.now()}`,
+          content: 'Error retrieving memory content',
+          created: new Date(),
+          type: 'message',
+          category: 'error',
+          source: 'system',
+          importance: 'low',
+          tags: ['error', 'conversion_failed']
+        };
+      }
+    });
   }
 
   /**
@@ -347,77 +400,47 @@ export class ChloeMemory {
   }
 
   /**
-   * Get memories related to a query
+   * Get relevant memories for a query
    */
-  async getRelevantMemories(query: string, limit: number = 5): Promise<MemoryEntry[]> {
-    try {
-      if (!this.initialized) {
-        await this.initialize();
-      }
-      
-      // Use external memory if available
-      if (this.externalMemory && typeof this.externalMemory.searchSimilar === 'function') {
-        try {
-          // searchSimilar expects (query, limit) in this implementation
-          const records = await this.externalMemory.searchSimilar(
-            query,
-            limit
-          ) as ExternalMemoryRecord[];
-          
-          // Convert to memory entries
-          return this.convertRecordsToMemoryEntries(records);
-        } catch (error) {
-          handleError(MemoryError.retrievalFailed(
-            'Error searching similar memories',
-            { query, limit },
-            error instanceof Error ? error : undefined
-          ));
-          
-          // In case of error, try using server-side Qdrant directly
-          if (typeof window === 'undefined') {
-            // Pass limit as an array as expected by the API
-            const results = await serverQdrant.search(query, [limit]);
-            
-            return results.map(result => ({
-              id: `result_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
-              content: result.text,
-              created: new Date(),
-              type: 'message',
-              category: 'search_result',
-              importance: 'medium',
-              source: 'system',
-              tags: ['search_result']
-            }));
-          }
-          
-          return [];
-        }
-      }
-      
-      // If external memory not available, try using server-side Qdrant directly
-      if (typeof window === 'undefined') {
-        // Pass limit as an array as expected by the API
-        const results = await serverQdrant.search(query, [limit]);
-        
-        return results.map(result => ({
-          id: `result_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
-          content: result.text,
-          created: new Date(),
-          type: 'message',
-          category: 'search_result',
-          importance: 'medium',
-          source: 'system',
-          tags: ['search_result']
-        }));
-      }
-      
+  async getRelevantMemories(
+    query: string,
+    limit: number = 5
+  ): Promise<MemoryEntry[]> {
+    if (!this.initialized) {
+      console.error("Memory not initialized");
       return [];
+    }
+
+    try {
+      if (!this.externalMemory) {
+        console.error("External memory not available");
+        return [];
+      }
+
+      // Try to get relevant memories from external memory
+      try {
+        let matchingRecords: ExternalMemoryRecord[] = [];
+        
+        // Try searchSimilar first, then fall back to search if available
+        if (typeof this.externalMemory.searchSimilar === 'function') {
+          matchingRecords = await this.externalMemory.searchSimilar(query, limit);
+        } else if (typeof this.externalMemory.search === 'function') {
+          matchingRecords = await this.externalMemory.search(query, limit);
+        } else {
+          console.warn("Neither searchSimilar nor search methods are available on external memory");
+        }
+        
+        console.log(`Found ${matchingRecords.length} relevant memories for query: ${query}`);
+        
+        // Convert the records to MemoryEntry format
+        return this.convertRecordsToMemoryEntries(matchingRecords);
+      } catch (searchError) {
+        console.error("Error searching external memory:", searchError);
+        // Return local memories as fallback
+        return this.getLocalMemories(limit);
+      }
     } catch (error) {
-      handleError(MemoryError.retrievalFailed(
-        'Error getting relevant memories',
-        { query, limit },
-        error instanceof Error ? error : undefined
-      ));
+      console.error("Error retrieving relevant memories:", error);
       return [];
     }
   }
@@ -527,5 +550,53 @@ export class ChloeMemory {
       console.error('Error getting strategic insights:', error);
       return [];
     }
+  }
+
+  /**
+   * Get relevant memories for a query
+   * Returns an array of string format memory items
+   */
+  async getContext(query: string): Promise<string[]> {
+    if (!this.initialized) {
+      return [];
+    }
+
+    try {
+      // Get relevant memories
+      const relevantMemories = await this.getRelevantMemories(query, 5);
+      
+      // Convert to string format
+      const formattedMemories = relevantMemories.map(memory => {
+        try {
+          // Use safe property access as the memory shape might vary
+          const content = memory.content || '';
+          const importance = memory.importance || 0;
+          const category = memory.category || '';
+          const created = memory.created || new Date();
+          
+          const importanceStr = importance ? `[Importance: ${importance}/10]` : '';
+          const categoryStr = category ? `[${category}]` : '';
+          const timestampStr = created ? `[${new Date(created).toLocaleString()}]` : '';
+          
+          return `${categoryStr} ${timestampStr} ${importanceStr} ${content}`.trim();
+        } catch (formatError) {
+          console.error('Error formatting memory:', formatError);
+          // Return a simpler format if there's an error
+          return typeof memory === 'object' && memory !== null 
+            ? (memory.content || JSON.stringify(memory)) 
+            : String(memory);
+        }
+      });
+      
+      return formattedMemories;
+    } catch (error) {
+      console.error('Error getting context from memory:', error);
+      return [];
+    }
+  }
+
+  // Add this method to get entries from local memory store
+  private getLocalMemories(limit: number = 5): MemoryEntry[] {
+    return this.memoryStore.entries.slice(0, limit);
   }
 } 
