@@ -1,25 +1,31 @@
-import { KnowledgeGapsProcessor } from './processors/KnowledgeGapsProcessor';
-import { KnowledgeGraph } from '../knowledge/KnowledgeGraph';
-import { Message } from '../../types';
+import { ChatOpenAI } from '@langchain/openai';
+import { KnowledgeGapsManager } from '../../agents/chloe/core/knowledgeGapsManager';
 
-class ConversationManager {
-  private knowledgeGapsProcessor: KnowledgeGapsProcessor;
-  
-  constructor() {
-    // Initialize knowledge gaps processor if it doesn't already exist
-    const knowledgeGraph = new KnowledgeGraph('marketing'); // Or whatever domain is appropriate
-    this.knowledgeGapsProcessor = new KnowledgeGapsProcessor({
-      knowledgeGraph,
-      samplingProbability: 0.25, // Analyze 25% of conversations
-      minMessagesRequired: 5
+export class ConversationManager {
+  private model: ChatOpenAI;
+  private knowledgeGapsProcessor: KnowledgeGapsManager | null = null;
+
+  constructor(openaiApiKey: string, knowledgeGapsProcessor?: KnowledgeGapsManager) {
+    this.model = new ChatOpenAI({
+      modelName: 'gpt-4o',
+      temperature: 0.2,
+      openAIApiKey: openaiApiKey
     });
+    
+    if (knowledgeGapsProcessor) {
+      this.knowledgeGapsProcessor = knowledgeGapsProcessor;
+    }
   }
 
-  processMessages(messages: Message[]) {
-    // Process for knowledge gaps asynchronously (don't await)
-    this.knowledgeGapsProcessor.processConversation(messages)
-      .catch((error: Error) => {
-        console.error('Error processing knowledge gaps:', error);
-      });
+  async processConversation(messages: Array<{ role: string; content: string }>) {
+    try {
+      if (this.knowledgeGapsProcessor) {
+        await this.knowledgeGapsProcessor.processConversation({ messages });
+      }
+      return true;
+    } catch (error: any) {
+      console.error('Error processing conversation:', error);
+      return false;
+    }
   }
 } 

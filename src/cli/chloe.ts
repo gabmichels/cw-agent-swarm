@@ -8,7 +8,7 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 import { Command } from 'commander';
-import { ChloeAgent } from '../agents/chloe/agent';
+import { ChloeAgent } from '../agents/chloe/core/agent';
 import { initializeChloeAutonomy, diagnoseAutonomySystem } from '../agents/chloe/autonomy';
 import { notifyDiscord } from '../agents/chloe/notifiers';
 

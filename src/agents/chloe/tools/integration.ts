@@ -1,4 +1,3 @@
-import { ChloeAgent } from '../agent';
 import { ToolRegistry } from './registry';
 import { ToolSynthesis } from './synthesis';
 import { ChatOpenAI } from '@langchain/openai';
@@ -8,19 +7,16 @@ import path from 'path';
  * ToolCreationSystem class integrates the tool registry and synthesis with Chloe
  */
 export class ToolCreationSystem {
-  private agent: ChloeAgent;
   private registry: ToolRegistry;
   private synthesis: ToolSynthesis;
   private model: ChatOpenAI;
+  private memory: any;
+  private agentId: string;
   
-  constructor(agent: ChloeAgent) {
-    this.agent = agent;
-    
-    // Get the model from the agent if available
-    this.model = agent.getModel() || new ChatOpenAI({
-      modelName: process.env.OPENAI_MODEL_NAME || 'gpt-4.1-2025-04-14',
-      temperature: 0.7,
-    });
+  constructor(options: { memory: any; model: ChatOpenAI; agentId?: string }) {
+    // Initialize with the provided model
+    this.model = options.model;
+    this.agentId = options.agentId || 'chloe';
     
     // Initialize the registry
     this.registry = new ToolRegistry({
@@ -34,6 +30,8 @@ export class ToolCreationSystem {
       registry: this.registry,
       model: this.model
     });
+    
+    this.memory = options.memory;
   }
   
   /**
@@ -148,11 +146,11 @@ export class ToolCreationSystem {
    */
   async analyzeMemoryForToolNeeds(): Promise<string[]> {
     try {
-      // Get cognitive memory from agent
-      const cognitiveMemory = this.agent.getCognitiveMemory();
+      // Use the memory directly
+      const memory = this.memory;
       
-      // Get recent memories - using getRelevantMemories as a fallback since getRecentEpisodes doesn't exist
-      const recentEpisodes = await cognitiveMemory.getRelevantMemories("", 50);
+      // Get recent memories
+      const recentEpisodes = await memory.getRelevantMemories("", 50);
       
       // If no memories available, return empty array
       if (!recentEpisodes || recentEpisodes.length === 0) {

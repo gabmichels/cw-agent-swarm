@@ -59,7 +59,9 @@ export async function POST(request: NextRequest) {
     }
     
     return NextResponse.json({
-      ...result,
+      query,
+      result: result.result,
+      citations: result.citations || [],
       type,
       timestamp: new Date().toISOString()
     });

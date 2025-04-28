@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { CognitiveMemory } from '../../lib/memory/src/cognitive-memory';
 import { KnowledgeGraph } from '../../lib/memory/src/knowledge-graph';
-import { ChloeAgent } from './agent';
+import { ChloeAgent } from './core/agent';
 
 export interface Task {
   id: string;

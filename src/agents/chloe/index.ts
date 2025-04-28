@@ -2,8 +2,16 @@
  * Main exports for the Chloe agent package
  */
 
-// Export all Chloe components
-export { ChloeAgent } from './agent';
+// Export core components
+export { ChloeAgent } from './core/agent';
+export { MemoryManager } from './core/memoryManager';
+export { ToolManager } from './core/toolManager';
+export { PlanningManager } from './core/planningManager';
+export { ReflectionManager } from './core/reflectionManager';
+export { ThoughtManager } from './core/thoughtManager';
+export { MarketScannerManager } from './core/marketScannerManager';
+
+// Export supporting components
 export { ChloeMemory } from './memory';
 export type { MemoryEntry } from './memory';
 export { MemoryTagger } from './memory-tagger';
@@ -41,55 +49,54 @@ export {
   summarizeChat
 } from './autonomy';
 
-// Export the Chloe agent implementation
-export * from './agent';
-export * from './tools';
-export * from './memory';
-export * from './persona';
-export * from './autonomy';
-export * from './knowledge';
-
-// Attach the planAndExecute method on import
-import './planAndExecute';
-
 // Re-export types
 export type { ChloeMemoryOptions } from './memory';
 export type { PersonaOptions } from './persona';
 
-// Import ChloeAgent for default export
-import { ChloeAgent } from './agent';
+// Import for singleton
+import { ChloeAgent } from './core/agent';
 
-// Import required modules for the LangChain cognitive tools
-import { createLangChainCognitiveTools } from './tools/cognitiveTools';
+// Global instance (singleton)
+let chloeInstance: ChloeAgent | null = null;
 
 /**
- * Get or create a singleton instance of the Chloe agent
+ * Get a singleton instance of the ChloeAgent
  */
-export async function getChloeInstance(): Promise<ChloeAgent | null> {
-  // Check if we already have an instance in the global scope
-  if ((global as any).chloeAgent) {
-    return (global as any).chloeAgent;
+export async function getChloeInstance(): Promise<ChloeAgent> {
+  // If running in a browser, simply return a new instance (stateless)
+  if (typeof window !== 'undefined') {
+    return new ChloeAgent();
   }
   
-  try {
-    // Create and initialize a new instance
-    const agent = new ChloeAgent();
-    await agent.initialize();
-    
-    // Initialize LangChain compatible cognitive tools using the agent's cognitive systems
-    const langChainCognitiveTools = createLangChainCognitiveTools(
-      agent.getCognitiveMemory(),
-      agent.getKnowledgeGraph()
-    );
-    
-    // Store for future use
-    (global as any).chloeAgent = agent;
-    
-    return agent;
-  } catch (error) {
-    console.error('Error initializing Chloe agent:', error);
-    return null;
+  // Check for existing global instance
+  if (global.chloeAgent) {
+    return global.chloeAgent;
   }
+  
+  // Create a new instance
+  if (!chloeInstance) {
+    console.log('Creating new Chloe instance');
+    chloeInstance = new ChloeAgent();
+    
+    // Initialize on creation
+    try {
+      await chloeInstance.initialize();
+      console.log('Chloe instance initialized successfully');
+    } catch (error) {
+      console.error('Error initializing Chloe instance:', error);
+    }
+    
+    // Store as global
+    global.chloeAgent = chloeInstance;
+  }
+  
+  return chloeInstance;
+}
+
+// Global type declaration for accessing the singleton
+declare global {
+  // eslint-disable-next-line no-var
+  var chloeAgent: ChloeAgent;
 }
 
 // Default export

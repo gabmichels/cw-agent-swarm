@@ -1,4 +1,4 @@
-import { ChloeAgent } from './agent';
+import { ChloeAgent } from './core/agent';
 import { ChloeGraph, GraphState } from './graph/graph';
 import { createChloeTools } from './tools/index';
 import type { ChloeMemory } from './memory';
@@ -41,7 +41,7 @@ export async function planAndExecute(
     // Log that we're starting the planning and execution process
     console.log(`Starting planning and execution for goal: ${options.goalPrompt}`);
     
-    if (!this.initialized) {
+    if (!this.isInitialized()) {
       throw new Error('Agent not initialized');
     }
     

@@ -35,6 +35,7 @@ export class KnowledgeFlaggingService {
   private knowledgeGraph: KnowledgeGraph;
   private knowledgeGraphService: KnowledgeGraphService;
   private dataDir: string;
+  private initialized: boolean = false;
   
   /**
    * Create a new knowledge flagging service
@@ -56,6 +57,9 @@ export class KnowledgeFlaggingService {
    */
   public async load(): Promise<void> {
     try {
+      this.initialized = true;
+      console.log("Knowledge flagging service initialized");
+      
       // Check if the flagged items file exists
       const flaggedItemsFile = path.join(this.dataDir, 'flagged-items.json');
       

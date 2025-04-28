@@ -90,6 +90,32 @@ export class TaskLogger {
   }
 
   /**
+   * Close the task logger, ending any active session and persisting data
+   */
+  async close(): Promise<void> {
+    try {
+      // End the current session if one exists
+      this.endSession();
+      
+      // Save all sessions that haven't been saved yet
+      const sessions = Array.from(this.sessions.entries());
+      for (const [id, session] of sessions) {
+        if (!session.endTime) {
+          session.endTime = new Date().toISOString();
+          
+          if (this.persistToFile) {
+            this.saveSessionToFile(session);
+          }
+        }
+      }
+      
+      console.log('TaskLogger closed successfully');
+    } catch (error) {
+      console.error('Error closing TaskLogger:', error);
+    }
+  }
+
+  /**
    * Process content to replace escaped newlines with actual newlines
    * This helps with formatting issues in messages from APIs
    */

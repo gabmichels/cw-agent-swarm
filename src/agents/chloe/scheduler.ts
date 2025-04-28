@@ -1,5 +1,5 @@
 import { CronJob } from 'cron';
-import { ChloeAgent } from './agent';
+import { ChloeAgent } from './core/agent';
 import { PlanAndExecuteOptions } from './planAndExecute';
 import { logger } from '../../lib/logging';
 import { runMemoryConsolidation } from './tasks/memoryConsolidation';
@@ -301,8 +301,8 @@ export class ChloeScheduler {
           // Standard execution process for most tasks
           // Get the autonomy system for plan & execute
           const autonomySystem = await this.agent.getAutonomySystem();
-          if (!autonomySystem) {
-            console.error('Autonomy system not initialized');
+          if (!autonomySystem || !autonomySystem.planAndExecute) {
+            console.error('Autonomy system not initialized or missing planAndExecute method');
             return;
           }
           

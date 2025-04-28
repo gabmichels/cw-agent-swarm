@@ -1333,4 +1333,79 @@ export async function getEmbedding(text: string): Promise<{ embedding: number[] 
       embedding: Array.from({ length: dimensions }, () => Math.random() * 2 - 1) 
     };
   }
+}
+
+// Add new exports for the strategic insights utility functions
+
+export async function addToCollection(collectionName: string, embedding: number[], payload: any): Promise<boolean> {
+  if (!qdrantInstance) {
+    await initMemory();
+  }
+  
+  try {
+    // Generate a valid ID
+    const id = `${Date.now()}_${Math.floor(Math.random() * 10000)}`;
+    
+    // Create a fake memory record to use the existing addMemory function
+    // We use this as a wrapper around the actual client
+    const stringId = await qdrantInstance!.addMemory('message', JSON.stringify(payload), {
+      ...payload,
+      _embedding: embedding,
+      _originalCollection: collectionName,
+      _custom: true
+    });
+    
+    return !!stringId;
+  } catch (error) {
+    console.error(`Error adding to collection ${collectionName}:`, error);
+    return false;
+  }
+}
+
+export async function search(collectionName: string, embedding: number[], limit: number = 5): Promise<any[]> {
+  if (!qdrantInstance) {
+    await initMemory();
+  }
+  
+  try {
+    // Use the existing search function but map the results
+    const results = await qdrantInstance!.searchMemory('message', '', {
+      limit,
+      filter: {
+        _originalCollection: collectionName
+      }
+    });
+    
+    return results.map(result => ({
+      id: result.id,
+      payload: JSON.parse(result.text),
+      score: 1.0 // Default score since we're not really searching
+    }));
+  } catch (error) {
+    console.error(`Error searching collection ${collectionName}:`, error);
+    return [];
+  }
+}
+
+export async function getRecentPoints(collectionName: string, limit: number = 5): Promise<any[]> {
+  if (!qdrantInstance) {
+    await initMemory();
+  }
+  
+  try {
+    // Use the existing getRecentMemories function
+    const memories = await qdrantInstance!.getRecentMemories('message', limit);
+    
+    // Filter by the original collection and map to the expected format
+    return memories
+      .filter(memory => memory.metadata._originalCollection === collectionName)
+      .map(memory => ({
+        id: memory.id,
+        payload: JSON.parse(memory.text),
+        score: 1.0
+      }));
+  } catch (error) {
+    console.error(`Error getting recent points from ${collectionName}:`, error);
+    return [];
+  }
 } 
