@@ -1,4 +1,4 @@
-import { ChloeAgent } from '../agent';
+import { ChloeAgent } from '../core/agent';
 import { logger } from '../../../lib/logging';
 
 /**
