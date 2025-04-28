@@ -124,14 +124,17 @@ const ToolsTab: React.FC<ToolsTabProps> = ({
     
     setIsDebugLoading(true);
     try {
-      // Delete chat history
-      await fetch('/api/debug/reset-chat', {
+      // Reset all Qdrant collections completely
+      const resetResponse = await fetch('/api/debug/reset-chat', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ userId: 'gab' }),
+        body: JSON.stringify({ resetAll: true }),
       });
+      
+      const resetData = await resetResponse.json();
+      console.log('Reset database result:', resetData);
       
       // Clear server-side image data
       await fetch('/api/debug/clear-images', {
@@ -153,7 +156,13 @@ const ToolsTab: React.FC<ToolsTabProps> = ({
         });
       }
       
-      alert('Successfully deleted all data. The page will now reload.');
+      setDebugResults({
+        resetDatabase: resetData,
+        localStorageCleared: localStorageData.success,
+        completeDatabaseReset: true
+      });
+      
+      alert('Successfully reset the entire database and cleared local data. The page will now reload.');
       // Reload the page to refresh the UI
       window.location.reload();
     } catch (error) {

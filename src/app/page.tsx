@@ -4,7 +4,6 @@ import React, { useState, FormEvent, useEffect, useRef, useCallback } from 'reac
 import Header from '../components/Header';
 import Sidebar from '../components/Sidebar';
 import TabsNavigation from '../components/TabsNavigation';
-import ChatMessages from '../components/ChatMessages';
 import ChatInput from '../components/ChatInput';
 import ToolsTab from '../components/tabs/ToolsTab';
 import TasksTab from '../components/tabs/TasksTab';
@@ -1257,6 +1256,15 @@ For detailed instructions, see the Debug panel.`,
     loadInitialChat();
   }, [selectedAgent]);
 
+  // Auto-scroll to bottom when messages change or when switching to chat tab
+  useEffect(() => {
+    if (selectedTab === 'chat') {
+      setTimeout(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      }, 100);
+    }
+  }, [messages, selectedTab]);
+
   // Enhanced to include file attachments and use our improved storage system
   const handleSendMessage = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -1376,20 +1384,25 @@ For detailed instructions, see the Debug panel.`,
         throw new Error(`API error: ${response.status}`);
       }
       
+      // Process the response and add the assistant message
       data = await response.json();
       
       // Check if this is a vision response (has containsImageRequest flag)
       const isVisionResponse = data.containsImageRequest === true;
       console.log(`Received ${isVisionResponse ? 'vision' : 'standard'} response from API`);
       
+      // Make sure data properties exist and are in the correct format
+      const messageMemory = data.memory ? (Array.isArray(data.memory) ? data.memory : [data.memory]) : [];
+      const messageThoughts = data.thoughts ? (Array.isArray(data.thoughts) ? data.thoughts : [data.thoughts]) : [];
+      
       // For vision responses, add a reference to the original image message timestamp
       // but DON'T include the attachments in the AI response
       const agentResponse: Message = {
         sender: selectedAgent,
-        content: data.reply,
+        content: data.reply || "I'm sorry, I couldn't generate a response.",
         timestamp: new Date(),
-        memory: data.memory,
-        thoughts: data.thoughts,
+        memory: messageMemory,
+        thoughts: messageThoughts,
         // For vision responses, use the requestTimestamp or generate a fresh reference to the user message
         visionResponseFor: isVisionResponse 
           ? (data.requestTimestamp || userMessage.timestamp.toISOString()) 
@@ -1433,6 +1446,72 @@ For detailed instructions, see the Debug panel.`,
     } finally {
       setIsLoading(false);
     }
+  };
+
+  // Add this mapping function just before the return statement
+  const renderChatMessage = (message: Message, index: number) => {
+    return (
+      <div key={index} className={`flex ${message.sender === 'You' ? 'justify-end' : 'justify-start'} mb-4`}>
+        <div className={`max-w-[75%] rounded-lg p-3 shadow ${
+          message.sender === 'You' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-white'
+        }`}>
+          <div className="whitespace-pre-wrap">{message.content}</div>
+          
+          {/* Render attachments if present */}
+          {message.attachments && message.attachments.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {message.attachments.map((attachment, idx) => (
+                <div key={idx} className="relative">
+                  {attachment.type === 'image' && attachment.preview ? (
+                    <img 
+                      src={attachment.preview} 
+                      alt={attachment.filename || 'Image'} 
+                      className="max-h-40 max-w-40 rounded border border-gray-500"
+                    />
+                  ) : (
+                    <div className="p-2 bg-gray-800 rounded border border-gray-600">
+                      {attachment.filename || 'File'}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+          
+          {/* Show memory context if available */}
+          {message.memory && message.memory.length > 0 && (
+            <details className="mt-2 text-sm">
+              <summary className="cursor-pointer text-blue-300">View Memory Context</summary>
+              <div className="mt-2 p-2 bg-gray-800 rounded text-xs text-gray-300">
+                {Array.isArray(message.memory) 
+                  ? message.memory.map((mem, i) => (
+                      <div key={i} className="mb-1">
+                        {typeof mem === 'string' ? mem : mem.content || ''}
+                      </div>
+                    ))
+                  : 'No memory context available'}
+              </div>
+            </details>
+          )}
+          
+          {/* Show thoughts if available */}
+          {message.thoughts && message.thoughts.length > 0 && (
+            <details className="mt-2 text-sm">
+              <summary className="cursor-pointer text-purple-300">View Thoughts</summary>
+              <div className="mt-2 p-2 bg-gray-800 rounded text-xs text-gray-300">
+                {message.thoughts.map((thought, i) => (
+                  <div key={i} className="mb-1">{thought}</div>
+                ))}
+              </div>
+            </details>
+          )}
+          
+          <div className="text-xs mt-1 text-gray-300">
+            {message.timestamp ? message.timestamp.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : ''}
+          </div>
+        </div>
+      </div>
+    );
   };
 
   return (
@@ -1489,7 +1568,33 @@ For detailed instructions, see the Debug panel.`,
 
             {/* Main chat area */}
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
-              {selectedTab === 'chat' && <ChatMessages messages={messages} />}
+              {selectedTab === 'chat' && (
+                <div className="flex flex-col h-full overflow-hidden">
+                  <div className="flex-1 overflow-y-auto p-4 mb-4">
+                    {/* User query message */}
+                    {messages.length > 0 && (
+                      <div className="space-y-4">
+                        {messages.map(renderChatMessage)}
+                      </div>
+                    )}
+                    
+                    {/* Loading indicator */}
+                    {isLoading && (
+                      <div className="flex justify-start mb-4">
+                        <div className="max-w-[75%] rounded-lg p-3 shadow bg-gray-700">
+                          <div className="flex items-center">
+                            <div className="w-2 h-2 rounded-full bg-gray-400 animate-bounce"></div>
+                            <div className="w-2 h-2 rounded-full bg-gray-400 animate-bounce ml-1" style={{ animationDelay: '0.2s' }}></div>
+                            <div className="w-2 h-2 rounded-full bg-gray-400 animate-bounce ml-1" style={{ animationDelay: '0.4s' }}></div>
+                            <span className="ml-2 text-sm text-gray-300">Thinking...</span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    <div ref={messagesEndRef}></div>
+                  </div>
+                </div>
+              )}
               
               {selectedTab === 'tasks' && (
                 <TasksTab

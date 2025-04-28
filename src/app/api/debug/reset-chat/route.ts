@@ -8,14 +8,27 @@ export const dynamic = 'force-dynamic';
 export async function POST(req: NextRequest) {
   try {
     const data = await req.json();
-    const { userId = 'gab' } = data;
-
-    console.log(`Attempting to reset chat history for user: ${userId}`);
+    const { userId = 'gab', resetAll = false } = data;
 
     // Initialize Qdrant if needed
     if (!serverQdrant.isInitialized()) {
       await serverQdrant.initMemory();
     }
+
+    if (resetAll) {
+      console.log('Performing complete database reset of all collections');
+      
+      // Reset all collections using the built-in function
+      const resetResult = await serverQdrant.resetAllCollections();
+      
+      return NextResponse.json({
+        success: resetResult,
+        message: 'Successfully reset all Qdrant collections',
+        completeDatabaseReset: true
+      });
+    }
+    
+    console.log(`Attempting to reset chat history for user: ${userId}`);
 
     // First get all messages for this user
     const allMessages = await serverQdrant.getRecentMemories('message', 1000);
