@@ -178,7 +178,7 @@ export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
     const message = formData.get('message') as string | null;
-    const userId = formData.get('userId') as string || 'default-user';
+    const userId = formData.get('userId') as string || 'gab';
     
     if (!message) {
       return NextResponse.json(

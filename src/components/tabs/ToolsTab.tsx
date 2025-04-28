@@ -47,7 +47,7 @@ const ToolsTab: React.FC<ToolsTabProps> = ({
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ userId: 'default-user' }),
+        body: JSON.stringify({ userId: 'gab' }),
       });
       
       const data = await response.json();
@@ -82,7 +82,7 @@ const ToolsTab: React.FC<ToolsTabProps> = ({
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ userId: 'default-user' }),
+        body: JSON.stringify({ userId: 'gab' }),
       });
       
       const serverData = await serverResponse.json();
@@ -130,7 +130,7 @@ const ToolsTab: React.FC<ToolsTabProps> = ({
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ userId: 'default-user' }),
+        body: JSON.stringify({ userId: 'gab' }),
       });
       
       // Clear server-side image data
@@ -139,7 +139,7 @@ const ToolsTab: React.FC<ToolsTabProps> = ({
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ userId: 'default-user' }),
+        body: JSON.stringify({ userId: 'gab' }),
       });
       
       // Clear local storage

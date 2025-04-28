@@ -493,7 +493,7 @@ export default function Home() {
         },
         body: JSON.stringify({
           message: "TEST_CONNECTION: Check if Chloe agent is working",
-          userId: 'debug-user',
+          userId: 'gab',
         }),
       });
       
@@ -546,7 +546,7 @@ export default function Home() {
         },
         body: JSON.stringify({
           message: "DEBUG_COMMAND: What memories do you have about our conversation so far?",
-          userId: 'debug-user',
+          userId: 'gab',
         }),
       });
       
@@ -1120,7 +1120,7 @@ For detailed instructions, see the Debug panel.`,
       setIsLoading(true);
       try {
         console.log("Loading chat history from server...");
-        const response = await fetch('/api/chat?userId=default-user');
+        const response = await fetch('/api/chat?userId=gab');
         
         if (!response.ok) {
           throw new Error(`Failed to load chat history: ${response.status}`);
@@ -1307,7 +1307,7 @@ For detailed instructions, see the Debug panel.`,
       if (currentAttachments.length > 0) {
         const formData = new FormData();
         formData.append('message', sentMessage); // Send user's context about the file
-        formData.append('userId', 'default-user');
+        formData.append('userId', 'gab');
         
         // Log the context being sent with files
         console.log("Sending files with context:", sentMessage);
@@ -1340,7 +1340,7 @@ For detailed instructions, see the Debug panel.`,
         // Standard JSON request without files
         const requestBody: any = {
           message: sentMessage,
-          userId: 'default-user',
+          userId: 'gab',
         };
         
         // Check the previous message to see if this is a reply to a message with images

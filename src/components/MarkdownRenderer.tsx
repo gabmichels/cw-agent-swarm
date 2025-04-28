@@ -2,15 +2,18 @@ import React from 'react';
 import ReactMarkdown from 'react-markdown';
 
 interface MarkdownRendererProps {
-  content: string;
+  content?: string;  // Make content optional
   className?: string;
 }
 
-const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, className = '' }) => {
-  // Pre-process content to handle escaped characters
-  const processedContent = content
-    .replace(/\\n/g, '\n')
-    .replace(/\\"/g, '"');
+const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content = '', className = '' }) => {
+  // Pre-process content with null safety
+  // Default to empty string if content is undefined or null
+  const processedContent = content 
+    ? content
+        .replace(/\\n/g, '\n')
+        .replace(/\\"/g, '"')
+    : '';
 
   return (
     <div className={`prose prose-invert max-w-none ${className}`}>

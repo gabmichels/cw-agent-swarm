@@ -85,7 +85,7 @@ async function processWithVisionModel(message: string, imageData: Array<{data: s
  */
 export async function POST(request: NextRequest) {
   try {
-    const { message, images, userId = 'default-user', conversationHistory = [] } = await request.json();
+    const { message, images, userId = 'gab', conversationHistory = [] } = await request.json();
     
     if (!message || !images || !Array.isArray(images) || images.length === 0) {
       return NextResponse.json(

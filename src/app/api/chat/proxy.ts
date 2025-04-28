@@ -398,7 +398,7 @@ See server logs for specific error messages.`,
 async function saveToHistory(userId: string, role: 'user' | 'assistant', content: string, attachments?: any[], visionResponseFor?: string) {
   // Ensure we have a user ID
   if (!userId) {
-    userId = 'default-user';
+    userId = 'gab';
   }
   
   // Create a timestamp
@@ -533,7 +533,7 @@ function getUserHistory(userId: string) {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { message, userId = 'default-user', attachments, visionResponseFor } = body;
+    const { message, userId = 'gab', attachments, visionResponseFor } = body;
     
     if (!message || typeof message !== 'string') {
       return NextResponse.json(
@@ -599,7 +599,7 @@ export async function POST(request: Request) {
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
-    const userId = searchParams.get('userId') || 'default-user';
+    const userId = searchParams.get('userId') || 'gab';
     
     console.log(`Retrieving chat history for user: ${userId}`);
     

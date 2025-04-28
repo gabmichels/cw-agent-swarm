@@ -10,7 +10,7 @@ export const dynamic = 'force-dynamic';
 export async function POST(req: NextRequest) {
   try {
     const data = await req.json();
-    const { userId = 'default-user' } = data;
+    const { userId = 'gab' } = data;
 
     console.log(`Attempting to clear images for user: ${userId}`);
 
@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
           // Find files belonging to the user
           const userFiles = Object.entries(metadata).filter(([_, fileData]: [string, any]) => {
             const tags = fileData.tags || [];
-            return tags.includes(`user:${userId}`) || tags.includes('user:default-user');
+            return tags.includes(`user:${userId}`) || tags.includes('user:gab');
           });
           
           console.log(`Found ${userFiles.length} files belonging to user ${userId}`);

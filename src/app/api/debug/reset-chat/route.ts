@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic';
 export async function POST(req: NextRequest) {
   try {
     const data = await req.json();
-    const { userId = 'default-user' } = data;
+    const { userId = 'gab' } = data;
 
     console.log(`Attempting to reset chat history for user: ${userId}`);
 
