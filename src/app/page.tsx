@@ -202,27 +202,23 @@ export default function Home() {
     }
   };
 
-  // Save image data separately from chat messages
-  const saveImageDataToStorage = (id: string, data: string) => {
-    try {
-      const imageStorage = JSON.parse(localStorage.getItem(IMAGE_DATA_STORAGE_KEY) || '{}');
-      imageStorage[id] = data;
-      localStorage.setItem(IMAGE_DATA_STORAGE_KEY, JSON.stringify(imageStorage));
-      return true;
-    } catch (error) {
-      console.error('Error saving image data to storage:', error);
-      return false;
-    }
-  };
-
   // Get image data from separate storage
-  const getImageDataFromStorage = (id: string) => {
+  const getImageDataFromStorage = async (id: string): Promise<string | null> => {
     try {
-      const imageStorage = JSON.parse(localStorage.getItem(IMAGE_DATA_STORAGE_KEY) || '{}');
-      return imageStorage[id] || null;
+      // First try to get it from IndexedDB
+      const imageData = await getFileFromIndexedDB(id);
+      return imageData;
     } catch (error) {
-      console.error('Error getting image data from storage:', error);
-      return null;
+      console.error('Error getting image data from IndexedDB:', error);
+      
+      // Legacy fallback: Try to get from localStorage if it exists there
+      try {
+        const imageStorage = JSON.parse(localStorage.getItem(IMAGE_DATA_STORAGE_KEY) || '{}');
+        return imageStorage[id] || null;
+      } catch (storageError) {
+        console.error('Error getting image data from localStorage fallback:', storageError);
+        return null;
+      }
     }
   };
 
@@ -290,11 +286,17 @@ export default function Home() {
           reader.readAsDataURL(file);
         });
 
-        // Save the full image data to a separate storage
-        const savedFullImage = saveImageDataToStorage(imageId, preview);
-        console.log(`Full image data ${savedFullImage ? 'successfully stored' : 'failed to store'} for ID: ${imageId}`);
-        
         try {
+          // Save full image data to IndexedDB instead of localStorage
+          await saveFileToIndexedDB({
+            id: imageId,
+            data: preview,
+            type: file.type,
+            filename: file.name,
+            timestamp: Date.now()
+          });
+          console.log(`Full image data successfully stored in IndexedDB for ID: ${imageId}`);
+          
           // Create a thumbnail for preview
           const thumbnail = await createThumbnail(preview);
           console.log(`Created thumbnail: ${thumbnail.substring(0, 50)}...`);
@@ -308,7 +310,7 @@ export default function Home() {
             fileId: imageId // Store image ID to reference the full data
           }]);
         } catch (thumbError) {
-          console.error('Error creating thumbnail:', thumbError);
+          console.error('Error creating thumbnail or storing image:', thumbError);
           // Fall back to the original preview if thumbnail creation fails
           setPendingAttachments(prev => [...prev, {
             file,
@@ -1049,48 +1051,44 @@ For detailed instructions, see the Debug panel.`,
   };
 
   // Modified to restore image data from our separate storage and handle vision responses
-  const loadAttachmentsFromLocalStorage = () => {
+  const loadAttachmentsFromLocalStorage = async () => {
     try {
-      const savedAttachments = localStorage.getItem(SAVED_ATTACHMENTS_KEY);
-      if (savedAttachments) {
-        const savedMessages = JSON.parse(savedAttachments) as Message[];
-        console.log(`Loaded ${savedMessages.length} messages with attachments from local storage`);
+      const savedAttachmentsJson = localStorage.getItem(SAVED_ATTACHMENTS_KEY);
+      if (savedAttachmentsJson) {
+        const savedAttachments = JSON.parse(savedAttachmentsJson);
+        console.log(`Found ${Object.keys(savedAttachments).length} saved messages with attachments`);
         
-        // Ensure timestamps are converted to Date objects
-        savedMessages.forEach(msg => {
-          // Convert string timestamp to Date object
-          if (msg.timestamp && !(msg.timestamp instanceof Date)) {
-            msg.timestamp = new Date(msg.timestamp);
-          }
-          
-          // Check for timestampString property (added in our improved save function)
-          if ((msg as any).timestampString) {
-            msg.timestamp = new Date((msg as any).timestampString);
-            console.log(`Converted timestampString to Date: ${(msg as any).timestampString}`);
-          }
-          
-          // If visionResponseFor exists, make sure it's properly formatted
-          if (msg.visionResponseFor) {
-            // Log that we found a vision response
-            console.log(`Found vision response message referring to: ${msg.visionResponseFor}`);
-          }
-          
-          // Restore full image data for each image attachment
+        // Convert to array of Message objects
+        const savedMessages: Message[] = Object.values(savedAttachments).map((msg: any) => ({
+          ...msg,
+          timestamp: new Date(msg.timestamp),
+          attachments: msg.attachments ? msg.attachments.map((att: any) => ({
+            ...att,
+            truncated: !att.preview
+          })) : undefined
+        }));
+        
+        // For each message with image attachments, restore the full image data
+        for (const msg of savedMessages) {
           if (msg.attachments) {
-            msg.attachments.forEach(att => {
+            for (const att of msg.attachments) {
               if (att.type === 'image' && att.fileId && (!att.preview || att.preview === '')) {
-                // Try to get the full image data from storage
-                const fullImageData = getImageDataFromStorage(att.fileId);
-                if (fullImageData) {
-                  console.log(`Restored full image data for ${att.fileId}`);
-                  att.preview = fullImageData;
-                } else {
-                  console.log(`Could not restore image data for ${att.fileId}`);
+                try {
+                  // Try to get the full image data from storage
+                  const fullImageData = await getImageDataFromStorage(att.fileId);
+                  if (fullImageData) {
+                    console.log(`Restored full image data for ${att.fileId}`);
+                    att.preview = fullImageData;
+                  } else {
+                    console.log(`Could not restore image data for ${att.fileId}`);
+                  }
+                } catch (error) {
+                  console.error(`Error restoring image ${att.fileId}:`, error);
                 }
               }
-            });
+            }
           }
-        });
+        }
         
         return savedMessages;
       }
@@ -1129,8 +1127,8 @@ For detailed instructions, see the Debug panel.`,
         const data = await response.json();
         console.log("Received chat history data:", data);
         
-        // Load attachments from local storage
-        const savedAttachmentMessages = loadAttachmentsFromLocalStorage();
+        // Load attachments from local storage - now async
+        const savedAttachmentMessages = await loadAttachmentsFromLocalStorage();
         console.log(`Loaded ${savedAttachmentMessages.length} messages with attachments from localStorage`);
         
         // Track vision response messages separately
@@ -1322,7 +1320,9 @@ For detailed instructions, see the Debug panel.`,
         console.log("Sending files with context:", sentMessage);
         
         // Add each file to the formData with proper metadata
-        currentAttachments.forEach((attachment, index) => {
+        for (let index = 0; index < currentAttachments.length; index++) {
+          const attachment = currentAttachments[index];
+          
           // Only add the file if it exists
           if (attachment.file) {
             // Add the actual file
@@ -1333,12 +1333,12 @@ For detailed instructions, see the Debug panel.`,
             formData.append(`metadata_${index}_fileId`, attachment.fileId || '');
             
             // Don't send the full preview data URLs to the server - they're too large
-            // The server doesn't need them, and we already store them in local storage
+            // The server doesn't need them, and we already store them in IndexedDB
             console.log(`Adding file ${index}: ${attachment.filename || attachment.file.name}`);
           } else {
             console.warn(`Warning: Attachment ${index} has no file property`);
           }
-        });
+        }
         
         // Send to server with multipart/form-data
         response = await fetch('/api/chat-with-files', {
@@ -1538,6 +1538,21 @@ For detailed instructions, see the Debug panel.`,
         </div>
       </div>
     );
+  };
+
+  // Save image data separately from chat messages - LEGACY FUNCTION
+  // This is kept for backward compatibility, but now uses IndexedDB
+  const saveImageDataToStorage = (id: string, data: string) => {
+    console.warn('saveImageDataToStorage is deprecated, using IndexedDB instead');
+    // Save to IndexedDB instead
+    saveFileToIndexedDB({
+      id: id,
+      data: data,
+      type: 'image/png', // Default type if not known
+      filename: `image_${id}.png`,
+      timestamp: Date.now()
+    }).catch(err => console.error('Error saving to IndexedDB:', err));
+    return true; // Return true to maintain backward compatibility
   };
 
   return (

@@ -87,79 +87,111 @@ export async function POST(request: NextRequest) {
   try {
     const { message, images, userId = 'gab', conversationHistory = [] } = await request.json();
     
-    if (!message || !images || !Array.isArray(images) || images.length === 0) {
+    // Log more details about the request
+    console.log(`Vision API request for user ${userId}:`);
+    console.log(`- Message: "${message}"`);
+    console.log(`- Images: ${images?.length || 0}`);
+    console.log(`- Conversation history: ${conversationHistory?.length || 0} messages`);
+    
+    // Validate required fields
+    if (!message) {
+      console.error('Vision API error: No message provided');
       return NextResponse.json(
         { 
           success: false, 
-          error: 'Valid message and at least one image are required' 
+          error: 'A message is required when processing images' 
         },
         { status: 400 }
       );
     }
     
-    console.log(`Processing vision request for ${userId} with ${images.length} images: "${message}"`);
-    console.log(`Conversation history: ${conversationHistory.length} messages`);
+    if (!images || !Array.isArray(images) || images.length === 0) {
+      console.error('Vision API error: No images provided or invalid images format');
+      return NextResponse.json(
+        { 
+          success: false, 
+          error: 'At least one valid image is required' 
+        },
+        { status: 400 }
+      );
+    }
+    
+    // Validate image data
+    const validImages = [];
+    
+    for (let index = 0; index < images.length; index++) {
+      const image = images[index];
+      if (!image.base64Data || !image.mimeType) {
+        console.error(`Vision API error: Image at index ${index} missing required data:`, {
+          hasBase64: !!image.base64Data,
+          hasMimeType: !!image.mimeType,
+          fileId: image.fileId || 'not provided',
+          filename: image.filename || 'not provided'
+        });
+        continue;
+      }
+      
+      // Validate mime type is an image
+      if (!image.mimeType.startsWith('image/')) {
+        console.error(`Vision API error: Invalid mime type for image at index ${index}: ${image.mimeType}`);
+        continue;
+      }
+      
+      // Check if base64 data is valid
+      if (typeof image.base64Data !== 'string' || image.base64Data.length < 100) {
+        console.error(`Vision API error: Invalid or too small base64 data for image at index ${index}`);
+        continue;
+      }
+      
+      validImages.push({
+        data: image.base64Data,
+        mimeType: image.mimeType
+      });
+    }
+    
+    if (validImages.length === 0) {
+      console.error('Vision API error: No valid images found after validation');
+      return NextResponse.json(
+        { 
+          success: false, 
+          error: 'No valid images found. Each image must include base64Data and a valid image mimeType.'
+        },
+        { status: 400 }
+      );
+    }
+    
+    console.log(`Processing ${validImages.length} valid images with the vision model`);
     
     // Initialize file processor if needed
     if (!fileProcessor.isInitialized) {
       await fileProcessor.initialize();
     }
     
-    // This is a TEMPORARY WORKAROUND
-    // Just to make things work, we'll have the chat-with-files endpoint send the entire file data in base64
-    // In your actual implementation, you'll want to properly retrieve the file data from wherever it's stored
+    // Process with vision model
+    const visionResponse = await processWithVisionModel(message, validImages, conversationHistory);
     
-    try {
-      // For now, we'll just use the incoming images data directly
-      const processedImages = [];
-      
-      // Access the raw request data to check if base64Data was sent
-      for (const image of images) {
-        if (image.base64Data && image.mimeType) {
-          // If the request already includes base64 data, use it directly
-          processedImages.push({
-            data: image.base64Data,
-            mimeType: image.mimeType
-          });
-        }
-      }
-      
-      if (processedImages.length === 0) {
-        return NextResponse.json(
-          { 
-            success: false, 
-            error: 'No image data was provided. Please include base64 encoded image data with each image.'
-          },
-          { status: 400 }
-        );
-      }
-      
-      // Process with vision model
-      const visionResponse = await processWithVisionModel(message, processedImages, conversationHistory);
-      
-      return NextResponse.json({
-        success: true,
-        ...visionResponse,
-        processedImages: processedImages.length
-      });
-      
-    } catch (error: any) {
-      console.error('Error processing images:', error);
-      return NextResponse.json(
-        { 
-          success: false, 
-          error: `Error processing images: ${error.message}`
-        },
-        { status: 500 }
-      );
-    }
+    return NextResponse.json({
+      success: true,
+      ...visionResponse,
+      processedImages: validImages.length
+    });
+    
   } catch (error: any) {
     console.error('Error in vision API:', error);
+    
+    // Provide more detailed error information
+    const errorMessage = error.message || 'Unknown error';
+    const errorStack = error.stack || 'No stack trace available';
+    
+    console.error('Vision API error details:');
+    console.error('- Message:', errorMessage);
+    console.error('- Stack:', errorStack);
     
     return NextResponse.json(
       { 
         success: false, 
-        error: `Vision processing failed: ${error.message || 'Unknown error'}` 
+        error: `Vision processing failed: ${errorMessage}`,
+        details: process.env.NODE_ENV !== 'production' ? errorStack : undefined
       },
       { status: 500 }
     );

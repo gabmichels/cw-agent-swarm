@@ -6,6 +6,8 @@ import process from 'process';
 // Import necessary services for flagging
 import { KnowledgeGraph } from '../../../lib/knowledge/KnowledgeGraph';
 import { KnowledgeFlaggingService } from '../../../lib/knowledge/flagging/KnowledgeFlaggingService';
+import path from 'path';
+import fs from 'fs';
 
 // Mark as server-only
 export const runtime = 'nodejs';
@@ -38,6 +40,24 @@ async function getFlaggingService(): Promise<KnowledgeFlaggingService | null> {
         return null;
     }
 }
+
+// Function to ensure directory exists
+const ensureDirectoryExists = (dirPath: string) => {
+  if (!fs.existsSync(dirPath)) {
+    fs.mkdirSync(dirPath, { recursive: true });
+  }
+};
+
+// Function to save a file buffer to the filesystem
+const saveFileToFS = (fileId: string, fileBuffer: Buffer, subdir: string = 'uploads'): string => {
+  const dirPath = path.join(process.cwd(), 'data', 'files', subdir);
+  ensureDirectoryExists(dirPath);
+  
+  const filePath = path.join(dirPath, fileId);
+  fs.writeFileSync(filePath, fileBuffer);
+  console.log(`Saved file to ${filePath}`);
+  return filePath;
+};
 
 /**
  * Get conversation history for a user
@@ -73,17 +93,87 @@ async function getConversationHistory(userId: string) {
 /**
  * Process a message with image files using a vision-enabled model
  */
-async function processWithVisionModel(message: string, images: Array<{fileId: string, filename: string}>, userId: string) {
+async function processWithVisionModel(message: string, images: Array<{fileId: string, filename: string, mimeType?: string}>, userId: string) {
   try {
     console.log(`Processing ${images.length} images with vision model`);
     
     // Get conversation history for context
     const conversationHistory = await getConversationHistory(userId);
     
-    // Create a prompt that includes the message and image information
+    // We need to fetch the actual image data for each image
+    const processedImages = [];
+    const failedImages = [];
+    
+    for (const image of images) {
+      try {
+        // Get file metadata
+        const metadata = fileProcessor.getFileById(image.fileId);
+        
+        if (!metadata) {
+          console.error(`File metadata not found for fileId: ${image.fileId}`);
+          failedImages.push({id: image.fileId, reason: 'Metadata not found'});
+          continue;
+        }
+        
+        // Determine where the file should be stored
+        const fileStoragePath = path.join(process.cwd(), 'data', 'files', 'uploads', image.fileId);
+        
+        let fileBuffer: Buffer;
+        
+        // Try to read the file from local storage
+        if (fs.existsSync(fileStoragePath)) {
+          fileBuffer = fs.readFileSync(fileStoragePath);
+        } else {
+          console.error(`File not found at expected path: ${fileStoragePath}. Attempting to recreate it.`);
+          
+          // Check if we can find it in the storage directory instead
+          const storageFilePath = path.join(process.cwd(), 'data', 'files', 'storage', image.fileId);
+          
+          if (fs.existsSync(storageFilePath)) {
+            // Found in storage, copy to uploads
+            fileBuffer = fs.readFileSync(storageFilePath);
+            // Save to uploads directory for future use
+            saveFileToFS(image.fileId, fileBuffer, 'uploads');
+          } else {
+            console.error(`File not found in storage either: ${storageFilePath}`);
+            failedImages.push({id: image.fileId, reason: 'File not found'});
+            continue;
+          }
+        }
+        
+        // Convert buffer to base64
+        const base64Data = fileBuffer.toString('base64');
+        
+        // Determine mime type from metadata or file extension
+        const mimeType = metadata.mimeType || image.mimeType || 'image/jpeg';
+        
+        processedImages.push({
+          base64Data,
+          mimeType,
+          fileId: image.fileId,
+          filename: image.filename
+        });
+        
+        console.log(`Successfully processed image: ${image.filename} (${mimeType})`);
+      } catch (err: any) {
+        console.error(`Error processing image ${image.fileId}:`, err);
+        failedImages.push({id: image.fileId, reason: err.message || 'Unknown error'});
+      }
+    }
+    
+    if (processedImages.length === 0) {
+      if (failedImages.length > 0) {
+        const failureReasons = failedImages.map(img => `${img.id}: ${img.reason}`).join(', ');
+        throw new Error(`Failed to process any of the provided images. Reasons: ${failureReasons}`);
+      } else {
+        throw new Error('Failed to process any of the provided images');
+      }
+    }
+    
+    // Create a prompt that includes the message and processed image data
     const promptWithImages = {
       message: message,
-      images: images, // Now just passing fileIds for processing server-side
+      images: processedImages,
       userId: userId,
       conversationHistory: conversationHistory
     };
@@ -223,6 +313,17 @@ export async function POST(request: NextRequest) {
             fileBuffer, 
             fileMetadataInput
         );
+
+        // Save the file to filesystem for later retrieval
+        if (file.type.startsWith('image/')) {
+          saveFileToFS(processedMetadata.fileId, fileBuffer, 'uploads');
+          
+          // Also save to storage for the view API
+          saveFileToFS(processedMetadata.fileId, fileBuffer, 'storage');
+        } else {
+          // For non-image files, just save to storage
+          saveFileToFS(processedMetadata.fileId, fileBuffer, 'storage');
+        }
 
         // Store result for later flagging and response
         processedFilesData.push({ metadata: processedMetadata, fullText });

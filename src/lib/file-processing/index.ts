@@ -28,7 +28,7 @@ interface Mammoth {
 // Import extraction libraries with error handling
 // Use dynamic imports to handle potential missing libraries
 let pdfParse: PdfParse | null = null;
-let mammothLib: Mammoth | null = null;
+let mammoth: Mammoth | null = null;
 
 // Try to load pdf-parse
 try {
@@ -41,7 +41,7 @@ try {
 // Try to load mammoth
 try {
   // Load mammoth dynamically
-  mammothLib = require('mammoth');
+  mammoth = require('mammoth');
 } catch (error) {
   console.warn('mammoth module not found or failed to load. DOCX processing will be limited.');
 }
@@ -117,23 +117,61 @@ export class FileProcessor {
    */
   async initialize(): Promise<boolean> {
     try {
-      // Ensure data directory exists
+      if (this.initialized) {
+        return true;
+      }
+      
+      // Create necessary directories
       if (!fs.existsSync(FILE_METADATA_DIR)) {
         fs.mkdirSync(FILE_METADATA_DIR, { recursive: true });
       }
-
-      // Load existing file metadata
+      
+      // Ensure storage directories exist
+      const uploadsDir = path.join(process.cwd(), 'data', 'files', 'uploads');
+      const storageDir = path.join(process.cwd(), 'data', 'files', 'storage');
+      
+      if (!fs.existsSync(uploadsDir)) {
+        fs.mkdirSync(uploadsDir, { recursive: true });
+        console.log('Created uploads directory');
+      }
+      
+      if (!fs.existsSync(storageDir)) {
+        fs.mkdirSync(storageDir, { recursive: true });
+        console.log('Created storage directory');
+      }
+      
+      // Load existing metadata
       if (fs.existsSync(FILE_METADATA_PATH)) {
         const data = fs.readFileSync(FILE_METADATA_PATH, 'utf8');
-        this.fileMetadata = JSON.parse(data);
-        // Convert date strings back to Date objects if necessary
-         Object.values(this.fileMetadata).forEach(meta => {
-             if (meta.uploadDate && typeof meta.uploadDate === 'string') {
-                 meta.uploadDate = new Date(meta.uploadDate);
-             }
-         });
+        try {
+          this.fileMetadata = JSON.parse(data);
+          // Convert date strings back to Date objects if necessary
+          Object.values(this.fileMetadata).forEach(meta => {
+            if (meta.uploadDate && typeof meta.uploadDate === 'string') {
+              meta.uploadDate = new Date(meta.uploadDate);
+            }
+          });
+        } catch (e: any) {
+          console.error('Error parsing file metadata JSON:', e.message);
+          // Start with empty metadata if file is corrupted
+          this.fileMetadata = {};
+        }
       }
-
+      
+      // Try to load PDF parser dynamically (supported in Next.js environment)
+      try {
+        pdfParse = require('pdf-parse');
+      } catch (e: any) {
+        console.warn('pdf-parse not available:', e.message);
+      }
+      
+      // Try to load DOCX parser dynamically
+      try {
+        mammoth = require('mammoth');
+      } catch (e: any) {
+        console.warn('mammoth not available:', e.message);
+      }
+      
       this.initialized = true;
       return true;
     } catch (error) {
@@ -404,11 +442,11 @@ export class FileProcessor {
       console.log(`Processing DOCX file: ${metadata.filename}`);
       
       // Check if mammoth module is available
-      if (!mammothLib) {
+      if (!mammoth) {
         throw new Error('DOCX processing library not available. Try installing mammoth package.');
       }
       
-      const result = await mammothLib.convertToHtml({ buffer: fileBuffer });
+      const result = await mammoth.convertToHtml({ buffer: fileBuffer });
       const text = result.value;
       // Note: Mammoth doesn't easily extract standard metadata like author/title
       // We could potentially parse the XML directly if needed, but keeping it simple for now.

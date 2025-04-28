@@ -1,23 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { fileProcessor } from '../../../../lib/file-processing';
-import { EnhancedMemory } from '../../../../lib/memory/src/enhanced-memory';
+import * as qdrantMemory from '../../../../server/qdrant';
+import path from 'path';
+import fs from 'fs';
 
-// Get Chloe's enhanced memory instance
-async function getEnhancedMemory() {
+// Prepare memory for file storage
+async function prepareMemory() {
   try {
-    // Dynamically import to avoid server/client module mismatches
-    const { getChloeInstance } = await import('../../../../agents/chloe');
-    const chloe = await getChloeInstance();
-    
-    if (!chloe) {
-      console.error('Failed to get Chloe instance');
-      return null;
+    // Initialize Qdrant memory if needed
+    if (!qdrantMemory.isInitialized()) {
+      await qdrantMemory.initMemory();
     }
-    
-    return chloe.getEnhancedMemory();
+    return true;
   } catch (error) {
-    console.error('Error getting enhanced memory:', error);
-    return null;
+    console.error('Error initializing memory:', error);
+    return false;
   }
 }
 
@@ -50,10 +47,13 @@ export async function POST(request: NextRequest) {
       await fileProcessor.initialize();
     }
     
-    // Get enhanced memory instance
-    const enhancedMemory = await getEnhancedMemory();
-    if (enhancedMemory) {
-      fileProcessor.setEnhancedMemory(enhancedMemory);
+    // Prepare Qdrant memory
+    const memoryReady = await prepareMemory();
+    if (memoryReady) {
+      console.log('Memory system initialized for file processing');
+      fileProcessor.setEnhancedMemory(qdrantMemory);
+    } else {
+      console.warn('Memory system initialization failed, proceeding without memory integration');
     }
     
     // Parse form data
@@ -120,20 +120,68 @@ export async function POST(request: NextRequest) {
     // Process the file
     const result = await fileProcessor.processFile(fileBuffer, fileMetadata);
     
+    // Save files to the filesystem for image files
+    if (result.metadata.mimeType.startsWith('image/')) {
+      // Ensure directories exist
+      const uploadsDir = path.join(process.cwd(), 'data', 'files', 'uploads');
+      const storageDir = path.join(process.cwd(), 'data', 'files', 'storage');
+      
+      if (!fs.existsSync(uploadsDir)) {
+        fs.mkdirSync(uploadsDir, { recursive: true });
+      }
+      
+      if (!fs.existsSync(storageDir)) {
+        fs.mkdirSync(storageDir, { recursive: true });
+      }
+      
+      // Save files to both directories
+      const uploadPath = path.join(uploadsDir, result.metadata.fileId);
+      const storagePath = path.join(storageDir, result.metadata.fileId);
+      
+      fs.writeFileSync(uploadPath, fileBuffer);
+      fs.writeFileSync(storagePath, fileBuffer);
+      
+      console.log(`Image file saved to: ${uploadPath} and ${storagePath}`);
+    }
+    
     // If successful, send notification to Discord
-    if (result.processingStatus === 'completed') {
+    if (result.metadata.processingStatus === 'completed') {
+      // Log file information for debugging
+      console.log(`Successfully processed file: ${result.metadata.filename} (ID: ${result.metadata.fileId})`);
+      
+      // Additional logging for image files
+      if (result.metadata.mimeType.startsWith('image/')) {
+        console.log(`Image file stored: ${result.metadata.filename} (ID: ${result.metadata.fileId})`);
+        
+        // Verify file storage (for debugging)
+        const uploadPath = path.join(process.cwd(), 'data', 'files', 'uploads', result.metadata.fileId);
+        const storagePath = path.join(process.cwd(), 'data', 'files', 'storage', result.metadata.fileId);
+        
+        if (fs.existsSync(uploadPath)) {
+          console.log(`✅ Image file verified in uploads: ${uploadPath}`);
+        } else {
+          console.warn(`❌ Image file NOT found in uploads: ${uploadPath}`);
+        }
+        
+        if (fs.existsSync(storagePath)) {
+          console.log(`✅ Image file verified in storage: ${storagePath}`);
+        } else {
+          console.warn(`❌ Image file NOT found in storage: ${storagePath}`);
+        }
+      }
+      
       // Send notification asynchronously (don't await)
-      sendDiscordNotification(result.filename, result.fileId);
+      sendDiscordNotification(result.metadata.filename, result.metadata.fileId);
     }
     
     // Return response
     return NextResponse.json({ 
-      success: result.processingStatus === 'completed',
-      fileId: result.fileId,
-      filename: result.filename,
-      status: result.processingStatus,
-      error: result.processingError,
-      summary: result.summary
+      success: result.metadata.processingStatus === 'completed',
+      fileId: result.metadata.fileId,
+      filename: result.metadata.filename,
+      status: result.metadata.processingStatus,
+      error: result.metadata.processingError,
+      summary: result.metadata.summary
     });
   } catch (error: any) {
     console.error('Error processing file upload:', error);
