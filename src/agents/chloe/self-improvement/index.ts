@@ -6,6 +6,7 @@
 export * from './performanceScorer';
 export * from './feedbackIngestor';
 export * from './strategyAdjuster';
+export * from './weeklySelfImprovement';
 
 // Add exports for future self-improvement modules here
 // export * from './learningOptimizer';

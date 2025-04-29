@@ -15,7 +15,8 @@
     "find-any:verbose": "powershell -File scripts/find-any-types.ps1 -verbose",
     "test:performance-scorer": "tsx src/agents/chloe/self-improvement/test-performance-scorer.ts",
     "test:feedback-ingestor": "tsx src/agents/chloe/self-improvement/test-feedback-ingestor.ts",
-    "test:strategy-adjuster": "tsx src/agents/chloe/self-improvement/test-strategy-adjuster.ts"
+    "test:strategy-adjuster": "tsx src/agents/chloe/self-improvement/test-strategy-adjuster.ts",
+    "test:weekly-self-improvement": "tsx src/agents/chloe/self-improvement/test-weekly-self-improvement.ts"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",
