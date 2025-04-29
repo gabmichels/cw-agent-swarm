@@ -325,11 +325,22 @@ export interface StrategicInsight {
 /**
  * Base tool interface
  */
-export interface BaseTool {
-  name: string;
-  description: string;
-  schema?: Record<string, unknown>;
-  execute(params: Record<string, unknown>): Promise<ToolExecutionResult>;
+export abstract class BaseTool {
+  public name: string;
+  public description: string;
+  public schema: Record<string, any>;
+
+  constructor(
+    name: string,
+    description: string,
+    schema: Record<string, any> = {}
+  ) {
+    this.name = name;
+    this.description = description;
+    this.schema = schema;
+  }
+
+  abstract execute(params: Record<string, any>): Promise<any>;
 }
 
 /**

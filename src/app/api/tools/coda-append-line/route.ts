@@ -6,58 +6,61 @@ export const runtime = 'nodejs';
 
 export async function POST(request: NextRequest) {
   try {
-    // Get the line from the request body
-    const { line, pageId = 'canvas-12gCwjgwEO' } = await request.json();
+    const body = await request.json();
+    const line = body.line;
+    const pageId = body.pageId || 'canvas-12gCwjgwEO'; // Default to the specified page if none provided
     
     if (!line) {
-      return NextResponse.json(
-        { success: false, error: 'Line content is required' },
-        { status: 400 }
-      );
+      return NextResponse.json({ 
+        success: false, 
+        error: "Line content is required" 
+      });
     }
     
     try {
-      // First read the existing content
+      // First read the existing document
       const existingContent = await codaIntegration.readDoc(pageId);
       
       if (!existingContent) {
-        return NextResponse.json(
-          { success: false, error: `No content found for page ID: ${pageId}` },
-          { status: 404 }
-        );
+        return NextResponse.json({ 
+          success: false, 
+          error: "Could not read existing document content" 
+        });
       }
       
-      // Append the new line
+      // Append the new line with timestamp
       const timestamp = new Date().toLocaleString();
-      const newLine = `${line} (Added at ${timestamp})`;
-      const newContent = `${existingContent}\n\n${newLine}`;
+      const newContent = `${existingContent}\n\n[${timestamp}] ${line}`;
       
-      // Update the document
+      // Update the document with the new content
       await codaIntegration.updateDoc(pageId, newContent);
       
-      return NextResponse.json({
-        success: true,
-        message: `Successfully appended line to Coda page ${pageId}`,
+      return NextResponse.json({ 
+        success: true, 
         pageId,
-        lineAdded: newLine
+        message: "Successfully appended line to Coda document"
       });
     } catch (error) {
-      if (error instanceof Error && error.message.includes('disabled')) {
-        return NextResponse.json(
-          { success: false, error: 'Coda integration is not enabled. Check your API key.' },
-          { status: 500 }
-        );
+      console.error('Error appending to Coda document:', error);
+      // If the error is about Coda integration being disabled, provide a clearer message
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      if (errorMessage.includes('Coda integration is disabled')) {
+        return NextResponse.json({ 
+          success: false, 
+          error: "Coda integration is not enabled. Please check your CODA_API_KEY."
+        });
       }
-      throw error; // Re-throw for the outer catch
+      
+      return NextResponse.json({ 
+        success: false, 
+        error: "Failed to append line to Coda document. " + errorMessage
+      });
     }
   } catch (error) {
-    console.error('Error appending line to Coda page:', error);
-    return NextResponse.json(
-      { 
-        success: false, 
-        error: error instanceof Error ? error.message : 'Unknown error' 
-      },
-      { status: 500 }
-    );
+    console.error('Error processing request:', error);
+    return NextResponse.json({ 
+      success: false, 
+      error: "Error processing request" 
+    });
   }
 } 

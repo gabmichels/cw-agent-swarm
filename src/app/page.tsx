@@ -14,6 +14,7 @@ import FilesTable from '../components/FilesTable';
 import { formatCronExpression } from '../utils/cronFormatter';
 import { Message, FileAttachment, MemoryItem, Task, ScheduledTask } from '../types';
 import MarkdownRenderer from '../components/MarkdownRenderer';
+import ChatMessages from '../components/ChatMessages';
 
 // Add constants for storage
 const SAVED_ATTACHMENTS_KEY = 'crowd-wisdom-saved-attachments';
@@ -1519,110 +1520,32 @@ For detailed instructions, see the Debug panel.`,
   };
 
   // Add this mapping function just before the return statement
-  const renderChatMessage = (message: Message, index: number) => {
-    // Handle image click to show in modal
-    const handleImageClick = async (attachment: FileAttachment, e: React.MouseEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
+  const handleImageClick = async (attachment: FileAttachment, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    try {
+      // Try to get the full-sized image from storage
+      const fullImage = await getImageDataFromStorage(attachment.fileId || '');
       
-      try {
-        // Try to get the full-sized image from storage
-        const fullImage = await getImageDataFromStorage(attachment.fileId || '');
-        
-        if (fullImage) {
-          setModalImage(fullImage);
-          setImageCaption(attachment.filename || '');
-          setIsImageModalOpen(true);
-          return;
-        }
-        
-        // Fall back to preview if full image not found
-        setModalImage(attachment.preview);
+      if (fullImage) {
+        setModalImage(fullImage);
         setImageCaption(attachment.filename || '');
         setIsImageModalOpen(true);
-      } catch (error) {
-        console.error("Error retrieving full image:", error);
-        // Fall back to the preview
-        setModalImage(attachment.preview);
-        setImageCaption(attachment.filename || '');
-        setIsImageModalOpen(true);
+        return;
       }
-    };
-
-    return (
-      <div key={index} className={`flex ${message.sender === 'You' ? 'justify-end' : 'justify-start'} mb-4`}>
-        <div className={`max-w-[75%] rounded-lg p-3 shadow ${
-          message.sender === 'You' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-white'
-        }`}>
-          <MarkdownRenderer 
-            content={message.content} 
-            className={message.sender === 'You' 
-              ? 'prose-sm prose-invert prose-headings:text-white prose-p:text-white prose-strong:text-white prose-em:text-white prose-a:text-blue-200'
-              : 'prose-sm prose-invert'
-            }
-          />
-          
-          {/* Render attachments if present */}
-          {message.attachments && message.attachments.length > 0 && (
-            <div className="mt-2 flex flex-wrap gap-2">
-              {message.attachments.map((attachment, idx) => (
-                <div key={idx} className="relative">
-                  {attachment.type === 'image' && attachment.preview ? (
-                    <img 
-                      src={attachment.preview} 
-                      alt={attachment.filename || 'Image'} 
-                      className="max-h-40 max-w-40 rounded border border-gray-500 cursor-pointer hover:opacity-90"
-                      onClick={(e) => handleImageClick(attachment, e)}
-                    />
-                  ) : (
-                    <div className="p-2 bg-gray-800 rounded border border-gray-600">
-                      {attachment.filename || 'File'}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-          
-          {/* Show memory context if available */}
-          {message.memory && message.memory.length > 0 && (
-            <details className="mt-2 text-sm">
-              <summary className="cursor-pointer text-blue-300">View Memory Context</summary>
-              <div className="mt-2 p-2 bg-gray-800 rounded text-xs">
-                {Array.isArray(message.memory) 
-                  ? message.memory.map((mem, i) => (
-                      <div key={i} className="mb-2 last:mb-0">
-                        <MarkdownRenderer 
-                          content={typeof mem === 'string' ? mem : mem.content || ''} 
-                          className="prose-xs prose-invert" 
-                        />
-                      </div>
-                    ))
-                  : 'No memory context available'}
-              </div>
-            </details>
-          )}
-          
-          {/* Show thoughts if available */}
-          {message.thoughts && message.thoughts.length > 0 && (
-            <details className="mt-2 text-sm">
-              <summary className="cursor-pointer text-purple-300">View Thoughts</summary>
-              <div className="mt-2 p-2 bg-gray-800 rounded text-xs">
-                {message.thoughts.map((thought, i) => (
-                  <div key={i} className="mb-2 last:mb-0">
-                    <MarkdownRenderer content={thought} className="prose-xs prose-invert" />
-                  </div>
-                ))}
-              </div>
-            </details>
-          )}
-          
-          <div className="text-xs mt-1 text-gray-300">
-            {message.timestamp ? message.timestamp.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : ''}
-          </div>
-        </div>
-      </div>
-    );
+      
+      // Fall back to preview if full image not found
+      setModalImage(attachment.preview);
+      setImageCaption(attachment.filename || '');
+      setIsImageModalOpen(true);
+    } catch (error) {
+      console.error("Error retrieving full image:", error);
+      // Fall back to the preview
+      setModalImage(attachment.preview);
+      setImageCaption(attachment.filename || '');
+      setIsImageModalOpen(true);
+    }
   };
 
   // Save image data separately from chat messages - LEGACY FUNCTION
@@ -1746,26 +1669,15 @@ For detailed instructions, see the Debug panel.`,
               {selectedTab === 'chat' && (
                 <div className="flex flex-col h-full overflow-hidden">
                   <div className="flex-1 overflow-y-auto p-4 mb-4">
-                    {/* User query message */}
+                    {/* Use the new ChatMessages component */}
                     {messages.length > 0 && (
-                      <div className="space-y-4">
-                        {messages.map(renderChatMessage)}
-                      </div>
+                      <ChatMessages 
+                        messages={messages} 
+                        isLoading={isLoading}
+                        onImageClick={handleImageClick}
+                      />
                     )}
                     
-                    {/* Loading indicator */}
-                    {isLoading && (
-                      <div className="flex justify-start mb-4">
-                        <div className="max-w-[75%] rounded-lg p-3 shadow bg-gray-700">
-                          <div className="flex items-center">
-                            <div className="w-2 h-2 rounded-full bg-gray-400 animate-bounce"></div>
-                            <div className="w-2 h-2 rounded-full bg-gray-400 animate-bounce ml-1" style={{ animationDelay: '0.2s' }}></div>
-                            <div className="w-2 h-2 rounded-full bg-gray-400 animate-bounce ml-1" style={{ animationDelay: '0.4s' }}></div>
-                            <span className="ml-2 text-sm text-gray-300">Thinking...</span>
-                          </div>
-                        </div>
-                      </div>
-                    )}
                     {/* Scroll anchor div - always place at the end of messages */}
                     <div ref={messagesEndRef} className="h-1" />
                   </div>

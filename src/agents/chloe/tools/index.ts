@@ -388,7 +388,16 @@ export class IntentRouterTool implements SimpleTool {
       // If we have the actual tool loaded, use it
       if (this.actualTool) {
         console.log('Delegating to actual IntentRouterTool');
-        const result = await this.actualTool.execute({ input });
+        // Call execute and handle if it doesn't exist
+        let result;
+        if (typeof this.actualTool.execute === 'function') {
+          result = await this.actualTool.execute({ input });
+        } else if (typeof this.actualTool._call === 'function') {
+          result = await this.actualTool._call(input);
+        } else {
+          throw new Error('No executable method found on IntentRouterTool implementation');
+        }
+        
         console.log('IntentRouter result:', JSON.stringify(result, null, 2));
         
         if (result.success) {

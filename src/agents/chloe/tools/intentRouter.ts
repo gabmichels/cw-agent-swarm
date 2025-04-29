@@ -6,6 +6,8 @@ import { createMarketScanner } from './marketScanner';
 import { EnhancedMemory, createEnhancedMemory } from '../../../lib/memory/src/enhanced-memory';
 import { CodaDocumentTool } from './index';
 import { logger as appLogger } from '../../../lib/logging';
+import { BaseTool } from '../../../lib/shared/types/agentTypes';
+
 
 // Define logger inline
 const logger = {
@@ -22,24 +24,6 @@ function logThought(message: string): void {
 }
 
 // Define BaseTool abstract class
-abstract class BaseTool {
-  public name: string;
-  public description: string;
-  public schema: Record<string, any>;
-
-  constructor(
-    name: string,
-    description: string,
-    schema: Record<string, any> = {}
-  ) {
-    this.name = name;
-    this.description = description;
-    this.schema = schema;
-  }
-
-  abstract execute(params: Record<string, any>): Promise<any>;
-}
-
 // Mock tool implementations
 class ProposeContentIdeasTool extends BaseTool {
   constructor() {

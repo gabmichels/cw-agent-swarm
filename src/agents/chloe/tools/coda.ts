@@ -158,58 +158,62 @@ export class CodaIntegration {
       throw new Error('Coda integration is disabled - CODA_API_KEY not set in environment variables');
     }
 
+    let createdDoc: CodaDoc;
+
     try {
       const client = this.getApiClient();
       
-      // Create a new doc
-      const createResponse = await client.post('/docs', {
+      // Clean the content for proper handling
+      const cleanContent = content.replace(/\r\n/g, '\n'); // Normalize line endings
+      
+      // Create a new doc with initial page
+      logger.info(`Creating new Coda doc "${title}" with initial content`);
+
+      const requestBody = {
         title: title,
-        sourceDoc: '',
-        folderId: process.env.CODA_FOLDER_ID // Can be used to clone an existing doc
-      });
-      
-      const newDoc = createResponse.data;
-      logger.info(`Successfully created Coda doc "${title}" with ID ${newDoc.id}`);
-      
-      // The doc is created even if content addition fails, so try adding content in a separate try/catch
-      try {
-        // Add a delay to give Coda time to process the document
-        logger.info(`Waiting for document ${newDoc.id} to be fully processed...`);
-        await new Promise(resolve => setTimeout(resolve, 2000)); // 2 second delay
-        
-        // Get the pages to find the first page if defaultPageId is not provided
-        if (!newDoc.defaultPageId) {
-          logger.info(`No defaultPageId found for document ${newDoc.id}, fetching pages...`);
-          try {
-            const pagesResponse = await client.get(`/docs/${newDoc.id}/pages`);
-            const pages = pagesResponse.data.items;
-            if (pages && pages.length > 0) {
-              // Update the content of the first page
-              await client.put(`/docs/${newDoc.id}/pages/${pages[0].id}/content`, {
-                content: content
-              });
-              logger.info(`Added content to first page (${pages[0].id}) of doc ${newDoc.id}`);
-            } else {
-              logger.warn(`No pages found in new document ${newDoc.id}, content not added`);
+        timezone: 'Europe/Berlin',
+        folderId: process.env.CODA_FOLDER_ID,
+        initialPage: {
+          name: title,
+          subtitle: `Created on ${new Date().toLocaleString()}`,
+          iconName: "rocket",
+          pageContent: {
+            type: "canvas",
+            canvasContent: {
+              format: "markdown",
+              content: content
             }
-          } catch (pageError) {
-            logger.error(`Error fetching pages for new doc ${newDoc.id}:`, pageError);
-            logger.info(`Document created but couldn't access pages. Try adding content later when the document is fully processed.`);
           }
-        } else {
-          // Add content to the first page using defaultPageId
-          await client.put(`/docs/${newDoc.id}/pages/${newDoc.defaultPageId}/content`, {
-            content: content
-          });
-          logger.info(`Added content to default page (${newDoc.defaultPageId}) of doc ${newDoc.id}`);
         }
-      } catch (contentError) {
-        // Log the error but don't fail the whole operation - the doc is still created
-        logger.error(`Error adding content to new doc ${newDoc.id}:`, contentError);
-        logger.info(`Document created but content could not be added. You can add content later using updateDoc.`);
       }
-      
-      return newDoc;
+
+      logger.info(JSON.stringify(requestBody));
+
+      try {
+        const createResponse = await client.post('/docs', JSON.stringify(requestBody));
+        
+        createdDoc = createResponse.data;
+        logger.info(`Successfully created Coda doc "${title}" with ID ${createdDoc.id}`);
+        
+        return createdDoc;
+      } catch (error: any) {
+        // Enhanced error logging for the POST request
+        if (error.response) {
+          // The request was made and the server responded with a status code
+          // that falls out of the range of 2xx
+          logger.error(`Coda API response error: ${error.response.status}`);
+          logger.error(`Response data:`, JSON.stringify(error.response.data, null, 2));
+          logger.error(`Response headers:`, JSON.stringify(error.response.headers, null, 2));
+        } else if (error.request) {
+          // The request was made but no response was received
+          logger.error(`No response received from Coda API:`, error.request);
+        } else {
+          // Something happened in setting up the request that triggered an Error
+          logger.error(`Error setting up Coda API request:`, error.message);
+        }
+        
+        throw error; // Re-throw to be caught by the outer catch block
+      }
     } catch (error) {
       logger.error(`Error creating Coda doc "${title}":`, error);
       throw new Error(`Failed to create Coda doc: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -217,7 +221,7 @@ export class CodaIntegration {
   }
 
   /**
-   * Update an existing doc with new content
+   * Update the content of a specific doc or page
    */
   async updateDoc(docId: string, content: string): Promise<void> {
     if (!this.isEnabled) {
@@ -231,29 +235,55 @@ export class CodaIntegration {
       
       const client = this.getApiClient();
       
-      // Get the first page of the doc
-      const pagesResponse = await client.get(`/docs/${cleanDocId}/pages`);
-      const firstPage = pagesResponse.data.items[0];
+      // Check if this is a document ID or page ID
+      // Page IDs typically start with "canvas-" or other prefixes
+      const isPage = docId.includes('canvas-') || docId.includes('table-') || docId.includes('view-');
       
-      // Update the content of the first page
-      await client.put(`/docs/${cleanDocId}/pages/${firstPage.id}/content`, {
-        content: content
-      });
+      if (isPage) {
+        // If it's a page ID, update the page content directly with the proper format
+        logger.info(`Updating page content for page ID: ${cleanDocId}`);
+        
+        // Format the payload according to Coda API requirements
+        await client.put(`/pages/${cleanDocId}`, {
+          contentUpdate: {
+            insertionMode: "append", // or "replace" to overwrite existing content
+            canvasContent: {
+              content: content
+            }
+          }
+        });
+      } else {
+        // If it's a doc ID, try to find the main page and update its content
+        logger.info(`Finding main page for doc ID: ${cleanDocId}`);
+        const pagesResponse = await client.get(`/docs/${cleanDocId}/pages`);
+        
+        if (pagesResponse.data.items && pagesResponse.data.items.length > 0) {
+          const mainPage = pagesResponse.data.items[0];
+          logger.info(`Found main page with ID ${mainPage.id}, updating content...`);
+          
+          // Format the payload according to Coda API requirements
+          await client.put(`/docs/${cleanDocId}/pages/${mainPage.id}`, {
+            contentUpdate: {
+              insertionMode: "append", // or "replace" to overwrite existing content
+              canvasContent: {
+                content: content
+              }
+            }
+          });
+          
+          logger.info(`Successfully updated main page content`);
+        } else {
+          throw new Error(`No pages found in document ${cleanDocId}`);
+        }
+      }
       
-      logger.info(`Successfully updated Coda doc ${cleanDocId}`);
+      logger.info(`Successfully updated content for ${isPage ? 'page' : 'doc'} ${cleanDocId}`);
     } catch (error) {
-      logger.error(`Error updating Coda doc ${docId}:`, error);
-      throw new Error(`Failed to update Coda doc: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      logger.error(`Error updating content for doc/page ${docId}:`, error);
+      throw new Error(`Failed to update content: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 }
 
-// Export a singleton instance
+// Export a singleton instance of the CodaIntegration class
 export const codaIntegration = new CodaIntegration();
-
-// Export wrapper functions for easier use
-export const listCodaDocs = () => codaIntegration.listDocs();
-export const readCodaDoc = (docId: string) => codaIntegration.readDoc(docId);
-export const createCodaDoc = (title: string, content: string) => codaIntegration.createDoc(title, content);
-export const updateCodaDoc = (docId: string, content: string) => codaIntegration.updateDoc(docId, content);
-export const resolveCodaLink = (url: string) => codaIntegration.resolveBrowserLink(url); 

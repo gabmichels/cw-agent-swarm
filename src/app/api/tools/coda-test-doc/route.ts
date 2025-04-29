@@ -6,36 +6,42 @@ export const runtime = 'nodejs';
 
 export async function POST(request: NextRequest) {
   try {
-    // Get the title from the request body
-    const { title = "Test Document" } = await request.json();
-    const content = `# ${title}\n\nThis is a test document created at ${new Date().toLocaleString()}.\n\n## Purpose\nThis document was created to test the Coda integration functionality.\n\n## Next Steps\nYou can edit this document or create new ones via the Coda API.`;
+    const { title } = await request.json();
+    const docTitle = title || `Test Document - ${new Date().toLocaleString()}`;
     
     try {
-      const newDocId = await codaIntegration.createDoc(title, content);
+      const content = `# ${docTitle}\n\nThis is a test document created on ${new Date().toLocaleString()}.\n\n## Content\nThis document was created using the Coda API integration test tool.`;
       
-      return NextResponse.json({
-        success: true,
-        docId: newDocId,
-        title,
-        message: 'Test document created successfully'
+      const doc = await codaIntegration.createDoc(docTitle, content);
+      
+      return NextResponse.json({ 
+        success: true, 
+        docId: doc.id,
+        browserLink: doc.browserLink,
+        name: doc.name,
+        message: "Successfully created Coda document"
       });
     } catch (error) {
-      if (error instanceof Error && error.message.includes('disabled')) {
-        return NextResponse.json(
-          { success: false, error: 'Coda integration is not enabled. Check your API key.' },
-          { status: 500 }
-        );
+      console.error('Error creating Coda document:', error);
+      // If the error is about Coda integration being disabled, provide a clearer message
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      if (errorMessage.includes('Coda integration is disabled')) {
+        return NextResponse.json({ 
+          success: false, 
+          error: "Coda integration is not enabled. Please check your CODA_API_KEY."
+        });
       }
-      throw error; // Re-throw for the outer catch
+      
+      return NextResponse.json({ 
+        success: false, 
+        error: "Failed to create Coda document. " + errorMessage
+      });
     }
   } catch (error) {
-    console.error('Error creating Coda test document:', error);
-    return NextResponse.json(
-      { 
-        success: false, 
-        error: error instanceof Error ? error.message : 'Unknown error' 
-      },
-      { status: 500 }
-    );
+    console.error('Error processing request:', error);
+    return NextResponse.json({ 
+      success: false, 
+      error: "Error processing request" 
+    });
   }
 } 

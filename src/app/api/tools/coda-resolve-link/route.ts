@@ -6,56 +6,52 @@ export const runtime = 'nodejs';
 
 export async function POST(request: NextRequest) {
   try {
-    // Get the browser link from the request body
-    const { browserLink } = await request.json();
+    const body = await request.json();
+    const browserLink = body.browserLink;
     
     if (!browserLink) {
-      return NextResponse.json(
-        { success: false, error: 'Browser link is required' },
-        { status: 400 }
-      );
+      return NextResponse.json({ 
+        success: false, 
+        error: "Browser link is required" 
+      });
+    }
+    
+    if (!browserLink.includes('coda.io')) {
+      return NextResponse.json({ 
+        success: false, 
+        error: "Not a valid Coda URL" 
+      });
     }
     
     try {
-      const resolvedResource = await codaIntegration.resolveBrowserLink(browserLink);
+      const resource = await codaIntegration.resolveBrowserLink(browserLink);
       
-      // Extract the document ID from the href URL
-      // Format is typically: https://coda.io/apis/v1/docs/{docId}/pages/{pageId}
-      let docId = resolvedResource.id;
-      const hrefParts = resolvedResource.href.split('/');
-      const docsIndex = hrefParts.indexOf('docs');
-      
-      if (docsIndex !== -1 && docsIndex + 1 < hrefParts.length) {
-        docId = hrefParts[docsIndex + 1];
-      }
-      
-      return NextResponse.json({
-        success: true,
-        resource: resolvedResource,
-        docId: docId,
-        pageId: resolvedResource.id,
-        name: resolvedResource.name,
-        type: resolvedResource.type,
-        apiLink: resolvedResource.href,
-        browserLink: browserLink
+      return NextResponse.json({ 
+        success: true, 
+        resource,
+        message: "Successfully resolved Coda browser link"
       });
     } catch (error) {
-      if (error instanceof Error && error.message.includes('disabled')) {
-        return NextResponse.json(
-          { success: false, error: 'Coda integration is not enabled. Check your API key.' },
-          { status: 500 }
-        );
+      console.error('Error resolving Coda browser link:', error);
+      // If the error is about Coda integration being disabled, provide a clearer message
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      if (errorMessage.includes('Coda integration is disabled')) {
+        return NextResponse.json({ 
+          success: false, 
+          error: "Coda integration is not enabled. Please check your CODA_API_KEY."
+        });
       }
-      throw error; // Re-throw for the outer catch
+      
+      return NextResponse.json({ 
+        success: false, 
+        error: "Failed to resolve Coda browser link. " + errorMessage
+      });
     }
   } catch (error) {
-    console.error('Error resolving Coda browser link:', error);
-    return NextResponse.json(
-      { 
-        success: false, 
-        error: error instanceof Error ? error.message : 'Unknown error' 
-      },
-      { status: 500 }
-    );
+    console.error('Error processing request:', error);
+    return NextResponse.json({ 
+      success: false, 
+      error: "Error processing request" 
+    });
   }
 } 

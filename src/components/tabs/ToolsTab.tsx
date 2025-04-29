@@ -192,7 +192,7 @@ const ToolsTab: React.FC<ToolsTabProps> = ({
       setCodaResults(data);
     } catch (error) {
       console.error('Error creating Coda test document:', error);
-      setCodaResults({ error: String(error) });
+      setCodaResults({ error: 'Failed to create Coda document' });
     } finally {
       setIsCodaLoading(false);
     }
@@ -202,28 +202,18 @@ const ToolsTab: React.FC<ToolsTabProps> = ({
     setIsCodaLoading(true);
     setCodaResults(null);
     try {
-      const input = codaInputValue;
-      const isUrl = input.includes('coda.io/d/');
-      
-      let requestBody = {};
-      if (isUrl) {
-        requestBody = { browserLink: input };
-      } else {
-        requestBody = { pageId: input || 'dgkYnzkmckz' };
-      }
-      
       const response = await fetch('/api/tools/coda-read-page', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(requestBody),
+        body: JSON.stringify({ pageId: codaInputValue || 'canvas-12gCwjgwEO' }),
       });
       const data = await response.json();
       setCodaResults(data);
     } catch (error) {
       console.error('Error reading Coda page:', error);
-      setCodaResults({ error: String(error) });
+      setCodaResults({ error: 'Failed to read Coda page' });
     } finally {
       setIsCodaLoading(false);
     }
@@ -238,13 +228,16 @@ const ToolsTab: React.FC<ToolsTabProps> = ({
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ line: codaInputValue }),
+        body: JSON.stringify({ 
+          line: codaInputValue,
+          pageId: 'canvas-12gCwjgwEO' 
+        }),
       });
       const data = await response.json();
       setCodaResults(data);
     } catch (error) {
-      console.error('Error appending to Coda page:', error);
-      setCodaResults({ error: String(error) });
+      console.error('Error appending to Coda document:', error);
+      setCodaResults({ error: 'Failed to append line to Coda document' });
     } finally {
       setIsCodaLoading(false);
     }
@@ -315,8 +308,43 @@ const ToolsTab: React.FC<ToolsTabProps> = ({
     }
   };
 
+  // New function to create a document with LLM content
+  const createDocWithLLM = async () => {
+    setIsCodaLoading(true);
+    setCodaResults(null);
+    try {
+      // Split the input by '|' to get title and content prompt
+      const [title, contentPrompt] = codaInputValue.split('|').map(part => part.trim());
+      
+      if (!title || !contentPrompt) {
+        setCodaResults({ 
+          success: false, 
+          error: "Please format your input as 'Title | Content instructions'" 
+        });
+        setIsCodaLoading(false);
+        return;
+      }
+      
+      const response = await fetch('/api/tools/coda-create-from-llm', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ title, contentPrompt }),
+      });
+      
+      const data = await response.json();
+      setCodaResults(data);
+    } catch (error) {
+      console.error('Error creating document with LLM content:', error);
+      setCodaResults({ error: String(error) });
+    } finally {
+      setIsCodaLoading(false);
+    }
+  };
+
   return (
-    <div className="bg-gray-800 rounded-lg p-4">
+    <div className="flex flex-col h-full p-4 space-y-4 overflow-y-auto">
       <h2 className="text-xl font-bold mb-4">Tools & Diagnostics</h2>
       
       {/* Add the new Advanced Search Tool at the top */}
@@ -332,7 +360,7 @@ const ToolsTab: React.FC<ToolsTabProps> = ({
             <input
               type="text"
               className="px-3 py-1 bg-gray-600 text-white rounded text-sm mb-2"
-              placeholder="Title/PageId/Line to add/Browser Link"
+              placeholder="Title/PageId/Link or 'Title | Content instructions' for LLM content"
               value={codaInputValue}
               onChange={(e) => setCodaInputValue(e.target.value)}
             />
@@ -371,6 +399,13 @@ const ToolsTab: React.FC<ToolsTabProps> = ({
                 disabled={isCodaLoading}
               >
                 Test Access
+              </button>
+              <button
+                onClick={createDocWithLLM}
+                className="px-3 py-1 bg-pink-600 hover:bg-pink-700 rounded text-white text-sm"
+                disabled={isCodaLoading}
+              >
+                Create Doc with LLM
               </button>
             </div>
           </div>
