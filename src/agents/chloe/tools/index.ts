@@ -288,38 +288,61 @@ export class CodaDocumentTool implements SimpleTool {
 
   async _call(input: string): Promise<string> {
     try {
-      const [action, ...args] = input.split('|').map(arg => arg.trim());
+      console.log('CodaDocumentTool._call input:', input);
+      
+      // Split the input into action and arguments
+      // Format should be: action|title|content
+      const parts = input.split('|');
+      
+      // Validate that we have at least an action
+      if (parts.length === 0 || !parts[0]) {
+        console.error('Invalid input format: Missing action');
+        return "Error: Invalid input format. Expected format: action|title|content";
+      }
+      
+      const action = parts[0].trim().toLowerCase();
+      const args = parts.slice(1).map(arg => arg.trim());
+      
+      console.log(`CodaDocumentTool processing action: ${action} with ${args.length} arguments`);
 
-      switch (action.toLowerCase()) {
-        case 'list':
+      switch (action) {
+        case 'list_documents':
           const docs = await codaIntegration.listDocs();
           if (docs.length === 0) {
             return "No documents found in the Coda workspace.";
           }
           return docs.map(doc => `${doc.name} (ID: ${doc.id})`).join('\n');
 
-        case 'read':
+        case 'read_document':
           if (!args[0]) {
             return "Error: Document ID is required for reading.";
           }
           const content = await codaIntegration.readDoc(args[0]);
           return content || "No content found or document not accessible.";
 
-        case 'create':
-          if (args.length < 2) {
-            return "Error: Title and content are required for document creation.";
+        case 'create_document':
+          // Need at least a title for creating a document
+          if (args.length === 0 || !args[0]) {
+            return "Error: Title is required for document creation.";
           }
-          const [title, ...contentParts] = args;
-          const newDocContent = contentParts.join('|');
+          
+          const title = args[0];
+          // Join the rest of the arguments as content, or use a default if none provided
+          const newDocContent = args.length > 1 
+            ? args.slice(1).join('\n\n')
+            : `# ${title}\n\nThis document was created automatically.`;
+          
+          console.log(`Creating Coda doc with title: "${title}", content length: ${newDocContent.length} characters`);
+          
           const newDoc = await codaIntegration.createDoc(title, newDocContent);
-          return `Document created: "${newDoc.name}" (ID: ${newDoc.id})`;
+          return `Document created: "${newDoc.name}" (ID: ${newDoc.id})\nYou can access it at: ${newDoc.browserLink}`;
 
         case 'update':
           if (args.length < 2) {
             return "Error: Document ID and content are required for updating.";
           }
           const [docId, ...updateParts] = args;
-          const updateContent = updateParts.join('|');
+          const updateContent = updateParts.join('\n\n');
           await codaIntegration.updateDoc(docId, updateContent);
           return `Document updated successfully (ID: ${docId})`;
 
@@ -371,66 +394,84 @@ export class IntentRouterTool implements SimpleTool {
   name = 'intent_router';
   description = 'Route intents to appropriate tools based on the input';
   private actualTool: any;
+  private initialized: boolean = false;
 
   constructor() {
+    console.log('IntentRouterTool wrapper constructor called');
+    
     // Dynamically import the actual implementation to avoid circular dependencies
     import('./intentRouter').then(module => {
       const ActualTool = module.IntentRouterTool;
       this.actualTool = new ActualTool();
-      console.log('IntentRouterTool loaded successfully');
+      this.initialized = true;
+      console.log('IntentRouterTool wrapper: actual implementation loaded successfully');
     }).catch(error => {
-      console.error('Failed to load IntentRouterTool:', error);
+      console.error('Failed to load IntentRouterTool implementation:', error);
     });
   }
 
   async _call(input: string): Promise<string> {
     try {
-      // If we have the actual tool loaded, use it
-      if (this.actualTool) {
-        console.log('Delegating to actual IntentRouterTool');
-        // Call execute and handle if it doesn't exist
-        let result;
-        if (typeof this.actualTool.execute === 'function') {
-          result = await this.actualTool.execute({ input });
-        } else if (typeof this.actualTool._call === 'function') {
-          result = await this.actualTool._call(input);
-        } else {
-          throw new Error('No executable method found on IntentRouterTool implementation');
-        }
+      console.log('IntentRouterTool wrapper _call method called with input:', input);
+      
+      // Check if the actual tool is loaded
+      if (!this.actualTool) {
+        console.log('Actual IntentRouterTool not loaded yet - waiting 500ms and retrying once');
+        // Wait a short time and check again (simple retry)
+        await new Promise(resolve => setTimeout(resolve, 500));
         
-        console.log('IntentRouter result:', JSON.stringify(result, null, 2));
-        
-        if (result.success) {
-          // Use the formatted display output if available
-          if (result.display) {
-            console.log('Using display property from result:', result.display);
-            return result.display;
-          } else {
-            console.log('No display property found in result');
-          }
-          
-          if (result.result && typeof result.result === 'object') {
-            // Handle different result formats based on the action
-            if (result.action === 'propose_content_ideas' && Array.isArray(result.result.ideas)) {
-              return `Content ideas: \n${result.result.ideas.join('\n')}`;
-            } else if (result.action === 'reflect_on_performance' && result.result.reflection) {
-              return result.result.reflection;
-            } else {
-              return JSON.stringify(result.result);
-            }
-          }
-          return `Intent matched: ${result.intent} (${Math.round((result.confidence || 0) * 100)}% confidence)`;
-        } else {
-          // Use display message for errors if available
-          return result.display || result.message || 'Intent routing failed';
+        if (!this.actualTool) {
+          console.warn("IntentRouterTool implementation still not loaded after waiting");
+          return "Intent routing is still initializing. Please try again in a moment.";
         }
       }
       
-      // Fallback if actual tool isn't loaded yet
-      console.log("IntentRouterTool implementation not loaded yet - using fallback");
-      return "Intent routing is initializing. Please try again in a moment.";
+      console.log('Delegating to actual IntentRouterTool');
+      
+      // Call the execute method with proper error handling
+      try {
+        if (typeof this.actualTool.execute === 'function') {
+          console.log('Calling execute method on actual tool');
+          const result = await this.actualTool.execute({ input });
+          console.log('IntentRouter result type:', typeof result);
+          
+          if (result && typeof result === 'object') {
+            // Format the output based on the result structure
+            if (result.success) {
+              if (result.display) {
+                return result.display;
+              } else if (result.message) {
+                return result.message;
+              } else if (result.result) {
+                return typeof result.result === 'string' 
+                  ? result.result 
+                  : JSON.stringify(result.result);
+              }
+              return `Intent matched: ${result.intent || 'unknown'} (${Math.round((result.confidence || 0) * 100)}% confidence)`;
+            } else {
+              return result.message || result.display || 'Intent routing failed';
+            }
+          } else {
+            console.warn('Unexpected result format from execute method:', result);
+            return String(result);
+          }
+        } else {
+          console.error('execute method not available on actualTool');
+          throw new Error('Method not available: execute');
+        }
+      } catch (execError) {
+        console.error('Error executing IntentRouterTool.execute:', execError);
+        
+        // Fall back to _call method if execute fails
+        if (typeof this.actualTool._call === 'function') {
+          console.log('Falling back to _call method');
+          return await this.actualTool._call(input);
+        } else {
+          throw execError; // re-throw if no fallback
+        }
+      }
     } catch (error) {
-      console.error('Error in intent router:', error);
+      console.error('Error in IntentRouterTool wrapper:', error);
       return `Error routing intent: ${error instanceof Error ? error.message : String(error)}`;
     }
   }
@@ -534,7 +575,7 @@ export const createChloeTools = (memory: ChloeMemory, model: any, discordWebhook
     notifyDiscord: new NotifyDiscordTool(discordWebhookUrl),
     codaDocument: new CodaDocumentTool(),
     marketScan: new MarketScanTool(),
-    intentRouter: new ActualIntentRouterTool() as unknown as SimpleTool, // Use type assertion to satisfy TypeScript
+    intentRouter: new IntentRouterTool(), // Use the wrapper class instead of direct import
     
     // Add the new test tools
     createCodaTestDoc: new CreateCodaTestDocTool(),

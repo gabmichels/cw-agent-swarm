@@ -484,5 +484,140 @@
     "knowledgeUtilizationRate": 0.65,
     "memoryRetrievalAccuracy": 0.78,
     "updatedAt": "2025-04-28T23:05:11.129Z"
+  },
+  {
+    "intentSuccessRate": 0,
+    "taskCompletionRate": 0,
+    "averageResponseTime": 0,
+    "userSatisfactionScore": 4.2,
+    "knowledgeUtilizationRate": 0.65,
+    "memoryRetrievalAccuracy": 0.78,
+    "updatedAt": "2025-04-29T10:18:41.050Z"
+  },
+  {
+    "intentSuccessRate": 0,
+    "taskCompletionRate": 0,
+    "averageResponseTime": 0,
+    "userSatisfactionScore": 4.2,
+    "knowledgeUtilizationRate": 0.65,
+    "memoryRetrievalAccuracy": 0.78,
+    "updatedAt": "2025-04-29T10:18:42.689Z"
+  },
+  {
+    "intentSuccessRate": 0,
+    "taskCompletionRate": 0,
+    "averageResponseTime": 0,
+    "userSatisfactionScore": 4.2,
+    "knowledgeUtilizationRate": 0.65,
+    "memoryRetrievalAccuracy": 0.78,
+    "updatedAt": "2025-04-29T10:18:43.998Z"
+  },
+  {
+    "intentSuccessRate": 0,
+    "taskCompletionRate": 0,
+    "averageResponseTime": 0,
+    "userSatisfactionScore": 4.2,
+    "knowledgeUtilizationRate": 0.65,
+    "memoryRetrievalAccuracy": 0.78,
+    "updatedAt": "2025-04-29T11:04:28.910Z"
+  },
+  {
+    "intentSuccessRate": 0,
+    "taskCompletionRate": 0,
+    "averageResponseTime": 0,
+    "userSatisfactionScore": 4.2,
+    "knowledgeUtilizationRate": 0.65,
+    "memoryRetrievalAccuracy": 0.78,
+    "updatedAt": "2025-04-29T11:04:31.122Z"
+  },
+  {
+    "intentSuccessRate": 0,
+    "taskCompletionRate": 0,
+    "averageResponseTime": 0,
+    "userSatisfactionScore": 4.2,
+    "knowledgeUtilizationRate": 0.65,
+    "memoryRetrievalAccuracy": 0.78,
+    "updatedAt": "2025-04-29T11:04:32.581Z"
+  },
+  {
+    "intentSuccessRate": 0,
+    "taskCompletionRate": 0,
+    "averageResponseTime": 0,
+    "userSatisfactionScore": 4.2,
+    "knowledgeUtilizationRate": 0.65,
+    "memoryRetrievalAccuracy": 0.78,
+    "updatedAt": "2025-04-29T11:27:00.176Z"
+  },
+  {
+    "intentSuccessRate": 0,
+    "taskCompletionRate": 0,
+    "averageResponseTime": 0,
+    "userSatisfactionScore": 4.2,
+    "knowledgeUtilizationRate": 0.65,
+    "memoryRetrievalAccuracy": 0.78,
+    "updatedAt": "2025-04-29T11:27:02.185Z"
+  },
+  {
+    "intentSuccessRate": 0,
+    "taskCompletionRate": 0,
+    "averageResponseTime": 0,
+    "userSatisfactionScore": 4.2,
+    "knowledgeUtilizationRate": 0.65,
+    "memoryRetrievalAccuracy": 0.78,
+    "updatedAt": "2025-04-29T11:27:03.277Z"
+  },
+  {
+    "intentSuccessRate": 0,
+    "taskCompletionRate": 0,
+    "averageResponseTime": 0,
+    "userSatisfactionScore": 4.2,
+    "knowledgeUtilizationRate": 0.65,
+    "memoryRetrievalAccuracy": 0.78,
+    "updatedAt": "2025-04-29T11:54:36.263Z"
+  },
+  {
+    "intentSuccessRate": 0,
+    "taskCompletionRate": 0,
+    "averageResponseTime": 0,
+    "userSatisfactionScore": 4.2,
+    "knowledgeUtilizationRate": 0.65,
+    "memoryRetrievalAccuracy": 0.78,
+    "updatedAt": "2025-04-29T11:54:38.284Z"
+  },
+  {
+    "intentSuccessRate": 0,
+    "taskCompletionRate": 0,
+    "averageResponseTime": 0,
+    "userSatisfactionScore": 4.2,
+    "knowledgeUtilizationRate": 0.65,
+    "memoryRetrievalAccuracy": 0.78,
+    "updatedAt": "2025-04-29T11:54:39.614Z"
+  },
+  {
+    "intentSuccessRate": 0,
+    "taskCompletionRate": 0,
+    "averageResponseTime": 0,
+    "userSatisfactionScore": 4.2,
+    "knowledgeUtilizationRate": 0.65,
+    "memoryRetrievalAccuracy": 0.78,
+    "updatedAt": "2025-04-29T12:06:59.618Z"
+  },
+  {
+    "intentSuccessRate": 0,
+    "taskCompletionRate": 0,
+    "averageResponseTime": 0,
+    "userSatisfactionScore": 4.2,
+    "knowledgeUtilizationRate": 0.65,
+    "memoryRetrievalAccuracy": 0.78,
+    "updatedAt": "2025-04-29T12:07:00.906Z"
+  },
+  {
+    "intentSuccessRate": 0,
+    "taskCompletionRate": 0,
+    "averageResponseTime": 0,
+    "userSatisfactionScore": 4.2,
+    "knowledgeUtilizationRate": 0.65,
+    "memoryRetrievalAccuracy": 0.78,
+    "updatedAt": "2025-04-29T12:07:02.105Z"
   }
 ]

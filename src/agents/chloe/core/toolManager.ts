@@ -194,13 +194,40 @@ export class ToolManager implements IManager {
         };
       }
       
-      // Process the intent
-      return await intentRouter.execute({ input: message, ...params });
+      console.log('Intent Router found, routing message:', message.substring(0, 50));
+      
+      // Process the intent based on the available method
+      try {
+        // First try to use the execute method (BaseTool)
+        if (typeof intentRouter.execute === 'function') {
+          console.log('Calling execute method on intent router');
+          return await intentRouter.execute({ input: message, ...params });
+        } 
+        // Fall back to _call method (SimpleTool)
+        else if (typeof (intentRouter as any)._call === 'function') {
+          console.log('Calling _call method on intent router');
+          const result = await (intentRouter as any)._call(message);
+          return {
+            success: true,
+            response: result,
+            data: { rawOutput: result }
+          };
+        }
+        else {
+          throw new Error('No executable method found on intent router tool');
+        }
+      } catch (callError) {
+        console.error('Error executing intent router tool:', callError);
+        return {
+          success: false,
+          error: `Error executing intent router: ${callError instanceof Error ? callError.message : String(callError)}`
+        };
+      }
     } catch (error) {
       console.error('Error processing intent:', error);
       return {
         success: false,
-        error: `Error processing intent: ${error}`
+        error: `Error processing intent: ${error instanceof Error ? error.message : String(error)}`
       };
     }
   }

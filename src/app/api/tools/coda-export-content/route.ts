@@ -92,21 +92,96 @@ async function generateTitleWithAI(content: string): Promise<string> {
   }
 }
 
+// Generate content for a topic using OpenRouter
+async function generateContentWithAI(topic: string): Promise<string> {
+  try {
+    // Check if we have the OpenRouter API key
+    const apiKey = process.env.OPENROUTER_API_KEY || process.env.OPENAI_API_KEY;
+    
+    if (!apiKey) {
+      console.error('No API key found for OpenRouter');
+      return `Failed to generate content - no API key configured.`;
+    }
+    
+    // Try with multiple model options to handle fallback cases
+    const modelOptions = [
+      'deepseek/deepseek-chat-v3-0324:free',
+      'meta-llama/llama-4-scout:free', 
+      'google/gemini-2.0-flash-001'
+    ];
+    
+    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+        'HTTP-Referer': process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000',
+      },
+      body: JSON.stringify({
+        model: modelOptions[0], // Use the first model as primary
+        fallbacks: modelOptions.slice(1), // Use the rest as fallbacks
+        messages: [
+          {
+            role: 'system',
+            content: 'You are a marketing professional with expertise in creating well-structured content. Create a detailed, comprehensive document on the requested topic. Use markdown formatting with headings, subheadings, bullet points, and numbered lists as appropriate.'
+          },
+          {
+            role: 'user',
+            content: `Create a comprehensive guide about "${topic}". Include sections covering background, key strategies, implementation steps, and best practices.`
+          }
+        ],
+        max_tokens: 2000,
+        temperature: 0.7,
+      }),
+    });
+    
+    if (!response.ok) {
+      const errorData = await response.json();
+      console.error('Error from OpenRouter:', errorData);
+      return `Failed to generate content. Error: ${JSON.stringify(errorData)}`;
+    }
+    
+    const data = await response.json();
+    
+    if (data.choices && data.choices[0] && data.choices[0].message) {
+      return data.choices[0].message.content.trim();
+    }
+    
+    return `Failed to generate content. No content in response.`;
+  } catch (error) {
+    console.error('Error generating content with AI:', error);
+    return `Error generating content: ${error instanceof Error ? error.message : 'Unknown error'}`;
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const content = body.content;
+    const userContent = body.content || "";
+    const userTopic = body.topic || "";
     
-    if (!content) {
+    // If no content or topic provided, return error
+    if (!userContent && !userTopic) {
       return NextResponse.json({ 
         success: false, 
-        error: "Content is required" 
+        error: "Either content or topic is required" 
       });
     }
     
     try {
-      // Generate a title using OpenRouter
-      const title = await generateTitleWithAI(content);
+      let content = userContent;
+      let title;
+      
+      // If we have a topic but no content, generate content based on the topic
+      if (userTopic && !userContent) {
+        console.log(`Generating content for topic: "${userTopic}"`);
+        content = await generateContentWithAI(userTopic);
+        title = userTopic;
+      } else {
+        // Generate a title using OpenRouter from the content
+        title = await generateTitleWithAI(content);
+      }
+      
       console.log(`Generated title: "${title}"`);
       
       // Log the content being sent to Coda

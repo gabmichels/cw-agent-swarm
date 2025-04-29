@@ -449,39 +449,56 @@ export class IntentRouterTool extends BaseTool {
   constructor() {
     super(
       'intent_router',
-      'Maps natural language to executable actions using intent matching',
+      'Routes natural language inputs to the appropriate tool',
       {
         input: {
           type: 'string',
-          description: 'The natural language input to be mapped to an action'
+          description: 'The natural language input to route to the appropriate tool'
         },
         extractParams: {
           type: 'boolean',
-          description: 'Whether to extract parameters from the input',
+          description: 'Whether to extract parameters from the input automatically',
           default: true
         }
       }
     );
     
-    // Initialize enhanced memory
     this.enhancedMemory = createEnhancedMemory();
+    console.log('IntentRouterTool constructor running...');
     
-    // Register available tools here
-    this.registerTool('propose_content_ideas', new ProposeContentIdeasTool());
-    this.registerTool('reflect_on_performance', new ReflectOnPerformanceTool());
-    this.registerTool('market_scan', new MarketScanTool());
-    this.registerTool('notify_discord', new NotifyDiscordTool());
-    this.registerTool('create_task', new CreateTaskTool());
-    this.registerTool('coda_document', new CodaDocumentToolAdapter());
+    // Initialize with some basic tools
+    try {
+      // Register core tools 
+      this.registerTool('market_scan', new MarketScanTool());
+      this.registerTool('propose_content_ideas', new ProposeContentIdeasTool());
+      this.registerTool('reflect_on_performance', new ReflectOnPerformanceTool());
+      this.registerTool('notify_discord', new NotifyDiscordTool());
+      this.registerTool('create_task', new CreateTaskTool());
+      
+      // Explicitly register the CodaDocumentToolAdapter for document creation
+      const codaToolAdapter = new CodaDocumentToolAdapter();
+      this.registerTool('coda_document', codaToolAdapter);
+      
+      // Register tool aliases - these map intent names to the actual action
+      this.registerToolAlias('create_document', 'coda_document');
+      this.registerToolAlias('make_document', 'coda_document');
+      this.registerToolAlias('write_document', 'coda_document');
+      
+      // Initialize the prompt template
+      this.initializePromptTemplate();
+      
+      console.log('IntentRouterTool initialized successfully with core tools');
+    } catch (error) {
+      console.error('Error initializing IntentRouterTool:', error);
+    }
     
-    // Alias the tools by intent name for easier lookup
-    this.registerToolAlias('generate_content_ideas', 'propose_content_ideas');
-    this.registerToolAlias('run_market_scan', 'market_scan');
-    this.registerToolAlias('schedule_task', 'create_task');
-    this.registerToolAlias('create_coda_doc', 'coda_document');
-    
-    // Initialize the promptTemplate
-    this.initializePromptTemplate();
+    // Load the action map from the patterns file
+    this.loadActionMap().then((actionMap) => {
+      this.actionMap = actionMap;
+      console.log(`IntentRouterTool loaded ${actionMap.intents.length} intent patterns from file`);
+    }).catch((error) => {
+      console.error('Error loading action map:', error);
+    });
   }
   
   // Add a method to register tool aliases
@@ -749,7 +766,7 @@ USER INPUT: {input}`;
     console.log("🔍 INTENT ROUTER TRIGGERED with input:", input);
     logThought(`IntentRouter triggered: "${input}"`);
     
-    logger.info(`Routing intent for input: ${input}`);
+    appLogger.info(`Routing intent for input: ${input}`);
     
     try {
       // Get relevant memories that might help with intent understanding
@@ -797,8 +814,21 @@ USER INPUT: {input}`;
       // Enhance the extracted parameters with natural language understanding
       const enhancedParams = await this.enhanceParameters(matchResult.params || {}, input, tool.name);
       
+      // Add the action from the match result to the parameters
+      if (matchResult.action) {
+        enhancedParams.action = matchResult.action;
+        console.log(`Adding action '${matchResult.action}' to parameters`);
+      } else if (matchResult.intent === 'create_coda_doc') {
+        // Special case for Coda document creation
+        enhancedParams.action = 'create';
+        console.log(`Setting default action 'create' for Coda document`);
+      }
+      
+      // Always pass the original input for context
+      enhancedParams.input = input;
+      
       logThought(`Executing '${tool.name}' with parameters: ${JSON.stringify(enhancedParams)}`);
-      logger.info(`Executing tool ${tool.name} with params:`, enhancedParams);
+      appLogger.info(`Executing tool ${tool.name} with params:`, enhancedParams);
       console.log(`🔧 EXECUTING TOOL: ${tool.name} with params:`, enhancedParams);
       
       const result = await tool.execute(enhancedParams);
@@ -826,7 +856,7 @@ USER INPUT: {input}`;
         display: displayResult
       };
     } catch (error) {
-      logger.error('Error executing intent router:', error);
+      appLogger.error('Error executing intent router:', error);
       logThought("Error occurred while processing the intent");
       return {
         success: false,
@@ -1004,7 +1034,7 @@ USER INPUT: {input}`;
  */
 class CodaDocumentToolAdapter extends BaseTool {
   private codaTool: CodaDocumentTool;
-  
+
   constructor() {
     super(
       'coda_document',
@@ -1012,63 +1042,91 @@ class CodaDocumentToolAdapter extends BaseTool {
       {
         topic: {
           type: 'string',
-          description: 'The topic to create a document about'
+          description: 'The topic or title for the document'
         },
         content: {
           type: 'string',
-          description: 'Optional content for the document',
-          required: false
+          description: 'The content to include in the document'
         }
       }
     );
     
-    // Create instance of the actual CodaDocumentTool
+    // Import the CodaDocumentTool directly to avoid initialization issues
     this.codaTool = new CodaDocumentTool();
+    console.log('CodaDocumentToolAdapter initialized');
   }
-  
+
   async execute(params: Record<string, any>): Promise<any> {
-    const { topic, content } = params;
-    
     try {
-      // Format input for the CodaDocumentTool
-      // The tool expects input in format "create|title|content"
-      const inputString = `create|${topic}|${content || ''}`;
+      console.log('CodaDocumentToolAdapter executing with params:', params);
       
-      // Call the actual tool
-      logThought(`Calling CodaDocumentTool with: "${inputString.substring(0, 50)}..."`);
-      const result = await this.codaTool._call(inputString);
+      // Extract the action from params or default to 'create'
+      const action = params.action || 'create';
+      let input = '';
       
-      // Parse the result and return in the format expected by IntentRouterTool
-      const match = result.match(/Document created: "([^"]+)" \(ID: ([^)]+)\)/);
-      
-      if (match) {
-        return {
-          success: true,
-          message: result,
-          documentName: match[1],
-          documentId: match[2],
-          documentUrl: `https://coda.io/d/${match[2]}`
-        };
+      // If we have the raw input, check if it already has the action formatted
+      if (params.input && !params.input.includes('|')) {
+        // Extract topic from input if not explicitly provided
+        if (!params.topic) {
+          if (params.document_name) {
+            params.topic = params.document_name;
+          } else {
+            const topicMatch = params.input.match(/(?:about|for|on|related to)\s+([^,.?!]+)/i);
+            if (topicMatch && topicMatch[1]) {
+              params.topic = topicMatch[1].trim();
+              console.log(`Extracted topic from input: ${params.topic}`);
+            } else {
+              // Use a generic title based on the input
+              params.topic = `Document from ${new Date().toLocaleDateString()}`;
+            }
+          }
+        }
+        
+        // Use input as content if no specific content is provided
+        if (!params.content) {
+          params.content = `This document was created based on: "${params.input}"`;
+        }
       }
       
-      // Handle error cases
-      if (result.startsWith('Error:')) {
+      // Format the input for the CodaDocumentTool with the action prefix
+      if (params.content) {
+        input = `${action}|${params.topic || 'Untitled Document'}|${params.content}`;
+      } else if (params.topic) {
+        input = `${action}|${params.topic}|This is a document about ${params.topic}`;
+      } else if (params.input) {
+        // If the input already has the format action|topic|content, use it directly
+        if (params.input.includes('|')) {
+          input = params.input;
+        } else {
+          // Otherwise, wrap the raw input with the action
+          input = `${action}|Generated Document|${params.input}`;
+        }
+      } else {
         return {
           success: false,
-          message: result
+          message: "Missing required parameters to create a Coda document",
+          display: "I need more information to create a Coda document. Please provide a topic."
         };
       }
       
-      // Default success case
+      console.log('Formatted input for CodaDocumentTool:', input);
+      
+      // Call the _call method of the CodaDocumentTool
+      const result = await this.codaTool._call(input);
+      console.log('CodaDocumentTool result:', result);
+      
       return {
         success: true,
-        message: result
+        message: result,
+        display: result
       };
     } catch (error) {
-      console.error('Error using CodaDocumentTool:', error);
+      console.error('Error in CodaDocumentToolAdapter:', error);
       return {
         success: false,
-        message: `Error creating Coda document: ${error instanceof Error ? error.message : String(error)}`
+        error: `Error creating Coda document: ${error instanceof Error ? error.message : String(error)}`,
+        message: `Error creating Coda document: ${error instanceof Error ? error.message : String(error)}`,
+        display: `Error creating Coda document: ${error instanceof Error ? error.message : String(error)}`
       };
     }
   }

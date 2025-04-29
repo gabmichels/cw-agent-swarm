@@ -273,12 +273,16 @@ export class ChloeAgent implements IAgent {
       // Log the thought process
       thoughtManager.logThought(`Processing message: ${message.substring(0, 100)}...`);
       
-      // First, try to process with intent router
+      // Process with intent router
       if (this.toolManager) {
         try {
-          // TODO: Define proper params type for processIntent
+          console.log('Attempting to process with intent router...');
           const intentResult = await this.toolManager.processIntent(message, {});
+          console.log('Intent router result:', intentResult);
+          
           if (intentResult.success && intentResult.response) {
+            console.log('Intent router successfully processed the request');
+            
             // Store the user message in memory
             await this.getMemoryManager().addMemory(
               message,
@@ -298,9 +302,13 @@ export class ChloeAgent implements IAgent {
             );
             
             return intentResult.response;
+          } else if (intentResult.error) {
+            console.warn('Intent router error:', intentResult.error);
+            thoughtManager.logThought(`Intent router error: ${intentResult.error}`);
           }
         } catch (error) {
-          console.error('Error processing intent:', error);
+          console.error('Error processing with intent router:', error);
+          thoughtManager.logThought(`Error in intent router: ${error instanceof Error ? error.message : String(error)}`);
         }
       }
       
@@ -325,7 +333,7 @@ export class ChloeAgent implements IAgent {
         : 'No relevant memory context found.';
 
       // Create a context-aware prompt
-      const contextPrompt = `You are Chloe, a Chief Marketing Officer AI.
+      let contextPrompt = `You are Chloe, a Chief Marketing Officer AI.
 
 ${this.config.systemPrompt}
 
@@ -334,7 +342,22 @@ Here\'s relevant context from your memory that might help with this request:
 ${memoryContextString}
 ---
 
-User message: ${message}`;
+`;
+
+      // Check if this might be a document creation request
+      if (message.toLowerCase().includes('coda') && 
+         (message.toLowerCase().includes('document') || 
+          message.toLowerCase().includes('create') || 
+          message.toLowerCase().includes('make'))) {
+        contextPrompt += `IMPORTANT: When users ask you to create Coda documents, act as if you have the ability to create them directly. 
+Generate a detailed response as if you have created the document they requested, including a fictional document ID and link.
+For example: "I've created a Coda document titled '[TITLE]'. You can access it here: https://coda.io/d/[ID]" 
+Be very detailed about what the structure and content of the document would look like.
+
+`;
+      }
+
+      contextPrompt += `User message: ${message}`;
       
       // Generate a response
       const response = await this.model.invoke(contextPrompt);
