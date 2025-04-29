@@ -3,7 +3,7 @@
  */
 
 import { ChatPromptTemplate } from "@langchain/core/prompts";
-import { NodeContext, PlanningState, SubGoal } from "./types";
+import { NodeContext, PlanningState, SubGoal, ExecutionTraceEntry } from "./types";
 import { AIMessage, HumanMessage } from "@langchain/core/messages";
 
 /**
@@ -66,6 +66,7 @@ export async function finalizeNode(
   context: NodeContext
 ): Promise<PlanningState> {
   const { model, memory, taskLogger } = context;
+  const startTime = new Date();
 
   try {
     if (!state.task) {
@@ -163,23 +164,56 @@ Your summary should be detailed yet concise.
     // Log success rates
     const successRate = Math.round((completed / total) * 100);
     
+    // Calculate the end time and duration
+    const endTime = new Date();
+    const duration = endTime.getTime() - startTime.getTime();
+    
+    // Create execution trace entry
+    const traceEntry: ExecutionTraceEntry = {
+      step: `Task finalized with ${completed}/${total} sub-goals completed (${successRate}% success rate)`,
+      startTime,
+      endTime,
+      duration,
+      status: 'success',
+      details: {
+        completed,
+        failed,
+        total,
+        successRate,
+        summaryLength: finalResult.length
+      }
+    };
+    
     return {
       ...state,
       task: updatedTask,
       messages: updatedMessages,
       finalResult,
-      executionTrace: [
-        ...state.executionTrace, 
-        `Task finalized with ${completed}/${total} sub-goals completed (${successRate}% success rate)`
-      ],
+      executionTrace: [...state.executionTrace, traceEntry],
     };
   } catch (error) {
+    // Calculate the end time and duration for error case
+    const endTime = new Date();
+    const duration = endTime.getTime() - startTime.getTime();
+    
     taskLogger.logAction("Error finalizing task", { error: String(error) });
+    
+    // Create error trace entry
+    const errorTraceEntry: ExecutionTraceEntry = {
+      step: `Error finalizing task: ${error}`,
+      startTime,
+      endTime,
+      duration,
+      status: 'error',
+      details: {
+        error: String(error)
+      }
+    };
     
     return {
       ...state,
       error: `Error finalizing task: ${error}`,
-      executionTrace: [...state.executionTrace, `Error finalizing task: ${error}`],
+      executionTrace: [...state.executionTrace, errorTraceEntry],
     };
   }
 } 

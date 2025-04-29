@@ -188,7 +188,12 @@ export async function planAndExecute(
     return {
       goal: options.goalPrompt,
       messages: [],
-      executionTrace: [`Error: ${errorMessage}`],
+      executionTrace: [{
+        step: `Error: ${errorMessage}`,
+        startTime: new Date(),
+        status: 'error',
+        details: { error: errorMessage }
+      }],
       error: errorMessage
     };
   }

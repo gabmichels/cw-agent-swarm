@@ -4,7 +4,7 @@
 
 import { AIMessage, HumanMessage } from "@langchain/core/messages";
 import { ChatPromptTemplate } from "@langchain/core/prompts";
-import { NodeContext, PlanningState, SubGoal } from "./types";
+import { NodeContext, PlanningState, SubGoal, ExecutionTraceEntry } from "./types";
 
 interface ReflectionResult {
   assessment: string;
@@ -71,6 +71,7 @@ export async function reflectOnProgressNode(
   context: NodeContext
 ): Promise<PlanningState> {
   const { model, memory, taskLogger, dryRun } = context;
+  const startTime = new Date();
 
   try {
     if (!state.task) {
@@ -243,6 +244,28 @@ If no adjustments are needed, you can omit the "adjustments" field.
       new AIMessage({ content: reflectionText })
     ];
     
+    // Calculate duration and create trace entry
+    const endTime = new Date();
+    const duration = endTime.getTime() - startTime.getTime();
+    
+    const traceEntry: ExecutionTraceEntry = {
+      step: 'Reflected on execution progress',
+      startTime,
+      endTime,
+      duration,
+      status: dryRun ? 'simulated' : 'success',
+      details: {
+        completed,
+        failed,
+        pending,
+        total,
+        adjustmentsMade: !!reflectionResult.adjustments,
+        newSubGoalsAdded: reflectionResult.adjustments?.added?.length || 0,
+        subGoalsModified: reflectionResult.adjustments?.modified?.length || 0,
+        assessment: reflectionResult.assessment.substring(0, 150) + "..."
+      }
+    };
+    
     // Store the reflection in the task object
     let updatedTask = {
       ...state.task,
@@ -261,15 +284,29 @@ If no adjustments are needed, you can omit the "adjustments" field.
       ...state,
       task: updatedTask,
       messages: updatedMessages,
-      executionTrace: [...state.executionTrace, 'Reflected on execution progress'],
+      executionTrace: [...state.executionTrace, traceEntry],
     };
   } catch (error) {
+    // Calculate duration for error case
+    const endTime = new Date();
+    const duration = endTime.getTime() - startTime.getTime();
+    
     context.taskLogger.logAction("Error in reflection node", { error: String(error) });
+    
+    // Create error trace entry
+    const errorTraceEntry: ExecutionTraceEntry = {
+      step: `Error in reflection: ${error}`,
+      startTime,
+      endTime,
+      duration,
+      status: 'error',
+      details: { error: String(error) }
+    };
     
     // Return the state unchanged if there's an error during reflection
     return {
       ...state,
-      executionTrace: [...state.executionTrace, `Error in reflection: ${error}`],
+      executionTrace: [...state.executionTrace, errorTraceEntry],
     };
   }
 }

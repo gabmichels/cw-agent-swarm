@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
-import fs from 'fs';
-import path from 'path';
+import * as fs from 'fs';
+import * as path from 'path';
 
 interface SubGoal {
   id: string;
@@ -12,8 +12,12 @@ interface SubGoal {
 }
 
 interface ExecutionTrace {
-  message: string;
-  timestamp: string;
+  step: string;
+  startTime: string;
+  endTime?: string;
+  duration?: number;
+  status: 'success' | 'error' | 'info' | 'simulated';
+  details?: any;
 }
 
 /**
@@ -54,42 +58,52 @@ export async function GET() {
     const latestLog = fs.readFileSync(path.join(logsDir, files[0]), 'utf8');
     const executionData = JSON.parse(latestLog);
     
-    // Add timestamps to execution trace items if they don't have them
+    // Process execution trace data to ensure it matches the expected frontend format
     if (executionData.executionTrace && Array.isArray(executionData.executionTrace)) {
-      executionData.executionTrace = executionData.executionTrace.map((trace: string | ExecutionTrace, index: number) => {
+      executionData.executionTrace = executionData.executionTrace.map((trace: any) => {
+        // If it's a string (old format), convert to the new format
         if (typeof trace === 'string') {
           // Create a timestamp estimated from the file creation time
-          // We're spacing them out by simulating 5-minute intervals
           const fileCreationTime = fs.statSync(path.join(logsDir, files[0])).mtime.getTime();
-          const traceTime = new Date(fileCreationTime - (index * 5 * 60 * 1000));
+          const startTime = new Date().toISOString();
+          const endTime = new Date().toISOString();
           
           return {
-            message: trace,
-            timestamp: traceTime.toISOString()
+            step: trace,
+            startTime,
+            endTime,
+            duration: 0,
+            status: trace.toLowerCase().includes('error') ? 'error' : 
+                   trace.toLowerCase().includes('completed') ? 'success' : 'info',
+            details: { message: trace }
           };
         }
-        return trace;
+        
+        // If it's already in the expected format, just ensure the date format is consistent
+        return {
+          ...trace,
+          // Ensure timestamps are strings
+          startTime: typeof trace.startTime === 'string' 
+            ? trace.startTime 
+            : new Date().toISOString(),
+          
+          endTime: trace.endTime 
+            ? (typeof trace.endTime === 'string' 
+              ? trace.endTime 
+              : new Date().toISOString())
+            : undefined
+        };
       });
     }
     
-    // Add timestamps to subgoals if they don't have them
+    // Process subgoals to ensure timestamps
     if (executionData.task?.subGoals && Array.isArray(executionData.task.subGoals)) {
-      const totalSubGoals = executionData.task.subGoals.length;
-      
-      executionData.task.subGoals = executionData.task.subGoals.map((subGoal: SubGoal, index: number) => {
+      executionData.task.subGoals = executionData.task.subGoals.map((subGoal: any) => {
+        // If the subgoal doesn't have a timestamp, add one
         if (!subGoal.timestamp) {
-          // Create a timestamp estimated from the file creation time
-          // We're spacing them out evenly from file creation time to current time
-          const fileCreationTime = fs.statSync(path.join(logsDir, files[0])).mtime.getTime();
-          const currentTime = Date.now();
-          const timeRange = currentTime - fileCreationTime;
-          
-          // Calculate the time for this subgoal (more recent subgoals happened closer to current time)
-          const subGoalTime = new Date(fileCreationTime + (timeRange * (index / totalSubGoals)));
-          
           return {
             ...subGoal,
-            timestamp: subGoalTime.toISOString()
+            timestamp: new Date().toISOString()
           };
         }
         return subGoal;

@@ -45,13 +45,25 @@ export interface PlanningTask {
 }
 
 /**
+ * Execution trace entry with timing information
+ */
+export interface ExecutionTraceEntry {
+  step: string;             // Description of the step
+  startTime: Date;          // When the step started
+  endTime?: Date;           // When the step completed (if applicable)
+  duration?: number;        // Duration in milliseconds (if completed)
+  status: 'success' | 'error' | 'info' | 'simulated';  // Status of the step
+  details?: any;            // Additional details about the step
+}
+
+/**
  * State for the planning graph
  */
 export interface PlanningState {
   goal: string;
   task?: PlanningTask;
   messages: BaseMessage[];
-  executionTrace: string[];
+  executionTrace: ExecutionTraceEntry[];
   finalResult?: string;
   route?: string;
   error?: string;

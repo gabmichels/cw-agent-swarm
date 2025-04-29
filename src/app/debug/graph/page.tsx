@@ -20,14 +20,18 @@ interface PlanningTask {
 }
 
 interface ExecutionTrace {
-  message: string;
-  timestamp: string;
+  step: string;
+  startTime: string;
+  endTime?: string;
+  duration?: number;
+  status: 'success' | 'error' | 'info' | 'simulated';
+  details?: any;
 }
 
 interface PlanningState {
   goal: string;
   task?: PlanningTask;
-  executionTrace: (string | ExecutionTrace)[];
+  executionTrace: ExecutionTrace[];
   finalResult?: string;
   error?: string;
 }
@@ -180,19 +184,42 @@ export default function GraphDebugPage() {
             <div>
               <h2 className="text-xl font-semibold mb-4">Execution Trace</h2>
               <div className="bg-gray-900 text-gray-300 p-4 rounded-lg overflow-auto max-h-96">
-                <pre className="whitespace-pre-wrap">
-                  {planningState.executionTrace.map((trace, index) => {
-                    if (typeof trace === 'string') {
-                      return <div key={index}>{trace}</div>;
-                    } else {
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left border-b border-gray-700">
+                      <th className="pb-2 pr-4">Step</th>
+                      <th className="pb-2 pr-4">Status</th>
+                      <th className="pb-2 pr-4">Start Time</th>
+                      <th className="pb-2 pr-4">End Time</th>
+                      <th className="pb-2">Duration</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {planningState.executionTrace.map((trace, index) => {
+                      // Get status color
+                      let statusColor = '';
+                      switch(trace.status) {
+                        case 'success': statusColor = 'text-green-400'; break;
+                        case 'error': statusColor = 'text-red-400'; break;
+                        case 'info': statusColor = 'text-blue-400'; break;
+                        case 'simulated': statusColor = 'text-yellow-400'; break;
+                        default: statusColor = 'text-gray-400';
+                      }
+                      
                       return (
-                        <div key={index} className="mb-1">
-                          <span className="text-gray-500">[{formatTimestamp(trace.timestamp)}]</span> {trace.message}
-                        </div>
+                        <tr key={index} className="border-b border-gray-800 hover:bg-gray-800">
+                          <td className="py-2 pr-4">{trace.step}</td>
+                          <td className={`py-2 pr-4 ${statusColor}`}>{trace.status}</td>
+                          <td className="py-2 pr-4">{formatTimestamp(trace.startTime)}</td>
+                          <td className="py-2 pr-4">{trace.endTime ? formatTimestamp(trace.endTime) : '-'}</td>
+                          <td className="py-2">
+                            {trace.duration !== undefined ? `${(trace.duration / 1000).toFixed(2)}s` : '-'}
+                          </td>
+                        </tr>
                       );
-                    }
-                  })}
-                </pre>
+                    })}
+                  </tbody>
+                </table>
               </div>
             </div>
           )}
@@ -270,18 +297,56 @@ function getSamplePlanningState(): PlanningState {
       status: "completed"
     },
     executionTrace: [
-      "Task planning completed successfully",
-      "Selected sub-goal: Analyze target audience demographics",
-      "Executed sub-goal: Analyze target audience demographics",
-      "Selected sub-goal: Develop key messaging and unique selling points",
-      "Executed sub-goal: Develop key messaging and unique selling points",
-      "Selected sub-goal: Outline social media campaign strategy",
-      "Executed sub-goal: Outline social media campaign strategy",
-      "Selected sub-goal: Create sample content and ad mockups",
-      "Error executing sub-goal: No design tool integration available",
-      "Selected sub-goal: Develop budget allocation and ROI metrics",
-      "Executed sub-goal: Develop budget allocation and ROI metrics",
-      "Task completed with some failed sub-goals"
+      {
+        step: "Analyze target audience demographics",
+        startTime: new Date(Date.now() - 3600000).toISOString(),
+        endTime: new Date(Date.now() - 3600000).toISOString(),
+        duration: 0,
+        status: "success",
+        details: {
+          result: "Analysis shows that young adults (25-34) who are health-conscious but time-constrained are the primary target audience."
+        }
+      },
+      {
+        step: "Develop key messaging and unique selling points",
+        startTime: new Date(Date.now() - 2400000).toISOString(),
+        endTime: new Date(Date.now() - 2400000).toISOString(),
+        duration: 0,
+        status: "success",
+        details: {
+          result: "Key message: 'Fit in your fitness, anytime, anywhere' with USPs focusing on convenience, effectiveness, and community support."
+        }
+      },
+      {
+        step: "Outline social media campaign strategy",
+        startTime: new Date(Date.now() - 1200000).toISOString(),
+        endTime: new Date(Date.now() - 1200000).toISOString(),
+        duration: 0,
+        status: "success",
+        details: {
+          result: "Strategy includes Instagram and TikTok as primary platforms with influencer partnerships and user-generated content contests."
+        }
+      },
+      {
+        step: "Create sample content and ad mockups",
+        startTime: new Date(Date.now() - 600000).toISOString(),
+        endTime: new Date(Date.now() - 600000).toISOString(),
+        duration: 0,
+        status: "error",
+        details: {
+          error: "Failed: Unable to create visual mockups due to lack of design tools integration."
+        }
+      },
+      {
+        step: "Develop budget allocation and ROI metrics",
+        startTime: new Date(Date.now() - 300000).toISOString(),
+        endTime: new Date(Date.now() - 300000).toISOString(),
+        duration: 0,
+        status: "success",
+        details: {
+          result: "Budget proposal: 40% on paid social, 30% on influencer partnerships, 20% on content creation, 10% on analytics tools."
+        }
+      }
     ],
     finalResult: "Marketing Campaign Plan for New Fitness Product\n\nTarget Audience: Young adults (25-34) who are health-conscious but time-constrained\n\nKey Message: 'Fit in your fitness, anytime, anywhere'\n\nChannels: Primary focus on Instagram and TikTok with influencer partnerships\n\nBudget Allocation: 40% on paid social, 30% on influencer partnerships, 20% on content creation, 10% on analytics tools\n\nLimitations: Unable to create visual mockups due to tool limitations. Recommend working with design team for visual content creation."
   };

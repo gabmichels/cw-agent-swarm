@@ -9,6 +9,8 @@ import { BaseMessage } from "@langchain/core/messages";
 import { ChloeMemory } from "../memory";
 import { TaskLogger } from "../task-logger";
 import { ActionNode, StateGraph } from "../langchain/graph";
+import * as fs from 'fs';
+import * as path from 'path';
 import {
   planTaskNode,
   decideNextStepNode,
@@ -18,7 +20,8 @@ import {
   PlanningState,
   PlanningTask,
   SubGoal,
-  NodeContext
+  NodeContext,
+  ExecutionTraceEntry
 } from "./nodes";
 
 /**
@@ -26,6 +29,14 @@ import {
  * This provides a more structured way to organize the planning workflow, 
  * with clear state transitions and node functionality.
  */
+export interface ChloeGraphOptions {
+  model: ChatOpenAI;
+  memory: ChloeMemory;
+  taskLogger: TaskLogger;
+  tools?: Record<string, any>;
+  dryRun?: boolean;
+}
+
 export class ChloeGraph {
   // Core components
   private model: ChatOpenAI;
@@ -40,35 +51,27 @@ export class ChloeGraph {
   
   // Flag for dry run mode
   private dryRun: boolean;
+
+  // Directory for execution logs
+  private logsDir: string;
   
   /**
-   * Initialize the ChloeGraph with required components
+   * Create a new ChloeGraph instance
    */
-  constructor({
-    model,
-    memory,
-    taskLogger,
-    tools = {},
-    dryRun = false
-  }: {
-    model: ChatOpenAI;
-    memory: ChloeMemory;
-    taskLogger: TaskLogger;
-    tools?: Record<string, any>;
-    dryRun?: boolean;
-  }) {
-    this.model = model;
-    this.memory = memory;
-    this.taskLogger = taskLogger;
-    this.tools = tools;
-    this.dryRun = dryRun;
+  constructor(options: ChloeGraphOptions) {
+    this.model = options.model;
+    this.memory = options.memory;
+    this.taskLogger = options.taskLogger;
+    this.tools = options.tools || {};
+    this.dryRun = options.dryRun || false;
+    this.logsDir = path.join(process.cwd(), 'logs', 'executions');
     
-    if (dryRun) {
+    if (this.dryRun) {
       this.taskLogger.logAction('ChloeGraph initialized in DRY RUN mode');
     }
     
-    // Create the node context that will be passed to each node
-    const nodeContext: NodeContext = {
+    // Build the planning graph
+    const context: NodeContext = {
       model: this.model,
       memory: this.memory,
       taskLogger: this.taskLogger,
@@ -76,8 +79,7 @@ export class ChloeGraph {
       dryRun: this.dryRun
     };
     
-    // Initialize the state graph
-    this.graph = this.buildGraph(nodeContext);
+    this.graph = this.buildGraph(context);
   }
   
   /**
@@ -187,6 +189,9 @@ export class ChloeGraph {
         success: !result.error,
         error: result.error
       });
+
+      // Save execution data to file
+      this.saveExecutionData(result);
       
       return result;
     } catch (error) {
@@ -197,32 +202,93 @@ export class ChloeGraph {
       throw error;
     }
   }
+
+  /**
+   * Save execution data to a log file
+   * 
+   * @param state - The planning state to save
+   * @returns The path to the saved file
+   */
+  saveExecutionData(state: PlanningState): string | null {
+    try {
+      // Ensure the logs directory exists
+      if (!fs.existsSync(this.logsDir)) {
+        fs.mkdirSync(this.logsDir, { recursive: true });
+      }
+
+      // Create a serializable version of the state
+      const serializableState = this.getSerializableState(state);
+      
+      // Generate a filename with a timestamp
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const fileName = `execution-${timestamp}.json`;
+      const filePath = path.join(this.logsDir, fileName);
+      
+      // Save the file
+      fs.writeFileSync(filePath, JSON.stringify(serializableState, null, 2), 'utf-8');
+      this.taskLogger.logAction('Saved execution data to file', { filePath });
+      
+      return filePath;
+    } catch (error) {
+      this.taskLogger.logAction('Error saving execution data', { 
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return null;
+    }
+  }
+
+  /**
+   * Convert the planning state to a serializable format
+   * This handles Date objects and other non-serializable data
+   */
+  private getSerializableState(state: PlanningState): any {
+    return {
+      ...state,
+      // Convert Date objects in execution trace to ISO strings
+      executionTrace: state.executionTrace.map(entry => ({
+        ...entry,
+        startTime: entry.startTime instanceof Date ? entry.startTime.toISOString() : entry.startTime,
+        endTime: entry.endTime instanceof Date ? entry.endTime.toISOString() : entry.endTime
+      })),
+      // Remove messages array as it can contain circular references
+      messages: state.messages.map(msg => ({
+        type: msg._getType(),
+        content: msg.content
+      }))
+    };
+  }
+
+  /**
+   * Get the execution trace with timing information
+   * 
+   * @returns Array of execution trace entries with timestamps
+   */
+  getExecutionTrace(state: PlanningState): ExecutionTraceEntry[] {
+    return state.executionTrace;
+  }
+
+  /**
+   * Get total execution time from the execution trace
+   * 
+   * @returns Total execution time in milliseconds
+   */
+  getTotalExecutionTime(state: PlanningState): number {
+    const trace = state.executionTrace;
+    if (trace.length === 0) return 0;
+    
+    const firstStart = trace[0].startTime.getTime();
+    const lastEnd = trace[trace.length - 1].endTime?.getTime() || Date.now();
+    
+    return lastEnd - firstStart;
+  }
 }
 
 /**
  * Helper function to create a new ChloeGraph instance
  */
-export function createChloeGraph({
-  model,
-  memory,
-  taskLogger,
-  tools = {},
-  dryRun = false
-}: {
-  model: ChatOpenAI;
-  memory: ChloeMemory;
-  taskLogger: TaskLogger;
-  tools?: Record<string, any>;
-  dryRun?: boolean;
-}): ChloeGraph {
-  return new ChloeGraph({
-    model,
-    memory,
-    taskLogger,
-    tools,
-    dryRun
-  });
+export function createChloeGraph(options: ChloeGraphOptions): ChloeGraph {
+  return new ChloeGraph(options);
 }
 
 // Re-export types from nodes
-export type { PlanningState, SubGoal, PlanningTask }; 
+export type { PlanningState, SubGoal, PlanningTask, ExecutionTraceEntry }; 

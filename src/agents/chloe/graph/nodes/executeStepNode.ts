@@ -4,7 +4,7 @@
 
 import { AIMessage, HumanMessage } from "@langchain/core/messages";
 import { ChatPromptTemplate } from "@langchain/core/prompts";
-import { NodeContext, PlanningState, SubGoal } from "./types";
+import { NodeContext, PlanningState, SubGoal, ExecutionTraceEntry } from "./types";
 import { MemoryEntry } from "../../memory";
 
 /**
@@ -71,6 +71,7 @@ export async function executeStepNode(
   context: NodeContext
 ): Promise<PlanningState> {
   const { model, memory, taskLogger, tools, dryRun } = context;
+  const startTime = new Date();
 
   try {
     if (!state.task) {
@@ -113,7 +114,7 @@ export async function executeStepNode(
       { status: 'in_progress' }
     );
     
-    // In dry run mode, we'll simulate the execution instead of actually doing it
+    // In dry run mode, simulate the execution instead of actually doing it
     let executionOutput: string;
     
     if (dryRun) {
@@ -214,6 +215,25 @@ Provide a clear, detailed response that accomplishes the sub-goal.
       new AIMessage({ content: executionOutput })
     ];
     
+    // Calculate end time and duration
+    const endTime = new Date();
+    const duration = endTime.getTime() - startTime.getTime();
+    
+    // Create execution trace entry with timing information
+    const traceEntry: ExecutionTraceEntry = {
+      step: `Executed sub-goal: ${subGoalPath}`,
+      startTime,
+      endTime,
+      duration,
+      status: dryRun ? 'simulated' : 'success',
+      details: {
+        subGoalId: currentSubGoal.id,
+        description: currentSubGoal.description,
+        result: executionOutput.substring(0, 100) + "...",
+        isDryRun: dryRun
+      }
+    };
+    
     // Check if all nested sub-goals of a parent are complete, and if so, mark the parent as complete
     const updateParentStatus = (subGoals: SubGoal[]): SubGoal[] => {
       return subGoals.map(sg => {
@@ -264,10 +284,24 @@ Provide a clear, detailed response that accomplishes the sub-goal.
         currentSubGoalId: undefined, // Clear the current sub-goal ID
       },
       messages: updatedMessages,
-      executionTrace: [...state.executionTrace, `Executed sub-goal: ${subGoalPath}`],
+      executionTrace: [...state.executionTrace, traceEntry],
     };
   } catch (error) {
+    // Calculate end time and duration for error case
+    const endTime = new Date();
+    const duration = endTime.getTime() - startTime.getTime();
+    
     taskLogger.logAction("Error executing step", { error: String(error) });
+    
+    // Create error trace entry with timing information
+    const errorTraceEntry: ExecutionTraceEntry = {
+      step: `Error executing step: ${error}`,
+      startTime,
+      endTime,
+      duration,
+      status: 'error',
+      details: { error: String(error) }
+    };
     
     // If there's a current sub-goal, mark it as failed
     let updatedSubGoals = state.task?.subGoals || [];
@@ -288,7 +322,7 @@ Provide a clear, detailed response that accomplishes the sub-goal.
         currentSubGoalId: undefined, // Clear the current sub-goal ID
       } : undefined,
       error: `Error executing step: ${error}`,
-      executionTrace: [...state.executionTrace, `Error executing step: ${error}`],
+      executionTrace: [...state.executionTrace, errorTraceEntry],
     };
   }
 } 

@@ -4,7 +4,26 @@
 
 import { AIMessage, HumanMessage } from "@langchain/core/messages";
 import { ChatPromptTemplate } from "@langchain/core/prompts";
-import { NodeContext, PlanningState, PlanningTask, SubGoal } from "./types";
+import { NodeContext, PlanningState, PlanningTask, SubGoal, ExecutionTraceEntry } from "./types";
+
+/**
+ * Helper function to create a timestamped execution trace entry
+ */
+function createTraceEntry(
+  step: string, 
+  status: 'success' | 'error' | 'info' | 'simulated' = 'success',
+  details?: any
+): ExecutionTraceEntry {
+  const startTime = new Date();
+  return {
+    step,
+    startTime,
+    endTime: startTime, // For immediate actions, start and end are the same
+    duration: 0,
+    status,
+    details
+  };
+}
 
 /**
  * Plans a task by decomposing it into sub-goals
@@ -18,6 +37,7 @@ export async function planTaskNode(
   context: NodeContext
 ): Promise<PlanningState> {
   const { model, memory, taskLogger } = context;
+  const startTime = new Date();
 
   try {
     taskLogger.logAction("Planning task", { goal: state.goal });
@@ -157,19 +177,49 @@ Only include the "children" array for sub-goals that should be broken down furth
         formatSubGoalsHierarchy(subGoals)
     });
     
+    // Calculate duration and create trace entry
+    const endTime = new Date();
+    const duration = endTime.getTime() - startTime.getTime();
+    
+    const traceEntry: ExecutionTraceEntry = {
+      step: "Task planning completed successfully",
+      startTime,
+      endTime,
+      duration,
+      status: 'success',
+      details: {
+        subGoalsCreated: subGoals.length,
+        hasNestedSubGoals: subGoals.some(sg => sg.children && sg.children.length > 0)
+      }
+    };
+    
     // Update and return the state
     return {
       ...state,
       task: planningTask,
       messages: [...state.messages, planMessage],
-      executionTrace: [...state.executionTrace, "Task planning completed successfully"],
+      executionTrace: [...state.executionTrace, traceEntry],
     };
   } catch (error) {
+    // Calculate duration for error case
+    const endTime = new Date();
+    const duration = endTime.getTime() - startTime.getTime();
+    
     taskLogger.logAction("Error in planning task", { error: String(error) });
+    
+    const errorTraceEntry: ExecutionTraceEntry = {
+      step: `Error in planning: ${error}`,
+      startTime,
+      endTime,
+      duration,
+      status: 'error',
+      details: { error: String(error) }
+    };
+    
     return {
       ...state,
       error: `Error planning task: ${error}`,
-      executionTrace: [...state.executionTrace, `Error in planning: ${error}`],
+      executionTrace: [...state.executionTrace, errorTraceEntry],
     };
   }
 } 
