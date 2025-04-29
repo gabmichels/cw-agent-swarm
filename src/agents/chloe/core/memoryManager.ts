@@ -100,8 +100,7 @@ export class MemoryManager implements IManager {
       
       // Initialize memory tagger
       this.memoryTagger = new MemoryTagger({
-        agentMemory: this.memory,
-        importanceThreshold: 0.7
+        memory: this.chloeMemory
       });
 
       // Initialize enhanced memory systems
@@ -188,7 +187,18 @@ export class MemoryManager implements IManager {
       throw new Error('ChloeMemory not initialized');
     }
     
-    return this.chloeMemory.addMemory(content, category, importance, source, context, tags);
+    // Map category string to a valid ChloeMemoryType
+    let memoryType: 'message' | 'thought' | 'task' | 'document' | 'insight' | 'execution_result' | 'plan' | 'performance_review' | 'search_result' = 'document';
+    
+    // Determine the appropriate memory type based on the category
+    if (['message', 'thought', 'task', 'document', 'insight', 'plan', 'performance_review', 'search_result'].includes(category)) {
+      memoryType = category as any;
+    } else {
+      // Default mapping for other categories
+      memoryType = 'document';
+    }
+    
+    return this.chloeMemory.addMemory(content, memoryType, importance, source, context, tags);
   }
 
   /**
@@ -203,7 +213,9 @@ export class MemoryManager implements IManager {
       throw new Error('ChloeMemory not initialized');
     }
     
-    return this.chloeMemory.getRelevantMemories(query, limit);
+    // Convert MemoryEntry[] to string[]
+    const memories = await this.chloeMemory.getRelevantMemories(query, limit);
+    return memories.map(memory => typeof memory === 'string' ? memory : memory.content);
   }
 
   /**
@@ -248,7 +260,7 @@ export class MemoryManager implements IManager {
       if (this.chloeMemory) {
         await this.chloeMemory.addMemory(
           insight,
-          'strategic_insight',
+          'thought',
           'high',
           'system',
           `Strategic insight in category: ${category}`,

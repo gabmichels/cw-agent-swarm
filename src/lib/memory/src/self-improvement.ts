@@ -237,26 +237,29 @@ export class SelfImprovementMechanism {
       // Save to disk
       await this.savePerformanceHistory();
       
-      // Store review in memory
+      // Create the review content
+      const reviewContent = `${reviewType.charAt(0).toUpperCase() + reviewType.slice(1)} Performance Review: ` +
+        `Success Rate: ${Math.round(metrics.intentSuccessRate * 100)}%, ` +
+        `Task Completion: ${Math.round(metrics.taskCompletionRate * 100)}%, ` +
+        `User Satisfaction: ${Math.round(metrics.userSatisfactionScore * 10) / 10}/5`;
+      
+      // Store review in memory as an internal thought, not a chat message
       await this.enhancedMemory.addMemory(
-        `${reviewType.charAt(0).toUpperCase() + reviewType.slice(1)} Performance Review: ` +
-          `Success Rate: ${Math.round(metrics.intentSuccessRate * 100)}%, ` +
-          `Task Completion: ${Math.round(metrics.taskCompletionRate * 100)}%, ` +
-          `User Satisfaction: ${Math.round(metrics.userSatisfactionScore * 10) / 10}/5`,
+        reviewContent,
         {
-          type: 'performance_review',
+          type: 'thought', // Change to 'thought' instead of 'document'
+          subtype: 'performance_review', // Use subtype to preserve categorization
           importance: 'high',
           category: 'system_learning',
           created: new Date().toISOString(),
-          reviewType
+          reviewType,
+          isInternalReflection: true // Flag to mark this as not intended for chat display
         },
-        'document'
+        'thought' // Use 'thought' type to ensure proper categorization
       );
       
-      // Take improvement actions based on metrics
-      await this.implementImprovements(metrics, reviewType);
-      
-      this.lastReviewDate = now;
+      // Log that this is an internal reflection, not a chat message
+      console.log(`INTERNAL REFLECTION (NOT CHAT): Generated ${reviewType} performance review metrics`);
       
       return metrics;
     } catch (error) {

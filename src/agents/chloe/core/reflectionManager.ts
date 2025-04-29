@@ -285,13 +285,21 @@ Be objective, data-driven, and focused on continuous improvement as a CMO.`;
       const response = await this.model.invoke(prompt);
       const review = response.content.toString();
       
-      // Store the performance review in memory
+      // Create a well-formatted performance review
+      const reviewContent = `${reviewType.charAt(0).toUpperCase() + reviewType.slice(1)} Performance Review: ${review.substring(0, 200)}...`;
+      
+      // Store the performance review in memory explicitly as a thought, not a message
+      // This ensures it doesn't show up in chat UI but is still in memory
       await this.memory.addMemory(
-        `${reviewType.charAt(0).toUpperCase() + reviewType.slice(1)} Performance Review: ${review.substring(0, 200)}...`,
-        'performance_review',
+        reviewContent,
+        'thought', // Explicitly use 'thought' type, not 'performance_review'
         'high',
-        'chloe'
+        'chloe',
+        'performance_review' // Use as context to preserve the original category
       );
+      
+      // Log that this is an internal reflection, not a chat message
+      console.log(`INTERNAL REFLECTION (NOT CHAT): Generated ${reviewType} performance review`);
       
       // Parse the review into structured data (simplified version)
       const sections = review.split(/\d\.\s+/).filter(Boolean);

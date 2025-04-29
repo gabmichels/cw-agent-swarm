@@ -270,7 +270,7 @@ export class ChloeAgent implements IAgent {
         hasAttachments: !!options.attachments
       });
       
-      // Log the thought process
+      // Log the thought process - this is an internal thought, not a chat message
       thoughtManager.logThought(`Processing message: ${message.substring(0, 100)}...`);
       
       // Process with intent router
@@ -286,16 +286,16 @@ export class ChloeAgent implements IAgent {
             // Store the user message in memory
             await this.getMemoryManager().addMemory(
               message,
-              'message',
+              'message', // This is a user chat message
               'medium',
               'user',
               `From user: ${options.userId}`
             );
             
-            // Store the response in memory
+            // Store the agent's response in memory
             await this.getMemoryManager().addMemory(
               intentResult.response,
-              'message',
+              'message', // This is an agent chat message that will be displayed
               'medium',
               'chloe',
               `Response to: ${message.substring(0, 50)}...`

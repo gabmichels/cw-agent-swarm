@@ -139,6 +139,10 @@ export class ChloeMemory {
     }
     
     const memoryId = `memory_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+    
+    // We no longer need to check for specific patterns here since we've fixed the issue at the source
+    // Each system now correctly specifies 'thought' vs 'message' type when adding memories
+    
     const baseType = this.convertToBaseMemoryType(type);
     const newMemory: MemoryEntry = {
       id: memoryId,
@@ -595,8 +599,10 @@ export class ChloeMemory {
     }
   }
 
-  // Add this method to get entries from local memory store
+  /**
+   * Get entries from local memory store
+   */
   private getLocalMemories(limit: number = 5): MemoryEntry[] {
     return this.memoryStore.entries.slice(0, limit);
   }
-} 
+}

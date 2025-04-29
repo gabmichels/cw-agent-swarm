@@ -111,12 +111,13 @@ export class ThoughtManager implements IManager {
         importance
       });
       
-      // Add to memory
+      // Add to memory - use 'thought' as the type rather than dynamic category
       await this.memory.addMemory(
         thought,
-        category,
+        'thought', // Change from category to valid ChloeMemoryType
         importance,
-        'chloe'
+        'chloe',
+        category // Pass the category as context instead
       );
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -169,9 +170,10 @@ My detailed reasoning:`;
       // Store the reasoning in memory
       await this.memory.addMemory(
         `Reasoning trail for "${question}": ${reasoning.substring(0, 200)}...`,
-        'reasoning',
+        'thought', // Change from 'reasoning' to valid ChloeMemoryType
         'medium',
-        'chloe'
+        'chloe',
+        'reasoning' // Pass 'reasoning' as the context
       );
       
       return reasoning;

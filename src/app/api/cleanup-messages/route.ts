@@ -21,7 +21,11 @@ export async function GET() {
       "Monitored system performance",
       "Evaluated response quality",
       "Detected patterns in",
-      "Optimized response generation"
+      "Optimized response generation",
+      "Performance Review:",
+      "Success Rate:",
+      "Task Completion:",
+      "User Satisfaction:"
     ];
     
     // Get all message memories

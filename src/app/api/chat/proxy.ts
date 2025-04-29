@@ -269,13 +269,14 @@ const captureThoughts = () => {
       }
     }).join(' ');
 
-    // TEMPORARY: Open the floodgates to see all logs
-    // Add timestamp to all logs to make them visible 
-    const timestamp = new Date().toISOString();
-    thoughts.push(`[${timestamp.split('T')[1].split('.')[0]}] DEBUG LOG: ${logStr}`);
+    // Mark messages that are explicitly internal reflections
+    if (logStr.includes('INTERNAL REFLECTION (NOT CHAT)')) {
+      const timestamp = new Date().toISOString();
+      thoughts.push(`[${timestamp.split('T')[1].split('.')[0]}] ${logStr.replace('INTERNAL REFLECTION (NOT CHAT): ', '')}`);
+      return; // Don't process further since we know exactly what this is
+    }
     
-    /* Original filtering logic - temporarily disabled to see all logs
-    // Capture specific patterns that might be thoughts
+    // Filter for thought-like patterns
     if (
       (logStr.includes('Chloe thinking:') || 
        logStr.includes('Agent thought:') || 
@@ -297,12 +298,12 @@ const captureThoughts = () => {
       const timestamp = new Date().toISOString();
       thoughts.push(`[${timestamp.split('T')[1].split('.')[0]}] ${logStr}`);
     }
-    */
   };
   
-  // Return functions to get captured thoughts and restore console
+  // Function to get collected thoughts
   return {
-    getThoughts: () => thoughts,
+    getThoughts: () => [...thoughts],
+    reset: () => { thoughts.length = 0; },
     restore: () => { console.log = originalConsoleLog; }
   };
 };
@@ -484,6 +485,23 @@ async function saveToHistory(userId: string, role: 'user' | 'assistant', content
     chatHistory.set(userId, []);
   }
   
+  // Skip saving if this is an internal reflection/thought that shouldn't be in chat
+  if (role === 'assistant' && (
+    content.includes('Performance Review:') || 
+    content.includes('Success Rate:') || 
+    content.includes('Task Completion:') || 
+    content.includes('User Satisfaction:') ||
+    content.includes('Investigated intent failures') ||
+    content.includes('Analyzed user feedback') ||
+    content.includes('Monitored system performance') ||
+    content.includes('Evaluated response quality') ||
+    content.includes('Detected patterns in') ||
+    content.includes('Optimized response generation')
+  )) {
+    console.log(`Skipping saving internal reflection to chat history: ${content.substring(0, 50)}...`);
+    return;
+  }
+  
   // First add message to in-memory history (this is guaranteed to work)
   const message = {
     role,
@@ -631,7 +649,7 @@ export async function POST(request: Request) {
     
     // Save user message to history - use await since we modified to be async
     const userMsg = await saveToHistory(userId, 'user', message, attachments, visionResponseFor);
-    console.log(`User message saved to history with timestamp: ${userMsg.timestamp}`);
+    console.log(`User message saved to history with timestamp: ${userMsg?.timestamp}`);
     
     // Try to process with real agent, but ensure we have a valid response even if errors occur
     let reply, memory, thoughts;
@@ -661,7 +679,7 @@ export async function POST(request: Request) {
       undefined, 
       visionResponseFor
     );
-    console.log(`Assistant message saved to history with timestamp: ${assistantMsg.timestamp}`);
+    console.log(`Assistant message saved to history with timestamp: ${assistantMsg?.timestamp}`);
     
     // Verify the history after saving
     const updatedHistory = getUserHistory(userId);

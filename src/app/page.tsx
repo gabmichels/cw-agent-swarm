@@ -15,6 +15,7 @@ import { formatCronExpression } from '../utils/cronFormatter';
 import { Message, FileAttachment, MemoryItem, Task, ScheduledTask } from '../types';
 import MarkdownRenderer from '../components/MarkdownRenderer';
 import ChatMessages from '../components/ChatMessages';
+import { TASK_IDS } from '../lib/shared/constants';
 
 // Add constants for storage
 const SAVED_ATTACHMENTS_KEY = 'crowd-wisdom-saved-attachments';
@@ -902,7 +903,7 @@ For detailed instructions, see the Debug panel.`,
         console.log("Using fallback tasks");
         setScheduledTasks([
           {
-            id: 'market-scan',
+            id: TASK_IDS.MARKET_SCAN,
             name: 'Market Scanner',
             description: 'Scan for market trends, news, and insights',
             cronExpression: '0 7,15 * * *',
@@ -911,7 +912,7 @@ For detailed instructions, see the Debug panel.`,
             nextRun: new Date(Date.now() + 1000 * 60 * 60 * 9).toISOString()
           },
           {
-            id: 'daily-planning',
+            id: TASK_IDS.DAILY_PLANNING,
             name: 'Daily Planning',
             description: 'Create a daily plan for marketing tasks',
             cronExpression: '0 8 * * *',
@@ -920,7 +921,7 @@ For detailed instructions, see the Debug panel.`,
             nextRun: new Date(Date.now() + 1000 * 60 * 60 * 16).toISOString()
           },
           {
-            id: 'weekly-reflection',
+            id: TASK_IDS.WEEKLY_MARKETING_REVIEW,
             name: 'Weekly Reflection',
             description: 'Reflect on weekly performance and achievements',
             cronExpression: '0 18 * * 0',
