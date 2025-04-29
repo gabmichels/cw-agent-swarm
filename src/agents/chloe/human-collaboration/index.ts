@@ -13,6 +13,11 @@ export interface PlannedTask extends PlanningTask {
   approvalGranted?: boolean;
   blockedReason?: string;
   stakeholderProfile?: StakeholderProfile;
+  // Correction-related fields
+  wasCorrected?: boolean;
+  correctionNotes?: string[];
+  correctionCategory?: 'misunderstanding' | 'tool_misuse' | 'missed_context' | 'wrong_approach' | 'other';
+  correctionTimestamp?: number;
 }
 
 /**
