@@ -106,11 +106,11 @@ export interface ApiErrorDetails {
   method?: string;
   request?: {
     headers?: Record<string, string>;
-    body?: any;
+    body?: unknown;
   };
   response?: {
     headers?: Record<string, string>;
-    body?: any;
+    body?: unknown;
     status?: number;
   };
   validation?: {
@@ -118,7 +118,7 @@ export interface ApiErrorDetails {
     message?: string;
     constraints?: Record<string, string>;
   }[];
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 /**
@@ -150,7 +150,7 @@ export class ApiError extends CustomError {
    */
   static fromResponse(
     response: Response,
-    responseBody?: any,
+    responseBody?: unknown,
     message?: string
   ): ApiError {
     const statusCode = response.status;

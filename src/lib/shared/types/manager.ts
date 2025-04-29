@@ -1,6 +1,33 @@
 /**
  * Base interface for all Manager classes within the agent system.
  */
+
+/**
+ * Standard diagnosis result type for manager health checks
+ */
+export interface DiagnosisResult {
+  /** Status of the check: 'healthy', 'degraded', or 'failed' */
+  status: 'healthy' | 'degraded' | 'failed';
+  /** Summary message describing the current state */
+  message: string;
+  /** Optional timestamp of when the diagnosis was performed */
+  timestamp?: Date;
+  /** Additional metrics or measurements */
+  metrics?: Record<string, number | string | boolean>;
+  /** Details about specific components or subsystems */
+  components?: Array<{
+    name: string;
+    status: 'healthy' | 'degraded' | 'failed';
+    message?: string;
+  }>;
+  /** Any errors encountered during diagnosis */
+  errors?: Array<{
+    message: string;
+    code?: string;
+    stack?: string;
+  }>;
+}
+
 export interface IManager {
   /**
    * Unique identifier for the manager (optional).
@@ -26,7 +53,7 @@ export interface IManager {
 
   /**
    * Performs a health check or diagnosis of the manager's status.
-   * @returns Promise resolving to a status object or string.
+   * @returns Promise resolving to a standardized diagnosis result.
    */
-  diagnose?(): Promise<any>; // TODO: Define a standardized diagnosis result type
+  diagnose?(): Promise<DiagnosisResult>;
 } 

@@ -34,7 +34,7 @@ export interface Message {
   role: MessageRole;
   content: string;
   timestamp?: Date;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
   id?: string;
   text?: string;
 }
@@ -57,14 +57,14 @@ export interface Task {
 export interface MemoryReference {
   id: string;
   content: string;
-  metadata: Record<string, any>;
+  metadata: Record<string, unknown>;
   createdAt: Date;
 }
 
 // Tool result interface
 export interface ToolResult {
   success: boolean;
-  result?: any;
+  result?: unknown;
   error?: string;
 }
 

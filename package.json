@@ -10,7 +10,9 @@
     "typecheck": "tsc --noEmit --jsx react-jsx --esModuleInterop",
     "memory:consolidate": "ts-node scripts/consolidate-memory.ts",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "find-any": "powershell -File scripts/find-any-types.ps1",
+    "find-any:verbose": "powershell -File scripts/find-any-types.ps1 -verbose"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",

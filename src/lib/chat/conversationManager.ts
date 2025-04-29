@@ -29,8 +29,8 @@ export class ConversationManager {
         await this.knowledgeGapsProcessor.identifyKnowledgeGaps();
       }
       return true;
-    } catch (error: any) {
-      console.error('Error processing conversation:', error);
+    } catch (error: unknown) {
+      console.error('Error processing conversation:', error instanceof Error ? error.message : String(error));
       return false;
     }
   }

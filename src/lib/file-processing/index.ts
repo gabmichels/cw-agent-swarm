@@ -4,11 +4,18 @@ import { EnhancedMemory } from '../memory/src/enhanced-memory';
 
 // Define types for the libraries
 interface PdfParse {
-  (dataBuffer: Buffer, options?: any): Promise<{
+  (dataBuffer: Buffer, options?: {
+    max?: number;
+    pagerender?: (pageData: {
+      pageIndex: number;
+      pageId: string | number;
+      pageContent: string;
+    }) => string;
+  }): Promise<{
     numpages: number;
     numrender: number;
-    info: any;
-    metadata: any;
+    info: Record<string, unknown>;
+    metadata: Record<string, unknown>;
     text: string;
     version: string;
   }>;
@@ -16,12 +23,15 @@ interface PdfParse {
 
 interface Mammoth {
   convertToHtml: (options: {
-    // Use any for buffer to avoid type conflicts
-    buffer: any; 
+    buffer: Buffer; 
     styleMap?: string;
   }) => Promise<{
     value: string;
-    messages: any[];
+    messages: Array<{
+      type: string;
+      message: string;
+      paragraph?: unknown;
+    }>;
   }>;
 }
 
@@ -68,7 +78,7 @@ export interface FileMetadata {
   tags?: string[];
   // Add fields for extracted content/metadata if not storing separately
   extractedText?: string; // Store full extracted text temporarily or pass it back
-  extractedMetadata?: Record<string, any>; // Store extracted PDF metadata etc.
+  extractedMetadata?: Record<string, unknown>; // Store extracted PDF metadata etc.
   documentType?: string; // Added field for document classification
   language?: string; // Language of the document content
 }
@@ -85,6 +95,17 @@ export interface ProcessedFile {
       contentType?: 'text' | 'table' | 'image' | 'code';
     };
   }[];
+}
+
+export interface FileProcessingOptions {
+  modelOverride?: string;
+  chunkSize?: number;
+  overlapSize?: number;
+  extractEntities?: boolean;
+  customFormatting?: boolean;
+  customExtractors?: Record<string, (content: string) => string>;
+  includeMetadata?: boolean;
+  summarize?: boolean;
 }
 
 // Store file metadata in a local JSON file
@@ -151,8 +172,8 @@ export class FileProcessor {
               meta.uploadDate = new Date(meta.uploadDate);
             }
           });
-        } catch (e: any) {
-          console.error('Error parsing file metadata JSON:', e.message);
+        } catch (e: unknown) {
+          console.error('Error parsing file metadata JSON:', e instanceof Error ? e.message : String(e));
           // Start with empty metadata if file is corrupted
           this.fileMetadata = {};
         }
@@ -161,15 +182,15 @@ export class FileProcessor {
       // Try to load PDF parser dynamically (supported in Next.js environment)
       try {
         pdfParse = require('pdf-parse');
-      } catch (e: any) {
-        console.warn('pdf-parse not available:', e.message);
+      } catch (e: unknown) {
+        console.warn('pdf-parse not available:', e instanceof Error ? e.message : String(e));
       }
       
       // Try to load DOCX parser dynamically
       try {
         mammoth = require('mammoth');
-      } catch (e: any) {
-        console.warn('mammoth not available:', e.message);
+      } catch (e: unknown) {
+        console.warn('mammoth not available:', e instanceof Error ? e.message : String(e));
       }
       
       this.initialized = true;
@@ -194,12 +215,7 @@ export class FileProcessor {
   async processFile(
     fileBuffer: Buffer,
     fileMetadataInput: Omit<FileMetadata, 'fileId' | 'uploadDate' | 'processingStatus' | 'extractedText' | 'extractedMetadata'>,
-    options: {
-      modelOverride?: string;
-      chunkSize?: number;
-      overlapSize?: number;
-      extractEntities?: boolean;
-    } = {}
+    options: FileProcessingOptions = {}
   ): Promise<{ metadata: FileMetadata, fullText: string | null }> {
     if (!this.initialized) {
       await this.initialize();
@@ -263,10 +279,10 @@ export class FileProcessor {
 
       return { metadata, fullText }; // Return metadata and full text
 
-    } catch (error: any) {
+    } catch (error: unknown) {
       // Update metadata with failure
       metadata.processingStatus = 'failed' as const;
-      metadata.processingError = error.message || 'Unknown error';
+      metadata.processingError = error instanceof Error ? error.message : String(error);
       
       this.fileMetadata[fileId] = metadata;
       await this.saveFileMetadata();
@@ -322,7 +338,7 @@ export class FileProcessor {
   private async processTextFile(
     fileBuffer: Buffer,
     metadata: FileMetadata,
-    options: any
+    options: FileProcessingOptions
   ): Promise<ProcessedFile> {
     const text = fileBuffer.toString('utf8');
     const chunks = this.chunkText(text, options.chunkSize || 1000, options.overlapSize || 200);
@@ -359,7 +375,7 @@ export class FileProcessor {
   private async processPdfFile(
     fileBuffer: Buffer,
     metadata: FileMetadata,
-    options: any
+    options: FileProcessingOptions
   ): Promise<ProcessedFile> {
     try {
       console.log(`Processing PDF file: ${metadata.filename}`);
@@ -369,7 +385,12 @@ export class FileProcessor {
         throw new Error('PDF processing library not available. Try installing pdf-parse package.');
       }
       
-      const data = await pdfParse(fileBuffer);
+      const data = await pdfParse(fileBuffer, {
+        max: 1000,
+        pagerender: (pageData) => {
+          return pageData.pageContent;
+        }
+      });
       
       // Extract text and metadata
       const text = data.text;
@@ -410,19 +431,19 @@ export class FileProcessor {
           }
         }))
       };
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error(`Error parsing PDF ${metadata.filename}:`, error);
         // Return a simple version with error info
         const updatedMetadata = {
           ...metadata,
           processingStatus: 'failed' as const,
-          processingError: `Failed to parse PDF: ${error.message}`
+          processingError: `Failed to parse PDF: ${error instanceof Error ? error.message : String(error)}`
         };
         return {
           metadata: updatedMetadata,
-          fullText: `Failed to extract text from PDF. Error: ${error.message}`,
+          fullText: `Failed to extract text from PDF. Error: ${error instanceof Error ? error.message : String(error)}`,
           chunks: [{
-            text: `Failed to extract text from PDF file ${metadata.filename}. Error: ${error.message}`,
+            text: `Failed to extract text from PDF file ${metadata.filename}. Error: ${error instanceof Error ? error.message : String(error)}`,
             index: 0,
             metadata: { contentType: 'text' }
           }]
@@ -436,7 +457,7 @@ export class FileProcessor {
   private async processDocxFile(
     fileBuffer: Buffer,
     metadata: FileMetadata,
-    options: any
+    options: FileProcessingOptions
   ): Promise<ProcessedFile> {
     try {
       console.log(`Processing DOCX file: ${metadata.filename}`);
@@ -476,19 +497,19 @@ export class FileProcessor {
           metadata: { contentType: 'text' }
         }))
       };
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error(`Error parsing DOCX ${metadata.filename}:`, error);
         // Return a simple version with error info
         const updatedMetadata = {
           ...metadata,
           processingStatus: 'failed' as const,
-          processingError: `Failed to parse DOCX: ${error.message}`
+          processingError: `Failed to parse DOCX: ${error instanceof Error ? error.message : String(error)}`
         };
         return {
           metadata: updatedMetadata,
-          fullText: `Failed to extract text from DOCX. Error: ${error.message}`,
+          fullText: `Failed to extract text from DOCX. Error: ${error instanceof Error ? error.message : String(error)}`,
           chunks: [{
-            text: `Failed to extract text from DOCX file ${metadata.filename}. Error: ${error.message}`,
+            text: `Failed to extract text from DOCX file ${metadata.filename}. Error: ${error instanceof Error ? error.message : String(error)}`,
             index: 0,
             metadata: { contentType: 'text' }
           }]
@@ -503,7 +524,7 @@ export class FileProcessor {
   private async processImageFile(
     fileBuffer: Buffer,
     metadata: FileMetadata,
-    options: any
+    options: FileProcessingOptions
   ): Promise<ProcessedFile> {
     console.log(`Processing image file: ${metadata.filename} (placeholder)`);
     
@@ -685,47 +706,32 @@ export class FileProcessor {
    * Detect document type based on content and file extension
    * This helps categorize documents for better organization and search
    */
-  private detectDocumentType(content: string, filename: string, metadata?: any): string {
+  private detectDocumentType(content: string, filename: string, metadata?: Record<string, unknown>): string {
     // Get file extension
     const extension = filename.split('.').pop()?.toLowerCase() || '';
     
-    // Default document types based on extension
-    const extensionTypes: Record<string, string> = {
-      'pdf': 'document',
-      'docx': 'document',
-      'doc': 'document',
-      'txt': 'text',
-      'md': 'markdown',
-      'csv': 'spreadsheet',
-      'xls': 'spreadsheet',
-      'xlsx': 'spreadsheet',
-      'json': 'data',
-      'xml': 'data',
-      'html': 'web',
-      'htm': 'web',
-      'js': 'code',
-      'ts': 'code',
-      'py': 'code',
-      'java': 'code',
-      'c': 'code',
-      'cpp': 'code',
-      'cs': 'code',
-      'go': 'code'
-    };
+    // Default document type based on extension
+    let documentType = 'document';
     
-    // Check for patterns in content to determine more specific document types
-    // This is a simple implementation; could be expanded with ML models or more patterns
-    let documentType = extensionTypes[extension] || 'unknown';
+    if (['pdf', 'doc', 'docx', 'txt', 'rtf'].includes(extension)) {
+      documentType = 'document';
+    } else if (['xls', 'xlsx', 'csv', 'tsv'].includes(extension)) {
+      documentType = 'spreadsheet';
+    } else if (['ppt', 'pptx'].includes(extension)) {
+      documentType = 'presentation';
+    } else if (['jpg', 'jpeg', 'png', 'gif', 'bmp', 'tiff'].includes(extension)) {
+      documentType = 'image';
+    }
     
-    // Look for patterns in content to refine document type
-    if (documentType === 'document' || documentType === 'text') {
-      if (/\brevenue\b|\bprofit\b|\bfinance\b|\bbudget\b|\bbalance sheet\b|\bincome statement\b/i.test(content)) {
-        documentType = 'financial';
-      } else if (/\blegal\b|\bagreement\b|\bcontract\b|\bcompliance\b|\bpolicy\b|\bterms\b|\bregulation\b/i.test(content)) {
-        documentType = 'legal';
-      } else if (/\bmeeting\b|\bminutes\b|\bagenda\b|\bschedule\b|\bcalendar\b/i.test(content)) {
-        documentType = 'meeting';
-      } else if (/\bresearch\b|\bstudy\b|\bexperiment\b|\banalysis\b|\bhypothesis\b|\bconclusion\b/i.test(content)) {
+    // Further refine based on content 
+    if (content) {
+      if (/\binvoice\b|\bpayment\b|\bamount\b|\btotal\b|\bdue\b/i.test(content)) {
+        documentType = 'invoice';
+      } else if (/\breport\b|\banalysis\b|\bsummary\b|\bfindings\b/i.test(content)) {
+        documentType = 'report';
+      } else if (/\bcontract\b|\bagreement\b|\bterms\b|\bconditions\b|\bparties\b/i.test(content)) {
+        documentType = 'contract';
+      } else if (/\bresearch\b|\bstudy\b|\bexperiment\b|\bmethod\b|\bresults\b/i.test(content)) {
         documentType = 'research';
       } else if (/\bproject\b|\bmilestone\b|\bdeliverable\b|\btimeline\b|\bprogress\b/i.test(content)) {
         documentType = 'project';
@@ -738,9 +744,12 @@ export class FileProcessor {
     
     // Use PDF metadata to further refine if available
     if (metadata) {
-      if (metadata.Subject === 'Invoice' || metadata.Title?.includes('Invoice')) {
+      const subject = metadata.Subject as string | undefined;
+      const title = metadata.Title as string | undefined;
+      
+      if (subject === 'Invoice' || (title && title.includes('Invoice'))) {
         documentType = 'invoice';
-      } else if (metadata.Subject === 'Report' || metadata.Title?.includes('Report')) {
+      } else if (subject === 'Report' || (title && title.includes('Report'))) {
         documentType = 'report';
       }
     }
