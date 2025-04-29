@@ -1,5 +1,6 @@
 import React from 'react';
-import { PinIcon } from 'lucide-react';
+import { PinIcon, ActivityIcon } from 'lucide-react';
+import Link from 'next/link';
 
 interface SidebarProps {
   isSidebarOpen: boolean;
@@ -59,7 +60,7 @@ const Sidebar: React.FC<SidebarProps> = ({
         </ul>
         
         <h3 className="text-sm font-semibold mb-2 text-gray-400">COMMON TASKS</h3>
-        <ul className="space-y-1">
+        <ul className="space-y-1 mb-6">
           <li>
             <button className="w-full text-left block p-2 rounded hover:bg-gray-700">
               Content Planning
@@ -81,9 +82,22 @@ const Sidebar: React.FC<SidebarProps> = ({
             </button>
           </li>
           <li>
-            <a href="/knowledge-gaps" className="w-full text-left block p-2 rounded hover:bg-gray-700">
+            <Link href="/knowledge-gaps" className="w-full text-left block p-2 rounded hover:bg-gray-700">
               Knowledge Gaps
-            </a>
+            </Link>
+          </li>
+        </ul>
+        
+        <h3 className="text-sm font-semibold mb-2 text-gray-400">DEVELOPER</h3>
+        <ul className="space-y-1">
+          <li>
+            <Link 
+              href="/debug/graph" 
+              className="w-full text-left flex items-center p-2 rounded hover:bg-gray-700"
+            >
+              <ActivityIcon className="h-4 w-4 mr-2" />
+              <span>Execution Graph</span>
+            </Link>
           </li>
         </ul>
       </div>
