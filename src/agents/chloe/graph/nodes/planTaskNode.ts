@@ -198,11 +198,15 @@ Only include the "children" array for sub-goals that should be broken down furth
         confidenceScore: planningTask.confidenceScore
       });
       
-      // Create messages for requesting clarification
+      // Create messages for requesting clarification, with stakeholder-aware tone
+      const clarificationRequestContent = HumanCollaboration.formatClarificationRequest(
+        planningTask,
+        clarificationQuestions,
+        planningTask.stakeholderProfile
+      );
+      
       const clarificationMessage = new AIMessage({
-        content: `I need to clarify some aspects of this task before proceeding:\n\n${
-          clarificationQuestions.map((q, i) => `${i + 1}. ${q}`).join('\n\n')
-        }\n\nPlease provide more information so I can proceed with confidence.`
+        content: clarificationRequestContent
       });
       
       // Create trace entry for clarification request
@@ -217,7 +221,8 @@ Only include the "children" array for sub-goals that should be broken down furth
         status: 'info',
         details: {
           questions: clarificationQuestions,
-          confidenceScore: planningTask.confidenceScore
+          confidenceScore: planningTask.confidenceScore,
+          stakeholderProfile: planningTask.stakeholderProfile?.id || 'default'
         }
       };
       

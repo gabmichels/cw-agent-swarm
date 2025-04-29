@@ -6,7 +6,8 @@ import { AIMessage, HumanMessage } from "@langchain/core/messages";
 import { ChatPromptTemplate } from "@langchain/core/prompts";
 import { NodeContext, PlanningState, SubGoal, ExecutionTraceEntry } from "./types";
 import { MemoryEntry } from "../../memory";
-import { PlannedTask } from "../../human-collaboration";
+import { PlannedTask, HumanCollaboration } from "../../human-collaboration";
+import { ChloeMemory } from "../../memory";
 
 /**
  * Helper function to get the full path to a sub-goal in the hierarchy
@@ -110,17 +111,14 @@ export async function executeStepNode(
         { status: 'pending' } // Keep it as pending since it hasn't been executed
       );
       
-      // Create a message requesting approval
+      // Create a message requesting approval with stakeholder-aware tone
+      const approvalRequestContent = HumanCollaboration.formatApprovalRequest(
+        currentTask,
+        currentTask.stakeholderProfile
+      );
+      
       const approvalRequestMessage = new AIMessage({
-        content: `This task requires approval before execution:\n\n` +
-          `**Task**: ${currentSubGoal.description}\n\n` +
-          `**Goal**: ${state.goal}\n\n` +
-          `**Reason for approval**: ${
-            currentTask.type === 'external_post' ? 'This task involves posting content externally' : 
-            currentTask.isStrategic === true ? 'This is a strategic task that requires review' :
-            currentTask.toolName === 'new_tool' ? 'This task uses a tool that requires approval' :
-            'This task requires approval based on defined rules'
-          }`
+        content: approvalRequestContent
       });
       
       // Store the blocked reason in memory
@@ -128,8 +126,8 @@ export async function executeStepNode(
         await memory.addMemory(
           `Task execution blocked: ${currentSubGoal.description} - Awaiting approval`,
           'task',
-          'high',
-          'chloe',
+          'high' as any,
+          'chloe' as any,
           state.goal,
           ['task', 'approval', 'blocker', currentSubGoal.id]
         );
@@ -149,7 +147,8 @@ export async function executeStepNode(
         details: {
           subGoalId: currentSubGoal.id,
           description: currentSubGoal.description,
-          blockedReason: "awaiting approval"
+          blockedReason: "awaiting approval",
+          stakeholderProfile: currentTask.stakeholderProfile?.id || 'default'
         }
       };
       
@@ -267,8 +266,8 @@ Provide a clear, detailed response that accomplishes the sub-goal.
       await memory.addMemory(
         `Completed sub-goal: ${currentSubGoal.description} - ${executionOutput.substring(0, 100)}...`,
         'task',
-        'medium',
-        'chloe',
+        'medium' as any,
+        'chloe' as any,
         state.goal,
         ['task', 'execution', currentSubGoal.id]
       );
