@@ -145,8 +145,8 @@ export class MemoryTagger {
    * Convert numeric importance score to ImportanceLevel enum
    */
   private scoreToImportanceLevel(score: number): ImportanceLevel {
-    if (score >= 0.7) return ImportanceLevel.HIGH;
-    if (score >= 0.4) return ImportanceLevel.MEDIUM;
+    if (score >= 0.6) return ImportanceLevel.HIGH;
+    if (score >= 0.3) return ImportanceLevel.MEDIUM;
     return ImportanceLevel.LOW;
   }
 
@@ -210,6 +210,40 @@ export class MemoryTagger {
     
     const emotionalScore = Math.min(emotionalCount / 2, 1) * 0.2;
     score += emotionalScore;
+    
+    // 5. NEW: Business goals and metrics are highly important
+    const businessKeywords = [
+      'goal', 'goals', 'target', 'targets', 'objective', 'objectives', 
+      'mission', 'strategy', 'plan', 'roadmap', 'vision', 'milestone',
+      'kpi', 'metric', 'metrics', 'measure', 'performance', 'success',
+      'budget', 'cost', 'revenue', 'profit', 'sales', 'marketing', 'finance',
+      'customer', 'user', 'employee', 'team', 'company', 'organization',
+      'project', 'task', 'work', 'job', 'role', 'responsibility', 'deliverable',
+      'requirement', 'need'
+    ];
+    
+    const businessCount = businessKeywords.reduce(
+      (count, keyword) => 
+        count + (content.toLowerCase().includes(keyword) ? 1 : 0), 
+      0
+    );
+    
+    // Look for numeric metrics with units/percentages which indicate important goals
+    const metricRegexes = [
+      /\d+\s*%/i,                          // Percentages: 30%
+      /\d+\s*([Kk]|thousand)/i,            // Thousands: 10K, 10k, 10 thousand
+      /\d+\s*([Mm]|million)/i,             // Millions: 1M, 1m, 1 million
+      /\d+\s*(MAU|DAU|users|customers)/i,  // User metrics: 10,000 MAU
+      /\$\d+/i,                            // Dollar amounts: $5
+      /[Kk](-|\s)?[Ff]actor/i,             // K-Factor
+      /CAC/i,                              // Customer Acquisition Cost
+    ];
+    
+    const hasMetrics = metricRegexes.some(regex => regex.test(content));
+    
+    // Business goals get a significant boost - particularly if metrics are present
+    const businessScore = Math.min((businessCount / 2) + (hasMetrics ? 0.5 : 0), 1) * 0.4;
+    score += businessScore;
     
     return Math.min(score, 1);
   }
@@ -443,7 +477,7 @@ ${memory.content}
   }
 
   private shouldAddToMemory(importance: number): boolean {
-    return importance >= 0.7;
+    return importance >= 0.6;
   }
 
   private logMemory(memory: TaggedMemory) {

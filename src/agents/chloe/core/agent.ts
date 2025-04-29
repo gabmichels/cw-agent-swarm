@@ -342,6 +342,8 @@ Here\'s relevant context from your memory that might help with this request:
 ${memoryContextString}
 ---
 
+IMPORTANT: Pay special attention to any items marked with HIGH importance. These contain critical information that should be prioritized and remembered in your responses.
+
 `;
 
       // Check if this might be a document creation request

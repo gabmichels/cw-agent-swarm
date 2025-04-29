@@ -1461,4 +1461,49 @@ export async function getMessageCount(): Promise<number> {
     await initMemory();
   }
   return qdrantInstance!.getMessageCount();
+}
+
+/**
+ * Get memories by importance level
+ */
+export async function getMemoriesByImportance(
+  importance: 'high' | 'medium' | 'low', 
+  limit: number = 200
+): Promise<MemoryRecord[]> {
+  if (!qdrantInstance) {
+    await initMemory();
+  }
+
+  try {
+    const collections = ['message', 'thought', 'document', 'task'] as const;
+    let allMemories: MemoryRecord[] = [];
+
+    for (const type of collections) {
+      try {
+        // Use the more appropriate searchMemory method from the instance
+        const memories = await qdrantInstance!.searchMemory(
+          type,
+          '', // Empty query to match all documents
+          {
+            limit: Math.floor(limit / collections.length), // Split limit across collections
+            filter: {
+              importance: importance
+            }
+          }
+        );
+        
+        allMemories = [...allMemories, ...memories];
+      } catch (error) {
+        console.error(`Error fetching ${importance} importance memories from ${type}:`, error);
+      }
+    }
+
+    // Sort by timestamp (most recent first)
+    return allMemories
+      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+      .slice(0, limit);
+  } catch (error) {
+    console.error('Error fetching memories by importance:', error);
+    return [];
+  }
 } 

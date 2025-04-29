@@ -72,18 +72,38 @@ async function getConversationHistory(userId: string) {
     }
     
     // Get recent messages, filter by userId
-    const recentMessages = await serverQdrant.getRecentMemories('message', 10);
+    const recentMessages = await serverQdrant.getRecentMemories('message', 20); // Increased from 10
     const userMessages = recentMessages
       .filter(m => m.metadata && m.metadata.userId === userId)
       .map(m => ({
         role: m.metadata.role || 'user',
         content: m.text,
-        timestamp: m.timestamp
+        timestamp: m.timestamp,
+        importance: m.metadata?.importance || 'medium'
       }))
       .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
     
-    // Keep only the most recent 5 messages to reduce context size
-    return userMessages.slice(-5);
+    // Prioritize important messages and keep more context
+    // Get all high importance messages regardless of recency
+    const highImportanceMessages = userMessages.filter(m => m.importance === 'high');
+    
+    // Get the most recent messages (up to 10)
+    const recentContextMessages = userMessages.slice(-10);
+    
+    // Combine and deduplicate
+    const allContextMessages = [...highImportanceMessages, ...recentContextMessages];
+    const seenIds = new Set();
+    const dedupedMessages = allContextMessages.filter(m => {
+      const messageId = `${m.role}-${m.timestamp}`;
+      if (seenIds.has(messageId)) return false;
+      seenIds.add(messageId);
+      return true;
+    });
+    
+    // Sort by timestamp to ensure chronological order
+    return dedupedMessages.sort(
+      (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+    );
   } catch (error) {
     console.error('Error getting conversation history:', error);
     return [];

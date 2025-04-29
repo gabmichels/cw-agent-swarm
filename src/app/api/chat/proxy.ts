@@ -59,17 +59,36 @@ async function loadChatHistoryFromQdrant(specificUserId?: string) {
     
     // Try to get recent messages with timeout protection - increase limit to ensure we get all messages
     console.log('Fetching messages from Qdrant...');
-    const fetchPromise = serverQdrant.getRecentMemories('message', 1000);
+    const fetchPromise = serverQdrant.getRecentMemories('message', 2000); // Increased from 1000
     const recentMessages = await Promise.race([fetchPromise, timeoutPromise]);
     console.log(`Retrieved ${recentMessages.length} total messages from Qdrant`);
     
+    // Also fetch specifically high importance messages
+    console.log('Fetching high importance memories...');
+    const importantMemories = await serverQdrant.getMemoriesByImportance('high', 500);
+    console.log(`Retrieved ${importantMemories.length} high importance memories`);
+    
+    // Combine and deduplicate messages
+    const allMessages = [...recentMessages];
+    const seenIds = new Set(recentMessages.map(m => m.id));
+    
+    // Add important memories that weren't already in recent messages
+    for (const memory of importantMemories) {
+      if (!seenIds.has(memory.id)) {
+        allMessages.push(memory);
+        seenIds.add(memory.id);
+      }
+    }
+    
+    console.log(`Combined ${allMessages.length} total messages after deduplication`);
+    
     // Log IDs to help debug
-    console.log('Message IDs:', recentMessages.map(m => m.id).join(', '));
+    console.log('Message IDs sample:', allMessages.slice(0, 5).map(m => m.id).join(', '));
     
     // Show the full metadata of the last few messages
-    if (recentMessages.length > 0) {
+    if (allMessages.length > 0) {
       console.log('Last 3 messages full details:');
-      recentMessages.slice(-3).forEach((msg, i) => {
+      allMessages.slice(-3).forEach((msg, i) => {
         const hasAttachments = msg.metadata && 
                            msg.metadata.attachments && 
                            Array.isArray(msg.metadata.attachments) && 
@@ -83,6 +102,7 @@ async function loadChatHistoryFromQdrant(specificUserId?: string) {
             userId: msg.metadata?.userId,
             role: msg.metadata?.role,
             source: msg.metadata?.source,
+            importance: msg.metadata?.importance || 'medium',
             hasAttachments: hasAttachments,
             attachmentsCount: hasAttachments ? msg.metadata.attachments.length : 0
           }
@@ -104,7 +124,7 @@ async function loadChatHistoryFromQdrant(specificUserId?: string) {
     let messagesWithAttachments = 0;
     
     // Process all messages, handling missing userId metadata
-    for (const message of recentMessages) {
+    for (const message of allMessages) {
       // Determine the userId for this message
       let userId: string;
       
