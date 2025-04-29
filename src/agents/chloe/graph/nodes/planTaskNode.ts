@@ -5,6 +5,7 @@
 import { AIMessage, HumanMessage } from "@langchain/core/messages";
 import { ChatPromptTemplate } from "@langchain/core/prompts";
 import { NodeContext, PlanningState, PlanningTask, SubGoal, ExecutionTraceEntry } from "./types";
+import { HumanCollaboration } from "../../human-collaboration";
 
 /**
  * Helper function to create a timestamped execution trace entry
@@ -66,6 +67,7 @@ Think step by step. Consider dependencies between sub-goals and ensure they flow
 Your response should be structured as valid JSON matching this schema:
 {
   "reasoning": "Your step-by-step reasoning process for creating this plan",
+  "confidenceScore": number, // Between 0.0 and 1.0 indicating your confidence in this plan
   "subGoals": [
     {
       "id": "unique_id",
@@ -92,7 +94,7 @@ Only include the "children" array for sub-goals that should be broken down furth
       goal: state.goal
     });
     
-    let planData: { reasoning: string; subGoals: any[] };
+    let planData: { reasoning: string; confidenceScore?: number; subGoals: any[] };
     try {
       // Extract the JSON part from the LLM response
       const jsonMatch = planningChainResult.content.match(/```json\n([\s\S]*?)\n```/) || 
@@ -108,6 +110,7 @@ Only include the "children" array for sub-goals that should be broken down furth
       // Try to create a more basic plan
       planData = {
         reasoning: "Automatically generated plan due to parsing error",
+        confidenceScore: 0.5, // Lower confidence for fallback plans
         subGoals: [
           {
             id: "goal_1",
@@ -150,9 +153,61 @@ Only include the "children" array for sub-goals that should be broken down furth
       goal: state.goal,
       subGoals,
       reasoning: planData.reasoning,
-      status: 'planning'
+      status: 'planning',
+      confidenceScore: planData.confidenceScore || 0.8 // Default to 0.8 confidence if not provided
     };
     
+    // Check if the task requires clarification
+    const needsClarification = await HumanCollaboration.checkNeedClarification(planningTask);
+    
+    if (needsClarification) {
+      // Generate clarification questions
+      const clarificationQuestions = await HumanCollaboration.generateClarificationQuestions(planningTask);
+      
+      // Update the task status and add clarification questions
+      planningTask.status = 'awaiting_clarification';
+      planningTask.needsClarification = true;
+      planningTask.clarificationQuestions = clarificationQuestions;
+      
+      taskLogger.logAction("Task needs clarification", { 
+        questions: clarificationQuestions,
+        confidenceScore: planningTask.confidenceScore
+      });
+      
+      // Create messages for requesting clarification
+      const clarificationMessage = new AIMessage({
+        content: `I need to clarify some aspects of this task before proceeding:\n\n${
+          clarificationQuestions.map((q, i) => `${i + 1}. ${q}`).join('\n\n')
+        }\n\nPlease provide more information so I can proceed with confidence.`
+      });
+      
+      // Create trace entry for clarification request
+      const endTime = new Date();
+      const duration = endTime.getTime() - startTime.getTime();
+      
+      const traceEntry: ExecutionTraceEntry = {
+        step: "Requesting task clarification",
+        startTime,
+        endTime,
+        duration,
+        status: 'info',
+        details: {
+          questions: clarificationQuestions,
+          confidenceScore: planningTask.confidenceScore
+        }
+      };
+      
+      // Return the state with awaiting_clarification status
+      return {
+        ...state,
+        task: planningTask,
+        messages: [...state.messages, clarificationMessage],
+        executionTrace: [...state.executionTrace, traceEntry],
+        route: 'request-clarification' // Set a special route for the decision node
+      };
+    }
+    
+    // If no clarification needed, proceed normally
     // Log the created plan
     taskLogger.logAction("Created task plan", { 
       subGoals: subGoals.length,

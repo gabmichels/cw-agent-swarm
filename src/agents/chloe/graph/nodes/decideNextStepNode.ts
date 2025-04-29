@@ -54,6 +54,71 @@ export async function decideNextStepNode(
       };
     }
     
+    // Check if task needs clarification (explicit route)
+    if (state.route === 'request-clarification') {
+      const endTime = new Date();
+      const duration = endTime.getTime() - startTime.getTime();
+      
+      const traceEntry: ExecutionTraceEntry = {
+        step: "Pausing execution pending human clarification",
+        startTime,
+        endTime,
+        duration,
+        status: 'info',
+        details: {
+          clarificationQuestions: state.task.clarificationQuestions || [],
+          status: 'awaiting_clarification'
+        }
+      };
+      
+      taskLogger.logAction("Pausing for human clarification", {
+        questions: state.task.clarificationQuestions,
+        taskId: state.task.currentSubGoalId
+      });
+      
+      // Return the state with 'finalize' route but special status
+      // This will effectively pause execution and return control to the user
+      return {
+        ...state,
+        route: 'finalize',
+        task: {
+          ...state.task,
+          status: 'awaiting_clarification'
+        },
+        executionTrace: [...state.executionTrace, traceEntry],
+        finalResult: `Task execution is paused pending human clarification. Please respond to the following questions:\n\n${
+          state.task.clarificationQuestions?.map((q, i) => `${i + 1}. ${q}`).join('\n\n')
+        }`
+      };
+    }
+    
+    // Check if task is awaiting clarification (status check)
+    if (state.task.status === 'awaiting_clarification') {
+      const endTime = new Date();
+      const duration = endTime.getTime() - startTime.getTime();
+      
+      const traceEntry: ExecutionTraceEntry = {
+        step: "Task requires clarification before proceeding",
+        startTime,
+        endTime,
+        duration,
+        status: 'info',
+        details: {
+          clarificationQuestions: state.task.clarificationQuestions || []
+        }
+      };
+      
+      // If we reach this point, the task is still awaiting clarification
+      return {
+        ...state,
+        route: 'finalize',
+        executionTrace: [...state.executionTrace, traceEntry],
+        finalResult: `This task requires clarification before it can be executed. Please provide the following information:\n\n${
+          state.task.clarificationQuestions?.map((q, i) => `${i + 1}. ${q}`).join('\n\n')
+        }`
+      };
+    }
+    
     // Helper function to find the next available sub-goal in hierarchical structure
     const findNextPendingSubGoal = (subGoals: SubGoal[]): SubGoal | undefined => {
       // First, search for a pending sub-goal at the current level

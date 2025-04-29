@@ -41,7 +41,12 @@ export interface PlanningTask {
   subGoals: SubGoal[];
   currentSubGoalId?: string;
   reasoning: string;
-  status: 'planning' | 'executing' | 'completed' | 'failed';
+  status: 'planning' | 'executing' | 'completed' | 'failed' | 'awaiting_clarification';
+  confidenceScore?: number;
+  needsClarification?: boolean;
+  clarificationQuestions?: string[];
+  params?: Record<string, any>;
+  requiredParams?: string[];
 }
 
 /**
