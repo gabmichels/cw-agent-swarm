@@ -12,6 +12,7 @@ export enum ReflectionType {
   MONTHLY = 'monthly',
   TASK = 'task',
   ERROR = 'error',
+  ALL = 'all', // For when all data is needed regardless of time period
 }
 
 /**

@@ -1,26 +1,7 @@
 import { ChatOpenAI } from '@langchain/openai';
 import { ChatPromptTemplate } from '@langchain/core/prompts';
 import { ChloeMemory, ChloeMemoryType } from './memory';
-
-/**
- * Importance levels for memory entries
- */
-export enum ImportanceLevel {
-  LOW = 'low',
-  MEDIUM = 'medium',
-  HIGH = 'high'
-}
-
-/**
- * Memory source types
- */
-export enum MemorySource {
-  USER = 'user',
-  CHLOE = 'chloe',
-  SYSTEM = 'system',
-  TOOL = 'tool',
-  WEB = 'web'
-}
+import { ImportanceLevel, MemorySource } from '../../constants/memory';
 
 /**
  * Sentiment values for memory entries
@@ -461,16 +442,20 @@ ${memory.content}
     return entities.length > 0 ? entities : undefined;
   }
 
+  /**
+   * Map string source to MemorySource enum value
+   */
   private determineSource(source: string): MemorySource {
     switch (source.toLowerCase()) {
       case 'user':
         return MemorySource.USER;
       case 'chloe':
-        return MemorySource.CHLOE;
+      case 'agent':
+        return MemorySource.AGENT;
       case 'tool':
-        return MemorySource.TOOL;
       case 'web':
-        return MemorySource.WEB;
+      case 'external':
+        return MemorySource.EXTERNAL;
       default:
         return MemorySource.SYSTEM;
     }

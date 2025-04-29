@@ -3,6 +3,16 @@ import { ChloeMemory, ChloeMemoryType } from '../memory';
 import { TaskLogger } from '../task-logger';
 import { IManager, BaseManagerOptions } from '../../../lib/shared/types/agentTypes';
 import { logger } from '../../../lib/logging';
+import { 
+  MemoryType, 
+  ImportanceLevel, 
+  MemorySource
+} from '../../../constants/memory';
+import { 
+  ReflectionType, 
+  PerformanceReviewType 
+} from '../../../constants/reflection';
+import { MessageSender } from '../../../constants/message';
 
 /**
  * Options for initializing the reflection manager
@@ -130,9 +140,9 @@ Your reflection should be thoughtful, strategic, and provide nuanced marketing p
       // Store the reflection in memory with the correct category
       await this.memory.addMemory(
         `Reflection on "${question}": ${reflection.substring(0, 200)}...`,
-        'thought' as ChloeMemoryType, // Use 'thought' instead of 'reflection' 
-        'medium',
-        'chloe',
+        MemoryType.THOUGHT,
+        ImportanceLevel.MEDIUM,
+        MemorySource.AGENT,
         `Reflection task result: ${question}`
       );
       
@@ -160,9 +170,9 @@ Your reflection should be thoughtful, strategic, and provide nuanced marketing p
       oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
       
       // Get different categories of memories for a comprehensive review
-      const userInteractions = await this.memory.getMemoriesByDateRange('message', oneWeekAgo, new Date(), 20);
-      const tasks = await this.memory.getMemoriesByDateRange('task', oneWeekAgo, new Date(), 20);
-      const thoughts = await this.memory.getMemoriesByDateRange('thought', oneWeekAgo, new Date(), 20);
+      const userInteractions = await this.memory.getMemoriesByDateRange(MemoryType.MESSAGE, oneWeekAgo, new Date(), 20);
+      const tasks = await this.memory.getMemoriesByDateRange(MemoryType.TASK, oneWeekAgo, new Date(), 20);
+      const thoughts = await this.memory.getMemoriesByDateRange(MemoryType.THOUGHT, oneWeekAgo, new Date(), 20);
       
       // Format memories for the model
       const formatMemories = (memories: any[], category: string) => {
@@ -201,9 +211,9 @@ Your reflection should be professional, insightful, and focused on continuous im
       // Store the weekly reflection in memory
       await this.memory.addMemory(
         `Weekly Reflection: ${reflection.substring(0, 200)}...`,
-        'thought' as ChloeMemoryType,
-        'high',
-        'chloe'
+        MemoryType.THOUGHT,
+        ImportanceLevel.HIGH,
+        MemorySource.AGENT
       );
       
       // Notify about the reflection if notification function is available
@@ -227,7 +237,7 @@ Your reflection should be professional, insightful, and focused on continuous im
   /**
    * Run a performance review
    */
-  async runPerformanceReview(reviewType: 'daily' | 'weekly' | 'monthly' = 'daily'): Promise<any> {
+  async runPerformanceReview(reviewType: PerformanceReviewType = PerformanceReviewType.DAILY): Promise<any> {
     try {
       if (!this.isInitialized()) {
         await this.initialize();
@@ -238,21 +248,21 @@ Your reflection should be professional, insightful, and focused on continuous im
       // Define the time range based on review type
       const startDate = new Date();
       switch (reviewType) {
-        case 'monthly':
+        case PerformanceReviewType.MONTHLY:
           startDate.setMonth(startDate.getMonth() - 1);
           break;
-        case 'weekly':
+        case PerformanceReviewType.WEEKLY:
           startDate.setDate(startDate.getDate() - 7);
           break;
-        case 'daily':
+        case PerformanceReviewType.DAILY:
         default:
           startDate.setDate(startDate.getDate() - 1);
           break;
       }
       
       // Get relevant memory entries for the period
-      const tasks = await this.memory.getMemoriesByDateRange('task', startDate, new Date(), 30);
-      const userInteractions = await this.memory.getMemoriesByDateRange('message', startDate, new Date(), 30);
+      const tasks = await this.memory.getMemoriesByDateRange(MemoryType.TASK, startDate, new Date(), 30);
+      const userInteractions = await this.memory.getMemoriesByDateRange(MemoryType.MESSAGE, startDate, new Date(), 30);
       
       // Format memories for the model
       const formatMemories = (memories: any[], category: string) => {
@@ -289,13 +299,12 @@ Be objective, data-driven, and focused on continuous improvement as a CMO.`;
       const reviewContent = `${reviewType.charAt(0).toUpperCase() + reviewType.slice(1)} Performance Review: ${review.substring(0, 200)}...`;
       
       // Store the performance review in memory explicitly as a thought, not a message
-      // This ensures it doesn't show up in chat UI but is still in memory
       await this.memory.addMemory(
         reviewContent,
-        'thought', // Explicitly use 'thought' type, not 'performance_review'
-        'high',
-        'chloe',
-        'performance_review' // Use as context to preserve the original category
+        MemoryType.THOUGHT,
+        ImportanceLevel.HIGH,
+        MemorySource.AGENT,
+        'performance_review'
       );
       
       // Log that this is an internal reflection, not a chat message

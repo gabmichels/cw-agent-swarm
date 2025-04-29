@@ -12,6 +12,12 @@ import { StrategicInsight, IManager, BaseManagerOptions, MemoryManagerOptions } 
 import { KnowledgeFlaggingService } from '../../../lib/knowledge/flagging/KnowledgeFlaggingService';
 import { logger } from '../../../lib/logging';
 import { TaskLogger } from '../task-logger';
+import { 
+  MemoryType, 
+  ChloeMemoryType, 
+  ImportanceLevel, 
+  MemorySource 
+} from '../../../constants/memory';
 
 /**
  * Manages all memory systems for the Chloe agent
@@ -174,8 +180,8 @@ export class MemoryManager implements IManager {
   async addMemory(
     content: string,
     category: string,
-    importance: 'low' | 'medium' | 'high' = 'medium',
-    source: 'user' | 'chloe' | 'system' = 'system',
+    importance: ImportanceLevel = ImportanceLevel.MEDIUM,
+    source: MemorySource = MemorySource.SYSTEM,
     context?: string,
     tags?: string[]
   ): Promise<any> {
@@ -188,17 +194,25 @@ export class MemoryManager implements IManager {
     }
     
     // Map category string to a valid ChloeMemoryType
-    let memoryType: 'message' | 'thought' | 'task' | 'document' | 'insight' | 'execution_result' | 'plan' | 'performance_review' | 'search_result' = 'document';
+    let memoryType: string = MemoryType.DOCUMENT;
     
     // Determine the appropriate memory type based on the category
-    if (['message', 'thought', 'task', 'document', 'insight', 'plan', 'performance_review', 'search_result'].includes(category)) {
-      memoryType = category as any;
+    if (Object.values(ChloeMemoryType).includes(category as any)) {
+      memoryType = category;
     } else {
       // Default mapping for other categories
-      memoryType = 'document';
+      memoryType = MemoryType.DOCUMENT;
     }
     
-    return this.chloeMemory.addMemory(content, memoryType, importance, source, context, tags);
+    // Add memory with the determined type
+    return this.chloeMemory.addMemory(
+      content,
+      memoryType,
+      importance,
+      source,
+      context,
+      tags
+    );
   }
 
   /**
@@ -219,38 +233,35 @@ export class MemoryManager implements IManager {
   }
 
   /**
-   * Add a strategic insight to the memory
+   * Add a strategic insight with the appropriate categorization
    */
   async addStrategicInsight(
     insight: string, 
     tags: string[], 
     category: string = 'general', 
-    source: string = 'system'
+    source: string = MemorySource.SYSTEM
   ): Promise<boolean> {
     try {
       if (!this.initialized) {
         await this.initialize();
       }
-
+      
       // Get embeddings for the insight
       const embeddingResponse = await serverQdrant.getEmbedding(insight);
       if (!embeddingResponse || !embeddingResponse.embedding) {
         console.error('Failed to get embedding for strategic insight');
         return false;
       }
-
+      
       const embedding = embeddingResponse.embedding;
       
-      // Create a timestamp
-      const timestamp = new Date().toISOString();
-      
-      // Create a payload with all the data
+      // Create metadata payload
       const payload = {
         insight,
-        source,
+        category,
         tags,
-        timestamp,
-        category
+        source: source || MemorySource.SYSTEM,
+        timestamp: new Date().toISOString()
       };
       
       // Add to Qdrant collection
@@ -260,9 +271,9 @@ export class MemoryManager implements IManager {
       if (this.chloeMemory) {
         await this.chloeMemory.addMemory(
           insight,
-          'thought',
-          'high',
-          'system',
+          ChloeMemoryType.STRATEGIC_INSIGHT,
+          ImportanceLevel.HIGH,
+          source as MemorySource,
           `Strategic insight in category: ${category}`,
           tags
         );

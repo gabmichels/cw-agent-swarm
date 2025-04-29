@@ -8,6 +8,7 @@ import { IManager, BaseManagerOptions } from '../../../lib/shared/types/agentTyp
 import { TaskLogger } from '../task-logger';
 import { logger } from '../../../lib/logging';
 import { Notifier } from '../notifiers/index';
+import { NotificationLevel } from '../../../constants/log';
 
 /**
  * Options for initializing the notifier manager
@@ -198,69 +199,48 @@ export class NotifierManager implements IManager {
    * Send a notification message to all registered notifiers
    * @param message The message to send
    * @param options Optional settings for the notification
-   * @returns Promise that resolves when all notifications have been sent
    */
   async notify(message: string, options?: { 
-    level?: 'info' | 'warning' | 'error',
+    level?: NotificationLevel,
     tags?: string[]
   }): Promise<void> {
-    try {
-      if (!this.initialized) {
-        await this.initialize();
-      }
-      
-      if (this.notifiers.length === 0) {
-        this.logAction('No notifiers available to send message');
-        return;
-      }
-      
-      // Log the notification
-      this.logAction('Sending notification', { 
-        message: message.length > 100 ? `${message.substring(0, 100)}...` : message,
-        level: options?.level || 'info',
-        tags: options?.tags,
-        notifierCount: this.notifiers.length
-      });
-      
-      // Format the message based on options
-      let formattedMessage = message;
-      if (options?.level === 'warning') {
-        formattedMessage = `⚠️ WARNING: ${message}`;
-      } else if (options?.level === 'error') {
-        formattedMessage = `🚨 ERROR: ${message}`;
-      }
-      
-      // Add tags if provided
-      if (options?.tags && options.tags.length > 0) {
-        formattedMessage += `\n\nTags: ${options.tags.join(', ')}`;
-      }
-      
-      // Send to all notifiers
-      const sendPromises = this.notifiers.map(async (notifier) => {
-        try {
-          const result = await notifier.send(formattedMessage);
-          if (result === false) {
-            this.logAction('Notifier returned false when sending message', {
-              notifier: notifier.name
-            });
-          }
-        } catch (error) {
-          const errorMessage = error instanceof Error ? error.message : String(error);
-          this.logAction('Failed to send notification', { 
-            notifier: notifier.name,
-            error: errorMessage
-          });
-          // Don't throw to allow other notifiers to try
-        }
-      });
-      
-      await Promise.all(sendPromises);
-      
-      this.logAction('Notification sent to all available notifiers');
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      this.logAction('Error sending notification', { error: errorMessage });
-      throw new Error(`Failed to send notification: ${errorMessage}`);
+    if (!this.initialized) {
+      await this.initialize();
     }
+    
+    // Format the message based on notification level
+    let formattedMessage = message;
+    const level = options?.level || NotificationLevel.INFO;
+    
+    if (level === NotificationLevel.WARNING) {
+      formattedMessage = `⚠️ WARNING: ${message}`;
+    } else if (level === NotificationLevel.ERROR) {
+      formattedMessage = `🚨 ERROR: ${message}`;
+    }
+    
+    // Add tags if provided
+    if (options?.tags && options.tags.length > 0) {
+      formattedMessage += `\n\nTags: ${options.tags.join(', ')}`;
+    }
+    
+    // Log the notification action
+    this.logAction('Sending notification', { 
+      message: message.substring(0, 100) + (message.length > 100 ? '...' : ''),
+      level: level,
+      notifierCount: this.notifiers.length
+    });
+    
+    // Send to all notifiers
+    const sendPromises = this.notifiers.map(async (notifier) => {
+      try {
+        await notifier.send(formattedMessage);
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        this.logAction(`Failed to send notification via ${notifier.name}`, { error: errorMessage });
+        // Don't throw, try other notifiers
+      }
+    });
+    
+    await Promise.all(sendPromises);
   }
 } 

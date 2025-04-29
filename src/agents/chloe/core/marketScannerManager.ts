@@ -5,6 +5,13 @@ import { createMarketScanner, MarketScanner, MarketTrend } from '../tools/market
 import * as serverQdrant from '../../../server/qdrant';
 import { IManager, BaseManagerOptions } from '../../../lib/shared/types/agentTypes';
 import { logger } from '../../../lib/logging';
+import { 
+  ImportanceLevel, 
+  MemoryType, 
+  MemorySource, 
+  ChloeMemoryType 
+} from '../../../constants/memory';
+import { MemoryEntry } from '../memory';
 
 // Add a declaration to extend the serverQdrant type
 declare module '../../../server/qdrant' {
@@ -164,9 +171,9 @@ export class MarketScannerManager implements IManager {
       // Process and store the results
       await this.memory.addMemory(
         `Market Scan Results for "${query}": ${scanResults.substring(0, 200)}...`,
-        'market_scan',
-        'medium',
-        'system',
+        ChloeMemoryType.DOCUMENT,
+        ImportanceLevel.MEDIUM,
+        MemorySource.SYSTEM,
         undefined,
         ['market_scan', 'trend_analysis', query.toLowerCase()]
       );
@@ -223,14 +230,27 @@ RELEVANCE: ${trend.score}/100
       if (!recentScans || recentScans.length === 0) {
         // No recent scans, so run a new market scan
         const newScanResults = await this.scanMarketTrends('current marketing trends');
-        recentScans.push(newScanResults);
+        
+        // Create a proper MemoryEntry from the scan results
+        const newMemoryEntry: MemoryEntry = {
+          id: `scan-${Date.now()}`,
+          content: newScanResults,
+          category: ChloeMemoryType.DOCUMENT,
+          importance: ImportanceLevel.MEDIUM,
+          source: MemorySource.AGENT,
+          created: new Date(),
+          type: 'document'
+        };
+        
+        // Add to recentScans array
+        recentScans.push(newMemoryEntry);
       }
       
       // Create a prompt for trend summarization
       const prompt = `As Chloe, the Chief Marketing Officer AI, analyze these recent market scans and synthesize the key trends, insights, and strategic implications:
 
 RECENT MARKET SCANS:
-${recentScans.join('\n\n')}
+${recentScans.map(scan => scan.content).join('\n\n')}
 
 Create a comprehensive trend summary with the following structure:
 - For each major trend, provide:
@@ -247,9 +267,9 @@ Focus on actionable insights that have strategic implications for marketing effo
       // Store the trend summary in memory
       await this.memory.addMemory(
         `Trend Summary: ${trendSummary.substring(0, 200)}...`,
-        'trend_summary',
-        'high',
-        'chloe',
+        ChloeMemoryType.DOCUMENT,
+        ImportanceLevel.HIGH,
+        MemorySource.AGENT,
         undefined,
         ['trend_summary', 'market_analysis', 'strategic_insight']
       );
@@ -367,9 +387,9 @@ Focus on actionable insights that have strategic implications for marketing effo
       // Also add to normal memory with high importance
       await this.memory.addMemory(
         `Strategic Insight: ${insight}`,
-        'strategic_insight',
-        'high',
-        'system',
+        ChloeMemoryType.STRATEGIC_INSIGHT,
+        ImportanceLevel.HIGH,
+        MemorySource.SYSTEM,
         `Category: ${category}`,
         tags
       );

@@ -3,6 +3,8 @@ import { ToolRegistry } from './registry';
 import { ToolAdaptation, ToolUsageStats, ToolExecutionResult } from './adaptation';
 import { StructuredTool } from '@langchain/core/tools';
 import { z } from 'zod';
+import { ItemStatus } from '../../../constants/status';
+import { ReflectionType } from '../../../constants/reflection';
 
 /**
  * Interface for an A/B test definition
@@ -15,7 +17,7 @@ export interface ABTest {
   toolB: string; // Variant tool
   startDate: Date;
   endDate?: Date;
-  status: 'active' | 'completed' | 'stopped';
+  status: ItemStatus;
   totalExecutions: number;
   variantDistribution: number; // 0.5 means 50/50 split
   metrics: {
@@ -34,7 +36,7 @@ export interface ABTest {
  */
 export interface PerformanceAnalysis {
   toolName: string;
-  period: 'day' | 'week' | 'month' | 'all';
+  period: ReflectionType;
   usageCount: number;
   successRate: number;
   avgExecutionTime: number;
@@ -110,7 +112,7 @@ export class ToolEvaluation {
       toolA,
       toolB,
       startDate: new Date(),
-      status: 'active',
+      status: ItemStatus.ACTIVE,
       totalExecutions: 0,
       variantDistribution,
       metrics: {
@@ -132,7 +134,7 @@ export class ToolEvaluation {
    */
   selectToolVariant(testId: string): string | null {
     const test = this.abTests.get(testId);
-    if (!test || test.status !== 'active') {
+    if (!test || test.status !== ItemStatus.ACTIVE) {
       return null;
     }
     
@@ -205,7 +207,7 @@ export class ToolEvaluation {
     }
     
     // Mark the test as completed
-    test.status = 'completed';
+    test.status = ItemStatus.COMPLETED;
     test.endDate = new Date();
     
     // Determine the conclusion based on metrics
@@ -333,7 +335,7 @@ Provide a concise, data-driven conclusion.
     
     // Update A/B test metrics if this tool is part of an active test
     Array.from(this.abTests.entries()).forEach(([testId, test]) => {
-      if (test.status !== 'active') return;
+      if (test.status !== ItemStatus.ACTIVE) return;
       
       if (feedback.toolName === test.toolA) {
         // Update Tool A feedback score (simple average for now)
@@ -357,7 +359,7 @@ Provide a concise, data-driven conclusion.
    */
   async analyzeToolPerformance(
     toolName: string,
-    period: 'day' | 'week' | 'month' | 'all' = 'week'
+    period: ReflectionType = ReflectionType.WEEKLY
   ): Promise<PerformanceAnalysis | null> {
     // Check if we have a valid cached analysis
     const cacheKey = `${toolName}:${period}`;
@@ -593,37 +595,35 @@ Keep recommendations specific, technical, and actionable.
    */
   private filterDataByPeriod(
     data: ToolExecutionResult[],
-    period: 'day' | 'week' | 'month' | 'all'
+    period: ReflectionType
   ): ToolExecutionResult[] {
-    if (period === 'all') {
+    if (period === ReflectionType.ALL) {
       return data;
     }
     
+    // Since ToolExecutionResult doesn't have a timestamp field,
+    // we'll use a simpler approach for filtering based on period
     const now = new Date();
-    let cutoff = new Date();
     
+    // Calculate how many items to return based on period
+    let itemCount = data.length;
     switch (period) {
-      case 'day':
-        cutoff.setDate(now.getDate() - 1);
+      case ReflectionType.DAILY:
+        itemCount = Math.min(data.length, 50);  // Last ~50 items for daily
         break;
-      case 'week':
-        cutoff.setDate(now.getDate() - 7);
+      case ReflectionType.WEEKLY:
+        itemCount = Math.min(data.length, 200); // Last ~200 items for weekly
         break;
-      case 'month':
-        cutoff.setMonth(now.getMonth() - 1);
+      case ReflectionType.MONTHLY:
+        itemCount = Math.min(data.length, 500); // Last ~500 items for monthly
+        break;
+      default:
+        itemCount = Math.min(data.length, 100); // Default to a reasonable amount
         break;
     }
     
-    // Filter based on execution time
-    // Note: In a real implementation, each result would have a timestamp
-    // For this example, we'll just use the last N results
-    const resultCount = {
-      day: Math.min(data.length, 100),
-      week: Math.min(data.length, 500),
-      month: Math.min(data.length, 1000)
-    }[period];
-    
-    return data.slice(-resultCount);
+    // Return the most recent 'itemCount' items
+    return data.slice(-itemCount);
   }
   
   /**
@@ -658,7 +658,7 @@ Keep recommendations specific, technical, and actionable.
    */
   getActiveABTests(): ABTest[] {
     return Array.from(this.abTests.values())
-      .filter(test => test.status === 'active');
+      .filter(test => test.status === ItemStatus.ACTIVE);
   }
   
   /**
