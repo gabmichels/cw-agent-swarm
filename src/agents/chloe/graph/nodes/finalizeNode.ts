@@ -3,8 +3,56 @@
  */
 
 import { ChatPromptTemplate } from "@langchain/core/prompts";
-import { NodeContext, PlanningState } from "./types";
+import { NodeContext, PlanningState, SubGoal } from "./types";
 import { AIMessage, HumanMessage } from "@langchain/core/messages";
+
+/**
+ * Helper function to count sub-goals by status in a hierarchical structure
+ */
+function countHierarchicalGoals(subGoals: SubGoal[]): { completed: number; failed: number; total: number } {
+  let completed = 0;
+  let failed = 0;
+  let total = 0;
+  
+  for (const sg of subGoals) {
+    total++;
+    
+    if (sg.status === 'completed') {
+      completed++;
+    } else if (sg.status === 'failed') {
+      failed++;
+    }
+    
+    // Count nested sub-goals
+    if (sg.children && sg.children.length > 0) {
+      const childCounts = countHierarchicalGoals(sg.children);
+      completed += childCounts.completed;
+      failed += childCounts.failed;
+      total += childCounts.total;
+    }
+  }
+  
+  return { completed, failed, total };
+}
+
+/**
+ * Helper function to format sub-goals for summary, including hierarchy
+ */
+function formatHierarchicalSubGoals(subGoals: SubGoal[], indent: string = ""): string {
+  return subGoals.map(sg => {
+    let output = `${indent}- ${sg.description}: ${sg.status.toUpperCase()}`;
+    if (sg.result) {
+      output += `\n${indent}  Result: ${sg.result}`;
+    }
+    
+    // Format children if they exist
+    if (sg.children && sg.children.length > 0) {
+      output += `\n${indent}  Sub-tasks:\n${formatHierarchicalSubGoals(sg.children, indent + "    ")}`;
+    }
+    
+    return output;
+  }).join("\n");
+}
 
 /**
  * Finalizes the planning state, generating a summary of the completed task
@@ -26,94 +74,104 @@ export async function finalizeNode(
 
     const { subGoals } = state.task;
     
-    // Check if there are any incomplete sub-goals
-    const incompleteSubGoals = subGoals.filter(sg => 
-      sg.status !== "completed" && sg.status !== "failed"
-    );
+    // Check if there are any incomplete sub-goals at any level of the hierarchy
+    const hasIncompleteSubGoals = (goals: SubGoal[]): boolean => {
+      for (const sg of goals) {
+        if (sg.status !== "completed" && sg.status !== "failed") {
+          return true;
+        }
+        if (sg.children && sg.children.length > 0 && hasIncompleteSubGoals(sg.children)) {
+          return true;
+        }
+      }
+      return false;
+    };
     
-    if (incompleteSubGoals.length > 0) {
+    if (hasIncompleteSubGoals(subGoals)) {
       throw new Error("Cannot finalize - there are still incomplete sub-goals");
     }
     
-    // Count completed vs failed sub-goals
-    const completedCount = subGoals.filter(sg => sg.status === "completed").length;
-    const failedCount = subGoals.filter(sg => sg.status === "failed").length;
+    // Count completed vs failed sub-goals, including nested ones
+    const { completed, failed, total } = countHierarchicalGoals(subGoals);
     
     taskLogger.logAction("Finalizing task", { 
-      completed: completedCount,
-      failed: failedCount,
-      total: subGoals.length
+      completed,
+      failed,
+      total
     });
-
-    // Create a summary prompt
+    
+    // Create a summary prompt that includes hierarchical information
     const summaryPrompt = ChatPromptTemplate.fromTemplate(`
-You are Chloe, a sophisticated assistant who has been working on a task.
+You are Chloe, a sophisticated assistant who has completed a complex hierarchical task.
 
-MAIN GOAL: {goal}
+ORIGINAL GOAL: {goal}
 
-You have completed this task with the following sub-goals:
-{completedSubGoals}
+COMPLETED TASK SUMMARY:
+- Total Sub-goals: ${total}
+- Completed Successfully: ${completed}
+- Failed: ${failed}
 
-The following sub-goals failed:
-{failedSubGoals}
+DETAILED RESULTS:
+{subGoalDetails}
 
-Please provide a comprehensive summary of what was accomplished, what challenges were encountered,
-and what the final outcome is. Focus on the main accomplishments rather than the process.
+Based on the above results, create a comprehensive summary that:
+1. Reflects on the original goal and how well it was achieved
+2. Highlights key accomplishments and insights
+3. Notes any limitations or challenges encountered
+4. Organizes information in a clear, structured way
+5. Provides actionable next steps if appropriate
 
-Your summary should be concise but thorough, highlighting the most important aspects of the completed work.
+Your summary should be detailed yet concise.
 `);
-
-    // Format completed and failed sub-goals for the prompt
-    const completedText = subGoals
-      .filter(sg => sg.status === "completed")
-      .map(sg => `${sg.id}: ${sg.description}\nResult: ${sg.result || "No result provided"}`)
-      .join("\n\n");
-      
-    const failedText = subGoals
-      .filter(sg => sg.status === "failed")
-      .map(sg => `${sg.id}: ${sg.description}\nReason: ${sg.result || "No reason provided"}`)
-      .join("\n\n") || "None";
-
+    
+    // Format the sub-goals with hierarchy for the prompt
+    const subGoalDetails = formatHierarchicalSubGoals(subGoals);
+    
     // Generate the summary
     const summaryResult = await summaryPrompt.pipe(model).invoke({
       goal: state.goal,
-      completedSubGoals: completedText || "None",
-      failedSubGoals: failedText
+      subGoalDetails
     });
-
+    
     const finalResult = summaryResult.content;
     
     // Save the final result to memory
     if (memory) {
       await memory.addMemory(
-        `Task completion summary: ${finalResult}`,
+        `Completed task: ${state.goal} - ${finalResult.substring(0, 150)}...`,
         'task',
         'high',
-        'system',
+        'chloe',
         state.goal,
-        ['task-completion', 'summary']
+        ['task-complete', 'summary']
       );
     }
-
-    // Add the finalization to messages
-    const updatedMessages = [
-      ...state.messages,
-      new HumanMessage({ content: "Please summarize the completed task." }),
-      new AIMessage({ content: finalResult })
-    ];
-
-    // Update task status to completed
+    
+    // Update the task status to completed
     const updatedTask = {
       ...state.task,
       status: 'completed' as const
     };
-
+    
+    // Add the summary to messages
+    const updatedMessages = [
+      ...state.messages,
+      new HumanMessage({ content: "Task completed. Generating final summary." }),
+      new AIMessage({ content: finalResult })
+    ];
+    
+    // Log success rates
+    const successRate = Math.round((completed / total) * 100);
+    
     return {
       ...state,
       task: updatedTask,
       messages: updatedMessages,
       finalResult,
-      executionTrace: [...state.executionTrace, "Task finalized"],
+      executionTrace: [
+        ...state.executionTrace, 
+        `Task finalized with ${completed}/${total} sub-goals completed (${successRate}% success rate)`
+      ],
     };
   } catch (error) {
     taskLogger.logAction("Error finalizing task", { error: String(error) });

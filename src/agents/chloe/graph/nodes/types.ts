@@ -27,6 +27,9 @@ export interface SubGoal {
   status: 'pending' | 'in_progress' | 'completed' | 'failed';
   reasoning?: string;
   result?: string;
+  children?: SubGoal[];
+  parentId?: string;
+  depth?: number;
 }
 
 /**

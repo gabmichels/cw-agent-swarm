@@ -421,6 +421,9 @@ export interface PlanStep {
   result?: ToolExecutionResult;
   startTime?: Date;
   endTime?: Date;
+  children?: PlanStep[];  // Support for hierarchical steps
+  parentId?: string;      // Reference to parent step
+  depth?: number;         // Nesting level (0 = top level)
   metadata?: {
     prerequisites?: string[];
     estimatedDuration?: number;

@@ -1,5 +1,5 @@
 /**
- * Node for executing a single sub-goal step in the planning process
+ * Node for executing a specific sub-goal
  */
 
 import { AIMessage, HumanMessage } from "@langchain/core/messages";
@@ -8,7 +8,59 @@ import { NodeContext, PlanningState, SubGoal } from "./types";
 import { MemoryEntry } from "../../memory";
 
 /**
- * Executes a single sub-goal step in the planning process
+ * Helper function to get the full path to a sub-goal in the hierarchy
+ */
+function getSubGoalHierarchyPath(subGoal: SubGoal): string {
+  if (!subGoal.parentId || !subGoal.depth) {
+    return subGoal.description;
+  }
+  return `${subGoal.description} (nested level ${subGoal.depth})`;
+}
+
+/**
+ * Helper function to find a sub-goal by ID in a hierarchical structure
+ */
+function findSubGoalById(subGoals: SubGoal[], id: string): SubGoal | undefined {
+  // First, check if the sub-goal is at this level
+  const subGoal = subGoals.find(sg => sg.id === id);
+  if (subGoal) return subGoal;
+  
+  // If not found, recursively search in children
+  for (const sg of subGoals) {
+    if (sg.children && sg.children.length > 0) {
+      const found = findSubGoalById(sg.children, id);
+      if (found) return found;
+    }
+  }
+  
+  return undefined;
+}
+
+/**
+ * Helper function to update a sub-goal by ID in a hierarchical structure
+ */
+function updateSubGoalById(subGoals: SubGoal[], id: string, update: Partial<SubGoal>): SubGoal[] {
+  return subGoals.map(sg => {
+    // If this is the sub-goal to update, merge the update
+    if (sg.id === id) {
+      return { ...sg, ...update };
+    }
+    
+    // If this sub-goal has children, recursively update them
+    if (sg.children && sg.children.length > 0) {
+      return {
+        ...sg,
+        children: updateSubGoalById(sg.children, id, update)
+      };
+    }
+    
+    // Otherwise, return the sub-goal unchanged
+    return sg;
+  });
+}
+
+/**
+ * Executes a specific sub-goal in the planning process
  * 
  * @param state - The current planning state
  * @param context - The node execution context
@@ -24,81 +76,161 @@ export async function executeStepNode(
     if (!state.task) {
       throw new Error("Task not found in state");
     }
-
-    const currentSubGoalId = state.task.currentSubGoalId;
-    if (!currentSubGoalId) {
-      throw new Error("No current sub-goal ID found in state");
+    
+    if (!state.task.currentSubGoalId) {
+      throw new Error("No current sub-goal selected for execution");
     }
-
-    const subGoal = state.task.subGoals.find(sg => sg.id === currentSubGoalId);
-    if (!subGoal) {
-      throw new Error(`Sub-goal with ID ${currentSubGoalId} not found`);
+    
+    // Find the current sub-goal in the hierarchical structure
+    const currentSubGoal = findSubGoalById(state.task.subGoals, state.task.currentSubGoalId);
+    
+    if (!currentSubGoal) {
+      throw new Error(`Sub-goal with ID ${state.task.currentSubGoalId} not found`);
     }
-
+    
+    const subGoalPath = getSubGoalHierarchyPath(currentSubGoal);
     taskLogger.logAction("Executing sub-goal", { 
-      subGoalId: subGoal.id, 
-      description: subGoal.description 
+      subGoalId: currentSubGoal.id,
+      description: currentSubGoal.description,
+      path: subGoalPath
     });
-
-    // Retrieve relevant memories for this sub-goal
-    let relevantContent = "";
-    if (memory) {
-      const memories = await memory.getRelevantMemories(subGoal.description, 3);
-      if (memories.length > 0) {
-        relevantContent = memories.map((m: MemoryEntry) => m.content).join("\n\n");
-        taskLogger.logAction("Retrieved relevant memories", { count: memories.length });
-      }
-    }
-
-    // Create the execution prompt
-    const executePrompt = ChatPromptTemplate.fromTemplate(`
-You are Chloe, a sophisticated marketing assistant executing a specific sub-goal as part of a larger task.
+    
+    // Update the sub-goal status to in progress
+    let updatedSubGoals = updateSubGoalById(
+      state.task.subGoals, 
+      currentSubGoal.id, 
+      { status: 'in_progress' }
+    );
+    
+    // Get relevant memories to provide context for execution
+    const relevantMemories = await memory.getRelevantMemories(
+      `${state.goal} - ${currentSubGoal.description}`, 
+      3
+    );
+    
+    const memoryContext = relevantMemories.length > 0 
+      ? "Relevant information from your memory:\n" + relevantMemories.map(m => `- ${m.content}`).join("\n")
+      : "No relevant memories found for this sub-goal.";
+    
+    // Create execution prompt
+    const executionPrompt = ChatPromptTemplate.fromTemplate(`
+You are Chloe, a sophisticated marketing assistant executing a specific sub-goal.
 
 MAIN GOAL: {goal}
 
 CURRENT SUB-GOAL: {subGoal}
 
-{memory}
+HIERARCHY POSITION: {hierarchyPosition}
 
-Execute this sub-goal step by step. Be thorough but concise.
-If you need to use tools, explain what tool you would use and why.
-{toolsPrompt}
+${memoryContext}
 
-Provide your solution to accomplish this sub-goal.
+${tools && Object.keys(tools).length > 0 ? `
+You have access to the following tools:
+${Object.keys(tools).map(toolName => `- ${toolName}`).join("\n")}
+
+You can use these tools by mentioning them explicitly in your response.
+` : ""}
+
+Focus only on executing this specific sub-goal. Consider:
+1. The best approach to accomplish this sub-goal
+2. Any relevant information or constraints
+3. How this sub-goal contributes to the main goal
+
+Provide a clear, detailed response that accomplishes the sub-goal.
 `);
-
-    // Build the tools prompt if tools are available
-    let toolsPrompt = "";
-    if (tools && tools.length > 0) {
-      toolsPrompt = "Available tools:\n" + tools.map((tool: { name: string; description: string }) => 
-        `- ${tool.name}: ${tool.description}`
-      ).join("\n");
+    
+    // Build the hierarchy position information
+    let hierarchyPosition = "This is a ";
+    if (currentSubGoal.depth && currentSubGoal.depth > 0) {
+      hierarchyPosition += `level ${currentSubGoal.depth} nested sub-goal`;
+      if (currentSubGoal.parentId) {
+        const parent = findSubGoalById(state.task.subGoals, currentSubGoal.parentId);
+        if (parent) {
+          hierarchyPosition += ` under "${parent.description}"`;
+        }
+      }
+    } else {
+      hierarchyPosition += "top-level sub-goal";
     }
-
-    // Generate a solution
-    const executeResult = await executePrompt.pipe(model).invoke({
+    
+    // Execute the sub-goal
+    const executionResult = await executionPrompt.pipe(model).invoke({
       goal: state.goal,
-      subGoal: subGoal.description,
-      memory: relevantContent ? `RELEVANT INFORMATION:\n${relevantContent}` : "",
-      toolsPrompt
+      subGoal: currentSubGoal.description,
+      hierarchyPosition
     });
-
-    const solution = executeResult.content;
-
+    
+    const executionOutput = executionResult.content;
+    
     // Update the sub-goal with the result
-    const updatedSubGoals = state.task.subGoals.map(sg => 
-      sg.id === subGoal.id 
-        ? { ...sg, status: 'completed' as const, result: solution } 
-        : sg
+    updatedSubGoals = updateSubGoalById(
+      updatedSubGoals, 
+      currentSubGoal.id, 
+      { 
+        status: 'completed', 
+        result: executionOutput.substring(0, 500) // Limit result length for storage
+      }
     );
-
-    // Add the result to messages
+    
+    // Add to memory
+    await memory.addMemory(
+      `Completed sub-goal: ${currentSubGoal.description} - ${executionOutput.substring(0, 100)}...`,
+      'task',
+      'medium',
+      'chloe',
+      state.goal,
+      ['task', 'execution', currentSubGoal.id]
+    );
+    
+    // Update the messages
     const updatedMessages = [
       ...state.messages,
-      new HumanMessage({ content: `Sub-goal: ${subGoal.description}` }),
-      new AIMessage({ content: solution })
+      new HumanMessage({ content: `Execute sub-goal: ${subGoalPath}` }),
+      new AIMessage({ content: executionOutput })
     ];
-
+    
+    // Check if all nested sub-goals of a parent are complete, and if so, mark the parent as complete
+    const updateParentStatus = (subGoals: SubGoal[]): SubGoal[] => {
+      return subGoals.map(sg => {
+        // Skip if this isn't a parent sub-goal or it's already completed/failed
+        if (!sg.children || sg.children.length === 0 || sg.status === 'completed' || sg.status === 'failed') {
+          return sg;
+        }
+        
+        // Check if all children are completed or failed
+        const allChildrenDone = sg.children.every(child => 
+          child.status === 'completed' || child.status === 'failed'
+        );
+        
+        if (allChildrenDone) {
+          // Check if any children failed
+          const anyChildFailed = sg.children.some(child => child.status === 'failed');
+          
+          // If any child failed, mark the parent as failed too
+          const newStatus = anyChildFailed ? 'failed' : 'completed';
+          const result = anyChildFailed 
+            ? `Failed: Some nested sub-goals failed` 
+            : `Completed all nested sub-goals`;
+            
+          return {
+            ...sg,
+            status: newStatus as any,
+            result,
+            children: updateParentStatus(sg.children)
+          };
+        }
+        
+        // Continue checking deeper for other parents that might be complete
+        return {
+          ...sg,
+          children: updateParentStatus(sg.children)
+        };
+      });
+    };
+    
+    // Update parent statuses if all their children are complete
+    updatedSubGoals = updateParentStatus(updatedSubGoals);
+    
     return {
       ...state,
       task: {
@@ -107,7 +239,7 @@ Provide your solution to accomplish this sub-goal.
         currentSubGoalId: undefined, // Clear the current sub-goal ID
       },
       messages: updatedMessages,
-      executionTrace: [...state.executionTrace, `Executed sub-goal: ${subGoal.description}`],
+      executionTrace: [...state.executionTrace, `Executed sub-goal: ${subGoalPath}`],
     };
   } catch (error) {
     taskLogger.logAction("Error executing step", { error: String(error) });
@@ -116,10 +248,10 @@ Provide your solution to accomplish this sub-goal.
     let updatedSubGoals = state.task?.subGoals || [];
     
     if (state.task?.currentSubGoalId) {
-      updatedSubGoals = updatedSubGoals.map(sg => 
-        sg.id === state.task?.currentSubGoalId 
-          ? { ...sg, status: 'failed' as const, result: `Failed: ${error}` } 
-          : sg
+      updatedSubGoals = updateSubGoalById(
+        updatedSubGoals,
+        state.task.currentSubGoalId,
+        { status: 'failed' as const, result: `Failed: ${error}` }
       );
     }
     

@@ -8,7 +8,16 @@ import { Notifier } from '../notifiers';
 import { TaskLogger } from './taskLogger';
 import { Persona } from '../persona';
 import { ChloeMemory } from '../memory';
-import { IAgent, ChloeMemoryOptions, MemoryEntry } from '../../../lib/shared/types/agentTypes';
+import { 
+  IAgent, 
+  MessageOptions,
+  StrategicInsight,
+  PlanAndExecuteOptions,
+  PlanAndExecuteResult,
+  PlanStep,
+  ScheduledTask,
+  MemoryEntry
+} from '../../../lib/shared/types/agentTypes';
 import { IManager } from '../../../lib/shared/types/manager'; // Assuming IManager exists
 import { createChloeTools } from '../tools';
 
@@ -22,14 +31,6 @@ import { MarketScannerManager } from './marketScannerManager';
 import { KnowledgeGapsManager } from './knowledgeGapsManager';
 import { StateManager } from './stateManager';
 import { RobustSafeguards } from './robustSafeguards';
-
-// Add these to the existing imports from agentTypes.ts
-import {
-  PlanAndExecuteOptions,
-  PlanAndExecuteResult,
-  ScheduledTask,
-  MessageOptions,
-} from '../../../lib/shared/types/agentTypes';
 
 export interface ChloeAgentOptions {
   config?: Partial<AgentConfig>;
@@ -325,13 +326,11 @@ export class ChloeAgent implements IAgent {
             if (typeof entry === 'string') {
               return `- ${entry}`;
             } else if (typeof entry === 'object' && entry && 'content' in entry) {
-              // Assuming MemoryEntry structure
-              return `- ${entry.content} (Type: ${entry.type}, Importance: ${entry.importance})`;
-            } else {
-              return '- Invalid memory entry format';
+              return `- ${entry.content}`;
             }
+            return '';
           }).join('\n')
-        : 'No relevant memory context found.';
+        : '';
 
       // Create a context-aware prompt
       let contextPrompt = `You are Chloe, a Chief Marketing Officer AI.
@@ -545,7 +544,7 @@ Be very detailed about what the structure and content of the document would look
       
       // Format the strategic insights
       const insightsText = strategicInsights.length > 0
-        ? `\n\nRecent Strategic Insights:\n${strategicInsights.map(insight => 
+        ? `\n\nRecent Strategic Insights:\n${strategicInsights.map((insight: StrategicInsight) => 
             `• ${insight.insight} [${insight.category}]`).join('\n')}`
         : 'No recent strategic insights found.';
       
@@ -794,18 +793,44 @@ Be very detailed about what the structure and content of the document would look
       // Execute the graph
       const result = await graph.execute(goal);
       
+      // Helper function to recursively convert sub-goals to plan steps with hierarchy
+      const convertSubGoalsToPlanSteps = (subGoals: any[]): any[] => {
+        return subGoals.map(sg => {
+          // Convert the current sub-goal to a plan step
+          const planStep: any = {
+            id: sg.id,
+            description: sg.description,
+            status: sg.status === 'completed' ? 'completed' : 
+                   sg.status === 'failed' ? 'failed' : 
+                   sg.status === 'in_progress' ? 'in_progress' : 'pending',
+            parentId: sg.parentId,
+            depth: sg.depth
+          };
+          
+          // Add result if available
+          if (sg.result) {
+            planStep.result = {
+              success: sg.status === 'completed',
+              response: sg.result
+            };
+          }
+          
+          // Convert children if they exist
+          if (sg.children && sg.children.length > 0) {
+            planStep.children = convertSubGoalsToPlanSteps(sg.children);
+          }
+          
+          return planStep;
+        });
+      };
+      
       // Convert to the expected PlanAndExecuteResult format
       return {
         success: !result.error,
         message: result.finalResult || result.error || 'Task execution complete',
         plan: {
           goal: goal,
-          steps: result.task?.subGoals.map(sg => ({
-            id: sg.id,
-            description: sg.description,
-            status: sg.status === 'completed' ? 'completed' : 
-                   sg.status === 'failed' ? 'failed' : 'pending'
-          })) || [],
+          steps: result.task?.subGoals ? convertSubGoalsToPlanSteps(result.task.subGoals) : [],
           reasoning: result.task?.reasoning || "Planning execution completed"
         },
         error: result.error

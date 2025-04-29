@@ -4,7 +4,7 @@
 
 import { AIMessage } from "@langchain/core/messages";
 import { ChatPromptTemplate } from "@langchain/core/prompts";
-import { NodeContext, PlanningState } from "./types";
+import { NodeContext, PlanningState, SubGoal } from "./types";
 
 /**
  * Decides the next step in the execution process
@@ -41,15 +41,66 @@ export async function decideNextStepNode(
       };
     }
     
+    // Helper function to find the next available sub-goal in hierarchical structure
+    const findNextPendingSubGoal = (subGoals: SubGoal[]): SubGoal | undefined => {
+      // First, search for a pending sub-goal at the current level
+      const pendingSubGoal = subGoals.find(sg => sg.status === 'pending');
+      if (pendingSubGoal) return pendingSubGoal;
+      
+      // If no pending sub-goals at this level, check if there are any in-progress ones with pending children
+      for (const subGoal of subGoals) {
+        if (subGoal.status === 'in_progress' && subGoal.children && subGoal.children.length > 0) {
+          const pendingChild = findNextPendingSubGoal(subGoal.children);
+          if (pendingChild) return pendingChild;
+        }
+      }
+      
+      // No pending sub-goals found in this branch
+      return undefined;
+    };
+    
     // Find the next pending sub-goal
-    const nextSubGoal = state.task.subGoals.find(sg => sg.status === 'pending');
+    const nextSubGoal = findNextPendingSubGoal(state.task.subGoals);
+    
+    // Mark parent goals as in_progress if we're executing a child goal
+    const markParentAsInProgress = (subGoals: SubGoal[], parentId: string): SubGoal[] => {
+      return subGoals.map(sg => {
+        if (sg.id === parentId) {
+          // Mark this parent as in_progress
+          const updatedSubGoal = { ...sg, status: 'in_progress' as const };
+          
+          // If this parent has a parent too, recursively mark that parent as in_progress
+          if (sg.parentId) {
+            return {
+              ...updatedSubGoal,
+              children: sg.children ? markParentAsInProgress(sg.children, sg.parentId) : undefined
+            };
+          }
+          
+          return updatedSubGoal;
+        }
+        
+        // If this sub-goal has children, check them too
+        if (sg.children && sg.children.length > 0) {
+          return {
+            ...sg,
+            children: markParentAsInProgress(sg.children, parentId)
+          };
+        }
+        
+        // Otherwise, return the sub-goal unchanged
+        return sg;
+      });
+    };
     
     // If there are no more pending sub-goals, check if any failed
     if (!nextSubGoal) {
-      const failedSubGoals = state.task.subGoals.filter(sg => sg.status === 'failed');
+      const hasFailed = hasFailedSubGoals(state.task.subGoals);
       
-      if (failedSubGoals.length > 0) {
-        taskLogger.logAction("Some sub-goals failed", { failedCount: failedSubGoals.length });
+      if (hasFailed) {
+        taskLogger.logAction("Some sub-goals failed", { 
+          failedCount: countFailedSubGoals(state.task.subGoals)
+        });
         
         return {
           ...state,
@@ -57,7 +108,7 @@ export async function decideNextStepNode(
             ...state.task,
             status: 'completed', // We still consider it completed, but with partial success
           },
-          finalResult: `Task completed with ${failedSubGoals.length} failed sub-goals.`,
+          finalResult: `Task completed with ${countFailedSubGoals(state.task.subGoals)} failed sub-goals.`,
           executionTrace: [...state.executionTrace, "Task completed with some failed sub-goals"],
         };
       } else {
@@ -76,9 +127,18 @@ COMPLETED SUB-GOALS:
 Based on the completed sub-goals, provide a comprehensive summary of the results.
 `);
         
-        const completedSubGoalText = state.task.subGoals
-          .map(sg => `- ${sg.description}\n  Result: ${sg.result || "Completed"}`)
-          .join("\n");
+        // Helper function to format completed sub-goals with hierarchical structure
+        const formatCompletedSubGoalsHierarchy = (subGoals: SubGoal[], indent: string = ""): string => {
+          return subGoals.map(sg => {
+            let output = `${indent}- ${sg.description}\n  ${indent}Result: ${sg.result || "Completed"}`;
+            if (sg.children && sg.children.length > 0) {
+              output += "\n" + formatCompletedSubGoalsHierarchy(sg.children, indent + "  ");
+            }
+            return output;
+          }).join("\n");
+        };
+        
+        const completedSubGoalText = formatCompletedSubGoalsHierarchy(state.task.subGoals);
         
         const summaryResult = await summaryPrompt.pipe(model).invoke({
           goal: state.goal,
@@ -87,28 +147,69 @@ Based on the completed sub-goals, provide a comprehensive summary of the results
         
         const finalSummary = summaryResult.content;
         
+        taskLogger.logAction("Generated final summary");
+        
         return {
           ...state,
           task: {
             ...state.task,
-            status: 'completed',
+            status: 'completed'
           },
           finalResult: finalSummary,
-          messages: [...state.messages, new AIMessage({ content: finalSummary })],
-          executionTrace: [...state.executionTrace, "Task completed successfully"],
+          route: 'finalize',
+          executionTrace: [...state.executionTrace, "Task completed successfully, generating final summary"],
         };
       }
     }
     
-    // We have a pending sub-goal, update the state to execute it
+    // Decide whether to execute the next sub-goal or reflect on progress
+    
+    // Count completed sub-goals (including nested ones)
+    const completedCount = countCompletedSubGoals(state.task.subGoals);
+    const totalCount = countTotalSubGoals(state.task.subGoals);
+    
+    // Determine if we should reflect after completing some sub-goals (every 25%)
+    const shouldReflect = completedCount > 0 && 
+                         completedCount % Math.max(1, Math.ceil(totalCount * 0.25)) === 0 &&
+                         nextSubGoal.depth === 0; // Only reflect after completing top-level goals
+    
+    if (shouldReflect) {
+      taskLogger.logAction("Deciding to reflect on progress", { 
+        completed: completedCount, 
+        total: totalCount
+      });
+      
+      return {
+        ...state,
+        route: 'reflect',
+        executionTrace: [...state.executionTrace, "Deciding to reflect on progress"],
+      };
+    }
+    
+    // Otherwise, execute the next sub-goal
+    // If the next sub-goal has a parent, update the parent's status to in_progress
+    let updatedSubGoals = state.task.subGoals;
+    if (nextSubGoal.parentId) {
+      updatedSubGoals = markParentAsInProgress(state.task.subGoals, nextSubGoal.parentId);
+    }
+    
+    const subGoalPath = getSubGoalPath(nextSubGoal);
+    taskLogger.logAction("Deciding to execute next sub-goal", { 
+      subGoalId: nextSubGoal.id,
+      description: nextSubGoal.description,
+      path: subGoalPath
+    });
+    
     return {
       ...state,
       task: {
         ...state.task,
-        status: 'executing',
-        currentSubGoalId: nextSubGoal.id
+        subGoals: updatedSubGoals,
+        currentSubGoalId: nextSubGoal.id,
+        status: 'executing'
       },
-      executionTrace: [...state.executionTrace, `Selected sub-goal: ${nextSubGoal.description}`],
+      route: 'execute',
+      executionTrace: [...state.executionTrace, `Selected sub-goal: ${subGoalPath}`],
     };
   } catch (error) {
     taskLogger.logAction("Error deciding next step", { error: String(error) });
@@ -118,4 +219,66 @@ Based on the completed sub-goals, provide a comprehensive summary of the results
       executionTrace: [...state.executionTrace, `Error deciding next step: ${error}`],
     };
   }
+}
+
+/**
+ * Recursively check if there are any failed sub-goals
+ */
+function hasFailedSubGoals(subGoals: SubGoal[]): boolean {
+  for (const sg of subGoals) {
+    if (sg.status === 'failed') return true;
+    if (sg.children && sg.children.length > 0 && hasFailedSubGoals(sg.children)) return true;
+  }
+  return false;
+}
+
+/**
+ * Count the total number of failed sub-goals
+ */
+function countFailedSubGoals(subGoals: SubGoal[]): number {
+  let count = 0;
+  for (const sg of subGoals) {
+    if (sg.status === 'failed') count++;
+    if (sg.children && sg.children.length > 0) {
+      count += countFailedSubGoals(sg.children);
+    }
+  }
+  return count;
+}
+
+/**
+ * Count the total number of completed sub-goals
+ */
+function countCompletedSubGoals(subGoals: SubGoal[]): number {
+  let count = 0;
+  for (const sg of subGoals) {
+    if (sg.status === 'completed') count++;
+    if (sg.children && sg.children.length > 0) {
+      count += countCompletedSubGoals(sg.children);
+    }
+  }
+  return count;
+}
+
+/**
+ * Count the total number of sub-goals (including nested ones)
+ */
+function countTotalSubGoals(subGoals: SubGoal[]): number {
+  let count = subGoals.length;
+  for (const sg of subGoals) {
+    if (sg.children && sg.children.length > 0) {
+      count += countTotalSubGoals(sg.children);
+    }
+  }
+  return count;
+}
+
+/**
+ * Get the hierarchical path of a sub-goal for display
+ */
+function getSubGoalPath(subGoal: SubGoal): string {
+  if (!subGoal.parentId || !subGoal.depth) {
+    return subGoal.description;
+  }
+  return `${subGoal.description} (level ${subGoal.depth})`;
 } 

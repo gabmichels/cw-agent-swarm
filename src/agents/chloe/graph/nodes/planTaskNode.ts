@@ -28,7 +28,7 @@ export async function planTaskNode(
       ? "Relevant context from your memory:\n" + relevantMemories.map(m => `- ${m.content}`).join("\n")
       : "No relevant memories found.";
     
-    // Create planning prompt
+    // Create planning prompt - enhanced to support hierarchical planning
     const planningPrompt = ChatPromptTemplate.fromTemplate(`
 You are Chloe, a sophisticated marketing assistant. You need to decompose a complex goal into manageable sub-goals.
 
@@ -40,6 +40,7 @@ Break down this goal into 3-5 logical sub-goals that should be completed sequent
 1. Provide a clear description
 2. Assign a priority (1-5, where 1 is highest)
 3. Include brief reasoning for why this sub-goal is necessary
+4. If appropriate, break down complex sub-goals into 2-3 smaller children tasks
 
 Think step by step. Consider dependencies between sub-goals and ensure they flow logically.
 Your response should be structured as valid JSON matching this schema:
@@ -50,10 +51,20 @@ Your response should be structured as valid JSON matching this schema:
       "id": "unique_id",
       "description": "Detailed description of what needs to be done",
       "priority": number,
-      "reasoning": "Why this sub-goal is important"
+      "reasoning": "Why this sub-goal is important",
+      "children": [
+        {
+          "id": "child_id",
+          "description": "Description of child task",
+          "priority": number,
+          "reasoning": "Why this child task is important"
+        }
+      ]
     }
   ]
 }
+
+Only include the "children" array for sub-goals that should be broken down further.
 `);
     
     // Generate plan using LLM
@@ -88,16 +99,31 @@ Your response should be structured as valid JSON matching this schema:
       };
     }
     
-    // Create sorted sub-goals based on priority
-    const subGoals: SubGoal[] = planData.subGoals
-      .map((sg: any) => ({
-        id: sg.id || `goal_${Math.random().toString(36).substring(2, 7)}`,
-        description: sg.description,
-        priority: sg.priority || 3,
-        status: 'pending' as const,
-        reasoning: sg.reasoning
-      }))
-      .sort((a, b) => a.priority - b.priority);
+    // Process sub-goals recursively to ensure proper hierarchical structure
+    const processSubGoals = (subGoals: any[], parentId?: string, depth: number = 0): SubGoal[] => {
+      return subGoals.map((sg: any) => {
+        // Create the base sub-goal
+        const subGoal: SubGoal = {
+          id: sg.id || `goal_${Math.random().toString(36).substring(2, 7)}`,
+          description: sg.description,
+          priority: sg.priority || 3,
+          status: 'pending' as const,
+          reasoning: sg.reasoning,
+          depth,
+          parentId
+        };
+        
+        // Process children if they exist
+        if (sg.children && Array.isArray(sg.children) && sg.children.length > 0) {
+          subGoal.children = processSubGoals(sg.children, subGoal.id, depth + 1);
+        }
+        
+        return subGoal;
+      }).sort((a, b) => a.priority - b.priority);
+    };
+    
+    // Create sorted sub-goals with hierarchy
+    const subGoals: SubGoal[] = processSubGoals(planData.subGoals);
     
     // Create the planning task
     const planningTask: PlanningTask = {
@@ -110,13 +136,25 @@ Your response should be structured as valid JSON matching this schema:
     // Log the created plan
     taskLogger.logAction("Created task plan", { 
       subGoals: subGoals.length,
+      hasHierarchy: subGoals.some(sg => sg.children && sg.children.length > 0),
       reasoning: planData.reasoning.substring(0, 100) + "..."
     });
     
+    // Helper function to format sub-goals in a hierarchical way
+    const formatSubGoalsHierarchy = (subGoals: SubGoal[], indent: string = ""): string => {
+      return subGoals.map(sg => {
+        let output = `${indent}- ${sg.description} (Priority: ${sg.priority})`;
+        if (sg.children && sg.children.length > 0) {
+          output += "\n" + formatSubGoalsHierarchy(sg.children, indent + "  ");
+        }
+        return output;
+      }).join('\n');
+    };
+    
     // Create messages for the plan
     const planMessage = new AIMessage({
-      content: `I've analyzed your goal and created a plan with ${subGoals.length} sub-goals:\n\n` +
-        subGoals.map(sg => `- ${sg.description} (Priority: ${sg.priority})`).join('\n')
+      content: `I've analyzed your goal and created a plan with ${subGoals.length} main sub-goals:\n\n` +
+        formatSubGoalsHierarchy(subGoals)
     });
     
     // Update and return the state
