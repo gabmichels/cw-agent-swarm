@@ -4,6 +4,7 @@
  */
 
 export * from './performanceScorer';
+export * from './feedbackIngestor';
 
 // Add exports for future self-improvement modules here
 // export * from './strategyAdaptor';
