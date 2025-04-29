@@ -5,8 +5,8 @@
 
 export * from './performanceScorer';
 export * from './feedbackIngestor';
+export * from './strategyAdjuster';
 
 // Add exports for future self-improvement modules here
-// export * from './strategyAdaptor';
 // export * from './learningOptimizer';
 // etc. 
