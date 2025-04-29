@@ -724,30 +724,49 @@ Be very detailed about what the structure and content of the document would look
   }
   
   /**
-   * Plan and execute a task
+   * Plan and execute a task using the advanced LangGraph planning system
    */
-  async planAndExecute(goal: string, options?: PlanAndExecuteOptions): Promise<PlanAndExecuteResult> {
+  async planAndExecuteWithGraph(goal: string, options?: { trace?: boolean }): Promise<PlanAndExecuteResult> {
     // Use getter which throws if not initialized
-    const planningManager = this.getPlanningManager();
-    
     try {
-      // Default values for options
-      const defaultOptions: PlanAndExecuteOptions = {
-        goalPrompt: goal,
-        autonomyMode: false,
-        maxSteps: 10,
-        timeLimit: 300 // 5 minutes in seconds
+      // Import the ChloeGraph class and createChloeGraph function
+      const { ChloePlanningGraph, createChloeGraph } = await import('../graph');
+      
+      // Get required dependencies
+      const model = this.getModel();
+      const memory = this.getChloeMemory();
+      const taskLogger = this.getTaskLogger();
+
+      if (!model || !memory || !taskLogger) {
+        throw new Error('Required dependencies not available');
+      }
+      
+      // Create a ChloePlanningGraph instance
+      const chloeGraph = createChloeGraph(model, memory, taskLogger);
+      
+      // Execute the planning graph
+      const result = await chloeGraph.execute(goal, options);
+      
+      // Convert to the expected PlanAndExecuteResult format
+      const planAndExecuteResult: PlanAndExecuteResult = {
+        success: !result.error,
+        message: result.finalResult || result.error || 'Task execution complete',
+        plan: {
+          goal: goal,
+          steps: result.task?.subGoals.map(sg => ({
+            id: sg.id,
+            description: sg.description,
+            status: sg.status === 'completed' ? 'completed' : 
+                   sg.status === 'failed' ? 'failed' : 'pending'
+          })) || [],
+          reasoning: result.task?.reasoning || "Planning execution completed"
+        },
+        error: result.error
       };
       
-      // Merge with provided options
-      const mergedOptions: PlanAndExecuteOptions = {
-        ...defaultOptions,
-        ...options
-      };
-      
-      return await planningManager.planAndExecuteWithOptions(mergedOptions);
+      return planAndExecuteResult;
     } catch (error) {
-      console.error('Error in planAndExecute:', error);
+      console.error('Error in planAndExecuteWithGraph:', error);
       return {
         success: false,
         message: `Error executing plan: ${error}`,
@@ -1396,5 +1415,56 @@ Be very detailed about what the structure and content of the document would look
    */
   private async executeWithCircuitBreaker<T>(fn: () => Promise<T>): Promise<T> {
     return this.safeguards.executeWithCircuitBreaker('agent_operation', fn);
+  }
+
+  /**
+   * Plan and execute a task
+   */
+  async planAndExecute(goal: string, options?: PlanAndExecuteOptions): Promise<PlanAndExecuteResult> {
+    // Use getter which throws if not initialized
+    const planningManager = this.getPlanningManager();
+    
+    try {
+      // Default values for options
+      const defaultOptions: PlanAndExecuteOptions = {
+        goalPrompt: goal,
+        autonomyMode: false,
+        maxSteps: 10,
+        timeLimit: 300 // 5 minutes in seconds
+      };
+      
+      // Merge with provided options
+      const mergedOptions: PlanAndExecuteOptions = {
+        ...defaultOptions,
+        ...options
+      };
+      
+      return await planningManager.planAndExecuteWithOptions(mergedOptions);
+    } catch (error) {
+      console.error('Error in planAndExecute:', error);
+      return {
+        success: false,
+        message: `Error executing plan: ${error}`,
+        error: error instanceof Error ? error.message : String(error)
+      };
+    }
+  }
+
+  /**
+   * Plan and execute a task with a choice of implementation
+   * @param goal The goal to achieve
+   * @param useGraphPlanner Whether to use the new LangGraph planning implementation (true) or the original implementation (false)
+   * @param options Planning options
+   */
+  async planAndExecuteAdvanced(
+    goal: string, 
+    useGraphPlanner: boolean = true, 
+    options?: PlanAndExecuteOptions & { trace?: boolean }
+  ): Promise<PlanAndExecuteResult> {
+    if (useGraphPlanner) {
+      return this.planAndExecuteWithGraph(goal, { trace: options?.trace });
+    } else {
+      return this.planAndExecute(goal, options);
+    }
   }
 }

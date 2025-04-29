@@ -31,8 +31,8 @@ export { setupScheduler, ChloeScheduler, setupDefaultSchedule, initializeAutonom
 export { createChloeTools } from './tools';
 
 // Export LangGraph workflow components
-export { ChloeGraph } from './graph/graph';
-export type { GraphState } from './graph/graph';
+export { ChloeGraph, createChloeGraph } from './graph';
+export type { PlanningState, SubGoal, PlanningTask } from './graph';
 
 // Export planAndExecute functionality
 export { 

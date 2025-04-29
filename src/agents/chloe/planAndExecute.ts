@@ -1,5 +1,5 @@
 import { ChloeAgent } from './core/agent';
-import { ChloeGraph, GraphState } from './graph/graph';
+import { ChloeGraph, GraphState } from './graph';
 import { createChloeTools } from './tools/index';
 import type { ChloeMemory } from './memory';
 import type { SimpleTool } from '../../lib/shared/types/agent';
