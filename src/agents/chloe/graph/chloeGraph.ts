@@ -64,13 +64,13 @@ export class ChloeGraph {
   private model: ChatOpenAI;
   private memory: ChloeMemory;
   private taskLogger: TaskLogger;
-  private tools: Record<string, StructuredTool>;
+  private tools: Record<string, any>;
 
   constructor(
     model: ChatOpenAI,
     memory: ChloeMemory,
     taskLogger: TaskLogger,
-    tools: Record<string, StructuredTool> = {}
+    tools: Record<string, any> = {}
   ) {
     this.model = model;
     this.memory = memory;
@@ -779,7 +779,7 @@ export function createChloeGraph(
   model: ChatOpenAI,
   memory: ChloeMemory,
   taskLogger: TaskLogger,
-  tools: Record<string, StructuredTool> = {}
+  tools: Record<string, any> = {}
 ): ChloeGraph {
   return new ChloeGraph(model, memory, taskLogger, tools);
 } 

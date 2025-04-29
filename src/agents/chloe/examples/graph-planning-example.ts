@@ -3,6 +3,7 @@
  */
 
 import { getChloeInstance } from '../index';
+import { PlanAndExecuteResult } from '../../../lib/shared/types/agentTypes';
 
 async function runGraphPlanningExample() {
   try {
@@ -16,7 +17,7 @@ async function runGraphPlanningExample() {
     
     console.log(`\nExecuting with goal: ${goal}\n`);
     
-    // Execute the planning process with the new LangGraph implementation
+    // Execute the planning process with the new ChloeGraph implementation
     // This will:
     // 1. Break down the goal into sub-goals
     // 2. Prioritize sub-goals 
@@ -24,12 +25,9 @@ async function runGraphPlanningExample() {
     // 4. Reflect on progress after each execution
     // 5. Adjust the plan if needed
     // 6. Create a final summary
-    const result = await chloeAgent.planAndExecuteAdvanced(goal, true, {
-      trace: true, // Enable detailed tracing
+    const result = await chloeAgent.planAndExecute(goal, {
       goalPrompt: goal,
-      autonomyMode: true,
-      maxSteps: 15,
-      timeLimit: 600 // 10 minutes in seconds
+      autonomyMode: true
     });
     
     // Print the results
@@ -38,7 +36,7 @@ async function runGraphPlanningExample() {
     console.log(`Message: ${result.message}`);
     
     console.log('\n=== PLAN STEPS ===\n');
-    result.plan?.steps.forEach((step, index) => {
+    result.plan?.steps.forEach((step: { id: string, description: string, status: string }, index: number) => {
       console.log(`${index + 1}. ${step.description} (${step.status})`);
     });
     

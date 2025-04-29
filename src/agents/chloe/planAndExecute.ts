@@ -1,5 +1,5 @@
 import { ChloeAgent } from './core/agent';
-import { ChloeGraph, GraphState } from './graph';
+import { ChloeGraph, PlanningState } from './graph';
 import { createChloeTools } from './tools/index';
 import type { ChloeMemory } from './memory';
 import type { SimpleTool } from '../../lib/shared/types/agent';
@@ -54,7 +54,7 @@ declare module './core/agent' {
 export async function planAndExecute(
   this: ChloeAgent,
   options: PlanAndExecuteOptions
-): Promise<GraphState> {
+): Promise<PlanningState> {
   try {
     // Log that we're starting the planning and execution process
     console.log(`Starting planning and execution for goal: ${options.goalPrompt}`);
@@ -117,11 +117,7 @@ export async function planAndExecute(
       model,
       memory,
       taskLogger,
-      toolBindings,
-      {
-        autonomyMode: options.autonomyMode,
-        requireApproval: options.requireApproval
-      }
+      toolBindings
     );
     
     // Add plan to memory
@@ -135,21 +131,23 @@ export async function planAndExecute(
     );
     
     // Execute the graph
-    const result = await graph.execute(options.goalPrompt);
+    const result = await graph.execute(options.goalPrompt, { 
+      trace: true
+    });
     
     // Log the completion
     taskLogger.logAction('Completed planning and execution', {
       goal: options.goalPrompt,
-      finalOutput: result.finalOutput,
-      completedTasks: result.plan.filter(t => t.status === 'completed').length,
-      failedTasks: result.plan.filter(t => t.status === 'failed').length,
+      finalResult: result.finalResult,
+      completedTasks: result.task?.subGoals.filter(t => t.status === 'completed').length || 0,
+      failedTasks: result.task?.subGoals.filter(t => t.status === 'failed').length || 0,
       timestamp: new Date().toISOString()
     });
     
     // Store the execution result in memory
-    if (result.finalOutput) {
+    if (result.finalResult) {
       await memory.addMemory(
-        result.finalOutput,
+        result.finalResult,
         'execution_result',
         'high',
         'chloe',
@@ -159,14 +157,14 @@ export async function planAndExecute(
     }
     
     // Optionally notify about completion
-    if (result.finalOutput && options.autonomyMode) {
+    if (result.finalResult && options.autonomyMode) {
       try {
         // Access notifyDiscord tool properly using an index signature
         const notifyDiscord = tools['notifyDiscord'];
         if (notifyDiscord && typeof notifyDiscord._call === 'function') {
           await notifyDiscord._call.bind(notifyDiscord)(
             `📊 Completed autonomous execution for goal: "${options.goalPrompt}"\n\n` +
-            `Summary: ${result.finalOutput.substring(0, 1500)}...`
+            `Summary: ${result.finalResult.substring(0, 1500)}...`
           );
         }
       } catch (e) {
@@ -190,13 +188,9 @@ export async function planAndExecute(
     
     // Return a basic state with the error
     return {
-      input: options.goalPrompt,
-      plan: [],
-      currentTaskIndex: 0,
-      toolOutputs: {},
-      reflections: [],
-      messages: [`Error: ${errorMessage}`],
-      waitingForHuman: false,
+      goal: options.goalPrompt,
+      messages: [],
+      executionTrace: [`Error: ${errorMessage}`],
       error: errorMessage
     };
   }
