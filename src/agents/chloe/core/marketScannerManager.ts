@@ -12,6 +12,7 @@ import {
   ChloeMemoryType 
 } from '../../../constants/memory';
 import { MemoryEntry } from '../memory';
+import { MarketScannerConfig, TrendParsingPatterns, Templates } from './marketScanner.config';
 
 // Add a declaration to extend the serverQdrant type
 declare module '../../../server/qdrant' {
@@ -37,6 +38,17 @@ export interface TrendSummaryResponse {
 }
 
 /**
+ * Configuration options that can be customized
+ */
+export interface MarketScannerCustomConfig {
+  collections?: Partial<typeof MarketScannerConfig.collections>;
+  queries?: Partial<typeof MarketScannerConfig.queries>;
+  limits?: Partial<typeof MarketScannerConfig.limits>;
+  tags?: Partial<typeof MarketScannerConfig.tags>;
+  importance?: Partial<typeof MarketScannerConfig.importance>;
+}
+
+/**
  * Options for initializing the market scanner manager
  */
 export interface MarketScannerManagerOptions extends BaseManagerOptions {
@@ -44,6 +56,7 @@ export interface MarketScannerManagerOptions extends BaseManagerOptions {
   model: ChatOpenAI;
   logger?: TaskLogger;
   notifyFunction?: (message: string) => Promise<void>;
+  config?: MarketScannerCustomConfig;
 }
 
 /**
@@ -60,8 +73,10 @@ export class MarketScannerManager implements IManager {
   private model: ChatOpenAI;
   private notifyFunction?: (message: string) => Promise<void>;
   private scanner: MarketScanner | null = null;
-  private readonly strategicInsightsCollection = 'strategic_insights';
-
+  
+  // Configuration
+  private config: typeof MarketScannerConfig;
+  
   /**
    * Creates a new MarketScannerManager instance
    * @param options Configuration options for the manager
@@ -72,6 +87,28 @@ export class MarketScannerManager implements IManager {
     this.model = options.model;
     this.taskLogger = options.logger || null;
     this.notifyFunction = options.notifyFunction;
+    
+    // Initialize configuration with default values, then merge with custom config if provided
+    this.config = { ...MarketScannerConfig };
+    
+    if (options.config) {
+      // Deep merge custom configuration
+      if (options.config.collections) {
+        this.config.collections = { ...this.config.collections, ...options.config.collections };
+      }
+      if (options.config.queries) {
+        this.config.queries = { ...this.config.queries, ...options.config.queries };
+      }
+      if (options.config.limits) {
+        this.config.limits = { ...this.config.limits, ...options.config.limits };
+      }
+      if (options.config.tags) {
+        this.config.tags = { ...this.config.tags, ...options.config.tags };
+      }
+      if (options.config.importance) {
+        this.config.importance = { ...this.config.importance, ...options.config.importance };
+      }
+    }
   }
 
   /**
@@ -163,19 +200,26 @@ export class MarketScannerManager implements IManager {
       this.logAction('Scanning market trends', { query });
       
       // Run market scan - use getTrends method which is available in MarketScanner
-      const trends = await this.scanner.getTrends(query, 0, 20);
+      const trends = await this.scanner.getTrends(
+        query, 
+        this.config.limits.trendResultsOffset, 
+        this.config.limits.trendResultsLimit
+      );
       
       // Format trends into a readable string
       const scanResults = this.formatTrendsResult(trends);
       
+      // Create tags by combining base market scan tags with the query
+      const tags = [...this.config.tags.marketScan, query.toLowerCase()];
+      
       // Process and store the results
       await this.memory.addMemory(
-        `Market Scan Results for "${query}": ${scanResults.substring(0, 200)}...`,
+        `Market Scan Results for "${query}": ${scanResults.substring(0, this.config.limits.textPreviewLength)}...`,
         ChloeMemoryType.DOCUMENT,
-        ImportanceLevel.MEDIUM,
+        this.config.importance.marketScan,
         MemorySource.SYSTEM,
         undefined,
-        ['market_scan', 'trend_analysis', query.toLowerCase()]
+        tags
       );
       
       return scanResults;
@@ -200,15 +244,16 @@ export class MarketScannerManager implements IManager {
     }
 
     return trends.map(trend => {
-      return `
-TREND: ${trend.name}
-CATEGORY: ${trend.category}
-STAGE: ${trend.stage}
-DESCRIPTION: ${trend.description}
-KEYWORDS: ${trend.keywords.join(', ')}
-BUSINESS IMPACT: ${trend.estimatedBusinessImpact}/100
-RELEVANCE: ${trend.score}/100
-      `.trim();
+      // Replace template placeholders with actual values
+      return Templates.trendFormat
+        .replace('{name}', trend.name)
+        .replace('{category}', trend.category)
+        .replace('{stage}', trend.stage)
+        .replace('{description}', trend.description)
+        .replace('{keywords}', trend.keywords.join(', '))
+        .replace('{impact}', trend.estimatedBusinessImpact.toString())
+        .replace('{score}', trend.score.toString())
+        .trim();
     }).join('\n\n');
   }
 
@@ -225,18 +270,21 @@ RELEVANCE: ${trend.score}/100
       this.logAction('Summarizing market trends');
       
       // Get recent market scan memories
-      const recentScans = await this.memory.getRelevantMemories('market trends analysis scan', 10);
+      const recentScans = await this.memory.getRelevantMemories(
+        this.config.queries.marketTrends, 
+        this.config.limits.relevantMemories
+      );
       
       if (!recentScans || recentScans.length === 0) {
         // No recent scans, so run a new market scan
-        const newScanResults = await this.scanMarketTrends('current marketing trends');
+        const newScanResults = await this.scanMarketTrends(this.config.queries.defaultTrends);
         
         // Create a proper MemoryEntry from the scan results
         const newMemoryEntry: MemoryEntry = {
           id: `scan-${Date.now()}`,
           content: newScanResults,
           category: ChloeMemoryType.DOCUMENT,
-          importance: ImportanceLevel.MEDIUM,
+          importance: this.config.importance.marketScan,
           source: MemorySource.AGENT,
           created: new Date(),
           type: 'document'
@@ -246,19 +294,11 @@ RELEVANCE: ${trend.score}/100
         recentScans.push(newMemoryEntry);
       }
       
-      // Create a prompt for trend summarization
-      const prompt = `As Chloe, the Chief Marketing Officer AI, analyze these recent market scans and synthesize the key trends, insights, and strategic implications:
-
-RECENT MARKET SCANS:
-${recentScans.map(scan => scan.content).join('\n\n')}
-
-Create a comprehensive trend summary with the following structure:
-- For each major trend, provide:
-  * INSIGHT: [The key insight in 1-2 sentences]
-  * TAGS: [3-5 relevant tags/keywords]
-  * CATEGORY: [One of: Consumer Behavior, Technology, Competitive Landscape, Content Strategy, Channel Strategy, Industry Shift]
-
-Focus on actionable insights that have strategic implications for marketing efforts. Be specific and forward-looking.`;
+      // Create a prompt from the template, replacing the placeholder with the scan content
+      const prompt = Templates.trendSummarizationPrompt.replace(
+        '{marketScans}', 
+        recentScans.map(scan => scan.content).join('\n\n')
+      );
       
       // Generate the trend summary
       const response = await this.model.invoke(prompt);
@@ -266,12 +306,12 @@ Focus on actionable insights that have strategic implications for marketing effo
       
       // Store the trend summary in memory
       await this.memory.addMemory(
-        `Trend Summary: ${trendSummary.substring(0, 200)}...`,
+        `Trend Summary: ${trendSummary.substring(0, this.config.limits.textPreviewLength)}...`,
         ChloeMemoryType.DOCUMENT,
-        ImportanceLevel.HIGH,
+        this.config.importance.trendSummary,
         MemorySource.AGENT,
         undefined,
-        ['trend_summary', 'market_analysis', 'strategic_insight']
+        this.config.tags.trendSummary
       );
       
       // Parse trends and store as strategic insights
@@ -309,31 +349,30 @@ Focus on actionable insights that have strategic implications for marketing effo
     try {
       const trends: TrendSummary[] = [];
       
-      // Look for sections that match our pattern
-      const sections = summary.split(/[-*]\s*INSIGHT:/i);
+      // Use the extraction patterns from configuration
+      const sections = summary.split(TrendParsingPatterns.sectionSplitter);
       
       // Skip the first entry if it doesn't contain trend data
       for (let i = 1; i < sections.length; i++) {
         const section = sections[i].trim();
         
-        // Extract the insight (everything until TAGS:)
-        // Using a more compatible regex without the '/s' flag
-        const insightMatch = section.match(/^([\s\S]*?)(?=\s*[-*]\s*TAGS:|$)/);
+        // Extract the insight
+        const insightMatch = section.match(TrendParsingPatterns.insightExtractor);
         const insight = insightMatch ? insightMatch[1].trim() : '';
         
         // Extract the tags
-        const tagsMatch = section.match(/[-*]\s*TAGS:\s*\[(.*?)\]/i);
+        const tagsMatch = section.match(TrendParsingPatterns.tagsExtractor);
         const tagsString = tagsMatch ? tagsMatch[1] : '';
         const tags = tagsString.split(/,\s*/).map(tag => tag.trim()).filter(Boolean);
         
         // Extract the category
-        const categoryMatch = section.match(/[-*]\s*CATEGORY:\s*\[(.*?)\]/i);
+        const categoryMatch = section.match(TrendParsingPatterns.categoryExtractor);
         const category = categoryMatch ? categoryMatch[1].trim().toLowerCase() : 'general';
         
         if (insight) {
           trends.push({
             insight,
-            tags: tags.length > 0 ? tags : ['trend', 'market_analysis'],
+            tags: tags.length > 0 ? tags : this.config.tags.defaultTrend,
             category: category || 'general'
           });
         }
@@ -363,7 +402,9 @@ Focus on actionable insights that have strategic implications for marketing effo
       // Get embeddings for the insight
       const embeddingResponse = await serverQdrant.getEmbedding(insight);
       if (!embeddingResponse || !embeddingResponse.embedding) {
-        this.logAction('Failed to get embedding for strategic insight', { insight: insight.substring(0, 50) });
+        this.logAction('Failed to get embedding for strategic insight', { 
+          insight: insight.substring(0, this.config.limits.insightPreviewLength)
+        });
         return false;
       }
       
@@ -382,22 +423,27 @@ Focus on actionable insights that have strategic implications for marketing effo
       };
       
       // Add to Qdrant collection
-      await serverQdrant.addToCollection(this.strategicInsightsCollection, embedding, payload);
+      await serverQdrant.addToCollection(
+        this.config.collections.strategicInsights, 
+        embedding, 
+        payload
+      );
       
       // Also add to normal memory with high importance
       await this.memory.addMemory(
         `Strategic Insight: ${insight}`,
         ChloeMemoryType.STRATEGIC_INSIGHT,
-        ImportanceLevel.HIGH,
+        this.config.importance.strategicInsight,
         MemorySource.SYSTEM,
         `Category: ${category}`,
         tags
       );
       
+      const previewLength = this.config.limits.insightPreviewLength;
       this.logAction('Added strategic insight', { 
         category, 
         tags: tags.join(', '),
-        insight: insight.substring(0, 50) + (insight.length > 50 ? '...' : '')
+        insight: insight.substring(0, previewLength) + (insight.length > previewLength ? '...' : '')
       });
       
       return true;
