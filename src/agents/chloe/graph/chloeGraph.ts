@@ -85,27 +85,32 @@ export class ChloeGraph {
     // Create action nodes for each step of the planning process
     const planNode = new ActionNode<PlanningState>({
       name: 'plan_task',
-      action: async (state: PlanningState) => planTaskNode(state, context)
+      action: async (state: PlanningState) => planTaskNode(state, context),
+      isBlockingOnFailure: true // Planning is critical, so we should block on failure
     });
     
     const decideNextNode = new ActionNode<PlanningState>({
       name: 'decide_next_step',
-      action: async (state: PlanningState) => decideNextStepNode(state, context)
+      action: async (state: PlanningState) => decideNextStepNode(state, context),
+      isBlockingOnFailure: true // Decision node is also critical for routing
     });
     
     const executeNode = new ActionNode<PlanningState>({
       name: 'execute_step',
-      action: async (state: PlanningState) => executeStepNode(state, context)
+      action: async (state: PlanningState) => executeStepNode(state, context),
+      isBlockingOnFailure: false // We can continue to the next step if execution fails
     });
     
     const reflectNode = new ActionNode<PlanningState>({
       name: 'reflect_on_progress',
-      action: async (state: PlanningState) => reflectOnProgressNode(state, context)
+      action: async (state: PlanningState) => reflectOnProgressNode(state, context),
+      isBlockingOnFailure: false // Reflection is optional, we can continue if it fails
     });
     
     const finalizeActionNode = new ActionNode<PlanningState>({
       name: 'finalize',
-      action: async (state: PlanningState) => finalizeNode(state, context)
+      action: async (state: PlanningState) => finalizeNode(state, context),
+      isBlockingOnFailure: false // Finalization can fail but we still want to return the state
     });
     
     // Add all nodes to the graph
