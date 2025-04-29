@@ -1,5 +1,5 @@
 import { ChatOpenAI } from '@langchain/openai';
-import { ChloeMemory } from '../memory';
+import { ChloeMemory, ChloeMemoryType } from '../memory';
 import { TaskLogger } from '../task-logger';
 import { IManager, BaseManagerOptions } from '../../../lib/shared/types/agentTypes';
 import { logger } from '../../../lib/logging';
@@ -127,12 +127,13 @@ Your reflection should be thoughtful, strategic, and provide nuanced marketing p
       const response = await this.model.invoke(prompt);
       const reflection = response.content.toString();
       
-      // Store the reflection in memory
+      // Store the reflection in memory with the correct category
       await this.memory.addMemory(
         `Reflection on "${question}": ${reflection.substring(0, 200)}...`,
-        'reflection',
+        'thought' as ChloeMemoryType, // Use 'thought' instead of 'reflection' 
         'medium',
-        'chloe'
+        'chloe',
+        `Reflection task result: ${question}`
       );
       
       return reflection;
@@ -200,7 +201,7 @@ Your reflection should be professional, insightful, and focused on continuous im
       // Store the weekly reflection in memory
       await this.memory.addMemory(
         `Weekly Reflection: ${reflection.substring(0, 200)}...`,
-        'weekly_reflection',
+        'thought' as ChloeMemoryType,
         'high',
         'chloe'
       );

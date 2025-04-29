@@ -18,6 +18,24 @@ export async function getGlobalChloeAgent(): Promise<ChloeAgent> {
       const result = await initializeChloeAutonomy(globalChloeAgent);
       autonomyInitialized = result.status === 'success';
       console.log(`Autonomy system initialization: ${result.status}`);
+      
+      // If autonomy failed to initialize but Chloe is available, attempt to manually setup scheduler
+      if (result.status !== 'success' && globalChloeAgent) {
+        console.log('Attempting manual scheduler initialization...');
+        const { setupScheduler, ChloeScheduler, setupDefaultSchedule } = await import('../../agents/chloe/scheduler');
+        
+        try {
+          const scheduler = new ChloeScheduler(globalChloeAgent);
+          setupDefaultSchedule(scheduler);
+          scheduler.setAutonomyMode(true);
+          const tasks = setupScheduler(globalChloeAgent);
+          tasks.start();
+          console.log('Manual scheduler initialization successful');
+          autonomyInitialized = true;
+        } catch (schedulerError) {
+          console.error('Manual scheduler initialization failed:', schedulerError);
+        }
+      }
     } catch (error) {
       console.error('Failed to initialize autonomy system:', error);
     }

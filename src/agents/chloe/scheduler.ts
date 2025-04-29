@@ -10,6 +10,7 @@ import {
   runSocialMediaTrendsTask 
 } from './tasks/marketScanTask';
 import { ScheduledTask as AgentScheduledTask } from '../../lib/shared/types/agentTypes';
+import { TASK_IDS } from '../../lib/shared/constants';
 
 // Types for scheduler
 export type TaskId = string;
@@ -253,7 +254,7 @@ export class ChloeScheduler {
       
       // Handle special task cases
       switch (id) {
-        case 'memory-consolidation':
+        case TASK_IDS.MEMORY_CONSOLIDATION:
           try {
             const success = await runMemoryConsolidation(this.agent);
             console.log(`Memory consolidation ${success ? 'completed successfully' : 'failed'}`);
@@ -262,7 +263,7 @@ export class ChloeScheduler {
           }
           break;
           
-        case 'market-scan':
+        case TASK_IDS.MARKET_SCAN:
           try {
             const success = await runMarketScanTask(this.agent);
             console.log(`Market scan ${success ? 'completed successfully' : 'failed'}`);
@@ -271,7 +272,7 @@ export class ChloeScheduler {
           }
           break;
           
-        case 'news-scan':
+        case TASK_IDS.NEWS_SCAN:
           try {
             const success = await runNewsScanTask(this.agent);
             console.log(`News scan ${success ? 'completed successfully' : 'failed'}`);
@@ -280,7 +281,7 @@ export class ChloeScheduler {
           }
           break;
           
-        case 'trending-topic-research':
+        case TASK_IDS.TRENDING_TOPIC_RESEARCH:
           try {
             const success = await runTrendingTopicResearchTask(this.agent);
             console.log(`Trending topic research ${success ? 'completed successfully' : 'failed'}`);
@@ -289,7 +290,7 @@ export class ChloeScheduler {
           }
           break;
           
-        case 'social-media-trends':
+        case TASK_IDS.SOCIAL_MEDIA_TRENDS:
           try {
             const success = await runSocialMediaTrendsTask(this.agent);
             console.log(`Social media trends analysis ${success ? 'completed successfully' : 'failed'}`);
@@ -336,10 +337,14 @@ export class ChloeScheduler {
    * Get all scheduled tasks
    */
   public getScheduledTasks(): ScheduledTask[] {
-    return Array.from(this.scheduledTasks.values()).map(task => ({
-      ...task,
-      task: undefined // Don't expose the cron task object
-    }));
+    console.log('ChloeScheduler.getScheduledTasks called');
+    console.log('Number of tasks in scheduler:', this.scheduledTasks.size);
+    
+    // Convert Map to Array
+    const tasks = Array.from(this.scheduledTasks.values());
+    console.log('First task (if any):', tasks.length > 0 ? JSON.stringify(tasks[0]) : 'No tasks');
+    
+    return tasks;
   }
 
   /**
@@ -409,15 +414,23 @@ export function setupDefaultSchedule(scheduler: ChloeScheduler): void {
   
   // Daily morning briefing - Generate a summary of what's happening and what's planned
   scheduler.scheduleTask(
-    'daily-briefing',
+    TASK_IDS.DAILY_BRIEFING,
     '0 8 * * *', // 8 AM daily
     'Create a morning briefing summarizing recent marketing activities, trends, and goals for the day.',
     ['daily', 'planning']
   );
   
+  // Add daily-planning as an alias for daily-briefing to maintain compatibility with frontend
+  scheduler.scheduleTask(
+    TASK_IDS.DAILY_PLANNING,
+    '0 8 * * *', // 8 AM daily
+    'Create a daily plan for marketing tasks and activities.',
+    ['daily', 'planning']
+  );
+  
   // Weekly marketing review - Analyze marketing performance
   scheduler.scheduleTask(
-    'weekly-marketing-review',
+    TASK_IDS.WEEKLY_MARKETING_REVIEW,
     '0 10 * * 1', // Monday at 10 AM
     'Review the previous week\'s marketing performance. Analyze key metrics, campaign results, and social media engagement. Provide insights and recommendations.',
     ['weekly', 'analytics']
@@ -425,7 +438,7 @@ export function setupDefaultSchedule(scheduler: ChloeScheduler): void {
   
   // Content idea generation - Generate content ideas twice a week
   scheduler.scheduleTask(
-    'content-idea-generation',
+    TASK_IDS.CONTENT_IDEA_GENERATION,
     '0 14 * * 2,4', // Tuesday and Thursday at 2 PM
     'Generate 5-10 fresh content ideas for our blog, social media, and newsletter. Consider current trends, customer interests, and business objectives.',
     ['content', 'creativity']
@@ -433,7 +446,7 @@ export function setupDefaultSchedule(scheduler: ChloeScheduler): void {
   
   // Memory consolidation - Process and organize memories
   scheduler.scheduleTask(
-    'memory-consolidation',
+    TASK_IDS.MEMORY_CONSOLIDATION,
     '0 2 * * *', // 2 AM daily
     'Review recent memories and conversations. Identify important insights, action items, and recurring themes. Organize and categorize this information to improve knowledge retrieval.',
     ['memory', 'maintenance']
@@ -441,7 +454,7 @@ export function setupDefaultSchedule(scheduler: ChloeScheduler): void {
   
   // Market scan integration - Runs a comprehensive market scan
   scheduler.scheduleTask(
-    'market-scan',
+    TASK_IDS.MARKET_SCAN,
     '0 7 * * 1,3,5', // Monday, Wednesday, Friday at 7 AM
     'Run a comprehensive market scan to identify trends, competitor activities, and industry news. Store valuable insights in the knowledge base for future reference.',
     ['research', 'marketing', 'knowledge']
@@ -449,7 +462,7 @@ export function setupDefaultSchedule(scheduler: ChloeScheduler): void {
   
   // News scan for daily monitoring
   scheduler.scheduleTask(
-    'news-scan',
+    TASK_IDS.NEWS_SCAN,
     '0 9,15 * * *', // 9 AM and 3 PM daily
     'Scan recent news sources for marketing-related updates, industry changes, and relevant events. Flag any critical information that requires attention.',
     ['news', 'monitoring', 'alerts']
@@ -457,7 +470,7 @@ export function setupDefaultSchedule(scheduler: ChloeScheduler): void {
   
   // Trending topic research - Weekly research into trending topics
   scheduler.scheduleTask(
-    'trending-topic-research',
+    TASK_IDS.TRENDING_TOPIC_RESEARCH,
     '0 13 * * 3', // Wednesday at 1 PM
     'Analyze current trending topics in marketing and customer experience. Research emerging patterns and assess how they might impact our marketing strategy.',
     ['trends', 'research', 'strategy']
@@ -465,7 +478,7 @@ export function setupDefaultSchedule(scheduler: ChloeScheduler): void {
   
   // Social media trend detection - Monitors social media trends
   scheduler.scheduleTask(
-    'social-media-trends',
+    TASK_IDS.SOCIAL_MEDIA_TRENDS,
     '0 11 * * 2,5', // Tuesday and Friday at 11 AM
     'Monitor and detect trending topics and conversations on social media platforms. Identify opportunities for engagement and content creation.',
     ['social-media', 'trends', 'engagement']
@@ -473,7 +486,7 @@ export function setupDefaultSchedule(scheduler: ChloeScheduler): void {
   
   // Monthly strategic planning
   scheduler.scheduleTask(
-    'monthly-strategic-planning',
+    TASK_IDS.MONTHLY_STRATEGIC_PLANNING,
     '0 9 1 * *', // 1st day of each month at 9 AM
     'Develop a strategic marketing plan for the upcoming month. Consider business objectives, past performance, market conditions, and available resources.',
     ['monthly', 'planning', 'strategy']
@@ -481,7 +494,7 @@ export function setupDefaultSchedule(scheduler: ChloeScheduler): void {
   
   // Quarterly performance evaluation
   scheduler.scheduleTask(
-    'quarterly-performance-review',
+    TASK_IDS.QUARTERLY_PERFORMANCE_REVIEW,
     '0 10 1 1,4,7,10 *', // First day of each quarter at 10 AM
     'Conduct a comprehensive review of the previous quarter\'s marketing performance. Analyze KPIs, campaign effectiveness, budget utilization, and strategic alignment.',
     ['quarterly', 'review', 'analytics']

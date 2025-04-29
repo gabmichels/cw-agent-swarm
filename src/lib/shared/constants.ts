@@ -83,4 +83,22 @@ export const MEMORY_TYPES = {
   PERSONA: 'persona',
   KNOWLEDGE: 'knowledge',
   CONVERSATION: 'conversation',
+};
+
+/**
+ * Task ID constants for scheduled tasks
+ * Used to ensure consistency between frontend and backend
+ */
+export const TASK_IDS = {
+  DAILY_BRIEFING: 'daily-briefing',
+  DAILY_PLANNING: 'daily-planning', 
+  WEEKLY_MARKETING_REVIEW: 'weekly-marketing-review',
+  CONTENT_IDEA_GENERATION: 'content-idea-generation',
+  MEMORY_CONSOLIDATION: 'memory-consolidation',
+  MARKET_SCAN: 'market-scan',
+  NEWS_SCAN: 'news-scan',
+  TRENDING_TOPIC_RESEARCH: 'trending-topic-research',
+  SOCIAL_MEDIA_TRENDS: 'social-media-trends',
+  MONTHLY_STRATEGIC_PLANNING: 'monthly-strategic-planning',
+  QUARTERLY_PERFORMANCE_REVIEW: 'quarterly-performance-review'
 }; 

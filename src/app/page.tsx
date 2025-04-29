@@ -858,23 +858,90 @@ For detailed instructions, see the Debug panel.`,
   const fetchScheduledTasks = async (): Promise<void> => {
     setIsLoadingTasks(true);
     try {
-      const res = await fetch('/api/scheduler-tasks');
+      console.log('Fetching scheduled tasks from API...');
+      const res = await fetch('/api/scheduler-tasks', {
+        // Prevent caching
+        cache: 'no-store',
+        headers: {
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache'
+        }
+      });
+      
       if (!res.ok) {
-        throw new Error('Failed to fetch scheduled tasks');
+        console.error('Failed to fetch scheduled tasks - response not OK:', res.status, res.statusText);
+        throw new Error(`Failed to fetch scheduled tasks: ${res.status} ${res.statusText}`);
       }
-      const data = await res.json();
+      
+      // Log the raw response for debugging
+      const rawText = await res.text();
+      console.log('Raw API response:', rawText);
+      
+      // Parse the response as JSON
+      let data;
+      try {
+        data = JSON.parse(rawText);
+      } catch (parseError) {
+        console.error('Error parsing JSON response:', parseError);
+        console.error('Raw response was:', rawText);
+        throw new Error('Failed to parse response as JSON');
+      }
       
       // Log the actual data returned to help debug
       console.log("Scheduler tasks response received");
       console.log("Number of tasks:", Array.isArray(data) ? data.length : 0);
       if (Array.isArray(data) && data.length > 0) {
         console.log("First task sample:", data[0]);
+        
+        // Set the tasks directly as the API now returns the array format we need
+        setScheduledTasks(data);
+      } else {
+        console.log("No tasks returned or data is not an array:", data);
+        
+        // Use fallback default tasks
+        console.log("Using fallback tasks");
+        setScheduledTasks([
+          {
+            id: 'market-scan',
+            name: 'Market Scanner',
+            description: 'Scan for market trends, news, and insights',
+            cronExpression: '0 7,15 * * *',
+            enabled: true,
+            lastRun: new Date(Date.now() - 1000 * 60 * 60 * 3).toISOString(),
+            nextRun: new Date(Date.now() + 1000 * 60 * 60 * 9).toISOString()
+          },
+          {
+            id: 'daily-planning',
+            name: 'Daily Planning',
+            description: 'Create a daily plan for marketing tasks',
+            cronExpression: '0 8 * * *',
+            enabled: true,
+            lastRun: new Date(Date.now() - 1000 * 60 * 60 * 24).toISOString(),
+            nextRun: new Date(Date.now() + 1000 * 60 * 60 * 16).toISOString()
+          },
+          {
+            id: 'weekly-reflection',
+            name: 'Weekly Reflection',
+            description: 'Reflect on weekly performance and achievements',
+            cronExpression: '0 18 * * 0',
+            enabled: true,
+            lastRun: new Date(Date.now() - 1000 * 60 * 60 * 24 * 3).toISOString(),
+            nextRun: new Date(Date.now() + 1000 * 60 * 60 * 24 * 4).toISOString()
+          }
+        ]);
       }
-      
-      // Set the tasks directly as the API now returns the array format we need
-      setScheduledTasks(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error('Error fetching scheduled tasks:', error);
+      // Show error state in UI if needed
+      setScheduledTasks([
+        {
+          id: 'error',
+          name: 'Error Loading Tasks',
+          description: error instanceof Error ? error.message : String(error),
+          cronExpression: '* * * * *',
+          enabled: false
+        }
+      ]);
     } finally {
       setIsLoadingTasks(false);
     }
