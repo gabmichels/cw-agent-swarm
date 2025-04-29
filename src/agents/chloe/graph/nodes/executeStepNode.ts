@@ -70,7 +70,7 @@ export async function executeStepNode(
   state: PlanningState,
   context: NodeContext
 ): Promise<PlanningState> {
-  const { model, memory, taskLogger, tools } = context;
+  const { model, memory, taskLogger, tools, dryRun } = context;
 
   try {
     if (!state.task) {
@@ -89,11 +89,22 @@ export async function executeStepNode(
     }
     
     const subGoalPath = getSubGoalHierarchyPath(currentSubGoal);
-    taskLogger.logAction("Executing sub-goal", { 
-      subGoalId: currentSubGoal.id,
-      description: currentSubGoal.description,
-      path: subGoalPath
-    });
+    
+    // Add dry run indicator to the log if in dry run mode
+    if (dryRun) {
+      taskLogger.logAction("SIMULATING sub-goal execution", { 
+        subGoalId: currentSubGoal.id,
+        description: currentSubGoal.description,
+        path: subGoalPath,
+        dryRun: true
+      });
+    } else {
+      taskLogger.logAction("Executing sub-goal", { 
+        subGoalId: currentSubGoal.id,
+        description: currentSubGoal.description,
+        path: subGoalPath
+      });
+    }
     
     // Update the sub-goal status to in progress
     let updatedSubGoals = updateSubGoalById(
@@ -102,18 +113,31 @@ export async function executeStepNode(
       { status: 'in_progress' }
     );
     
-    // Get relevant memories to provide context for execution
-    const relevantMemories = await memory.getRelevantMemories(
-      `${state.goal} - ${currentSubGoal.description}`, 
-      3
-    );
+    // In dry run mode, we'll simulate the execution instead of actually doing it
+    let executionOutput: string;
     
-    const memoryContext = relevantMemories.length > 0 
-      ? "Relevant information from your memory:\n" + relevantMemories.map(m => `- ${m.content}`).join("\n")
-      : "No relevant memories found for this sub-goal.";
-    
-    // Create execution prompt
-    const executionPrompt = ChatPromptTemplate.fromTemplate(`
+    if (dryRun) {
+      executionOutput = `[DRY RUN] Simulated execution of sub-goal: "${currentSubGoal.description}"\n\n` +
+        `This is a simulated response for demonstration purposes. In a real execution, ` +
+        `I would perform the actual steps needed to complete this sub-goal, possibly using available tools.`;
+        
+      taskLogger.logAction("SIMULATED execution result", {
+        subGoalId: currentSubGoal.id,
+        result: executionOutput.substring(0, 100) + "..."
+      });
+    } else {
+      // Get relevant memories to provide context for execution
+      const relevantMemories = await memory.getRelevantMemories(
+        `${state.goal} - ${currentSubGoal.description}`, 
+        3
+      );
+      
+      const memoryContext = relevantMemories.length > 0 
+        ? "Relevant information from your memory:\n" + relevantMemories.map(m => `- ${m.content}`).join("\n")
+        : "No relevant memories found for this sub-goal.";
+      
+      // Create execution prompt
+      const executionPrompt = ChatPromptTemplate.fromTemplate(`
 You are Chloe, a sophisticated marketing assistant executing a specific sub-goal.
 
 MAIN GOAL: {goal}
@@ -138,29 +162,40 @@ Focus only on executing this specific sub-goal. Consider:
 
 Provide a clear, detailed response that accomplishes the sub-goal.
 `);
-    
-    // Build the hierarchy position information
-    let hierarchyPosition = "This is a ";
-    if (currentSubGoal.depth && currentSubGoal.depth > 0) {
-      hierarchyPosition += `level ${currentSubGoal.depth} nested sub-goal`;
-      if (currentSubGoal.parentId) {
-        const parent = findSubGoalById(state.task.subGoals, currentSubGoal.parentId);
-        if (parent) {
-          hierarchyPosition += ` under "${parent.description}"`;
+      
+      // Build the hierarchy position information
+      let hierarchyPosition = "This is a ";
+      if (currentSubGoal.depth && currentSubGoal.depth > 0) {
+        hierarchyPosition += `level ${currentSubGoal.depth} nested sub-goal`;
+        if (currentSubGoal.parentId) {
+          const parent = findSubGoalById(state.task.subGoals, currentSubGoal.parentId);
+          if (parent) {
+            hierarchyPosition += ` under "${parent.description}"`;
+          }
         }
+      } else {
+        hierarchyPosition += "top-level sub-goal";
       }
-    } else {
-      hierarchyPosition += "top-level sub-goal";
+      
+      // Execute the sub-goal
+      const executionResult = await executionPrompt.pipe(model).invoke({
+        goal: state.goal,
+        subGoal: currentSubGoal.description,
+        hierarchyPosition
+      });
+      
+      executionOutput = executionResult.content;
+      
+      // Add to memory (only in real execution mode)
+      await memory.addMemory(
+        `Completed sub-goal: ${currentSubGoal.description} - ${executionOutput.substring(0, 100)}...`,
+        'task',
+        'medium',
+        'chloe',
+        state.goal,
+        ['task', 'execution', currentSubGoal.id]
+      );
     }
-    
-    // Execute the sub-goal
-    const executionResult = await executionPrompt.pipe(model).invoke({
-      goal: state.goal,
-      subGoal: currentSubGoal.description,
-      hierarchyPosition
-    });
-    
-    const executionOutput = executionResult.content;
     
     // Update the sub-goal with the result
     updatedSubGoals = updateSubGoalById(
@@ -170,16 +205,6 @@ Provide a clear, detailed response that accomplishes the sub-goal.
         status: 'completed', 
         result: executionOutput.substring(0, 500) // Limit result length for storage
       }
-    );
-    
-    // Add to memory
-    await memory.addMemory(
-      `Completed sub-goal: ${currentSubGoal.description} - ${executionOutput.substring(0, 100)}...`,
-      'task',
-      'medium',
-      'chloe',
-      state.goal,
-      ['task', 'execution', currentSubGoal.id]
     );
     
     // Update the messages

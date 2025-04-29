@@ -15,6 +15,7 @@ export interface NodeContext {
   memory: ChloeMemory;
   taskLogger: TaskLogger;
   tools: Record<string, any>;
+  dryRun?: boolean;  // When true, operations are simulated without actual execution
 }
 
 /**

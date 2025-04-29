@@ -740,6 +740,13 @@ Be very detailed about what the structure and content of the document would look
         throw new Error('Required dependencies not available');
       }
       
+      // Log dry run mode if enabled
+      const isDryRun = options?.dryRun === true;
+      if (isDryRun) {
+        taskLogger.logAction('Starting planning in DRY RUN mode', { goal });
+        console.log('🔍 DRY RUN MODE: Plan will be created but actions will be simulated');
+      }
+      
       // Create tool instances with proper typing
       const chloeTools = createChloeTools(memory, model);
       
@@ -773,7 +780,23 @@ Be very detailed about what the structure and content of the document would look
             description: tool.description || `Tool for ${name}`,
             schema: schema,
             func: async (input: any) => {
-              // Call the original tool method with the appropriate parameter
+              // In dry run mode, simulate tool execution instead of actually running it
+              if (isDryRun) {
+                const inputStr = typeof input === 'string' ? input : 
+                  Object.values(input)[0] as string;
+                
+                // Log the simulated action
+                taskLogger.logAction('SIMULATED TOOL EXECUTION', { 
+                  tool: internalName, 
+                  input: inputStr.substring(0, 100) + (inputStr.length > 100 ? '...' : '')
+                });
+                
+                // Return a simulated response
+                return `[DRY RUN] Simulated execution of ${internalName} tool with input: ${
+                  inputStr.substring(0, 50)}${inputStr.length > 50 ? '...' : ''}`;
+              }
+              
+              // Normal execution - call the original tool method with the appropriate parameter
               const inputStr = typeof input === 'string' ? input : 
                 Object.values(input)[0] as string;
               return await tool._call(inputStr);
@@ -787,7 +810,8 @@ Be very detailed about what the structure and content of the document would look
         model,
         memory,
         taskLogger,
-        tools: structuredTools
+        tools: structuredTools,
+        dryRun: isDryRun
       });
       
       // Execute the graph

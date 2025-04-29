@@ -38,6 +38,9 @@ export class ChloeGraph {
   // Tools available to the agent
   private tools: Record<string, any>;
   
+  // Flag for dry run mode
+  private dryRun: boolean;
+  
   /**
    * Initialize the ChloeGraph with required components
    */
@@ -45,24 +48,32 @@ export class ChloeGraph {
     model,
     memory,
     taskLogger,
-    tools = {}
+    tools = {},
+    dryRun = false
   }: {
     model: ChatOpenAI;
     memory: ChloeMemory;
     taskLogger: TaskLogger;
     tools?: Record<string, any>;
+    dryRun?: boolean;
   }) {
     this.model = model;
     this.memory = memory;
     this.taskLogger = taskLogger;
     this.tools = tools;
+    this.dryRun = dryRun;
+    
+    if (dryRun) {
+      this.taskLogger.logAction('ChloeGraph initialized in DRY RUN mode');
+    }
     
     // Create the node context that will be passed to each node
     const nodeContext: NodeContext = {
       model: this.model,
       memory: this.memory,
       taskLogger: this.taskLogger,
-      tools: this.tools
+      tools: this.tools,
+      dryRun: this.dryRun
     };
     
     // Initialize the state graph
@@ -195,18 +206,21 @@ export function createChloeGraph({
   model,
   memory,
   taskLogger,
-  tools = {}
+  tools = {},
+  dryRun = false
 }: {
   model: ChatOpenAI;
   memory: ChloeMemory;
   taskLogger: TaskLogger;
   tools?: Record<string, any>;
+  dryRun?: boolean;
 }): ChloeGraph {
   return new ChloeGraph({
     model,
     memory,
     taskLogger,
-    tools
+    tools,
+    dryRun
   });
 }
 

@@ -479,6 +479,7 @@ export interface PlanAndExecuteOptions {
   tags?: string[];
   maxSteps?: number;
   timeLimit?: number;
+  dryRun?: boolean;  // When true, simulate decisions without executing tool actions
 }
 
 /**

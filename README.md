@@ -99,6 +99,49 @@ import { ChloeAgent } from '@crowd-wisdom/agents-chloe';
 import { ChloeAgent } from '../agents/chloe';
 ```
 
+## Using Dry Run Mode for Planning
+
+The Chloe Agent now supports a "dry run" mode for the planning system, which allows you to simulate the execution of a plan without actually running any of the tools or performing real actions. This is particularly useful for testing and debugging plans before executing them in a production environment.
+
+### How to Use Dry Run Mode
+
+Simply pass the `dryRun: true` option to the `planAndExecute` method:
+
+```javascript
+// Regular execution
+const result = await chloeAgent.planAndExecute("Create a marketing campaign for our new product", {
+  goalPrompt: "Create a marketing campaign for our new product"
+});
+
+// Dry run mode (simulated execution without real actions)
+const dryRunResult = await chloeAgent.planAndExecute("Create a marketing campaign for our new product", {
+  goalPrompt: "Create a marketing campaign for our new product",
+  dryRun: true
+});
+```
+
+### What Happens in Dry Run Mode
+
+In dry run mode:
+
+1. The planning phase runs normally, creating a hierarchy of sub-goals
+2. Instead of actually executing the tools during the execution phase, the system simulates the execution
+3. All steps are marked with a "SIMULATED" status in the logs
+4. Tool calls return mock responses rather than actual results
+5. The final result includes the complete plan structure with simulated execution results
+
+This allows you to validate the plan structure and flow without any side effects or external API calls.
+
+### Debugging with Dry Run Mode
+
+Dry run mode is particularly useful for:
+
+- Testing complex plans before execution
+- Debugging plan structures
+- Demonstrating planning capabilities to stakeholders
+- Understanding how the agent would break down a complex task
+- Performance testing of the planning system without external dependencies
+
 ## License
 
 [MIT](LICENSE)
