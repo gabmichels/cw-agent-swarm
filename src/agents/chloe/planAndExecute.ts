@@ -1,5 +1,5 @@
 import { ChloeAgent } from './core/agent';
-import { ChloeGraph, PlanningState } from './graph';
+import { ChloeGraph, PlanningState, createChloeGraph, SubGoal } from './graph';
 import { createChloeTools } from './tools/index';
 import type { ChloeMemory } from './memory';
 import type { SimpleTool } from '../../lib/shared/types/agent';
@@ -113,12 +113,12 @@ export async function planAndExecute(
     safeBindTool('codaDocument', 'coda_document');
     
     // Create the graph
-    const graph = new ChloeGraph(
+    const graph = createChloeGraph({
       model,
       memory,
       taskLogger,
-      toolBindings
-    );
+      tools: toolBindings
+    });
     
     // Add plan to memory
     await memory.addMemory(
@@ -131,16 +131,14 @@ export async function planAndExecute(
     );
     
     // Execute the graph
-    const result = await graph.execute(options.goalPrompt, { 
-      trace: true
-    });
+    const result = await graph.execute(options.goalPrompt);
     
     // Log the completion
     taskLogger.logAction('Completed planning and execution', {
       goal: options.goalPrompt,
       finalResult: result.finalResult,
-      completedTasks: result.task?.subGoals.filter(t => t.status === 'completed').length || 0,
-      failedTasks: result.task?.subGoals.filter(t => t.status === 'failed').length || 0,
+      completedTasks: result.task?.subGoals.filter((t: SubGoal) => t.status === 'completed').length || 0,
+      failedTasks: result.task?.subGoals.filter((t: SubGoal) => t.status === 'failed').length || 0,
       timestamp: new Date().toISOString()
     });
     

@@ -784,10 +784,15 @@ Be very detailed about what the structure and content of the document would look
       }
       
       // Create a ChloeGraph instance
-      const graph = createChloeGraph(model, memory, taskLogger, structuredTools);
+      const graph = createChloeGraph({
+        model,
+        memory,
+        taskLogger,
+        tools: structuredTools
+      });
       
       // Execute the graph
-      const result = await graph.execute(goal, { trace: true });
+      const result = await graph.execute(goal);
       
       // Convert to the expected PlanAndExecuteResult format
       return {
