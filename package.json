@@ -12,7 +12,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "find-any": "powershell -File scripts/find-any-types.ps1",
-    "find-any:verbose": "powershell -File scripts/find-any-types.ps1 -verbose"
+    "find-any:verbose": "powershell -File scripts/find-any-types.ps1 -verbose",
+    "test:performance-scorer": "tsx src/agents/chloe/self-improvement/test-performance-scorer.ts"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",
@@ -67,6 +68,7 @@
     "rimraf": "^6.0.1",
     "shadcn-ui": "^0.9.5",
     "ts-node": "^10.9.2",
+    "tsx": "^4.19.4",
     "typescript": "^5.8.3",
     "vitest": "^1.6.1"
   },
