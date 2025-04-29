@@ -195,9 +195,8 @@ export class ChloeGraph {
       
       return result;
     } catch (error) {
-      this.taskLogger.logAction('Error in planning graph execution', { 
-        error: error instanceof Error ? error.message : String(error)
-      });
+      const errorMessage = error instanceof Error ? error.message : `${error}`;
+      this.taskLogger.logAction('Error in planning graph execution', { error: errorMessage });
       
       throw error;
     }
@@ -230,9 +229,8 @@ export class ChloeGraph {
       
       return filePath;
     } catch (error) {
-      this.taskLogger.logAction('Error saving execution data', { 
-        error: error instanceof Error ? error.message : String(error)
-      });
+      const errorMessage = error instanceof Error ? error.message : `${error}`;
+      this.taskLogger.logAction('Error saving execution data', { error: errorMessage });
       return null;
     }
   }
@@ -242,20 +240,41 @@ export class ChloeGraph {
    * This handles Date objects and other non-serializable data
    */
   private getSerializableState(state: PlanningState): any {
-    return {
-      ...state,
-      // Convert Date objects in execution trace to ISO strings
-      executionTrace: state.executionTrace.map(entry => ({
-        ...entry,
-        startTime: entry.startTime instanceof Date ? entry.startTime.toISOString() : entry.startTime,
-        endTime: entry.endTime instanceof Date ? entry.endTime.toISOString() : entry.endTime
-      })),
-      // Remove messages array as it can contain circular references
-      messages: state.messages.map(msg => ({
+    // Use a JSON replacer function to handle circular references and Date objects
+    const seen = new WeakSet();
+    
+    // Deep clone the state while handling special cases
+    const safeClone = JSON.parse(JSON.stringify(state, (key, value) => {
+      // Handle circular references
+      if (typeof value === 'object' && value !== null) {
+        if (seen.has(value)) {
+          return '[Circular Reference]';
+        }
+        seen.add(value);
+      }
+      
+      // Handle Date objects
+      if (value instanceof Date) {
+        return value.toISOString();
+      }
+      
+      // Skip methods and functions
+      if (typeof value === 'function') {
+        return undefined;
+      }
+      
+      return value;
+    }));
+    
+    // Ensure messages are properly formatted
+    if (safeClone.messages) {
+      safeClone.messages = state.messages.map(msg => ({
         type: msg._getType(),
         content: msg.content
-      }))
-    };
+      }));
+    }
+    
+    return safeClone;
   }
 
   /**

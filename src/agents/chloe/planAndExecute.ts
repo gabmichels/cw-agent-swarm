@@ -56,17 +56,14 @@ export async function planAndExecute(
   options: PlanAndExecuteOptions
 ): Promise<PlanningState> {
   try {
-    // Log that we're starting the planning and execution process
-    console.log(`Starting planning and execution for goal: ${options.goalPrompt}`);
-    
-    if (!this.isInitialized()) {
-      throw new Error('Agent not initialized');
-    }
-    
     // Get required dependencies
     const model = this.getModel();
     const memory = this.getChloeMemory();
     const taskLogger = this.getTaskLogger();
+    
+    if (!this.isInitialized()) {
+      throw new Error('Agent not initialized');
+    }
     
     if (!model || !memory || !taskLogger) {
       throw new Error('Required dependencies not available');
@@ -96,7 +93,6 @@ export async function planAndExecute(
       if (tools[toolKey] && typeof tools[toolKey]._call === 'function') {
         toolBindings[internalName] = tools[toolKey]._call.bind(tools[toolKey]);
       } else {
-        console.warn(`Tool ${String(toolKey)} not available or missing _call method`);
         // Provide a fallback that returns an error message
         toolBindings[internalName] = async () => `Tool ${String(toolKey)} is not available`;
       }
@@ -166,15 +162,13 @@ export async function planAndExecute(
           );
         }
       } catch (e) {
-        console.error('Failed to send Discord notification:', e);
+        const errorMessage = e instanceof Error ? e.message : String(e);
+        taskLogger.logAction('Failed to send Discord notification', { error: errorMessage });
       }
     }
     
     return result;
   } catch (error: unknown) {
-    console.error('Error in plan and execute:', error);
-    
-    // Extract error message safely
     const errorMessage = error instanceof Error ? error.message : String(error);
     
     // Log the error

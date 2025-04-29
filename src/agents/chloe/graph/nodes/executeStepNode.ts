@@ -291,16 +291,17 @@ Provide a clear, detailed response that accomplishes the sub-goal.
     const endTime = new Date();
     const duration = endTime.getTime() - startTime.getTime();
     
-    taskLogger.logAction("Error executing step", { error: String(error) });
+    const errorMessage = error instanceof Error ? error.message : `${error}`;
+    taskLogger.logAction("Error executing step", { error: errorMessage });
     
     // Create error trace entry with timing information
     const errorTraceEntry: ExecutionTraceEntry = {
-      step: `Error executing step: ${error}`,
+      step: `Error executing step: ${errorMessage}`,
       startTime,
       endTime,
       duration,
       status: 'error',
-      details: { error: String(error) }
+      details: { error: errorMessage }
     };
     
     // If there's a current sub-goal, mark it as failed
@@ -310,7 +311,7 @@ Provide a clear, detailed response that accomplishes the sub-goal.
       updatedSubGoals = updateSubGoalById(
         updatedSubGoals,
         state.task.currentSubGoalId,
-        { status: 'failed' as const, result: `Failed: ${error}` }
+        { status: 'failed' as const, result: `Failed: ${errorMessage}` }
       );
     }
     
@@ -321,7 +322,7 @@ Provide a clear, detailed response that accomplishes the sub-goal.
         subGoals: updatedSubGoals,
         currentSubGoalId: undefined, // Clear the current sub-goal ID
       } : undefined,
-      error: `Error executing step: ${error}`,
+      error: `Error executing step: ${errorMessage}`,
       executionTrace: [...state.executionTrace, errorTraceEntry],
     };
   }

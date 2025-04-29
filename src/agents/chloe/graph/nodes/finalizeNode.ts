@@ -196,23 +196,24 @@ Your summary should be detailed yet concise.
     const endTime = new Date();
     const duration = endTime.getTime() - startTime.getTime();
     
-    taskLogger.logAction("Error finalizing task", { error: String(error) });
+    const errorMessage = error instanceof Error ? error.message : `${error}`;
+    taskLogger.logAction("Error finalizing task", { error: errorMessage });
     
     // Create error trace entry
     const errorTraceEntry: ExecutionTraceEntry = {
-      step: `Error finalizing task: ${error}`,
+      step: `Error finalizing task: ${errorMessage}`,
       startTime,
       endTime,
       duration,
       status: 'error',
       details: {
-        error: String(error)
+        error: errorMessage
       }
     };
     
     return {
       ...state,
-      error: `Error finalizing task: ${error}`,
+      error: `Error finalizing task: ${errorMessage}`,
       executionTrace: [...state.executionTrace, errorTraceEntry],
     };
   }

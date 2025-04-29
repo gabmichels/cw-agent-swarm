@@ -277,7 +277,7 @@ If no adjustments are needed, you can omit the "adjustments" field.
       (updatedTask.reflections as string[]).push(reflectionResult.assessment);
     } else {
       // Just update the task without modifying the structure if reflections aren't supported
-      console.log('Task object does not support reflections array');
+      taskLogger.logAction("Reflections array not supported in task object", { taskId: updatedTask.goal });
     }
     
     return {
@@ -291,16 +291,17 @@ If no adjustments are needed, you can omit the "adjustments" field.
     const endTime = new Date();
     const duration = endTime.getTime() - startTime.getTime();
     
-    context.taskLogger.logAction("Error in reflection node", { error: String(error) });
+    const errorMessage = error instanceof Error ? error.message : `${error}`;
+    context.taskLogger.logAction("Error in reflection node", { error: errorMessage });
     
     // Create error trace entry
     const errorTraceEntry: ExecutionTraceEntry = {
-      step: `Error in reflection: ${error}`,
+      step: `Error in reflection: ${errorMessage}`,
       startTime,
       endTime,
       duration,
       status: 'error',
-      details: { error: String(error) }
+      details: { error: errorMessage }
     };
     
     // Return the state unchanged if there's an error during reflection

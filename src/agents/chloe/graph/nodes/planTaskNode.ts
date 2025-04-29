@@ -205,20 +205,21 @@ Only include the "children" array for sub-goals that should be broken down furth
     const endTime = new Date();
     const duration = endTime.getTime() - startTime.getTime();
     
-    taskLogger.logAction("Error in planning task", { error: String(error) });
+    const errorMessage = error instanceof Error ? error.message : `${error}`;
+    taskLogger.logAction("Error in planning task", { error: errorMessage });
     
     const errorTraceEntry: ExecutionTraceEntry = {
-      step: `Error in planning: ${error}`,
+      step: `Error in planning: ${errorMessage}`,
       startTime,
       endTime,
       duration,
       status: 'error',
-      details: { error: String(error) }
+      details: { error: errorMessage }
     };
     
     return {
       ...state,
-      error: `Error planning task: ${error}`,
+      error: `Error planning task: ${errorMessage}`,
       executionTrace: [...state.executionTrace, errorTraceEntry],
     };
   }
