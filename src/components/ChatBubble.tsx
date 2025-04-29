@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Message, FileAttachment } from '../types';
 import MarkdownRenderer from './MarkdownRenderer';
-import { Copy, FileText, MoreVertical } from 'lucide-react';
+import { Copy, FileText, MoreVertical, Star, Database } from 'lucide-react';
 
 interface ChatBubbleProps {
   message: Message;
@@ -39,6 +39,65 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
     }).catch(err => {
       console.error('Failed to copy text: ', err);
     });
+  };
+
+  // Flag message as highly important
+  const flagAsImportant = async (content: string) => {
+    try {
+      showToast('Flagging message as highly important...');
+      setContextMenu(null);
+      
+      const response = await fetch('/api/memory/flag-important', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          content,
+          timestamp: message.timestamp?.toISOString() || new Date().toISOString()
+        }),
+      });
+      
+      const data = await response.json();
+      if (data.success) {
+        showToast('Message flagged as highly important!');
+      } else {
+        showToast('Failed to flag message');
+      }
+    } catch (error) {
+      console.error('Error flagging message:', error);
+      showToast('Error flagging message');
+    }
+  };
+
+  // Add to knowledge database
+  const addToKnowledge = async (content: string) => {
+    try {
+      showToast('Adding to knowledge database...');
+      setContextMenu(null);
+      
+      const response = await fetch('/api/knowledge/add', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          content,
+          source: 'chat',
+          timestamp: message.timestamp?.toISOString() || new Date().toISOString()
+        }),
+      });
+      
+      const data = await response.json();
+      if (data.success) {
+        showToast('Added to knowledge database!');
+      } else {
+        showToast('Failed to add to knowledge database');
+      }
+    } catch (error) {
+      console.error('Error adding to knowledge:', error);
+      showToast('Error adding to knowledge database');
+    }
   };
 
   // Export to Coda
@@ -111,7 +170,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
           {contextMenu && (
             <div 
               className={`absolute ${contextMenu.position === 'top' ? 'bottom-full mb-1' : 'top-full mt-1'} right-0
-                bg-gray-800 rounded-md shadow-lg py-1 border border-gray-700 z-50 w-36`}
+                bg-gray-800 rounded-md shadow-lg py-1 border border-gray-700 z-50 w-44`}
               onClick={(e) => e.stopPropagation()}
             >
               <button 
@@ -119,6 +178,18 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
                 onClick={() => copyToClipboard(message.content)}
               >
                 <Copy size={14} className="mr-2" /> Copy Text
+              </button>
+              <button 
+                className="w-full text-left px-4 py-2 text-sm hover:bg-gray-700 flex items-center"
+                onClick={() => flagAsImportant(message.content)}
+              >
+                <Star size={14} className="mr-2" /> Flag as Important
+              </button>
+              <button 
+                className="w-full text-left px-4 py-2 text-sm hover:bg-gray-700 flex items-center"
+                onClick={() => addToKnowledge(message.content)}
+              >
+                <Database size={14} className="mr-2" /> Add to Knowledge
               </button>
               <button 
                 className="w-full text-left px-4 py-2 text-sm hover:bg-gray-700 flex items-center"
