@@ -92,6 +92,38 @@ export async function decideNextStepNode(
       };
     }
     
+    // Check if task requires approval (explicit route)
+    if (state.route === 'request-approval') {
+      const endTime = new Date();
+      const duration = endTime.getTime() - startTime.getTime();
+      
+      const traceEntry: ExecutionTraceEntry = {
+        step: "Pausing execution pending approval",
+        startTime,
+        endTime,
+        duration,
+        status: 'info',
+        details: {
+          status: 'awaiting_approval',
+          blockedReason: "awaiting approval"
+        }
+      };
+      
+      taskLogger.logAction("Pausing for approval", {
+        taskId: state.task.currentSubGoalId,
+        goal: state.goal
+      });
+      
+      // Return the state with 'finalize' route but special status
+      // This will effectively pause execution and return control to the user
+      return {
+        ...state,
+        route: 'finalize',
+        executionTrace: [...state.executionTrace, traceEntry],
+        finalResult: `Task execution is paused pending approval. This task cannot be executed until approved by an authorized user.`
+      };
+    }
+    
     // Check if task is awaiting clarification (status check)
     if (state.task.status === 'awaiting_clarification') {
       const endTime = new Date();

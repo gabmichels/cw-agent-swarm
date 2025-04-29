@@ -5,6 +5,12 @@ export interface PlannedTask extends PlanningTask {
   confidenceScore?: number;
   params?: Record<string, any>;
   requiredParams?: string[];
+  type?: string;
+  isStrategic?: boolean;
+  toolName?: string;
+  requiresApproval?: boolean;
+  approvalGranted?: boolean;
+  blockedReason?: string;
 }
 
 /**
@@ -40,6 +46,35 @@ export async function checkNeedClarification(task: PlannedTask): Promise<boolean
   return uncertaintyWords.some(word => 
     textToCheck.toLowerCase().includes(word.toLowerCase())
   );
+}
+
+/**
+ * Determines whether a task requires explicit user approval before execution.
+ * 
+ * @param task The planned task to evaluate
+ * @returns True if approval is required, false otherwise
+ */
+export function checkIfApprovalRequired(task: PlannedTask): boolean {
+  // Check for external posting tasks
+  if (task.type === 'external_post') {
+    return true;
+  }
+  
+  // Check for strategic tasks
+  if (task.isStrategic === true) {
+    return true;
+  }
+  
+  // Check for specific tools that require approval
+  if (task.toolName === 'new_tool') {
+    return true;
+  }
+  
+  // TODO: Extend this to support admin-defined approval settings
+  // This could check against a configurable list of task types,
+  // tools, or other properties that require approval
+  
+  return false;
 }
 
 /**
@@ -130,5 +165,6 @@ export async function generateClarificationQuestions(task: PlannedTask): Promise
 // Export both functions in a named object
 export const HumanCollaboration = {
   checkNeedClarification,
-  generateClarificationQuestions
+  generateClarificationQuestions,
+  checkIfApprovalRequired
 }; 

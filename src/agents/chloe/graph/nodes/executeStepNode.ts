@@ -6,6 +6,7 @@ import { AIMessage, HumanMessage } from "@langchain/core/messages";
 import { ChatPromptTemplate } from "@langchain/core/prompts";
 import { NodeContext, PlanningState, SubGoal, ExecutionTraceEntry } from "./types";
 import { MemoryEntry } from "../../memory";
+import { PlannedTask } from "../../human-collaboration";
 
 /**
  * Helper function to get the full path to a sub-goal in the hierarchy
@@ -90,6 +91,81 @@ export async function executeStepNode(
     }
     
     const subGoalPath = getSubGoalHierarchyPath(currentSubGoal);
+    
+    // Check if the task requires approval but hasn't been granted yet
+    const currentTask = state.task as PlannedTask;
+    if (currentTask.requiresApproval === true && currentTask.approvalGranted !== true) {
+      // Add dry run indicator to the log
+      taskLogger.logAction("Task execution blocked pending approval", { 
+        subGoalId: currentSubGoal.id,
+        description: currentSubGoal.description,
+        path: subGoalPath,
+        requiresApproval: true
+      });
+      
+      // Update the sub-goal with blocked status
+      let updatedSubGoals = updateSubGoalById(
+        state.task.subGoals, 
+        currentSubGoal.id, 
+        { status: 'pending' } // Keep it as pending since it hasn't been executed
+      );
+      
+      // Create a message requesting approval
+      const approvalRequestMessage = new AIMessage({
+        content: `This task requires approval before execution:\n\n` +
+          `**Task**: ${currentSubGoal.description}\n\n` +
+          `**Goal**: ${state.goal}\n\n` +
+          `**Reason for approval**: ${
+            currentTask.type === 'external_post' ? 'This task involves posting content externally' : 
+            currentTask.isStrategic === true ? 'This is a strategic task that requires review' :
+            currentTask.toolName === 'new_tool' ? 'This task uses a tool that requires approval' :
+            'This task requires approval based on defined rules'
+          }`
+      });
+      
+      // Store the blocked reason in memory
+      if (memory) {
+        await memory.addMemory(
+          `Task execution blocked: ${currentSubGoal.description} - Awaiting approval`,
+          'task',
+          'high',
+          'chloe',
+          state.goal,
+          ['task', 'approval', 'blocker', currentSubGoal.id]
+        );
+      }
+      
+      // Calculate end time and duration
+      const endTime = new Date();
+      const duration = endTime.getTime() - startTime.getTime();
+      
+      // Create execution trace entry with timing information
+      const traceEntry: ExecutionTraceEntry = {
+        step: `Task blocked: Awaiting approval for ${subGoalPath}`,
+        startTime,
+        endTime,
+        duration,
+        status: 'info',
+        details: {
+          subGoalId: currentSubGoal.id,
+          description: currentSubGoal.description,
+          blockedReason: "awaiting approval"
+        }
+      };
+      
+      // Return the updated state, setting route to request approval
+      return {
+        ...state,
+        route: 'request-approval',
+        task: {
+          ...state.task,
+          subGoals: updatedSubGoals,
+          blockedReason: "awaiting approval"
+        } as PlannedTask,
+        messages: [...state.messages, approvalRequestMessage],
+        executionTrace: [...state.executionTrace, traceEntry],
+      };
+    }
     
     // Add dry run indicator to the log if in dry run mode
     if (dryRun) {

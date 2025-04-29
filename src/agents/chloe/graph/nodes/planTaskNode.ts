@@ -5,7 +5,7 @@
 import { AIMessage, HumanMessage } from "@langchain/core/messages";
 import { ChatPromptTemplate } from "@langchain/core/prompts";
 import { NodeContext, PlanningState, PlanningTask, SubGoal, ExecutionTraceEntry } from "./types";
-import { HumanCollaboration } from "../../human-collaboration";
+import { HumanCollaboration, PlannedTask } from "../../human-collaboration";
 
 /**
  * Helper function to create a timestamped execution trace entry
@@ -149,13 +149,37 @@ Only include the "children" array for sub-goals that should be broken down furth
     const subGoals: SubGoal[] = processSubGoals(planData.subGoals);
     
     // Create the planning task
-    const planningTask: PlanningTask = {
+    const planningTask: PlannedTask = {
       goal: state.goal,
       subGoals,
       reasoning: planData.reasoning,
       status: 'planning',
       confidenceScore: planData.confidenceScore || 0.8 // Default to 0.8 confidence if not provided
     };
+    
+    // Add task metadata if available in the planData
+    if ('type' in planData) {
+      planningTask.type = planData.type as string;
+    }
+    
+    if ('isStrategic' in planData) {
+      planningTask.isStrategic = Boolean(planData.isStrategic);
+    }
+    
+    if ('toolName' in planData) {
+      planningTask.toolName = planData.toolName as string;
+    }
+    
+    // Check if the task requires approval
+    const requiresApproval = HumanCollaboration.checkIfApprovalRequired(planningTask);
+    if (requiresApproval) {
+      planningTask.requiresApproval = true;
+      taskLogger.logAction("Task requires approval", { 
+        type: planningTask.type,
+        isStrategic: planningTask.isStrategic,
+        toolName: planningTask.toolName
+      });
+    }
     
     // Check if the task requires clarification
     const needsClarification = await HumanCollaboration.checkNeedClarification(planningTask);

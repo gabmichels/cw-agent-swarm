@@ -149,7 +149,8 @@ export class ChloeGraph {
         execute: 'execute_step',
         reflect: 'reflect_on_progress',
         finalize: 'finalize',
-        'request-clarification': 'finalize' // Handle the clarification request by finalizing with questions
+        'request-clarification': 'finalize', // Handle the clarification request by finalizing with questions
+        'request-approval': 'finalize' // Handle approval requests by finalizing with approval request
       }
     );
     
