@@ -1,21 +1,5 @@
+import { expect, describe, it, vi } from 'vitest';
 import { PlannedTask, HumanCollaboration } from '../human-collaboration';
-
-// Declare test globals
-declare global {
-  // eslint-disable-next-line @typescript-eslint/no-namespace
-  namespace jest {
-    interface Matchers<R> {
-      toBe(expected: any): R;
-      toBeGreaterThan(expected: number): R;
-      toBeLessThanOrEqual(expected: number): R;
-      toContain(expected: string): R;
-    }
-  }
-
-  function describe(name: string, fn: () => void): void;
-  function it(name: string, fn: () => void | Promise<void>): void;
-  function expect<T>(actual: T): jest.Matchers<void>;
-}
 
 describe('HumanCollaboration', () => {
   describe('checkNeedClarification', () => {
