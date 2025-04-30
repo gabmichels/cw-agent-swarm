@@ -14,6 +14,8 @@ import { getTaskBehavioralModifiers, recordBehaviorAdjustment } from "../../self
 import { estimateEffortAndUrgency, EffortMetadata } from "../../strategy/taskEffortEstimator";
 // Import lesson retrieval functionality
 import { getLessonsForTask } from "../../self-improvement/taskOutcomeIntegration";
+// Import time estimator
+import { estimateTaskDuration } from "../../planning/timeEstimator";
 
 // Extend the PlannedTask interface to include new properties
 declare module "../../human-collaboration" {
@@ -559,6 +561,18 @@ Only include the "children" array for sub-goals that should be broken down furth
       error: `Error planning task: ${errorMessage}`,
       executionTrace: [...state.executionTrace, errorTraceEntry],
     };
+  } finally {
+    // After planning is complete, attach time estimate to the task
+    if (state.task) {
+      state.task.metadata = state.task.metadata || {};
+      state.task.metadata.timeEstimate = await estimateTaskDuration(state.task, memory);
+      
+      // Log the time estimation
+      taskLogger.logAction("Time estimate generated", { 
+        timeEstimate: state.task.metadata.timeEstimate,
+        taskId: state.task.id || "unknown"
+      });
+    }
   }
 }
 

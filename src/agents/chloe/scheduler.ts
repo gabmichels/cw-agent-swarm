@@ -11,6 +11,7 @@ import {
 } from './tasks/marketScanTask';
 import { ScheduledTask as AgentScheduledTask } from '../../lib/shared/types/agentTypes';
 import { TASK_IDS } from '../../lib/shared/constants';
+import { calculateChloeCapacity, deferOverflowTasks } from './scheduler/capacityManager';
 
 // Types for scheduler
 export type TaskId = string;
@@ -22,6 +23,52 @@ export function setupScheduler(agent: ChloeAgent) {
     '0 9 * * *', // Run at 9:00 AM every day
     async () => {
       console.log('Running daily tasks...');
+      
+      // Calculate capacity before running daily tasks
+      try {
+        // Check if we have a scheduler property on the agent
+        const scheduler = (agent as any).scheduler || null;
+        
+        // Check if it's a valid scheduler object that has the properties we need
+        if (scheduler && typeof scheduler.getAgent === 'function') {
+          console.log('Checking daily capacity...');
+          
+          // Try to use our capacity functions with the scheduler
+          try {
+            const capacity = await calculateChloeCapacity(
+              scheduler as any,  // Type assertion to bypass type checking
+              undefined,
+              undefined
+            );
+            
+            console.log(`Daily capacity: ${capacity.allocatedHours}/${capacity.totalHours} hours allocated`);
+            
+            // If overloaded, defer lower priority tasks
+            if (capacity.overload) {
+              console.log('Capacity overloaded, deferring lower priority tasks...');
+              const deferResult = await deferOverflowTasks(
+                scheduler as any,  // Type assertion to bypass type checking
+                undefined,
+                undefined
+              );
+              
+              console.log(`Deferred ${deferResult.deferredTasks} tasks (${deferResult.deferredHours.toFixed(1)} hours)`);
+              
+              // Notify about deferrals
+              if (deferResult.deferredTasks > 0) {
+                agent.notify(`🔄 Deferred ${deferResult.deferredTasks} lower priority tasks due to capacity constraints.`);
+              }
+            }
+          } catch (capacityError) {
+            console.error('Error in capacity management:', capacityError);
+          }
+        }
+      } catch (error) {
+        console.error('Error checking capacity:', error);
+        // Continue with daily tasks even if capacity check fails
+      }
+      
+      // Run daily tasks
       await agent.runDailyTasks();
     },
     null, // onComplete
