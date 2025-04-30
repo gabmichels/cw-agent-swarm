@@ -12,6 +12,8 @@ import { StrategicToolPlanner, PriorityAssessment, formatPriorityLevel } from ".
 import { getTaskBehavioralModifiers, recordBehaviorAdjustment } from "../../self-improvement/feedbackLoop";
 // Import effort estimator
 import { estimateEffortAndUrgency, EffortMetadata } from "../../strategy/taskEffortEstimator";
+// Import lesson retrieval functionality
+import { getLessonsForTask } from "../../self-improvement/taskOutcomeIntegration";
 
 // Extend the PlannedTask interface to include new properties
 declare module "../../human-collaboration" {
@@ -86,6 +88,30 @@ export async function planTaskNode(
       taskLogger.logAction("Found related knowledge graph nodes", { count: relatedNodes.length });
     }
     
+    // NEW: Retrieve lessons from past task outcomes
+    let lessonsContext = "";
+    try {
+      const taskType = determineProbableTaskType(state.goal);
+      const relevantLessons = await getLessonsForTask(state.goal, taskType, memory);
+      
+      if (relevantLessons.length > 0) {
+        lessonsContext = `
+LESSONS FROM PAST SIMILAR TASKS:
+${relevantLessons.map((lesson, index) => `${index + 1}. ${lesson}`).join('\n')}
+
+Apply these lessons to improve this task's plan and avoid repeating past mistakes.
+`;
+        
+        taskLogger.logAction("Retrieved lessons from past tasks", {
+          count: relevantLessons.length,
+          taskType
+        });
+      }
+    } catch (error) {
+      console.error("Error retrieving lessons for task planning:", error);
+      // Continue planning even if lesson retrieval fails
+    }
+    
     // Assess the strategic priority of this task
     const taskPriority = await strategicPlanner.assessTaskPriority({
       goal: state.goal,
@@ -136,7 +162,7 @@ ${behavioralModifiers.map(m => `- ${m}`).join('\n')}
       ).catch(err => console.error("Error recording behavior adjustment:", err));
     }
     
-    // Create planning prompt - enhanced to support hierarchical planning and include knowledge graph context
+    // Create planning prompt - enhanced to include lessons from past tasks
     const planningPrompt = ChatPromptTemplate.fromTemplate(`
 You are Chloe, a sophisticated marketing assistant. You need to decompose a complex goal into manageable sub-goals.
 
@@ -150,6 +176,8 @@ ${strategicContext}
 
 ${behavioralContext}
 
+${lessonsContext}
+
 Break down this goal into 3-5 logical sub-goals that should be completed sequentially. For each sub-goal:
 1. Provide a clear description
 2. Assign a priority (1-5, where 1 is highest)
@@ -158,6 +186,7 @@ Break down this goal into 3-5 logical sub-goals that should be completed sequent
 
 Think step by step. Consider dependencies between sub-goals and ensure they flow logically.
 ${relatedNodes.length > 0 ? "Use the related knowledge from previous tasks to inform your planning." : ""}
+${lessonsContext ? "Apply the lessons from past tasks to improve this plan and avoid repeating mistakes." : ""}
 ${taskPriority.priorityScore >= 70 ? "This is a HIGH STRATEGIC PRIORITY task. Ensure your plan is comprehensive and considers all critical aspects." : ""}
 ${taskPriority.priorityScore <= 30 ? "This is a LOWER PRIORITY task. Focus on efficiency and essential steps only." : ""}
 ${behavioralModifiers.length > 0 ? "Apply the behavioral lessons from past experiences to improve this plan." : ""}
@@ -531,4 +560,37 @@ Only include the "children" array for sub-goals that should be broken down furth
       executionTrace: [...state.executionTrace, errorTraceEntry],
     };
   }
+}
+
+/**
+ * Helper function to determine the probable task type based on goal description
+ */
+function determineProbableTaskType(goal: string): string | undefined {
+  const goalLower = goal.toLowerCase();
+  
+  if (goalLower.includes('research') || goalLower.includes('find') || goalLower.includes('analyze')) {
+    return 'research';
+  }
+  
+  if (goalLower.includes('write') || goalLower.includes('draft') || goalLower.includes('create')) {
+    return 'creative';
+  }
+  
+  if (goalLower.includes('plan') || goalLower.includes('strategy') || goalLower.includes('roadmap')) {
+    return 'planning';
+  }
+  
+  if (goalLower.includes('email') || goalLower.includes('message') || goalLower.includes('communicate')) {
+    return 'communication';
+  }
+  
+  if (goalLower.includes('design') || goalLower.includes('mockup') || goalLower.includes('visual')) {
+    return 'design';
+  }
+  
+  if (goalLower.includes('evaluate') || goalLower.includes('review') || goalLower.includes('assess')) {
+    return 'evaluation';
+  }
+  
+  return undefined; // Return undefined if no clear type can be determined
 } 

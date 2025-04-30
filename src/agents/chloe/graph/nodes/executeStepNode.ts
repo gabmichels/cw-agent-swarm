@@ -9,6 +9,10 @@ import { MemoryEntry } from "../../memory";
 import { PlannedTask, HumanCollaboration } from "../../human-collaboration";
 import { ChloeMemory } from "../../memory";
 import { ToolResult } from "../../tools/toolManager";
+import { analyzeTaskOutcome } from "../../self-improvement/taskOutcomeAnalyzer";
+import { getRelevantLessons } from "../../self-improvement/lessonExtractor";
+import { TaskWithOutcome } from "../../self-improvement/taskOutcomeIntegration";
+import { onTaskStateChange } from "../../hooks/taskCompletionHook";
 
 /**
  * Helper function to get the full path to a sub-goal in the hierarchy
@@ -75,6 +79,9 @@ export async function executeStepNode(
 ): Promise<PlanningState> {
   const { model, memory, taskLogger, tools, dryRun } = context;
   const startTime = new Date();
+  
+  // Define a variable to hold the current sub-goal outside the try block
+  let currentSubGoal: SubGoal | undefined;
 
   try {
     if (!state.task) {
@@ -85,8 +92,8 @@ export async function executeStepNode(
       throw new Error("No current sub-goal selected for execution");
     }
     
-    // Find the current sub-goal in the hierarchical structure
-    const currentSubGoal = findSubGoalById(state.task.subGoals, state.task.currentSubGoalId);
+    // Find the current sub-goal in the hierarchical structure and store in outer variable
+    currentSubGoal = findSubGoalById(state.task.subGoals, state.task.currentSubGoalId);
     
     if (!currentSubGoal) {
       throw new Error(`Sub-goal with ID ${state.task.currentSubGoalId} not found`);
@@ -448,22 +455,10 @@ Provide a clear, detailed response that accomplishes the sub-goal.
       });
     }
     
-    // Update the sub-goal with the result
-    updatedSubGoals = updateSubGoalById(
-      updatedSubGoals, 
-      currentSubGoal.id, 
-      { 
-        status: 'complete',
-        failureReason: executionOutput.substring(0, 500)
-      }
-    );
-    
-    // Update the messages
-    const updatedMessages = [
-      ...state.messages,
-      new HumanMessage({ content: `Execute sub-goal: ${subGoalPath}` }),
-      new AIMessage({ content: executionOutput })
-    ];
+    // Create a message with the execution result
+    const executionMessage = new AIMessage({
+      content: executionOutput
+    });
     
     // Calculate end time and duration
     const endTime = new Date();
@@ -471,18 +466,24 @@ Provide a clear, detailed response that accomplishes the sub-goal.
     
     // Create execution trace entry with timing information
     const traceEntry: ExecutionTraceEntry = {
-      step: `Executed sub-goal: ${subGoalPath}`,
+      step: `Task execution result: ${executionOutput.substring(0, 50)}...`,
       startTime,
       endTime,
       duration,
-      status: dryRun ? 'simulated' : 'success',
+      status: 'success',
       details: {
         subGoalId: currentSubGoal.id,
         description: currentSubGoal.description,
-        result: executionOutput.substring(0, 100) + "...",
-        isDryRun: dryRun
+        executionTime: duration
       }
     };
+    
+    // Update the sub-goal status based on the execution result
+    updatedSubGoals = updateSubGoalById(
+      state.task.subGoals, 
+      currentSubGoal.id, 
+      { status: 'complete' }
+    );
     
     // Check if all nested sub-goals of a parent are complete, and if so, mark the parent as complete
     const updateParentStatus = (subGoals: SubGoal[]): SubGoal[] => {
@@ -526,6 +527,21 @@ Provide a clear, detailed response that accomplishes the sub-goal.
     // Update parent statuses if all their children are complete
     updatedSubGoals = updateParentStatus(updatedSubGoals);
     
+    // Check if the task is fully complete (all subgoals finished)
+    const isTaskComplete = checkIfTaskComplete(updatedSubGoals);
+    
+    // If task is complete, analyze its outcome
+    if (isTaskComplete && !dryRun && state.task && memory) {
+      try {
+        // Use the onTaskStateChange hook which will handle outcome analysis
+        await onTaskStateChange(state.task as PlannedTask, [...state.executionTrace, traceEntry], memory);
+      } catch (error) {
+        console.error("Error analyzing task outcome:", error);
+        // Continue with normal flow even if analysis fails
+      }
+    }
+    
+    // Return the updated state
     return {
       ...state,
       task: {
@@ -533,50 +549,76 @@ Provide a clear, detailed response that accomplishes the sub-goal.
         subGoals: updatedSubGoals,
         currentSubGoalId: undefined, // Clear the current sub-goal ID
       },
-      messages: updatedMessages,
+      messages: [...state.messages, executionMessage],
       executionTrace: [...state.executionTrace, traceEntry],
     };
-  } catch (error) {
-    // Calculate end time and duration for error case
+  } catch (executionError) {
+    console.error("Error executing sub-goal:", executionError);
+    
+    // Calculate end time and duration
     const endTime = new Date();
     const duration = endTime.getTime() - startTime.getTime();
     
-    const errorMessage = error instanceof Error ? error.message : `${error}`;
-    taskLogger.logAction("Error executing step", { error: errorMessage });
-    
-    // Create error trace entry with timing information
-    const errorTraceEntry: ExecutionTraceEntry = {
-      step: `Error executing step: ${errorMessage}`,
+    // Create execution trace entry with error information
+    const traceEntry: ExecutionTraceEntry = {
+      step: `Task execution error: ${executionError instanceof Error ? executionError.message : 'Unknown error'}`,
       startTime,
       endTime,
       duration,
       status: 'error',
-      details: { error: errorMessage }
+      details: {
+        subGoalId: currentSubGoal?.id || 'unknown',
+        description: currentSubGoal?.description || 'Unknown sub-goal',
+        error: executionError instanceof Error ? executionError.message : 'Unknown error'
+      }
     };
     
-    // If there's a current sub-goal, mark it as failed
-    let updatedSubGoals = state.task?.subGoals || [];
+    // Update the sub-goal status to failed - with null checks
+    const updatedSubGoals = state.task ? updateSubGoalById(
+      state.task.subGoals, 
+      currentSubGoal?.id || '', 
+      { status: 'failed' }
+    ) : [];
     
-    if (state.task?.currentSubGoalId) {
-      updatedSubGoals = updateSubGoalById(
-        updatedSubGoals,
-        state.task.currentSubGoalId,
-        { 
-          status: 'failed' as const, 
-          failureReason: `Failed: ${errorMessage}`
-        }
-      );
+    // Create error message for the execution
+    const errorMessage = new AIMessage({
+      content: `I encountered an error while executing the sub-goal "${currentSubGoal?.description || 'Unknown'}": ${executionError instanceof Error ? executionError.message : 'Unknown error'}`
+    });
+    
+    // Call the hook to analyze the failure
+    if (state.task && memory) {
+      try {
+        const failedTask = {
+          ...state.task,
+          subGoals: updatedSubGoals,
+          status: 'failed'
+        } as PlannedTask;
+        
+        await onTaskStateChange(failedTask, [...state.executionTrace, traceEntry], memory);
+      } catch (error) {
+        console.error("Error analyzing failed task:", error);
+      }
     }
     
+    // Return the updated state with error information
     return {
       ...state,
-      task: state.task ? {
+      task: {
         ...state.task,
         subGoals: updatedSubGoals,
-        currentSubGoalId: undefined, // Clear the current sub-goal ID
-      } : undefined,
-      error: `Error executing step: ${errorMessage}`,
-      executionTrace: [...state.executionTrace, errorTraceEntry],
+        status: 'failed'
+      } as PlannedTask,
+      messages: [...state.messages, errorMessage],
+      executionTrace: [...state.executionTrace, traceEntry],
+      route: 'error'
     };
   }
+}
+
+/**
+ * Check if all sub-goals in a task are completed
+ */
+function checkIfTaskComplete(subGoals: SubGoal[]): boolean {
+  // Check if all top-level subgoals are either complete or failed
+  return subGoals.every(sg => sg.status === 'complete' || sg.status === 'failed');
 } 
