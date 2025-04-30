@@ -7,6 +7,15 @@ import { ChatPromptTemplate } from "@langchain/core/prompts";
 import { NodeContext, PlanningState, PlanningTask, SubGoal, ExecutionTraceEntry } from "./types";
 import { HumanCollaboration, PlannedTask } from "../../human-collaboration";
 import { KnowledgeGraphManager, KnowledgeNode } from "../../knowledge/graphManager";
+import { StrategicToolPlanner, PriorityAssessment, formatPriorityLevel } from "../../strategy/strategicPlanner";
+
+// Extend the PlannedTask interface to include new properties
+declare module "../../human-collaboration" {
+  interface PlannedTask {
+    metadata?: Record<string, any>;
+    requiresDetailedPlanning?: boolean;
+  }
+}
 
 /**
  * Helper function to create a timestamped execution trace entry
@@ -42,6 +51,8 @@ export async function planTaskNode(
   const startTime = new Date();
   // Initialize knowledge graph manager
   const graph = new KnowledgeGraphManager();
+  // Initialize strategic planner
+  const strategicPlanner = new StrategicToolPlanner({ model });
 
   try {
     taskLogger.logAction("Planning task", { goal: state.goal });
@@ -71,6 +82,27 @@ export async function planTaskNode(
       taskLogger.logAction("Found related knowledge graph nodes", { count: relatedNodes.length });
     }
     
+    // Assess the strategic priority of this task
+    const taskPriority = await strategicPlanner.assessTaskPriority({
+      goal: state.goal,
+      // Use empty string as fallback instead of nonexistent property
+      description: ""
+    });
+    
+    // Log the priority assessment
+    taskLogger.logAction("Assessed task strategic priority", { 
+      priorityScore: taskPriority.priorityScore,
+      priorityTags: taskPriority.priorityTags
+    });
+    
+    // Build the strategic context based on priority
+    const priorityLevel = formatPriorityLevel(taskPriority.priorityScore);
+    const strategicContext = `
+Strategic Assessment: This task has been assessed as ${priorityLevel} (${taskPriority.priorityScore}/100)
+Strategic Tags: ${taskPriority.priorityTags.join(', ')}
+Strategic Reasoning: ${taskPriority.reasoning}
+    `.trim();
+    
     // Create planning prompt - enhanced to support hierarchical planning and include knowledge graph context
     const planningPrompt = ChatPromptTemplate.fromTemplate(`
 You are Chloe, a sophisticated marketing assistant. You need to decompose a complex goal into manageable sub-goals.
@@ -81,6 +113,8 @@ ${memoryContext}
 
 ${graphContext}
 
+${strategicContext}
+
 Break down this goal into 3-5 logical sub-goals that should be completed sequentially. For each sub-goal:
 1. Provide a clear description
 2. Assign a priority (1-5, where 1 is highest)
@@ -89,6 +123,8 @@ Break down this goal into 3-5 logical sub-goals that should be completed sequent
 
 Think step by step. Consider dependencies between sub-goals and ensure they flow logically.
 ${relatedNodes.length > 0 ? "Use the related knowledge from previous tasks to inform your planning." : ""}
+${taskPriority.priorityScore >= 70 ? "This is a HIGH STRATEGIC PRIORITY task. Ensure your plan is comprehensive and considers all critical aspects." : ""}
+${taskPriority.priorityScore <= 30 ? "This is a LOWER PRIORITY task. Focus on efficiency and essential steps only." : ""}
 Your response should be structured as valid JSON matching this schema:
 {
   "reasoning": "Your step-by-step reasoning process for creating this plan",
@@ -179,7 +215,13 @@ Only include the "children" array for sub-goals that should be broken down furth
       subGoals,
       reasoning: planData.reasoning,
       status: 'planning',
-      confidenceScore: planData.confidenceScore || 0.8 // Default to 0.8 confidence if not provided
+      confidenceScore: planData.confidenceScore || 0.8, // Default to 0.8 confidence if not provided
+      metadata: {
+        priorityScore: taskPriority.priorityScore,
+        priorityTags: taskPriority.priorityTags,
+        priorityReasoning: taskPriority.reasoning,
+        priorityLevel: formatPriorityLevel(taskPriority.priorityScore)
+      }
     };
     
     // Add task metadata if available in the planData
@@ -195,14 +237,30 @@ Only include the "children" array for sub-goals that should be broken down furth
       planningTask.toolName = planData.toolName as string;
     }
     
+    // Use priority score to determine if this task requires more resources or attention
+    // High priority tasks may need more attention
+    if (taskPriority.priorityScore >= 75) {
+      planningTask.requiresDetailedPlanning = true;
+      
+      // For very high priority tasks, we might want to expand planning depth
+      if (taskPriority.priorityScore >= 90) {
+        planningTask.isStrategic = true; // Mark as strategic regardless of other factors
+      }
+    }
+    
     // Check if the task requires approval
     const requiresApproval = HumanCollaboration.checkIfApprovalRequired(planningTask);
-    if (requiresApproval) {
+    // Also require approval for very high priority tasks
+    const requirePriorityBasedApproval = taskPriority.priorityScore >= 85;
+    
+    if (requiresApproval || requirePriorityBasedApproval) {
       planningTask.requiresApproval = true;
       taskLogger.logAction("Task requires approval", { 
         type: planningTask.type,
         isStrategic: planningTask.isStrategic,
-        toolName: planningTask.toolName
+        toolName: planningTask.toolName,
+        priorityScore: taskPriority.priorityScore,
+        requirePriorityBasedApproval
       });
     }
     
@@ -266,7 +324,8 @@ Only include the "children" array for sub-goals that should be broken down furth
     taskLogger.logAction("Created task plan", { 
       subGoals: subGoals.length,
       hasHierarchy: subGoals.some(sg => sg.children && sg.children.length > 0),
-      reasoning: planData.reasoning.substring(0, 100) + "..."
+      reasoning: planData.reasoning.substring(0, 100) + "...",
+      priorityScore: taskPriority.priorityScore
     });
     
     // Helper function to format sub-goals in a hierarchical way
@@ -280,9 +339,11 @@ Only include the "children" array for sub-goals that should be broken down furth
       }).join('\n');
     };
     
-    // Create messages for the plan
+    // Create messages for the plan, including priority level
     const planMessage = new AIMessage({
       content: `I've analyzed your goal and created a plan with ${subGoals.length} main sub-goals:\n\n` +
+        `Strategic Priority: ${priorityLevel} (${taskPriority.priorityScore}/100)\n` +
+        `Priority Factors: ${taskPriority.priorityTags.join(", ")}\n\n` +
         formatSubGoalsHierarchy(subGoals)
     });
     
@@ -296,7 +357,9 @@ Only include the "children" array for sub-goals that should be broken down furth
         description: planData.reasoning.substring(0, 200), // Brief description from reasoning
         metadata: {
           createdAt: new Date().toISOString(),
-          subGoalCount: subGoals.length
+          subGoalCount: subGoals.length,
+          priorityScore: taskPriority.priorityScore,
+          priorityTags: taskPriority.priorityTags
         }
       });
       
@@ -334,7 +397,9 @@ Only include the "children" array for sub-goals that should be broken down furth
         subGoalsCreated: subGoals.length,
         hasNestedSubGoals: subGoals.some(sg => sg.children && sg.children.length > 0),
         knowledgeGraphUpdated: true,
-        relatedNodesCount: relatedNodes.length
+        relatedNodesCount: relatedNodes.length,
+        priorityScore: taskPriority.priorityScore,
+        priorityLevel
       }
     };
     
