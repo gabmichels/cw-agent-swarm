@@ -30,6 +30,11 @@ export enum ChloeMemoryType {
   SEARCH_RESULT = 'search_result',
   STRATEGIC_INSIGHT = 'strategic_insight',
   REFLECTION = 'reflection',
+  
+  // System types
+  SYSTEM = 'system',
+  TOOL_LOG = 'tool_log',
+  MEMORY_LOG = 'memory_log'
 }
 
 /**

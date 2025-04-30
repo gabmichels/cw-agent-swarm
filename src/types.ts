@@ -1,3 +1,6 @@
+// Import MessageType enum
+import { MessageType } from './constants/message';
+
 // Define message type for better type safety
 export interface Message {
   sender: string;
@@ -7,6 +10,8 @@ export interface Message {
   thoughts?: string[];
   attachments?: FileAttachment[];
   visionResponseFor?: string; // Timestamp string of the message this is a vision response for
+  messageType?: MessageType; // Type of message for proper routing
+  isInternalMessage?: boolean; // Flag to indicate if message should be shown in chat UI
 }
 
 // Define interface for file attachment

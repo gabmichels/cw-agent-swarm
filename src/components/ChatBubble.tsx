@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Message, FileAttachment } from '../types';
 import MarkdownRenderer from './MarkdownRenderer';
 import { Copy, FileText, MoreVertical, Star, Database } from 'lucide-react';
@@ -6,6 +6,7 @@ import { Copy, FileText, MoreVertical, Star, Database } from 'lucide-react';
 interface ChatBubbleProps {
   message: Message;
   onImageClick: (attachment: FileAttachment, e: React.MouseEvent) => void;
+  isInternalMessage?: boolean; // Flag indicating if this is an internal thought/reflection
 }
 
 interface ContextMenuState {
@@ -15,9 +16,28 @@ interface ContextMenuState {
 
 const ChatBubble: React.FC<ChatBubbleProps> = ({ 
   message, 
-  onImageClick
+  onImageClick,
+  isInternalMessage = false
 }) => {
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  
+  // Debug logging on mount
+  useEffect(() => {
+    if (process.env.NODE_ENV === 'development') {
+      console.debug('Rendering message:', {
+        sender: message.sender,
+        content: message.content?.substring(0, 30),
+        isInternal: isInternalMessage,
+        type: message.messageType
+      });
+    }
+  }, [message, isInternalMessage]);
+
+  // Safety check - if we somehow received an invalid message
+  if (!message || !message.content) {
+    console.warn('Received invalid message in ChatBubble:', message);
+    return null;
+  }
 
   // Show/hide context menu
   const handleContextMenuClick = (e: React.MouseEvent) => {
@@ -70,33 +90,32 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
     }
   };
 
-  // Add to knowledge database
+  // Add to knowledge base
   const addToKnowledge = async (content: string) => {
     try {
-      showToast('Adding to knowledge database...');
+      showToast('Adding to knowledge base...');
       setContextMenu(null);
       
-      const response = await fetch('/api/knowledge/add', {
+      const response = await fetch('/api/memory/add-knowledge', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           content,
-          source: 'chat',
           timestamp: message.timestamp?.toISOString() || new Date().toISOString()
         }),
       });
       
       const data = await response.json();
       if (data.success) {
-        showToast('Added to knowledge database!');
+        showToast('Added to knowledge base!');
       } else {
-        showToast('Failed to add to knowledge database');
+        showToast('Failed to add to knowledge base');
       }
     } catch (error) {
-      console.error('Error adding to knowledge:', error);
-      showToast('Error adding to knowledge database');
+      console.error('Error adding to knowledge base:', error);
+      showToast('Error adding to knowledge base');
     }
   };
 
@@ -151,11 +170,70 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
     onImageClick(attachment, e);
   };
 
+  // Determine the sender display name
+  const senderName = message.sender === 'You' || message.sender === 'user' 
+    ? 'You' 
+    : message.sender === 'chloe' || message.sender === 'Chloe' || message.sender === 'agent' || message.sender === 'assistant'
+    ? 'Chloe'
+    : message.sender;
+    
+  // Handle timestamp display
+  const formattedTime = message.timestamp instanceof Date 
+    ? message.timestamp.toLocaleTimeString() 
+    : typeof message.timestamp === 'string'
+    ? new Date(message.timestamp).toLocaleTimeString()
+    : 'Unknown time';
+
   return (
-    <div className={`flex ${message.sender === 'You' ? 'justify-end' : 'justify-start'} mb-4`}>
+    <div className={`flex ${senderName === 'You' ? 'justify-end' : 'justify-start'} mb-4`}>
       <div className={`max-w-[75%] rounded-lg p-3 shadow ${
-        message.sender === 'You' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-white'
+        isInternalMessage 
+          ? 'bg-gray-900 text-gray-300 border border-amber-500' // Visual style for internal messages
+          : senderName === 'You' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-white'
       } relative`}>
+        {/* Add an indicator if this is an internal message */}
+        {isInternalMessage && (
+          <div className="text-xs text-amber-400 font-mono mb-1">
+            {message.messageType || 'INTERNAL'}
+          </div>
+        )}
+        
+        {/* Message content */}
+        <div className={`prose prose-sm ${
+          isInternalMessage ? 'prose-amber' : 'prose-invert'
+        }`}>
+          <MarkdownRenderer content={message.content} />
+        </div>
+        
+        {/* Attachments if any */}
+        {message.attachments && message.attachments.length > 0 && (
+          <div className="mt-2 space-y-2">
+            {message.attachments.map((attachment, index) => (
+              <div 
+                key={index} 
+                className="rounded bg-gray-800 p-2 hover:bg-gray-750 transition cursor-pointer"
+                onClick={(e) => handleImageClick(attachment, e)}
+              >
+                {attachment.type === 'image' ? (
+                  <div>
+                    <img 
+                      src={attachment.preview} 
+                      alt={attachment.filename || 'Image attachment'} 
+                      className="max-h-64 max-w-full rounded"
+                    />
+                    <div className="text-xs text-gray-400 mt-1">{attachment.filename}</div>
+                  </div>
+                ) : (
+                  <div className="flex items-center">
+                    <FileText className="mr-2 text-gray-400" size={16} />
+                    <span className="text-sm">{attachment.filename}</span>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+        
         {/* Context menu button in top-right */}
         <div className="absolute top-2 right-2">
           <button 
@@ -200,73 +278,9 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
             </div>
           )}
         </div>
-
-        <MarkdownRenderer 
-          content={message.content} 
-          className={message.sender === 'You' 
-            ? 'prose-sm prose-invert prose-headings:text-white prose-p:text-white prose-strong:text-white prose-em:text-white prose-a:text-blue-200'
-            : 'prose-sm prose-invert'
-          }
-        />
         
-        {/* Render attachments if present */}
-        {message.attachments && message.attachments.length > 0 && (
-          <div className="mt-2 flex flex-wrap gap-2">
-            {message.attachments.map((attachment, idx) => (
-              <div key={idx} className="relative">
-                {attachment.type === 'image' && attachment.preview ? (
-                  <img 
-                    src={attachment.preview} 
-                    alt={attachment.filename || 'Image'} 
-                    className="max-h-40 max-w-40 rounded border border-gray-500 cursor-pointer hover:opacity-90"
-                    onClick={(e) => handleImageClick(attachment, e)}
-                  />
-                ) : (
-                  <div className="p-2 bg-gray-800 rounded border border-gray-600">
-                    {attachment.filename || 'File'}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-        
-        {/* Show memory context if available */}
-        {message.memory && message.memory.length > 0 && (
-          <details className="mt-2 text-sm">
-            <summary className="cursor-pointer text-blue-300">View Memory Context</summary>
-            <div className="mt-2 p-2 bg-gray-800 rounded text-xs">
-              {Array.isArray(message.memory) 
-                ? message.memory.map((mem, i) => (
-                    <div key={i} className="mb-2 last:mb-0">
-                      <MarkdownRenderer 
-                        content={typeof mem === 'string' ? mem : mem.content || ''} 
-                        className="prose-xs prose-invert" 
-                      />
-                    </div>
-                  ))
-                : 'No memory context available'}
-            </div>
-          </details>
-        )}
-        
-        {/* Show thoughts if available */}
-        {message.thoughts && message.thoughts.length > 0 && (
-          <details className="mt-2 text-sm">
-            <summary className="cursor-pointer text-purple-300">View Thoughts</summary>
-            <div className="mt-2 p-2 bg-gray-800 rounded text-xs">
-              {message.thoughts.map((thought, i) => (
-                <div key={i} className="mb-2 last:mb-0">
-                  <MarkdownRenderer content={thought} className="prose-xs prose-invert" />
-                </div>
-              ))}
-            </div>
-          </details>
-        )}
-        
-        <div className="text-xs mt-1 text-gray-300">
-          {message.timestamp ? message.timestamp.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : ''}
-        </div>
+        {/* Show timestamp */}
+        <div className="text-xs text-gray-400 mt-1">{formattedTime}</div>
       </div>
     </div>
   );

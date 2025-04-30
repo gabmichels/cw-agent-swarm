@@ -47,4 +47,18 @@ export enum ChatMode {
   PRECISE = 'precise',
   AUTONOMOUS = 'autonomous',
   COLLABORATIVE = 'collaborative',
+}
+
+/**
+ * Message types for strict classification
+ * Used to properly route messages to UI or memory
+ */
+export enum MessageType {
+  USER = 'user',           // User messages - visible in chat
+  AGENT = 'agent',         // Agent responses - visible in chat
+  THOUGHT = 'thought',     // Agent internal thinking - not visible in chat
+  REFLECTION = 'reflection', // Agent reflections on past actions - not visible in chat
+  SYSTEM = 'system',       // System messages - not visible in chat 
+  TOOL_LOG = 'tool_log',   // Tool execution logs - not visible in chat
+  MEMORY_LOG = 'memory_log' // Memory storage logs - not visible in chat
 } 

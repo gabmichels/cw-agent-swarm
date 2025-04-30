@@ -16,6 +16,10 @@ import { Message, FileAttachment, MemoryItem, Task, ScheduledTask } from '../typ
 import MarkdownRenderer from '../components/MarkdownRenderer';
 import ChatMessages from '../components/ChatMessages';
 import { TASK_IDS } from '../lib/shared/constants';
+import DevModeToggle from '../components/DevModeToggle';
+import { filterChatVisibleMessages } from '../utils/messageFilters';
+import { MessageType } from '../constants/message';
+import { analyzeMessageTypes, exportDebugMessages, toggleMessageDebugging } from '../utils/messageDebug';
 
 // Add constants for storage
 const SAVED_ATTACHMENTS_KEY = 'crowd-wisdom-saved-attachments';
@@ -52,6 +56,7 @@ export default function Home() {
   const [modalImage, setModalImage] = useState<string | null>(null);
   const [imageCaption, setImageCaption] = useState<string>('');
   const [isImageModalOpen, setIsImageModalOpen] = useState(false);
+  const [showInternalMessages, setShowInternalMessages] = useState<boolean>(false);
   
   // Toggle functions for new UI features
   const toggleSidebar = () => setIsSidebarOpen(!isSidebarOpen);
@@ -1425,15 +1430,16 @@ For detailed instructions, see the Debug panel.`,
       sender: 'You',
       content: messageContent,
       timestamp: new Date(),
-      attachments: currentAttachments.length > 0 ? currentAttachments : undefined
+      attachments: currentAttachments.length > 0 ? currentAttachments : undefined,
+      messageType: MessageType.USER
     };
     
-    const newMessages = [...messages, userMessage];
-    setMessages(newMessages);
+    const updatedMessages = [...messages, userMessage];
+    setMessages(updatedMessages);
     
     // Save user message with attachments to local storage
     if (currentAttachments.length > 0) {
-      saveAttachmentsToLocalStorage(newMessages);
+      saveAttachmentsToLocalStorage(updatedMessages);
     }
     
     // Scroll to bottom immediately after adding user message
@@ -1565,10 +1571,10 @@ For detailed instructions, see the Debug panel.`,
         timestamp: new Date(),
         memory: messageMemory,
         thoughts: messageThoughts,
-        // For vision responses, use the requestTimestamp or generate a fresh reference to the user message
         visionResponseFor: isVisionResponse 
           ? (data.requestTimestamp || userMessage.timestamp.toISOString()) 
-          : undefined
+          : undefined,
+        messageType: MessageType.AGENT
       };
       
       // Log memory and thoughts for debugging
@@ -1580,13 +1586,30 @@ For detailed instructions, see the Debug panel.`,
         console.log('Agent thoughts:', data.thoughts);
       }
       
-      const updatedMessages = [...newMessages, agentResponse];
-      setMessages(updatedMessages);
-      
+      // Combine previous messages with the new response
+      const messagesWithResponse = [...updatedMessages, agentResponse];
+
+      // Create separate thought messages for dev mode viewing
+      const allMessages = [...messagesWithResponse];
+      if (data.thoughts && data.thoughts.length > 0) {
+        data.thoughts.forEach((thought: string) => {
+          allMessages.push({
+            sender: selectedAgent,
+            content: thought,
+            timestamp: new Date(),
+            messageType: MessageType.THOUGHT,
+            isInternalMessage: true
+          });
+        });
+      }
+
+      // Update state with all messages
+      setMessages(allMessages);
+
       // Save to localStorage if there were attachments or if this was a vision response
       if (currentAttachments.length > 0 || isVisionResponse) {
         console.log("Saving messages with attachments to localStorage, including vision API response");
-        saveAttachmentsToLocalStorage(updatedMessages);
+        saveAttachmentsToLocalStorage(messagesWithResponse);
       }
     } catch (error) {
       console.error("Error calling API:", error);
@@ -1595,10 +1618,11 @@ For detailed instructions, see the Debug panel.`,
       const errorResponse: Message = {
         sender: selectedAgent,
         content: "I apologize, but I'm having trouble responding right now. Please try asking again or try a different question.",
-        timestamp: new Date()
+        timestamp: new Date(),
+        messageType: MessageType.AGENT
       };
       
-      const errorMessages = [...newMessages, errorResponse];
+      const errorMessages = [...updatedMessages, errorResponse];
       setMessages(errorMessages);
       
       // Save error messages to local storage if there are attachments
@@ -1700,6 +1724,39 @@ For detailed instructions, see the Debug panel.`,
     );
   };
 
+  // Add keyboard shortcut handler inside the component, near other useEffect hooks
+  useEffect(() => {
+    // Keyboard shortcuts for dev tools
+    const handleKeyPress = (e: KeyboardEvent) => {
+      // Only in development environment
+      if (process.env.NODE_ENV !== 'development') {
+        return;
+      }
+      
+      // Alt+D: Debug message types
+      if (e.altKey && e.key === 'd') {
+        analyzeMessageTypes(messages);
+        e.preventDefault();
+      }
+      
+      // Alt+E: Export messages for debugging
+      if (e.altKey && e.key === 'e') {
+        exportDebugMessages(messages);
+        e.preventDefault();
+      }
+      
+      // Alt+T: Toggle internal message display
+      if (e.altKey && e.key === 't') {
+        setShowInternalMessages(!showInternalMessages);
+        toggleMessageDebugging(!showInternalMessages);
+        e.preventDefault();
+      }
+    };
+    
+    window.addEventListener('keydown', handleKeyPress);
+    return () => window.removeEventListener('keydown', handleKeyPress);
+  }, [messages, showInternalMessages]);
+
   return (
     <div className="flex flex-col h-screen bg-gray-900 text-white">
       {/* Image Modal */}
@@ -1766,6 +1823,7 @@ For detailed instructions, see the Debug panel.`,
                         messages={messages} 
                         isLoading={isLoading}
                         onImageClick={handleImageClick}
+                        showInternalMessages={showInternalMessages}
                       />
                     )}
                     
@@ -1839,6 +1897,12 @@ For detailed instructions, see the Debug panel.`,
           </div>
         </div>
       </div>
+
+      {/* Add DevModeToggle component */}
+      <DevModeToggle 
+        showInternalMessages={showInternalMessages}
+        setShowInternalMessages={setShowInternalMessages}
+      />
     </div>
   );
 } 
