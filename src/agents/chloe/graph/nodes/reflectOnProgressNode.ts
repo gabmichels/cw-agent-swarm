@@ -5,6 +5,7 @@
 import { AIMessage, HumanMessage } from "@langchain/core/messages";
 import { ChatPromptTemplate } from "@langchain/core/prompts";
 import { NodeContext, PlanningState, SubGoal, ExecutionTraceEntry } from "./types";
+import { ImportanceLevel, MemorySource } from "../../../../constants/memory";
 
 interface ReflectionResult {
   assessment: string;
@@ -23,7 +24,7 @@ function countSubGoalsByStatus(subGoals: SubGoal[]): { completed: number; failed
   let pending = 0;
   
   for (const sg of subGoals) {
-    if (sg.status === 'completed') completed++;
+    if (sg.status === 'complete') completed++;
     else if (sg.status === 'failed') failed++;
     else pending++; // pending or in_progress
     
@@ -82,27 +83,27 @@ export async function reflectOnProgressNode(
     if (dryRun) {
       taskLogger.logAction("SIMULATING reflection on progress", {
         dryRun: true,
-        completedGoals: state.task.subGoals.filter(g => g.status === 'completed').length,
+        completedGoals: state.task.subGoals.filter(g => g.status === 'complete').length,
         pendingGoals: state.task.subGoals.filter(g => g.status === 'pending').length,
         failedGoals: state.task.subGoals.filter(g => g.status === 'failed').length
       });
     } else {
       taskLogger.logAction("Reflecting on progress", {
-        completedGoals: state.task.subGoals.filter(g => g.status === 'completed').length,
+        completedGoals: state.task.subGoals.filter(g => g.status === 'complete').length,
         pendingGoals: state.task.subGoals.filter(g => g.status === 'pending').length,
         failedGoals: state.task.subGoals.filter(g => g.status === 'failed').length
       });
     }
     
     // Count completed, failed, and pending sub-goals
-    const completed = state.task.subGoals.filter(g => g.status === 'completed').length;
+    const completed = state.task.subGoals.filter(g => g.status === 'complete').length;
     const failed = state.task.subGoals.filter(g => g.status === 'failed').length;
     const pending = state.task.subGoals.filter(g => g.status === 'pending').length;
     const total = state.task.subGoals.length;
     
     // Get sub-goal details in a human-readable format
     const subGoalDetails = state.task.subGoals.map(sg => {
-      const status = sg.status === 'completed' ? '✅' : 
+      const status = sg.status === 'complete' ? '✅' : 
                     sg.status === 'failed' ? '❌' : 
                     sg.status === 'in_progress' ? '🔄' : '⏳';
       return `${status} ${sg.description}${sg.result ? `: ${sg.result.substring(0, 100)}...` : ''}`;
@@ -195,12 +196,12 @@ If no adjustments are needed, you can omit the "adjustments" field.
       
       // Save the reflection to memory
       await memory.addMemory(
-        `Reflection on task progress: ${reflectionResult.assessment.substring(0, 200)}...`,
+        reflectionText,
         'reflection',
-        'medium',
-        'chloe',
-        state.goal,
-        ['task', 'reflection']
+        ImportanceLevel.MEDIUM,
+        MemorySource.SYSTEM,
+        `Reflection on task: ${state.goal}`,
+        ['reflection', 'progress', `progress_${completed * 100 / total}%`]
       );
     }
     

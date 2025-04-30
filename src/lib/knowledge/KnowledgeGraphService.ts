@@ -242,8 +242,6 @@ Provide your assessment as a JSON object with numerical scores (0-1 scale) for e
     const principleId = this.knowledgeGraph.addPrinciple({
       name: properties.name,
       description: properties.description,
-      examples: properties.examples || [],
-      applications: properties.applications || [],
       category: item.suggestedCategory,
       importance: properties.importance || qualityScore.overall * 10, // Scale to 0-10
       metadata: {
@@ -251,7 +249,9 @@ Provide your assessment as a JSON object with numerical scores (0-1 scale) for e
         sourceReference: item.sourceReference,
         flaggedItemId: item.id,
         addedAt: new Date().toISOString(),
-        qualityScore
+        qualityScore,
+        examples: properties.examples || [],
+        applications: properties.applications || []
       }
     });
     
@@ -265,19 +265,28 @@ Provide your assessment as a JSON object with numerical scores (0-1 scale) for e
   private addFramework(item: FlaggedKnowledgeItem, qualityScore: QualityScore): string {
     const properties = item.suggestedProperties as any;
     
+    // Ensure each step has an ID
+    const stepsWithIds = (properties.steps || []).map((step: any) => ({
+      id: `step_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+      name: step.name,
+      description: step.description,
+      order: step.order
+    }));
+    
     const frameworkId = this.knowledgeGraph.addFramework({
       name: properties.name,
       description: properties.description,
-      steps: properties.steps || [],
-      applications: properties.applications || [],
-      relatedConcepts: properties.relatedConcepts || [],
+      steps: stepsWithIds,
+      principles: [], // Required field
       category: item.suggestedCategory,
       metadata: {
         sourceType: item.sourceType,
         sourceReference: item.sourceReference,
         flaggedItemId: item.id,
         addedAt: new Date().toISOString(),
-        qualityScore
+        qualityScore,
+        applications: properties.applications || [],
+        relatedConcepts: properties.relatedConcepts || []
       }
     });
     
@@ -293,11 +302,13 @@ Provide your assessment as a JSON object with numerical scores (0-1 scale) for e
     
     const researchId = this.knowledgeGraph.addResearch({
       title: properties.title,
-      content: properties.content,
-      source: properties.source,
-      domain: item.suggestedCategory,
-      tags: properties.tags || [],
-      year: properties.year,
+      abstract: properties.content || "",
+      findings: [],
+      authors: [properties.source || "Unknown"],
+      source: properties.source || "Unknown",
+      year: properties.year || new Date().getFullYear(),
+      category: item.suggestedCategory,
+      relatedConcepts: [],
       relevance: qualityScore.relevance * 10, // Scale to 0-10
       url: properties.url,
       metadata: {
@@ -305,7 +316,9 @@ Provide your assessment as a JSON object with numerical scores (0-1 scale) for e
         sourceReference: item.sourceReference,
         flaggedItemId: item.id,
         addedAt: new Date().toISOString(),
-        qualityScore
+        qualityScore,
+        originalContent: properties.content,
+        tags: properties.tags || []
       }
     });
     

@@ -1,5 +1,6 @@
 import type { ChloeAgent } from '../core/agent';
 import { logger } from '../../../lib/logging';
+import { ImportanceLevel, MemorySource } from '../../../constants/memory';
 
 /**
  * Run a memory consolidation task to analyze and organize agent's memories
@@ -51,7 +52,7 @@ export async function runMemoryConsolidation(agent: ChloeAgent): Promise<boolean
         if (memoryManager) {
           for (const insight of insights) {
             try {
-              await memoryManager.addMemory(insight, 'strategic', 'high', 'system', undefined, ['marketing', 'memory_consolidation']);
+              await memoryManager.addMemory(insight, 'strategic', ImportanceLevel.HIGH, MemorySource.SYSTEM, undefined, ['marketing', 'memory_consolidation']);
               logger.info(`Added strategic insight: ${insight.substring(0, 50)}...`);
             } catch (insightError) {
               logger.error('Error adding strategic insight:', insightError);

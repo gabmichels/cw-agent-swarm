@@ -5,6 +5,9 @@
 import { ChatPromptTemplate } from "@langchain/core/prompts";
 import { NodeContext, PlanningState, SubGoal, ExecutionTraceEntry } from "./types";
 import { AIMessage, HumanMessage } from "@langchain/core/messages";
+import { TaskLogger } from "../../task-logger";
+import { PlanningTask } from "./types";
+import { ImportanceLevel, MemorySource } from "../../../../constants/memory";
 
 /**
  * Helper function to count sub-goals by status in a hierarchical structure
@@ -17,7 +20,7 @@ function countHierarchicalGoals(subGoals: SubGoal[]): { completed: number; faile
   for (const sg of subGoals) {
     total++;
     
-    if (sg.status === 'completed') {
+    if (sg.status === 'complete') {
       completed++;
     } else if (sg.status === 'failed') {
       failed++;
@@ -78,7 +81,7 @@ export async function finalizeNode(
     // Check if there are any incomplete sub-goals at any level of the hierarchy
     const hasIncompleteSubGoals = (goals: SubGoal[]): boolean => {
       for (const sg of goals) {
-        if (sg.status !== "completed" && sg.status !== "failed") {
+        if (sg.status !== "complete" && sg.status !== "failed") {
           return true;
         }
         if (sg.children && sg.children.length > 0 && hasIncompleteSubGoals(sg.children)) {
@@ -134,31 +137,29 @@ Your summary should be detailed yet concise.
       subGoalDetails
     });
     
-    const finalResult = summaryResult.content;
+    const summary = summaryResult.content;
     
-    // Save the final result to memory
-    if (memory) {
-      await memory.addMemory(
-        `Completed task: ${state.goal} - ${finalResult.substring(0, 150)}...`,
-        'task',
-        'high',
-        'chloe',
-        state.goal,
-        ['task-complete', 'summary']
-      );
-    }
+    // Store the completed task in memory for future reference
+    await context.memory.addMemory(
+      `Completed task: ${state.goal}\n\nSummary: ${summary}`,
+      'task_completion',
+      ImportanceLevel.HIGH,
+      MemorySource.SYSTEM,
+      `Task completion: ${state.goal}`,
+      ['task', 'completion', 'goal_achievement']
+    );
     
     // Update the task status to completed
-    const updatedTask = {
+    const updatedTask: PlanningTask = {
       ...state.task,
-      status: 'completed' as const
+      status: "complete",
     };
     
     // Add the summary to messages
     const updatedMessages = [
       ...state.messages,
       new HumanMessage({ content: "Task completed. Generating final summary." }),
-      new AIMessage({ content: finalResult })
+      new AIMessage({ content: summary })
     ];
     
     // Log success rates
@@ -180,7 +181,7 @@ Your summary should be detailed yet concise.
         failed,
         total,
         successRate,
-        summaryLength: finalResult.length
+        summaryLength: summary.length
       }
     };
     
@@ -188,7 +189,7 @@ Your summary should be detailed yet concise.
       ...state,
       task: updatedTask,
       messages: updatedMessages,
-      finalResult,
+      finalResult: summary,
       executionTrace: [...state.executionTrace, traceEntry],
     };
   } catch (error) {

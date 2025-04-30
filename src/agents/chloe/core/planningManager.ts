@@ -11,6 +11,7 @@ import {
 } from '../../../lib/shared/types/agentTypes';
 import { planTask, PlanResult } from '../../../server/agents/planner';
 import { executePlan } from '../../../server/agents/executor';
+import { ImportanceLevel, MemorySource } from '../../../constants/memory';
 
 // Define interfaces for plan and execution results
 export interface PlanWithSteps {
@@ -266,8 +267,8 @@ export class PlanningManager implements IManager {
       await this.memory.addMemory(
         `Daily tasks execution: ${executionResult.message}`,
         'task' as ChloeMemoryType,
-        executionResult.success ? 'medium' : 'high',
-        'system'
+        executionResult.success ? ImportanceLevel.MEDIUM : ImportanceLevel.HIGH,
+        MemorySource.SYSTEM
       );
     } catch (error) {
       this.logAction('Error running daily tasks', { error: String(error) });

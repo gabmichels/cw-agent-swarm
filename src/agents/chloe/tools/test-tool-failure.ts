@@ -115,9 +115,10 @@ async function testToolFailureHandling() {
   
   // Test 3: Broken tool with fallback
   console.log('🔍 Test 3: Broken Tool with Fallback');
-  const fallbackResult = await toolManager.executeTool('brokenTool', 
+  const fallbackResult = await toolManager.executeTool(
+    'brokenTool', 
     { test: 'parameter' },
-    { fallbackTools: ['workingTool'] }
+    'fallback=workingTool'
   );
   console.log(`Primary tool result: ${fallbackResult.success ? '✅ Success' : '❌ Failed'}`);
   console.log(`Fallback used: ${fallbackResult.fallbackUsed ? '✅ Yes' : '❌ No'}`);
@@ -129,9 +130,10 @@ async function testToolFailureHandling() {
   // Test 4: Retryable tool
   console.log('🔍 Test 4: Retryable Tool');
   (retryableTool as RetryableTool).reset();
-  const retryResult = await toolManager.executeTool('retryableTool', 
+  const retryResult = await toolManager.executeTool(
+    'retryableTool', 
     { test: 'parameter' },
-    { allowRetry: true, maxRetries: 1 }
+    'retry=true;maxRetries=1'
   );
   console.log(`Result: ${retryResult.success ? '✅ Success' : '❌ Failed'}`);
   console.log(`Retry count: ${retryResult.retryCount}`);
@@ -140,9 +142,10 @@ async function testToolFailureHandling() {
   // Test 5: Retryable tool with insufficient retries
   console.log('🔍 Test 5: Retryable Tool with Insufficient Retries');
   (retryableTool as RetryableTool).reset();
-  const insufficientRetryResult = await toolManager.executeTool('retryableTool', 
+  const insufficientRetryResult = await toolManager.executeTool(
+    'retryableTool', 
     { test: 'parameter' },
-    { allowRetry: false }
+    'retry=false'
   );
   console.log(`Result: ${insufficientRetryResult.success ? '✅ Success' : '❌ Failed'}`);
   console.log(`Retry count: ${insufficientRetryResult.retryCount}`);

@@ -32,6 +32,7 @@ export interface SubGoal {
   depth?: number;
   estimatedTime?: number;
   failureReason?: string; // Added to store failure information
+  result?: string; // Added to store the result of the sub-goal
 }
 
 /**

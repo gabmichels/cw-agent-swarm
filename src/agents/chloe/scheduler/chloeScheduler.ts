@@ -24,6 +24,48 @@ export interface SchedulerConfig {
 }
 
 /**
+ * Interface for ChloeScheduler
+ * Defines the interface that autonomousScheduler.ts uses
+ */
+export interface ChloeScheduler {
+  /**
+   * Check if the scheduler is initialized
+   */
+  isInitialized(): boolean;
+  
+  /**
+   * Initialize the scheduler
+   */
+  initialize(): Promise<void>;
+  
+  /**
+   * Get the agent instance
+   */
+  getAgent(): ChloeAgent;
+  
+  /**
+   * Register a weekly task
+   */
+  registerWeeklyTask(
+    id: string,
+    day: string, 
+    time: string,
+    callback: () => Promise<void>,
+    tags?: string[]
+  ): void;
+  
+  /**
+   * Register a daily task
+   */
+  registerDailyTask(
+    id: string,
+    time: string,
+    callback: () => Promise<void>,
+    tags?: string[]
+  ): void;
+}
+
+/**
  * ChloeScheduler class for managing autonomous behavior
  */
 export class ChloeScheduler {
@@ -183,7 +225,7 @@ export class ChloeScheduler {
         weeklyReflection = await this.agent.runWeeklyReflection();
       } else {
         // Fallback using reflection manager
-        const reflectionManager = this.agent.getReflectionManager();
+        const reflectionManager = this.agent.getReflectionManager?.();
         if (reflectionManager && typeof reflectionManager.runWeeklyReflection === 'function') {
           weeklyReflection = await reflectionManager.runWeeklyReflection();
         }
@@ -205,7 +247,7 @@ Errors: ${selfImprovementResult.errors.length ? selfImprovementResult.errors.joi
       );
       
       // 4. Optionally reprioritize backlog using planning manager
-      const planningManager = this.agent.getPlanningManager();
+      const planningManager = this.agent.getPlanningManager?.();
       if (planningManager) {
         const planningManagerAny = planningManager as any;
         if (typeof planningManagerAny.reprioritizeBacklog === 'function') {
@@ -282,7 +324,7 @@ Errors: ${selfImprovementResult.errors.length ? selfImprovementResult.errors.joi
       
       // 2. Check knowledge graph integrity if available
       let knowledgeGraphStats: any = { status: 'unavailable' };
-      const knowledgeGapsManager = this.agent.getKnowledgeGapsManager();
+      const knowledgeGapsManager = this.agent.getKnowledgeGapsManager?.();
       if (knowledgeGapsManager) {
         try {
           const knowledgeGapsManagerAny = knowledgeGapsManager as any;
@@ -296,7 +338,7 @@ Errors: ${selfImprovementResult.errors.length ? selfImprovementResult.errors.joi
       
       // 3. Check tool status
       let toolsStatus: any = { status: 'unavailable' };
-      const toolManager = this.agent.getToolManager();
+      const toolManager = this.agent.getToolManager?.();
       if (toolManager) {
         try {
           const toolManagerAny = toolManager as any;
@@ -377,6 +419,110 @@ Errors: ${selfImprovementResult.errors.length ? selfImprovementResult.errors.joi
    */
   getAgent(): ChloeAgent {
     return this.agent;
+  }
+  
+  /**
+   * Register a weekly task to run on a specific day and time
+   * @param id Task identifier
+   * @param day Day of the week to run the task
+   * @param time Time in HH:MM format
+   * @param callback Async function to execute
+   * @param tags Optional tags for the task
+   */
+  registerWeeklyTask(
+    id: string, 
+    day: string, 
+    time: string, 
+    callback: () => Promise<void>,
+    tags: string[] = []
+  ): void {
+    const dayNumber = this.getDayNumber(day);
+    const [hours, minutes] = time.split(':').map(Number);
+    
+    // Create cron expression for the specified day/time
+    // Format: minute hour * * dayOfWeek
+    const cronExpression = `${minutes} ${hours} * * ${dayNumber}`;
+    
+    this.taskLogger.logAction("Registering weekly task", {
+      id,
+      cronExpression,
+      day,
+      time,
+      tags
+    });
+    
+    // Use the agent's scheduler if available to schedule the task
+    if (typeof this.agent.scheduleTask === 'function') {
+      this.agent.scheduleTask({
+        id,
+        name: id,
+        cronExpression,
+        execute: callback,
+        tags: [...tags, 'weekly', 'scheduled']
+      });
+    } else {
+      console.warn(`Agent doesn't support task scheduling. Task ${id} not scheduled.`);
+    }
+  }
+  
+  /**
+   * Register a daily task to run at a specific time
+   * @param id Task identifier
+   * @param time Time in HH:MM format
+   * @param callback Async function to execute
+   * @param tags Optional tags for the task
+   */
+  registerDailyTask(
+    id: string, 
+    time: string, 
+    callback: () => Promise<void>,
+    tags: string[] = []
+  ): void {
+    const [hours, minutes] = time.split(':').map(Number);
+    
+    // Create cron expression for daily at the specified time
+    // Format: minute hour * * *
+    const cronExpression = `${minutes} ${hours} * * *`;
+    
+    this.taskLogger.logAction("Registering daily task", {
+      id,
+      cronExpression,
+      time,
+      tags
+    });
+    
+    // Use the agent's scheduler if available to schedule the task
+    if (typeof this.agent.scheduleTask === 'function') {
+      this.agent.scheduleTask({
+        id,
+        name: id,
+        cronExpression,
+        execute: callback,
+        tags: [...tags, 'daily', 'scheduled']
+      });
+    } else {
+      console.warn(`Agent doesn't support task scheduling. Task ${id} not scheduled.`);
+    }
+  }
+  
+  /**
+   * Helper method to convert day name to cron day number
+   * @param day Day name (sunday, monday, etc.)
+   * @returns Cron day number (0-6, where 0 is Sunday)
+   */
+  private getDayNumber(day: string): number {
+    const dayMap: { [key: string]: number } = {
+      'sunday': 0,
+      'monday': 1, 
+      'tuesday': 2, 
+      'wednesday': 3, 
+      'thursday': 4, 
+      'friday': 5, 
+      'saturday': 6
+    };
+    
+    const normalizedDay = day.toLowerCase();
+    return normalizedDay in dayMap ? dayMap[normalizedDay] : 0;
   }
 }
 

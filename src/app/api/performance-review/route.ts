@@ -4,7 +4,7 @@ import { NextRequest, NextResponse } from 'next/server';
 async function getChloeAgent() {
   try {
     // Try to dynamically import the agent
-    const agentModule = await import('../../../agents/chloe/agent');
+    const agentModule = await import('../../../agents/chloe');
     
     if (!agentModule.ChloeAgent) {
       console.error('ChloeAgent not found in the imported module');

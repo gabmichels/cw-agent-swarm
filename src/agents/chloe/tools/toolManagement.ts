@@ -6,6 +6,7 @@ import { ToolEvaluation, ABTest, ToolFeedback, PerformanceAnalysis } from './eva
 import { StrategicToolPlanner, MarketTrend, BusinessImpact, PrioritizedTool } from './strategic';
 import { MarketScanner } from './marketScanner';
 import { StructuredTool } from '@langchain/core/tools';
+import { ReflectionType } from '../../../constants/reflection';
 
 /**
  * Configuration options for the ToolManagementSystem
@@ -360,7 +361,26 @@ export class ToolManagementSystem {
       return null;
     }
     
-    return this.evaluation.analyzeToolPerformance(toolName, period);
+    // Convert string period to ReflectionType enum
+    let reflectionPeriod: ReflectionType;
+    
+    switch(period) {
+      case 'day':
+        reflectionPeriod = ReflectionType.DAILY;
+        break;
+      case 'week':
+        reflectionPeriod = ReflectionType.WEEKLY;
+        break;
+      case 'month':
+        reflectionPeriod = ReflectionType.MONTHLY;
+        break;
+      case 'all':
+      default:
+        reflectionPeriod = ReflectionType.ALL;
+        break;
+    }
+    
+    return this.evaluation.analyzeToolPerformance(toolName, reflectionPeriod);
   }
   
   /**

@@ -14,10 +14,12 @@ export async function GET() {
     
     // Create a test agent instance with minimal config
     const testAgent = new ChloeAgent({
-      systemPrompt: 'You are a test assistant for debugging purposes.',
-      model: 'openai/gpt-4.1-2025-04-14',
-      temperature: 0.5,
-      maxTokens: 2000
+      config: {
+        systemPrompt: 'You are a test assistant for debugging purposes.',
+        model: 'openai/gpt-4.1-2025-04-14',
+        temperature: 0.5,
+        maxTokens: 2000
+      }
     });
     
     // Check if agent instance was created correctly

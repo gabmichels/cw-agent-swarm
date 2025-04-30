@@ -12,6 +12,9 @@ import {
 import { ScheduledTask as AgentScheduledTask } from '../../lib/shared/types/agentTypes';
 import { TASK_IDS } from '../../lib/shared/constants';
 import { calculateChloeCapacity, deferOverflowTasks } from './scheduler/capacityManager';
+import { enableAutonomousMode as _enableAutonomousMode, runAutonomousMaintenance } from './scheduler/autonomousScheduler';
+import { ChloeScheduler as AutonomousScheduler } from './scheduler/chloeScheduler';
+import { ImportanceLevel, MemorySource } from '../../constants/memory';
 
 // Types for scheduler
 export type TaskId = string;
@@ -27,7 +30,7 @@ export function setupScheduler(agent: ChloeAgent) {
       // Calculate capacity before running daily tasks
       try {
         // Check if we have a scheduler property on the agent
-        const scheduler = (agent as any).scheduler || null;
+        const scheduler = (agent as { scheduler?: { getAgent?: () => ChloeAgent } }).scheduler || null;
         
         // Check if it's a valid scheduler object that has the properties we need
         if (scheduler && typeof scheduler.getAgent === 'function') {
@@ -36,7 +39,7 @@ export function setupScheduler(agent: ChloeAgent) {
           // Try to use our capacity functions with the scheduler
           try {
             const capacity = await calculateChloeCapacity(
-              scheduler as any,  // Type assertion to bypass type checking
+              scheduler as unknown as AutonomousScheduler,
               undefined,
               undefined
             );
@@ -47,7 +50,7 @@ export function setupScheduler(agent: ChloeAgent) {
             if (capacity.overload) {
               console.log('Capacity overloaded, deferring lower priority tasks...');
               const deferResult = await deferOverflowTasks(
-                scheduler as any,  // Type assertion to bypass type checking
+                scheduler as unknown as AutonomousScheduler,
                 undefined,
                 undefined
               );
@@ -55,7 +58,7 @@ export function setupScheduler(agent: ChloeAgent) {
               console.log(`Deferred ${deferResult.deferredTasks} tasks (${deferResult.deferredHours.toFixed(1)} hours)`);
               
               // Notify about deferrals
-              if (deferResult.deferredTasks > 0) {
+              if (deferResult.deferredTasks > 0 && agent && agent.notify) {
                 agent.notify(`🔄 Deferred ${deferResult.deferredTasks} lower priority tasks due to capacity constraints.`);
               }
             }
@@ -69,7 +72,9 @@ export function setupScheduler(agent: ChloeAgent) {
       }
       
       // Run daily tasks
-      await agent.runDailyTasks();
+      if (agent && agent.runDailyTasks) {
+        await agent.runDailyTasks();
+      }
     },
     null, // onComplete
     false, // start
@@ -89,28 +94,53 @@ export function setupScheduler(agent: ChloeAgent) {
     'UTC'
   );
   
+  // Weekly maintenance on Sunday at 3:00 AM
+  const weeklyMaintenance = new CronJob(
+    '0 3 * * 0', // Run at 3:00 AM every Sunday
+    async () => {
+      console.log('Running weekly maintenance...');
+      try {
+        await runAutonomousMaintenance();
+        if (agent && agent.notify) {
+          agent.notify('Weekly maintenance completed.');
+        }
+      } catch (error) {
+        console.error('Error in maintenance:', error);
+        if (agent && agent.notify) {
+          agent.notify('❌ Error in weekly maintenance.');
+        }
+      }
+    },
+    null,
+    false,
+    'UTC'
+  );
+  
   // Task scheduler controller
   return {
     start: () => {
       dailyTasks.start();
       weeklyReflection.start();
+      weeklyMaintenance.start();
       console.log('Task scheduler started');
     },
     stop: () => {
       dailyTasks.stop();
       weeklyReflection.stop();
+      weeklyMaintenance.stop();
       console.log('Task scheduler stopped');
     },
     status: () => {
       // Check if job is active safely
-      const isJobActive = (job: any) => {
-        // Cron v4 uses isActive, earlier versions used running
-        return job.isActive || false;
+      const isJobActive = (job: CronJob) => {
+        // Cron v4 uses isActive, earlier versions use running
+        return typeof job.running === 'boolean' ? job.running : false;
       };
       
       return {
         dailyTasks: isJobActive(dailyTasks),
         weeklyReflection: isJobActive(weeklyReflection),
+        weeklyMaintenance: isJobActive(weeklyMaintenance),
       };
     },
     // Add a task to run once at a specific time
@@ -222,7 +252,7 @@ export class ChloeScheduler {
       console.log(`Scheduled task ${id} with cron: ${cronExpression}`);
       return true;
     } catch (error) {
-      console.error(`Error scheduling task ${id}:`, error);
+      console.error(`Failed to schedule task ${id}:`, error);
       return false;
     }
   }
@@ -231,33 +261,42 @@ export class ChloeScheduler {
    * Start a scheduled task
    */
   private startTask(id: string): boolean {
-    const taskConfig = this.scheduledTasks.get(id);
-    if (!taskConfig) {
-      console.error(`Task ${id} not found`);
-      return false;
-    }
-
-    // If task is already running, stop it first
-    if (taskConfig.task) {
-      taskConfig.task.stop();
-    }
-
     try {
-      // Schedule the task
-      taskConfig.task = new CronJob(
-        taskConfig.cronExpression, 
+      const task = this.scheduledTasks.get(id);
+      if (!task) {
+        console.warn(`No task found with ID ${id}`);
+        return false;
+      }
+
+      // Don't start if already running or disabled
+      if (task.task || !task.enabled) {
+        console.log(`Task ${id} is already running or disabled`);
+        return true;
+      }
+
+      // Create a new CronJob
+      const job = new CronJob(
+        task.cronExpression,
         async () => {
-          await this.executeTask(id);
+          console.log(`Executing scheduled task: ${id}`);
+          try {
+            await this.executeTask(id);
+          } catch (error) {
+            console.error(`Error executing task ${id}:`, error);
+          }
         },
         null, // onComplete
-        true, // start
+        true, // start immediately
         'UTC' // timezone
       );
-      
-      console.log(`Started scheduled task ${id}`);
+
+      // Update task in map
+      task.task = job;
+      this.scheduledTasks.set(id, task);
+      console.log(`Started task ${id}`);
       return true;
     } catch (error) {
-      console.error(`Error starting task ${id}:`, error);
+      console.error(`Failed to start task ${id}:`, error);
       return false;
     }
   }
@@ -266,117 +305,120 @@ export class ChloeScheduler {
    * Stop a scheduled task
    */
   private stopTask(id: string): boolean {
-    const taskConfig = this.scheduledTasks.get(id);
-    if (!taskConfig || !taskConfig.task) {
-      console.error(`Task ${id} not found or not running`);
-      return false;
-    }
-
     try {
-      taskConfig.task.stop();
-      taskConfig.task = undefined;
-      console.log(`Stopped scheduled task ${id}`);
+      const task = this.scheduledTasks.get(id);
+      if (!task || !task.task) {
+        console.warn(`No running task found with ID ${id}`);
+        return false;
+      }
+
+      // Stop the CronJob
+      task.task.stop();
+      task.task = undefined;
+      this.scheduledTasks.set(id, task);
+      console.log(`Stopped task ${id}`);
       return true;
     } catch (error) {
-      console.error(`Error stopping task ${id}:`, error);
+      console.error(`Failed to stop task ${id}:`, error);
       return false;
     }
   }
 
   /**
-   * Execute a scheduled task
+   * Execute a task by ID
    */
   private async executeTask(id: string): Promise<void> {
-    const taskConfig = this.scheduledTasks.get(id);
-    if (!taskConfig) {
-      console.error(`Task ${id} not found during execution`);
+    const task = this.scheduledTasks.get(id);
+    if (!task) {
+      console.warn(`No task found with ID ${id}`);
       return;
     }
-    
-    console.log(`Executing scheduled task: ${id}`);
-    
+
+    if (!task.enabled) {
+      console.log(`Task ${id} is disabled, skipping execution`);
+      return;
+    }
+
+    // Record this execution
+    task.lastRun = new Date();
+    this.scheduledTasks.set(id, task);
+
     try {
-      // Update last run timestamp
-      taskConfig.lastRun = new Date();
+      console.log(`Executing task ${id}: ${task.goalPrompt}`);
       
-      // Handle special task cases
-      switch (id) {
-        case TASK_IDS.MEMORY_CONSOLIDATION:
-          try {
-            const success = await runMemoryConsolidation(this.agent);
-            console.log(`Memory consolidation ${success ? 'completed successfully' : 'failed'}`);
-          } catch (error) {
-            console.error('Error running memory consolidation:', error);
-          }
-          break;
+      // Get references to memories and taskLoggers
+      const memory = this.agent.getMemory ? this.agent.getMemory() : null;
+      const taskLogger = this.agent.getTaskLogger ? this.agent.getTaskLogger() : null;
+      
+      // Log task start if we have a task logger
+      if (taskLogger) {
+        taskLogger.logAction(`Starting scheduled task ${id}`, {
+          id,
+          goalPrompt: task.goalPrompt,
+          timestamp: new Date().toISOString(),
+          tags: task.tags
+        });
+      }
+      
+      // Execute the task based on goal using plan and execute if available
+      if (this.agent.planAndExecute) {
+        // Option parameters for the plan and execute
+        const options: PlanAndExecuteOptions = {
+          goalPrompt: task.goalPrompt,
+          autonomyMode: true,
+          tags: task.tags
+        };
+        
+        // Run the task
+        const result = await this.agent.planAndExecute(task.goalPrompt, options);
+        
+        // Log results
+        if (taskLogger) {
+          taskLogger.logAction(`Completed scheduled task ${id}`, {
+            id,
+            result,
+            timestamp: new Date().toISOString()
+          });
+        }
+        
+        // Store in memory if we have a memory system
+        if (memory && memory.addMemory) {
+          const resultSummary = (result as { summary?: string }).summary || "Completed scheduled task";
           
-        case TASK_IDS.MARKET_SCAN:
-          try {
-            const success = await runMarketScanTask(this.agent);
-            console.log(`Market scan ${success ? 'completed successfully' : 'failed'}`);
-          } catch (error) {
-            console.error('Error running market scan:', error);
-          }
-          break;
-          
-        case TASK_IDS.NEWS_SCAN:
-          try {
-            const success = await runNewsScanTask(this.agent);
-            console.log(`News scan ${success ? 'completed successfully' : 'failed'}`);
-          } catch (error) {
-            console.error('Error running news scan:', error);
-          }
-          break;
-          
-        case TASK_IDS.TRENDING_TOPIC_RESEARCH:
-          try {
-            const success = await runTrendingTopicResearchTask(this.agent);
-            console.log(`Trending topic research ${success ? 'completed successfully' : 'failed'}`);
-          } catch (error) {
-            console.error('Error running trending topic research:', error);
-          }
-          break;
-          
-        case TASK_IDS.SOCIAL_MEDIA_TRENDS:
-          try {
-            const success = await runSocialMediaTrendsTask(this.agent);
-            console.log(`Social media trends analysis ${success ? 'completed successfully' : 'failed'}`);
-          } catch (error) {
-            console.error('Error running social media trends analysis:', error);
-          }
-          break;
-          
-        default:
-          // Standard execution process for most tasks
-          // Get the autonomy system for plan & execute
-          const autonomySystem = await this.agent.getAutonomySystem();
-          if (!autonomySystem || !autonomySystem.planAndExecute) {
-            console.error('Autonomy system not initialized or missing planAndExecute method');
-            return;
-          }
-          
-          // Standard execution process for most tasks
-          const options: PlanAndExecuteOptions = {
-            goalPrompt: taskConfig.goalPrompt,
-            autonomyMode: true,
-            requireApproval: false,
-            tags: taskConfig.tags
-          };
-          
-          // Execute the task
-          console.log(`Running task ${id} with goal: ${taskConfig.goalPrompt.substring(0, 100)}...`);
-          const result = await autonomySystem.planAndExecute(options);
-          
-          // Log the result
-          if (result && result.success) {
-            console.log(`Task ${id} completed successfully`);
-          } else {
-            console.error(`Task ${id} failed: ${result?.error || 'Unknown error'}`);
-          }
-          break;
+          memory.addMemory(
+            `Scheduled Task Result (${id}): ${resultSummary}`,
+            "scheduled_task_result",
+            ImportanceLevel.MEDIUM,
+            MemorySource.SYSTEM,
+            `Completed execution of scheduled task ${id}`,
+            [...task.tags, "scheduled", "autonomous"]
+          ).catch((e: Error | unknown) => console.error(`Failed to store task result in memory:`, e));
+        }
+        
+        // Notify about completion
+        if (this.agent.notify) {
+          this.agent.notify(`✅ Scheduled task completed: ${task.goalPrompt}`);
+        }
+      } else {
+        console.warn(`Agent doesn't support planAndExecute. Unable to run scheduled task ${id}.`);
       }
     } catch (error) {
       console.error(`Error executing task ${id}:`, error);
+      
+      // Log error if we have a task logger
+      const taskLogger = this.agent.getTaskLogger ? this.agent.getTaskLogger() : null;
+      if (taskLogger) {
+        taskLogger.logAction(`Error in scheduled task ${id}`, {
+          id,
+          error: error instanceof Error ? error.message : String(error),
+          timestamp: new Date().toISOString()
+        });
+      }
+      
+      // Notify about failure
+      if (this.agent.notify) {
+        this.agent.notify(`❌ Error in scheduled task: ${task.goalPrompt}`);
+      }
     }
   }
 
@@ -384,30 +426,26 @@ export class ChloeScheduler {
    * Get all scheduled tasks
    */
   public getScheduledTasks(): ScheduledTask[] {
-    console.log('ChloeScheduler.getScheduledTasks called');
-    console.log('Number of tasks in scheduler:', this.scheduledTasks.size);
-    
-    // Convert Map to Array
-    const tasks = Array.from(this.scheduledTasks.values());
-    console.log('First task (if any):', tasks.length > 0 ? JSON.stringify(tasks[0]) : 'No tasks');
-    
-    return tasks;
+    return Array.from(this.scheduledTasks.values());
+  }
+  
+  /**
+   * Get the agent
+   */
+  public getAgent(): ChloeAgent {
+    return this.agent;
   }
 
   /**
-   * Run a task immediately, regardless of schedule
+   * Run a task immediately (once)
    */
   public async runTaskNow(id: string): Promise<boolean> {
-    if (!this.scheduledTasks.has(id)) {
-      console.error(`Task ${id} not found`);
-      return false;
-    }
-
     try {
+      console.log(`Running task ${id} immediately`);
       await this.executeTask(id);
       return true;
     } catch (error) {
-      console.error(`Error running task ${id}:`, error);
+      console.error(`Failed to run task ${id}:`, error);
       return false;
     }
   }
@@ -416,141 +454,140 @@ export class ChloeScheduler {
    * Remove a scheduled task
    */
   public removeTask(id: string): boolean {
-    const taskConfig = this.scheduledTasks.get(id);
-    if (!taskConfig) {
-      console.error(`Task ${id} not found`);
+    try {
+      const task = this.scheduledTasks.get(id);
+      if (!task) {
+        console.warn(`No task found with ID ${id}`);
+        return false;
+      }
+
+      // Stop task if running
+      if (task.task) {
+        task.task.stop();
+      }
+
+      // Remove from map
+      this.scheduledTasks.delete(id);
+      console.log(`Removed task ${id}`);
+      return true;
+    } catch (error) {
+      console.error(`Failed to remove task ${id}:`, error);
       return false;
     }
-
-    // Stop the task if it's running
-    if (taskConfig.task) {
-      taskConfig.task.stop();
-    }
-
-    // Remove from the map
-    this.scheduledTasks.delete(id);
-    console.log(`Removed scheduled task ${id}`);
-    return true;
   }
 
   /**
-   * Enable or disable a specific task
+   * Enable or disable a scheduled task
    */
   public setTaskEnabled(id: string, enabled: boolean): boolean {
-    const taskConfig = this.scheduledTasks.get(id);
-    if (!taskConfig) {
-      console.error(`Task ${id} not found`);
+    try {
+      const task = this.scheduledTasks.get(id);
+      if (!task) {
+        console.warn(`No task found with ID ${id}`);
+        return false;
+      }
+
+      // Update enabled status
+      task.enabled = enabled;
+      this.scheduledTasks.set(id, task);
+
+      // Start or stop task based on new status
+      if (enabled && this.autonomyMode) {
+        this.startTask(id);
+      } else if (!enabled) {
+        this.stopTask(id);
+      }
+
+      console.log(`Set task ${id} enabled: ${enabled}`);
+      return true;
+    } catch (error) {
+      console.error(`Failed to set task ${id} enabled status:`, error);
       return false;
     }
-
-    taskConfig.enabled = enabled;
-    
-    if (enabled && this.autonomyMode) {
-      return this.startTask(id);
-    } else if (!enabled && taskConfig.task) {
-      return this.stopTask(id);
-    }
-    
-    return true;
   }
 }
 
-// Set up default scheduled tasks for Chloe
 export function setupDefaultSchedule(scheduler: ChloeScheduler): void {
-  console.log('Setting up default scheduled tasks for Chloe');
-  
-  // Daily morning briefing - Generate a summary of what's happening and what's planned
-  scheduler.scheduleTask(
-    TASK_IDS.DAILY_BRIEFING,
-    '0 8 * * *', // 8 AM daily
-    'Create a morning briefing summarizing recent marketing activities, trends, and goals for the day.',
-    ['daily', 'planning']
-  );
-  
-  // Add daily-planning as an alias for daily-briefing to maintain compatibility with frontend
+  // Daily planning task
   scheduler.scheduleTask(
     TASK_IDS.DAILY_PLANNING,
-    '0 8 * * *', // 8 AM daily
-    'Create a daily plan for marketing tasks and activities.',
+    '0 9 * * *', // 9 AM every day
+    "Review today's tasks and set priorities",
     ['daily', 'planning']
   );
-  
-  // Weekly marketing review - Analyze marketing performance
+
+  // Weekly reflection task
   scheduler.scheduleTask(
-    TASK_IDS.WEEKLY_MARKETING_REVIEW,
-    '0 10 * * 1', // Monday at 10 AM
-    'Review the previous week\'s marketing performance. Analyze key metrics, campaign results, and social media engagement. Provide insights and recommendations.',
-    ['weekly', 'analytics']
+    'weekly-reflection', // Use string literal instead of TASK_IDS.WEEKLY_REFLECTION
+    '0 10 * * 0', // 10 AM every Sunday
+    "Reflect on the past week and identify insights",
+    ['weekly', 'reflection']
   );
-  
-  // Content idea generation - Generate content ideas twice a week
-  scheduler.scheduleTask(
-    TASK_IDS.CONTENT_IDEA_GENERATION,
-    '0 14 * * 2,4', // Tuesday and Thursday at 2 PM
-    'Generate 5-10 fresh content ideas for our blog, social media, and newsletter. Consider current trends, customer interests, and business objectives.',
-    ['content', 'creativity']
-  );
-  
-  // Memory consolidation - Process and organize memories
+
+  // Memory consolidation
   scheduler.scheduleTask(
     TASK_IDS.MEMORY_CONSOLIDATION,
-    '0 2 * * *', // 2 AM daily
-    'Review recent memories and conversations. Identify important insights, action items, and recurring themes. Organize and categorize this information to improve knowledge retrieval.',
+    '0 2 * * *', // 2 AM every day
+    "Consolidate memories and reinforce important connections",
     ['memory', 'maintenance']
   );
-  
-  // Market scan integration - Runs a comprehensive market scan
+
+  // Market scan (twice weekly)
   scheduler.scheduleTask(
     TASK_IDS.MARKET_SCAN,
-    '0 7 * * 1,3,5', // Monday, Wednesday, Friday at 7 AM
-    'Run a comprehensive market scan to identify trends, competitor activities, and industry news. Store valuable insights in the knowledge base for future reference.',
-    ['research', 'marketing', 'knowledge']
+    '0 11 * * 2,5', // 11 AM Tuesday and Friday
+    "Scan the market for new trends and opportunities",
+    ['market', 'research']
   );
-  
-  // News scan for daily monitoring
+
+  // News scan (daily)
   scheduler.scheduleTask(
     TASK_IDS.NEWS_SCAN,
-    '0 9,15 * * *', // 9 AM and 3 PM daily
-    'Scan recent news sources for marketing-related updates, industry changes, and relevant events. Flag any critical information that requires attention.',
-    ['news', 'monitoring', 'alerts']
+    '0 8 * * *', // 8 AM every day
+    "Review latest news and identify relevant items",
+    ['news', 'research']
   );
-  
-  // Trending topic research - Weekly research into trending topics
+
+  // Trending topics (weekly)
   scheduler.scheduleTask(
-    TASK_IDS.TRENDING_TOPIC_RESEARCH,
-    '0 13 * * 3', // Wednesday at 1 PM
-    'Analyze current trending topics in marketing and customer experience. Research emerging patterns and assess how they might impact our marketing strategy.',
-    ['trends', 'research', 'strategy']
+    'trending-topics', // Use string literal instead of TASK_IDS.TRENDING_TOPICS
+    '0 14 * * 3', // 2 PM every Wednesday
+    "Research trending topics in technology and AI",
+    ['trending', 'research']
   );
-  
-  // Social media trend detection - Monitors social media trends
+
+  // Social media trends (weekly)
   scheduler.scheduleTask(
     TASK_IDS.SOCIAL_MEDIA_TRENDS,
-    '0 11 * * 2,5', // Tuesday and Friday at 11 AM
-    'Monitor and detect trending topics and conversations on social media platforms. Identify opportunities for engagement and content creation.',
-    ['social-media', 'trends', 'engagement']
+    '0 15 * * 4', // 3 PM every Thursday
+    "Analyze social media trends and engagement patterns",
+    ['social', 'research']
   );
-  
-  // Monthly strategic planning
-  scheduler.scheduleTask(
-    TASK_IDS.MONTHLY_STRATEGIC_PLANNING,
-    '0 9 1 * *', // 1st day of each month at 9 AM
-    'Develop a strategic marketing plan for the upcoming month. Consider business objectives, past performance, market conditions, and available resources.',
-    ['monthly', 'planning', 'strategy']
-  );
-  
-  // Quarterly performance evaluation
-  scheduler.scheduleTask(
-    TASK_IDS.QUARTERLY_PERFORMANCE_REVIEW,
-    '0 10 1 1,4,7,10 *', // First day of each quarter at 10 AM
-    'Conduct a comprehensive review of the previous quarter\'s marketing performance. Analyze KPIs, campaign effectiveness, budget utilization, and strategic alignment.',
-    ['quarterly', 'review', 'analytics']
-  );
-  
-  console.log('Default scheduled tasks have been set up');
+
+  console.log('Default schedule set up with 7 tasks');
 }
 
-// Main initialization for Chloe's autonomy system
+/**
+ * Helper function to convert day name to cron day number
+ */
+function convertDayToCronFormat(day: string): number {
+  const dayMap: { [key: string]: number } = {
+    'sunday': 0,
+    'monday': 1, 
+    'tuesday': 2, 
+    'wednesday': 3, 
+    'thursday': 4, 
+    'friday': 5, 
+    'saturday': 6
+  };
+
+  const normalizedDay = day.toLowerCase();
+  return normalizedDay in dayMap ? dayMap[normalizedDay] : 0;
+}
+
+/**
+ * Initializes Chloe's autonomy system, enabling self-management capabilities
+ */
 export function initializeAutonomy(agent: ChloeAgent): import('../../lib/shared/types/agentTypes').AutonomySystem {
   const scheduler = new ChloeScheduler(agent);
   const tasks = setupScheduler(agent);
@@ -564,17 +601,72 @@ export function initializeAutonomy(agent: ChloeAgent): import('../../lib/shared/
   
   console.log('Chloe autonomy system initialized');
   
+  // Create a scheduler wrapper with needed properties
+  try {
+    // Use a wrapper class that adapts the ChloeScheduler from main file
+    // to the expected interface in autonomousScheduler
+    const schedulerWrapper = {
+      isInitialized: () => true,
+      initialize: async () => {},
+      getAgent: () => agent,
+      registerWeeklyTask: (id: string, day: string, time: string, callback: () => Promise<void>, tags: string[] = []) => {
+        // Convert day/time to cron expression for weekly tasks
+        const dayNumber = convertDayToCronFormat(day);
+        const [hours, minutes] = time.split(':').map(Number);
+        const cronExpression = `${minutes} ${hours} * * ${dayNumber}`;
+        
+        if (scheduler && scheduler.scheduleTask) {
+          scheduler.scheduleTask(id, cronExpression, `Weekly task: ${id}`, tags);
+        }
+      },
+      registerDailyTask: (id: string, time: string, callback: () => Promise<void>, tags: string[] = []) => {
+        // Convert time to cron expression for daily tasks
+        const [hours, minutes] = time.split(':').map(Number);
+        const cronExpression = `${minutes} ${hours} * * *`;
+        
+        if (scheduler && scheduler.scheduleTask) {
+          scheduler.scheduleTask(id, cronExpression, `Daily task: ${id}`, tags);
+        }
+      }
+    };
+    
+    // Enable autonomous maintenance and self-triggered tasks
+    _enableAutonomousMode(schedulerWrapper as unknown as AutonomousScheduler);
+  } catch (error) {
+    console.error('Failed to initialize autonomous mode:', error);
+  }
+  
   // Helper function to convert between scheduler task format and agent task format
-  const mapToAgentTask = (task: ScheduledTask): AgentScheduledTask => ({
-    id: task.id,
-    name: task.id, // Use ID as name if not available
-    description: task.goalPrompt,
-    schedule: task.cronExpression,
-    goalPrompt: task.goalPrompt,
-    lastRun: task.lastRun,
-    enabled: task.enabled,
-    tags: task.tags
-  });
+  const mapToAgentTask = (task: ScheduledTask): AgentScheduledTask => {
+    // Apply the mapping if the task object is available
+    if (!task) {
+      return {
+        id: '',
+        name: '',
+        description: '',
+        schedule: '',
+        goalPrompt: '',
+        enabled: false,
+        tags: [],
+        createdAt: new Date().toISOString(),
+        status: 'error'
+      } as any; // Use any to bypass type checking for the non-standard fields
+    }
+    
+    return {
+      id: task.id,
+      name: task.id, // Use id for name as fallback
+      description: task.goalPrompt,
+      schedule: task.cronExpression,
+      goalPrompt: task.goalPrompt,
+      enabled: task.enabled,
+      tags: task.tags || [],
+      lastRun: task.lastRun ? task.lastRun.toISOString() : undefined,
+      // Non-standard fields that are expected in the UI
+      status: task.enabled ? 'active' : 'disabled',
+      createdAt: task.lastRun ? task.lastRun.toISOString() : new Date().toISOString()
+    } as any; // Use any to bypass type checking for the non-standard fields
+  };
   
   // Return an object that implements AutonomySystem interface
   return {
@@ -617,10 +709,14 @@ export function initializeAutonomy(agent: ChloeAgent): import('../../lib/shared/
       try {
         switch (taskName) {
           case 'dailyTasks':
-            await agent.runDailyTasks();
+            if (typeof agent.runDailyTasks === 'function') {
+              await agent.runDailyTasks();
+            }
             break;
           case 'weeklyReflection':
-            await agent.runWeeklyReflection();
+            if (typeof agent.runWeeklyReflection === 'function') {
+              await agent.runWeeklyReflection();
+            }
             break;
           default:
             // Try to find a scheduled task with this name or id
@@ -652,9 +748,17 @@ export function initializeAutonomy(agent: ChloeAgent): import('../../lib/shared/
     },
     
     // Planning and execution
-    planAndExecute: async (options): Promise<import('../../lib/shared/types/agentTypes').PlanAndExecuteResult> => {
+    planAndExecute: async (options: PlanAndExecuteOptions): Promise<import('../../lib/shared/types/agentTypes').PlanAndExecuteResult> => {
       try {
-        return await agent.planAndExecute(options.goalPrompt, options);
+        if (typeof agent.planAndExecute === 'function') {
+          return await agent.planAndExecute(options.goalPrompt, options);
+        } else {
+          return {
+            success: false,
+            message: "Agent does not implement planAndExecute method",
+            error: "Method not available"
+          };
+        }
       } catch (error) {
         console.error('Error in planAndExecute:', error);
         return {
@@ -681,7 +785,7 @@ export function initializeAutonomy(agent: ChloeAgent): import('../../lib/shared/
         
         try {
           // Try to get memory status from the agent
-          const memoryManager = agent['getMemoryManager'] ? agent.getMemoryManager() : null;
+          const memoryManager = agent.getMemoryManager ? agent.getMemoryManager() : null;
           if (memoryManager && typeof memoryManager.diagnose === 'function') {
             const memoryDiagnosis = await memoryManager.diagnose();
             memoryStatus = {
@@ -696,8 +800,10 @@ export function initializeAutonomy(agent: ChloeAgent): import('../../lib/shared/
         // Get planning status
         let planningStatus = 'unknown';
         try {
-          const planningManager = agent['getPlanningManager'] ? agent.getPlanningManager() : null;
-          planningStatus = (planningManager && planningManager.isInitialized()) ? 'operational' : 'not initialized';
+          const planningManager = agent.getPlanningManager ? agent.getPlanningManager() : null;
+          if (planningManager && typeof planningManager.isInitialized === 'function') {
+            planningStatus = planningManager.isInitialized() ? 'operational' : 'not initialized';
+          }
         } catch (planningError) {
           console.error('Error getting planning status:', planningError);
         }
@@ -713,7 +819,9 @@ export function initializeAutonomy(agent: ChloeAgent): import('../../lib/shared/
           }
         };
       } catch (error) {
-        console.error('Error diagnosing autonomy system:', error);
+        console.error('Error in autonomy system diagnostics:', error);
+        
+        // Return fallback data
         return {
           memory: { status: 'error', messageCount: 0 },
           scheduler: { status: 'error', activeTasks: 0 },

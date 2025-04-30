@@ -335,6 +335,50 @@ export class KnowledgeGraphManager {
     this.edges = [];
     this.nodeConnections.clear();
   }
+
+  /**
+   * Get all nodes in the knowledge graph
+   * @returns Array of all KnowledgeNode objects
+   */
+  async getAllNodes(): Promise<KnowledgeNode[]> {
+    return Array.from(this.nodes.values());
+  }
+  
+  /**
+   * Get all edges in the knowledge graph
+   * @returns Array of all KnowledgeEdge objects
+   */
+  async getAllEdges(): Promise<KnowledgeEdge[]> {
+    return [...this.edges];
+  }
+  
+  /**
+   * Remove a node from the knowledge graph
+   * This also removes all edges connected to this node
+   * @param id The ID of the node to remove
+   */
+  async removeNode(id: string): Promise<boolean> {
+    if (!this.nodes.has(id)) {
+      return false;
+    }
+    
+    // Remove the node
+    this.nodes.delete(id);
+    
+    // Remove all edges connected to this node
+    this.edges = this.edges.filter(edge => edge.from !== id && edge.to !== id);
+    
+    // Remove from connection maps
+    this.nodeConnections.delete(id);
+    
+    // Update other nodes' connections - fix for Map iteration
+    const connectionEntries = Array.from(this.nodeConnections.entries());
+    for (const [_, connections] of connectionEntries) {
+      connections.delete(id);
+    }
+    
+    return true;
+  }
 }
 
 // Example test implementation

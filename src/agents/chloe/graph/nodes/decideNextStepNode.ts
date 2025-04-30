@@ -170,7 +170,7 @@ export async function decideNextStepNode(
     };
     
     // Count completed, failed, and pending sub-goals for status reporting
-    const completed = state.task.subGoals.filter(sg => sg.status === 'completed').length;
+    const completed = state.task.subGoals.filter(sg => sg.status === 'complete').length;
     const failed = state.task.subGoals.filter(sg => sg.status === 'failed').length;
     const pending = state.task.subGoals.filter(sg => sg.status === 'pending').length;
     const inProgress = state.task.subGoals.filter(sg => sg.status === 'in_progress').length;
@@ -449,7 +449,7 @@ function countFailedSubGoals(subGoals: SubGoal[]): number {
 function countCompletedSubGoals(subGoals: SubGoal[]): number {
   let count = 0;
   for (const sg of subGoals) {
-    if (sg.status === 'completed') count++;
+    if (sg.status === 'complete') count++;
     if (sg.children && sg.children.length > 0) {
       count += countCompletedSubGoals(sg.children);
     }

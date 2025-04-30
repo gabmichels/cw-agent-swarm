@@ -77,7 +77,12 @@ export class KnowledgeGraph {
   public getResearchByTags(tags: string[]): Research[] {
     console.warn(`getResearchByTags not fully implemented for tags: ${tags.join(', ')}`);
     return Array.from(this.research.values()).filter(r => 
-      tags.some(tag => r.tags?.includes(tag))
+      tags.some(tag => {
+        // Look for tags in relatedConcepts or in metadata.tags
+        return r.relatedConcepts?.includes(tag) || 
+          (r.metadata && r.metadata.tags && Array.isArray(r.metadata.tags) && 
+          (r.metadata.tags as string[]).includes(tag));
+      })
     );
   }
 
@@ -126,7 +131,17 @@ export class KnowledgeGraph {
       allConcepts.forEach(c => c.category && categories.add(c.category));
       allPrinciples.forEach(p => p.category && categories.add(p.category));
       allFrameworks.forEach(f => f.category && categories.add(f.category));
-      allResearch.forEach(r => r.domain && categories.add(r.domain));
+      
+      // Use category instead of domain for research
+      allResearch.forEach(r => {
+        if (r.category) {
+          categories.add(r.category);
+        }
+        // Also check for domain in metadata as fallback
+        if (r.metadata && r.metadata.domain) {
+          categories.add(r.metadata.domain as string);
+        }
+      });
 
       return {
           totalConcepts: allConcepts.length,
@@ -233,5 +248,53 @@ export class KnowledgeGraph {
     } catch(error) {
         console.error("Error loading knowledge graph:", error);
     }
+  }
+
+  /**
+   * Find research by tags
+   */
+  public findResearchByTags(tags: string[]): Research[] {
+    if (!tags || tags.length === 0) {
+      return Array.from(this.research.values());
+    }
+    
+    const allResearch = Array.from(this.research.values());
+    return allResearch.filter(r => 
+      // Check if research has tags in its metadata
+      tags.some(tag => 
+        // Look in both the relatedConcepts array and in metadata.tags if it exists
+        r.relatedConcepts?.includes(tag) || 
+        (r.metadata && r.metadata.tags && Array.isArray(r.metadata.tags) && 
+        (r.metadata.tags as string[]).includes(tag))
+      )
+    );
+  }
+
+  /**
+   * Get all categories in the knowledge graph
+   */
+  public getCategories(): string[] {
+    const categories = new Set<string>();
+    
+    // Add concept categories
+    this.getAllConcepts().forEach(c => c.category && categories.add(c.category));
+    
+    // Add principle categories
+    this.getAllPrinciples().forEach(p => p.category && categories.add(p.category));
+    
+    // Add framework categories
+    this.getAllFrameworks().forEach(f => f.category && categories.add(f.category));
+    
+    // Add research categories
+    const allResearch = this.getAllResearch();
+    allResearch.forEach(r => r.category && categories.add(r.category));
+    // Also check for domain in metadata
+    allResearch.forEach(r => {
+      if (r.metadata && r.metadata.domain) {
+        categories.add(r.metadata.domain as string);
+      }
+    });
+    
+    return Array.from(categories);
   }
 } 

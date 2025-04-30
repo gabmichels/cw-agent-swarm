@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import * as serverQdrant from '../../../server/qdrant';
 import { MemoryRecord } from '../../../server/qdrant';
-import { ImportanceLevel } from '../../../agents/chloe/memory-tagger';
+import { ImportanceLevel } from '../../../constants/memory';
 
 export const runtime = 'nodejs';
 

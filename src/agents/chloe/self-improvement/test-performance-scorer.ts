@@ -13,10 +13,10 @@ async function demonstratePerformanceScorer() {
       id: "sg1", 
       description: "Query the database", 
       priority: 1, 
-      status: "completed" 
+      status: "complete" 
     }],
     reasoning: "Need to analyze sales trends",
-    status: "completed",
+    status: "complete",
     wasCorrected: true,
     correctionCategory: "missed_context",
     correctionNotes: ["You missed the date range specification"],

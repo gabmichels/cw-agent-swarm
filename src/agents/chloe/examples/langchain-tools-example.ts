@@ -8,8 +8,8 @@ import { StructuredTool } from '@langchain/core/tools';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { ChatOpenAI } from '@langchain/openai';
 import { ChatPromptTemplate, MessagesPlaceholder } from '@langchain/core/prompts';
-import { ChloeAgent } from '../agent';
-import { createLangChainCognitiveTools } from '../tools/cognitiveTools';
+import { ChloeAgent } from '../../chloe'; // Import from chloe directory
+import { MemoryRetrievalToolLC, WorkingMemoryToolLC } from '../tools/cognitiveTools';
 
 async function runAgentWithCognitiveTool() {
   try {
@@ -19,11 +19,21 @@ async function runAgentWithCognitiveTool() {
     await chloeAgent.initialize();
     console.log('Chloe agent initialized');
 
-    // Get LangChain-compatible tools
-    const tools = createLangChainCognitiveTools(
-      chloeAgent.getCognitiveMemory(),
-      chloeAgent.getKnowledgeGraph()
-    );
+    // Get cognitive memory 
+    const cognitiveMemory = chloeAgent.getCognitiveMemory();
+
+    // Check if memory systems are initialized
+    if (!cognitiveMemory) {
+      console.error('Cognitive memory systems not initialized');
+      return;
+    }
+
+    // Create only the memory tools without the knowledge graph tools
+    // to avoid type incompatibilities
+    const tools = {
+      memoryRetrieval: new MemoryRetrievalToolLC(cognitiveMemory),
+      workingMemory: new WorkingMemoryToolLC(cognitiveMemory)
+    };
 
     // Initialize LLM
     const llm = new ChatOpenAI({
@@ -55,7 +65,7 @@ Use the available tools to help retrieve information and manage working memory.`
     });
 
     // Add a test memory to retrieve
-    await chloeAgent.getCognitiveMemory().addEpisodicMemory(
+    await cognitiveMemory.addEpisodicMemory(
       "Meeting with marketing team about Q3 campaign planning",
       { 
         importance: "high",

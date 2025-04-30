@@ -155,7 +155,7 @@ async function getRecentTasks(
         if (taskIdMatch && goalMatch) {
           const taskId = taskIdMatch[1];
           const goal = goalMatch[1].trim();
-          const status = statusMatch ? statusMatch[1].toLowerCase() as 'completed' | 'failed' : 'completed';
+          const status = statusMatch ? statusMatch[1].toLowerCase() as 'complete' | 'failed' : 'complete';
           
           // Create a minimal task object with the extracted information
           recentTasks.push({
@@ -230,9 +230,9 @@ export async function testWeeklySelfImprovement(): Promise<SelfImprovementResult
   const sampleTasks: PlannedTask[] = [
     {
       goal: "Find the latest sales figures",
-      subGoals: [{ id: "sg1", description: "Query the database", priority: 1, status: "completed" }],
-      reasoning: "Need to analyze sales trends",
-      status: "completed",
+      subGoals: [{ id: "sg1", description: "Query the database", priority: 1, status: "complete" }],
+      reasoning: "Analyzing sales data is important for market research",
+      status: "complete",
       wasCorrected: true,
       correctionCategory: "missed_context",
       correctionNotes: ["You missed the date range specification"],
@@ -241,9 +241,9 @@ export async function testWeeklySelfImprovement(): Promise<SelfImprovementResult
     },
     {
       goal: "Schedule team meeting",
-      subGoals: [{ id: "sg1", description: "Check availability", priority: 1, status: "completed" }],
-      reasoning: "Need to align on project goals",
-      status: "completed",
+      subGoals: [{ id: "sg1", description: "Check availability", priority: 1, status: "complete" }],
+      reasoning: "Need to know team member availability",
+      status: "complete",
       wasCorrected: false,
       needsClarification: true,
       clarificationQuestions: ["What time zone should I use?"],

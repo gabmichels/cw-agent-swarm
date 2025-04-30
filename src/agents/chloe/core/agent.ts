@@ -38,6 +38,25 @@ export interface ChloeAgentOptions {
   config?: Partial<AgentConfig>;
 }
 
+// Fix the ChloeAgent interface to match IAgent interface requirements
+export interface ChloeAgent {
+  initialize(): Promise<void>;
+  getModel(): ChatOpenAI | null;
+  getMemory(): ChloeMemory | null; 
+  getTaskLogger(): TaskLogger | null;
+  notify(message: string): void;
+  planAndExecute(goal: string, options?: PlanAndExecuteOptions): Promise<PlanAndExecuteResult>;
+  runDailyTasks(): Promise<void>;
+  runWeeklyReflection(): Promise<string>; 
+  getReflectionManager(): ReflectionManager | null;
+  getPlanningManager(): PlanningManager | null;
+  getKnowledgeGapsManager(): KnowledgeGapsManager | null;  
+  getToolManager(): ToolManager | null;
+  getTasksWithTag?(tag: string): Promise<any[]>;
+  queueTask?(task: any): Promise<any>;
+  scheduleTask?(task: any): void;
+}
+
 /**
  * ChloeAgent class implements a marketing assistant agent using a modular architecture
  */
@@ -241,7 +260,11 @@ export class ChloeAgent implements IAgent {
       
       try {
         // Process directly with the model using the persona's system prompt
-        const response = await this.model!.invoke(
+        if (!this.model) {
+          throw new Error('Model not initialized');
+        }
+        
+        const response = await this.model.invoke(
           `${this.config.systemPrompt}\n\nUser: ${message}`
         );
         
@@ -259,11 +282,11 @@ export class ChloeAgent implements IAgent {
       }
       
       // Use getters which throw if manager is null
-      const thoughtManager = this.getThoughtManager();
       const memoryManager = this.getMemoryManager();
+      const thoughtManager = this.getThoughtManager();
       const taskLogger = this.taskLogger;
       
-      if (!thoughtManager || !memoryManager || !taskLogger) {
+      if (!memoryManager || !thoughtManager || !taskLogger) {
         throw new Error('Required managers not initialized');
       }
       
@@ -288,7 +311,7 @@ export class ChloeAgent implements IAgent {
             console.log('Intent router successfully processed the request');
             
             // Store the user message in memory
-            await this.getMemoryManager().addMemory(
+            await memoryManager.addMemory(
               message,
               ChloeMemoryType.MESSAGE, // This is a user chat message
               ImportanceLevel.MEDIUM,
@@ -297,7 +320,7 @@ export class ChloeAgent implements IAgent {
             );
             
             // Store the agent's response in memory
-            await this.getMemoryManager().addMemory(
+            await memoryManager.addMemory(
               intentResult.response,
               ChloeMemoryType.MESSAGE, // This is an agent chat message that will be displayed
               ImportanceLevel.MEDIUM,
@@ -321,8 +344,8 @@ export class ChloeAgent implements IAgent {
         throw new Error('Model not initialized');
       }
       
-      // Get relevant memory context
-      const rawMemoryContext = await this.getMemoryManager().getRelevantMemories(message, 5);
+      // Get relevant memory context - we know memoryManager is not null here
+      const rawMemoryContext = await memoryManager.getRelevantMemories(message, 5);
       const memoryContextString = Array.isArray(rawMemoryContext)
         ? rawMemoryContext.map((entry: string | MemoryEntry) => {
             if (typeof entry === 'string') {
@@ -367,8 +390,9 @@ Be very detailed about what the structure and content of the document would look
       const response = await this.model.invoke(contextPrompt);
       const responseText = response.content.toString();
       
+      // We've already verified memoryManager is not null above
       // Store the user message in memory
-      await this.getMemoryManager().addMemory(
+      await memoryManager.addMemory(
         message,
         ChloeMemoryType.MESSAGE,
         ImportanceLevel.MEDIUM,
@@ -377,7 +401,7 @@ Be very detailed about what the structure and content of the document would look
       );
       
       // Store the response in memory
-      await this.getMemoryManager().addMemory(
+      await memoryManager.addMemory(
         responseText,
         ChloeMemoryType.MESSAGE,
         ImportanceLevel.MEDIUM,
@@ -417,7 +441,7 @@ Be very detailed about what the structure and content of the document would look
         await this.initialize();
       }
       
-      // Use getters
+      // Use getters with null checks
       const memoryManager = this.getMemoryManager();
       const planningManager = this.getPlanningManager();
       const marketScannerManager = this.getMarketScannerManager();
@@ -432,14 +456,10 @@ Be very detailed about what the structure and content of the document would look
         timestamp: new Date().toISOString()
       });
       
-      // First run a market scan to gather fresh data
-      await this.getMarketScannerManager().summarizeTrends();
-      
-      // Run the daily tasks
-      await this.getPlanningManager().runDailyTasks();
-      
-      // Run a daily performance review
-      await this.getReflectionManager().runPerformanceReview(PerformanceReviewType.DAILY);
+      // Each variable has been checked for null above, so we can safely use them
+      await marketScannerManager.summarizeTrends();
+      await planningManager.runDailyTasks();
+      await reflectionManager.runPerformanceReview(PerformanceReviewType.DAILY);
       
       // Send a daily summary to Discord
       await this.sendDailySummaryToDiscord();
@@ -465,17 +485,15 @@ Be very detailed about what the structure and content of the document would look
         await this.initialize();
       }
       
-      // Use getter
       const reflectionManager = this.getReflectionManager();
       
       if (!reflectionManager) {
         throw new Error('Reflection manager not initialized');
       }
       
-      // Run the weekly reflection
-      const reflection = await this.getReflectionManager().runWeeklyReflection();
+      // We've checked that reflectionManager is not null
+      const reflection = await reflectionManager.runWeeklyReflection();
       
-      // Notify about the reflection
       this.notify('Weekly reflection completed.');
       
       return reflection;
@@ -494,15 +512,14 @@ Be very detailed about what the structure and content of the document would look
         await this.initialize();
       }
       
-      // Use getter
       const reflectionManager = this.getReflectionManager();
       
       if (!reflectionManager) {
         throw new Error('Reflection manager not initialized');
       }
       
-      // Run the reflection
-      return await this.getReflectionManager().reflect(question);
+      // reflectionManager is not null at this point
+      return await reflectionManager.reflect(question);
     } catch (error) {
       console.error('Error during reflection:', error);
       return `Error during reflection: ${error}`;
@@ -518,7 +535,6 @@ Be very detailed about what the structure and content of the document would look
         await this.initialize();
       }
       
-      // Use getters
       const toolManager = this.getToolManager();
       const memoryManager = this.getMemoryManager();
       const reflectionManager = this.getReflectionManager();
@@ -527,11 +543,13 @@ Be very detailed about what the structure and content of the document would look
         throw new Error('Required managers not initialized');
       }
       
+      // From here on, all managers are guaranteed to be non-null
+      
       // Get the last day's activities from memory
       const oneDayAgo = new Date();
       oneDayAgo.setDate(oneDayAgo.getDate() - 1);
       
-      const chloeMemory = this.getMemoryManager().getChloeMemory();
+      const chloeMemory = memoryManager.getChloeMemory();
       if (!chloeMemory) {
         throw new Error('ChloeMemory not available');
       }
@@ -554,17 +572,14 @@ Be very detailed about what the structure and content of the document would look
       const dailySummary = `Daily Summary\\n\\n${memories ? memories.map((memory: MemoryEntry) => 
         `• ${memory.content} [Type: ${memory.type}]`).join('\\n') : 'No activities recorded.'}\\n\\n${insightsText}`;
       
-      // Ensure toolManager is available before using it (added getter usage earlier)
-      const notifyTool = await toolManager?.getTool('notify_discord');
+      // Get the notify tool 
+      const notifyTool = await toolManager.getTool('notify_discord');
 
       // Send the daily summary to Discord
       if (notifyTool && 'execute' in notifyTool && typeof notifyTool.execute === 'function') {
         await notifyTool.execute({ message: dailySummary });
       } else {
-        // Fallback or log warning if notify tool is not available/executable
         console.warn('notify_discord tool not available or cannot be executed.');
-        // Optionally use the direct notify method as a fallback
-        // this.notify(dailySummary);
       }
 
       return true;
@@ -651,57 +666,50 @@ Be very detailed about what the structure and content of the document would look
   /**
    * Get the memory manager
    */
-  getMemoryManager(): MemoryManager {
-    if (!this.memoryManager) throw new Error("MemoryManager not initialized");
-    return this.memoryManager;
+  getMemoryManager(): MemoryManager | null {
+    return this.memoryManager || null;
   }
   
   /**
    * Get the tool manager
    */
-  getToolManager(): ToolManager {
-    if (!this.toolManager) throw new Error("ToolManager not initialized");
-    return this.toolManager;
+  getToolManager(): ToolManager | null {
+    return this.toolManager || null;
   }
   
   /**
    * Get the planning manager
    */
-  getPlanningManager(): PlanningManager {
-    if (!this.planningManager) throw new Error("PlanningManager not initialized");
-    return this.planningManager;
+  getPlanningManager(): PlanningManager | null {
+    return this.planningManager || null;
   }
   
   /**
    * Get the reflection manager
    */
-  getReflectionManager(): ReflectionManager {
-    if (!this.reflectionManager) throw new Error("ReflectionManager not initialized");
-    return this.reflectionManager;
+  getReflectionManager(): ReflectionManager | null {
+    return this.reflectionManager || null;
   }
   
   /**
    * Get the knowledge gaps manager
    */
-  getKnowledgeGapsManager(): KnowledgeGapsManager {
-    if (!this.knowledgeGapsManager) throw new Error("KnowledgeGapsManager not initialized");
-    return this.knowledgeGapsManager;
+  getKnowledgeGapsManager(): KnowledgeGapsManager | null {
+    return this.knowledgeGapsManager || null;
   }
   
   /**
    * Get the thought manager
    */
-  getThoughtManager(): ThoughtManager {
-    if (!this.thoughtManager) throw new Error("ThoughtManager not initialized");
-    return this.thoughtManager;
+  getThoughtManager(): ThoughtManager | null {
+    return this.thoughtManager || null;
   }
   
   /**
    * Get the market scanner manager
    */
-  getMarketScannerManager(): MarketScannerManager {
-    if (!this.marketScannerManager) throw new Error("MarketScannerManager not initialized");
-    return this.marketScannerManager;
+  getMarketScannerManager(): MarketScannerManager | null {
+    return this.marketScannerManager || null;
   }
   
   /**

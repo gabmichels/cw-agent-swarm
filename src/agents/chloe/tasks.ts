@@ -240,7 +240,7 @@ export async function runMemoryConsolidation(agent: ChloeAgent): Promise<boolean
     
     // Find concept nodes in knowledge graph
     console.log('🔍 Finding important concepts in knowledge graph...');
-    const conceptNodes = await knowledgeGraph.findNodes('', ['concept'], 20);
+    const conceptNodes = knowledgeGraph.getAllConcepts().slice(0, 20);
     console.log(`📊 Found ${conceptNodes.length} concept nodes`);
     
     // Infer new connections for top concept nodes
@@ -248,23 +248,25 @@ export async function runMemoryConsolidation(agent: ChloeAgent): Promise<boolean
     let totalInferences = 0;
     
     for (const node of conceptNodes) {
-      const inferences = await knowledgeGraph.inferNewEdges(node.id, 0.7);
+      console.log(`🔗 Processing concept "${node.name}"`);
       
-      if (inferences.length > 0) {
-        console.log(`🔗 Found ${inferences.length} potential new connections for "${node.label}"`);
+      const relatedConcepts = knowledgeGraph.getAllConcepts()
+        .filter(c => c.id !== node.id && c.category === node.category)
+        .slice(0, 5);
+      
+      if (relatedConcepts.length > 0) {
+        console.log(`🔗 Found ${relatedConcepts.length} potentially related concepts for "${node.name}"`);
         
-        // Add high confidence inferences automatically
-        for (const inference of inferences) {
-          if (inference.confidence > 0.8) {
-            await knowledgeGraph.addEdge(
-              inference.source,
-              inference.target,
-              inference.type,
-              inference.confidence
-            );
-            
-            totalInferences++;
-          }
+        for (const relatedConcept of relatedConcepts) {
+          knowledgeGraph.addRelationship({
+            source: node.id,
+            target: relatedConcept.id,
+            type: "related_to",
+            description: `${node.name} is related to ${relatedConcept.name}`,
+            strength: 0.7
+          });
+          
+          totalInferences++;
         }
       }
     }

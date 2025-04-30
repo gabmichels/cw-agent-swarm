@@ -73,10 +73,12 @@ export abstract class KnowledgeBootstrapper {
           this.knowledgeGraph.addPrinciple({
             name: principle.name,
             description: principle.description,
-            examples: principle.examples,
-            applications: principle.applications,
             category: source.category,
-            importance: principle.importance
+            importance: principle.importance,
+            metadata: {
+              examples: principle.examples,
+              applications: principle.applications
+            }
           });
         } catch (error) {
           console.error(`Error adding principle ${principle.name}:`, error);
@@ -92,9 +94,13 @@ export abstract class KnowledgeBootstrapper {
         this.knowledgeGraph.addFramework({
           name: source.name,
           description: framework.description,
-          steps: framework.steps,
-          applications: framework.applications,
-          relatedConcepts: [],
+          steps: framework.steps.map(step => ({
+            id: `step_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+            name: step.name,
+            description: step.description,
+            order: step.order
+          })),
+          principles: [],
           category: source.category
         });
       } catch (error) {
@@ -107,11 +113,13 @@ export abstract class KnowledgeBootstrapper {
       try {
         this.knowledgeGraph.addResearch({
           title: source.name,
-          content: source.content,
-          source: source.author || 'Unknown',
-          domain: source.category,
-          tags: source.subcategory ? [source.category, source.subcategory] : [source.category],
+          abstract: source.content.substring(0, 500),
+          findings: [],
+          authors: [source.author || 'Unknown'],
           year: source.year || new Date().getFullYear(),
+          source: source.author || 'Unknown',
+          category: source.category,
+          relatedConcepts: [],
           relevance: 0.9
         });
       } catch (error) {

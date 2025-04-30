@@ -9,6 +9,7 @@ import { ChloeMemory } from '../memory';
 import { TaskLogger } from '../task-logger';
 import { IManager, BaseManagerOptions } from '../../../lib/shared/types/agentTypes';
 import { logger } from '../../../lib/logging';
+import { ImportanceLevel, MemorySource } from '../../../constants/memory';
 
 /**
  * Options for initializing the knowledge gaps manager
@@ -164,8 +165,8 @@ Format each gap as a separate item with these sections.`;
       await this.memory.addMemory(
         `Knowledge Gaps Analysis: ${analysis.substring(0, 200)}...`,
         'knowledge_gaps',
-        'high',
-        'system',
+        ImportanceLevel.HIGH,
+        MemorySource.SYSTEM,
         undefined,
         ['knowledge_gaps', 'learning_needs']
       );
@@ -254,10 +255,10 @@ Format each gap as a separate item with these sections.`;
       await this.memory.addMemory(
         `Knowledge Gap: ${gap}`,
         'knowledge_gap',
-        'high',
-        'system',
-        `Category: ${category}`,
-        ['knowledge_gap', 'learning_need', category.toLowerCase()]
+        ImportanceLevel.HIGH,
+        MemorySource.SYSTEM,
+        'Identified Knowledge Gap',
+        ['knowledge_gap', 'learning_opportunity', category.toLowerCase()]
       );
       
       // Notify about the gap if notification function is available
@@ -289,8 +290,9 @@ Format each gap as a separate item with these sections.`;
       
       // Extract the gap descriptions
       return gaps.map(gap => {
-        const match = gap.match(/Knowledge Gap: (.*)/);
-        return match ? match[1] : gap;
+        const content = typeof gap === 'string' ? gap : gap.content || '';
+        const match = content.match(/Knowledge Gap: (.*)/);
+        return match ? match[1] : content;
       });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -345,10 +347,14 @@ Format each gap as a separate item with these sections.`;
       
       // Filter out resolved gaps and extract descriptions
       return gaps
-        .filter(gap => !gap.includes('RESOLVED'))
+        .filter(gap => {
+          const content = typeof gap === 'string' ? gap : gap.content || '';
+          return !content.includes('RESOLVED');
+        })
         .map(gap => {
-          const match = gap.match(/Knowledge Gap: (.*)/);
-          return match ? match[1] : gap;
+          const content = typeof gap === 'string' ? gap : gap.content || '';
+          const match = content.match(/Knowledge Gap: (.*)/);
+          return match ? match[1] : content;
         });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -409,25 +415,31 @@ Please provide a concise summary that:
       
       // Get the gap from memory
       const gaps = await this.memory.getRelevantMemories('knowledge_gap', 50);
-      const gap = gaps.find(g => g.includes(id));
+      const gap = gaps.find(g => {
+        const content = typeof g === 'string' ? g : g.content || '';
+        return content.includes(id);
+      });
       
       if (!gap) {
         return false;
       }
       
+      // Get the gap content
+      const gapContent = typeof gap === 'string' ? gap : gap.content || '';
+      
       // Mark the gap as resolved in memory
       await this.memory.addMemory(
-        `RESOLVED: ${gap}\nResolution: ${resolution}`,
+        `Knowledge Gap: ${gapContent} | RESOLVED: ${resolution}`,
         'knowledge_gap_resolution',
-        'high',
-        'system',
-        undefined,
-        ['knowledge_gap', 'resolution']
+        ImportanceLevel.HIGH,
+        MemorySource.SYSTEM,
+        'Resolved Knowledge Gap',
+        ['knowledge_gap', 'resolved', 'learning']
       );
       
       // Notify about the resolution if notification function is available
       if (this.notifyFunction) {
-        await this.notifyFunction(`Knowledge gap resolved: ${gap}`);
+        await this.notifyFunction(`Knowledge gap resolved: ${gapContent}`);
       }
       
       return true;

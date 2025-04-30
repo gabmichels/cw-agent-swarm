@@ -745,15 +745,15 @@ If you find valuable knowledge, analyze it and return a structured JSON with:
     this.knowledgeGraph.addPrinciple({
       name: properties.name,
       description: properties.description,
-      examples: properties.examples,
-      applications: properties.applications,
       category: item.suggestedCategory,
       importance: properties.importance,
+      // Store examples in metadata to maintain the information
       metadata: {
         sourceType: item.sourceType,
         sourceReference: item.sourceReference,
         flaggedItemId: item.id,
-        addedAt: new Date().toISOString()
+        addedAt: new Date().toISOString(),
+        examples: properties.examples
       }
     });
     
@@ -775,9 +775,14 @@ If you find valuable knowledge, analyze it and return a structured JSON with:
     this.knowledgeGraph.addFramework({
       name: properties.name,
       description: properties.description,
-      steps: properties.steps,
-      applications: properties.applications,
-      relatedConcepts: [],
+      // Ensure each step has an id
+      steps: properties.steps.map(step => ({
+        id: `step_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+        name: step.name,
+        description: step.description,
+        order: step.order
+      })),
+      principles: [], // Empty principles array
       category: item.suggestedCategory,
       metadata: {
         sourceType: item.sourceType,
@@ -804,18 +809,21 @@ If you find valuable knowledge, analyze it and return a structured JSON with:
     // Add the research to the knowledge graph
     this.knowledgeGraph.addResearch({
       title: properties.title,
-      content: properties.content,
-      source: properties.source,
-      domain: item.suggestedCategory,
-      tags: properties.tags,
+      abstract: properties.content || "", // Use content as abstract
+      findings: [], // Initialize empty findings
+      authors: [],  // Initialize empty authors
       year: properties.year,
+      source: properties.source,
+      relatedConcepts: [], // Empty related concepts
+      category: item.suggestedCategory,
       relevance: properties.relevance,
       url: properties.url,
       metadata: {
         sourceType: item.sourceType,
         sourceReference: item.sourceReference,
         flaggedItemId: item.id,
-        addedAt: new Date().toISOString()
+        addedAt: new Date().toISOString(),
+        originalContent: properties.content // Store original content in metadata
       }
     });
     
