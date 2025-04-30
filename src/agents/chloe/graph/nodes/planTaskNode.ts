@@ -10,6 +10,8 @@ import { KnowledgeGraphManager, KnowledgeNode } from "../../knowledge/graphManag
 import { StrategicToolPlanner, PriorityAssessment, formatPriorityLevel } from "../../strategy/strategicPlanner";
 // Import feedback loop functionality
 import { getTaskBehavioralModifiers, recordBehaviorAdjustment } from "../../self-improvement/feedbackLoop";
+// Import effort estimator
+import { estimateEffortAndUrgency, EffortMetadata } from "../../strategy/taskEffortEstimator";
 
 // Extend the PlannedTask interface to include new properties
 declare module "../../human-collaboration" {
@@ -282,6 +284,49 @@ Only include the "children" array for sub-goals that should be broken down furth
       }
     }
     
+    // NEW: Estimate effort, urgency, and deadline for the task
+    try {
+      // Get effort metadata
+      const effortMetadata = await estimateEffortAndUrgency(planningTask as PlanningTask, {
+        model,
+        memory,
+        useHeuristics: true
+      });
+      
+      // Attach effort metadata to task
+      if (!planningTask.metadata) {
+        planningTask.metadata = {};
+      }
+      
+      planningTask.metadata.effort = effortMetadata;
+      
+      // Log the effort estimation
+      taskLogger.logAction("Estimated task effort", {
+        effort: effortMetadata.estimatedEffort,
+        urgency: effortMetadata.urgency,
+        deadline: effortMetadata.suggestedDeadline,
+        estimatedHours: effortMetadata.estimatedHours
+      });
+    } catch (effortError) {
+      taskLogger.logAction("Error estimating task effort", {
+        error: String(effortError)
+      });
+      
+      // Set default effort values if estimation fails
+      if (!planningTask.metadata) {
+        planningTask.metadata = {};
+      }
+      
+      // Create simple fallback estimation based on subgoal count
+      const fallbackEffort: EffortMetadata = {
+        estimatedEffort: subGoals.length > 4 ? 'high' : subGoals.length > 2 ? 'medium' : 'low',
+        urgency: taskPriority.priorityScore > 75 ? 'high' : taskPriority.priorityScore > 40 ? 'medium' : 'low',
+        reasoningForEstimate: "Fallback estimation based on sub-goal count"
+      };
+      
+      planningTask.metadata.effort = fallbackEffort;
+    }
+    
     // Check if the task requires approval
     const requiresApproval = HumanCollaboration.checkIfApprovalRequired(planningTask);
     // Also require approval for very high priority tasks
@@ -359,7 +404,11 @@ Only include the "children" array for sub-goals that should be broken down furth
       subGoals: subGoals.length,
       hasHierarchy: subGoals.some(sg => sg.children && sg.children.length > 0),
       reasoning: planData.reasoning.substring(0, 100) + "...",
-      priorityScore: taskPriority.priorityScore
+      priorityScore: taskPriority.priorityScore,
+      // Add effort details to logging
+      effort: planningTask.metadata?.effort?.estimatedEffort,
+      urgency: planningTask.metadata?.effort?.urgency,
+      deadline: planningTask.metadata?.effort?.suggestedDeadline
     });
     
     // Helper function to format sub-goals in a hierarchical way
@@ -373,12 +422,21 @@ Only include the "children" array for sub-goals that should be broken down furth
       }).join('\n');
     };
     
-    // Create messages for the plan, including priority level
+    // Create messages for the plan, including priority level and effort estimation
+    const effortMetadata = planningTask.metadata?.effort as EffortMetadata;
+    const effortInfo = effortMetadata ? 
+      `\nEstimated Effort: ${effortMetadata.estimatedEffort.toUpperCase()}` +
+      `\nUrgency: ${effortMetadata.urgency.toUpperCase()}` +
+      (effortMetadata.suggestedDeadline ? `\nSuggested Deadline: ${effortMetadata.suggestedDeadline}` : '') +
+      (effortMetadata.estimatedHours ? `\nEstimated Hours: ${effortMetadata.estimatedHours}` : '') :
+      '';
+    
     const planMessage = new AIMessage({
       content: `I've analyzed your goal and created a plan with ${subGoals.length} main sub-goals:\n\n` +
         `Strategic Priority: ${priorityLevel} (${taskPriority.priorityScore}/100)\n` +
-        `Priority Factors: ${taskPriority.priorityTags.join(", ")}\n\n` +
-        formatSubGoalsHierarchy(subGoals)
+        `Priority Factors: ${taskPriority.priorityTags.join(", ")}` +
+        effortInfo + 
+        `\n\n${formatSubGoalsHierarchy(subGoals)}`
     });
     
     // After successful planning, add this task to the knowledge graph
@@ -393,7 +451,9 @@ Only include the "children" array for sub-goals that should be broken down furth
           createdAt: new Date().toISOString(),
           subGoalCount: subGoals.length,
           priorityScore: taskPriority.priorityScore,
-          priorityTags: taskPriority.priorityTags
+          priorityTags: taskPriority.priorityTags,
+          // Add effort metadata to graph node as well
+          effort: planningTask.metadata?.effort
         }
       });
       
@@ -433,7 +493,11 @@ Only include the "children" array for sub-goals that should be broken down furth
         knowledgeGraphUpdated: true,
         relatedNodesCount: relatedNodes.length,
         priorityScore: taskPriority.priorityScore,
-        priorityLevel
+        priorityLevel,
+        // Include effort metadata in trace
+        effortLevel: planningTask.metadata?.effort?.estimatedEffort,
+        urgencyLevel: planningTask.metadata?.effort?.urgency,
+        suggestedDeadline: planningTask.metadata?.effort?.suggestedDeadline
       }
     };
     
