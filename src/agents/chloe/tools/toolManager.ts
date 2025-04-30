@@ -7,6 +7,10 @@
 import { BaseTool } from '../../../lib/shared/types/agentTypes';
 import { ChloeMemory } from '../memory';
 import { ImportanceLevel, MemorySource } from '../../../constants/memory';
+import { logger } from '../../../lib/logging';
+import { wrapToolsWithSmartCapabilities, findBestToolForTask, createToolCombination } from './toolWrapper';
+import { getToolLearner } from './toolLearning';
+import { getToolPerformanceTracker } from './toolPerformanceTracker';
 
 /**
  * Standard tool execution result structure
@@ -34,10 +38,15 @@ export interface ToolExecutionOptions {
 }
 
 /**
- * Tool Manager for handling tool registration, execution and failure handling
+ * Main tool management class that handles tool registration, selection,
+ * and execution with our performance tracking and learning capabilities.
+ * This replaces the previous intentRouter.ts functionality with a more
+ * modern approach leveraging LangChain's agent planning capabilities.
  */
 export class ToolManager {
   private tools: Map<string, BaseTool> = new Map();
+  private taskTypeMap: Map<string, string[]> = new Map();
+  private wrappedTools: Map<string, BaseTool> = new Map();
   private memory: ChloeMemory;
   
   constructor(memory: ChloeMemory) {
@@ -46,14 +55,186 @@ export class ToolManager {
   
   /**
    * Register a tool with the manager
+   * @param tool The tool to register
+   * @param taskTypes Array of task types this tool can handle
    */
-  registerTool(tool: BaseTool): void {
-    if (this.tools.has(tool.name)) {
-      console.warn(`Tool ${tool.name} already exists and will be overwritten`);
+  public registerTool(tool: BaseTool, taskTypes: string[] = ['general']): void {
+    try {
+      // Store in our registry
+      this.tools.set(tool.name, tool);
+      
+      // Update task type mappings
+      taskTypes.forEach(taskType => {
+        const tools = this.taskTypeMap.get(taskType) || [];
+        if (!tools.includes(tool.name)) {
+          tools.push(tool.name);
+          this.taskTypeMap.set(taskType, tools);
+        }
+      });
+      
+      // Create smart wrapped version
+      const wrappedTool = wrapToolsWithSmartCapabilities([tool], taskTypes[0])[0];
+      this.wrappedTools.set(tool.name, wrappedTool);
+      
+      logger.info(`Registered tool: ${tool.name} for task types: ${taskTypes.join(', ')}`);
+    } catch (error) {
+      logger.error(`Failed to register tool ${tool.name}:`, error);
     }
-    
-    this.tools.set(tool.name, tool);
-    console.log(`Registered tool: ${tool.name}`);
+  }
+  
+  /**
+   * Get all registered tools (wrapped with smart capabilities)
+   * @returns Array of all registered tools
+   */
+  public getAllTools(): BaseTool[] {
+    return Array.from(this.wrappedTools.values());
+  }
+  
+  /**
+   * Get tools that can handle a specific task type
+   * @param taskType The task type
+   * @returns Array of tools for that task
+   */
+  public getToolsForTaskType(taskType: string): BaseTool[] {
+    try {
+      const toolNames = this.taskTypeMap.get(taskType) || [];
+      
+      // If no specific tools for this task type, fall back to general tools
+      if (toolNames.length === 0 && taskType !== 'general') {
+        return this.getToolsForTaskType('general');
+      }
+      
+      return toolNames
+        .map(name => this.wrappedTools.get(name))
+        .filter(Boolean) as BaseTool[];
+    } catch (error) {
+      logger.error(`Error getting tools for task type ${taskType}:`, error);
+      return [];
+    }
+  }
+  
+  /**
+   * Find the best tool for a specific task
+   * @param taskType The task type
+   * @param contextTags Optional context tags
+   * @returns The best tool or null if none available
+   */
+  public getBestToolForTask(taskType: string, contextTags: string[] = []): BaseTool | null {
+    try {
+      const tools = this.getToolsForTaskType(taskType);
+      if (tools.length === 0) {
+        return null;
+      }
+      
+      return findBestToolForTask(tools, taskType, contextTags);
+    } catch (error) {
+      logger.error(`Error finding best tool for task ${taskType}:`, error);
+      return null;
+    }
+  }
+  
+  /**
+   * Create a tool combination for a specific task
+   * @param taskType The task type
+   * @param toolNames Array of tool names to combine
+   * @returns Combined tool
+   */
+  public createToolCombination(taskType: string, toolNames: string[]): BaseTool | null {
+    try {
+      const tools = toolNames
+        .map(name => this.wrappedTools.get(name))
+        .filter(Boolean) as BaseTool[];
+      
+      if (tools.length < 2) {
+        throw new Error(`Need at least 2 tools to create a combination, got ${tools.length}`);
+      }
+      
+      return createToolCombination(tools, taskType);
+    } catch (error) {
+      logger.error(`Error creating tool combination:`, error);
+      return null;
+    }
+  }
+  
+  /**
+   * Get tool combination suggestions for a task type
+   * @param taskType The task type
+   * @returns Array of tool combination options
+   */
+  public getToolCombinationSuggestions(taskType: string): BaseTool[] {
+    try {
+      const toolLearner = getToolLearner();
+      const combos = toolLearner.suggestToolCombos(taskType);
+      
+      // Convert each combo string (comma-separated tool names) to a tool combination
+      return combos
+        .map(comboString => {
+          const toolNames = comboString.split(',');
+          return this.createToolCombination(taskType, toolNames);
+        })
+        .filter(Boolean) as BaseTool[];
+    } catch (error) {
+      logger.error(`Error getting tool combination suggestions:`, error);
+      return [];
+    }
+  }
+  
+  /**
+   * Get tools sorted by performance
+   * @returns Array of tools sorted by performance
+   */
+  public getToolsSortedByPerformance(): BaseTool[] {
+    try {
+      const performanceTracker = getToolPerformanceTracker();
+      const records = performanceTracker.getAllPerformanceRecords();
+      
+      // Sort by success rate and minimum trials
+      const sortedRecords = records
+        .filter(record => record.totalRuns >= 5) // Require minimum trials
+        .sort((a, b) => b.successRate - a.successRate);
+      
+      // Map back to tools
+      return sortedRecords
+        .map(record => this.wrappedTools.get(record.toolName))
+        .filter(Boolean) as BaseTool[];
+    } catch (error) {
+      logger.error(`Error getting sorted tools:`, error);
+      return [];
+    }
+  }
+  
+  /**
+   * Execute a tool with performance tracking
+   * @param toolName Name of the tool to execute
+   * @param params Parameters for the tool
+   * @param taskType Optional task type
+   * @param contextTags Optional context tags
+   * @returns Result of tool execution
+   */
+  public async executeTool(
+    toolName: string,
+    params: Record<string, any>,
+    taskType: string = 'general',
+    contextTags: string[] = []
+  ): Promise<any> {
+    try {
+      const tool = this.wrappedTools.get(toolName);
+      if (!tool) {
+        throw new Error(`Tool not found: ${toolName}`);
+      }
+      
+      // Log the execution request
+      logger.info(`Executing tool ${toolName} for task type ${taskType}`);
+      
+      return await tool.execute(params);
+    } catch (error) {
+      logger.error(`Error executing tool ${toolName}:`, error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+        message: `Failed to execute tool ${toolName}: ${error instanceof Error ? error.message : String(error)}`
+      };
+    }
   }
   
   /**
@@ -64,16 +245,9 @@ export class ToolManager {
   }
   
   /**
-   * Get all registered tools
-   */
-  getAllTools(): BaseTool[] {
-    return Array.from(this.tools.values());
-  }
-  
-  /**
    * Execute a tool with standardized error handling and retries
    */
-  async executeTool(
+  async executeToolWithStandardErrorHandling(
     toolName: string, 
     params: Record<string, any>,
     options: ToolExecutionOptions = {}

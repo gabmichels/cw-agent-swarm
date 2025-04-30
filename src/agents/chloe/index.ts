@@ -99,4 +99,35 @@ declare global {
 }
 
 // Default export
-export default ChloeAgent; 
+export default ChloeAgent;
+
+// Initialize the new adaptive tool system in Chloe's startup process
+
+import { ChloeMemory } from './memory';
+import { initializeToolManager } from './tools/fixToolManagerSingleton';
+import { registerApifyTools } from './tools/apifyToolAdapters';
+
+// Add this to the agent setup function
+
+/**
+ * Initialize the adaptive tool intelligence system
+ */
+async function setupAdaptiveToolSystem(memory: ChloeMemory): Promise<void> {
+  try {
+    // Initialize the tool manager singleton with memory
+    initializeToolManager(memory);
+    
+    // Register Apify tools
+    registerApifyTools(memory);
+    
+    // Register other tools as needed
+    // ...
+    
+    console.log('Adaptive tool intelligence system initialized successfully');
+  } catch (error) {
+    console.error('Error initializing adaptive tool system:', error);
+  }
+}
+
+// Call this during Chloe's initialization
+// setupAdaptiveToolSystem(memory); 

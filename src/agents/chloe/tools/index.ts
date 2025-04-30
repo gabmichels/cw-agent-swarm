@@ -9,7 +9,6 @@ export interface SimpleTool {
 import { ChloeMemory } from '../memory';
 import { codaIntegration } from './coda';
 import { createMarketScanner, MarketScanner } from './marketScanner';
-import { IntentRouterTool as ActualIntentRouterTool } from './intentRouter';
 import { createApifyTools } from './apifyManager';
 
 /**
@@ -389,97 +388,6 @@ The signals have been saved to memory and can be retrieved using the search_memo
 }
 
 /**
- * Handles intent routing by classifying user input and directing to appropriate tools
- */
-export class IntentRouterTool implements SimpleTool {
-  name = 'intent_router';
-  description = 'Route intents to appropriate tools based on the input';
-  private actualTool: any;
-  private initialized: boolean = false;
-
-  constructor() {
-    console.log('IntentRouterTool wrapper constructor called');
-    
-    // Dynamically import the actual implementation to avoid circular dependencies
-    import('./intentRouter').then(module => {
-      const ActualTool = module.IntentRouterTool;
-      this.actualTool = new ActualTool();
-      this.initialized = true;
-      console.log('IntentRouterTool wrapper: actual implementation loaded successfully');
-    }).catch(error => {
-      console.error('Failed to load IntentRouterTool implementation:', error);
-    });
-  }
-
-  async _call(input: string): Promise<string> {
-    try {
-      console.log('IntentRouterTool wrapper _call method called with input:', input);
-      
-      // Check if the actual tool is loaded
-      if (!this.actualTool) {
-        console.log('Actual IntentRouterTool not loaded yet - waiting 500ms and retrying once');
-        // Wait a short time and check again (simple retry)
-        await new Promise(resolve => setTimeout(resolve, 500));
-        
-        if (!this.actualTool) {
-          console.warn("IntentRouterTool implementation still not loaded after waiting");
-          return "Intent routing is still initializing. Please try again in a moment.";
-        }
-      }
-      
-      console.log('Delegating to actual IntentRouterTool');
-      
-      // Call the execute method with proper error handling
-      try {
-        if (typeof this.actualTool.execute === 'function') {
-          console.log('Calling execute method on actual tool');
-          const result = await this.actualTool.execute({ input });
-          console.log('IntentRouter result type:', typeof result);
-          
-          if (result && typeof result === 'object') {
-            // Format the output based on the result structure
-            if (result.success) {
-              if (result.display) {
-                return result.display;
-              } else if (result.message) {
-                return result.message;
-              } else if (result.result) {
-                return typeof result.result === 'string' 
-                  ? result.result 
-                  : JSON.stringify(result.result);
-              }
-              return `Intent matched: ${result.intent || 'unknown'} (${Math.round((result.confidence || 0) * 100)}% confidence)`;
-            } else {
-              return result.message || result.display || 'Intent routing failed';
-            }
-          } else {
-            console.warn('Unexpected result format from execute method:', result);
-            return String(result);
-          }
-        } else {
-          console.error('execute method not available on actualTool');
-          throw new Error('Method not available: execute');
-        }
-      } catch (execError) {
-        console.error('Error executing IntentRouterTool.execute:', execError);
-        
-        // Fall back to _call method if execute fails
-        if (typeof this.actualTool._call === 'function') {
-          console.log('Falling back to _call method');
-          return await this.actualTool._call(input);
-        } else {
-          throw execError; // re-throw if no fallback
-        }
-      }
-    } catch (error) {
-      console.error('Error in IntentRouterTool wrapper:', error);
-      return `Error routing intent: ${error instanceof Error ? error.message : String(error)}`;
-    }
-  }
-}
-
-// Add temporary Coda test tools
-/**
  * Temporary tool to create a test Coda document
  */
 export class CreateCodaTestDocTool implements SimpleTool {
@@ -579,8 +487,6 @@ export const createChloeTools = (memory: ChloeMemory, model: any, discordWebhook
     notifyDiscord: new NotifyDiscordTool(discordWebhookUrl),
     codaDocument: new CodaDocumentTool(),
     marketScan: new MarketScanTool(),
-    intentRouter: new IntentRouterTool(), // Use the wrapper class instead of direct import
-    
     // Add the new test tools
     createCodaTestDoc: new CreateCodaTestDocTool(),
     readCodaPage: new ReadCodaPageTool(),

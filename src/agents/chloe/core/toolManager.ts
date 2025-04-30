@@ -9,7 +9,6 @@ import {
   IManager
 } from '../../../lib/shared/types/agentTypes';
 import { createChloeTools } from '../tools';
-import { IntentRouterTool } from '../tools/index';
 import { ToolCreationSystem } from '../tools/integration';
 
 /**
@@ -61,10 +60,6 @@ export class ToolManager implements IManager {
         this.registerTool(tool);
       }
 
-      // Add an intent router tool
-      const intentRouter = new IntentRouterTool();
-      this.registerTool(intentRouter);
-      
       // Log the initialization
       this.logAction('ToolManager initialized', {
         toolCount: Object.keys(this.tools).length,
