@@ -1,0 +1,233 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Hide scrollbar for Chrome, Safari and Opera */
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Hide scrollbar for IE, Edge and Firefox */
+.hide-scrollbar {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+}
+
+:root {
+  --foreground-rgb: 229, 231, 235;
+  --background-start-rgb: 17, 24, 39;
+  --background-end-rgb: 31, 41, 55;
+}
+
+.light {
+  --foreground-rgb: 0, 0, 0;
+  --background-start-rgb: 240, 240, 240;
+  --background-end-rgb: 255, 255, 255;
+}
+
+.dark {
+  --foreground-rgb: 229, 231, 235;
+  --background-start-rgb: 17, 24, 39;
+  --background-end-rgb: 31, 41, 55;
+}
+
+body {
+  color: rgb(var(--foreground-rgb));
+  background: linear-gradient(
+      to bottom,
+      transparent,
+      rgb(var(--background-end-rgb))
+    )
+    rgb(var(--background-start-rgb));
+}
+
+@layer components {
+  .btn {
+    @apply px-4 py-2 rounded font-medium transition-colors;
+  }
+  
+  .btn-primary {
+    @apply bg-indigo-600 text-white hover:bg-indigo-700 dark:bg-indigo-700 dark:hover:bg-indigo-800;
+  }
+  
+  .btn-secondary {
+    @apply bg-blue-600 text-white hover:bg-blue-700 dark:bg-blue-700 dark:hover:bg-blue-800;
+  }
+  
+  .btn-outline {
+    @apply border border-gray-300 hover:bg-gray-100 dark:border-gray-600 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300;
+  }
+  
+  .card {
+    @apply rounded-lg border border-gray-200 bg-white p-6 shadow-md dark:border-gray-700 dark:bg-gray-800 text-gray-800 dark:text-gray-200;
+  }
+}
+
+/* Add your custom CSS for markdown styling here */
+
+/* Markdown Styling */
+.markdown-content h1 {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: #f9fafb;
+  margin-top: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.markdown-content h2 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #f9fafb;
+  margin-top: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.markdown-content h3,
+.markdown-content h4,
+.markdown-content h5,
+.markdown-content h6 {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: #f9fafb;
+  margin-top: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.markdown-content p {
+  margin-bottom: 0.75rem;
+}
+
+.markdown-content a {
+  color: #a78bfa;
+  text-decoration: underline;
+}
+
+.markdown-content a:hover {
+  color: #c4b5fd;
+}
+
+.markdown-content strong {
+  font-weight: 600;
+  color: #c4b5fd;
+}
+
+.markdown-content em {
+  font-style: italic;
+  color: #d1d5db;
+}
+
+.markdown-content code {
+  background-color: #1f2937;
+  padding: 0.125rem 0.25rem;
+  border-radius: 0.25rem;
+  font-family: monospace;
+}
+
+.markdown-content pre {
+  background-color: #1f2937;
+  padding: 0.75rem;
+  border-radius: 0.375rem;
+  margin: 0.75rem 0;
+  overflow-x: auto;
+}
+
+.markdown-content pre code {
+  background-color: transparent;
+  padding: 0;
+  border-radius: 0;
+}
+
+.markdown-content ul {
+  list-style-type: disc;
+  margin: 0.75rem 0;
+  padding-left: 1.5rem;
+}
+
+.markdown-content ol {
+  list-style-type: decimal;
+  margin: 0.75rem 0;
+  padding-left: 1.5rem;
+}
+
+.markdown-content li {
+  margin: 0.25rem 0;
+}
+
+.markdown-content blockquote {
+  border-left: 4px solid #8b5cf6;
+  padding-left: 1rem;
+  color: #d1d5db;
+  margin: 0.75rem 0;
+}
+
+.markdown-content table {
+  border-collapse: collapse;
+  margin: 0.75rem 0;
+  width: 100%;
+}
+
+.markdown-content th,
+.markdown-content td {
+  border: 1px solid #4b5563;
+  padding: 0.5rem;
+}
+
+.markdown-content th {
+  background-color: #1f2937;
+} 
+
+/* Custom prose size utilities */
+.prose-xs {
+  font-size: 0.75rem;
+  line-height: 1.25rem;
+}
+
+.prose-xs h1 {
+  font-size: 1.2rem;
+  margin-top: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.prose-xs h2 {
+  font-size: 1.1rem;
+  margin-top: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.prose-xs h3,
+.prose-xs h4,
+.prose-xs h5,
+.prose-xs h6 {
+  font-size: 0.9rem;
+  margin-top: 0.5rem;
+  margin-bottom: 0.25rem;
+}
+
+.prose-xs p {
+  margin-bottom: 0.5rem;
+}
+
+.prose-xs ul,
+.prose-xs ol {
+  margin: 0.5rem 0;
+  padding-left: 1.25rem;
+}
+
+.prose-xs li {
+  margin: 0.125rem 0;
+}
+
+.prose-xs blockquote {
+  margin: 0.5rem 0;
+  padding-left: 0.75rem;
+}
+
+.prose-xs pre {
+  padding: 0.5rem;
+  margin: 0.5rem 0;
+}
+
+.prose-xs code {
+  padding: 0.1rem 0.2rem;
+  font-size: 0.7rem;
+} 

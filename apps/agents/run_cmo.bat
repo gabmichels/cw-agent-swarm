@@ -1,9 +1,0 @@
-@echo off
-echo Setting Python path...
-set PYTHONPATH=%CD%\..\..\
-echo PYTHONPATH=%PYTHONPATH%
-echo Installing dependencies...
-py -m pip install -U langchain-community langchain-openai
-echo Running CMO Agent...
-py main.py
-pause 

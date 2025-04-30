@@ -1,0 +1,83 @@
+{
+  "intents": [
+    {
+      "intent": "generate_content",
+      "patterns": [
+        "create content for {topic}",
+        "make a post about {topic}",
+        "write content on {topic}",
+        "generate marketing material for {topic}",
+        "need content ideas for {topic}"
+      ],
+      "action": "propose_content_ideas",
+      "description": "Generates marketing content ideas based on a topic",
+      "extractParams": true
+    },
+    {
+      "intent": "analyze_performance",
+      "patterns": [
+        "how did {metric} perform",
+        "review performance of {metric}",
+        "analyze {metric} results",
+        "evaluate {metric} data",
+        "performance insights for {metric}"
+      ],
+      "action": "reflect_on_performance",
+      "description": "Analyzes marketing performance metrics",
+      "extractParams": true
+    },
+    {
+      "intent": "schedule_task",
+      "patterns": [
+        "schedule {task} for {time}",
+        "add task to do {task} at {time}",
+        "remind me to {task} on {time}",
+        "create reminder for {task} at {time}",
+        "plan {task} for {time}",
+        "we need to {task} by {time}",
+        "add {task} to my list",
+        "create a task for {task}",
+        "this is crucial: {task}",
+        "urgent task: {task}",
+        "high priority: {task}",
+        "please remember to {task}"
+      ],
+      "action": "create_task",
+      "description": "Creates a task with specified details, deadline, and priority",
+      "extractParams": true
+    },
+    {
+      "intent": "send_notification",
+      "patterns": [
+        "notify me about {topic}",
+        "send update on {topic}",
+        "alert about {topic}",
+        "send message about {topic}",
+        "update me on {topic}"
+      ],
+      "action": "send_notification",
+      "description": "Sends a notification about a specified topic",
+      "extractParams": true
+    },
+    {
+      "intent": "run_market_scan",
+      "patterns": [
+        "run market scan for {category}",
+        "scan market for {category}",
+        "analyze market trends in {category}",
+        "collect social media data about {category}",
+        "get market insights for {category}",
+        "gather market intelligence on {category}",
+        "scan social media for {category} trends",
+        "look for trends in {category}",
+        "update knowledge about {category} market",
+        "can you check what social media is saying about {category}",
+        "can you bring yourself up to speed with the topic of {category}",
+        "what's the latest on {category}"
+      ],
+      "action": "market_scan",
+      "description": "Scan market sources for trends, news, and insights in a specific category",
+      "extractParams": true
+    }
+  ]
+} 
