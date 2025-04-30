@@ -4,6 +4,24 @@ import { scoreTaskPerformance, TaskPerformanceScore } from './performanceScorer'
 import { generateFeedbackInsights, FeedbackInsight } from './feedbackIngestor';
 import { generateStrategyAdjustments, StrategyAdjustment } from './strategyAdjuster';
 import { PlannedTask } from '../human-collaboration';
+import { GraphIntelligenceEngine } from '../knowledge/graphIntelligence';
+import { KnowledgeGraphManager } from '../knowledge/graphManager';
+
+// Define interfaces to match the actual implementation
+// Since we don't have access to the original interface definitions
+interface ExtendedTaskPerformanceScore extends TaskPerformanceScore {
+  overallScore?: number;
+  score?: number;
+  overall?: number;
+  categoryScores?: Array<{category: string, score: number}>;
+  categories?: Array<{category: string, score: number}>;
+}
+
+interface ExtendedFeedbackInsight extends FeedbackInsight {
+  insight?: string;
+  content?: string;
+  text?: string;
+}
 
 /**
  * Interface for self-improvement cycle results
@@ -13,6 +31,9 @@ export interface SelfImprovementResult {
   tasksScored: number;
   insightsGenerated: number;
   adjustmentsProposed: number;
+  graphInsightsExtracted: number;
+  graphNodesAdded: number;
+  graphRelationshipsAdded: number;
   errors: string[];
 }
 
@@ -20,11 +41,13 @@ export interface SelfImprovementResult {
  * Runs the weekly self-improvement cycle
  * 
  * @param memory ChloeMemory instance to access stored memories
+ * @param graphManager KnowledgeGraphManager instance for knowledge management
  * @param recentTasks Optional array of tasks completed in the last week (if not provided, will attempt to retrieve from memory)
  * @returns Promise<SelfImprovementResult> Summary of the self-improvement cycle
  */
 export async function runWeeklySelfImprovement(
   memory: ChloeMemory,
+  graphManager: KnowledgeGraphManager,
   recentTasks?: PlannedTask[]
 ): Promise<SelfImprovementResult> {
   const startTime = Date.now();
@@ -34,6 +57,9 @@ export async function runWeeklySelfImprovement(
     tasksScored: 0,
     insightsGenerated: 0,
     adjustmentsProposed: 0,
+    graphInsightsExtracted: 0,
+    graphNodesAdded: 0,
+    graphRelationshipsAdded: 0,
     errors: []
   };
   
@@ -46,12 +72,12 @@ export async function runWeeklySelfImprovement(
     
     // Step 2: Score all tasks
     console.log('📊 Scoring task performance...');
-    const scores: TaskPerformanceScore[] = [];
+    const scores: ExtendedTaskPerformanceScore[] = [];
     
     for (const task of tasks) {
       try {
         const score = await scoreTaskPerformance(task, memory);
-        scores.push(score);
+        scores.push(score as ExtendedTaskPerformanceScore);
         result.tasksScored++;
       } catch (error) {
         const errorMsg = `Error scoring task ${task.params?.id || 'unknown'}: ${error instanceof Error ? error.message : String(error)}`;
@@ -64,10 +90,11 @@ export async function runWeeklySelfImprovement(
     
     // Step 3: Generate feedback insights
     console.log('🧠 Generating feedback insights...');
-    let insights: FeedbackInsight[] = [];
+    let insights: ExtendedFeedbackInsight[] = [];
     
     try {
-      insights = await generateFeedbackInsights(memory);
+      const generatedInsights = await generateFeedbackInsights(memory);
+      insights = generatedInsights as ExtendedFeedbackInsight[];
       result.insightsGenerated = insights.length;
       console.log(`✅ Generated ${insights.length} feedback insights`);
     } catch (error) {
@@ -90,7 +117,63 @@ export async function runWeeklySelfImprovement(
       result.errors.push(errorMsg);
     }
     
-    // Step 5: Store summary log in memory
+    // Generate a reflection summary
+    const reflectionSummary = formatReflectionSummary(result, scores, insights, adjustments);
+    
+    // Step 5: Update knowledge graph using GraphIntelligenceEngine
+    console.log('🧠 Updating domain knowledge graph...');
+    const graphIntelligenceEngine = new GraphIntelligenceEngine(graphManager);
+    
+    // Step 5a: Auto-expand graph from reflection summary
+    try {
+      const nodesCountBefore = (await graphManager.getAllNodes()).length;
+      await graphIntelligenceEngine.autoExpandFromText(reflectionSummary, ['weekly_reflection', 'self_improvement']);
+      const nodesCountAfter = (await graphManager.getAllNodes()).length;
+      result.graphNodesAdded = nodesCountAfter - nodesCountBefore;
+      console.log(`✅ Added ${result.graphNodesAdded} new nodes to knowledge graph`);
+    } catch (error) {
+      const errorMsg = `Error expanding knowledge graph: ${error instanceof Error ? error.message : String(error)}`;
+      console.error(errorMsg);
+      result.errors.push(errorMsg);
+    }
+    
+    // Step 5b: Discover missing relationships
+    try {
+      const edgesCountBefore = (await graphManager.getAllEdges()).length;
+      await graphIntelligenceEngine.discoverMissingRelationships();
+      const edgesCountAfter = (await graphManager.getAllEdges()).length;
+      result.graphRelationshipsAdded = edgesCountAfter - edgesCountBefore;
+      console.log(`✅ Added ${result.graphRelationshipsAdded} new relationships to knowledge graph`);
+    } catch (error) {
+      const errorMsg = `Error discovering relationships: ${error instanceof Error ? error.message : String(error)}`;
+      console.error(errorMsg);
+      result.errors.push(errorMsg);
+    }
+    
+    // Step 5c: Extract insights from graph
+    try {
+      const graphInsights = await graphIntelligenceEngine.extractInsights();
+      result.graphInsightsExtracted = graphInsights.length;
+      console.log(`✅ Extracted ${graphInsights.length} insights from knowledge graph`);
+      
+      // Store graph insights in memory
+      if (graphInsights.length > 0) {
+        await memory.addMemory(
+          `Knowledge Graph Insights:\n${graphInsights.join('\n')}`,
+          'graph_insights',
+          ImportanceLevel.HIGH,
+          MemorySource.SYSTEM,
+          `Weekly graph insights: ${result.date}`,
+          ['knowledge_graph', 'insights', 'weekly']
+        );
+      }
+    } catch (error) {
+      const errorMsg = `Error extracting graph insights: ${error instanceof Error ? error.message : String(error)}`;
+      console.error(errorMsg);
+      result.errors.push(errorMsg);
+    }
+    
+    // Step 6: Store summary log in memory
     await storeSelfImprovementLog(result, memory);
     
     const duration = Math.round((Date.now() - startTime) / 1000);
@@ -111,6 +194,81 @@ export async function runWeeklySelfImprovement(
     
     return result;
   }
+}
+
+/**
+ * Creates a formatted summary of the reflection for knowledge extraction
+ */
+function formatReflectionSummary(
+  result: SelfImprovementResult,
+  scores: ExtendedTaskPerformanceScore[],
+  insights: ExtendedFeedbackInsight[],
+  adjustments: StrategyAdjustment[]
+): string {
+  const summary = [
+    `# Weekly Self-Improvement Reflection (${result.date})`,
+    '',
+    '## Performance Summary',
+    `Analyzed ${result.tasksScored} tasks`,
+    `Generated ${result.insightsGenerated} feedback insights`,
+    `Proposed ${result.adjustmentsProposed} strategy adjustments`,
+    '',
+    '## Key Insights'
+  ];
+
+  // Add top insights - fix property access
+  insights.slice(0, 3).forEach(insight => {
+    // Use the first available property or stringify the whole object as fallback
+    summary.push(`- ${insight.insight || insight.content || insight.text || JSON.stringify(insight)}`);
+  });
+
+  // Add top adjustments
+  summary.push('', '## Strategic Adjustments');
+  adjustments.slice(0, 3).forEach(adjustment => {
+    summary.push(`- ${adjustment.description}`);
+  });
+
+  // Add performance metrics - fix property access
+  summary.push('', '## Performance Metrics');
+  
+  // Use safe property access or provide defaults
+  const avgScore = scores.length > 0 ? 
+    scores.reduce((sum, s) => sum + (s.overallScore || s.score || s.overall || 0), 0) / scores.length : 
+    0;
+  summary.push(`Average task score: ${avgScore.toFixed(2)}/5`);
+
+  // Handle category scores with proper type annotations
+  const categories: string[] = [];
+  scores.forEach(s => {
+    const cats = s.categories || s.categoryScores || [];
+    cats.forEach((c) => {
+      if (c.category && !categories.includes(c.category)) {
+        categories.push(c.category);
+      }
+    });
+  });
+  
+  // Process each category
+  categories.forEach(category => {
+    let categoryTotal = 0;
+    let categoryCount = 0;
+    
+    scores.forEach(s => {
+      const cats = s.categories || s.categoryScores || [];
+      const matchingCategory = cats.find(c => c.category === category);
+      if (matchingCategory && typeof matchingCategory.score === 'number') {
+        categoryTotal += matchingCategory.score;
+        categoryCount++;
+      }
+    });
+    
+    if (categoryCount > 0) {
+      const avgCategoryScore = categoryTotal / categoryCount;
+      summary.push(`${category}: ${avgCategoryScore.toFixed(2)}/5`);
+    }
+  });
+
+  return summary.join('\n');
 }
 
 /**
@@ -214,6 +372,9 @@ SUMMARY:
 - Tasks scored: ${result.tasksScored}
 - Feedback insights generated: ${result.insightsGenerated}
 - Strategy adjustments proposed: ${result.adjustmentsProposed}
+- Graph insights extracted: ${result.graphInsightsExtracted}
+- Graph nodes added: ${result.graphNodesAdded}
+- Graph relationships added: ${result.graphRelationshipsAdded}
 
 ${result.errors.length > 0 ? `ERRORS (${result.errors.length}):\n${result.errors.map(err => `- ${err}`).join('\n')}\n` : ''}
 
@@ -273,6 +434,9 @@ export async function testWeeklySelfImprovement(): Promise<SelfImprovementResult
     }
   } as unknown as ChloeMemory;
   
-  // Run the self-improvement cycle with sample tasks
-  return runWeeklySelfImprovement(mockMemory, sampleTasks);
+  // Create mock graph manager
+  const mockGraphManager = new KnowledgeGraphManager();
+  
+  // Run the self-improvement cycle with sample tasks - fix parameter order
+  return runWeeklySelfImprovement(mockMemory, mockGraphManager, sampleTasks);
 } 

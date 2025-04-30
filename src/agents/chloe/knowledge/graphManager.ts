@@ -2,20 +2,27 @@
  * Knowledge Graph Manager for Chloe
  * Implements storage and retrieval of knowledge nodes and relationships.
  */
+import { KnowledgeNodeType, KnowledgeEdgeType } from './graph';
+
+// Define arrays of valid node and edge types for runtime validation
+const VALID_NODE_TYPES = ['task', 'concept', 'trend', 'tool', 'strategy', 'insight', 'project', 'agent'];
+const VALID_EDGE_TYPES = ['related_to', 'depends_on', 'contradicts', 'supports', 'used_by', 'reported_by', 'produced_by'];
 
 export interface KnowledgeNode {
   id: string;
   label: string;
-  type: string; // e.g., 'concept', 'tool', 'project', 'task', etc.
+  type: KnowledgeNodeType; // Using the new type definition
   description?: string;
+  tags?: string[];
   metadata?: Record<string, any>;
 }
 
 export interface KnowledgeEdge {
   from: string;
   to: string;
-  type: string; // e.g., 'depends_on', 'part_of', 'caused_by'
-  weight?: number;
+  type: KnowledgeEdgeType; // Using the new type definition
+  strength?: number;
+  createdAt?: string;
   label?: string;
 }
 
@@ -40,7 +47,19 @@ export class KnowledgeGraphManager {
       throw new Error(`Node with ID ${node.id} already exists`);
     }
     
-    this.nodes.set(node.id, node);
+    // Ensure node type is valid using the array of constants instead of type information
+    if (!VALID_NODE_TYPES.includes(node.type as string)) {
+      throw new Error(`Invalid node type: ${node.type}`);
+    }
+
+    // Set defaults for optional fields
+    const nodeWithDefaults: KnowledgeNode = {
+      ...node,
+      tags: node.tags || [],
+      metadata: node.metadata || {}
+    };
+    
+    this.nodes.set(node.id, nodeWithDefaults);
     this.nodeConnections.set(node.id, new Set());
   }
 
@@ -54,7 +73,19 @@ export class KnowledgeGraphManager {
       throw new Error(`Cannot add edge: one or both nodes do not exist`);
     }
     
-    this.edges.push(edge);
+    // Ensure edge type is valid using the array of constants instead of type information
+    if (!VALID_EDGE_TYPES.includes(edge.type as string)) {
+      throw new Error(`Invalid edge type: ${edge.type}`);
+    }
+
+    // Set defaults for optional fields
+    const edgeWithDefaults: KnowledgeEdge = {
+      ...edge,
+      strength: edge.strength ?? 1.0,
+      createdAt: edge.createdAt || new Date().toISOString()
+    };
+    
+    this.edges.push(edgeWithDefaults);
     
     // Update the connection maps
     const fromConnections = this.nodeConnections.get(edge.from);
@@ -198,26 +229,25 @@ export class KnowledgeGraphManager {
             await this.addNode({
               id: subGoalId,
               label: subGoal.description || `Sub-goal ${i+1}`,
-              type: 'sub_goal',
-              description: subGoal.reasoning || '',
+              type: 'task',
+              description: subGoal.description || `Sub-goal ${i+1} for task: ${task.goal}`,
               metadata: {
-                priority: subGoal.priority || 3,
-                parentTaskId: task.id
+                parentTaskId: task.id,
+                index: i
               }
             });
             
-            // Connect sub-goal to its parent task
+            // Connect sub-goal to parent task
             await this.addEdge({
               from: subGoalId,
               to: taskId,
-              type: 'part_of',
-              label: 'Part of'
+              type: 'depends_on',
+              label: 'Part of task'
             });
           }
         }
       } catch (error) {
-        // Skip if node already exists or other error
-        console.error(`Error adding task node ${taskId}:`, error);
+        console.error(`Error processing task ${task.id}:`, error);
       }
     }
     
@@ -411,7 +441,7 @@ export async function runKnowledgeGraphExample() {
   await graph.addEdge({
     from: "task-1",
     to: "project-1",
-    type: "part_of",
+    type: "related_to", // Changed from "part_of" to a valid type
     label: "Is part of"
   });
   
@@ -420,7 +450,7 @@ export async function runKnowledgeGraphExample() {
     to: "task-1",
     type: "depends_on",
     label: "Depends on",
-    weight: 0.8
+    strength: 0.8 // Changed from weight to strength
   });
   
   // Query example
