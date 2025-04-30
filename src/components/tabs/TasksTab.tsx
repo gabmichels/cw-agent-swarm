@@ -20,6 +20,8 @@ const TasksTab: React.FC<TasksTabProps> = ({
 }) => {
   const [debugResult, setDebugResult] = useState<any>(null);
   const [isDebugging, setIsDebugging] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [manualRefreshCount, setManualRefreshCount] = useState(0);
 
   // Function to clean task names by removing department names in braces
   const cleanTaskName = (name: string) => {
@@ -46,6 +48,16 @@ const TasksTab: React.FC<TasksTabProps> = ({
       console.log('Sample task data:', JSON.stringify(scheduledTasks[0]));
     }
   }, [scheduledTasks]);
+
+  // Function to handle manual refresh
+  const handleManualRefresh = () => {
+    setRefreshing(true);
+    setManualRefreshCount(prev => prev + 1);
+    // The page component will handle the actual refresh when it detects the page reload
+    setTimeout(() => {
+      window.location.reload();
+    }, 500);
+  };
 
   // Debug function to fix scheduler
   const debugScheduler = async () => {
@@ -131,6 +143,17 @@ const TasksTab: React.FC<TasksTabProps> = ({
     }
   }, [scheduledTasks]);
 
+  // Track if this is the first load
+  const [isFirstLoad, setIsFirstLoad] = useState(true);
+  useEffect(() => {
+    // After the component mounts, set isFirstLoad to false after a delay
+    // This helps us identify the initial load vs subsequent loads
+    const timer = setTimeout(() => {
+      setIsFirstLoad(false);
+    }, 3000);
+    return () => clearTimeout(timer);
+  }, []);
+
   return (
     <div className="bg-gray-800 rounded-lg p-4">
       <h2 className="text-xl font-bold mb-4">Scheduled Tasks</h2>
@@ -138,23 +161,23 @@ const TasksTab: React.FC<TasksTabProps> = ({
       {/* Debug buttons */}
       <div className="mb-4 flex space-x-2">
         <button 
-          onClick={() => window.location.reload()} 
+          onClick={handleManualRefresh} 
           className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded-md flex items-center text-sm"
-          disabled={isDebugging}
+          disabled={refreshing || isDebugging}
         >
-          <RefreshCw className="h-4 w-4 mr-1" /> Refresh
+          <RefreshCw className={`h-4 w-4 mr-1 ${refreshing ? 'animate-spin' : ''}`} /> Refresh
         </button>
         <button 
           onClick={debugScheduler} 
           className="bg-yellow-600 hover:bg-yellow-700 text-white px-3 py-1 rounded-md flex items-center text-sm"
-          disabled={isDebugging}
+          disabled={isDebugging || refreshing}
         >
           <BugIcon className="h-4 w-4 mr-1" /> Debug Scheduler
         </button>
         <button 
           onClick={fixReflections} 
           className="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded-md flex items-center text-sm"
-          disabled={isDebugging}
+          disabled={isDebugging || refreshing}
         >
           <WrenchIcon className="h-4 w-4 mr-1" /> Fix Reflections
         </button>
@@ -171,6 +194,9 @@ const TasksTab: React.FC<TasksTabProps> = ({
       <div className="mb-4 p-2 bg-gray-900 rounded text-xs">
         <p>Task count: {scheduledTasks?.length || 0}</p>
         <p>Loading state: {isLoadingTasks ? 'Loading' : 'Ready'}</p>
+        {isFirstLoad && scheduledTasks && scheduledTasks.length === 1 && scheduledTasks[0].id === 'error' && (
+          <p className="text-yellow-400 mt-1">First load often fails. Try refreshing with the button above.</p>
+        )}
       </div>
       
       {isDebugging && (
@@ -180,12 +206,33 @@ const TasksTab: React.FC<TasksTabProps> = ({
         </div>
       )}
       
+      {refreshing && (
+        <div className="flex justify-center py-4">
+          <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500"></div>
+          <span className="ml-2">Refreshing...</span>
+        </div>
+      )}
+      
       {isLoadingTasks ? (
         <div className="flex justify-center py-4">
           <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500"></div>
         </div>
       ) : !displayTasks || displayTasks.length === 0 ? (
         <p className="text-gray-400">No scheduled tasks found.</p>
+      ) : displayTasks.length === 1 && displayTasks[0].id === 'error' ? (
+        <div className="p-4 bg-red-900/30 border border-red-700 rounded">
+          <h3 className="text-lg font-semibold text-red-400 mb-2">{displayTasks[0].name}</h3>
+          <p className="text-sm text-gray-300">{displayTasks[0].description}</p>
+          <p className="text-xs text-gray-400 mt-2">
+            This error may be temporary. Try using the refresh button above or check server logs for more information.
+          </p>
+          <button 
+            onClick={handleManualRefresh}
+            className="mt-3 bg-red-700 hover:bg-red-600 text-white px-3 py-1 rounded-md flex items-center text-sm"
+          >
+            <RefreshCw className="h-4 w-4 mr-1" /> Try Again
+          </button>
+        </div>
       ) : (
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-700">

@@ -881,27 +881,59 @@ For detailed instructions, see the Debug panel.`,
   };
 
   // Fetch scheduled tasks
-  const fetchScheduledTasks = async (): Promise<void> => {
+  const fetchScheduledTasks = async (retryAttempt = 0, maxRetries = 3): Promise<void> => {
     setIsLoadingTasks(true);
     try {
-      console.log('Fetching scheduled tasks from API...');
+      console.log(`Fetching scheduled tasks from API... (attempt ${retryAttempt + 1}/${maxRetries + 1})`);
       
       // Add timeout to prevent long-running requests
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+      // Increase timeout on each retry
+      const timeoutMs = 5000 + (retryAttempt * 5000); // 5s, 10s, 15s, 20s
+      let timeoutId: NodeJS.Timeout | null = setTimeout(() => {
+        console.log(`Fetch timeout reached after ${timeoutMs}ms`);
+        controller.abort();
+      }, timeoutMs);
+      
+      // Function to clear timeout safely
+      const clearTimeoutSafe = () => {
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+          timeoutId = null;
+        }
+      };
       
       try {
+        // First make a preflight request to wake up the API if needed
+        if (retryAttempt === 0) {
+          try {
+            const preflight = await fetch('/api/healthcheck', { 
+              method: 'HEAD',
+              cache: 'no-store',
+              headers: {
+                'Cache-Control': 'no-cache'
+              }
+            });
+            console.log('Preflight check status:', preflight.status);
+          } catch (preflightError) {
+            console.warn('Preflight check failed, continuing with main request');
+          }
+        }
+        
+        // Main request
         const res = await fetch('/api/scheduler-tasks', {
           // Prevent caching
           cache: 'no-store',
+          method: 'GET',
           headers: {
             'Cache-Control': 'no-cache, no-store, must-revalidate',
-            'Pragma': 'no-cache'
+            'Pragma': 'no-cache',
+            'Accept': 'application/json'
           },
           signal: controller.signal
         });
         
-        clearTimeout(timeoutId);
+        clearTimeoutSafe();
         
         if (!res.ok) {
           console.error('Failed to fetch scheduled tasks - response not OK:', res.status, res.statusText);
@@ -910,7 +942,7 @@ For detailed instructions, see the Debug panel.`,
         
         // Log the raw response for debugging
         const rawText = await res.text();
-        console.log('Raw API response:', rawText);
+        console.log('Raw API response:', rawText.substring(0, 200) + (rawText.length > 200 ? '...' : ''));
         
         // Parse the response as JSON
         let data;
@@ -918,7 +950,7 @@ For detailed instructions, see the Debug panel.`,
           data = JSON.parse(rawText);
         } catch (parseError) {
           console.error('Error parsing JSON response:', parseError);
-          console.error('Raw response was:', rawText);
+          console.error('Raw response was:', rawText.substring(0, 100) + '...');
           throw new Error('Failed to parse response as JSON');
         }
         
@@ -930,10 +962,37 @@ For detailed instructions, see the Debug panel.`,
           
           // Set the tasks directly as the API now returns the array format we need
           setScheduledTasks(data);
+          
+          // Cache successful response in sessionStorage for fallback
+          try {
+            sessionStorage.setItem('cached_tasks', JSON.stringify(data));
+            sessionStorage.setItem('cached_tasks_timestamp', Date.now().toString());
+          } catch (storageError) {
+            console.warn('Failed to cache tasks in sessionStorage:', storageError);
+          }
         } else {
           console.log("No tasks returned or data is not an array:", data);
           
-          // Use fallback default tasks
+          // Try to retrieve from cache first
+          let cachedTasks = null;
+          try {
+            const cachedData = sessionStorage.getItem('cached_tasks');
+            if (cachedData) {
+              cachedTasks = JSON.parse(cachedData);
+              const timestamp = parseInt(sessionStorage.getItem('cached_tasks_timestamp') || '0');
+              const ageInMinutes = (Date.now() - timestamp) / (1000 * 60);
+              console.log(`Using cached tasks from ${Math.round(ageInMinutes)} minutes ago`);
+              
+              if (Array.isArray(cachedTasks) && cachedTasks.length > 0) {
+                setScheduledTasks(cachedTasks);
+                return;
+              }
+            }
+          } catch (cacheError) {
+            console.warn('Failed to retrieve cached tasks:', cacheError);
+          }
+          
+          // Fall back to default tasks if no cached data
           console.log("Using fallback tasks");
           setScheduledTasks([
             {
@@ -967,17 +1026,53 @@ For detailed instructions, see the Debug panel.`,
         }
       } catch (fetchError) {
         console.error('Error during fetch operation:', fetchError);
+        clearTimeoutSafe();
         
         // Handle AbortController errors
         if (fetchError instanceof Error && fetchError.name === 'AbortError') {
           console.error('Fetch request timed out');
-          throw new Error('Request timed out. Please try again.');
+          
+          // Try again if we haven't exceeded max retries
+          if (retryAttempt < maxRetries) {
+            console.log(`Retrying fetch (${retryAttempt + 1}/${maxRetries})...`);
+            setIsLoadingTasks(false);
+            // Add a slight delay before retrying
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            return fetchScheduledTasks(retryAttempt + 1, maxRetries);
+          }
+          
+          throw new Error('Request timed out after multiple attempts. Please try again later.');
         }
         
-        // Pass the error along to the outer catch
+        // For other errors, if we haven't exceeded max retries, try again
+        if (retryAttempt < maxRetries) {
+          console.log(`Retrying fetch after error (${retryAttempt + 1}/${maxRetries})...`);
+          setIsLoadingTasks(false);
+          // Add a slight delay before retrying
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          return fetchScheduledTasks(retryAttempt + 1, maxRetries);
+        }
+        
+        // Try to get cached tasks if we've exhausted retries
+        try {
+          const cachedData = sessionStorage.getItem('cached_tasks');
+          if (cachedData) {
+            const cachedTasks = JSON.parse(cachedData);
+            const timestamp = parseInt(sessionStorage.getItem('cached_tasks_timestamp') || '0');
+            const ageInMinutes = (Date.now() - timestamp) / (1000 * 60);
+            console.log(`Using cached tasks from ${Math.round(ageInMinutes)} minutes ago after fetch failure`);
+            
+            if (Array.isArray(cachedTasks) && cachedTasks.length > 0) {
+              setScheduledTasks(cachedTasks);
+              return;
+            }
+          }
+        } catch (cacheError) {
+          console.warn('Failed to retrieve cached tasks:', cacheError);
+        }
+        
+        // If we've exhausted retries and have no cache, pass the error along
         throw fetchError;
-      } finally {
-        clearTimeout(timeoutId);
       }
     } catch (error) {
       console.error('Error fetching scheduled tasks:', error);
