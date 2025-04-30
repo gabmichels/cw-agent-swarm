@@ -164,6 +164,159 @@ export class KnowledgeGraphManager {
   }
 
   /**
+   * Build graph from Chloe's memories and tasks
+   * @param memories Array of memory items
+   * @param tasks Array of tasks
+   */
+  async buildGraphFromMemory(
+    memories: Array<{ id: string; content: string; metadata?: any }> = [],
+    tasks: Array<{ id: string; goal: string; subGoals?: any[]; status: string }> = []
+  ): Promise<void> {
+    // First, add all tasks as nodes
+    for (const task of tasks) {
+      const taskId = `task-${task.id}`;
+      
+      try {
+        await this.addNode({
+          id: taskId,
+          label: task.goal,
+          type: 'task',
+          description: `Task: ${task.goal}`,
+          metadata: {
+            status: task.status,
+            originalId: task.id,
+            subGoalCount: task.subGoals?.length || 0
+          }
+        });
+        
+        // If the task has sub-goals, add them as nodes and connect them to the task
+        if (task.subGoals && task.subGoals.length > 0) {
+          for (let i = 0; i < task.subGoals.length; i++) {
+            const subGoal = task.subGoals[i];
+            const subGoalId = `subgoal-${task.id}-${i}`;
+            
+            await this.addNode({
+              id: subGoalId,
+              label: subGoal.description || `Sub-goal ${i+1}`,
+              type: 'sub_goal',
+              description: subGoal.reasoning || '',
+              metadata: {
+                priority: subGoal.priority || 3,
+                parentTaskId: task.id
+              }
+            });
+            
+            // Connect sub-goal to its parent task
+            await this.addEdge({
+              from: subGoalId,
+              to: taskId,
+              type: 'part_of',
+              label: 'Part of'
+            });
+          }
+        }
+      } catch (error) {
+        // Skip if node already exists or other error
+        console.error(`Error adding task node ${taskId}:`, error);
+      }
+    }
+    
+    // Then, add relevant memories as concept nodes
+    for (const memory of memories) {
+      const memoryId = `memory-${memory.id}`;
+      
+      try {
+        // Create a shorter label from the content (first 30 chars)
+        const label = memory.content.substring(0, 30) + (memory.content.length > 30 ? '...' : '');
+        
+        await this.addNode({
+          id: memoryId,
+          label,
+          type: 'concept',
+          description: memory.content,
+          metadata: {
+            originalId: memory.id,
+            ...memory.metadata
+          }
+        });
+        
+        // Connect this memory to related tasks (simplified approach)
+        // In a real implementation, you'd use semantic similarity
+        for (const task of tasks) {
+          const taskId = `task-${task.id}`;
+          
+          // Simple heuristic - check if memory content contains words from task goal
+          const taskWords = task.goal.toLowerCase().split(/\s+/).filter(word => word.length > 3);
+          const isRelated = taskWords.some(word => memory.content.toLowerCase().includes(word));
+          
+          if (isRelated) {
+            try {
+              await this.addEdge({
+                from: memoryId,
+                to: taskId,
+                type: 'related_to',
+                label: 'Related to'
+              });
+            } catch (error) {
+              // Skip if edge creation fails
+              console.error(`Error connecting memory to task:`, error);
+            }
+          }
+        }
+      } catch (error) {
+        // Skip if node already exists or other error
+        console.error(`Error adding memory node ${memoryId}:`, error);
+      }
+    }
+  }
+
+  /**
+   * Helper to inject graph context into a planning prompt
+   * @param goal The planning goal or topic
+   * @param maxNodes Maximum number of related nodes to include
+   * @returns Formatted string with graph context
+   */
+  async injectGraphContextIntoPlan(goal: string, maxNodes: number = 5): Promise<string> {
+    // Create a normalized ID based on the goal
+    const taskNodeId = `task-${goal.toLowerCase().replace(/[^a-z0-9]/g, '-').substring(0, 30)}`;
+    
+    // Find related nodes
+    let relatedNodes: KnowledgeNode[] = [];
+    
+    // First check if this exact task exists
+    const existingNode = await this.getNodeById(taskNodeId);
+    if (existingNode) {
+      // Find nodes connected to this one
+      relatedNodes = await this.queryRelatedNodes(taskNodeId);
+    } else {
+      // Otherwise, search through all nodes for potential matches
+      // In a real implementation, you would use semantic search here
+      const allNodes = Array.from(this.nodes.values());
+      
+      // Simple keyword matching (would be replaced by vector similarity in production)
+      const goalWords = goal.toLowerCase().split(/\s+/).filter(word => word.length > 3);
+      relatedNodes = allNodes.filter(node => {
+        const nodeContent = `${node.label} ${node.description || ''}`.toLowerCase();
+        return goalWords.some(word => nodeContent.includes(word));
+      }).slice(0, maxNodes);
+    }
+    
+    // If no related nodes, return empty string
+    if (relatedNodes.length === 0) {
+      return "";
+    }
+    
+    // Format the context string
+    const contextParts = [
+      "## Related Knowledge from Knowledge Graph",
+      ...relatedNodes.map(node => 
+        `- ${node.label} (${node.type}): ${node.description || 'No description'}`)
+    ];
+    
+    return contextParts.join('\n');
+  }
+
+  /**
    * Helper: Generate a graph visualization format
    * Useful for debugging or displaying the graph
    */
@@ -234,11 +387,41 @@ export async function runKnowledgeGraphExample() {
   const path = await graph.findPath("task-2", "project-1");
   console.log("Path from 'Research Competitors' to 'Market Expansion':", path);
   
+  // Test building graph from memories and tasks
+  await graph.buildGraphFromMemory(
+    [
+      {
+        id: "mem-1",
+        content: "The Q3 marketing campaign should focus on social media engagement"
+      },
+      {
+        id: "mem-2",
+        content: "Competitor analysis shows weak presence in mobile markets"
+      }
+    ],
+    [
+      {
+        id: "task-101",
+        goal: "Develop social media strategy for Q3",
+        status: "completed",
+        subGoals: [
+          { description: "Research platforms", priority: 1, reasoning: "Need to identify which platforms to focus on" },
+          { description: "Create content calendar", priority: 2, reasoning: "Plan content distribution" }
+        ]
+      }
+    ]
+  );
+  
+  // Get context for a new planning task
+  const planContext = await graph.injectGraphContextIntoPlan("social media marketing plan");
+  console.log("Planning Context:", planContext);
+  
   return {
     graph,
     results: {
       relatedToTask1,
-      path
+      path,
+      planContext
     }
   };
 } 

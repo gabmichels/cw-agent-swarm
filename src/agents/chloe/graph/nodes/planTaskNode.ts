@@ -6,6 +6,7 @@ import { AIMessage, HumanMessage } from "@langchain/core/messages";
 import { ChatPromptTemplate } from "@langchain/core/prompts";
 import { NodeContext, PlanningState, PlanningTask, SubGoal, ExecutionTraceEntry } from "./types";
 import { HumanCollaboration, PlannedTask } from "../../human-collaboration";
+import { KnowledgeGraphManager, KnowledgeNode } from "../../knowledge/graphManager";
 
 /**
  * Helper function to create a timestamped execution trace entry
@@ -39,6 +40,8 @@ export async function planTaskNode(
 ): Promise<PlanningState> {
   const { model, memory, taskLogger } = context;
   const startTime = new Date();
+  // Initialize knowledge graph manager
+  const graph = new KnowledgeGraphManager();
 
   try {
     taskLogger.logAction("Planning task", { goal: state.goal });
@@ -49,13 +52,34 @@ export async function planTaskNode(
       ? "Relevant context from your memory:\n" + relevantMemories.map(m => `- ${m.content}`).join("\n")
       : "No relevant memories found.";
     
-    // Create planning prompt - enhanced to support hierarchical planning
+    // Query the knowledge graph for related concepts
+    // First find if there's a node that closely matches our goal
+    let relatedNodes: KnowledgeNode[] = [];
+    let graphContext = "";
+    
+    // Create a task node ID for potential use (normalize the goal for use as ID)
+    const taskNodeId = `task-${state.goal.toLowerCase().replace(/[^a-z0-9]/g, '-').substring(0, 30)}`;
+    
+    // Find any existing nodes related to the goal topic
+    // For simplicity, we'll search across all node types
+    const existingNodes = await graph.queryRelatedNodes(taskNodeId);
+    if (existingNodes.length > 0) {
+      relatedNodes = existingNodes;
+      graphContext = "Related knowledge from previous tasks:\n" + 
+        relatedNodes.map(node => `- ${node.label} (${node.type}): ${node.description || ""}`).join("\n");
+      
+      taskLogger.logAction("Found related knowledge graph nodes", { count: relatedNodes.length });
+    }
+    
+    // Create planning prompt - enhanced to support hierarchical planning and include knowledge graph context
     const planningPrompt = ChatPromptTemplate.fromTemplate(`
 You are Chloe, a sophisticated marketing assistant. You need to decompose a complex goal into manageable sub-goals.
 
 GOAL: {goal}
 
 ${memoryContext}
+
+${graphContext}
 
 Break down this goal into 3-5 logical sub-goals that should be completed sequentially. For each sub-goal:
 1. Provide a clear description
@@ -64,6 +88,7 @@ Break down this goal into 3-5 logical sub-goals that should be completed sequent
 4. If appropriate, break down complex sub-goals into 2-3 smaller children tasks
 
 Think step by step. Consider dependencies between sub-goals and ensure they flow logically.
+${relatedNodes.length > 0 ? "Use the related knowledge from previous tasks to inform your planning." : ""}
 Your response should be structured as valid JSON matching this schema:
 {
   "reasoning": "Your step-by-step reasoning process for creating this plan",
@@ -261,6 +286,40 @@ Only include the "children" array for sub-goals that should be broken down furth
         formatSubGoalsHierarchy(subGoals)
     });
     
+    // After successful planning, add this task to the knowledge graph
+    try {
+      // Create a node for this task
+      await graph.addNode({
+        id: taskNodeId,
+        label: state.goal,
+        type: 'task',
+        description: planData.reasoning.substring(0, 200), // Brief description from reasoning
+        metadata: {
+          createdAt: new Date().toISOString(),
+          subGoalCount: subGoals.length
+        }
+      });
+      
+      // Connect this task to related nodes if any were found
+      for (const relatedNode of relatedNodes) {
+        await graph.addEdge({
+          from: taskNodeId,
+          to: relatedNode.id,
+          type: 'related_to',
+          label: 'Related to'
+        });
+      }
+      
+      // Log the graph update
+      taskLogger.logAction("Updated knowledge graph", { 
+        taskNodeId,
+        relatedNodesCount: relatedNodes.length
+      });
+    } catch (graphError) {
+      // Non-critical error - log but continue
+      taskLogger.logAction("Error updating knowledge graph", { error: String(graphError) });
+    }
+    
     // Calculate duration and create trace entry
     const endTime = new Date();
     const duration = endTime.getTime() - startTime.getTime();
@@ -273,7 +332,9 @@ Only include the "children" array for sub-goals that should be broken down furth
       status: 'success',
       details: {
         subGoalsCreated: subGoals.length,
-        hasNestedSubGoals: subGoals.some(sg => sg.children && sg.children.length > 0)
+        hasNestedSubGoals: subGoals.some(sg => sg.children && sg.children.length > 0),
+        knowledgeGraphUpdated: true,
+        relatedNodesCount: relatedNodes.length
       }
     };
     
