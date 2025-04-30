@@ -19,34 +19,49 @@ export interface NodeContext {
 }
 
 /**
- * Sub-goal type for task decomposition
+ * Interface representing a sub-goal of a planning task
  */
 export interface SubGoal {
   id: string;
   description: string;
   priority: number;
-  status: 'pending' | 'in_progress' | 'completed' | 'failed';
+  status: 'pending' | 'in_progress' | 'complete' | 'failed' | 'skipped';
   reasoning?: string;
-  result?: string;
-  children?: SubGoal[];
   parentId?: string;
+  children?: SubGoal[];
   depth?: number;
+  estimatedTime?: number;
+  failureReason?: string; // Added to store failure information
 }
 
 /**
- * Task type for planning
+ * Interface representing a planning task
  */
 export interface PlanningTask {
   goal: string;
   subGoals: SubGoal[];
-  currentSubGoalId?: string;
   reasoning: string;
-  status: 'planning' | 'executing' | 'completed' | 'failed' | 'awaiting_clarification';
+  status: 'planning' | 'executing' | 'complete' | 'failed' | 'paused' | 'awaiting_clarification' | 'awaiting_approval';
   confidenceScore?: number;
-  needsClarification?: boolean;
+  currentSubGoalId?: string;
   clarificationQuestions?: string[];
-  params?: Record<string, any>;
-  requiredParams?: string[];
+  type?: string;
+  needsClarification?: boolean;
+  requiresApproval?: boolean;
+  approvalGranted?: boolean;
+  stakeholderProfile?: any;
+  isStrategic?: boolean;
+  blockedReason?: string;
+  metadata?: Record<string, any>;
+  id?: string; // Added to track unique task ID
+  failedTool?: string; // Added to store the name of failed tool
+  failureDetails?: {  // Added to store detailed information about failures
+    toolName: string;
+    error: string;
+    parameters: string;
+    subGoalId: string;
+    retryCount?: number;
+  };
 }
 
 /**

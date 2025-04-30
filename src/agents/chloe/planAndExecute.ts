@@ -134,7 +134,7 @@ export async function planAndExecute(
     taskLogger.logAction('Completed planning and execution', {
       goal: options.goalPrompt,
       finalResult: result.finalResult,
-      completedTasks: result.task?.subGoals.filter((t: SubGoal) => t.status === 'completed').length || 0,
+      completedTasks: result.task?.subGoals.filter((t: SubGoal) => t.status === 'complete').length || 0,
       failedTasks: result.task?.subGoals.filter((t: SubGoal) => t.status === 'failed').length || 0,
       timestamp: new Date().toISOString()
     });

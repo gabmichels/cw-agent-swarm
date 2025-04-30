@@ -16,7 +16,9 @@
     "test:performance-scorer": "tsx src/agents/chloe/self-improvement/test-performance-scorer.ts",
     "test:feedback-ingestor": "tsx src/agents/chloe/self-improvement/test-feedback-ingestor.ts",
     "test:strategy-adjuster": "tsx src/agents/chloe/self-improvement/test-strategy-adjuster.ts",
-    "test:weekly-self-improvement": "tsx src/agents/chloe/self-improvement/test-weekly-self-improvement.ts"
+    "test:weekly-self-improvement": "tsx src/agents/chloe/self-improvement/test-weekly-self-improvement.ts",
+    "test:effort-estimation": "tsx src/scripts/test-effort-estimation.ts",
+    "test:tool-failure": "tsx src/agents/chloe/tools/test-tool-failure.ts"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",

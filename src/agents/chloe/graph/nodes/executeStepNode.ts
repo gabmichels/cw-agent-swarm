@@ -8,6 +8,7 @@ import { NodeContext, PlanningState, SubGoal, ExecutionTraceEntry } from "./type
 import { MemoryEntry } from "../../memory";
 import { PlannedTask, HumanCollaboration } from "../../human-collaboration";
 import { ChloeMemory } from "../../memory";
+import { ToolResult } from "../../tools/toolManager";
 
 /**
  * Helper function to get the full path to a sub-goal in the hierarchy
@@ -253,24 +254,198 @@ Provide a clear, detailed response that accomplishes the sub-goal.
         hierarchyPosition += "top-level sub-goal";
       }
       
-      // Execute the sub-goal
+      // Generate execution with the LLM
       const executionResult = await executionPrompt.pipe(model).invoke({
         goal: state.goal,
         subGoal: currentSubGoal.description,
         hierarchyPosition
       });
       
-      executionOutput = executionResult.content;
+      executionOutput = executionResult.content.toString();
       
-      // Add to memory (only in real execution mode)
-      await memory.addMemory(
-        `Completed sub-goal: ${currentSubGoal.description} - ${executionOutput.substring(0, 100)}...`,
-        'task',
-        'medium' as any,
-        'chloe' as any,
-        state.goal,
-        ['task', 'execution', currentSubGoal.id]
-      );
+      // Check for tool invocation in the execution output
+      const toolInvocationRegex = /use tool: ([a-zA-Z0-9_]+)([\s\S]*?)parameters:([\s\S]*?)(?=use tool:|$)/gi;
+      let match;
+      let toolExecutionSucceeded = true;
+      let toolExecutionFailure: ToolResult | null = null;
+      
+      // Handle any tool invocations in the output
+      while ((match = toolInvocationRegex.exec(executionOutput)) !== null) {
+        const toolName = match[1].trim();
+        const parametersText = match[3].trim();
+        
+        taskLogger.logAction("Tool invocation detected", {
+          toolName,
+          parametersText: parametersText.substring(0, 100) + (parametersText.length > 100 ? "..." : "")
+        });
+        
+        // Parse parameters - handle different formats
+        let parameters: Record<string, any> = {};
+        try {
+          // Try parsing as JSON
+          parameters = JSON.parse(parametersText);
+        } catch (parseError) {
+          // If not JSON, try parsing as key-value pairs
+          parametersText.split('\n').forEach(line => {
+            const keyValue = line.split(':');
+            if (keyValue.length >= 2) {
+              const key = keyValue[0].trim();
+              const value = keyValue.slice(1).join(':').trim();
+              parameters[key] = value;
+            }
+          });
+        }
+        
+        // Execute the tool with failure handling
+        if (tools && tools[toolName]) {
+          try {
+            const toolExecutionOptions = {
+              allowRetry: true,
+              maxRetries: 1,
+              fallbackTools: [] as string[],
+              logToMemory: true,
+              taskId: state.task?.id
+            };
+            
+            // Add appropriate fallback tools based on the tool being used
+            if (toolName.includes('search')) {
+              toolExecutionOptions.fallbackTools = ['simplifiedSearch', 'memorySearch'];
+            } else if (toolName.includes('api')) {
+              toolExecutionOptions.fallbackTools = ['webSearch', 'dataRetrieval'];
+            } else if (toolName.includes('generate')) {
+              toolExecutionOptions.fallbackTools = ['simpleGenerator', 'templateGenerator'];
+            }
+            
+            // Execute the tool with all the error handling built in
+            const toolResult = await tools[toolName].executeTool(
+              toolName, 
+              parameters,
+              toolExecutionOptions
+            );
+            
+            // Handle successful execution
+            if (toolResult.success) {
+              const successMessage = toolResult.fallbackUsed 
+                ? `\n\nTool '${toolName}' failed, but fallback tool '${toolResult.fallbackToolName}' succeeded with result:\n${JSON.stringify(toolResult.output, null, 2)}`
+                : `\n\nTool '${toolName}' execution result:\n${JSON.stringify(toolResult.output, null, 2)}`;
+              
+              // Replace the tool invocation with the result
+              executionOutput = executionOutput.replace(
+                match[0],
+                successMessage
+              );
+            } 
+            // Handle tool failure
+            else {
+              toolExecutionSucceeded = false;
+              toolExecutionFailure = toolResult;
+              
+              // Replace the tool invocation with the error
+              executionOutput = executionOutput.replace(
+                match[0],
+                `\n\nTool '${toolName}' execution failed: ${toolResult.error}\n`
+              );
+              
+              // Break after first failure to handle it properly
+              break;
+            }
+          } catch (toolExecutionError) {
+            toolExecutionSucceeded = false;
+            
+            // Create a generic tool result for the error
+            toolExecutionFailure = {
+              success: false,
+              output: null,
+              error: toolExecutionError instanceof Error ? toolExecutionError.message : String(toolExecutionError),
+              toolName,
+              executionTime: Date.now() - startTime.getTime()
+            };
+            
+            // Replace the tool invocation with the error
+            executionOutput = executionOutput.replace(
+              match[0],
+              `\n\nTool '${toolName}' execution error: ${toolExecutionFailure.error}\n`
+            );
+            
+            // Break after first failure
+            break;
+          }
+        } else {
+          // Tool not found in the available tools
+          executionOutput = executionOutput.replace(
+            match[0],
+            `\n\nTool '${toolName}' not found in available tools.\n`
+          );
+        }
+      }
+      
+      // If a tool execution failed, we need to handle the failure
+      if (!toolExecutionSucceeded && toolExecutionFailure) {
+        // Log the failure
+        taskLogger.logAction("Tool execution failed during step", {
+          toolName: toolExecutionFailure.toolName,
+          error: toolExecutionFailure.error,
+          fallbackAttempted: toolExecutionFailure.fallbackUsed
+        });
+        
+        // Create a message for the user with options
+        const failureMessage = new AIMessage({
+          content: `While executing the sub-goal "${currentSubGoal.description}", the tool "${toolExecutionFailure.toolName}" failed with error: ${toolExecutionFailure.error}.\n\nHow would you like to proceed?\n\n1. Retry with the same tool\n2. Suggest an alternative approach\n3. Skip this step and continue\n4. Pause the task for manual resolution`
+        });
+        
+        // Update the sub-goal status to indicate failure
+        updatedSubGoals = updateSubGoalById(
+          updatedSubGoals, 
+          currentSubGoal.id, 
+          { 
+            status: 'failed',
+            failureReason: `Tool execution failed: ${toolExecutionFailure.error}`
+          }
+        );
+        
+        // Add the failure information to the task
+        const taskWithFailure: PlannedTask = {
+          ...state.task as PlannedTask,
+          subGoals: updatedSubGoals,
+          blockedReason: "tool_failure",
+          failedTool: toolExecutionFailure.toolName,
+          failureDetails: {
+            toolName: toolExecutionFailure.toolName,
+            error: toolExecutionFailure.error || 'Unknown error',
+            parameters: JSON.stringify(toolExecutionFailure),
+            subGoalId: currentSubGoal.id
+          }
+        };
+        
+        // Create a trace entry for the failure
+        const failureTraceEntry: ExecutionTraceEntry = {
+          step: `Tool execution failed for sub-goal: ${subGoalPath}`,
+          startTime,
+          endTime: new Date(),
+          duration: new Date().getTime() - startTime.getTime(),
+          status: 'error',
+          details: {
+            toolName: toolExecutionFailure.toolName,
+            error: toolExecutionFailure.error,
+            subGoalId: currentSubGoal.id
+          }
+        };
+        
+        // Return the state with the failure and request for user direction
+        return {
+          ...state,
+          route: 'tool-failure',
+          task: taskWithFailure,
+          messages: [...state.messages, failureMessage],
+          executionTrace: [...state.executionTrace, failureTraceEntry],
+          error: `Tool execution failed: ${toolExecutionFailure.error}`
+        };
+      }
+      
+      // If we reach here, tool execution succeeded or there were no tools used
+      taskLogger.logAction("Step execution result", {
+        output: executionOutput.substring(0, 100) + "..."
+      });
     }
     
     // Update the sub-goal with the result
@@ -278,8 +453,8 @@ Provide a clear, detailed response that accomplishes the sub-goal.
       updatedSubGoals, 
       currentSubGoal.id, 
       { 
-        status: 'completed', 
-        result: executionOutput.substring(0, 500) // Limit result length for storage
+        status: 'complete',
+        failureReason: executionOutput.substring(0, 500)
       }
     );
     
@@ -313,13 +488,13 @@ Provide a clear, detailed response that accomplishes the sub-goal.
     const updateParentStatus = (subGoals: SubGoal[]): SubGoal[] => {
       return subGoals.map(sg => {
         // Skip if this isn't a parent sub-goal or it's already completed/failed
-        if (!sg.children || sg.children.length === 0 || sg.status === 'completed' || sg.status === 'failed') {
+        if (!sg.children || sg.children.length === 0 || sg.status === 'complete' || sg.status === 'failed') {
           return sg;
         }
         
         // Check if all children are completed or failed
         const allChildrenDone = sg.children.every(child => 
-          child.status === 'completed' || child.status === 'failed'
+          child.status === 'complete' || child.status === 'failed'
         );
         
         if (allChildrenDone) {
@@ -327,7 +502,7 @@ Provide a clear, detailed response that accomplishes the sub-goal.
           const anyChildFailed = sg.children.some(child => child.status === 'failed');
           
           // If any child failed, mark the parent as failed too
-          const newStatus = anyChildFailed ? 'failed' : 'completed';
+          const newStatus = anyChildFailed ? 'failed' : 'complete';
           const result = anyChildFailed 
             ? `Failed: Some nested sub-goals failed` 
             : `Completed all nested sub-goals`;
@@ -386,7 +561,10 @@ Provide a clear, detailed response that accomplishes the sub-goal.
       updatedSubGoals = updateSubGoalById(
         updatedSubGoals,
         state.task.currentSubGoalId,
-        { status: 'failed' as const, result: `Failed: ${errorMessage}` }
+        { 
+          status: 'failed' as const, 
+          failureReason: `Failed: ${errorMessage}`
+        }
       );
     }
     
