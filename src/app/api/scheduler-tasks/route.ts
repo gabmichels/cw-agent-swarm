@@ -19,6 +19,31 @@ declare global {
 }
 
 /**
+ * Safely parse a date to ISO string format
+ */
+function safelyFormatDate(dateValue: any): string | undefined {
+  if (!dateValue) return undefined;
+  
+  try {
+    // Handle different date formats
+    const date = dateValue instanceof Date 
+      ? dateValue 
+      : new Date(dateValue);
+    
+    // Validate the date is valid
+    if (isNaN(date.getTime())) {
+      console.warn('Invalid date value:', dateValue);
+      return undefined;
+    }
+    
+    return date.toISOString();
+  } catch (error) {
+    console.warn('Error parsing date:', error);
+    return undefined;
+  }
+}
+
+/**
  * Get all scheduled tasks from Chloe
  */
 export async function GET() {
@@ -96,8 +121,8 @@ export async function GET() {
       description: task.goalPrompt || task.description || 'No description available',
       cronExpression: task.cronExpression || task.schedule || '* * * * *',
       enabled: task.enabled !== undefined ? task.enabled : true,
-      lastRun: task.lastRun ? new Date(task.lastRun).toISOString() : undefined,
-      nextRun: task.nextRun ? new Date(task.nextRun).toISOString() : undefined
+      lastRun: safelyFormatDate(task.lastRun),
+      nextRun: safelyFormatDate(task.nextRun)
     }));
     
     // Save to global cache for future use

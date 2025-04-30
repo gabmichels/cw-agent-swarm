@@ -26,6 +26,18 @@ const TasksTab: React.FC<TasksTabProps> = ({
     return name?.replace(/\s*\([^)]*\)\s*/g, '') || 'Unnamed Task';
   };
 
+  // Function to safely format dates
+  const formatDate = (dateString: string | undefined): string => {
+    if (!dateString) return 'Never';
+    
+    try {
+      return new Date(dateString).toLocaleString();
+    } catch (error) {
+      console.warn('Error parsing date:', error);
+      return 'Invalid date';
+    }
+  };
+
   // Debug logging for task data
   useEffect(() => {
     console.log('TasksTab rendered with tasks:', scheduledTasks);
@@ -102,14 +114,18 @@ const TasksTab: React.FC<TasksTabProps> = ({
           name: 'Daily Planning',
           description: 'Create a daily plan for marketing tasks',
           cronExpression: '0 8 * * *',
-          enabled: true
+          enabled: true,
+          lastRun: new Date(Date.now() - 1000 * 60 * 60 * 24).toISOString(),
+          nextRun: new Date(Date.now() + 1000 * 60 * 60 * 16).toISOString()
         },
         {
           id: TASK_IDS.WEEKLY_MARKETING_REVIEW,
           name: 'Weekly Reflection',
           description: 'Reflect on weekly performance and achievements',
           cronExpression: '0 18 * * 0',
-          enabled: true
+          enabled: true,
+          lastRun: new Date(Date.now() - 1000 * 60 * 60 * 24 * 3).toISOString(),
+          nextRun: new Date(Date.now() + 1000 * 60 * 60 * 24 * 4).toISOString()
         }
       ]);
     }
@@ -168,7 +184,7 @@ const TasksTab: React.FC<TasksTabProps> = ({
         <div className="flex justify-center py-4">
           <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500"></div>
         </div>
-      ) : scheduledTasks?.length === 0 ? (
+      ) : !displayTasks || displayTasks.length === 0 ? (
         <p className="text-gray-400">No scheduled tasks found.</p>
       ) : (
         <div className="overflow-x-auto">
@@ -185,7 +201,7 @@ const TasksTab: React.FC<TasksTabProps> = ({
               </tr>
             </thead>
             <tbody className="bg-gray-800 divide-y divide-gray-700">
-              {displayTasks && displayTasks.map((task) => (
+              {displayTasks.map((task) => (
                 <tr key={task.id}>
                   <td className="px-4 py-3 whitespace-nowrap text-sm">
                     <div className="flex items-center space-x-2">
@@ -199,8 +215,8 @@ const TasksTab: React.FC<TasksTabProps> = ({
                   </td>
                   <td className="px-4 py-3 text-sm">{task.description || 'No description'}</td>
                   <td className="px-4 py-3 whitespace-nowrap text-sm">{formatCronExpression(task.cronExpression || '* * * * *')}</td>
-                  <td className="px-4 py-3 whitespace-nowrap text-sm">{task.lastRun ? new Date(task.lastRun).toLocaleString() : 'Never'}</td>
-                  <td className="px-4 py-3 whitespace-nowrap text-sm">{task.nextRun ? new Date(task.nextRun).toLocaleString() : 'Unknown'}</td>
+                  <td className="px-4 py-3 whitespace-nowrap text-sm">{formatDate(task.lastRun)}</td>
+                  <td className="px-4 py-3 whitespace-nowrap text-sm">{formatDate(task.nextRun)}</td>
                   <td className="px-4 py-3 whitespace-nowrap text-sm">
                     <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${task.enabled ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
                       {task.enabled ? 'Active' : 'Disabled'}
