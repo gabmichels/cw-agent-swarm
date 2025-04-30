@@ -8,6 +8,8 @@ import { NodeContext, PlanningState, PlanningTask, SubGoal, ExecutionTraceEntry 
 import { HumanCollaboration, PlannedTask } from "../../human-collaboration";
 import { KnowledgeGraphManager, KnowledgeNode } from "../../knowledge/graphManager";
 import { StrategicToolPlanner, PriorityAssessment, formatPriorityLevel } from "../../strategy/strategicPlanner";
+// Import feedback loop functionality
+import { getTaskBehavioralModifiers, recordBehaviorAdjustment } from "../../self-improvement/feedbackLoop";
 
 // Extend the PlannedTask interface to include new properties
 declare module "../../human-collaboration" {
@@ -103,6 +105,35 @@ Strategic Tags: ${taskPriority.priorityTags.join(', ')}
 Strategic Reasoning: ${taskPriority.reasoning}
     `.trim();
     
+    // NEW: Get behavioral modifiers from feedback
+    const behavioralModifiers = await getTaskBehavioralModifiers({ 
+      goal: state.goal, 
+      id: taskNodeId
+    });
+    
+    // NEW: Create behavioral context
+    const behavioralContext = behavioralModifiers.length > 0
+      ? `
+Behavioral Learnings: Based on past performance, please incorporate these lessons:
+${behavioralModifiers.map(m => `- ${m}`).join('\n')}
+`.trim()
+      : '';
+    
+    // Log that behavioral modifiers were applied
+    if (behavioralModifiers.length > 0) {
+      taskLogger.logAction("Applied behavioral modifiers", { 
+        modifiers: behavioralModifiers,
+        count: behavioralModifiers.length
+      });
+      
+      // Record the behavior adjustment
+      recordBehaviorAdjustment(
+        taskNodeId,
+        state.goal,
+        behavioralModifiers
+      ).catch(err => console.error("Error recording behavior adjustment:", err));
+    }
+    
     // Create planning prompt - enhanced to support hierarchical planning and include knowledge graph context
     const planningPrompt = ChatPromptTemplate.fromTemplate(`
 You are Chloe, a sophisticated marketing assistant. You need to decompose a complex goal into manageable sub-goals.
@@ -115,6 +146,8 @@ ${graphContext}
 
 ${strategicContext}
 
+${behavioralContext}
+
 Break down this goal into 3-5 logical sub-goals that should be completed sequentially. For each sub-goal:
 1. Provide a clear description
 2. Assign a priority (1-5, where 1 is highest)
@@ -125,6 +158,7 @@ Think step by step. Consider dependencies between sub-goals and ensure they flow
 ${relatedNodes.length > 0 ? "Use the related knowledge from previous tasks to inform your planning." : ""}
 ${taskPriority.priorityScore >= 70 ? "This is a HIGH STRATEGIC PRIORITY task. Ensure your plan is comprehensive and considers all critical aspects." : ""}
 ${taskPriority.priorityScore <= 30 ? "This is a LOWER PRIORITY task. Focus on efficiency and essential steps only." : ""}
+${behavioralModifiers.length > 0 ? "Apply the behavioral lessons from past experiences to improve this plan." : ""}
 Your response should be structured as valid JSON matching this schema:
 {
   "reasoning": "Your step-by-step reasoning process for creating this plan",

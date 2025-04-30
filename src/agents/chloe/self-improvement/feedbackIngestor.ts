@@ -485,7 +485,196 @@ const sampleScores: TaskScoreMemory[] = [
   }
 ];
 
-// Testing helper function
+/**
+ * Gets behavioral modifiers based on recent feedback and corrections
+ * 
+ * @param task Current planning task
+ * @returns Promise<string[]> Array of behavioral modifiers
+ */
+export async function getBehavioralModifiersFromFeedback(
+  task: { goal: string; type?: string }
+): Promise<string[]> {
+  // Get singleton memory instance
+  const memory = new ChloeMemory();
+  
+  // Look back 30 days for relevant feedback
+  const lookbackDays = 30;
+  const now = new Date();
+  const cutoffDate = new Date(now.setDate(now.getDate() - lookbackDays));
+  
+  try {
+    // Get feedback insights and corrections
+    const [feedbackInsights, corrections] = await Promise.all([
+      // Get stored feedback insights
+      memory.getRelevantMemories(
+        "feedback_insight " + task.goal,
+        10
+      ),
+      // Get correction memories
+      memory.getRelevantMemories(
+        "correction " + task.goal,
+        10
+      )
+    ]);
+    
+    // Filter to recent relevant insights and corrections
+    const recentInsights = feedbackInsights.filter(m => m.created >= cutoffDate);
+    const recentCorrections = corrections.filter(m => m.created >= cutoffDate);
+    
+    // Extract behavioral modifiers from insights
+    const modifiers: string[] = [];
+    
+    // Process feedback insights
+    for (const insight of recentInsights) {
+      // Check for severity in content
+      const severityMatch = insight.content.match(/severity: (low|medium|high)/i);
+      const severity = severityMatch ? severityMatch[1].toLowerCase() : "low";
+      
+      // Extract category
+      let category = "general";
+      if (insight.tags && insight.tags.length > 0) {
+        category = insight.tags[0];
+      }
+      
+      // Generate appropriate modifier based on category
+      switch (category) {
+        case "tool_misuse":
+          // Check if there's a specific tool mentioned
+          const toolMatch = insight.content.match(/tool: ([a-zA-Z0-9_]+)/i);
+          if (toolMatch) {
+            modifiers.push(`Be cautious when using the ${toolMatch[1]} tool - verify its correct usage`);
+          } else {
+            modifiers.push("Verify tool parameters carefully before execution");
+          }
+          break;
+          
+        case "missed_context":
+          modifiers.push("Review all available context before making decisions");
+          modifiers.push("Consider relevant historical information when planning");
+          break;
+          
+        case "wrong_approach":
+          modifiers.push("Break down execution into micro steps");
+          modifiers.push("Consider alternative approaches before committing to a plan");
+          break;
+          
+        case "misunderstanding":
+          modifiers.push("Add clarification steps to ensure understanding");
+          modifiers.push("Validate assumptions before proceeding with plan");
+          break;
+          
+        default:
+          // Extract any recommendation from insight content
+          const recommendationMatch = insight.content.match(/recommendation: (.+?)(?:$|\n)/i);
+          if (recommendationMatch) {
+            modifiers.push(recommendationMatch[1]);
+          }
+      }
+    }
+    
+    // Process corrections for additional modifiers
+    for (const correction of recentCorrections) {
+      // Look for specific patterns in corrections
+      if (correction.content.includes("tool")) {
+        modifiers.push("Double-check tool selection and parameters");
+      }
+      
+      if (correction.content.includes("step") || correction.content.includes("sequence")) {
+        modifiers.push("Use more fine-grained steps in planning");
+      }
+      
+      if (correction.content.includes("context") || correction.content.includes("information")) {
+        modifiers.push("Ensure all relevant context is considered in planning");
+      }
+    }
+    
+    // Deduplicate modifiers
+    const uniqueModifiers = Array.from(new Set(modifiers));
+    
+    // Limit to most relevant (max 5)
+    return uniqueModifiers.slice(0, 5);
+  } catch (error) {
+    console.error('Error getting behavioral modifiers:', error);
+    return [
+      "Be cautious and methodical in your planning",
+      "Break down complex tasks into smaller steps"
+    ];
+  }
+}
+
+/**
+ * Gets top behavioral patterns for summary reporting
+ * 
+ * @param memory ChloeMemory instance
+ * @param lookbackDays Number of days to look back
+ * @returns Promise<{category: string, count: number, severity: string}[]>
+ */
+export async function getTopBehavioralPatterns(
+  memory: ChloeMemory = new ChloeMemory(),
+  lookbackDays: number = 30
+): Promise<{category: string, count: number, severity: string}[]> {
+  const now = new Date();
+  const cutoffDate = new Date(now.setDate(now.getDate() - lookbackDays));
+  
+  try {
+    // Get all feedback insights from memory
+    const insights = await memory.getRelevantMemories(
+      "feedback_insight",
+      50
+    );
+    
+    // Filter to recent insights
+    const recentInsights = insights.filter(m => m.created >= cutoffDate);
+    
+    // Count occurrences by category
+    const categoryCounts: Record<string, {count: number, severitySum: number}> = {};
+    
+    for (const insight of recentInsights) {
+      // Get category from tags or default to "general"
+      let category = "general";
+      if (insight.tags && insight.tags.length > 0) {
+        category = insight.tags[0];
+      }
+      
+      // Get severity (convert to numeric value)
+      const severityMatch = insight.content.match(/severity: (low|medium|high)/i);
+      let severityValue = 1; // default low
+      if (severityMatch) {
+        const severity = severityMatch[1].toLowerCase();
+        severityValue = severity === "high" ? 3 : (severity === "medium" ? 2 : 1);
+      }
+      
+      // Update counts
+      if (!categoryCounts[category]) {
+        categoryCounts[category] = { count: 0, severitySum: 0 };
+      }
+      
+      categoryCounts[category].count += 1;
+      categoryCounts[category].severitySum += severityValue;
+    }
+    
+    // Convert to array and sort by frequency
+    return Object.entries(categoryCounts)
+      .map(([category, data]) => {
+        // Calculate average severity
+        const avgSeverity = data.severitySum / data.count;
+        let severityLabel = "low";
+        if (avgSeverity > 2.5) severityLabel = "high";
+        else if (avgSeverity > 1.5) severityLabel = "medium";
+        
+        return {
+          category,
+          count: data.count,
+          severity: severityLabel
+        };
+      })
+      .sort((a, b) => b.count - a.count);
+  } catch (error) {
+    console.error('Error getting behavioral patterns:', error);
+    return [];
+  }
+}
+
 export async function testGenerateFeedbackInsights(): Promise<FeedbackInsight[]> {
   // Simulate analyzing the sample data
   const scoreInsights = analyzeScorePatterns(sampleScores);
