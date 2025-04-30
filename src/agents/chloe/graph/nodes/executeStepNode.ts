@@ -13,6 +13,7 @@ import { analyzeTaskOutcome } from "../../self-improvement/taskOutcomeAnalyzer";
 import { getRelevantLessons } from "../../self-improvement/lessonExtractor";
 import { TaskWithOutcome } from "../../self-improvement/taskOutcomeIntegration";
 import { onTaskStateChange } from "../../hooks/taskCompletionHook";
+import { ExecutionOutcomeAnalyzer } from "../../self-improvement/executionOutcomeAnalyzer";
 
 /**
  * Helper function to get the full path to a sub-goal in the hierarchy
@@ -533,7 +534,16 @@ Provide a clear, detailed response that accomplishes the sub-goal.
     // If task is complete, analyze its outcome
     if (isTaskComplete && !dryRun && state.task && memory) {
       try {
-        // Use the onTaskStateChange hook which will handle outcome analysis
+        // Use the ExecutionOutcomeAnalyzer to analyze and store the outcome
+        const outcome = await ExecutionOutcomeAnalyzer.analyzeResult(
+          state.task as PlannedTask,
+          [...state.executionTrace, traceEntry]
+        );
+        
+        // Store the outcome in memory
+        await ExecutionOutcomeAnalyzer.storeOutcome(outcome, memory);
+        
+        // Also use the original task outcome analysis for backward compatibility
         await onTaskStateChange(state.task as PlannedTask, [...state.executionTrace, traceEntry], memory);
       } catch (error) {
         console.error("Error analyzing task outcome:", error);
@@ -594,6 +604,16 @@ Provide a clear, detailed response that accomplishes the sub-goal.
           status: 'failed'
         } as PlannedTask;
         
+        // Use ExecutionOutcomeAnalyzer for failed tasks too
+        const outcome = await ExecutionOutcomeAnalyzer.analyzeResult(
+          failedTask,
+          [...state.executionTrace, traceEntry]
+        );
+        
+        // Store the outcome in memory
+        await ExecutionOutcomeAnalyzer.storeOutcome(outcome, memory);
+        
+        // Use the original analysis for backward compatibility
         await onTaskStateChange(failedTask, [...state.executionTrace, traceEntry], memory);
       } catch (error) {
         console.error("Error analyzing failed task:", error);

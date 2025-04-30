@@ -16,6 +16,8 @@ import { estimateEffortAndUrgency, EffortMetadata } from "../../strategy/taskEff
 import { getLessonsForTask } from "../../self-improvement/taskOutcomeIntegration";
 // Import time estimator
 import { estimateTaskDuration } from "../../planning/timeEstimator";
+// Import StrategyUpdater functionality
+import { ChloeMemory } from "../../memory";
 
 // Extend the PlannedTask interface to include new properties
 declare module "../../human-collaboration" {
@@ -141,11 +143,36 @@ Strategic Reasoning: ${taskPriority.reasoning}
       id: taskNodeId
     });
     
+    // NEW: Get execution-based strategy modifiers from memory
+    let strategyModifiers: string[] = [];
+    try {
+      strategyModifiers = await getRecentStrategyModifiers(memory);
+      
+      // Log that strategy modifiers were applied
+      if (strategyModifiers.length > 0) {
+        taskLogger.logAction("Applied execution-based strategy modifiers", { 
+          modifiers: strategyModifiers,
+          count: strategyModifiers.length
+        });
+      }
+    } catch (error) {
+      console.error("Error retrieving strategy modifiers:", error);
+      // Continue planning even if modifier retrieval fails
+    }
+    
     // NEW: Create behavioral context
     const behavioralContext = behavioralModifiers.length > 0
       ? `
 Behavioral Learnings: Based on past performance, please incorporate these lessons:
 ${behavioralModifiers.map(m => `- ${m}`).join('\n')}
+`.trim()
+      : '';
+      
+    // NEW: Create strategy context
+    const strategyContext = strategyModifiers.length > 0
+      ? `
+Strategy Modifiers: Based on execution outcomes, apply these adjustments:
+${strategyModifiers.map(m => `- ${m}`).join('\n')}
 `.trim()
       : '';
     
@@ -177,6 +204,8 @@ ${graphContext}
 ${strategicContext}
 
 ${behavioralContext}
+
+${strategyContext}
 
 ${lessonsContext}
 
@@ -607,4 +636,37 @@ function determineProbableTaskType(goal: string): string | undefined {
   }
   
   return undefined; // Return undefined if no clear type can be determined
+}
+
+/**
+ * Retrieve recent strategy modifiers from memory
+ */
+async function getRecentStrategyModifiers(memory: ChloeMemory): Promise<string[]> {
+  try {
+    // Get memories related to behavior modifiers
+    const modifierMemories = await memory.getRelevantMemories('BEHAVIOR MODIFIERS', 1);
+    
+    if (modifierMemories.length === 0) {
+      return [];
+    }
+    
+    const modifierMemory = modifierMemories[0];
+    const content = modifierMemory.content || '';
+    
+    // Extract the modifiers from the content
+    const modifiers: string[] = [];
+    const lines = content.split('\n');
+    
+    for (const line of lines) {
+      // Look for lines starting with "- " (list items)
+      if (line.trim().startsWith('- ')) {
+        modifiers.push(line.trim().substring(2)); // Remove the "- " prefix
+      }
+    }
+    
+    return modifiers;
+  } catch (error) {
+    console.error('Error retrieving strategy modifiers:', error);
+    return [];
+  }
 } 

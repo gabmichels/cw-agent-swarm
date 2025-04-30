@@ -6,6 +6,7 @@ import { generateStrategyAdjustments, StrategyAdjustment } from './strategyAdjus
 import { PlannedTask } from '../human-collaboration';
 import { GraphIntelligenceEngine } from '../knowledge/graphIntelligence';
 import { KnowledgeGraphManager } from '../knowledge/graphManager';
+import { StrategyUpdater } from './strategyUpdater';
 
 // Define interfaces to match the actual implementation
 // Since we don't have access to the original interface definitions
@@ -117,8 +118,30 @@ export async function runWeeklySelfImprovement(
       result.errors.push(errorMsg);
     }
     
+    // Step 4b: NEW - Generate execution-based strategy updates
+    console.log('🔄 Generating execution-based strategy updates...');
+    let strategyModifiers: string[] = [];
+    
+    try {
+      strategyModifiers = await StrategyUpdater.adjustBasedOnRecentOutcomes(memory);
+      console.log(`✅ Generated ${strategyModifiers.length} execution-based strategy modifiers`);
+      
+      // Add these to the overall adjustments count
+      result.adjustmentsProposed += strategyModifiers.length;
+    } catch (error) {
+      const errorMsg = `Error generating execution-based strategy updates: ${error instanceof Error ? error.message : String(error)}`;
+      console.error(errorMsg);
+      result.errors.push(errorMsg);
+    }
+    
     // Generate a reflection summary
-    const reflectionSummary = formatReflectionSummary(result, scores, insights, adjustments);
+    const reflectionSummary = formatReflectionSummary(
+      result, 
+      scores, 
+      insights, 
+      adjustments,
+      strategyModifiers
+    );
     
     // Step 5: Update knowledge graph using GraphIntelligenceEngine
     console.log('🧠 Updating domain knowledge graph...');
@@ -203,7 +226,8 @@ function formatReflectionSummary(
   result: SelfImprovementResult,
   scores: ExtendedTaskPerformanceScore[],
   insights: ExtendedFeedbackInsight[],
-  adjustments: StrategyAdjustment[]
+  adjustments: StrategyAdjustment[],
+  strategyModifiers: string[] = []
 ): string {
   const summary = [
     `# Weekly Self-Improvement Reflection (${result.date})`,
@@ -227,6 +251,14 @@ function formatReflectionSummary(
   adjustments.slice(0, 3).forEach(adjustment => {
     summary.push(`- ${adjustment.description}`);
   });
+  
+  // Add execution-based strategy modifiers
+  if (strategyModifiers.length > 0) {
+    summary.push('', '## Execution-Based Strategy Modifiers');
+    strategyModifiers.slice(0, 3).forEach(modifier => {
+      summary.push(`- ${modifier}`);
+    });
+  }
 
   // Add performance metrics - fix property access
   summary.push('', '## Performance Metrics');
