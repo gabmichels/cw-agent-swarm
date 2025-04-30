@@ -26,6 +26,7 @@ const SAVED_ATTACHMENTS_KEY = 'crowd-wisdom-saved-attachments';
 const IMAGE_DATA_STORAGE_KEY = 'crowd-wisdom-image-data';
 const INDEXED_DB_NAME = 'crowd-wisdom-storage';
 const ATTACHMENT_STORE = 'file-attachments';
+const DEV_SHOW_INTERNAL_MESSAGES_KEY = 'DEV_SHOW_INTERNAL_MESSAGES';
 
 export default function Home() {
   const [selectedDepartment, setSelectedDepartment] = useState('Marketing');
@@ -57,6 +58,25 @@ export default function Home() {
   const [imageCaption, setImageCaption] = useState<string>('');
   const [isImageModalOpen, setIsImageModalOpen] = useState(false);
   const [showInternalMessages, setShowInternalMessages] = useState<boolean>(false);
+  
+  // Initialize showInternalMessages from localStorage
+  useEffect(() => {
+    // First check if there's a localStorage setting
+    const devModeEnabled = localStorage.getItem(DEV_SHOW_INTERNAL_MESSAGES_KEY) === 'true';
+    
+    console.log(`[DEBUG] Dev mode from localStorage: ${devModeEnabled}`);
+    console.log(`[DEBUG] Current internal messages flag: ${showInternalMessages}`);
+    
+    // Set the state based on localStorage value
+    setShowInternalMessages(devModeEnabled);
+    
+    // Provide a way to reset it from console if needed
+    (window as any).resetDevMode = () => {
+      localStorage.removeItem(DEV_SHOW_INTERNAL_MESSAGES_KEY);
+      setShowInternalMessages(false);
+      console.log('Dev mode reset to false');
+    };
+  }, []);
   
   // Toggle functions for new UI features
   const toggleSidebar = () => setIsSidebarOpen(!isSidebarOpen);
@@ -1747,9 +1767,17 @@ For detailed instructions, see the Debug panel.`,
       
       // Alt+T: Toggle internal message display
       if (e.altKey && e.key === 't') {
-        setShowInternalMessages(!showInternalMessages);
-        toggleMessageDebugging(!showInternalMessages);
+        const newValue = !showInternalMessages;
+        console.log(`Alt+T pressed: Toggling dev mode to ${newValue}`);
+        setShowInternalMessages(newValue);
+        toggleMessageDebugging(newValue);
         e.preventDefault();
+        
+        // Force reload if turning dev mode off to ensure clean state
+        if (!newValue) {
+          console.log('Reloading to clear internal messages...');
+          setTimeout(() => window.location.reload(), 100);
+        }
       }
     };
     

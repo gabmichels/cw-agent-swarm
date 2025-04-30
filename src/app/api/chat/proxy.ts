@@ -93,8 +93,8 @@ async function loadChatHistoryFromQdrant(specificUserId?: string) {
         }
         
         // Skip messages marked as internal reflections
-        if (message.metadata.isInternalReflection === true) {
-          console.log(`Filtering out message ${message.id} marked as isInternalReflection`);
+        if (message.metadata.isInternalReflection === true || message.metadata.isInternalMessage === true) {
+          console.log(`Filtering out message ${message.id} marked as internal`);
           return false;
         }
         
@@ -103,14 +103,37 @@ async function loadChatHistoryFromQdrant(specificUserId?: string) {
           console.log(`Filtering out message ${message.id} with performance_review subtype`);
           return false;
         }
+
+        // Skip messages from internal sources
+        if (message.metadata.source === 'internal' || message.metadata.source === 'system') {
+          console.log(`Filtering out message ${message.id} from internal/system source`);
+          return false;
+        }
+
+        // Skip messages with internal message types
+        if (message.metadata.messageType) {
+          const internalTypes = ['thought', 'reflection', 'system', 'tool_log', 'memory_log'];
+          if (internalTypes.includes(message.metadata.messageType.toLowerCase())) {
+            console.log(`Filtering out message ${message.id} with internal messageType: ${message.metadata.messageType}`);
+            return false;
+          }
+        }
       }
       
       // Also filter based on content patterns for backward compatibility
       if (message.text.includes('Performance Review:') || 
           message.text.includes('Success Rate:') ||
           message.text.includes('Task Completion:') ||
-          message.text.includes('User Satisfaction:')) {
-        console.log(`Filtering out performance review message ${message.id} based on content`);
+          message.text.includes('User Satisfaction:') ||
+          message.text.startsWith('Reflection on') ||
+          message.text.startsWith('THOUGHT:') ||
+          message.text.startsWith('Thought:') ||
+          message.text.startsWith('REFLECTION:') ||
+          message.text.startsWith('Reflection:') ||
+          message.text.startsWith('MESSAGE:') ||
+          message.text.startsWith('[20') ||  // Timestamp markers often indicate internal messages
+          message.text.includes('Intent router')) {
+        console.log(`Filtering out internal message ${message.id} based on content pattern`);
         return false;
       }
       

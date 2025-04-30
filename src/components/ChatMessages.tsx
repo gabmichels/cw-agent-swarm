@@ -1,7 +1,8 @@
 import React, { useEffect, useRef } from 'react';
 import { Message, FileAttachment } from '../types';
 import ChatBubble from './ChatBubble';
-import { filterChatVisibleMessages } from '../utils/messageFilters';
+import { filterChatVisibleMessages, isInternalMessage } from '../utils/messageFilters';
+import { MessageType } from '../constants/message';
 
 interface ChatMessagesProps {
   messages: Message[];
@@ -31,8 +32,79 @@ const ChatMessages: React.FC<ChatMessagesProps> = ({
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Filter messages to only show those appropriate for the chat UI
-  const visibleMessages = showInternalMessages ? messages : filterChatVisibleMessages(messages || []);
+  // Enhanced filtering logic to better handle internal messages
+  const visibleMessages = React.useMemo(() => {
+    if (!messages || !Array.isArray(messages)) {
+      return [];
+    }
+    
+    // In dev mode with showInternalMessages enabled, show all messages
+    if (showInternalMessages) {
+      return messages;
+    }
+    
+    // Otherwise apply strict filtering
+    return messages.filter(message => {
+      // Check for isInternalMessage flag
+      if (message.isInternalMessage === true) {
+        return false;
+      }
+      
+      // Check if message has a reflection or thought message type
+      if (message.messageType) {
+        // These message types should not be visible in chat UI
+        const internalTypes = [
+          MessageType.THOUGHT,
+          MessageType.REFLECTION,
+          MessageType.SYSTEM,
+          MessageType.TOOL_LOG,
+          MessageType.MEMORY_LOG
+        ];
+        
+        if (internalTypes.includes(message.messageType)) {
+          return false;
+        }
+      }
+      
+      // Check message content for internal message markers
+      const rawContent = message.content || '';
+      const messageText = typeof rawContent === 'string' ? rawContent.toLowerCase() : '';
+      
+      // Filter out based on content patterns
+      if (
+        // Timestamp patterns often indicate internal messages
+        messageText.startsWith('[20') || 
+        // Common thought patterns
+        messageText.startsWith('thought:') ||
+        messageText.startsWith('reflection:') ||
+        messageText.startsWith('thinking:') ||
+        messageText.startsWith('message:') ||
+        messageText.includes('intent router') ||
+        messageText.includes('processing message:') ||
+        // More reflection patterns
+        messageText.startsWith('reflection on') ||
+        // System messages
+        messageText.includes('performance review:') ||
+        messageText.includes('success rate:') ||
+        messageText.includes('task completion:')
+      ) {
+        return false;
+      }
+      
+      // Check for sender patterns indicating internal messages
+      if (message.sender) {
+        const senderLower = message.sender.toLowerCase();
+        const internalSenders = ['system', 'internal', 'thought', 'reflection'];
+        
+        if (internalSenders.includes(senderLower)) {
+          return false;
+        }
+      }
+      
+      // Use the existing filter util as a backup
+      return !isInternalMessage(message);
+    });
+  }, [messages, showInternalMessages]);
 
   // Make sure we have valid messages to display
   if (!visibleMessages || !Array.isArray(visibleMessages) || visibleMessages.length === 0) {

@@ -432,102 +432,83 @@ class QdrantHandler {
       await this.initialize();
     }
     
+    // Ensure we have a valid collection name
+    const collectionName = COLLECTIONS[type];
+    if (!collectionName) {
+      throw new Error(`Invalid memory type: ${type}`);
+    }
+    
+    // Generate a unique ID if not provided
+    const id = metadata.id || `${type}_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+    
+    // Ensure timestamp exists
+    if (!metadata.timestamp) {
+      metadata.timestamp = new Date().toISOString();
+    }
+    
+    // Explicitly mark thoughts and reflections as internal messages
+    if (type === 'thought' || 
+        metadata.messageType === 'thought' || 
+        metadata.messageType === 'reflection' || 
+        metadata.messageType === 'system' ||
+        metadata.messageType === 'tool_log' ||
+        metadata.messageType === 'memory_log') {
+      metadata.isInternalMessage = true;
+      metadata.notForChat = true;
+    }
+    
+    // If content starts with indicators of internal messages, mark it accordingly
+    const lowerContent = content.toLowerCase();
+    if (lowerContent.startsWith('thought:') || 
+        lowerContent.startsWith('reflection:') || 
+        lowerContent.startsWith('thinking:') ||
+        lowerContent.startsWith('reflection on') ||
+        (lowerContent.startsWith('[20') && 
+         (lowerContent.includes('processing message:') || 
+          lowerContent.includes('intent router')))) {
+      metadata.isInternalMessage = true;
+      metadata.notForChat = true;
+    }
+    
+    // Fallback to in-memory storage if we're not using Qdrant
+    if (!this.useQdrant) {
+      return this.fallbackStorage.addMemory(collectionName, id, content, type, metadata);
+    }
+    
     try {
-      // Create a valid numeric ID for Qdrant
-      const qdrantId = this.generateValidQdrantId();
+      // Get embedding for the content
+      const vector = await this.embeddingFunction(content);
       
-      // Create a string ID for our internal reference
-      const stringId = `${type}_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+      // Validate and normalize vector for Qdrant
+      const normalizedVector = this.validateVectorForQdrant(vector);
       
-      // Get collection name
-      const collectionName = COLLECTIONS[type];
+      // Full payload with content and metadata
+      const payload = {
+        text: content,
+        type,
+        id,
+        timestamp: metadata.timestamp,
+        ...metadata
+      };
       
-      // Add timestamp if not provided
-      if (!metadata.timestamp) {
-        metadata.timestamp = new Date().toISOString();
-      }
-      
-      // Include the string ID in metadata for reference
-      metadata.stringId = stringId;
-      
-      // If Qdrant is unavailable, use in-memory fallback
-      if (!this.useQdrant) {
-        return this.fallbackStorage.addMemory(collectionName, stringId, content, type, metadata);
-      }
-      
-      // Generate embedding for Qdrant
-      const embedding = await this.embeddingFunction(content);
-      
-      // Validate and normalize the vector to ensure it's safe for Qdrant
-      const safeVector = this.validateVectorForQdrant(embedding);
-      
-      try {
-        // Format payload exactly according to Qdrant's requirements
-        // Ensure all fields have the exact types Qdrant expects
-        const point = {
-          id: qdrantId,
-          vector: safeVector,
-          payload: {
-            text: content,
-            timestamp: metadata.timestamp,
-            type: type
-          } as Record<string, any>
-        };
-        
-        // Add the rest of metadata separately to ensure core fields are correct
-        for (const [key, value] of Object.entries(metadata)) {
-          if (key !== 'text' && key !== 'timestamp' && key !== 'type') {
-            point.payload[key] = value;
+      // Insert point into Qdrant collection
+      await this.client.upsert(collectionName, {
+        wait: true,
+        points: [
+          {
+            id: this.generateValidQdrantId(),
+            vector: normalizedVector,
+            payload
           }
-        }
-        
-        const requestPayload = {
-          wait: true,
-          points: [point]
-        };
-        
-        // Debug log with less verbosity
-        console.log(`Adding ${type} to Qdrant collection ${collectionName}, id: ${qdrantId}`);
-        
-        try {
-          // Use a more direct approach to capture the exact response
-          const response = await this.client.upsert(collectionName, requestPayload);
-          console.log(`Successfully added ${type} to Qdrant, id: ${qdrantId}`);
-          return stringId;
-        } catch (upsertError: any) {
-          // Log error but reduce verbosity
-          console.error(`Error upserting to Qdrant: ${upsertError.message || 'Unknown error'}`);
-          
-          // Check if there's a status code to better classify the error
-          const status = upsertError.status || (upsertError.response && upsertError.response.status);
-          if (status) {
-            console.error(`Error status: ${status}`);
-          }
-          
-          // Fall back to in-memory
-          console.warn(`Falling back to in-memory storage for ${type}`);
-          this.useQdrant = false;
-          return this.fallbackStorage.addMemory(collectionName, stringId, content, type, metadata);
-        }
-      } catch (error) {
-        // If there's an error with the Qdrant upsert, log and use fallback
-        console.error(`Error preparing Qdrant upsert: ${error instanceof Error ? error.message : String(error)}`);
-        this.useQdrant = false;
-        return this.fallbackStorage.addMemory(collectionName, stringId, content, type, metadata);
-      }
-    } catch (error) {
-      console.error(`Failed to add ${type} to Qdrant memory, using fallback:`, error);
-      this.useQdrant = false;
+        ]
+      });
       
-      // Use fallback storage with a string ID
-      const stringId = `${type}_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
-      const collectionName = COLLECTIONS[type];
+      return id;
+    } catch (err) {
+      console.error(`Error adding memory to Qdrant (type: ${type}):`, err);
       
-      if (!metadata.timestamp) {
-        metadata.timestamp = new Date().toISOString();
-      }
-      
-      return this.fallbackStorage.addMemory(collectionName, stringId, content, type, metadata);
+      // Fallback to in-memory storage
+      return this.fallbackStorage.addMemory(collectionName, id, content, type, metadata);
     }
   }
 
@@ -714,57 +695,112 @@ class QdrantHandler {
       await this.initialize();
     }
     
+    // Ensure we have a valid collection name
+    const collectionName = COLLECTIONS[type];
+    if (!collectionName) {
+      throw new Error(`Invalid memory type: ${type}`);
+    }
+    
+    // Fallback to in-memory storage if not using Qdrant
+    if (!this.useQdrant) {
+      return this.fallbackStorage.getRecentMemories(collectionName, limit);
+    }
+    
     try {
-      const collectionName = COLLECTIONS[type];
+      // For message collections, filter out internal messages
+      let filter = null;
       
-      // If Qdrant is unavailable, use in-memory fallback
-      if (!this.useQdrant) {
-        return this.fallbackStorage.getRecentMemories(collectionName, limit);
+      if (type === 'message') {
+        // Create a filter to exclude internal messages
+        filter = {
+          must_not: [
+            {
+              key: 'isInternalMessage',
+              match: {
+                value: true
+              }
+            },
+            {
+              key: 'notForChat',
+              match: {
+                value: true
+              }
+            }
+          ]
+        };
       }
       
-      // First, check if the collection exists
-      try {
-        const exists = await this.collectionExists(collectionName);
-        if (!exists) {
-          console.log(`Collection ${collectionName} doesn't exist yet, returning empty results`);
-          return [];
+      // Get recent points with proper scrolling and filtering
+      const response = await this.client.scroll(collectionName, {
+        limit: limit,
+        with_payload: true,
+        with_vector: false,
+        filter: filter,
+        order_by: {
+          key: 'timestamp',
+          direction: 'desc'
         }
-      } catch (error) {
-        console.warn(`Error checking if collection ${collectionName} exists:`, error);
-        // Continue and try to scroll anyway
+      });
+      
+      if (!response || !response.points) {
+        console.warn(`No points returned from Qdrant for ${collectionName}`);
+        return [];
       }
       
+      // Extract proper MemoryRecord objects from the response
+      return response.points.map(point => this.extractMemoryRecord(point));
+    } catch (err: unknown) {
+      console.error(`Error getting recent memories from Qdrant (type: ${type}):`, err);
+      console.error('Error with filter, trying without filter:', err instanceof Error ? err.message : String(err));
+      
       try {
-        // In Qdrant, we need to use scroll API to get recent memories
-        const result = await this.client.scroll(collectionName, {
-          limit,
+        // Simplified query without filters as fallback
+        const response = await this.client.scroll(collectionName, {
+          limit: limit,
           with_payload: true,
           with_vector: false
         });
         
-        if (!result.points || result.points.length === 0) {
-          console.log(`No points found in collection ${collectionName}`);
+        if (!response || !response.points) {
+          console.warn(`No points returned from Qdrant fallback query for ${collectionName}`);
           return [];
         }
         
-        // Use the helper method to format the memory records
-        const memories = result.points.map((point: any) => this.extractMemoryRecord(point));
+        // Extract records and filter out internal messages on the client side
+        const records = response.points.map(point => this.extractMemoryRecord(point));
         
-        // Sort by timestamp (newest first)
-        return memories.sort((a, b) => {
-          return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
-        }).slice(0, limit);
-      } catch (error) {
-        console.error(`Error getting points from collection ${collectionName}:`, error);
-        throw error; // rethrow to be caught by outer try-catch
+        if (type === 'message') {
+          // Filter out internal messages manually
+          return records.filter(record => {
+            // Skip messages explicitly marked as internal
+            if (record.metadata?.isInternalMessage === true || 
+                record.metadata?.notForChat === true) {
+              return false;
+            }
+            
+            // Skip messages that start with internal message indicators
+            const content = record.text.toLowerCase();
+            if (content.startsWith('thought:') || 
+                content.startsWith('reflection:') || 
+                content.startsWith('thinking:') ||
+                content.startsWith('reflection on') ||
+                (content.startsWith('[20') && 
+                  (content.includes('processing message:') || 
+                  content.includes('intent router')))) {
+              return false;
+            }
+            
+            return true;
+          });
+        }
+        
+        return records;
+      } catch (fallbackErr) {
+        console.error(`Error in fallback query for recent memories (type: ${type}):`, fallbackErr);
+        
+        // Last resort: in-memory storage
+        return this.fallbackStorage.getRecentMemories(collectionName, limit);
       }
-    } catch (error) {
-      console.error(`Failed to get recent ${type}s, using fallback:`, error);
-      this.useQdrant = false;
-      
-      // Fall back to in-memory storage
-      const collectionName = COLLECTIONS[type];
-      return this.fallbackStorage.getRecentMemories(collectionName, limit);
     }
   }
 

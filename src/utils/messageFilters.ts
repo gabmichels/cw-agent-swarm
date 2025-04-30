@@ -12,14 +12,6 @@ import { MessageType } from '../constants/message';
  * @returns boolean indicating if the message should be displayed
  */
 export function isMessageVisibleInChat(message: Message): boolean {
-  // IMPORTANT: For debugging - always return true if there's no explicit internal flag
-  // This ensures legacy messages still display
-  if (message.isInternalMessage === undefined && message.messageType === undefined) {
-    // Legacy message without our new flags - default to showing it
-    console.debug('Legacy message detected, showing:', message.content?.substring(0, 30));
-    return true;
-  }
-  
   // If message has explicit internal flag, respect that
   if (message.isInternalMessage === true) {
     return false;
@@ -31,14 +23,15 @@ export function isMessageVisibleInChat(message: Message): boolean {
            message.messageType === MessageType.AGENT;
   }
   
-  // For backward compatibility with existing messages
-  // Default to showing messages from 'user' or agent/chloe if no explicit type
-  return message.sender === 'user' || 
-         message.sender === 'agent' || 
-         message.sender === 'chloe' || 
-         message.sender === 'Chloe' ||
-         message.sender === 'assistant' ||
-         message.sender === 'You';
+  // IMPORTANT: Only show legacy messages if they are from expected senders
+  // Avoid showing any internal processing messages
+  if (message.sender) {
+    const allowedSenders = ['user', 'agent', 'chloe', 'Chloe', 'assistant', 'You'];
+    return allowedSenders.includes(message.sender);
+  }
+  
+  // Default to not showing messages with unclear origin
+  return false;
 }
 
 /**
