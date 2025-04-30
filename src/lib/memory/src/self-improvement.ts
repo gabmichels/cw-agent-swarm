@@ -253,7 +253,8 @@ export class SelfImprovementMechanism {
           category: 'system_learning',
           created: new Date().toISOString(),
           reviewType,
-          isInternalReflection: true // Flag to mark this as not intended for chat display
+          isInternalReflection: true, // Flag to mark this as not intended for chat display
+          notForChat: true // Additional flag to reinforce that this should not appear in chat
         },
         'thought' // Use 'thought' type to ensure proper categorization
       );

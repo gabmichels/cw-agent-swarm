@@ -82,13 +82,50 @@ async function loadChatHistoryFromQdrant(specificUserId?: string) {
     
     console.log(`Combined ${allMessages.length} total messages after deduplication`);
     
+    // Filter out internal reflections and messages not meant for chat
+    const filteredMessages = allMessages.filter(message => {
+      // Check if message has metadata and should be excluded from chat
+      if (message.metadata) {
+        // Skip messages explicitly marked as not for chat
+        if (message.metadata.notForChat === true) {
+          console.log(`Filtering out message ${message.id} marked as notForChat`);
+          return false;
+        }
+        
+        // Skip messages marked as internal reflections
+        if (message.metadata.isInternalReflection === true) {
+          console.log(`Filtering out message ${message.id} marked as isInternalReflection`);
+          return false;
+        }
+        
+        // Skip messages with 'performance_review' subtype
+        if (message.metadata.subtype === 'performance_review') {
+          console.log(`Filtering out message ${message.id} with performance_review subtype`);
+          return false;
+        }
+      }
+      
+      // Also filter based on content patterns for backward compatibility
+      if (message.text.includes('Performance Review:') || 
+          message.text.includes('Success Rate:') ||
+          message.text.includes('Task Completion:') ||
+          message.text.includes('User Satisfaction:')) {
+        console.log(`Filtering out performance review message ${message.id} based on content`);
+        return false;
+      }
+      
+      return true;
+    });
+    
+    console.log(`Filtered down to ${filteredMessages.length} chat-appropriate messages`);
+    
     // Log IDs to help debug
-    console.log('Message IDs sample:', allMessages.slice(0, 5).map(m => m.id).join(', '));
+    console.log('Message IDs sample:', filteredMessages.slice(0, 5).map(m => m.id).join(', '));
     
     // Show the full metadata of the last few messages
-    if (allMessages.length > 0) {
+    if (filteredMessages.length > 0) {
       console.log('Last 3 messages full details:');
-      allMessages.slice(-3).forEach((msg, i) => {
+      filteredMessages.slice(-3).forEach((msg, i) => {
         const hasAttachments = msg.metadata && 
                            msg.metadata.attachments && 
                            Array.isArray(msg.metadata.attachments) && 
@@ -124,7 +161,7 @@ async function loadChatHistoryFromQdrant(specificUserId?: string) {
     let messagesWithAttachments = 0;
     
     // Process all messages, handling missing userId metadata
-    for (const message of allMessages) {
+    for (const message of filteredMessages) {
       // Determine the userId for this message
       let userId: string;
       
@@ -491,6 +528,9 @@ async function saveToHistory(userId: string, role: 'user' | 'assistant', content
     content.includes('Success Rate:') || 
     content.includes('Task Completion:') || 
     content.includes('User Satisfaction:') ||
+    (content.match(/Daily Performance Review:[\s\S]*Success Rate:[\s\S]*Task Completion:[\s\S]*User Satisfaction:/) !== null) ||
+    (content.match(/Weekly Performance Review:[\s\S]*Success Rate:[\s\S]*Task Completion:[\s\S]*User Satisfaction:/) !== null) ||
+    (content.match(/Monthly Performance Review:[\s\S]*Success Rate:[\s\S]*Task Completion:[\s\S]*User Satisfaction:/) !== null) ||
     content.includes('Investigated intent failures') ||
     content.includes('Analyzed user feedback') ||
     content.includes('Monitored system performance') ||
@@ -566,7 +606,8 @@ async function saveToHistory(userId: string, role: 'user' | 'assistant', content
         userId: safeUserId, // Ensure userId is explicitly set and not undefined
         role,
         source: role === 'user' ? 'user' : 'chloe',
-        attachments: attachments || []
+        attachments: attachments || [],
+        isForChat: true // Explicitly mark regular messages as intended for chat display
       };
       
       // Add visionResponseFor if it exists
@@ -625,7 +666,11 @@ async function saveToHistory(userId: string, role: 'user' | 'assistant', content
 
 // Get chat history for a user
 function getUserHistory(userId: string) {
-  return chatHistory.get(userId) || [];
+  // Get history from in-memory cache
+  const history = chatHistory.get(userId) || [];
+  
+  // Only return messages that are meant for the chat interface
+  return history;
 }
 
 export async function POST(request: Request) {

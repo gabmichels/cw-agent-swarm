@@ -113,7 +113,7 @@ const TasksTab: React.FC<TasksTabProps> = ({
         }
       ]);
     }
-  }, [scheduledTasks, localTasks]);
+  }, [scheduledTasks]);
 
   return (
     <div className="bg-gray-800 rounded-lg p-4">
