@@ -5,6 +5,14 @@ import { OpenAI } from 'openai';
 import { QdrantClient } from '@qdrant/js-client-rest';
 import { Message } from '../../types';
 import { v4 as uuidv4 } from 'uuid';
+import { 
+  COLLECTIONS, 
+  MEMORY_TYPES, 
+  IMPORTANCE_LEVELS, 
+  STORAGE_KEYS, 
+  DEFAULTS,
+  FILTER_KEYS
+} from '../../constants/qdrant';
 
 // Make sure this file is only executed on the server
 if (typeof window !== 'undefined') {
@@ -20,18 +28,11 @@ export interface MemoryRecord {
   metadata: Record<string, any>;
 }
 
+// Search options for memory retrieval
 export interface MemorySearchOptions {
   limit?: number;
   filter?: Record<string, any>;
 }
-
-// Collection names for different memory types
-const COLLECTIONS = {
-  message: 'message_memories',
-  thought: 'thought_memories',
-  document: 'document_memories',
-  task: 'task_memories'
-};
 
 // Fallback in-memory storage when Qdrant is unavailable
 class InMemoryStorage {

@@ -1,6 +1,14 @@
 import { NextResponse } from 'next/server';
 import * as serverQdrant from '../../../server/qdrant';
 import { MemoryRecord } from '../../../server/qdrant';
+import { 
+  INTERNAL_MESSAGE_PATTERNS, 
+  METADATA_KEYS, 
+  INTERNAL_MESSAGE_TYPES, 
+  MESSAGE_SOURCES,
+  DEBUG_CONSTANTS 
+} from '../../../constants/proxy';
+import { STORAGE_KEYS, DEFAULTS } from '../../../constants/qdrant';
 
 // Dynamically import the Chloe agent to avoid import errors
 async function getChloeAgent() {
@@ -87,52 +95,55 @@ async function loadChatHistoryFromQdrant(specificUserId?: string) {
       // Check if message has metadata and should be excluded from chat
       if (message.metadata) {
         // Skip messages explicitly marked as not for chat
-        if (message.metadata.notForChat === true) {
+        if (message.metadata[METADATA_KEYS.NOT_FOR_CHAT] === true) {
           console.log(`Filtering out message ${message.id} marked as notForChat`);
           return false;
         }
         
         // Skip messages marked as internal reflections
-        if (message.metadata.isInternalReflection === true || message.metadata.isInternalMessage === true) {
+        if (message.metadata[METADATA_KEYS.IS_INTERNAL_REFLECTION] === true || 
+            message.metadata[METADATA_KEYS.IS_INTERNAL_MESSAGE] === true) {
           console.log(`Filtering out message ${message.id} marked as internal`);
           return false;
         }
         
         // Skip messages with 'performance_review' subtype
-        if (message.metadata.subtype === 'performance_review') {
+        if (message.metadata[METADATA_KEYS.SUBTYPE] === 'performance_review') {
           console.log(`Filtering out message ${message.id} with performance_review subtype`);
           return false;
         }
 
         // Skip messages from internal sources
-        if (message.metadata.source === 'internal' || message.metadata.source === 'system') {
+        if (message.metadata[METADATA_KEYS.SOURCE] === MESSAGE_SOURCES.INTERNAL || 
+            message.metadata[METADATA_KEYS.SOURCE] === MESSAGE_SOURCES.SYSTEM) {
           console.log(`Filtering out message ${message.id} from internal/system source`);
           return false;
         }
 
         // Skip messages with internal message types
-        if (message.metadata.messageType) {
-          const internalTypes = ['thought', 'reflection', 'system', 'tool_log', 'memory_log'];
-          if (internalTypes.includes(message.metadata.messageType.toLowerCase())) {
-            console.log(`Filtering out message ${message.id} with internal messageType: ${message.metadata.messageType}`);
+        if (message.metadata[METADATA_KEYS.MESSAGE_TYPE]) {
+          if (INTERNAL_MESSAGE_TYPES.includes(
+            message.metadata[METADATA_KEYS.MESSAGE_TYPE].toLowerCase())
+          ) {
+            console.log(`Filtering out message ${message.id} with internal messageType: ${message.metadata[METADATA_KEYS.MESSAGE_TYPE]}`);
             return false;
           }
         }
       }
       
       // Also filter based on content patterns for backward compatibility
-      if (message.text.includes('Performance Review:') || 
-          message.text.includes('Success Rate:') ||
-          message.text.includes('Task Completion:') ||
-          message.text.includes('User Satisfaction:') ||
-          message.text.startsWith('Reflection on') ||
-          message.text.startsWith('THOUGHT:') ||
-          message.text.startsWith('Thought:') ||
-          message.text.startsWith('REFLECTION:') ||
-          message.text.startsWith('Reflection:') ||
-          message.text.startsWith('MESSAGE:') ||
-          message.text.startsWith('[20') ||  // Timestamp markers often indicate internal messages
-          message.text.includes('Intent router')) {
+      if (message.text.includes(INTERNAL_MESSAGE_PATTERNS.PERFORMANCE_REVIEW) || 
+          message.text.includes(INTERNAL_MESSAGE_PATTERNS.SUCCESS_RATE) ||
+          message.text.includes(INTERNAL_MESSAGE_PATTERNS.TASK_COMPLETION) ||
+          message.text.includes(INTERNAL_MESSAGE_PATTERNS.USER_SATISFACTION) ||
+          message.text.startsWith(INTERNAL_MESSAGE_PATTERNS.REFLECTION_PREFIX) ||
+          message.text.startsWith(INTERNAL_MESSAGE_PATTERNS.THOUGHT_PREFIX) ||
+          message.text.startsWith(INTERNAL_MESSAGE_PATTERNS.THOUGHT_PREFIX_LC) ||
+          message.text.startsWith(INTERNAL_MESSAGE_PATTERNS.REFLECTION_PREFIX_UC) ||
+          message.text.startsWith(INTERNAL_MESSAGE_PATTERNS.REFLECTION_PREFIX_LC) ||
+          message.text.startsWith(INTERNAL_MESSAGE_PATTERNS.MESSAGE_PREFIX) ||
+          message.text.startsWith(INTERNAL_MESSAGE_PATTERNS.TIMESTAMP_PREFIX) ||  // Timestamp markers often indicate internal messages
+          message.text.includes(INTERNAL_MESSAGE_PATTERNS.INTENT_ROUTER)) {
         console.log(`Filtering out internal message ${message.id} based on content pattern`);
         return false;
       }
