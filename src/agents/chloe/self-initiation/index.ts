@@ -145,12 +145,15 @@ export class ChloeSelfInitiationSystem {
 }
 
 // Export the classes
-export { OpportunityDetector, AutonomousScheduler };
+export { 
+  OpportunityDetector, 
+  AutonomousScheduler,
+  OpportunitySource,
+  TimeSensitivity 
+};
 
 // Export the types
 export type { 
   DetectedOpportunity, 
-  OpportunitySource, 
-  TimeSensitivity, 
   ScheduledAutonomousTask 
 }; 
