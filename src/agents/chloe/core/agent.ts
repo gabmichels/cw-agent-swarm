@@ -20,6 +20,8 @@ import {
 } from '../../../lib/shared/types/agentTypes';
 import { IManager } from '../../../lib/shared/types/manager'; // Assuming IManager exists
 import { createChloeTools } from '../tools';
+import { ImportanceLevel, MemorySource, MemoryType, ChloeMemoryType } from '../../../constants/memory';
+import { PerformanceReviewType } from '../../../constants/reflection';
 
 // Import all the managers
 import { MemoryManager } from './memoryManager';
@@ -288,18 +290,18 @@ export class ChloeAgent implements IAgent {
             // Store the user message in memory
             await this.getMemoryManager().addMemory(
               message,
-              'message', // This is a user chat message
-              'medium',
-              'user',
+              ChloeMemoryType.MESSAGE, // This is a user chat message
+              ImportanceLevel.MEDIUM,
+              MemorySource.USER,
               `From user: ${options.userId}`
             );
             
             // Store the agent's response in memory
             await this.getMemoryManager().addMemory(
               intentResult.response,
-              'message', // This is an agent chat message that will be displayed
-              'medium',
-              'chloe',
+              ChloeMemoryType.MESSAGE, // This is an agent chat message that will be displayed
+              ImportanceLevel.MEDIUM,
+              MemorySource.AGENT,
               `Response to: ${message.substring(0, 50)}...`
             );
             
@@ -368,18 +370,18 @@ Be very detailed about what the structure and content of the document would look
       // Store the user message in memory
       await this.getMemoryManager().addMemory(
         message,
-        'message',
-        'medium',
-        'user',
+        ChloeMemoryType.MESSAGE,
+        ImportanceLevel.MEDIUM,
+        MemorySource.USER,
         `From user: ${options.userId}`
       );
       
       // Store the response in memory
       await this.getMemoryManager().addMemory(
         responseText,
-        'message',
-        'medium',
-        'chloe',
+        ChloeMemoryType.MESSAGE,
+        ImportanceLevel.MEDIUM,
+        MemorySource.AGENT,
         `Response to: ${message.substring(0, 50)}...`
       );
       
@@ -437,7 +439,7 @@ Be very detailed about what the structure and content of the document would look
       await this.getPlanningManager().runDailyTasks();
       
       // Run a daily performance review
-      await this.getReflectionManager().runPerformanceReview('daily');
+      await this.getReflectionManager().runPerformanceReview(PerformanceReviewType.DAILY);
       
       // Send a daily summary to Discord
       await this.sendDailySummaryToDiscord();
@@ -534,7 +536,7 @@ Be very detailed about what the structure and content of the document would look
         throw new Error('ChloeMemory not available');
       }
       const memories = await chloeMemory.getMemoriesByDateRange(
-        'message',
+        MemoryType.MESSAGE,
         oneDayAgo,
         new Date()
       );

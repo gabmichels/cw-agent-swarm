@@ -10,6 +10,7 @@ import { ChloeMemory } from '../memory';
 import { codaIntegration } from './coda';
 import { createMarketScanner, MarketScanner } from './marketScanner';
 import { IntentRouterTool as ActualIntentRouterTool } from './intentRouter';
+import { createApifyTools } from './apifyManager';
 
 /**
  * Searches through Chloe's memory for relevant information
@@ -567,6 +568,9 @@ export class AppendCodaLineTool implements SimpleTool {
 export const createChloeTools = (memory: ChloeMemory, model: any, discordWebhookUrl?: string): { 
   [key: string]: SimpleTool; // Use only the index signature for flexibility
 } => {
+  // Get Apify tools
+  const apifyTools = createApifyTools();
+  
   return {
     searchMemory: new SearchMemoryTool(memory),
     summarizeRecentActivity: new SummarizeRecentActivityTool(memory, model),
@@ -580,7 +584,11 @@ export const createChloeTools = (memory: ChloeMemory, model: any, discordWebhook
     // Add the new test tools
     createCodaTestDoc: new CreateCodaTestDocTool(),
     readCodaPage: new ReadCodaPageTool(),
-    appendCodaLine: new AppendCodaLineTool()
+    appendCodaLine: new AppendCodaLineTool(),
+    
+    // Add Apify tools
+    // These will be registered as separate tools in the ToolManager
+    ...apifyTools
   };
 };
 

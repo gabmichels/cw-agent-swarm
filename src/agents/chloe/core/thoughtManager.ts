@@ -3,6 +3,7 @@ import { ChloeMemory } from '../memory';
 import { TaskLogger } from '../task-logger';
 import { IManager, BaseManagerOptions } from '../../../lib/shared/types/agentTypes';
 import { logger } from '../../../lib/logging';
+import { ImportanceLevel, MemorySource, ChloeMemoryType } from '../../../constants/memory';
 
 /**
  * Options for initializing the thought manager
@@ -111,12 +112,27 @@ export class ThoughtManager implements IManager {
         importance
       });
       
+      // Map the string importance to enum value
+      let importanceLevel: ImportanceLevel;
+      switch (importance) {
+        case 'high':
+          importanceLevel = ImportanceLevel.HIGH;
+          break;
+        case 'low':
+          importanceLevel = ImportanceLevel.LOW;
+          break;
+        case 'medium':
+        default:
+          importanceLevel = ImportanceLevel.MEDIUM;
+          break;
+      }
+      
       // Add to memory - use 'thought' as the type rather than dynamic category
       await this.memory.addMemory(
         thought,
-        'thought', // Change from category to valid ChloeMemoryType
-        importance,
-        'chloe',
+        ChloeMemoryType.THOUGHT, // Change from category to valid ChloeMemoryType
+        importanceLevel,
+        MemorySource.AGENT,
         category // Pass the category as context instead
       );
     } catch (error) {
@@ -170,9 +186,9 @@ My detailed reasoning:`;
       // Store the reasoning in memory
       await this.memory.addMemory(
         `Reasoning trail for "${question}": ${reasoning.substring(0, 200)}...`,
-        'thought', // Change from 'reasoning' to valid ChloeMemoryType
-        'medium',
-        'chloe',
+        ChloeMemoryType.THOUGHT, // Change from 'reasoning' to valid ChloeMemoryType
+        ImportanceLevel.MEDIUM,
+        MemorySource.AGENT,
         'reasoning' // Pass 'reasoning' as the context
       );
       
@@ -256,9 +272,9 @@ My analysis:`;
       // Asynchronously add to memory without waiting
       this.memory.addMemory(
         formattedThought,
-        'thought',
-        'low',
-        'chloe'
+        ChloeMemoryType.THOUGHT,
+        ImportanceLevel.LOW,
+        MemorySource.AGENT
       ).catch(error => {
         const errorMessage = error instanceof Error ? error.message : String(error);
         this.logAction('Error adding thought to memory', { error: errorMessage });
