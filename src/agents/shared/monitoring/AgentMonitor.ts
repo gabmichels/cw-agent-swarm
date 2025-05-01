@@ -18,7 +18,7 @@ export interface AgentEvent {
   taskId: string;
   taskType?: string;
   toolUsed?: string;
-  eventType: 'task_start' | 'task_end' | 'tool_start' | 'tool_end' | 'error' | 'delegation';
+  eventType: 'task_start' | 'task_end' | 'tool_start' | 'tool_end' | 'error' | 'delegation' | 'message';
   status?: 'success' | 'failure';
   timestamp: number;
   durationMs?: number;

@@ -6,12 +6,14 @@
  * - Tool management with permissions
  * - Planning and execution capabilities
  * - Agent coordination for delegation
+ * - Inter-agent messaging
  */
 
 import { ChatOpenAI } from '@langchain/openai';
 import { AgentMemory } from '../../../lib/memory';
 import { BaseTool } from '../../../lib/shared/types/agentTypes';
 import { AgentMonitor } from '../monitoring/AgentMonitor';
+import { AgentMessage, MessageRouter, MessageType } from '../messaging/MessageRouter';
 
 // Basic agent configuration
 export interface AgentBaseConfig {
@@ -52,6 +54,7 @@ export class AgentBase {
   protected toolPermissions: string[] = [];
   protected memoryScopes: string[] = [];
   protected initialized: boolean = false;
+  protected messageInbox: AgentMessage[] = [];
 
   constructor(options: AgentBaseOptions) {
     if (!options.config.agentId) {
@@ -99,6 +102,9 @@ export class AgentBase {
         temperature: this.config.temperature || 0.7,
       });
       
+      // Register message handler
+      this.registerMessageHandler();
+      
       // Other initialization logic will be added here
       
       this.initialized = true;
@@ -131,6 +137,242 @@ export class AgentBase {
       
       throw error;
     }
+  }
+
+  /**
+   * Register this agent's message handler
+   */
+  protected registerMessageHandler(): void {
+    MessageRouter.registerHandler(this.agentId, async (message: AgentMessage) => {
+      await this.handleMessage(message);
+    });
+  }
+
+  /**
+   * Handle an incoming message
+   */
+  protected async handleMessage(message: AgentMessage): Promise<void> {
+    // Store message in inbox
+    this.messageInbox.push(message);
+    
+    console.log(`[${this.agentId}] Received message of type '${message.type}' from ${message.fromAgentId}`);
+    
+    // Dispatch based on message type
+    switch (message.type) {
+      case 'update':
+        // Store in memory/knowledge base
+        if (this.memory) {
+          await this.storeMessageInMemory(message);
+        }
+        break;
+        
+      case 'handoff':
+        // Execute a task based on the message
+        await this.handleTaskHandoff(message);
+        break;
+        
+      case 'ask':
+        // Generate a response to a question
+        await this.handleQuestion(message);
+        break;
+        
+      case 'log':
+        // Just log the message, no response needed
+        console.log(`[${this.agentId}] Log message: ${JSON.stringify(message.payload)}`);
+        break;
+        
+      case 'result':
+        // Process a result from another agent
+        await this.processResult(message);
+        break;
+        
+      default:
+        console.warn(`[${this.agentId}] Unhandled message type: ${message.type}`);
+    }
+  }
+
+  /**
+   * Store a message in agent memory
+   */
+  protected async storeMessageInMemory(message: AgentMessage): Promise<void> {
+    if (!this.memory) return;
+    
+    // This is a simplified example - actual memory storage would depend on memory implementation
+    const memoryItem = {
+      type: 'message',
+      source: message.fromAgentId,
+      content: message.payload,
+      timestamp: message.timestamp,
+      tags: ['message', message.fromAgentId, message.type]
+    };
+    
+    // Store in memory (assuming a log method exists)
+    console.log(`[${this.agentId}] Storing message in memory: ${JSON.stringify(memoryItem)}`);
+  }
+
+  /**
+   * Handle a task handoff message
+   */
+  protected async handleTaskHandoff(message: AgentMessage): Promise<void> {
+    try {
+      // Extract task details from message payload
+      const { taskId, goal, context } = message.payload;
+      
+      console.log(`[${this.agentId}] Handling task handoff: ${taskId}`);
+      
+      // Create context with delegation tracking
+      const taskContext = {
+        ...context,
+        delegationContextId: message.delegationContextId,
+        parentTaskId: message.correlationId,
+        originAgentId: message.metadata?.originAgentId || message.fromAgentId,
+        handoffFromAgent: message.fromAgentId
+      };
+      
+      // Plan and execute the task
+      const result = await this.planAndExecute(goal, taskContext);
+      
+      // Send response back to the sender
+      await MessageRouter.sendResponse(message, {
+        taskId,
+        status: 'completed',
+        result
+      });
+    } catch (error) {
+      console.error(`[${this.agentId}] Error handling task handoff:`, error);
+      
+      // Send error response
+      await MessageRouter.sendResponse(message, {
+        status: 'failed',
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+
+  /**
+   * Handle a question message
+   */
+  protected async handleQuestion(message: AgentMessage): Promise<void> {
+    try {
+      // Extract question from payload
+      const { question } = message.payload;
+      
+      console.log(`[${this.agentId}] Answering question: ${question}`);
+      
+      // This would typically use the LLM to generate a response
+      // For now, just echo back a placeholder response
+      const answer = `Placeholder answer to: ${question}`;
+      
+      // Send response back to the sender
+      await MessageRouter.sendResponse(message, {
+        answer,
+        confidence: 0.8
+      });
+    } catch (error) {
+      console.error(`[${this.agentId}] Error answering question:`, error);
+      
+      // Send error response
+      await MessageRouter.sendResponse(message, {
+        status: 'failed',
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+
+  /**
+   * Process a result message
+   */
+  protected async processResult(message: AgentMessage): Promise<void> {
+    // This would typically integrate the result into ongoing work
+    console.log(`[${this.agentId}] Processing result from ${message.fromAgentId}: ${JSON.stringify(message.payload)}`);
+  }
+
+  /**
+   * Send a message to another agent
+   */
+  async sendMessage(
+    toAgentId: string,
+    type: MessageType,
+    payload: any,
+    options: {
+      correlationId?: string,
+      delegationContextId?: string,
+      metadata?: Record<string, any>
+    } = {}
+  ): Promise<void> {
+    await MessageRouter.sendMessage({
+      fromAgentId: this.agentId,
+      toAgentId,
+      type,
+      payload,
+      timestamp: Date.now(),
+      correlationId: options.correlationId,
+      delegationContextId: options.delegationContextId,
+      metadata: options.metadata
+    });
+  }
+
+  /**
+   * Ask a question to another agent
+   */
+  async askQuestion(
+    toAgentId: string,
+    question: string,
+    context?: any,
+    delegationContextId?: string
+  ): Promise<any> {
+    const correlationId = `ask_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
+    
+    // Send the question as a message
+    await this.sendMessage(toAgentId, 'ask', { question, context }, {
+      correlationId,
+      delegationContextId
+    });
+    
+    // In a real implementation, would wait for response
+    // This would typically use a promise and callback registration
+    // For now, just return a placeholder
+    return {
+      status: 'sent',
+      correlationId,
+      note: 'Response would be processed asynchronously in a real implementation'
+    };
+  }
+
+  /**
+   * Get unread messages from the inbox
+   */
+  getMessages(options: {
+    unreadOnly?: boolean,
+    fromAgent?: string,
+    messageType?: MessageType,
+    limit?: number
+  } = {}): AgentMessage[] {
+    let messages = [...this.messageInbox];
+    
+    // Filter by sender if specified
+    if (options.fromAgent) {
+      messages = messages.filter(msg => msg.fromAgentId === options.fromAgent);
+    }
+    
+    // Filter by message type if specified
+    if (options.messageType) {
+      messages = messages.filter(msg => msg.type === options.messageType);
+    }
+    
+    // Limit results if specified
+    if (options.limit && options.limit > 0) {
+      messages = messages.slice(0, options.limit);
+    }
+    
+    return messages;
+  }
+
+  /**
+   * Clear the message inbox
+   */
+  clearInbox(): void {
+    this.messageInbox = [];
   }
 
   /**
