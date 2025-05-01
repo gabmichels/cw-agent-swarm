@@ -12,7 +12,8 @@
 import { ChatOpenAI } from '@langchain/openai';
 import { AgentMemory } from '../../../lib/memory';
 import { MemoryPruner } from '../../../lib/memory/src/MemoryPruner';
-import { MemoryScope } from '../../../lib/memory/src/memory';
+import { MemoryConsolidator } from '../../../lib/memory/src/MemoryConsolidator';
+import { MemoryScope, MemoryKind } from '../../../lib/memory/src/memory';
 import { BaseTool } from '../../../lib/shared/types/agentTypes';
 import { AgentMonitor } from '../monitoring/AgentMonitor';
 import { AgentMessage, MessageRouter, MessageType } from '../messaging/MessageRouter';
@@ -39,6 +40,10 @@ export interface AgentBaseConfig {
     pruningIntervalMs?: number;
     maxShortTermEntries?: number;
     relevanceThreshold?: number;
+    enableAutoConsolidation?: boolean;
+    consolidationIntervalMs?: number;
+    minMemoriesForConsolidation?: number;
+    forgetSourceMemoriesAfterConsolidation?: boolean;
   };
 }
 
@@ -72,6 +77,7 @@ export class AgentBase {
   protected initialized: boolean = false;
   protected messageInbox: ExtendedAgentMessage[] = [];
   protected memoryPruningTimer: NodeJS.Timeout | null = null;
+  protected memoryConsolidationTimer: NodeJS.Timeout | null = null;
 
   constructor(options: AgentBaseOptions) {
     if (!options.config.agentId) {
@@ -89,7 +95,11 @@ export class AgentBase {
         enableAutoPruning: true,
         pruningIntervalMs: 300000, // 5 minutes
         maxShortTermEntries: 100,
-        relevanceThreshold: 0.2
+        relevanceThreshold: 0.2,
+        enableAutoConsolidation: true,
+        consolidationIntervalMs: 600000, // 10 minutes
+        minMemoriesForConsolidation: 5,
+        forgetSourceMemoriesAfterConsolidation: false
       },
       ...options.config
     };
@@ -131,6 +141,11 @@ export class AgentBase {
       // Setup memory pruning if enabled
       if (this.config.memoryOptions?.enableAutoPruning) {
         this.setupMemoryPruning();
+      }
+      
+      // Setup memory consolidation if enabled
+      if (this.config.memoryOptions?.enableAutoConsolidation) {
+        this.setupMemoryConsolidation();
       }
       
       // Register message handler
@@ -191,6 +206,27 @@ export class AgentBase {
   }
 
   /**
+   * Set up automatic memory consolidation
+   */
+  protected setupMemoryConsolidation(): void {
+    const options = this.config.memoryOptions;
+    
+    if (!options) return;
+    
+    this.memoryConsolidationTimer = MemoryConsolidator.scheduleAutoConsolidate(
+      this.agentId,
+      options.consolidationIntervalMs,
+      {
+        minMemories: options.minMemoriesForConsolidation,
+        relevanceThreshold: options.relevanceThreshold,
+        forgetSourceMemories: options.forgetSourceMemoriesAfterConsolidation
+      }
+    );
+    
+    console.log(`Set up automatic memory consolidation for agent ${this.agentId}`);
+  }
+
+  /**
    * Manually trigger memory pruning
    */
   async pruneMemory(): Promise<void> {
@@ -202,6 +238,30 @@ export class AgentBase {
     });
     
     console.log(`Pruned ${result.pruned} memories for agent ${this.agentId}, ${result.retained} remaining`);
+  }
+
+  /**
+   * Manually trigger memory consolidation
+   */
+  async consolidateMemory(options: {
+    targetScope?: MemoryScope;
+    filterTags?: string[];
+    contextId?: string;
+  } = {}): Promise<void> {
+    if (!this.memory) return;
+    
+    const result = await MemoryConsolidator.consolidate(this.agentId, {
+      targetScope: options.targetScope,
+      filterTags: options.filterTags,
+      contextId: options.contextId,
+      forgetSourceMemories: this.config.memoryOptions?.forgetSourceMemoriesAfterConsolidation
+    });
+    
+    if (result) {
+      console.log(`Consolidated memories for agent ${this.agentId}, created entry: ${result.id}`);
+    } else {
+      console.log(`No memory consolidation performed for agent ${this.agentId}`);
+    }
   }
 
   /**
@@ -228,6 +288,18 @@ export class AgentBase {
       await this.sendMessage(message.fromAgentId, 'result' as MessageType, { 
         success: true, 
         message: 'Memory pruning completed' 
+      }, { 
+        correlationId: message.correlationId
+      });
+      return;
+    }
+    
+    // Handle consolidateNow command
+    if ((message.type as ExtendedMessageType) === 'command' && message.payload?.command === 'consolidateNow') {
+      await this.consolidateMemory(message.payload?.options || {});
+      await this.sendMessage(message.fromAgentId, 'result' as MessageType, { 
+        success: true, 
+        message: 'Memory consolidation completed' 
       }, { 
         correlationId: message.correlationId
       });
@@ -285,6 +357,23 @@ export class AgentBase {
       scope = 'reflections';
     }
     
+    // Determine appropriate kind based on message type
+    let kind: MemoryKind | undefined = undefined;
+    
+    if (message.metadata?.kind) {
+      kind = message.metadata.kind as MemoryKind;
+    } else if (message.type === 'update') {
+      kind = 'fact';
+    } else if (message.type === 'result') {
+      kind = 'feedback';
+    } else if (message.metadata?.isDecision) {
+      kind = 'decision';
+    } else if (message.type === 'ask' || message.type === 'handoff') {
+      kind = 'task';
+    } else {
+      kind = 'message';
+    }
+    
     // Calculate relevance if not provided (simple example)
     const relevance = message.metadata?.relevance || 
       (message.metadata?.importance === 'high' ? 0.9 : 0.5);
@@ -300,6 +389,7 @@ export class AgentBase {
         message.payload : 
         JSON.stringify(message.payload),
       scope,
+      kind,
       timestamp: message.timestamp || Date.now(),
       relevance,
       expiresAt,
@@ -609,9 +699,16 @@ export class AgentBase {
         this.memoryPruningTimer = null;
       }
       
-      // Run final memory pruning
+      // Cancel scheduled memory consolidation
+      if (this.memoryConsolidationTimer) {
+        MemoryConsolidator.cancelAutoConsolidate(this.memoryConsolidationTimer);
+        this.memoryConsolidationTimer = null;
+      }
+      
+      // Run final memory pruning and consolidation
       if (this.memory) {
         await this.pruneMemory();
+        await this.consolidateMemory();
       }
       
       // Existing cleanup code...

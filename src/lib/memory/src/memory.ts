@@ -3,10 +3,15 @@ import * as serverQdrant from '../../../server/qdrant';
 // Define memory scopes as requested
 export type MemoryScope = 'shortTerm' | 'longTerm' | 'inbox' | 'reflections';
 
+// Define structured memory types
+export type MemoryKind = 'fact' | 'insight' | 'task' | 'message' | 'decision' | 'feedback';
+
 // Define memory entry interface
 export interface MemoryEntry {
   id: string;
+  agentId?: string; // Agent that owns this memory
   scope: MemoryScope;
+  kind?: MemoryKind; // Type of memory for structured access
   content: string;
   timestamp: number;
   tags?: string[];
@@ -15,6 +20,7 @@ export interface MemoryEntry {
   sourceAgent?: string;
   contextId?: string; // delegationContextId or message thread
   namespace?: string;
+  summaryOf?: string[]; // IDs of memories that were summarized to create this entry
   // Preserve backward compatibility
   type?: string;
   category?: string;
@@ -27,6 +33,7 @@ export interface MemorySearchOptions {
   filter?: Record<string, any>;
   tags?: string[];
   scope?: MemoryScope;
+  kind?: MemoryKind;
   minRelevance?: number;
   startTimestamp?: number;
   endTimestamp?: number;
@@ -112,6 +119,9 @@ export class Memory {
         tags: entry.tags || [],
         relevance: entry.relevance || 1.0,
         namespace: this.namespace,
+        agentId: entry.agentId || this.namespace,
+        kind: entry.kind,
+        summaryOf: entry.summaryOf,
         ...entry
       };
       
@@ -128,11 +138,14 @@ export class Memory {
           entry.content || '',
           {
             scope: entry.scope,
+            kind: entry.kind,
             tags: entry.tags,
             relevance: entry.relevance,
             expiresAt: entry.expiresAt,
             sourceAgent: entry.sourceAgent,
             contextId: entry.contextId,
+            agentId: entry.agentId || this.namespace,
+            summaryOf: entry.summaryOf,
             namespace: this.namespace,
             ...entry.metadata
           }
@@ -172,6 +185,15 @@ export class Memory {
   }
 
   /**
+   * Get memory entries by kind
+   */
+  getByKind(agentId: string, kind: MemoryKind): MemoryEntry[] {
+    const namespace = agentId || this.namespace;
+    const entries = this.memoryEntries.get(namespace) || [];
+    return entries.filter(entry => entry.kind === kind);
+  }
+
+  /**
    * Get relevant memory entries filtered by options
    */
   getRelevant(agentId: string, options: MemorySearchOptions = {}): MemoryEntry[] {
@@ -182,6 +204,11 @@ export class Memory {
       .filter(entry => {
         // Filter by scope if provided
         if (options.scope && entry.scope !== options.scope) {
+          return false;
+        }
+        
+        // Filter by kind if provided
+        if (options.kind && entry.kind !== options.kind) {
           return false;
         }
         
@@ -236,6 +263,11 @@ export class Memory {
         filter.scope = options.scope;
       }
       
+      // Add kind filter if provided
+      if (options.kind) {
+        filter.kind = options.kind;
+      }
+      
       // Search with filters
       const results = await serverQdrant.searchMemory(null, query, { limit, filter });
       
@@ -243,6 +275,7 @@ export class Memory {
       return results.map(result => ({
         id: result.id || `memory_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
         scope: result.metadata?.scope || 'shortTerm',
+        kind: result.metadata?.kind,
         content: result.text || '',
         timestamp: result.metadata?.timestamp || Date.now(),
         tags: result.metadata?.tags || [],
@@ -250,6 +283,8 @@ export class Memory {
         expiresAt: result.metadata?.expiresAt,
         sourceAgent: result.metadata?.sourceAgent,
         contextId: result.metadata?.contextId,
+        agentId: result.metadata?.agentId,
+        summaryOf: result.metadata?.summaryOf,
         namespace: result.metadata?.namespace || this.namespace,
       }));
     } catch (error) {
@@ -280,16 +315,37 @@ export class Memory {
     }
   }
   
+  /**
+   * Summarize text content using an LLM
+   * This is a placeholder - in a real implementation,
+   * this would use an actual LLM to generate a summary
+   */
+  static async summarizerTool(content: string): Promise<string> {
+    // This would be replaced with an actual call to an LLM service
+    console.log('Summarizing content:', content.substring(0, 100) + '...');
+    
+    // Simulating LLM response time
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
+    // Simple summarization logic for demo purposes
+    const lines = content.split('\n').filter(line => line.trim());
+    if (lines.length <= 2) return content;
+    
+    return `Summary of ${lines.length} items: ${lines[0]} and other related points.`;
+  }
+  
   // Legacy method for backward compatibility
   async addMemory(content: string, metadata: Record<string, any> = {}): Promise<string> {
     const entry = await this.write({
       content,
       scope: metadata.scope || 'shortTerm',
+      kind: metadata.kind,
       tags: metadata.tags,
       relevance: metadata.relevance,
       expiresAt: metadata.expiresAt,
       sourceAgent: metadata.sourceAgent,
       contextId: metadata.contextId,
+      summaryOf: metadata.summaryOf,
       metadata
     });
     
