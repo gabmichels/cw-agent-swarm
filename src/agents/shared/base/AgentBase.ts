@@ -11,9 +11,19 @@
 
 import { ChatOpenAI } from '@langchain/openai';
 import { AgentMemory } from '../../../lib/memory';
+import { MemoryPruner } from '../../../lib/memory/src/MemoryPruner';
+import { MemoryScope } from '../../../lib/memory/src/memory';
 import { BaseTool } from '../../../lib/shared/types/agentTypes';
 import { AgentMonitor } from '../monitoring/AgentMonitor';
 import { AgentMessage, MessageRouter, MessageType } from '../messaging/MessageRouter';
+
+// Extend MessageType to include 'command' type
+type ExtendedMessageType = MessageType | 'command';
+
+// Extended agent message interface to include id
+interface ExtendedAgentMessage extends AgentMessage {
+  id?: string;
+}
 
 // Basic agent configuration
 export interface AgentBaseConfig {
@@ -24,6 +34,12 @@ export interface AgentBaseConfig {
   model?: string;
   temperature?: number;
   maxTokens?: number;
+  memoryOptions?: {
+    enableAutoPruning?: boolean;
+    pruningIntervalMs?: number;
+    maxShortTermEntries?: number;
+    relevanceThreshold?: number;
+  };
 }
 
 // Agent capability levels
@@ -39,7 +55,7 @@ export interface AgentBaseOptions {
   config: AgentBaseConfig;
   capabilityLevel?: AgentCapabilityLevel;
   toolPermissions?: string[];
-  memoryScopes?: string[];
+  memoryScopes?: MemoryScope[];
 }
 
 /**
@@ -52,9 +68,10 @@ export class AgentBase {
   protected model: ChatOpenAI | null = null;
   protected memory: AgentMemory | null = null;
   protected toolPermissions: string[] = [];
-  protected memoryScopes: string[] = [];
+  protected memoryScopes: MemoryScope[] = ['shortTerm', 'longTerm', 'inbox', 'reflections'];
   protected initialized: boolean = false;
-  protected messageInbox: AgentMessage[] = [];
+  protected messageInbox: ExtendedAgentMessage[] = [];
+  protected memoryPruningTimer: NodeJS.Timeout | null = null;
 
   constructor(options: AgentBaseOptions) {
     if (!options.config.agentId) {
@@ -68,12 +85,18 @@ export class AgentBase {
       model: 'gpt-4',
       temperature: 0.7,
       maxTokens: 4000,
+      memoryOptions: {
+        enableAutoPruning: true,
+        pruningIntervalMs: 300000, // 5 minutes
+        maxShortTermEntries: 100,
+        relevanceThreshold: 0.2
+      },
       ...options.config
     };
     
     this.capabilityLevel = options.capabilityLevel || AgentCapabilityLevel.BASIC;
     this.toolPermissions = options.toolPermissions || [];
-    this.memoryScopes = options.memoryScopes || [];
+    this.memoryScopes = options.memoryScopes || this.memoryScopes;
   }
 
   /**
@@ -101,6 +124,14 @@ export class AgentBase {
         modelName: this.config.model,
         temperature: this.config.temperature || 0.7,
       });
+      
+      // Initialize memory
+      this.memory = new AgentMemory({ namespace: this.agentId });
+      
+      // Setup memory pruning if enabled
+      if (this.config.memoryOptions?.enableAutoPruning) {
+        this.setupMemoryPruning();
+      }
       
       // Register message handler
       this.registerMessageHandler();
@@ -140,22 +171,68 @@ export class AgentBase {
   }
 
   /**
+   * Set up automatic memory pruning
+   */
+  protected setupMemoryPruning(): void {
+    const options = this.config.memoryOptions;
+    
+    if (!options) return;
+    
+    this.memoryPruningTimer = MemoryPruner.scheduleAutoPrune(
+      this.agentId,
+      options.pruningIntervalMs,
+      {
+        relevanceThreshold: options.relevanceThreshold,
+        maxShortTermEntries: options.maxShortTermEntries
+      }
+    );
+    
+    console.log(`Set up automatic memory pruning for agent ${this.agentId}`);
+  }
+
+  /**
+   * Manually trigger memory pruning
+   */
+  async pruneMemory(): Promise<void> {
+    if (!this.memory) return;
+    
+    const result = await MemoryPruner.prune(this.agentId, {
+      relevanceThreshold: this.config.memoryOptions?.relevanceThreshold,
+      maxShortTermEntries: this.config.memoryOptions?.maxShortTermEntries
+    });
+    
+    console.log(`Pruned ${result.pruned} memories for agent ${this.agentId}, ${result.retained} remaining`);
+  }
+
+  /**
    * Register this agent's message handler
    */
   protected registerMessageHandler(): void {
     MessageRouter.registerHandler(this.agentId, async (message: AgentMessage) => {
-      await this.handleMessage(message);
+      await this.handleMessage(message as ExtendedAgentMessage);
     });
   }
 
   /**
    * Handle an incoming message
    */
-  protected async handleMessage(message: AgentMessage): Promise<void> {
+  protected async handleMessage(message: ExtendedAgentMessage): Promise<void> {
     // Store message in inbox
     this.messageInbox.push(message);
     
     console.log(`[${this.agentId}] Received message of type '${message.type}' from ${message.fromAgentId}`);
+    
+    // Handle pruneNow command (using type assertion since we're extending the type)
+    if ((message.type as ExtendedMessageType) === 'command' && message.payload?.command === 'pruneNow') {
+      await this.pruneMemory();
+      await this.sendMessage(message.fromAgentId, 'result' as MessageType, { 
+        success: true, 
+        message: 'Memory pruning completed' 
+      }, { 
+        correlationId: message.correlationId
+      });
+      return;
+    }
     
     // Dispatch based on message type
     switch (message.type) {
@@ -194,26 +271,48 @@ export class AgentBase {
   /**
    * Store a message in agent memory
    */
-  protected async storeMessageInMemory(message: AgentMessage): Promise<void> {
+  protected async storeMessageInMemory(message: ExtendedAgentMessage): Promise<void> {
     if (!this.memory) return;
     
-    // This is a simplified example - actual memory storage would depend on memory implementation
-    const memoryItem = {
-      type: 'message',
-      source: message.fromAgentId,
-      content: message.payload,
-      timestamp: message.timestamp,
-      tags: ['message', message.fromAgentId, message.type]
-    };
+    // Determine appropriate scope based on message type
+    let scope: MemoryScope = 'shortTerm';
     
-    // Store in memory (assuming a log method exists)
-    console.log(`[${this.agentId}] Storing message in memory: ${JSON.stringify(memoryItem)}`);
+    if (message.metadata?.importance === 'high' || message.metadata?.permanent) {
+      scope = 'longTerm';
+    } else if (message.type === 'result' || message.type === 'update') {
+      scope = 'inbox';
+    } else if (message.metadata?.isReflection) {
+      scope = 'reflections';
+    }
+    
+    // Calculate relevance if not provided (simple example)
+    const relevance = message.metadata?.relevance || 
+      (message.metadata?.importance === 'high' ? 0.9 : 0.5);
+    
+    // Determine expiration for short-term memory
+    const expiresAt = scope === 'shortTerm' ? 
+      Date.now() + (24 * 60 * 60 * 1000) : // 24 hours
+      undefined;
+    
+    // Store in memory
+    await this.memory.write({
+      content: typeof message.payload === 'string' ? 
+        message.payload : 
+        JSON.stringify(message.payload),
+      scope,
+      timestamp: message.timestamp || Date.now(),
+      relevance,
+      expiresAt,
+      sourceAgent: message.fromAgentId,
+      contextId: message.delegationContextId || message.correlationId,
+      tags: message.metadata?.tags || []
+    });
   }
 
   /**
    * Handle a task handoff message
    */
-  protected async handleTaskHandoff(message: AgentMessage): Promise<void> {
+  protected async handleTaskHandoff(message: ExtendedAgentMessage): Promise<void> {
     try {
       // Extract task details from message payload
       const { taskId, goal, context } = message.payload;
@@ -252,7 +351,7 @@ export class AgentBase {
   /**
    * Handle a question message
    */
-  protected async handleQuestion(message: AgentMessage): Promise<void> {
+  protected async handleQuestion(message: ExtendedAgentMessage): Promise<void> {
     try {
       // Extract question from payload
       const { question } = message.payload;
@@ -282,7 +381,7 @@ export class AgentBase {
   /**
    * Process a result message
    */
-  protected async processResult(message: AgentMessage): Promise<void> {
+  protected async processResult(message: ExtendedAgentMessage): Promise<void> {
     // This would typically integrate the result into ongoing work
     console.log(`[${this.agentId}] Processing result from ${message.fromAgentId}: ${JSON.stringify(message.payload)}`);
   }
@@ -503,32 +602,23 @@ export class AgentBase {
     
     try {
       console.log(`Shutting down agent ${this.agentId}...`);
-      // Cleanup logic will be added here
       
-      // Log shutdown success
-      AgentMonitor.log({
-        agentId: this.agentId,
-        taskId: `shutdown_${this.agentId}`,
-        eventType: 'task_end',
-        status: 'success',
-        timestamp: Date.now(),
-        durationMs: Date.now() - startTime
-      });
+      // Cancel scheduled memory pruning
+      if (this.memoryPruningTimer) {
+        MemoryPruner.cancelAutoPrune(this.memoryPruningTimer);
+        this.memoryPruningTimer = null;
+      }
+      
+      // Run final memory pruning
+      if (this.memory) {
+        await this.pruneMemory();
+      }
+      
+      // Existing cleanup code...
+      
+      this.initialized = false;
+      console.log(`Agent ${this.agentId} shutdown complete`);
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      
-      // Log shutdown error
-      AgentMonitor.log({
-        agentId: this.agentId,
-        taskId: `shutdown_${this.agentId}`,
-        eventType: 'error',
-        status: 'failure',
-        timestamp: Date.now(),
-        durationMs: Date.now() - startTime,
-        errorMessage
-      });
-      
-      // Still want to log the error but not throw during shutdown
       console.error(`Error during agent ${this.agentId} shutdown:`, error);
     }
   }
