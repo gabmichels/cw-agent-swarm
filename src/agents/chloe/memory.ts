@@ -128,13 +128,13 @@ export class ChloeMemory {
   }
 
   /**
-   * Add a new memory
+   * Add a memory to the appropriate storage
    */
   async addMemory(
     content: string,
-    type: ChloeMemoryType = MemoryType.MESSAGE,
+    type: ChloeMemoryType = 'MESSAGE',
     importance: ImportanceLevel = ImportanceLevel.MEDIUM,
-    source: MemorySource = MemorySource.SYSTEM,
+    source: MemorySource = MemorySource.AGENT,
     context?: string,
     tags?: string[]
   ): Promise<MemoryEntry> {
@@ -144,16 +144,25 @@ export class ChloeMemory {
     
     const memoryId = `memory_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
     
-    // We no longer need to check for specific patterns here since we've fixed the issue at the source
-    // Each system now correctly specifies 'thought' vs 'message' type when adding memories
+    // Apply standardized formatting to memory content if it doesn't already have it
+    const timestamp = new Date().toISOString();
+    let formattedContent = content;
+    
+    // Only format if it's not already formatted
+    if (!this.isFormattedMemory(content)) {
+      const typeLabel = type.toString().toUpperCase();
+      formattedContent = `${typeLabel} [${timestamp}]: ${content}`;
+    }
     
     const baseType = this.convertToBaseMemoryType(type);
+    
+    // Create the memory entry
     const newMemory: MemoryEntry = {
       id: memoryId,
-      content,
+      content: formattedContent,
       created: new Date(),
-      category: type, // Use type as category for backward compatibility
-      importance,
+      category: type.toString(), // Use type as category for backward compatibility
+      importance: importance as any, // Type cast to resolve type mismatch
       source,
       context,
       tags,
@@ -164,9 +173,9 @@ export class ChloeMemory {
     if (typeof window === 'undefined') {
       await serverQdrant.addMemory(
         baseType as 'message' | 'thought' | 'document' | 'task',
-        content,
+        formattedContent,
         {
-          category: type,
+          category: type.toString(),
           importance,
           source,
           tags
@@ -178,15 +187,25 @@ export class ChloeMemory {
     if (this.useExternalMemory && this.externalMemory) {
       const memoryText = this.formatMemoryForExternal(newMemory);
       await this.externalMemory.addMemory(memoryText, {
-        tag: type,
+        tag: type.toString(),
         importance: importance,
         source: source,
         tags: tags
       });
     }
     
-    console.log(`Added new memory: ${memoryId} - ${content.substring(0, 50)}...`);
+    console.log(`Added new memory: ${memoryId} - ${formattedContent.substring(0, 50)}...`);
     return newMemory;
+  }
+
+  /**
+   * Check if a memory string is already in the standardized format
+   */
+  private isFormattedMemory(content: string): boolean {
+    if (!content) return false;
+    
+    const formatRegex = /^(USER MESSAGE|MESSAGE|THOUGHT|REASONING TRAIL) \[([^\]]+)\]: (.+)$/;
+    return formatRegex.test(content);
   }
 
   /**
@@ -261,10 +280,10 @@ export class ChloeMemory {
           const records = await this.externalMemory.searchMemory(
             type,
             searchOptions
-          ) as ExternalMemoryRecord[];
+          );
           
-          // Convert to memory entries
-          return this.convertRecordsToMemoryEntries(records);
+          // Convert to memory entries - use type assertion with unknown to fix type mismatch
+          return this.convertRecordsToMemoryEntries(records as unknown as ExternalMemoryRecord[]);
         } catch (error) {
           console.error('Error retrieving memories from external memory:', error);
         }
@@ -570,6 +589,26 @@ export class ChloeMemory {
   }
 
   /**
+   * Extract clean content from a formatted memory string
+   * Handles standardized formats like "TYPE [timestamp]: content"
+   */
+  private extractContentFromFormattedMemory(formattedString: string): string {
+    if (!formattedString) return '';
+    
+    // Check if this is a formatted memory entry
+    const formatRegex = /^(USER MESSAGE|MESSAGE|THOUGHT|REASONING TRAIL) \[([^\]]+)\]: (.+)$/;
+    const match = formattedString.match(formatRegex);
+    
+    if (match && match.length >= 4) {
+      // Return just the content part
+      return match[3];
+    }
+    
+    // If not a formatted entry, return as is
+    return formattedString;
+  }
+
+  /**
    * Get relevant memories for a query
    * Returns an array of string format memory items
    */
@@ -586,7 +625,7 @@ export class ChloeMemory {
       const formattedMemories = relevantMemories.map(memory => {
         try {
           // Use safe property access as the memory shape might vary
-          const content = memory.content || '';
+          const content = memory.content ? this.extractContentFromFormattedMemory(memory.content) : '';
           const importance = memory.importance || 0;
           const category = memory.category || '';
           const created = memory.created || new Date();

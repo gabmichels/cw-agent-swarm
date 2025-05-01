@@ -278,8 +278,9 @@ export class ChloeAgent implements IAgent {
       });
       
       // Store the user message in memory first so we can link thoughts to it
+      // Use standardized format: "USER MESSAGE [timestamp]: content"
       await memoryManager.addMemory(
-        message,
+        `USER MESSAGE [${new Date().toISOString()}]: ${message}`,
         ChloeMemoryType.MESSAGE,
         ImportanceLevel.MEDIUM,
         MemorySource.USER,
@@ -294,7 +295,8 @@ export class ChloeAgent implements IAgent {
       });
       
       // Store the thought in memory with link to original message
-      await thoughtManager.captureThought(
+      // ThoughtManager.logThought now handles standardized format: "THOUGHT [timestamp]: content"
+      await thoughtManager.logThought(
         initialThought, 
         'message_understanding',
         'medium'
@@ -312,7 +314,7 @@ export class ChloeAgent implements IAgent {
         });
         
         // Store the reflection in memory
-        await thoughtManager.captureThought(
+        await thoughtManager.logThought(
           reflection,
           'strategic_reflection',
           'high'
@@ -355,6 +357,7 @@ export class ChloeAgent implements IAgent {
       const responseText = response.content.toString();
       
       // STEP 6: Store the reasoning trail and response in memory
+      // Using standardized format for debugging and analytics
       const reasoningTrail = {
         messageId,
         message,
@@ -368,16 +371,17 @@ export class ChloeAgent implements IAgent {
       
       // Store the complete reasoning trace for debugging/analytics
       await memoryManager.addMemory(
-        JSON.stringify(reasoningTrail),
+        `REASONING TRAIL [${new Date().toISOString()}]: ${JSON.stringify(reasoningTrail)}`,
         ChloeMemoryType.THOUGHT,
         ImportanceLevel.LOW,
         MemorySource.AGENT,
-        `Reasoning trace for message: ${messageId}`
+        'reasoning_trace'
       );
       
-      // Store the response in memory
+      // Store the response in memory with standardized format
+      // "MESSAGE [timestamp]: content"
       await memoryManager.addMemory(
-        responseText,
+        `MESSAGE [${new Date().toISOString()}]: ${responseText}`,
         ChloeMemoryType.MESSAGE,
         ImportanceLevel.MEDIUM,
         MemorySource.AGENT,

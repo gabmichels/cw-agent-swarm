@@ -97,20 +97,20 @@ export class ThoughtManager implements IManager {
   }
 
   /**
-   * Capture an agent thought and add it to memory
+   * Log a thought with a specific format for easier retrieval
    */
-  async captureThought(thought: string, category: string = 'general', importance: 'low' | 'medium' | 'high' = 'medium'): Promise<void> {
+  logThought(message: string, category: string = 'general', importance: 'low' | 'medium' | 'high' = 'low'): void {
     try {
       if (!this.isInitialized()) {
-        await this.initialize();
+        this.initialize().catch(err => this.logAction('Error initializing during thought logging', { error: String(err) }));
       }
       
-      // Log the thought
-      this.logAction('Captured thought', { 
-        thought: thought.substring(0, 100) + (thought.length > 100 ? '...' : ''),
-        category,
-        importance
-      });
+      // Add timestamp
+      const timestamp = new Date().toISOString();
+      const formattedThought = `THOUGHT [${timestamp}]: ${message}`;
+      
+      // Log to the task logger
+      this.logAction('Thought', { thought: message, category, importance });
       
       // Map the string importance to enum value
       let importanceLevel: ImportanceLevel;
@@ -127,18 +127,30 @@ export class ThoughtManager implements IManager {
           break;
       }
       
-      // Add to memory - use 'thought' as the type rather than dynamic category
-      await this.memory.addMemory(
-        thought,
-        ChloeMemoryType.THOUGHT, // Change from category to valid ChloeMemoryType
+      // Asynchronously add to memory without waiting
+      this.memory.addMemory(
+        formattedThought,
+        ChloeMemoryType.THOUGHT,
         importanceLevel,
         MemorySource.AGENT,
-        category // Pass the category as context instead
-      );
+        category
+      ).catch(error => {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        this.logAction('Error adding thought to memory', { error: errorMessage });
+      });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      this.logAction('Error capturing thought', { error: errorMessage });
+      this.logAction('Error logging thought', { error: errorMessage });
     }
+  }
+
+  /**
+   * Capture an agent thought and add it to memory
+   * @deprecated Use logThought instead for standardized thought storage
+   */
+  async captureThought(thought: string, category: string = 'general', importance: 'low' | 'medium' | 'high' = 'medium'): Promise<void> {
+    // Forward to the standardized method
+    this.logThought(thought, category, importance);
   }
 
   /**
@@ -250,38 +262,6 @@ My analysis:`;
       const errorMessage = error instanceof Error ? error.message : String(error);
       this.logAction('Error analyzing reasoning', { error: errorMessage });
       return `Error analyzing reasoning: ${errorMessage}`;
-    }
-  }
-
-  /**
-   * Log a thought with a specific format for easier retrieval
-   */
-  logThought(message: string): void {
-    try {
-      if (!this.isInitialized()) {
-        this.initialize().catch(err => this.logAction('Error initializing during thought logging', { error: String(err) }));
-      }
-      
-      // Add timestamp
-      const timestamp = new Date().toISOString();
-      const formattedThought = `[${timestamp}] ${message}`;
-      
-      // Log to the task logger
-      this.logAction('Thought', { thought: message });
-      
-      // Asynchronously add to memory without waiting
-      this.memory.addMemory(
-        formattedThought,
-        ChloeMemoryType.THOUGHT,
-        ImportanceLevel.LOW,
-        MemorySource.AGENT
-      ).catch(error => {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        this.logAction('Error adding thought to memory', { error: errorMessage });
-      });
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      this.logAction('Error logging thought', { error: errorMessage });
     }
   }
 } 
