@@ -986,4 +986,45 @@ export class AgentBase {
       throw error;
     }
   }
-} 
+
+  /**
+   * Post-task hook to check for ethics violations and record reflections
+   * This is called after a task completes to enable agent self-improvement
+   */
+  async postTaskHook(taskId: string): Promise<void> {
+    if (!this.memory || !this.initialized) {
+      console.warn(`Cannot run postTaskHook for agent ${this.agentId}: Agent not fully initialized`);
+      return;
+    }
+
+    // Get ethics violations for this task
+    // Note: BiasAuditor logs ethics violations as 'error' events with metadata.type = 'ethics_violation'
+    const ethicsViolations = AgentMonitor.getLogs({
+      taskId,
+      eventType: 'error',
+      agentId: this.agentId
+    }).filter(log => log.metadata?.type === 'ethics_violation');
+
+    if (ethicsViolations.length > 0) {
+      // Create a summary of violations
+      const summary = ethicsViolations.map(v => {
+        const severity = v.metadata?.severity || 'unknown';
+        const description = v.metadata?.description || 'Unknown ethics violation';
+        const ruleId = v.metadata?.ruleId || 'unknown';
+        return `- [${severity}] ${description} (Rule: ${ruleId})`;
+      }).join('\n');
+
+      // Store a reflection entry in memory
+      await this.memory.write({
+        content: `⚖️ Ethical reflection on task ${taskId}:\n${summary}`,
+        scope: 'reflections',
+        kind: 'feedback',
+        relevance: 0.8,
+        timestamp: Date.now(),
+        tags: ['ethics', 'violation', taskId],
+      });
+
+      console.log(`Agent ${this.agentId} created ethical reflection for task ${taskId} with ${ethicsViolations.length} violations`);
+    }
+  }
+}
