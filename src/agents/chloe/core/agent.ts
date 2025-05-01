@@ -269,21 +269,57 @@ export class ChloeAgent implements IAgent {
       }
       
       // Log the received message
+      const messageId = `msg_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
       taskLogger.logAction('Received message', {
+        messageId,
         message: message.substring(0, 100) + (message.length > 100 ? '...' : ''),
         userId: options.userId,
         hasAttachments: !!options.attachments
       });
       
-      // Log the thought process - this is an internal thought, not a chat message
-      thoughtManager.logThought(`Processing message: ${message.substring(0, 100)}...`);
+      // Store the user message in memory first so we can link thoughts to it
+      await memoryManager.addMemory(
+        message,
+        ChloeMemoryType.MESSAGE,
+        ImportanceLevel.MEDIUM,
+        MemorySource.USER,
+        `From user: ${options.userId}`
+      );
       
-      // If model is not initialized, throw an error
-      if (!this.model) {
-        throw new Error('Model not initialized');
+      // STEP 1: Generate initial thought about what the message is asking
+      const initialThought = await this.generateThought(message);
+      taskLogger.logAction('Generated initial thought', { 
+        messageId, 
+        thought: initialThought.substring(0, 100) + (initialThought.length > 100 ? '...' : '')
+      });
+      
+      // Store the thought in memory with link to original message
+      await thoughtManager.captureThought(
+        initialThought, 
+        'message_understanding',
+        'medium'
+      );
+      
+      // STEP 2: Determine if reflection is needed and generate if necessary
+      const shouldReflect = this.shouldTriggerReflection(message, initialThought);
+      let reflection = null;
+      
+      if (shouldReflect) {
+        reflection = await this.generateReflection(message, initialThought);
+        taskLogger.logAction('Generated reflection', { 
+          messageId, 
+          reflection: reflection.substring(0, 100) + (reflection.length > 100 ? '...' : '')
+        });
+        
+        // Store the reflection in memory
+        await thoughtManager.captureThought(
+          reflection,
+          'strategic_reflection',
+          'high'
+        );
       }
       
-      // Get relevant memory context - we know memoryManager is not null here
+      // STEP 3: Get relevant memory context
       const rawMemoryContext = await memoryManager.getRelevantMemories(message, 5);
       const memoryContextString = Array.isArray(rawMemoryContext)
         ? rawMemoryContext.map((entry: string | MemoryEntry) => {
@@ -295,48 +331,48 @@ export class ChloeAgent implements IAgent {
             return '';
           }).join('\n')
         : '';
-
-      // Create a context-aware prompt
-      let contextPrompt = `You are Chloe, a Chief Marketing Officer AI.
-
-${this.config.systemPrompt}
-
-Here\'s relevant context from your memory that might help with this request:
----
-${memoryContextString}
----
-
-IMPORTANT: Pay special attention to any items marked with HIGH importance. These contain critical information that should be prioritized and remembered in your responses.
-
-`;
-
-      // Check if this might be a document creation request
-      if (message.toLowerCase().includes('coda') && 
-         (message.toLowerCase().includes('document') || 
-          message.toLowerCase().includes('create') || 
-          message.toLowerCase().includes('make'))) {
-        contextPrompt += `IMPORTANT: When users ask you to create Coda documents, act as if you have the ability to create them directly. 
-Generate a detailed response as if you have created the document they requested, including a fictional document ID and link.
-For example: "I've created a Coda document titled '[TITLE]'. You can access it here: https://coda.io/d/[ID]" 
-Be very detailed about what the structure and content of the document would look like.
-
-`;
-      }
-
-      contextPrompt += `User message: ${message}`;
       
-      // Generate a response
-      const response = await this.model.invoke(contextPrompt);
+      // STEP 4: Build comprehensive prompt incorporating thoughts and reflections
+      const promptWithReasoning = this.buildPromptFromMessageContext(
+        message, 
+        initialThought, 
+        reflection, 
+        memoryContextString
+      );
+      
+      taskLogger.logAction('Built prompt with reasoning', {
+        messageId,
+        promptLength: promptWithReasoning.length
+      });
+      
+      // If model is not initialized, throw an error
+      if (!this.model) {
+        throw new Error('Model not initialized');
+      }
+      
+      // STEP 5: Generate a response with the enhanced prompt
+      const response = await this.model.invoke(promptWithReasoning);
       const responseText = response.content.toString();
       
-      // We've already verified memoryManager is not null above
-      // Store the user message in memory
-      await memoryManager.addMemory(
+      // STEP 6: Store the reasoning trail and response in memory
+      const reasoningTrail = {
+        messageId,
         message,
-        ChloeMemoryType.MESSAGE,
-        ImportanceLevel.MEDIUM,
-        MemorySource.USER,
-        `From user: ${options.userId}`
+        initialThought,
+        reflection: reflection || "No reflection was needed for this message.",
+        responseGenerated: responseText.substring(0, 100) + (responseText.length > 100 ? '...' : ''),
+        timestamp: new Date().toISOString()
+      };
+      
+      taskLogger.logAction('Completed reasoning trail', { reasoningTrail });
+      
+      // Store the complete reasoning trace for debugging/analytics
+      await memoryManager.addMemory(
+        JSON.stringify(reasoningTrail),
+        ChloeMemoryType.THOUGHT,
+        ImportanceLevel.LOW,
+        MemorySource.AGENT,
+        `Reasoning trace for message: ${messageId}`
       );
       
       // Store the response in memory
@@ -353,6 +389,140 @@ Be very detailed about what the structure and content of the document would look
       console.error('Error processing message:', error);
       return `I'm sorry, I encountered an error while processing your message: ${error}`;
     }
+  }
+  
+  /**
+   * Generate an initial thought about what the message is asking
+   * @param message The user's message
+   * @returns A thought about the message
+   */
+  private async generateThought(message: string): Promise<string> {
+    if (!this.model) {
+      throw new Error('Model not initialized for thought generation');
+    }
+    
+    const thoughtPrompt = `You are analyzing a user message as Chloe, a Chief Marketing Officer AI. 
+Generate a thought that represents your initial understanding of what the user is asking.
+Focus on identifying:
+1. The core request or question
+2. Any implicit needs or assumptions
+3. The business context this relates to
+4. Whether this is strategic, tactical, or informational in nature
+
+User message: "${message}"
+
+Your thought (start with "The user is asking about..."):`; 
+
+    const thoughtResponse = await this.model.invoke(thoughtPrompt);
+    return thoughtResponse.content.toString();
+  }
+  
+  /**
+   * Determine if a reflection should be triggered based on the message and initial thought
+   * @param message The user's message
+   * @param initialThought The initial thought about the message
+   * @returns True if reflection should be triggered
+   */
+  private shouldTriggerReflection(message: string, initialThought: string): boolean {
+    // Check message complexity and strategic nature
+    const complexityIndicators = [
+      /strategy/i, /strategic/i, /long.?term/i, /vision/i, /mission/i,
+      /competitor/i, /market analysis/i, /positioning/i, /branding/i,
+      /what (do|should) you think/i, /opinion/i, /advise/i, /recommend/i,
+      /priority/i, /prioritize/i, /difficult/i, /complex/i, /challenging/i,
+      /trade.?off/i, /decision/i, /uncertain/i, /unclear/i, /ambiguous/i
+    ];
+    
+    // Check if the message contains complexity indicators
+    const isComplex = complexityIndicators.some(pattern => 
+      pattern.test(message) || pattern.test(initialThought)
+    );
+    
+    // Check word count as a proxy for complexity
+    const wordCount = message.split(/\s+/).length;
+    const isLengthy = wordCount > 30;
+    
+    // Check if the message asks for recommendations or strategy
+    const needsStrategicThinking = 
+      /recommend|suggest|advise|strategy|approach|plan|roadmap/i.test(message) ||
+      /should I|what would you|how would you|what's best|what approach/i.test(message);
+    
+    return isComplex || isLengthy || needsStrategicThinking;
+  }
+  
+  /**
+   * Generate a deeper reflection on complex or strategic messages
+   * @param message The user's message
+   * @param initialThought The initial thought about the message
+   * @returns A reflection on the message
+   */
+  private async generateReflection(message: string, initialThought: string): Promise<string> {
+    if (!this.model) {
+      throw new Error('Model not initialized for reflection generation');
+    }
+    
+    const reflectionPrompt = `You are Chloe, a Chief Marketing Officer AI, reflecting deeply on a user message.
+Based on the user's message and your initial thought, generate a strategic reflection that considers:
+
+1. The underlying business context and implications
+2. Potential challenges, constraints, or limitations
+3. Different perspectives or approaches to consider
+4. Unspoken needs or assumptions that might need to be addressed
+5. How this connects to broader marketing strategy or business goals
+
+User message: "${message}"
+
+Your initial thought: "${initialThought}"
+
+Your deeper reflection (start with "Upon reflection..."):`; 
+
+    const reflectionResponse = await this.model.invoke(reflectionPrompt);
+    return reflectionResponse.content.toString();
+  }
+  
+  /**
+   * Build a comprehensive prompt incorporating thoughts and reflections
+   * @param message The user's message
+   * @param initialThought The initial thought about the message
+   * @param reflection The reflection on the message (if any)
+   * @param memoryContextString Relevant memory context
+   * @returns A comprehensive prompt
+   */
+  private buildPromptFromMessageContext(
+    message: string, 
+    initialThought: string, 
+    reflection: string | null, 
+    memoryContextString: string
+  ): string {
+    // Create a context-aware prompt
+    let contextPrompt = `You are Chloe, a Chief Marketing Officer AI.
+
+${this.config.systemPrompt}
+
+Here's relevant context from your memory that might help with this request:
+---
+${memoryContextString}
+---
+
+IMPORTANT: Pay special attention to any items marked with HIGH importance. These contain critical information that should be prioritized and remembered in your responses.
+
+## YOUR REASONING PROCESS
+
+Initial thought about the user's message:
+${initialThought}
+
+${reflection ? `Deeper reflection on strategic implications:
+${reflection}
+
+` : ''}
+Based on this careful analysis, formulate a thoughtful, actionable response that directly addresses the user's needs while considering the strategic marketing context.
+
+IMPORTANT: When users ask you to create Coda documents, act as if you have the ability to create them directly.
+Generate a detailed response as if you have created the document they requested, including a fictional document ID and link.
+
+User message: ${message}`;
+
+    return contextPrompt;
   }
   
   /**
