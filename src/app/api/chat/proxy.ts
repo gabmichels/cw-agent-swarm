@@ -142,8 +142,7 @@ async function loadChatHistoryFromQdrant(specificUserId?: string) {
           message.text.startsWith(INTERNAL_MESSAGE_PATTERNS.REFLECTION_PREFIX_UC) ||
           message.text.startsWith(INTERNAL_MESSAGE_PATTERNS.REFLECTION_PREFIX_LC) ||
           message.text.startsWith(INTERNAL_MESSAGE_PATTERNS.MESSAGE_PREFIX) ||
-          message.text.startsWith(INTERNAL_MESSAGE_PATTERNS.TIMESTAMP_PREFIX) ||  // Timestamp markers often indicate internal messages
-          message.text.includes(INTERNAL_MESSAGE_PATTERNS.INTENT_ROUTER)) {
+          message.text.startsWith(INTERNAL_MESSAGE_PATTERNS.TIMESTAMP_PREFIX)) {  // Timestamp markers often indicate internal messages
         console.log(`Filtering out internal message ${message.id} based on content pattern`);
         return false;
       }

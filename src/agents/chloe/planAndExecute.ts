@@ -28,7 +28,6 @@ export interface ChloeTools {
   notifyDiscord: SimpleTool;
   codaDocument: SimpleTool;
   marketScan: SimpleTool;
-  intentRouter: SimpleTool;
   // Allow string indexing
   [key: string]: SimpleTool;
 }
@@ -106,7 +105,6 @@ export async function planAndExecute(
     safeBindTool('reflectOnPerformance', 'reflect_on_performance');
     safeBindTool('notifyDiscord', 'notify_discord');
     safeBindTool('marketScan', 'market_scan');
-    safeBindTool('intentRouter', 'intent_router');
     safeBindTool('codaDocument', 'coda_document');
     
     // Create the graph

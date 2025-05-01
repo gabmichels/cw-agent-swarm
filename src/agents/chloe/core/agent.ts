@@ -278,46 +278,7 @@ export class ChloeAgent implements IAgent {
       // Log the thought process - this is an internal thought, not a chat message
       thoughtManager.logThought(`Processing message: ${message.substring(0, 100)}...`);
       
-      // Process with intent router
-      if (this.toolManager) {
-        try {
-          console.log('Attempting to process with intent router...');
-          const intentResult = await this.toolManager.processIntent(message, {});
-          console.log('Intent router result:', intentResult);
-          
-          if (intentResult.success && intentResult.response) {
-            console.log('Intent router successfully processed the request');
-            
-            // Store the user message in memory
-            await memoryManager.addMemory(
-              message,
-              ChloeMemoryType.MESSAGE, // This is a user chat message
-              ImportanceLevel.MEDIUM,
-              MemorySource.USER,
-              `From user: ${options.userId}`
-            );
-            
-            // Store the agent's response in memory
-            await memoryManager.addMemory(
-              intentResult.response,
-              ChloeMemoryType.MESSAGE, // This is an agent chat message that will be displayed
-              ImportanceLevel.MEDIUM,
-              MemorySource.AGENT,
-              `Response to: ${message.substring(0, 50)}...`
-            );
-            
-            return intentResult.response;
-          } else if (intentResult.error) {
-            console.warn('Intent router error:', intentResult.error);
-            thoughtManager.logThought(`Intent router error: ${intentResult.error}`);
-          }
-        } catch (error) {
-          console.error('Error processing with intent router:', error);
-          thoughtManager.logThought(`Error in intent router: ${error instanceof Error ? error.message : String(error)}`);
-        }
-      }
-      
-      // If intent processing failed or not available, use the model directly
+      // If model is not initialized, throw an error
       if (!this.model) {
         throw new Error('Model not initialized');
       }

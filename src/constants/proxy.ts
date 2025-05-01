@@ -24,7 +24,6 @@ export const INTERNAL_MESSAGE_PATTERNS = {
   TIMESTAMP_PREFIX: '[20',
   
   // Other markers
-  INTENT_ROUTER: 'Intent router',
   INTERNAL_REFLECTION: 'INTERNAL REFLECTION (NOT CHAT):',
 };
 

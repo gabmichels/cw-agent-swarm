@@ -465,8 +465,7 @@ class QdrantHandler {
         lowerContent.startsWith('thinking:') ||
         lowerContent.startsWith('reflection on') ||
         (lowerContent.startsWith('[20') && 
-         (lowerContent.includes('processing message:') || 
-          lowerContent.includes('intent router')))) {
+         lowerContent.includes('processing message:'))) {
       metadata.isInternalMessage = true;
       metadata.notForChat = true;
     }
@@ -786,8 +785,7 @@ class QdrantHandler {
                 content.startsWith('thinking:') ||
                 content.startsWith('reflection on') ||
                 (content.startsWith('[20') && 
-                  (content.includes('processing message:') || 
-                  content.includes('intent router')))) {
+                  content.includes('processing message:'))) {
               return false;
             }
             

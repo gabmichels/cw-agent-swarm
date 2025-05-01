@@ -476,7 +476,7 @@ const ToolsTab: React.FC<ToolsTabProps> = ({
 
         <div className="bg-gray-700 p-4 rounded-lg">
           <h3 className="font-semibold mb-2">Direct Market Scan</h3>
-          <p className="text-sm text-gray-300 mb-4">Run a market scan directly without using the intent router.</p>
+          <p className="text-sm text-gray-300 mb-4">Run a market scan directly.</p>
           <div className="flex space-x-2">
             <button
               onClick={runDirectMarketScan}

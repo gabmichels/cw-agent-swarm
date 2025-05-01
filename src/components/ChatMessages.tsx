@@ -79,8 +79,7 @@ const ChatMessages: React.FC<ChatMessagesProps> = ({
         messageText.startsWith('reflection:') ||
         messageText.startsWith('thinking:') ||
         messageText.startsWith('message:') ||
-        messageText.includes('intent router') ||
-        messageText.includes('processing message:') ||
+        messageText.startsWith('processing message:') ||
         // More reflection patterns
         messageText.startsWith('reflection on') ||
         // System messages
