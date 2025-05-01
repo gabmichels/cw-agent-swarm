@@ -9,6 +9,7 @@
  */
 
 import { AgentMonitor } from '../monitoring/AgentMonitor';
+import { enforceEthics } from '../ethics/EthicsMiddleware';
 
 // Base tool interface
 export interface ToolDefinition {
@@ -40,6 +41,10 @@ export interface ToolAccessOptions {
 // Tool router options
 export interface ToolRouterOptions {
   accessOptions?: Partial<ToolAccessOptions>;
+  ethicsOptions?: {
+    enableEthicsCheck: boolean;
+    blockUnethicalOutput: boolean;
+  };
 }
 
 /**
@@ -50,6 +55,10 @@ export class ToolRouter {
   private agentToolPermissions: Map<string, Set<string>> = new Map();
   private toolUsageStats: Map<string, Map<string, number>> = new Map();
   private accessOptions: ToolAccessOptions;
+  private ethicsOptions: {
+    enableEthicsCheck: boolean;
+    blockUnethicalOutput: boolean;
+  };
   private initialized: boolean = false;
   
   constructor(options: ToolRouterOptions = {}) {
@@ -59,6 +68,12 @@ export class ToolRouter {
       trackToolUsage: true,
       maxActiveTools: 10,
       ...options.accessOptions
+    };
+    
+    this.ethicsOptions = {
+      enableEthicsCheck: true,
+      blockUnethicalOutput: false,
+      ...options.ethicsOptions
     };
   }
   
@@ -224,6 +239,48 @@ export class ToolRouter {
         this.trackToolUsage(agentId, toolName);
       }
       
+      // Apply ethics check on tool output if enabled
+      if (this.ethicsOptions.enableEthicsCheck && result.success && result.message) {
+        const ethicsResult = await enforceEthics({
+          agentId,
+          taskId,
+          output: result.message,
+          options: {
+            blockOutput: this.ethicsOptions.blockUnethicalOutput
+          }
+        });
+        
+        // If violations were found and output is blocked
+        if (ethicsResult.wasBlocked) {
+          // Log ethics violation blocking
+          AgentMonitor.log({
+            agentId,
+            taskId,
+            toolUsed: toolName,
+            eventType: 'tool_end',
+            status: 'failure',
+            timestamp: Date.now(),
+            durationMs: Date.now() - startTime,
+            errorMessage: 'Output blocked due to ethics violation',
+            metadata: {
+              violations: ethicsResult.violations
+            }
+          });
+          
+          return {
+            success: false,
+            error: 'Output blocked due to ethics violation',
+            data: result.data,
+            message: 'This output was blocked due to potential ethical concerns'
+          };
+        }
+        
+        // If the output was modified to fix violations
+        if (ethicsResult.wasModified) {
+          result.message = ethicsResult.output;
+        }
+      }
+      
       // Log tool execution result
       AgentMonitor.log({
         agentId,
@@ -258,22 +315,21 @@ export class ToolRouter {
       
       return {
         success: false,
-        error: `Error executing tool ${toolName}: ${errorMessage}`
+        error: errorMessage
       };
     }
   }
   
   /**
-   * Track tool usage for an agent
+   * Track tool usage statistics
    */
   private trackToolUsage(agentId: string, toolName: string): void {
     if (!this.toolUsageStats.has(agentId)) {
-      this.toolUsageStats.set(agentId, new Map());
+      this.toolUsageStats.set(agentId, new Map<string, number>());
     }
     
     const agentStats = this.toolUsageStats.get(agentId)!;
-    const currentCount = agentStats.get(toolName) || 0;
-    agentStats.set(toolName, currentCount + 1);
+    agentStats.set(toolName, (agentStats.get(toolName) || 0) + 1);
   }
   
   /**
@@ -286,40 +342,39 @@ export class ToolRouter {
     }
     
     return Array.from(permissions)
-      .filter(toolName => this.tools.has(toolName))
-      .map(toolName => this.tools.get(toolName)!)
-      .filter(Boolean);
+      .map(toolName => this.tools.get(toolName))
+      .filter((tool): tool is ToolDefinition => !!tool);
   }
   
   /**
-   * Get tool usage statistics for an agent
+   * Get usage statistics for an agent
    */
   getToolUsageStats(agentId: string): Record<string, number> {
-    const agentStats = this.toolUsageStats.get(agentId);
-    if (!agentStats) {
-      return {};
-    }
-    
     const stats: Record<string, number> = {};
-    agentStats.forEach((count, toolName) => {
-      stats[toolName] = count;
-    });
+    
+    const agentStats = this.toolUsageStats.get(agentId);
+    if (agentStats) {
+      // Convert to array first to avoid MapIterator issues
+      Array.from(agentStats.entries()).forEach(([toolName, count]) => {
+        stats[toolName] = count;
+      });
+    }
     
     return stats;
   }
   
   /**
-   * Check if tool router is initialized
+   * Check if router is initialized
    */
   isInitialized(): boolean {
     return this.initialized;
   }
   
   /**
-   * Shutdown the tool router
+   * Shut down the router
    */
   async shutdown(): Promise<void> {
-    console.log('Shutting down ToolRouter...');
-    // Cleanup logic will be added here
+    // Cleanup logic would go here
+    this.initialized = false;
   }
 } 

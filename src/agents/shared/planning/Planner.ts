@@ -7,6 +7,7 @@
 
 import { MemoryEntry } from '../../../lib/memory/src/memory';
 import { MemoryInjector } from '../../../lib/memory/src/MemoryInjector';
+import { enforceEthics } from '../ethics/EthicsMiddleware';
 
 export interface PlanningContext {
   // The goal of the task
@@ -140,7 +141,46 @@ export class Planner {
       context
     };
     
+    // Generate a text representation of the plan for ethics check
+    const planText = this.planToString(mockPlan);
+    
+    // Run ethics checks on the generated plan
+    const taskId = `planning_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+    const { output: checkedPlanText, violations } = await enforceEthics({
+      agentId: context.agentId,
+      taskId,
+      output: planText
+    });
+    
+    // If there were violations, log them and potentially modify the plan
+    if (violations && violations.length > 0) {
+      console.log(`Ethics violations detected in plan for ${context.goal}`);
+      // In a real implementation, you might modify the plan based on violations
+      // For this demo, we'll just continue with the original plan
+    }
+    
     return mockPlan;
+  }
+  
+  /**
+   * Convert a plan to string format for ethics checking
+   */
+  private static planToString(plan: Plan): string {
+    let planText = `PLAN: ${plan.title}\n\n`;
+    planText += `REASONING: ${plan.reasoning}\n\n`;
+    planText += `STEPS:\n`;
+    
+    plan.steps.forEach((step, index) => {
+      planText += `${index + 1}. ${step.description}\n`;
+      if (step.requiredTools) {
+        planText += `   Tools: ${step.requiredTools.join(', ')}\n`;
+      }
+      if (step.dependsOn) {
+        planText += `   Depends on steps: ${step.dependsOn.map(i => i + 1).join(', ')}\n`;
+      }
+    });
+    
+    return planText;
   }
   
   /**

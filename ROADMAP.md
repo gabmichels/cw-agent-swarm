@@ -14,7 +14,7 @@ Replaced "Projects" with "Agents" in nav, implemented live dashboard at /agents
 
  Add MemoryConsolidator.ts to periodically summarize entries
 
-🔜 Task: Ethics Middleware v1
+✅ [COMPLETE] Ethics Middleware v1
  Create BiasAuditor.ts and hook into Planner + ToolRouter
 
  Define EthicsPolicy.ts with rules like “Avoid stereotyped outputs”
