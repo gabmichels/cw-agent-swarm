@@ -1,0 +1,16 @@
+version: '3'
+services:
+  qdrant:
+    image: qdrant/qdrant
+    ports:
+      - "6333:6333"  # REST API
+      - "6334:6334"  # gRPC API
+    volumes:
+      - qdrant_data:/qdrant/storage
+    environment:
+      - QDRANT_ALLOW_ANONYMOUS_READ=true
+    restart: unless-stopped
+
+volumes:
+  qdrant_data:
+    driver: local 
