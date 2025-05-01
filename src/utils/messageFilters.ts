@@ -80,7 +80,9 @@ export function isInternalMessage(message: Message): boolean {
     const lowerContent = message.content.toLowerCase();
     return lowerContent.startsWith('thought:') ||
            lowerContent.startsWith('reflection:') ||
-           lowerContent.startsWith('thinking:');
+           lowerContent.startsWith('thinking:') ||
+           lowerContent.startsWith('!important! thought:') ||
+           lowerContent.includes('!important!');
   }
   
   return false;

@@ -82,6 +82,9 @@ const ChatMessages: React.FC<ChatMessagesProps> = ({
         messageText.startsWith('processing message:') ||
         // More reflection patterns
         messageText.startsWith('reflection on') ||
+        // Important thought patterns
+        messageText.startsWith('!important! thought:') ||
+        messageText.startsWith('!important!') ||
         // System messages
         messageText.includes('performance review:') ||
         messageText.includes('success rate:') ||
@@ -108,10 +111,10 @@ const ChatMessages: React.FC<ChatMessagesProps> = ({
   // Make sure we have valid messages to display
   if (!visibleMessages || !Array.isArray(visibleMessages) || visibleMessages.length === 0) {
     return (
-      <div className="space-y-4">
+      <div className="space-y-12">
         {isLoading ? (
           <div className="flex justify-start mb-4">
-            <div className="max-w-[75%] rounded-lg p-3 shadow bg-gray-700">
+            <div className="min-w-[75%] max-w-[80%] rounded-lg p-3 shadow bg-gray-700">
               <div className="flex items-center">
                 <div className="w-2 h-2 rounded-full bg-gray-400 animate-bounce"></div>
                 <div className="w-2 h-2 rounded-full bg-gray-400 animate-bounce ml-1" style={{ animationDelay: '0.2s' }}></div>
@@ -121,19 +124,18 @@ const ChatMessages: React.FC<ChatMessagesProps> = ({
             </div>
           </div>
         ) : (
-          <div className="flex justify-start">
-            <div className="max-w-[75%] rounded-lg p-3 shadow bg-gray-700">
-              <div className="text-gray-300">Start a conversation with Chloe...</div>
+          <div className="flex justify-start mb-4">
+            <div className="min-w-[75%] max-w-[80%] rounded-lg p-3 shadow bg-gray-700">
+              <p className="text-gray-300">No messages yet. Start your conversation to see messages appear here.</p>
             </div>
           </div>
         )}
-        <div ref={messagesEndRef} className="h-1" />
       </div>
     );
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-12">
       {/* Debug info - only show in development */}
       {process.env.NODE_ENV === 'development' && (
         <div className="text-xs text-gray-500 mb-2 p-2 border border-gray-700 rounded">
@@ -153,7 +155,7 @@ const ChatMessages: React.FC<ChatMessagesProps> = ({
       {/* Loading indicator */}
       {isLoading && (
         <div className="flex justify-start mb-4">
-          <div className="max-w-[75%] rounded-lg p-3 shadow bg-gray-700">
+          <div className="min-w-[75%] max-w-[80%] rounded-lg p-3 shadow bg-gray-700">
             <div className="flex items-center">
               <div className="w-2 h-2 rounded-full bg-gray-400 animate-bounce"></div>
               <div className="w-2 h-2 rounded-full bg-gray-400 animate-bounce ml-1" style={{ animationDelay: '0.2s' }}></div>

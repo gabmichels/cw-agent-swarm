@@ -276,7 +276,7 @@ export default function ChatInterface() {
                 }`}
               >
                 <div
-                  className={`max-w-[80%] rounded-lg p-3 ${
+                  className={`min-w-[75%] max-w-[80%] rounded-lg p-3 ${
                     message.role === 'user'
                       ? 'bg-primary-100 dark:bg-primary-900 text-gray-800 dark:text-gray-100'
                       : 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-100'
@@ -284,7 +284,7 @@ export default function ChatInterface() {
                 >
                   <MarkdownRenderer 
                     content={message.content} 
-                    className={`prose-sm ${
+                    className={`prose-sm w-full ${
                       message.role === 'user'
                         ? 'dark:prose-invert prose-headings:text-gray-800 dark:prose-headings:text-gray-100 prose-p:text-gray-800 dark:prose-p:text-gray-100 prose-strong:text-gray-800 dark:prose-strong:text-purple-300 prose-em:text-gray-700 dark:prose-em:text-gray-300'
                         : 'dark:prose-invert prose-headings:text-gray-800 dark:prose-headings:text-gray-100 prose-p:text-gray-800 dark:prose-p:text-gray-100 prose-strong:text-gray-800 dark:prose-strong:text-purple-300 prose-em:text-gray-700 dark:prose-em:text-gray-300'
@@ -340,7 +340,7 @@ export default function ChatInterface() {
         
         {isLoading && (
           <div className="flex justify-start">
-            <div className="bg-gray-100 dark:bg-gray-700 rounded-lg p-3 max-w-[80%]">
+            <div className="min-w-[75%] max-w-[80%] bg-gray-100 dark:bg-gray-700 rounded-lg p-3">
               <div className="flex items-center space-x-2">
                 <div className="w-2 h-2 rounded-full bg-gray-400 animate-bounce"></div>
                 <div className="w-2 h-2 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: '0.2s' }}></div>

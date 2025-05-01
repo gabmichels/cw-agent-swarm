@@ -142,7 +142,10 @@ async function loadChatHistoryFromQdrant(specificUserId?: string) {
           message.text.startsWith(INTERNAL_MESSAGE_PATTERNS.REFLECTION_PREFIX_UC) ||
           message.text.startsWith(INTERNAL_MESSAGE_PATTERNS.REFLECTION_PREFIX_LC) ||
           message.text.startsWith(INTERNAL_MESSAGE_PATTERNS.MESSAGE_PREFIX) ||
-          message.text.startsWith(INTERNAL_MESSAGE_PATTERNS.TIMESTAMP_PREFIX)) {  // Timestamp markers often indicate internal messages
+          message.text.startsWith(INTERNAL_MESSAGE_PATTERNS.TIMESTAMP_PREFIX) ||
+          message.text.startsWith(INTERNAL_MESSAGE_PATTERNS.IMPORTANT_THOUGHT_PREFIX) ||
+          message.text.startsWith(INTERNAL_MESSAGE_PATTERNS.IMPORTANT_THOUGHT_PREFIX_LC) ||
+          message.text.includes(INTERNAL_MESSAGE_PATTERNS.IMPORTANT_THOUGHT)) {  // Timestamp markers often indicate internal messages
         console.log(`Filtering out internal message ${message.id} based on content pattern`);
         return false;
       }
@@ -243,12 +246,26 @@ async function loadChatHistoryFromQdrant(specificUserId?: string) {
         chatHistory.set(userId, []);
       }
       
-      chatHistory.get(userId)!.push({
-        role,
-        content: message.text,
-        timestamp: message.timestamp,
-        attachments: attachments.length > 0 ? attachments : undefined
-      });
+      // Check for duplicate content before adding to chat history
+      // This prevents the same message from appearing twice in the UI
+      const existingMessages = chatHistory.get(userId)!;
+      const isDuplicate = existingMessages.some(existingMsg => 
+        existingMsg.content === message.text && 
+        existingMsg.role === role &&
+        (existingMsg.timestamp === message.timestamp ||
+         (new Date(existingMsg.timestamp).getTime() - new Date(message.timestamp).getTime() < 1000))
+      );
+      
+      if (!isDuplicate) {
+        chatHistory.get(userId)!.push({
+          role,
+          content: message.text,
+          timestamp: message.timestamp,
+          attachments: attachments.length > 0 ? attachments : undefined
+        });
+      } else {
+        console.log(`Skipping duplicate message: ${message.text.substring(0, 30)}...`);
+      }
     }
     
     // Log user counts

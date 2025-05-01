@@ -630,12 +630,27 @@ export class ChloeMemory {
     const match = formattedString.match(formatRegex);
     
     if (match && match.length >= 4) {
-      // Return just the content part
-      return match[3];
+      // Return just the content part without any "IMPORTANT! THOUGHT:" prefix
+      let content = match[3];
+      
+      // Remove any "!IMPORTANT! THOUGHT:" or similar prefixes that might have been added
+      content = content.replace(/^(!IMPORTANT!|IMPORTANT!)\s*(THOUGHT:)?\s*/i, '');
+      content = content.replace(/^!IMPORTANT!\s+/i, ''); // Remove standalone !IMPORTANT! prefix
+      
+      return content;
     }
     
-    // If not a formatted entry, return as is
-    return formattedString;
+    // If not a formatted entry, return as is but still clean up prefixes
+    let content = formattedString;
+    
+    // More aggressive prefix removal for unformatted content
+    content = content.replace(/^(!IMPORTANT!|IMPORTANT!)\s*(THOUGHT:)?\s*/i, '');
+    content = content.replace(/^!IMPORTANT!\s+/i, '');
+    
+    // Also check for uppercase variants
+    content = content.replace(/^(IMPORTANT!|!IMPORTANT!)\s+/i, '');
+    
+    return content;
   }
 
   /**

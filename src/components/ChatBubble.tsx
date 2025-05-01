@@ -96,6 +96,11 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
       showToast('Adding to knowledge base...');
       setContextMenu(null);
       
+      // Safely extract any metadata from the message
+      const metadata = (message as any).metadata || {};
+      const tags = metadata.tags || [];
+      const category = metadata.category || 'general';
+      
       const response = await fetch('/api/memory/add-knowledge', {
         method: 'POST',
         headers: {
@@ -103,7 +108,10 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
         },
         body: JSON.stringify({
           content,
-          timestamp: message.timestamp?.toISOString() || new Date().toISOString()
+          timestamp: message.timestamp?.toISOString() || new Date().toISOString(),
+          addedBy: 'user',
+          tags,
+          category
         }),
       });
       
@@ -186,7 +194,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
 
   return (
     <div className={`flex ${senderName === 'You' ? 'justify-end' : 'justify-start'} mb-4`}>
-      <div className={`max-w-[75%] rounded-lg p-3 shadow ${
+      <div className={`min-w-[75%] max-w-[80%] rounded-lg p-3 shadow ${
         isInternalMessage 
           ? 'bg-gray-900 text-gray-300 border border-amber-500' // Visual style for internal messages
           : senderName === 'You' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-white'
@@ -199,7 +207,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
         )}
         
         {/* Message content */}
-        <div className={`prose prose-sm ${
+        <div className={`prose prose-sm w-full ${
           isInternalMessage ? 'prose-amber' : 'prose-invert'
         }`}>
           <MarkdownRenderer content={message.content} />

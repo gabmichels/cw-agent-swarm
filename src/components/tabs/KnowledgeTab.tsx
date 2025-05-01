@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import KnowledgeStats from '../knowledge/KnowledgeStats';
 import FlaggedItemsList from '../knowledge/FlaggedItemsList';
+import TagSelector from '../knowledge/TagSelector';
+import TaggedItemsList from '../knowledge/TaggedItemsList';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 
 interface KnowledgeTabProps {
   // Props can be expanded as needed
@@ -11,6 +14,8 @@ const KnowledgeTab: React.FC<KnowledgeTabProps> = () => {
   const [stats, setStats] = useState<any>(null);
   const [flaggedItems, setFlaggedItems] = useState<any[]>([]);
   const [isLoadingFlagged, setIsLoadingFlagged] = useState(false);
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [activeTab, setActiveTab] = useState<string>('flagged');
   const [filter, setFilter] = useState({
     status: '',
     type: '',
@@ -74,6 +79,11 @@ const KnowledgeTab: React.FC<KnowledgeTabProps> = () => {
     setFilter(prev => ({ ...prev, [key]: value }));
   };
 
+  // Handle tag selection changes
+  const handleTagChange = (tags: string[]) => {
+    setSelectedTags(tags);
+  };
+
   return (
     <div className="bg-gray-800 rounded-lg p-4">
       <h2 className="text-xl font-bold mb-4">Knowledge Management</h2>
@@ -92,62 +102,97 @@ const KnowledgeTab: React.FC<KnowledgeTabProps> = () => {
         </a>
       </div>
 
-      <div className="mb-6">
-        <div className="bg-gray-700 p-4 rounded-lg mb-4">
-          <h3 className="text-lg font-medium mb-3">Filter Flagged Items</h3>
-          <div className="flex flex-wrap gap-4">
-            <div>
-              <label className="block text-sm font-medium mb-1">Status</label>
-              <select 
-                className="bg-gray-800 border border-gray-600 rounded px-3 py-2 w-full"
-                value={filter.status}
-                onChange={(e) => handleFilterChange('status', e.target.value)}
-              >
-                <option value="">All</option>
-                <option value="pending">Pending</option>
-                <option value="approved">Approved</option>
-                <option value="rejected">Rejected</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">Type</label>
-              <select 
-                className="bg-gray-800 border border-gray-600 rounded px-3 py-2 w-full"
-                value={filter.type}
-                onChange={(e) => handleFilterChange('type', e.target.value)}
-              >
-                <option value="">All</option>
-                <option value="concept">Concept</option>
-                <option value="principle">Principle</option>
-                <option value="framework">Framework</option>
-                <option value="research">Research</option>
-                <option value="relationship">Relationship</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">Source</label>
-              <select 
-                className="bg-gray-800 border border-gray-600 rounded px-3 py-2 w-full"
-                value={filter.source}
-                onChange={(e) => handleFilterChange('source', e.target.value)}
-              >
-                <option value="">All</option>
-                <option value="conversation">Conversation</option>
-                <option value="file">File</option>
-                <option value="market_scan">Market Scan</option>
-                <option value="web_search">Web Search</option>
-                <option value="manual_entry">Manual Entry</option>
-              </select>
+      {/* Tabs for different knowledge views */}
+      <Tabs 
+        defaultValue="flagged" 
+        value={activeTab}
+        onValueChange={setActiveTab}
+        className="mb-6"
+      >
+        <TabsList className="grid grid-cols-2 mb-4">
+          <TabsTrigger value="flagged">Flagged Items</TabsTrigger>
+          <TabsTrigger value="tagged">By Tag</TabsTrigger>
+        </TabsList>
+        
+        <TabsContent value="flagged">
+          <div className="mb-6">
+            <div className="bg-gray-700 p-4 rounded-lg mb-4">
+              <h3 className="text-lg font-medium mb-3">Filter Flagged Items</h3>
+              <div className="flex flex-wrap gap-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Status</label>
+                  <select 
+                    className="bg-gray-800 border border-gray-600 rounded px-3 py-2 w-full"
+                    value={filter.status}
+                    onChange={(e) => handleFilterChange('status', e.target.value)}
+                  >
+                    <option value="">All</option>
+                    <option value="pending">Pending</option>
+                    <option value="approved">Approved</option>
+                    <option value="rejected">Rejected</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Type</label>
+                  <select 
+                    className="bg-gray-800 border border-gray-600 rounded px-3 py-2 w-full"
+                    value={filter.type}
+                    onChange={(e) => handleFilterChange('type', e.target.value)}
+                  >
+                    <option value="">All</option>
+                    <option value="concept">Concept</option>
+                    <option value="principle">Principle</option>
+                    <option value="framework">Framework</option>
+                    <option value="research">Research</option>
+                    <option value="relationship">Relationship</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Source</label>
+                  <select 
+                    className="bg-gray-800 border border-gray-600 rounded px-3 py-2 w-full"
+                    value={filter.source}
+                    onChange={(e) => handleFilterChange('source', e.target.value)}
+                  >
+                    <option value="">All</option>
+                    <option value="conversation">Conversation</option>
+                    <option value="file">File</option>
+                    <option value="market_scan">Market Scan</option>
+                    <option value="web_search">Web Search</option>
+                    <option value="manual_entry">Manual Entry</option>
+                  </select>
+                </div>
+              </div>
             </div>
           </div>
-        </div>
-      </div>
 
-      <FlaggedItemsList 
-        isLoading={isLoadingFlagged} 
-        items={flaggedItems}
-        onRefresh={() => setFilter({...filter})} 
-      />
+          <FlaggedItemsList 
+            isLoading={isLoadingFlagged} 
+            items={flaggedItems}
+            onRefresh={() => setFilter({...filter})} 
+          />
+        </TabsContent>
+        
+        <TabsContent value="tagged">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="md:col-span-1">
+              <div className="bg-gray-700 p-4 rounded-lg">
+                <TagSelector
+                  selectedTags={selectedTags}
+                  onChange={handleTagChange}
+                  maxDisplayed={15}
+                />
+              </div>
+            </div>
+            <div className="md:col-span-3">
+              <TaggedItemsList 
+                tags={selectedTags}
+                limit={50}
+              />
+            </div>
+          </div>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 };

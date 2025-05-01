@@ -25,6 +25,11 @@ export const INTERNAL_MESSAGE_PATTERNS = {
   
   // Other markers
   INTERNAL_REFLECTION: 'INTERNAL REFLECTION (NOT CHAT):',
+  
+  // Important thought patterns
+  IMPORTANT_THOUGHT_PREFIX: '!IMPORTANT! THOUGHT:',
+  IMPORTANT_THOUGHT_PREFIX_LC: '!important! thought:',
+  IMPORTANT_THOUGHT: '!IMPORTANT!',
 };
 
 /**

@@ -66,12 +66,23 @@ body {
 /* Add your custom CSS for markdown styling here */
 
 /* Markdown Styling */
+.markdown-content {
+  width: 100%;
+  display: block;
+}
+
+.markdown-content > * {
+  width: 100%;
+  max-width: 100%;
+}
+
 .markdown-content h1 {
   font-size: 1.5rem;
   font-weight: 600;
   color: #f9fafb;
   margin-top: 1rem;
   margin-bottom: 0.5rem;
+  width: 100%;
 }
 
 .markdown-content h2 {
@@ -80,6 +91,7 @@ body {
   color: #f9fafb;
   margin-top: 0.75rem;
   margin-bottom: 0.5rem;
+  width: 100%;
 }
 
 .markdown-content h3,
@@ -91,10 +103,16 @@ body {
   color: #f9fafb;
   margin-top: 0.75rem;
   margin-bottom: 0.5rem;
+  width: 100%;
 }
 
 .markdown-content p {
   margin-bottom: 0.75rem;
+  width: 100%;
+  max-width: 100%;
+  overflow-wrap: break-word;
+  word-wrap: break-word;
+  word-break: break-word;
 }
 
 .markdown-content a {

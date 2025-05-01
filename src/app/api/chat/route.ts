@@ -1,11 +1,32 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getChloeInstance } from '../../../agents/chloe';
 import * as serverQdrant from '../../../server/qdrant';
-import { GET } from './proxy';
+import { 
+  POST as proxyPost, 
+  GET as proxyGet
+} from './proxy';
 
 // Add server-only markers to prevent client-side execution
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+
+// Clean and deduplicate thought messages before returning them
+function deduplicateThoughts(thoughts: string[]): string[] {
+  if (!thoughts || !Array.isArray(thoughts)) return [];
+  
+  const seen = new Set<string>();
+  return thoughts.filter(thought => {
+    // Normalize the thought by removing timestamps and trimming
+    const normalizedThought = thought.replace(/^\[\d{2}:\d{2}:\d{2}\]/i, '').trim();
+    
+    // Skip if we've already seen this normalized thought
+    if (seen.has(normalizedThought)) return false;
+    
+    // Add to seen set and keep this thought
+    seen.add(normalizedThought);
+    return true;
+  });
+}
 
 // Handler function to process messages through Chloe
 async function handler(message: string, options: {
@@ -31,59 +52,34 @@ async function handler(message: string, options: {
 }
 
 // Use our own implementation for POST
-export async function POST(req: NextRequest) {
-  // Check if Qdrant is initialized
-  if (!serverQdrant.isInitialized()) {
-    try {
-      await serverQdrant.initMemory();
-    } catch (error) {
-      console.error('Failed to initialize Qdrant:', error);
-      return NextResponse.json(
-        { error: 'Failed to initialize memory system' },
-        { status: 500 }
-      );
-    }
-  }
-
+export async function POST(request: NextRequest) {
   try {
-    const data = await req.json();
-    const { message, userId, attachments } = data;
-
-    console.log(`Chat request from user ${userId}`, {
-      messageLength: message?.length || 0,
-      hasAttachments: !!attachments && attachments.length > 0,
-      attachmentsCount: attachments?.length || 0
-    });
-
-    // Get Chloe instance
-    const agent = await getChloeInstance();
+    const response = await proxyPost(request);
     
-    if (!agent) {
-      return NextResponse.json(
-        { error: 'Failed to initialize agent' },
-        { status: 500 }
-      );
+    // Check if we need to deduplicate thoughts and responses
+    if (response && response.status === 200) {
+      const data = await response.json();
+      
+      // Deduplicate thoughts if present
+      if (data.thoughts && Array.isArray(data.thoughts)) {
+        data.thoughts = deduplicateThoughts(data.thoughts);
+      }
+      
+      // Return the deduplicated data
+      return NextResponse.json(data);
     }
-
-    // Process the message through the Chloe agent
-    const response = await agent.processMessage(message, {
-      userId,
-      attachments
-    });
-
-    return NextResponse.json({ 
-      reply: response,
-      memory: [],
-      thoughts: []
-    });
+    
+    return response;
   } catch (error) {
-    console.error('Error in chat route:', error);
+    console.error('Error in chat route handler:', error);
     return NextResponse.json(
-      { error: 'Failed to process message' },
+      { error: 'Internal server error processing chat request' },
       { status: 500 }
     );
   }
 }
 
 // Export the GET function from the proxy
-export { GET }; 
+export async function GET(request: NextRequest) {
+  return proxyGet(request);
+} 
