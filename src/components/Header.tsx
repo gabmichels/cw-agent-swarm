@@ -1,5 +1,7 @@
 import { ChevronDown, MenuIcon, PinIcon } from 'lucide-react';
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import Link from 'next/link';
+import { AgentMonitor } from '@/agents/shared/monitoring/AgentMonitor';
 
 interface HeaderProps {
   selectedDepartment: string;
@@ -34,6 +36,25 @@ const Header: React.FC<HeaderProps> = ({
   departments,
   agentsByDepartment,
 }) => {
+  const [hasMultipleAgents, setHasMultipleAgents] = useState<boolean>(false);
+
+  useEffect(() => {
+    const checkMultipleAgents = () => {
+      const logs = AgentMonitor.getLogs();
+      const uniqueAgents = new Set(logs.map(l => l.agentId));
+      setHasMultipleAgents(uniqueAgents.size > 1);
+    };
+    
+    // Check initially
+    checkMultipleAgents();
+    
+    // Set up an interval to check periodically
+    const intervalId = setInterval(checkMultipleAgents, 5000);
+    
+    // Clean up interval on unmount
+    return () => clearInterval(intervalId);
+  }, []);
+
   return (
     <header className="bg-gray-800 border-b border-gray-700 py-2 px-4 flex justify-between items-center">
       <div className="flex items-center">
@@ -124,9 +145,14 @@ const Header: React.FC<HeaderProps> = ({
             <li>
               <a href="#" className="text-sm hover:text-blue-400">Dashboard</a>
             </li>
-            <li>
-              <a href="#" className="text-sm hover:text-blue-400">Projects</a>
-            </li>
+            {/* Commented out hasMultipleAgents check for testing */}
+            {/* {hasMultipleAgents && ( */}
+              <li>
+                <Link href="/agents" className="text-sm hover:text-blue-400">
+                  Agents
+                </Link>
+              </li>
+            {/* )} */}
             <li>
               <a href="#" className="text-sm hover:text-blue-400">Analytics</a>
             </li>
