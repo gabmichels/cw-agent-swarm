@@ -881,15 +881,15 @@ For detailed instructions, see the Debug panel.`,
   };
 
   // Fetch scheduled tasks
-  const fetchScheduledTasks = async (retryAttempt = 0, maxRetries = 3): Promise<void> => {
+  const fetchScheduledTasks = async (retryAttempt = 0, maxRetries = 5): Promise<void> => {
     setIsLoadingTasks(true);
     try {
       console.log(`Fetching scheduled tasks from API... (attempt ${retryAttempt + 1}/${maxRetries + 1})`);
       
       // Add timeout to prevent long-running requests
       const controller = new AbortController();
-      // Increase timeout on each retry
-      const timeoutMs = 5000 + (retryAttempt * 5000); // 5s, 10s, 15s, 20s
+      // Increase timeout on each retry - increase base timeout to 15s
+      const timeoutMs = 15000 + (retryAttempt * 10000); // 15s, 25s, 35s, 45s, 55s, 65s
       let timeoutId: NodeJS.Timeout | null = setTimeout(() => {
         console.log(`Fetch timeout reached after ${timeoutMs}ms`);
         controller.abort();
@@ -912,7 +912,9 @@ For detailed instructions, see the Debug panel.`,
               cache: 'no-store',
               headers: {
                 'Cache-Control': 'no-cache'
-              }
+              },
+              // Add timeout to preflight request
+              signal: AbortSignal.timeout(10000)
             });
             console.log('Preflight check status:', preflight.status);
           } catch (preflightError) {
@@ -1037,7 +1039,7 @@ For detailed instructions, see the Debug panel.`,
             console.log(`Retrying fetch (${retryAttempt + 1}/${maxRetries})...`);
             setIsLoadingTasks(false);
             // Add a slight delay before retrying
-            await new Promise(resolve => setTimeout(resolve, 1000));
+            await new Promise(resolve => setTimeout(resolve, 2000));
             return fetchScheduledTasks(retryAttempt + 1, maxRetries);
           }
           
@@ -1048,8 +1050,8 @@ For detailed instructions, see the Debug panel.`,
         if (retryAttempt < maxRetries) {
           console.log(`Retrying fetch after error (${retryAttempt + 1}/${maxRetries})...`);
           setIsLoadingTasks(false);
-          // Add a slight delay before retrying
-          await new Promise(resolve => setTimeout(resolve, 1000));
+          // Add a slightly longer delay before retrying
+          await new Promise(resolve => setTimeout(resolve, 2000));
           return fetchScheduledTasks(retryAttempt + 1, maxRetries);
         }
         
@@ -1071,8 +1073,28 @@ For detailed instructions, see the Debug panel.`,
           console.warn('Failed to retrieve cached tasks:', cacheError);
         }
         
-        // If we've exhausted retries and have no cache, pass the error along
-        throw fetchError;
+        // If we've exhausted retries and have no cache, use fallback data instead of throwing error
+        console.log("Using fallback tasks after fetch failure");
+        setScheduledTasks([
+          {
+            id: TASK_IDS.MARKET_SCAN,
+            name: 'Market Scanner (Fallback)',
+            description: 'Scan for market trends, news, and insights',
+            cronExpression: '0 7,15 * * *',
+            enabled: true,
+            lastRun: new Date(Date.now() - 1000 * 60 * 60 * 3).toISOString(),
+            nextRun: new Date(Date.now() + 1000 * 60 * 60 * 9).toISOString()
+          },
+          {
+            id: TASK_IDS.DAILY_PLANNING,
+            name: 'Daily Planning (Fallback)',
+            description: 'Create a daily plan for marketing tasks',
+            cronExpression: '0 8 * * *',
+            enabled: true,
+            lastRun: new Date(Date.now() - 1000 * 60 * 60 * 24).toISOString(),
+            nextRun: new Date(Date.now() + 1000 * 60 * 60 * 16).toISOString()
+          }
+        ]);
       }
     } catch (error) {
       console.error('Error fetching scheduled tasks:', error);

@@ -9,8 +9,10 @@
  */
 
 import { ChatOpenAI } from '@langchain/openai';
-import { Plan, PlanStep } from '../planning/Planner';
+import { Plan } from '../planning/Planner';
+import { PlanStep } from '../../../lib/shared/types/agentTypes';
 import { ToolRouter, ToolResult } from '../tools/ToolRouter';
+import { AgentMonitor } from '../monitoring/AgentMonitor';
 
 // Execution status enum
 export enum ExecutionStatus {
@@ -63,6 +65,96 @@ export interface ExecutionContext {
   variables?: Record<string, any>;
   memory?: any;
   previousResults?: Record<string, any>;
+  // Delegation tracking fields
+  parentTaskId?: string;
+  delegationContextId?: string;
+  originAgentId?: string;
+  agent?: any;
+}
+
+/**
+ * Run a function with retry logic and timeout support
+ * @param fn Function to run
+ * @param maxRetries Maximum retry attempts
+ * @param baseDelay Base delay in ms before retrying
+ * @param timeoutMs Optional timeout in ms
+ * @param context Optional execution context for logging
+ */
+async function runWithRetries<T>(
+  fn: () => Promise<T>,
+  maxRetries = 2,
+  baseDelay = 1000,
+  timeoutMs?: number,
+  context?: {
+    agentId: string;
+    taskId: string;
+    stepId?: string;
+    memory?: any;
+  }
+): Promise<T> {
+  let lastError: Error | null = null;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      // If a timeout is specified, race the function against a timeout promise
+      if (timeoutMs) {
+        const result = await Promise.race([
+          fn(),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('Execution timeout exceeded')), timeoutMs)
+          ),
+        ]);
+        return result;
+      }
+      
+      // No timeout specified, just run the function
+      return await fn();
+    } catch (e) {
+      lastError = e instanceof Error ? e : new Error(String(e));
+      
+      // If this was the last attempt, rethrow the error
+      if (attempt === maxRetries) {
+        throw lastError;
+      }
+      
+      // Log the retry attempt if context is provided
+      if (context) {
+        const reason = lastError.message;
+        
+        // Log retry event
+        AgentMonitor.log({
+          agentId: context.agentId,
+          taskId: context.taskId,
+          eventType: 'error',
+          timestamp: Date.now(),
+          metadata: { attempt, reason, stepId: context.stepId, isRetry: true }
+        });
+        
+        // Store in agent memory if available
+        if (context.memory && typeof context.memory.write === 'function') {
+          context.memory.write({
+            content: `Retry ${attempt + 1}/${maxRetries} on ${context.stepId ? `step ${context.stepId}` : 'task'} due to: ${reason}`,
+            scope: 'reflections',
+            kind: 'feedback',
+            timestamp: Date.now(),
+            relevance: 0.6,
+            tags: ['retry', context.stepId || context.taskId]
+          });
+        }
+
+        console.log(`Retry attempt ${attempt + 1}/${maxRetries} due to: ${reason}`);
+      }
+      
+      // Calculate delay with exponential backoff (base * 2^attempt)
+      const delay = baseDelay * Math.pow(2, attempt);
+      
+      // Wait before the next attempt
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
+  
+  // This should never be reached, but TypeScript requires it
+  throw lastError || new Error('Maximum retry attempts reached');
 }
 
 /**
@@ -104,82 +196,262 @@ export class Executor {
     context: ExecutionContext,
     options: ExecutionOptions = {}
   ): Promise<ExecutionResult> {
-    try {
-      console.log(`Executing plan ${plan.id} for agent ${context.agentId}`);
-      
-      // Create execution result object
-      const executionId = `exec_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
-      const executionResult: ExecutionResult = {
-        planId: plan.id,
-        agentId: context.agentId,
-        status: ExecutionStatus.IN_PROGRESS,
-        startTime: new Date(),
-        stepResults: [],
-        success: false
-      };
-      
-      // Track active execution
-      this.activeExecutions.set(executionId, executionResult);
-      
-      // Check if this is a dry run
-      if (options.dryRun) {
-        console.log(`Dry run for plan ${plan.id}, not executing steps`);
-        executionResult.status = ExecutionStatus.COMPLETED;
-        executionResult.endTime = new Date();
-        executionResult.success = true;
-        executionResult.finalOutput = 'Dry run completed successfully';
-        return executionResult;
-      }
-      
-      // Execute each step
-      for (const step of plan.steps) {
-        const stepResult = await this.executeStep(step, context, options);
-        executionResult.stepResults.push(stepResult);
+    // Get plan-level retry options
+    const planRetryCount = plan.retryCount !== undefined ? plan.retryCount : 2;
+    const planRetryDelayMs = plan.retryDelayMs !== undefined ? plan.retryDelayMs : 2000;
+    const planTimeoutMs = options.timeoutMs || plan.timeoutMs;
+    
+    // Setup retry context for plan-level retries
+    const planLogContext = {
+      agentId: context.agentId,
+      taskId: `plan_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+      memory: context.memory
+    };
+    
+    // Execute with retry logic at the plan level
+    return runWithRetries(
+      async () => {
+        const startTime = Date.now();
+        const taskId = `exec_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
         
-        // Stop on error if configured
-        if (stepResult.status === ExecutionStatus.FAILED && options.stopOnError) {
-          console.log(`Step ${step.id} failed, stopping execution as stopOnError is true`);
-          executionResult.status = ExecutionStatus.FAILED;
-          executionResult.endTime = new Date();
-          executionResult.success = false;
-          executionResult.error = `Failed at step ${step.id}: ${stepResult.error}`;
-          break;
+        try {
+          console.log(`Executing plan for agent ${context.agentId}`);
+          
+          // Ensure delegation tracking fields are passed through
+          if (context.delegationContextId) {
+            plan.context.delegationContextId = context.delegationContextId;
+          }
+          
+          if (context.parentTaskId) {
+            context.parentTaskId = context.parentTaskId;
+          }
+          
+          if (context.originAgentId) {
+            context.originAgentId = context.originAgentId;
+          }
+          
+          // Log task start with delegation context
+          AgentMonitor.log({
+            agentId: context.agentId,
+            taskId,
+            taskType: plan.context.goal || 'execution',
+            eventType: 'task_start',
+            timestamp: startTime,
+            parentTaskId: context.parentTaskId || context.sessionId,
+            delegationContextId: context.delegationContextId,
+            metadata: { 
+              planSteps: plan.steps.length,
+              planGoal: plan.context.goal,
+              options,
+              originAgentId: context.originAgentId || context.agentId
+            }
+          });
+          
+          // Create execution result object
+          const executionId = `exec_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+          const executionResult: ExecutionResult = {
+            planId: taskId,
+            agentId: context.agentId,
+            status: ExecutionStatus.IN_PROGRESS,
+            startTime: new Date(),
+            stepResults: [],
+            success: false
+          };
+          
+          // Track active execution
+          this.activeExecutions.set(executionId, executionResult);
+          
+          // Check if this is a dry run
+          if (options.dryRun) {
+            console.log(`Dry run for plan, not executing steps`);
+            executionResult.status = ExecutionStatus.COMPLETED;
+            executionResult.endTime = new Date();
+            executionResult.success = true;
+            executionResult.finalOutput = 'Dry run completed successfully';
+            
+            // Log task end for dry run
+            AgentMonitor.log({
+              agentId: context.agentId,
+              taskId,
+              taskType: plan.context.goal || 'execution',
+              eventType: 'task_end',
+              status: 'success',
+              timestamp: Date.now(),
+              durationMs: Date.now() - startTime,
+              parentTaskId: context.sessionId,
+              metadata: { dryRun: true }
+            });
+            
+            return executionResult;
+          }
+          
+          // Execute each step with retry logic
+          for (const plannerStep of plan.steps) {
+            // Convert PlanStep from Planner.ts to PlanStep from agentTypes.ts
+            const step = this.convertToPlanStep(plannerStep, executionId);
+            
+            // Get retry options from step or default values
+            const stepRetryCount = step.retryCount !== undefined ? step.retryCount : 1;
+            const stepRetryDelayMs = step.retryDelayMs !== undefined ? step.retryDelayMs : 1000;
+            const stepTimeoutMs = step.timeoutMs !== undefined ? step.timeoutMs : undefined;
+            
+            // Execute step with retry logic
+            const stepLogContext = {
+              agentId: context.agentId,
+              taskId,
+              stepId: step.id,
+              memory: context.memory
+            };
+            
+            try {
+              const stepResult = await runWithRetries(
+                () => this.executeStep(step, context, options),
+                stepRetryCount,
+                stepRetryDelayMs,
+                stepTimeoutMs,
+                stepLogContext
+              );
+              
+              executionResult.stepResults.push(stepResult);
+              
+              // Stop on error if configured
+              if (stepResult.status === ExecutionStatus.FAILED && options.stopOnError) {
+                console.log(`Step ${stepResult.stepId} failed, stopping execution as stopOnError is true`);
+                executionResult.status = ExecutionStatus.FAILED;
+                executionResult.endTime = new Date();
+                executionResult.success = false;
+                executionResult.error = `Failed at step ${stepResult.stepId}: ${stepResult.error}`;
+                
+                // Log task end with failure
+                AgentMonitor.log({
+                  agentId: context.agentId,
+                  taskId,
+                  taskType: plan.context.goal || 'execution',
+                  eventType: 'task_end',
+                  status: 'failure',
+                  timestamp: Date.now(),
+                  durationMs: Date.now() - startTime,
+                  errorMessage: executionResult.error,
+                  parentTaskId: context.sessionId,
+                  metadata: { 
+                    completedSteps: executionResult.stepResults.length,
+                    totalSteps: plan.steps.length 
+                  }
+                });
+                
+                break;
+              }
+            } catch (error) {
+              // All retries failed for this step
+              const errorMessage = error instanceof Error ? error.message : String(error);
+              const stepResult: StepExecutionResult = {
+                stepId: step.id,
+                status: ExecutionStatus.FAILED,
+                startTime: new Date(),
+                endTime: new Date(),
+                error: `Max retries exceeded: ${errorMessage}`
+              };
+              
+              executionResult.stepResults.push(stepResult);
+              
+              if (options.stopOnError) {
+                executionResult.status = ExecutionStatus.FAILED;
+                executionResult.endTime = new Date();
+                executionResult.success = false;
+                executionResult.error = `Max retries exceeded for step ${step.id}: ${errorMessage}`;
+                break;
+              }
+            }
+          }
+          
+          // If we completed all steps without failing
+          if (executionResult.status !== ExecutionStatus.FAILED) {
+            executionResult.status = ExecutionStatus.COMPLETED;
+            executionResult.endTime = new Date();
+            executionResult.success = true;
+            
+            // Generate final output based on step results
+            const completedSteps = executionResult.stepResults.filter(
+              step => step.status === ExecutionStatus.COMPLETED
+            );
+            
+            executionResult.finalOutput = `Completed ${completedSteps.length} of ${plan.steps.length} steps successfully.`;
+            
+            // Log task end with success including delegation context
+            AgentMonitor.log({
+              agentId: context.agentId,
+              taskId,
+              taskType: plan.context.goal || 'execution',
+              eventType: 'task_end',
+              status: 'success',
+              timestamp: Date.now(),
+              durationMs: Date.now() - startTime,
+              parentTaskId: context.parentTaskId || context.sessionId,
+              delegationContextId: context.delegationContextId,
+              metadata: { 
+                completedSteps: completedSteps.length,
+                totalSteps: plan.steps.length,
+                originAgentId: context.originAgentId || context.agentId
+              }
+            });
+            
+            // Trigger the postTaskHook for ethics reflection if agent is provided
+            if (context.agent && typeof context.agent.postTaskHook === 'function') {
+              try {
+                await context.agent.postTaskHook(taskId);
+              } catch (error) {
+                console.error(`Error in postTaskHook for agent ${context.agentId}:`, error);
+                // Non-critical, so we don't affect the main execution result
+              }
+            }
+          }
+          
+          return executionResult;
+        } catch (error) {
+          // Log execution error
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          console.error(`Error executing plan:`, error);
+          
+          AgentMonitor.log({
+            agentId: context.agentId,
+            taskId,
+            taskType: plan.context.goal || 'execution',
+            eventType: 'error',
+            status: 'failure',
+            timestamp: Date.now(),
+            durationMs: Date.now() - startTime,
+            errorMessage,
+            parentTaskId: context.parentTaskId || context.sessionId,
+            delegationContextId: context.delegationContextId
+          });
+          
+          // Trigger the postTaskHook for ethics reflection even on failure
+          if (context.agent && typeof context.agent.postTaskHook === 'function') {
+            try {
+              await context.agent.postTaskHook(taskId);
+            } catch (hookError) {
+              console.error(`Error in postTaskHook for agent ${context.agentId}:`, hookError);
+              // Non-critical, so we don't affect the main execution result
+            }
+          }
+          
+          return {
+            planId: taskId,
+            agentId: context.agentId,
+            status: ExecutionStatus.FAILED,
+            startTime: new Date(startTime),
+            endTime: new Date(),
+            stepResults: [],
+            success: false,
+            error: errorMessage
+          };
         }
-      }
-      
-      // If we completed all steps without failing
-      if (executionResult.status !== ExecutionStatus.FAILED) {
-        executionResult.status = ExecutionStatus.COMPLETED;
-        executionResult.endTime = new Date();
-        executionResult.success = true;
-        
-        // Generate final output based on step results
-        const completedSteps = executionResult.stepResults.filter(
-          step => step.status === ExecutionStatus.COMPLETED
-        );
-        
-        executionResult.finalOutput = `Completed ${completedSteps.length} of ${plan.steps.length} steps successfully.`;
-      }
-      
-      // Clean up
-      this.activeExecutions.delete(executionId);
-      
-      return executionResult;
-    } catch (error) {
-      console.error(`Error executing plan ${plan.id}:`, error);
-      
-      // Return error result
-      return {
-        planId: plan.id,
-        agentId: context.agentId,
-        status: ExecutionStatus.FAILED,
-        startTime: new Date(),
-        endTime: new Date(),
-        stepResults: [],
-        success: false,
-        error: `Execution error: ${error instanceof Error ? error.message : String(error)}`
-      };
-    }
+      },
+      planRetryCount,
+      planRetryDelayMs,
+      planTimeoutMs,
+      planLogContext
+    );
   }
   
   /**
@@ -190,8 +462,26 @@ export class Executor {
     context: ExecutionContext,
     options: ExecutionOptions = {}
   ): Promise<StepExecutionResult> {
+    const stepStartTime = Date.now();
+    
     try {
-      console.log(`Executing step ${step.id}: ${step.action}`);
+      console.log(`Executing step ${step.id}: ${step.description}`);
+      
+      // Log step start with delegation context
+      AgentMonitor.log({
+        agentId: context.agentId,
+        taskId: step.id,
+        taskType: 'step',
+        eventType: 'task_start',
+        timestamp: stepStartTime,
+        parentTaskId: context.sessionId,
+        delegationContextId: context.delegationContextId,
+        metadata: { 
+          description: step.description,
+          tool: step.tool,
+          originAgentId: context.originAgentId || context.agentId
+        }
+      });
       
       const stepResult: StepExecutionResult = {
         stepId: step.id,
@@ -200,33 +490,81 @@ export class Executor {
         toolResults: []
       };
       
-      // Execute using appropriate tools
-      if (step.tools && step.tools.length > 0) {
-        // Execute with specified tools
-        for (const toolName of step.tools) {
-          // Build parameters (would normally be extracted from step action by LLM)
-          const params = { action: step.action };
-          
-          // Execute the tool
-          const toolResult = await this.toolRouter.executeTool(
+      // Execute using appropriate tool
+      if (step.tool) {
+        // Execute with specified tool
+        const toolName = step.tool;
+        
+        // Build parameters (would normally be extracted from step description by LLM)
+        const params = { action: step.description, ...(step.params || {}) };
+        
+        // Log tool start
+        AgentMonitor.log({
+          agentId: context.agentId,
+          taskId: step.id,
+          taskType: 'step',
+          toolUsed: toolName,
+          eventType: 'tool_start',
+          timestamp: Date.now(),
+          parentTaskId: context.sessionId
+        });
+        
+        const toolStartTime = Date.now();
+        
+        // Execute the tool with a local timeout if specified
+        let toolResult: ToolResult;
+        try {
+          // Execute the tool with better error handling
+          toolResult = await this.toolRouter.executeTool(
             context.agentId,
             toolName,
             params,
             { step, context }
           );
+        } catch (error) {
+          // Handle tool execution errors
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          console.error(`Tool execution error for ${toolName}:`, error);
           
-          stepResult.toolResults!.push(toolResult);
-          
-          if (!toolResult.success) {
-            stepResult.status = ExecutionStatus.FAILED;
-            stepResult.error = toolResult.error;
-            break;
+          toolResult = {
+            success: false,
+            error: `Tool execution failed: ${errorMessage}`,
+            data: null
+          };
+        }
+        
+        // Log tool end
+        AgentMonitor.log({
+          agentId: context.agentId,
+          taskId: step.id,
+          taskType: 'step',
+          toolUsed: toolName,
+          eventType: 'tool_end',
+          status: toolResult.success ? 'success' : 'failure',
+          timestamp: Date.now(),
+          durationMs: Date.now() - toolStartTime,
+          errorMessage: toolResult.error,
+          parentTaskId: context.sessionId,
+          metadata: { 
+            resultData: toolResult.data ? JSON.stringify(toolResult.data).substring(0, 100) : undefined,
+            retryCount: step.retryCount,
+            timeoutMs: step.timeoutMs
           }
+        });
+        
+        stepResult.toolResults!.push(toolResult);
+        
+        if (!toolResult.success) {
+          stepResult.status = ExecutionStatus.FAILED;
+          stepResult.error = toolResult.error;
+          
+          // Throw the error to trigger retry if enabled
+          throw new Error(toolResult.error || 'Tool execution failed');
         }
       } else {
         // Just mark as complete for now
         // In real implementation, would use LLM to determine what tool to use
-        stepResult.output = `Simulated execution of: ${step.action}`;
+        stepResult.output = `Simulated execution of: ${step.description}`;
       }
       
       // If we didn't fail during tool execution
@@ -235,16 +573,48 @@ export class Executor {
       }
       
       stepResult.endTime = new Date();
+      
+      // Log step end
+      AgentMonitor.log({
+        agentId: context.agentId,
+        taskId: step.id,
+        taskType: 'step',
+        eventType: 'task_end',
+        status: stepResult.status === ExecutionStatus.COMPLETED ? 'success' : 'failure',
+        timestamp: Date.now(),
+        durationMs: Date.now() - stepStartTime,
+        errorMessage: stepResult.error,
+        parentTaskId: context.sessionId,
+        metadata: { 
+          output: stepResult.output ? stepResult.output.substring(0, 100) : undefined
+        }
+      });
+      
       return stepResult;
     } catch (error) {
       console.error(`Error executing step ${step.id}:`, error);
+      
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      
+      // Log error
+      AgentMonitor.log({
+        agentId: context.agentId,
+        taskId: step.id,
+        taskType: 'step',
+        eventType: 'error',
+        status: 'failure',
+        timestamp: Date.now(),
+        durationMs: Date.now() - stepStartTime,
+        errorMessage,
+        parentTaskId: context.sessionId
+      });
       
       return {
         stepId: step.id,
         status: ExecutionStatus.FAILED,
         startTime: new Date(),
         endTime: new Date(),
-        error: `Step execution error: ${error instanceof Error ? error.message : String(error)}`
+        error: `Step execution error: ${errorMessage}`
       };
     }
   }
@@ -296,5 +666,32 @@ export class Executor {
     this.activeExecutions.clear();
     
     console.log('Executor shutdown complete');
+  }
+
+  /**
+   * Convert a PlanStep from Planner.ts to PlanStep from agentTypes.ts
+   */
+  private convertToPlanStep(
+    plannerStep: import('../planning/Planner').PlanStep, 
+    executionId: string
+  ): PlanStep {
+    // Generate a unique ID for the step
+    const stepId = `step_${executionId}_${Math.floor(Math.random() * 10000)}`;
+    
+    // Create a compatible PlanStep
+    return {
+      id: stepId,
+      description: plannerStep.description,
+      status: 'pending',
+      tool: plannerStep.requiredTools?.[0], // Use first tool if available
+      retryCount: plannerStep.retryCount,
+      retryDelayMs: plannerStep.retryDelayMs,
+      timeoutMs: plannerStep.timeoutMs,
+      params: {
+        difficulty: plannerStep.difficulty,
+        estimatedTimeMinutes: plannerStep.estimatedTimeMinutes,
+        dependsOn: plannerStep.dependsOn
+      }
+    };
   }
 } 

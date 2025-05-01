@@ -8,6 +8,9 @@
  * - Tool discovery and capability matching
  */
 
+import { AgentMonitor } from '../monitoring/AgentMonitor';
+import { enforceEthics } from '../ethics/EthicsMiddleware';
+
 // Base tool interface
 export interface ToolDefinition {
   name: string;
@@ -38,6 +41,10 @@ export interface ToolAccessOptions {
 // Tool router options
 export interface ToolRouterOptions {
   accessOptions?: Partial<ToolAccessOptions>;
+  ethicsOptions?: {
+    enableEthicsCheck: boolean;
+    blockUnethicalOutput: boolean;
+  };
 }
 
 /**
@@ -48,6 +55,10 @@ export class ToolRouter {
   private agentToolPermissions: Map<string, Set<string>> = new Map();
   private toolUsageStats: Map<string, Map<string, number>> = new Map();
   private accessOptions: ToolAccessOptions;
+  private ethicsOptions: {
+    enableEthicsCheck: boolean;
+    blockUnethicalOutput: boolean;
+  };
   private initialized: boolean = false;
   
   constructor(options: ToolRouterOptions = {}) {
@@ -57,6 +68,12 @@ export class ToolRouter {
       trackToolUsage: true,
       maxActiveTools: 10,
       ...options.accessOptions
+    };
+    
+    this.ethicsOptions = {
+      enableEthicsCheck: true,
+      blockUnethicalOutput: false,
+      ...options.ethicsOptions
     };
   }
   
@@ -128,30 +145,88 @@ export class ToolRouter {
     params: Record<string, any>,
     agentContext: Record<string, any> = {}
   ): Promise<ToolResult> {
+    const startTime = Date.now();
+    const taskId = `tool_${toolName}_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+    
     try {
+      // Log tool execution start
+      AgentMonitor.log({
+        agentId,
+        taskId,
+        toolUsed: toolName,
+        eventType: 'tool_start',
+        timestamp: startTime,
+        metadata: {
+          params: JSON.stringify(params).substring(0, 100),
+          contextType: Object.keys(agentContext)
+        }
+      });
+      
       // Check permission
       if (!this.hasToolPermission(agentId, toolName)) {
+        const errorMessage = `Agent ${agentId} does not have permission to use tool ${toolName}`;
+        
+        // Log permission error
+        AgentMonitor.log({
+          agentId,
+          taskId,
+          toolUsed: toolName,
+          eventType: 'tool_end',
+          status: 'failure',
+          timestamp: Date.now(),
+          durationMs: Date.now() - startTime,
+          errorMessage
+        });
+        
         return {
           success: false,
-          error: `Agent ${agentId} does not have permission to use tool ${toolName}`
+          error: errorMessage
         };
       }
       
       // Get the tool
       const tool = this.tools.get(toolName);
       if (!tool) {
+        const errorMessage = `Tool ${toolName} not found`;
+        
+        // Log tool not found error
+        AgentMonitor.log({
+          agentId,
+          taskId,
+          toolUsed: toolName,
+          eventType: 'tool_end',
+          status: 'failure',
+          timestamp: Date.now(),
+          durationMs: Date.now() - startTime,
+          errorMessage
+        });
+        
         return {
           success: false,
-          error: `Tool ${toolName} not found`
+          error: errorMessage
         };
       }
       
       // Check required parameters
       for (const requiredParam of tool.requiredParams) {
         if (!(requiredParam in params)) {
+          const errorMessage = `Missing required parameter: ${requiredParam}`;
+          
+          // Log missing parameter error
+          AgentMonitor.log({
+            agentId,
+            taskId,
+            toolUsed: toolName,
+            eventType: 'tool_end',
+            status: 'failure',
+            timestamp: Date.now(),
+            durationMs: Date.now() - startTime,
+            errorMessage
+          });
+          
           return {
             success: false,
-            error: `Missing required parameter: ${requiredParam}`
+            error: errorMessage
           };
         }
       }
@@ -164,27 +239,97 @@ export class ToolRouter {
         this.trackToolUsage(agentId, toolName);
       }
       
+      // Apply ethics check on tool output if enabled
+      if (this.ethicsOptions.enableEthicsCheck && result.success && result.message) {
+        const ethicsResult = await enforceEthics({
+          agentId,
+          taskId,
+          output: result.message,
+          options: {
+            blockOutput: this.ethicsOptions.blockUnethicalOutput
+          }
+        });
+        
+        // If violations were found and output is blocked
+        if (ethicsResult.wasBlocked) {
+          // Log ethics violation blocking
+          AgentMonitor.log({
+            agentId,
+            taskId,
+            toolUsed: toolName,
+            eventType: 'tool_end',
+            status: 'failure',
+            timestamp: Date.now(),
+            durationMs: Date.now() - startTime,
+            errorMessage: 'Output blocked due to ethics violation',
+            metadata: {
+              violations: ethicsResult.violations
+            }
+          });
+          
+          return {
+            success: false,
+            error: 'Output blocked due to ethics violation',
+            data: result.data,
+            message: 'This output was blocked due to potential ethical concerns'
+          };
+        }
+        
+        // If the output was modified to fix violations
+        if (ethicsResult.wasModified) {
+          result.message = ethicsResult.output;
+        }
+      }
+      
+      // Log tool execution result
+      AgentMonitor.log({
+        agentId,
+        taskId,
+        toolUsed: toolName,
+        eventType: 'tool_end',
+        status: result.success ? 'success' : 'failure',
+        timestamp: Date.now(),
+        durationMs: Date.now() - startTime,
+        errorMessage: result.error,
+        metadata: {
+          resultMessage: result.message,
+          resultData: result.data ? JSON.stringify(result.data).substring(0, 100) : undefined
+        }
+      });
+      
       return result;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
+      
+      // Log execution error
+      AgentMonitor.log({
+        agentId,
+        taskId,
+        toolUsed: toolName,
+        eventType: 'error',
+        status: 'failure',
+        timestamp: Date.now(),
+        durationMs: Date.now() - startTime,
+        errorMessage
+      });
+      
       return {
         success: false,
-        error: `Error executing tool ${toolName}: ${errorMessage}`
+        error: errorMessage
       };
     }
   }
   
   /**
-   * Track tool usage for an agent
+   * Track tool usage statistics
    */
   private trackToolUsage(agentId: string, toolName: string): void {
     if (!this.toolUsageStats.has(agentId)) {
-      this.toolUsageStats.set(agentId, new Map());
+      this.toolUsageStats.set(agentId, new Map<string, number>());
     }
     
     const agentStats = this.toolUsageStats.get(agentId)!;
-    const currentCount = agentStats.get(toolName) || 0;
-    agentStats.set(toolName, currentCount + 1);
+    agentStats.set(toolName, (agentStats.get(toolName) || 0) + 1);
   }
   
   /**
@@ -197,40 +342,39 @@ export class ToolRouter {
     }
     
     return Array.from(permissions)
-      .filter(toolName => this.tools.has(toolName))
-      .map(toolName => this.tools.get(toolName)!)
-      .filter(Boolean);
+      .map(toolName => this.tools.get(toolName))
+      .filter((tool): tool is ToolDefinition => !!tool);
   }
   
   /**
-   * Get tool usage statistics for an agent
+   * Get usage statistics for an agent
    */
   getToolUsageStats(agentId: string): Record<string, number> {
-    const agentStats = this.toolUsageStats.get(agentId);
-    if (!agentStats) {
-      return {};
-    }
-    
     const stats: Record<string, number> = {};
-    agentStats.forEach((count, toolName) => {
-      stats[toolName] = count;
-    });
+    
+    const agentStats = this.toolUsageStats.get(agentId);
+    if (agentStats) {
+      // Convert to array first to avoid MapIterator issues
+      Array.from(agentStats.entries()).forEach(([toolName, count]) => {
+        stats[toolName] = count;
+      });
+    }
     
     return stats;
   }
   
   /**
-   * Check if tool router is initialized
+   * Check if router is initialized
    */
   isInitialized(): boolean {
     return this.initialized;
   }
   
   /**
-   * Shutdown the tool router
+   * Shut down the router
    */
   async shutdown(): Promise<void> {
-    console.log('Shutting down ToolRouter...');
-    // Cleanup logic will be added here
+    // Cleanup logic would go here
+    this.initialized = false;
   }
 } 

@@ -63,7 +63,15 @@ const TasksTab: React.FC<TasksTabProps> = ({
   const debugScheduler = async () => {
     setIsDebugging(true);
     try {
-      const res = await fetch('/api/debug-scheduler');
+      // Add a timeout to the fetch request to prevent hanging
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 20000); // 20 second timeout
+
+      const res = await fetch('/api/debug-scheduler', {
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+      
       const data = await res.json();
       setDebugResult(data);
       console.log('Debug result:', data);
@@ -79,7 +87,10 @@ const TasksTab: React.FC<TasksTabProps> = ({
       }, 2000);
     } catch (error) {
       console.error('Debug error:', error);
-      setDebugResult({ error: error instanceof Error ? error.message : String(error) });
+      setDebugResult({ 
+        error: error instanceof Error ? error.message : String(error),
+        tip: "This could be due to a server timeout. Try increasing your network timeout settings."
+      });
     } finally {
       setIsDebugging(false);
     }
@@ -89,13 +100,24 @@ const TasksTab: React.FC<TasksTabProps> = ({
   const fixReflections = async () => {
     setIsDebugging(true);
     try {
-      const res = await fetch('/api/fix-reflections');
+      // Add a timeout to the fetch request to prevent hanging
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 20000); // 20 second timeout
+
+      const res = await fetch('/api/fix-reflections', {
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+      
       const data = await res.json();
       setDebugResult(data);
       console.log('Fix reflections result:', data);
     } catch (error) {
       console.error('Fix reflections error:', error);
-      setDebugResult({ error: error instanceof Error ? error.message : String(error) });
+      setDebugResult({ 
+        error: error instanceof Error ? error.message : String(error),
+        tip: "This could be due to a server timeout. Try increasing your network timeout settings."
+      });
     } finally {
       setIsDebugging(false);
     }
@@ -185,8 +207,16 @@ const TasksTab: React.FC<TasksTabProps> = ({
       
       {/* Debug result display */}
       {debugResult && (
-        <div className="mb-4 p-2 bg-gray-900 rounded text-xs max-h-40 overflow-auto">
-          <pre>{JSON.stringify(debugResult, null, 2)}</pre>
+        <div className="mb-4 p-3 bg-gray-900 rounded text-xs max-h-40 overflow-auto border border-gray-700">
+          <h3 className="text-sm font-medium mb-1 text-blue-400">Debug Results</h3>
+          {debugResult.error ? (
+            <div>
+              <p className="text-red-400">{debugResult.error}</p>
+              {debugResult.tip && <p className="text-yellow-400 mt-1">{debugResult.tip}</p>}
+            </div>
+          ) : (
+            <pre className="text-green-400">{JSON.stringify(debugResult, null, 2)}</pre>
+          )}
         </div>
       )}
       
@@ -194,6 +224,7 @@ const TasksTab: React.FC<TasksTabProps> = ({
       <div className="mb-4 p-2 bg-gray-900 rounded text-xs">
         <p>Task count: {scheduledTasks?.length || 0}</p>
         <p>Loading state: {isLoadingTasks ? 'Loading' : 'Ready'}</p>
+        {manualRefreshCount > 0 && <p>Refresh count: {manualRefreshCount}</p>}
         {isFirstLoad && scheduledTasks && scheduledTasks.length === 1 && scheduledTasks[0].id === 'error' && (
           <p className="text-yellow-400 mt-1">First load often fails. Try refreshing with the button above.</p>
         )}
@@ -216,6 +247,7 @@ const TasksTab: React.FC<TasksTabProps> = ({
       {isLoadingTasks ? (
         <div className="flex justify-center py-4">
           <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500"></div>
+          <span className="ml-2">Loading tasks...</span>
         </div>
       ) : !displayTasks || displayTasks.length === 0 ? (
         <p className="text-gray-400">No scheduled tasks found.</p>
@@ -226,12 +258,20 @@ const TasksTab: React.FC<TasksTabProps> = ({
           <p className="text-xs text-gray-400 mt-2">
             This error may be temporary. Try using the refresh button above or check server logs for more information.
           </p>
-          <button 
-            onClick={handleManualRefresh}
-            className="mt-3 bg-red-700 hover:bg-red-600 text-white px-3 py-1 rounded-md flex items-center text-sm"
-          >
-            <RefreshCw className="h-4 w-4 mr-1" /> Try Again
-          </button>
+          <div className="mt-3 flex space-x-2">
+            <button 
+              onClick={handleManualRefresh}
+              className="bg-red-700 hover:bg-red-600 text-white px-3 py-1 rounded-md flex items-center text-sm"
+            >
+              <RefreshCw className="h-4 w-4 mr-1" /> Try Again
+            </button>
+            <button 
+              onClick={debugScheduler}
+              className="bg-yellow-700 hover:bg-yellow-600 text-white px-3 py-1 rounded-md flex items-center text-sm"
+            >
+              <BugIcon className="h-4 w-4 mr-1" /> Debug Issues
+            </button>
+          </div>
         </div>
       ) : (
         <div className="overflow-x-auto">

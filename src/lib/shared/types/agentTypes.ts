@@ -407,6 +407,9 @@ export interface PlanWithSteps {
   steps: PlanStep[];
   reasoning: string;
   estimatedCompletion?: Date;
+  retryCount?: number;    // Number of retries for the entire plan
+  retryDelayMs?: number;  // Base delay between retries in milliseconds
+  timeoutMs?: number;     // Maximum execution time for the entire plan
 }
 
 /**
@@ -424,6 +427,9 @@ export interface PlanStep {
   children?: PlanStep[];  // Support for hierarchical steps
   parentId?: string;      // Reference to parent step
   depth?: number;         // Nesting level (0 = top level)
+  retryCount?: number;    // Number of retries if the step fails
+  retryDelayMs?: number;  // Base delay between retries in milliseconds
+  timeoutMs?: number;     // Maximum execution time for this step
   metadata?: {
     prerequisites?: string[];
     estimatedDuration?: number;

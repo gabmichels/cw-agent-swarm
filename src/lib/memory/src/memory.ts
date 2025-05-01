@@ -1,5 +1,44 @@
 import * as serverQdrant from '../../../server/qdrant';
 
+// Define memory scopes as requested
+export type MemoryScope = 'shortTerm' | 'longTerm' | 'inbox' | 'reflections';
+
+// Define structured memory types
+export type MemoryKind = 'fact' | 'insight' | 'task' | 'message' | 'decision' | 'feedback';
+
+// Define memory entry interface
+export interface MemoryEntry {
+  id: string;
+  agentId?: string; // Agent that owns this memory
+  scope: MemoryScope;
+  kind?: MemoryKind; // Type of memory for structured access
+  content: string;
+  timestamp: number;
+  tags?: string[];
+  relevance?: number; // 0.0 to 1.0
+  expiresAt?: number;
+  sourceAgent?: string;
+  contextId?: string; // delegationContextId or message thread
+  namespace?: string;
+  summaryOf?: string[]; // IDs of memories that were summarized to create this entry
+  // Preserve backward compatibility
+  type?: string;
+  category?: string;
+  metadata?: Record<string, any>;
+}
+
+// Define memory search options
+export interface MemorySearchOptions {
+  limit?: number;
+  filter?: Record<string, any>;
+  tags?: string[];
+  scope?: MemoryScope;
+  kind?: MemoryKind;
+  minRelevance?: number;
+  startTimestamp?: number;
+  endTimestamp?: number;
+}
+
 // Define memory configuration interface
 interface MemoryConfig {
   vectorStoreUrl?: string;
@@ -9,12 +48,13 @@ interface MemoryConfig {
 }
 
 /**
- * Memory API for agents - supports retrieval of relevant context
+ * Memory API for agents - supports tiered memory scopes and relevance filtering
  */
 export class Memory {
   private namespace: string;
   private isInitialized: boolean = false;
   private config: MemoryConfig;
+  private memoryEntries: Map<string, MemoryEntry[]> = new Map();
 
   constructor(options: { namespace?: string, config?: MemoryConfig }) {
     this.namespace = options.namespace || 'default';
@@ -24,6 +64,9 @@ export class Memory {
       defaultNamespace: 'default',
       embeddingModel: process.env.OPENAI_EMBEDDING_MODEL || 'text-embedding-3-small'
     };
+    
+    // Initialize memory store
+    this.memoryEntries.set(this.namespace, []);
     
     // Initialize Qdrant (server-side only)
     if (typeof window === 'undefined') {
@@ -59,19 +102,57 @@ export class Memory {
   }
 
   /**
-   * Add a memory entry
+   * Add a memory entry with scope
    */
-  async addMemory(content: string, metadata: Record<string, any> = {}): Promise<string> {
+  async write(entry: Partial<MemoryEntry>): Promise<MemoryEntry> {
     try {
       if (!this.isInitialized) {
         await this.initialize();
       }
+
+      // Add required fields if not provided
+      const completeEntry: MemoryEntry = {
+        id: entry.id || `memory_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+        scope: entry.scope || 'shortTerm',
+        content: entry.content || '',
+        timestamp: entry.timestamp || Date.now(),
+        tags: entry.tags || [],
+        relevance: entry.relevance || 1.0,
+        namespace: this.namespace,
+        agentId: entry.agentId || this.namespace,
+        kind: entry.kind,
+        summaryOf: entry.summaryOf,
+        ...entry
+      };
       
-      // Add namespace to metadata
-      metadata.namespace = this.namespace;
+      // Store in local memory map
+      const entries = this.memoryEntries.get(this.namespace) || [];
+      entries.push(completeEntry);
+      this.memoryEntries.set(this.namespace, entries);
       
-      // Use document type by default
-      return serverQdrant.addMemory('document', content, metadata);
+      // Add to vector store for retrieval
+      if (typeof window === 'undefined') {
+        await serverQdrant.addMemory(
+          // Use an appropriate type that matches the expected values
+          (entry.type as "message" | "thought" | "document" | "task") || "document",
+          entry.content || '',
+          {
+            scope: entry.scope,
+            kind: entry.kind,
+            tags: entry.tags,
+            relevance: entry.relevance,
+            expiresAt: entry.expiresAt,
+            sourceAgent: entry.sourceAgent,
+            contextId: entry.contextId,
+            agentId: entry.agentId || this.namespace,
+            summaryOf: entry.summaryOf,
+            namespace: this.namespace,
+            ...entry.metadata
+          }
+        );
+      }
+      
+      return completeEntry;
     } catch (error) {
       console.error('Error adding memory:', error);
       throw error;
@@ -79,38 +160,91 @@ export class Memory {
   }
 
   /**
-   * Get relevant context based on a query
+   * Get all memory entries for an agent
    */
-  async getContext(query: string, options: { limit?: number } = {}): Promise<string[]> {
-    try {
-      if (!this.isInitialized) {
-        await this.initialize();
-      }
-
-      const limit = options.limit || 5;
-      
-      // Search with namespace filter
-      const results = await serverQdrant.searchMemory(null, query, {
-        limit,
-        filter: { namespace: this.namespace }
-      });
-      
-      if (results.length === 0) {
-        return [];
-      }
-      
-      // Format results as strings
-      return results.map(result => result.text);
-    } catch (error) {
-      console.error('Error retrieving context:', error);
-      return [];
-    }
+  getAll(agentId: string): MemoryEntry[] {
+    const namespace = agentId || this.namespace;
+    return this.memoryEntries.get(namespace) || [];
   }
 
   /**
-   * Search memories
+   * Replace all memory entries for an agent
    */
-  async searchMemory(query: string, options: { limit?: number } = {}): Promise<any[]> {
+  replaceAll(agentId: string, entries: MemoryEntry[]): void {
+    const namespace = agentId || this.namespace;
+    this.memoryEntries.set(namespace, entries);
+  }
+
+  /**
+   * Get memory entries by scope
+   */
+  getByScope(agentId: string, scope: MemoryScope): MemoryEntry[] {
+    const namespace = agentId || this.namespace;
+    const entries = this.memoryEntries.get(namespace) || [];
+    return entries.filter(entry => entry.scope === scope);
+  }
+
+  /**
+   * Get memory entries by kind
+   */
+  getByKind(agentId: string, kind: MemoryKind): MemoryEntry[] {
+    const namespace = agentId || this.namespace;
+    const entries = this.memoryEntries.get(namespace) || [];
+    return entries.filter(entry => entry.kind === kind);
+  }
+
+  /**
+   * Get relevant memory entries filtered by options
+   */
+  getRelevant(agentId: string, options: MemorySearchOptions = {}): MemoryEntry[] {
+    const namespace = agentId || this.namespace;
+    const entries = this.memoryEntries.get(namespace) || [];
+    
+    return entries
+      .filter(entry => {
+        // Filter by scope if provided
+        if (options.scope && entry.scope !== options.scope) {
+          return false;
+        }
+        
+        // Filter by kind if provided
+        if (options.kind && entry.kind !== options.kind) {
+          return false;
+        }
+        
+        // Filter by minimum relevance if provided
+        if (options.minRelevance !== undefined && 
+            (entry.relevance === undefined || entry.relevance < options.minRelevance)) {
+          return false;
+        }
+        
+        // Filter by tags if provided
+        if (options.tags && options.tags.length > 0 && 
+            (!entry.tags || !options.tags.some(tag => entry.tags?.includes(tag)))) {
+          return false;
+        }
+        
+        // Filter by timestamp range if provided
+        if (options.startTimestamp && entry.timestamp < options.startTimestamp) {
+          return false;
+        }
+        
+        if (options.endTimestamp && entry.timestamp > options.endTimestamp) {
+          return false;
+        }
+        
+        return true;
+      })
+      // Sort by relevance (highest first)
+      .sort((a, b) => (b.relevance || 0) - (a.relevance || 0))
+      // Limit results if specified
+      .slice(0, options.limit || entries.length);
+  }
+
+  /**
+   * Search memories with semantic search
+   */
+  async searchMemory(query: string, options: MemorySearchOptions = {}): Promise<MemoryEntry[]> {
     try {
       if (!this.isInitialized) {
         await this.initialize();
@@ -118,14 +252,41 @@ export class Memory {
       
       const limit = options.limit || 5;
       
-      // Search with namespace filter
-      const results = await serverQdrant.searchMemory(null, query, {
-        limit,
-        filter: { namespace: this.namespace }
-      });
+      // Prepare filter for Qdrant
+      const filter: Record<string, any> = { 
+        namespace: this.namespace,
+        ...options.filter 
+      };
       
-      // Return the raw results
-      return results;
+      // Add scope filter if provided
+      if (options.scope) {
+        filter.scope = options.scope;
+      }
+      
+      // Add kind filter if provided
+      if (options.kind) {
+        filter.kind = options.kind;
+      }
+      
+      // Search with filters
+      const results = await serverQdrant.searchMemory(null, query, { limit, filter });
+      
+      // Map to MemoryEntry format
+      return results.map(result => ({
+        id: result.id || `memory_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+        scope: result.metadata?.scope || 'shortTerm',
+        kind: result.metadata?.kind,
+        content: result.text || '',
+        timestamp: result.metadata?.timestamp || Date.now(),
+        tags: result.metadata?.tags || [],
+        relevance: result.metadata?.relevance || 1.0, // Use metadata.relevance instead of score
+        expiresAt: result.metadata?.expiresAt,
+        sourceAgent: result.metadata?.sourceAgent,
+        contextId: result.metadata?.contextId,
+        agentId: result.metadata?.agentId,
+        summaryOf: result.metadata?.summaryOf,
+        namespace: result.metadata?.namespace || this.namespace,
+      }));
     } catch (error) {
       console.error('Error searching memory:', error);
       return [];
@@ -133,7 +294,7 @@ export class Memory {
   }
 
   /**
-   * Get the total number of messages in memory
+   * Get the total number of memories
    */
   async getMessageCount(): Promise<number> {
     if (!this.isInitialized) {
@@ -145,10 +306,55 @@ export class Memory {
         const count = await serverQdrant.getMessageCount();
         return count;
       }
-      return 0;
+      
+      const entries = this.memoryEntries.get(this.namespace) || [];
+      return entries.length;
     } catch (error) {
       console.error('Error getting message count:', error);
       return 0;
     }
+  }
+  
+  /**
+   * Summarize text content using an LLM
+   * This is a placeholder - in a real implementation,
+   * this would use an actual LLM to generate a summary
+   */
+  static async summarizerTool(content: string): Promise<string> {
+    // This would be replaced with an actual call to an LLM service
+    console.log('Summarizing content:', content.substring(0, 100) + '...');
+    
+    // Simulating LLM response time
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
+    // Simple summarization logic for demo purposes
+    const lines = content.split('\n').filter(line => line.trim());
+    if (lines.length <= 2) return content;
+    
+    return `Summary of ${lines.length} items: ${lines[0]} and other related points.`;
+  }
+  
+  // Legacy method for backward compatibility
+  async addMemory(content: string, metadata: Record<string, any> = {}): Promise<string> {
+    const entry = await this.write({
+      content,
+      scope: metadata.scope || 'shortTerm',
+      kind: metadata.kind,
+      tags: metadata.tags,
+      relevance: metadata.relevance,
+      expiresAt: metadata.expiresAt,
+      sourceAgent: metadata.sourceAgent,
+      contextId: metadata.contextId,
+      summaryOf: metadata.summaryOf,
+      metadata
+    });
+    
+    return entry.id;
+  }
+  
+  // Legacy method for backward compatibility
+  async getContext(query: string, options: { limit?: number } = {}): Promise<string[]> {
+    const results = await this.searchMemory(query, options);
+    return results.map(result => result.content);
   }
 } 
