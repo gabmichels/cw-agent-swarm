@@ -62,3 +62,6 @@ debug_paths.bat
 
 data/files/uploads/
 data/files/storage/
+
+# Performance metrics
+/data/self-improvement/performance-metrics.json

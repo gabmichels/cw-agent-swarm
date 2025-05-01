@@ -111,12 +111,9 @@ export class ProposeContentIdeasTool {
       if (!this.llmClient) {
         const { ChatOpenAI } = require('@langchain/openai');
         this.llmClient = new ChatOpenAI({
-          modelName: process.env.OPENAI_MODEL_NAME || 'gpt-4.1-2025-04-14',
+          modelName: process.env.OPENAI_CHEAP_MODEL || 'gpt-4.1-nano-2025-04-14',
           temperature: 0.7,
-          openAIApiKey: process.env.OPENROUTER_API_KEY,
-          configuration: {
-            baseURL: process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1'
-          }
+          openAIApiKey: process.env.OPENAI_API_KEY,
         });
       }
       
@@ -165,12 +162,9 @@ export class ReflectOnPerformanceTool {
       if (!this.llmClient) {
         const { ChatOpenAI } = require('@langchain/openai');
         this.llmClient = new ChatOpenAI({
-          modelName: process.env.OPENAI_MODEL_NAME || 'gpt-4.1-2025-04-14',
+          modelName: process.env.OPENAI_CHEAP_MODEL || 'gpt-3.5-turbo',
           temperature: 0.7,
-          openAIApiKey: process.env.OPENROUTER_API_KEY,
-          configuration: {
-            baseURL: process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1'
-          }
+          openAIApiKey: process.env.OPENAI_API_KEY,
         });
       }
       

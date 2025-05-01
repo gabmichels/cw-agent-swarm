@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 // Environment variables schema
 export const envSchema = z.object({
-  OPENROUTER_API_KEY: z.string().min(1),
+  OPENAI_API_KEY: z.string().min(1),
   QDRANT_URL: z.string().optional(),
   QDRANT_API_KEY: z.string().optional(),
 });
@@ -21,7 +21,8 @@ export const getEnv = () => {
  */
 export const DEFAULT_CONFIG = {
   llm: {
-    defaultModel: 'gpt-4o',
+    defaultModel: 'gpt-4.1',
+    cheapModel: 'gpt-4.1-nano-2025-04-14',
     defaultTemperature: 0.7,
   },
   memory: {
@@ -37,8 +38,7 @@ export function loadConfig() {
     ...DEFAULT_CONFIG,
     llm: {
       ...DEFAULT_CONFIG.llm,
-      // Prefer OpenRouter API key if available, fall back to OpenAI
-      apiKey: process.env.OPENROUTER_API_KEY || process.env.OPENAI_API_KEY || '',
+      apiKey: process.env.OPENAI_API_KEY || '',
     },
   };
 }
@@ -59,6 +59,7 @@ export const systemConfig = {
   },
   llm: {
     defaultModel: 'gpt-4.1-2025-04-14',
+    cheapModel: 'gpt-4.1-nano-2025-04-14',
     defaultTemperature: 0.7,
     defaultMaxTokens: 2000
   },
@@ -69,8 +70,8 @@ export const systemConfig = {
     embeddingModel: 'openai/text-embedding-3-small',
   },
   agent: {
-    defaultModel: 'openrouter/anthropic/claude-3-opus:2024-05-01',
-    fallbackModel: 'openrouter/meta-llama/llama-3-70b-instruct',
+    defaultModel: 'gpt-4.1-2025-04-14',
+    fallbackModel: 'gpt-4.1-nano-2025-04-14',
     maxTokens: 4000,
     temperature: 0.7,
   },

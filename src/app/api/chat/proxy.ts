@@ -461,28 +461,23 @@ async function generateRealResponse(message: string): Promise<{reply: string, me
             console.error(`Process error stack: ${processError.stack}`);
           }
           
-          // Fall through to OpenRouter fallback
+          // Fall through to OpenAI fallback
           throw processError;
         }
       } else {
-        // Fall through to OpenRouter fallback
+        // Fall through to OpenAI fallback
         throw new Error('Chloe instance not available');
       }
     } catch (error) {
-      // OpenRouter Direct Fallback
-      console.log('Using OpenRouter direct fallback due to error:', error);
+      // OpenAI Direct Fallback
+      console.log('Using OpenAI direct fallback due to error:', error);
       try {
         // Import OpenAI (from a package that's already in use)
         const { OpenAI } = await import("openai");
         
-        // Create client with OpenRouter configuration
-        const openRouter = new OpenAI({
-          apiKey: process.env.OPENROUTER_API_KEY || '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',
-          baseURL: 'https://openrouter.ai/api/v1',
-          defaultHeaders: {
-            'HTTP-Referer': 'https://crowd-wisdom-agents.vercel.app',
-            'X-Title': 'Crowd Wisdom Agents - Chloe',
-          },
+        // Create client with OpenAI configuration
+        const openAI = new OpenAI({
+          apiKey: process.env.OPENAI_API_KEY || 'your-key-here', // You should replace this with your actual key or make sure env var is set
           dangerouslyAllowBrowser: true,
         });
         
@@ -493,9 +488,9 @@ Always be professional but conversational. You have expertise in digital marketi
 When you don't know something, admit it and offer to help find the information.
 If the user asks about "Claro" specifically, it's a travel app we're developing that focuses on simplicity, clarity, and social sharing for travelers.`;
         
-        // Call OpenRouter directly
-        const completion = await openRouter.chat.completions.create({
-          model: "gpt-4.1-2025-04-14", // Use GPT-4.1 as a reliable fallback 
+        // Call OpenAI directly
+        const completion = await openAI.chat.completions.create({
+          model: "gpt-3.5-turbo", // Use a cheaper model for fallback
           messages: [
             { role: "system", content: systemMessage },
             { role: "user", content: message }
@@ -508,7 +503,7 @@ If the user asks about "Claro" specifically, it's a travel app we're developing 
         
         // Create a thought explaining we used the fallback
         const timestamp = new Date().toISOString();
-        const fallbackThought = `[${timestamp.split('T')[1].split('.')[0]}] Chloe thinking: Using direct OpenRouter fallback due to agent processing error.`;
+        const fallbackThought = `[${timestamp.split('T')[1].split('.')[0]}] Chloe thinking: Using cheap OpenAI model fallback due to agent processing error.`;
         
         result = {
           reply,
@@ -516,7 +511,7 @@ If the user asks about "Claro" specifically, it's a travel app we're developing 
           thoughts: [fallbackThought]
         };
       } catch (fallbackError) {
-        console.error('Error using OpenRouter fallback:', fallbackError);
+        console.error('Error using OpenAI fallback:', fallbackError);
         
         // Ultimate fallback response
         result = {
@@ -801,82 +796,30 @@ export async function GET(request: Request) {
     // This avoids unnecessary Qdrant calls which could fail
     const existingHistory = getUserHistory(userId);
     if (existingHistory.length > 0) {
-      console.log(`Found ${existingHistory.length} existing messages in memory for user ${userId}`);
-    }
-    
-    // Force reload from Qdrant for this specific user
-    let qdrantSuccess = false;
-    let retryCount = 0;
-    
-    while (!qdrantSuccess && retryCount < 2) {
-      try {
-        // Set a timeout for the entire operation
-        const timeoutPromise = new Promise((_, reject) => {
-          setTimeout(() => reject(new Error('Qdrant history load timeout')), 10000); // 10 second timeout
-        });
-        
-        const loadPromise = loadChatHistoryFromQdrant(userId);
-        await Promise.race([loadPromise, timeoutPromise]);
-        console.log(`Refreshed chat history from Qdrant for user request: ${userId}`);
-        qdrantSuccess = true;
-      } catch (loadError) {
-        retryCount++;
-        console.error(`Error refreshing chat history from Qdrant (attempt ${retryCount}/2):`, 
-          loadError instanceof Error ? loadError.message : String(loadError));
-        
-        if (retryCount < 2) {
-          console.log(`Retrying Qdrant history load for user ${userId}...`);
-          // Wait a moment before retrying
-          await new Promise(resolve => setTimeout(resolve, 1000));
-        }
-      }
-    }
-    
-    // Get the history after possibly refreshing from Qdrant
-    const history = getUserHistory(userId);
-    console.log(`Retrieved ${history.length} messages for user ${userId}${qdrantSuccess ? ' (from Qdrant)' : ' (from memory)'}`);
-    
-    // If we have history but it might be incomplete (missing the last message)
-    if (qdrantSuccess && history.length > 0 && history.length < 3) {
-      console.log(`Warning: Only ${history.length} messages found for user ${userId}, this may be incomplete`);
-    }
-    
-    // If no history exists, create a welcome message
-    if (history.length === 0) {
-      const welcomeMessage = {
-        role: 'assistant',
-        content: "Hello! I'm Chloe, your AI assistant. I'm here to help you with marketing and other tasks. How can I assist you today?",
-        timestamp: new Date().toISOString()
-      };
-      
-      try {
-        // Save to history - with special handling to avoid errors
-        await saveToHistory(userId, 'assistant', welcomeMessage.content);
-        console.log(`Created welcome message for new user: ${userId}`);
-      } catch (saveError) {
-        console.error('Error saving welcome message:', saveError);
-        // Still return the welcome message even if saving fails
-      }
-      
+      console.log(`Found ${existingHistory.length} messages in memory for user ${userId}`);
       return NextResponse.json({
-        history: [welcomeMessage]
+        history: existingHistory
       });
     }
     
-    return NextResponse.json({
-      history: history,
-      source: qdrantSuccess ? 'qdrant' : 'memory',
-      count: history.length
-    });
+    // If not in memory, try to load from Qdrant
+    const success = await loadChatHistoryFromQdrant(userId);
+    if (success) {
+      console.log(`Loaded ${chatHistory.get(userId)?.length || 0} messages from Qdrant for user ${userId}`);
+      return NextResponse.json({
+        history: getUserHistory(userId)
+      });
+    } else {
+      console.log(`Failed to load chat history from Qdrant for user ${userId}`);
+      return NextResponse.json({
+        history: []
+      });
+    }
   } catch (error: any) {
-    console.error('Error fetching chat history:', error);
-    // Return an empty history rather than an error to avoid breaking the UI
+    console.error('Error retrieving chat history:', error);
     return NextResponse.json({
       history: [],
-      error: error.message || 'Failed to fetch chat history',
-      errorDetails: error.stack
-    }, {
-      status: 200 // Still return 200 to avoid breaking the UI
+      error: error.message || 'Failed to retrieve chat history'
     });
   }
-} 
+}

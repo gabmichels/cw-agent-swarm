@@ -125,14 +125,7 @@ export class ChloeAgent implements IAgent {
       this.model = new ChatOpenAI({
         modelName: process.env.OPENAI_MODEL_NAME || 'gpt-4.1-2025-04-14',
         temperature: 0.7,
-        openAIApiKey: process.env.OPENROUTER_API_KEY,
-        configuration: {
-          baseURL: process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1',
-          defaultHeaders: {
-            'HTTP-Referer': 'https://crowd-wisdom-agents.vercel.app',
-            'X-Title': 'Crowd Wisdom Agents - Chloe',
-          },
-        }
+        openAIApiKey: process.env.OPENAI_API_KEY,
       });
       
       // Make model available globally for TaskLogger to use
