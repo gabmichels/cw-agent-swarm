@@ -30,6 +30,15 @@ export interface MemoryEntry extends BaseMemoryEntry {
   category: string;
   expiresAt?: Date;
   tags?: string[];
+  metadata?: {
+    filePath?: string;
+    title?: string;
+    importance?: string;
+    source?: string;
+    category?: string;
+    tags?: string[];
+    [key: string]: unknown;
+  };
 }
 
 // Define external memory record interface
@@ -433,43 +442,64 @@ export class ChloeMemory {
    */
   async getRelevantMemories(
     query: string,
-    limit: number = 5
+    limit: number = 5,
+    types?: string[]
   ): Promise<MemoryEntry[]> {
     if (!this.initialized) {
-      console.error("Memory not initialized");
-      return [];
+      await this.initialize();
     }
-
+    
     try {
-      if (!this.externalMemory) {
-        console.error("External memory not available");
-        return [];
-      }
-
-      // Try to get relevant memories from external memory
-      try {
-        let matchingRecords: ExternalMemoryRecord[] = [];
+      // If specific types are requested, use them, otherwise use default types
+      const memoryTypes = types || [
+        MemoryType.MESSAGE, 
+        MemoryType.THOUGHT, 
+        MemoryType.DOCUMENT,
+        ChloeMemoryTypeEnum.STRATEGY,
+        ChloeMemoryTypeEnum.PERSONA,
+        ChloeMemoryTypeEnum.VISION,
+        ChloeMemoryTypeEnum.PROCESS,
+        ChloeMemoryTypeEnum.KNOWLEDGE
+      ];
+      
+      let allRelevantMemories: MemoryEntry[] = [];
+      
+      // Search for each memory type
+      for (const type of memoryTypes) {
+        let baseType: MemoryType;
+        let filter = {};
         
-        // Try searchSimilar first, then fall back to search if available
-        if (typeof this.externalMemory.searchSimilar === 'function') {
-          matchingRecords = await this.externalMemory.searchSimilar(query, limit);
-        } else if (typeof this.externalMemory.search === 'function') {
-          matchingRecords = await this.externalMemory.search(query, limit);
+        // Determine if this is a base type or extended type
+        if (Object.values(MemoryType).includes(type as MemoryType)) {
+          baseType = type as MemoryType;
         } else {
-          console.warn("Neither searchSimilar nor search methods are available on external memory");
+          // For extended types, search in the document collection with metadata filter
+          baseType = MemoryType.DOCUMENT;
+          filter = { type };
         }
         
-        console.log(`Found ${matchingRecords.length} relevant memories for query: ${query}`);
-        
-        // Convert the records to MemoryEntry format
-        return this.convertRecordsToMemoryEntries(matchingRecords);
-      } catch (searchError) {
-        console.error("Error searching external memory:", searchError);
-        // Return local memories as fallback
-        return this.getLocalMemories(limit);
+        // Perform the semantic search
+        if (typeof window === 'undefined') {
+          const records = await serverQdrant.searchMemory(
+            baseType as QdrantMemoryType, 
+            query, 
+            { 
+              limit: Math.ceil(limit / memoryTypes.length),
+              filter
+            }
+          );
+          
+          // Convert to memory entries
+          const entries = this.convertRecordsToMemoryEntries(records);
+          allRelevantMemories = [...allRelevantMemories, ...entries];
+        }
       }
+      
+      // Sort by relevance (if we had scores, but we don't currently)
+      // For now, limit to the requested number
+      return allRelevantMemories.slice(0, limit);
     } catch (error) {
-      console.error("Error retrieving relevant memories:", error);
+      console.error('Error retrieving relevant memories:', error);
       return [];
     }
   }
@@ -656,5 +686,58 @@ export class ChloeMemory {
    */
   private getLocalMemories(limit: number = 5): MemoryEntry[] {
     return this.memoryStore.entries.slice(0, limit);
+  }
+
+  /**
+   * Get relevant memories for a query, enriched with source file and tags information
+   * @param query The search query
+   * @param types Array of specific memory types to search
+   * @param limit Maximum number of results to return
+   * @returns Array of relevant memory entries with metadata
+   */
+  async getRelevantMemoriesByType(
+    query: string,
+    types: string[],
+    limit: number = 10
+  ): Promise<{
+    entries: MemoryEntry[];
+    sourceFiles: string[];
+    typesFound: string[];
+  }> {
+    if (!this.initialized) {
+      await this.initialize();
+    }
+    
+    try {
+      if (!types || types.length === 0) {
+        return { entries: [], sourceFiles: [], typesFound: [] };
+      }
+      
+      // Retrieve relevant memories by type
+      const relevantMemories = await this.getRelevantMemories(query, limit, types);
+      
+      // Extract unique source files and types for reporting
+      const sourceFiles = Array.from(new Set(
+        relevantMemories
+          .filter(memory => memory.metadata && typeof memory.metadata === 'object')
+          .filter(memory => memory.metadata && 'filePath' in memory.metadata && memory.metadata.filePath)
+          .map(memory => memory.metadata?.filePath as string)
+      ));
+      
+      const typesFound = Array.from(new Set(
+        relevantMemories
+          .filter(memory => memory.category)
+          .map(memory => memory.category)
+      ));
+      
+      return {
+        entries: relevantMemories,
+        sourceFiles,
+        typesFound
+      };
+    } catch (error) {
+      console.error('Error retrieving relevant memories by type:', error);
+      return { entries: [], sourceFiles: [], typesFound: [] };
+    }
   }
 }

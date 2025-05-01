@@ -11,7 +11,7 @@ import {
 } from '../../../lib/shared/types/agentTypes';
 import { planTask, PlanResult } from '../../../server/agents/planner';
 import { executePlan } from '../../../server/agents/executor';
-import { ImportanceLevel, MemorySource } from '../../../constants/memory';
+import { ImportanceLevel, MemorySource, MemoryType, ChloeMemoryType as ChloeMemoryTypeEnum } from '../../../constants/memory';
 
 // Define interfaces for plan and execution results
 export interface PlanWithSteps {
@@ -134,11 +134,22 @@ export class PlanningManager implements IManager {
       
       this.logAction('Planning task', { task });
       
-      // Get relevant context from memory
-      const memoryContext = await this.memory.getRelevantMemories(task, 5);
+      // Get enhanced context from markdown-derived memories
+      const memoryContext = await this.getRelevantMemoriesForPlanning(task);
+      
+      // Build the enhanced prompt with memory context
+      const enhancedPrompt = `
+# Task to Plan
+${task}
+
+${memoryContext}
+
+# Planning Instructions
+Please create a concise, actionable plan to accomplish this task.
+`;
       
       // Generate a plan using the planning system
-      const planResult = await planTask(task, {
+      const planResult = await planTask(enhancedPrompt, {
         memory: this.memory,
         maxSteps: 10,
         includeReasoning: true
@@ -216,8 +227,8 @@ export class PlanningManager implements IManager {
    */
   async planAndExecuteTask(task: string): Promise<ExecutionResult> {
     try {
-      // First plan the task
-      const plan = await this.planTask(task);
+      // First plan the task using enhanced context
+      const plan = await this.planWithEnhancedContext(task);
       
       // Then execute the plan
       const result = await this.executePlan(plan);
@@ -240,13 +251,13 @@ export class PlanningManager implements IManager {
       
       this.logAction('Running daily tasks');
       
-      // Generate a plan for daily tasks
-      const dailyTaskPlan = await this.planTask(
+      // Generate a plan for daily tasks with enhanced context
+      const dailyTaskPlan = await this.planWithEnhancedContext(
         "Create a plan for today's key marketing activities. Include content review, trend analysis, and engagement strategies."
       );
       
       if (this.notifyFunction) {
-        this.notifyFunction(`Daily tasks plan created: ${dailyTaskPlan.description}`);
+        this.notifyFunction(`Daily tasks plan created with enhanced knowledge context: ${dailyTaskPlan.description}`);
       }
       
       // Execute the plan
@@ -299,8 +310,8 @@ export class PlanningManager implements IManager {
    */
   async planAndExecuteWithOptions(options: PlanAndExecuteOptions): Promise<PlanAndExecuteResult> {
     try {
-      // First plan the task based on the goal prompt
-      const plan = await this.planTask(options.goalPrompt);
+      // First plan the task based on the goal prompt with enhanced context
+      const plan = await this.planWithEnhancedContext(options.goalPrompt);
       
       // Then execute the plan
       const result = await this.executePlan(plan);
@@ -316,7 +327,7 @@ export class PlanningManager implements IManager {
             description: step.step,
             status: step.success ? 'completed' : 'failed'
           })) || [],
-          reasoning: "Plan execution from planning manager"
+          reasoning: "Plan execution from planning manager with enhanced memory context"
         },
         error: result.error
       };
@@ -329,6 +340,378 @@ export class PlanningManager implements IManager {
         message: `Error executing plan: ${error}`,
         error: error instanceof Error ? error.message : String(error)
       };
+    }
+  }
+
+  /**
+   * Get relevant context for planning
+   */
+  private async getRelevantMemoriesForPlanning(goal: string): Promise<string> {
+    // Get relevant memories from different categories
+    const strategicMemories = await this.memory.getRelevantMemories(
+      goal, 
+      5, 
+      [ChloeMemoryTypeEnum.STRATEGY, ChloeMemoryTypeEnum.VISION]
+    );
+
+    const domainMemories = await this.memory.getRelevantMemories(
+      goal, 
+      5, 
+      [ChloeMemoryTypeEnum.KNOWLEDGE, ChloeMemoryTypeEnum.PROCESS]
+    );
+
+    const personalMemories = await this.memory.getRelevantMemories(
+      goal, 
+      3, 
+      [ChloeMemoryTypeEnum.PERSONA]
+    );
+
+    const relevantThoughts = await this.memory.getRelevantMemories(
+      goal, 
+      3, 
+      [MemoryType.THOUGHT]
+    );
+
+    // Format memories for inclusion in the planning context
+    let context = '## Available Knowledge\n\n';
+    
+    if (strategicMemories.length > 0) {
+      context += '### Strategic Knowledge\n';
+      strategicMemories.forEach(memory => {
+        context += `- **${memory.category || 'Strategy'}**: ${this.extractContentForPlanning(memory.content)}\n`;
+      });
+      context += '\n';
+    }
+    
+    if (domainMemories.length > 0) {
+      context += '### Domain Knowledge\n';
+      domainMemories.forEach(memory => {
+        context += `- **${memory.category || 'Knowledge'}**: ${this.extractContentForPlanning(memory.content)}\n`;
+      });
+      context += '\n';
+    }
+    
+    if (personalMemories.length > 0) {
+      context += '### Persona Information\n';
+      personalMemories.forEach(memory => {
+        context += `- **${memory.category || 'Persona'}**: ${this.extractContentForPlanning(memory.content)}\n`;
+      });
+      context += '\n';
+    }
+    
+    if (relevantThoughts.length > 0) {
+      context += '### Previous Relevant Thoughts\n';
+      relevantThoughts.forEach(memory => {
+        context += `- ${this.extractContentForPlanning(memory.content)}\n`;
+      });
+      context += '\n';
+    }
+    
+    return context;
+  }
+
+  /**
+   * Extract relevant content from memory for planning
+   */
+  private extractContentForPlanning(content: string): string {
+    // If content is formatted like "TYPE [timestamp]: actual content"
+    // Extract only the actual content part
+    const match = content.match(/^(?:.*?\[.*?\]:)?\s*(.*)/);
+    if (match && match[1]) {
+      return match[1].trim();
+    }
+    return content;
+  }
+
+  /**
+   * Parse a plan string into a structured PlanWithSteps object
+   * This method handles the plan format returned by the LLM
+   */
+  private parsePlan(planString: string): PlanWithSteps {
+    try {
+      // Extract plan name and steps
+      const lines = planString.split('\n').filter(line => line.trim() !== '');
+      
+      // First non-empty line is the plan name
+      const planName = lines[0].replace(/^(#|\d+\.|\*)\s*/, '').trim();
+      
+      // Remaining lines are steps - look for numbered lines or bullet points
+      const stepRegex = /^(\d+\.|\*|\-)\s*(.+)$/;
+      const steps = [];
+      
+      for (let i = 1; i < lines.length; i++) {
+        const match = lines[i].match(stepRegex);
+        if (match) {
+          const stepText = match[2].trim();
+          steps.push({
+            action: stepText,
+            description: stepText
+          });
+        }
+      }
+      
+      return {
+        description: planName,
+        steps: steps.length > 0 ? steps : [{ action: 'Review plan', description: 'Plan needs review' }]
+      };
+    } catch (error) {
+      this.logAction('Error parsing plan', { error: String(error) });
+      // Return a fallback plan
+      return {
+        description: 'Error parsing plan',
+        steps: [{ action: 'Review plan', description: 'Plan could not be parsed' }]
+      };
+    }
+  }
+
+  /**
+   * Get relevant context for planning with enhanced memory retrieval by type
+   */
+  private async getEnhancedMemoriesForPlanning(goal: string): Promise<string> {
+    // Get relevant memories with enhanced metadata
+    const strategicInfo = await this.memory.getRelevantMemoriesByType(
+      goal,
+      [ChloeMemoryTypeEnum.STRATEGY, ChloeMemoryTypeEnum.VISION],
+      5
+    );
+
+    const domainInfo = await this.memory.getRelevantMemoriesByType(
+      goal,
+      [ChloeMemoryTypeEnum.KNOWLEDGE, ChloeMemoryTypeEnum.PROCESS],
+      5
+    );
+
+    const personalInfo = await this.memory.getRelevantMemoriesByType(
+      goal,
+      [ChloeMemoryTypeEnum.PERSONA],
+      3
+    );
+
+    const thoughtInfo = await this.memory.getRelevantMemoriesByType(
+      goal,
+      [MemoryType.THOUGHT],
+      3
+    );
+
+    // Format memories for inclusion in the planning context with enhanced metadata
+    let context = '## Available Knowledge\n\n';
+    
+    if (strategicInfo.entries.length > 0) {
+      context += '### Strategic Knowledge\n';
+      if (strategicInfo.sourceFiles.length > 0) {
+        context += `Source files: ${strategicInfo.sourceFiles.join(', ')}\n\n`;
+      }
+      
+      strategicInfo.entries.forEach(memory => {
+        context += `- **${memory.category || 'Strategy'}**: ${this.extractContentForPlanning(memory.content)}\n`;
+      });
+      context += '\n';
+    }
+    
+    if (domainInfo.entries.length > 0) {
+      context += '### Domain Knowledge\n';
+      if (domainInfo.sourceFiles.length > 0) {
+        context += `Source files: ${domainInfo.sourceFiles.join(', ')}\n\n`;
+      }
+      
+      domainInfo.entries.forEach(memory => {
+        context += `- **${memory.category || 'Knowledge'}**: ${this.extractContentForPlanning(memory.content)}\n`;
+      });
+      context += '\n';
+    }
+    
+    if (personalInfo.entries.length > 0) {
+      context += '### Persona Information\n';
+      if (personalInfo.sourceFiles.length > 0) {
+        context += `Source files: ${personalInfo.sourceFiles.join(', ')}\n\n`;
+      }
+      
+      personalInfo.entries.forEach(memory => {
+        context += `- **${memory.category || 'Persona'}**: ${this.extractContentForPlanning(memory.content)}\n`;
+      });
+      context += '\n';
+    }
+    
+    if (thoughtInfo.entries.length > 0) {
+      context += '### Previous Relevant Thoughts\n';
+      thoughtInfo.entries.forEach(memory => {
+        context += `- ${this.extractContentForPlanning(memory.content)}\n`;
+      });
+      context += '\n';
+    }
+    
+    return context;
+  }
+
+  /**
+   * Generate a plan for a given goal
+   */
+  async plan(goal: string, options: {
+    memory?: ChloeMemory;
+    maxSteps?: number;
+    includeReasoning?: boolean;
+    userId?: string;
+    debug?: boolean;
+    signal?: AbortSignal;
+  } = {}): Promise<PlanWithSteps> {
+    this.taskLogger?.logAction('Planning', { goal });
+    
+    try {
+      // Get relevant memory context
+      const memoryContext = await this.getRelevantMemoriesForPlanning(goal);
+      
+      // Build the prompt with memory context
+      const prompt = `
+# Goal
+${goal}
+
+${memoryContext}
+
+# Planning Instructions
+1. Break down the goal into clear, logical steps
+2. For each step, identify required inputs and expected outputs
+3. Consider dependencies between steps
+4. Include information gathering steps when necessary
+5. Provide clear success criteria for each step
+6. Keep the plan concise but comprehensive
+
+# Format Requirements
+1. Provide a high-level plan name (1 line)
+2. Include 3-7 steps (practical number for execution)
+3. Each step should be actionable and verifiable
+
+Your task is to create an optimal plan to achieve the above goal. The plan will be executed step by step.
+`;
+      
+      // Log the prompt if requested
+      if (options.debug) {
+        console.log('Planning prompt:', prompt);
+      }
+      
+      // Call the LLM to generate the plan
+      const planResult = await planTask(prompt, {
+        memory: this.memory,
+        maxSteps: options.maxSteps || 10,
+        includeReasoning: options.includeReasoning || true
+      });
+      
+      // Parse the generated plan into steps
+      if (!planResult || !planResult.plan) {
+        throw new Error('Plan generation failed: No plan returned');
+      }
+      
+      // Parse the generated plan into steps
+      const parsedPlan = this.parsePlan(planResult.plan.join('\n'));
+      
+      // Store the plan in memory
+      await this.memory.addMemory(
+        planResult.plan.join('\n'),
+        ChloeMemoryTypeEnum.PLAN,
+        ImportanceLevel.HIGH,
+        MemorySource.AGENT, 
+        `Goal: ${goal}`
+      );
+      
+      // Log the created plan
+      this.taskLogger?.logAction('Plan created', { 
+        goal,
+        planName: parsedPlan.description,
+        steps: parsedPlan.steps.length
+      });
+      
+      return parsedPlan;
+    } catch (error) {
+      this.taskLogger?.logAction('Planning failed', { 
+        goal,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Enhanced plan method that uses structured markdown memories
+   */
+  async planWithEnhancedContext(goal: string, options: {
+    memory?: ChloeMemory;
+    maxSteps?: number;
+    includeReasoning?: boolean;
+    userId?: string;
+    debug?: boolean;
+    signal?: AbortSignal;
+  } = {}): Promise<PlanWithSteps> {
+    this.taskLogger?.logAction('Planning with enhanced context', { goal });
+    
+    try {
+      // Get enhanced relevant memory context using the new method
+      const memoryContext = await this.getEnhancedMemoriesForPlanning(goal);
+      
+      // Build the prompt with enhanced memory context
+      const prompt = `
+# Goal
+${goal}
+
+${memoryContext}
+
+# Planning Instructions
+1. Break down the goal into clear, logical steps
+2. For each step, identify required inputs and expected outputs
+3. Consider dependencies between steps
+4. Include information gathering steps when necessary
+5. Provide clear success criteria for each step
+6. Keep the plan concise but comprehensive
+
+# Format Requirements
+1. Provide a high-level plan name (1 line)
+2. Include 3-7 steps (practical number for execution)
+3. Each step should be actionable and verifiable
+
+Your task is to create an optimal plan to achieve the above goal. The plan will be executed step by step.
+`;
+      
+      // Log the prompt if requested
+      if (options.debug) {
+        console.log('Planning prompt with enhanced context:', prompt);
+      }
+      
+      // Call the LLM to generate the plan
+      const planResult = await planTask(prompt, {
+        memory: this.memory,
+        maxSteps: options.maxSteps || 10,
+        includeReasoning: options.includeReasoning || true
+      });
+      
+      // Parse the generated plan into steps
+      if (!planResult || !planResult.plan) {
+        throw new Error('Plan generation failed: No plan returned');
+      }
+      
+      // Parse the generated plan into steps
+      const parsedPlan = this.parsePlan(planResult.plan.join('\n'));
+      
+      // Store the plan in memory
+      await this.memory.addMemory(
+        planResult.plan.join('\n'),
+        ChloeMemoryTypeEnum.PLAN,
+        ImportanceLevel.HIGH,
+        MemorySource.AGENT, 
+        `Goal: ${goal}`
+      );
+      
+      // Log the created plan
+      this.taskLogger?.logAction('Enhanced plan created', { 
+        goal,
+        planName: parsedPlan.description,
+        steps: parsedPlan.steps.length
+      });
+      
+      return parsedPlan;
+    } catch (error) {
+      this.taskLogger?.logAction('Enhanced planning failed', { 
+        goal,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      throw error;
     }
   }
 } 

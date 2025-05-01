@@ -31,6 +31,13 @@ export enum ChloeMemoryType {
   STRATEGIC_INSIGHT = 'strategic_insight',
   REFLECTION = 'reflection',
   
+  // Markdown content types
+  STRATEGY = 'strategy',
+  PERSONA = 'persona',
+  VISION = 'vision',
+  PROCESS = 'process',
+  KNOWLEDGE = 'knowledge',
+  
   // System types
   SYSTEM = 'system',
   TOOL_LOG = 'tool_log',
@@ -55,4 +62,5 @@ export enum MemorySource {
   SYSTEM = 'system',
   AGENT = 'agent',
   EXTERNAL = 'external',
+  FILE = 'file',
 } 

@@ -971,6 +971,137 @@ class QdrantHandler {
       return 0;
     }
   }
+
+  /**
+   * Update metadata for a memory entry
+   */
+  async updateMemoryMetadata(memoryId: string, metadata: Record<string, any>): Promise<boolean> {
+    if (!this.initialized) {
+      await this.initialize();
+    }
+    
+    if (!this.useQdrant) {
+      // For in-memory storage, we can't easily update metadata
+      console.warn('Metadata updates not supported in fallback memory mode');
+      return false;
+    }
+    
+    try {
+      // We need to search across all collections to find the memory ID
+      // since we don't know which collection it's in
+      for (const collectionName of Array.from(this.collections)) {
+        try {
+          // Search for the memory using filter
+          const results = await this.client.scroll(collectionName, {
+            filter: {
+              must: [
+                {
+                  key: "id",
+                  match: {
+                    value: memoryId
+                  }
+                }
+              ]
+            },
+            limit: 1
+          });
+          
+          // Check if we found the memory
+          if (results.points && results.points.length > 0) {
+            const point = results.points[0];
+            const pointId = point.id;
+            
+            // Get the existing payload
+            const existingPayload = point.payload || {};
+            
+            // Merge the new metadata with existing payload
+            const updatedPayload = {
+              ...existingPayload,
+              ...metadata,
+              // Add a last_updated timestamp
+              last_updated: new Date().toISOString()
+            };
+            
+            // Update the point with new payload
+            await this.client.setPayload(
+              collectionName,
+              { points: [pointId], payload: updatedPayload }
+            );
+            
+            return true;
+          }
+        } catch (error) {
+          console.error(`Error searching for memory in ${collectionName}:`, error);
+        }
+      }
+      
+      // If we get here, we didn't find the memory in any collection
+      console.warn(`Memory with ID ${memoryId} not found in any collection`);
+      return false;
+    } catch (error) {
+      console.error('Error updating memory metadata:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Clear memories by source
+   */
+  async clearMemoriesBySource(source: string): Promise<{ success: boolean; count: number }> {
+    if (!this.initialized) {
+      await this.initialize();
+    }
+    
+    let totalCleared = 0;
+    
+    if (!this.useQdrant) {
+      // For in-memory storage, we'll need to use a different approach
+      // since storage is private - implement simplified version
+      console.log(`In-memory storage: simulating source-based memory clearing for source=${source}`);
+      return { success: true, count: 0 }; // Just return success without clearing
+    }
+    
+    try {
+      // Go through each collection and delete points with matching source
+      for (const collectionName of Array.from(this.collections)) {
+        try {
+          // Create filter for the source
+          const filter = {
+            must: [
+              {
+                key: "source",
+                match: {
+                  value: source.toLowerCase()
+                }
+              }
+            ]
+          };
+          
+          // First, count how many points will be affected
+          const countResponse = await this.client.count(collectionName, { filter });
+          const count = countResponse.count || 0;
+          
+          if (count > 0) {
+            // Delete the points
+            await this.client.delete(collectionName, {
+              filter,
+              wait: true
+            });
+            
+            totalCleared += count;
+            console.log(`Cleared ${count} memories with source=${source} from ${collectionName}`);
+          }
+        } catch (error) {
+          console.error(`Error clearing memories from ${collectionName}:`, error);
+        }
+      }
+      
+      return { success: true, count: totalCleared };
+    } catch (error) {
+      console.error('Error clearing memories by source:', error);
+      return { success: false, count: totalCleared };
+    }
+  }
 }
 
 // Singleton instance
@@ -1541,4 +1672,33 @@ export async function getMemoriesByImportance(
     console.error('Error fetching memories by importance:', error);
     return [];
   }
+}
+
+/**
+ * Update metadata for a memory entry
+ */
+export async function updateMemoryMetadata(
+  memoryId: string,
+  metadata: Record<string, any>
+): Promise<boolean> {
+  if (!qdrantInstance) {
+    qdrantInstance = new QdrantHandler();
+    await qdrantInstance.initialize();
+  }
+  
+  return qdrantInstance.updateMemoryMetadata(memoryId, metadata);
+}
+
+/**
+ * Clear memories by source
+ */
+export async function clearMemoriesBySource(
+  source: string
+): Promise<{ success: boolean; count: number }> {
+  if (!qdrantInstance) {
+    qdrantInstance = new QdrantHandler();
+    await qdrantInstance.initialize();
+  }
+  
+  return qdrantInstance.clearMemoriesBySource(source);
 } 

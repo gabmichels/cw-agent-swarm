@@ -67,6 +67,68 @@ export async function planTaskNode(
   try {
     taskLogger.logAction("Planning task", { goal: state.goal });
     
+    // ENHANCED: Retrieve structured knowledge from markdown memory
+    const structuredKnowledgeTypes = ['STRATEGY', 'VISION', 'PROCESS', 'KNOWLEDGE', 'PERSONA'];
+    let structuredKnowledge = '';
+    let structuredKnowledgeMetadata = {
+      types: [] as string[],
+      sourceFiles: [] as string[],
+      count: 0
+    };
+    
+    try {
+      // Use getRelevantMemoriesByType to get specific types of structured knowledge
+      const structuredMemories = await memory.getRelevantMemoriesByType(
+        state.goal,
+        structuredKnowledgeTypes,
+        10
+      );
+      
+      if (structuredMemories && structuredMemories.entries.length > 0) {
+        structuredKnowledge = "## Structured Knowledge\n\n";
+        
+        // Group memories by type for better organization
+        const groupedMemories: Record<string, any[]> = {};
+        structuredMemories.entries.forEach(entry => {
+          const type = entry.category || 'UNKNOWN';
+          if (!groupedMemories[type]) {
+            groupedMemories[type] = [];
+          }
+          groupedMemories[type].push(entry);
+        });
+        
+        // Add each type's memories to the knowledge block
+        Object.entries(groupedMemories).forEach(([type, entries]) => {
+          structuredKnowledge += `### ${type}\n`;
+          entries.forEach(entry => {
+            const contentWithoutFormatting = entry.content.replace(/^(USER MESSAGE|MESSAGE|THOUGHT|REASONING TRAIL) \[([^\]]+)\]: /g, '');
+            structuredKnowledge += `- ${contentWithoutFormatting}\n`;
+          });
+          structuredKnowledge += "\n";
+        });
+        
+        // Record metadata for logging and task annotation
+        structuredKnowledgeMetadata.types = structuredMemories.typesFound;
+        structuredKnowledgeMetadata.sourceFiles = structuredMemories.sourceFiles;
+        structuredKnowledgeMetadata.count = structuredMemories.entries.length;
+        
+        // Log which structured knowledge was retrieved
+        taskLogger.logAction("Retrieved structured markdown knowledge", { 
+          count: structuredMemories.entries.length,
+          types: structuredMemories.typesFound,
+          sourceFiles: structuredMemories.sourceFiles
+        });
+      } else {
+        structuredKnowledge = ""; // No structured knowledge found
+      }
+    } catch (error) {
+      console.error("Error retrieving structured knowledge:", error);
+      structuredKnowledge = ""; // Error retrieving structured knowledge
+      taskLogger.logAction("Error retrieving structured knowledge", { 
+        error: String(error)
+      });
+    }
+    
     // Retrieve relevant memories to provide context
     const relevantMemories = await memory.getRelevantMemories(state.goal, 5);
     const memoryContext = relevantMemories.length > 0 
@@ -197,6 +259,8 @@ You are Chloe, a sophisticated marketing assistant. You need to decompose a comp
 
 GOAL: {goal}
 
+${structuredKnowledge}
+
 ${memoryContext}
 
 ${graphContext}
@@ -216,6 +280,7 @@ Break down this goal into 3-5 logical sub-goals that should be completed sequent
 4. If appropriate, break down complex sub-goals into 2-3 smaller children tasks
 
 Think step by step. Consider dependencies between sub-goals and ensure they flow logically.
+${structuredKnowledgeMetadata.count > 0 ? "Use the structured knowledge from markdown documents to inform your planning. This knowledge represents our best practices and strategies." : ""}
 ${relatedNodes.length > 0 ? "Use the related knowledge from previous tasks to inform your planning." : ""}
 ${lessonsContext ? "Apply the lessons from past tasks to improve this plan and avoid repeating mistakes." : ""}
 ${taskPriority.priorityScore >= 70 ? "This is a HIGH STRATEGIC PRIORITY task. Ensure your plan is comprehensive and considers all critical aspects." : ""}
@@ -316,7 +381,12 @@ Only include the "children" array for sub-goals that should be broken down furth
         priorityScore: taskPriority.priorityScore,
         priorityTags: taskPriority.priorityTags,
         priorityReasoning: taskPriority.reasoning,
-        priorityLevel: formatPriorityLevel(taskPriority.priorityScore)
+        priorityLevel: formatPriorityLevel(taskPriority.priorityScore),
+        // Add structured knowledge metadata
+        usedStructuredKnowledge: structuredKnowledgeMetadata.count > 0,
+        knowledgeTypesUsed: structuredKnowledgeMetadata.types,
+        knowledgeSourceFiles: structuredKnowledgeMetadata.sourceFiles,
+        knowledgeCount: structuredKnowledgeMetadata.count
       }
     };
     

@@ -34,6 +34,10 @@ import { MarketScannerManager } from './marketScannerManager';
 import { KnowledgeGapsManager } from './knowledgeGapsManager';
 import { StateManager } from './stateManager';
 import { ChloeMemory } from '../memory';
+import { MarkdownWatcher } from '../knowledge/markdownWatcher';
+
+// Import the markdown memory loader
+import { loadAllMarkdownAsMemory } from '../knowledge/markdownMemoryLoader';
 
 export interface ChloeAgentOptions {
   config?: Partial<AgentConfig>;
@@ -90,6 +94,9 @@ export class ChloeAgent implements IAgent {
   private knowledgeGapsManager: KnowledgeGapsManager | null = null;
   private stateManager: StateManager;
   private safeguards: RobustSafeguards;
+  
+  // New properties
+  private markdownWatcher: MarkdownWatcher | null = null;
   
   constructor(options?: ChloeAgentOptions) {
     // Initialize task logger first
@@ -149,6 +156,21 @@ export class ChloeAgent implements IAgent {
       const chloeMemory = this.memoryManager.getChloeMemory();
       if (!chloeMemory) {
         throw new Error('Failed to initialize ChloeMemory');
+      }
+      
+      // Load and vectorize markdown files
+      try {
+        console.log('Loading markdown files into memory...');
+        const markdownStats = await loadAllMarkdownAsMemory();
+        this.taskLogger?.logAction('Loaded markdown files as memory entries', {
+          filesProcessed: markdownStats.filesProcessed,
+          entriesAdded: markdownStats.entriesAdded,
+          typeStats: markdownStats.typeStats
+        });
+        console.log('Successfully loaded markdown content into memory system');
+      } catch (error) {
+        console.error('Error loading markdown files into memory:', error);
+        // Continue initialization even if markdown loading fails
       }
       
       // Initialize tool manager
@@ -216,6 +238,23 @@ export class ChloeAgent implements IAgent {
         }
       });
       await this.knowledgeGapsManager.initialize();
+      
+      // Initialize markdown watcher
+      try {
+        this.markdownWatcher = new MarkdownWatcher({
+          memory: this.memoryManager.getChloeMemory()!,
+          logFunction: (message, data) => {
+            this.taskLogger.logAction(`MarkdownWatcher: ${message}`, data);
+          }
+        });
+        
+        // Start watching markdown files
+        await this.markdownWatcher.startWatching();
+        this.taskLogger.logAction('Started markdown knowledge watcher');
+      } catch (watcherError) {
+        this.taskLogger.logAction('Error initializing markdown watcher', { error: String(watcherError) });
+        // Continue initialization even if watcher fails
+      }
       
       this._initialized = true;
       console.log('ChloeAgent initialization complete.');
@@ -761,6 +800,16 @@ User message: ${message}`;
       if (this.taskLogger) {
         this.taskLogger.logAction('Agent shutdown');
         await this.taskLogger.close();
+      }
+      
+      // Stop the markdown watcher if it's running
+      if (this.markdownWatcher) {
+        try {
+          await this.markdownWatcher.stopWatching();
+          this.taskLogger.logAction('Stopped markdown knowledge watcher');
+        } catch (error) {
+          this.taskLogger.logAction('Error stopping markdown watcher', { error: String(error) });
+        }
       }
       
       console.log('ChloeAgent shutdown complete.');
