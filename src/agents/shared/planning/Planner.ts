@@ -44,6 +44,11 @@ export interface PlanStep {
   
   // Step dependencies (indices of other steps)
   dependsOn?: number[];
+
+  // Retry options
+  retryCount?: number;        // default: 1
+  retryDelayMs?: number;      // backoff applies
+  timeoutMs?: number;         // optional timeout for this step
 }
 
 export interface Plan {
@@ -61,6 +66,11 @@ export interface Plan {
   
   // The original planning context
   context: PlanningContext;
+
+  // Retry options
+  retryCount?: number;         // default: 2
+  retryDelayMs?: number;       // base delay (used for backoff)
+  timeoutMs?: number;          // optional timeout for whole plan
 }
 
 /**
