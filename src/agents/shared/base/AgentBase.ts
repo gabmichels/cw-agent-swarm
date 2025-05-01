@@ -13,10 +13,12 @@ import { ChatOpenAI } from '@langchain/openai';
 import { AgentMemory } from '../../../lib/memory';
 import { MemoryPruner } from '../../../lib/memory/src/MemoryPruner';
 import { MemoryConsolidator } from '../../../lib/memory/src/MemoryConsolidator';
-import { MemoryScope, MemoryKind } from '../../../lib/memory/src/memory';
+import { MemoryInjector } from '../../../lib/memory/src/MemoryInjector';
+import { MemoryScope, MemoryKind, MemoryEntry } from '../../../lib/memory/src/memory';
 import { BaseTool } from '../../../lib/shared/types/agentTypes';
 import { AgentMonitor } from '../monitoring/AgentMonitor';
 import { AgentMessage, MessageRouter, MessageType } from '../messaging/MessageRouter';
+import { Planner, PlanningContext, Plan } from '../planning/Planner';
 
 // Extend MessageType to include 'command' type
 type ExtendedMessageType = MessageType | 'command';
@@ -44,6 +46,8 @@ export interface AgentBaseConfig {
     consolidationIntervalMs?: number;
     minMemoriesForConsolidation?: number;
     forgetSourceMemoriesAfterConsolidation?: boolean;
+    enableMemoryInjection?: boolean;
+    maxInjectedMemories?: number;
   };
 }
 
@@ -99,7 +103,9 @@ export class AgentBase {
         enableAutoConsolidation: true,
         consolidationIntervalMs: 600000, // 10 minutes
         minMemoriesForConsolidation: 5,
-        forgetSourceMemoriesAfterConsolidation: false
+        forgetSourceMemoriesAfterConsolidation: false,
+        enableMemoryInjection: true,
+        maxInjectedMemories: 5
       },
       ...options.config
     };
@@ -400,32 +406,128 @@ export class AgentBase {
   }
 
   /**
+   * Plan a task with memory context injection
+   */
+  async planTask({
+    goal,
+    tags = [],
+    delegationContextId,
+    additionalContext = {}
+  }: {
+    goal: string;
+    tags?: string[];
+    delegationContextId?: string;
+    additionalContext?: Record<string, any>;
+  }): Promise<Plan> {
+    console.log(`[${this.agentId}] Planning task: ${goal}`);
+    
+    let memoryContext: MemoryEntry[] = [];
+    
+    // Inject memory context if enabled
+    if (this.config.memoryOptions?.enableMemoryInjection) {
+      try {
+        memoryContext = await MemoryInjector.getRelevantContext({
+          agentId: this.agentId,
+          goal,
+          tags,
+          delegationContextId,
+          options: {
+            maxContextEntries: this.config.memoryOptions.maxInjectedMemories
+          }
+        });
+        
+        console.log(`[${this.agentId}] Injected ${memoryContext.length} memories for planning`);
+      } catch (error) {
+        console.error(`[${this.agentId}] Error injecting memory for planning:`, error);
+        // Continue with empty context
+      }
+    }
+    
+    // Create planning context
+    const planningContext: PlanningContext = {
+      goal,
+      tags,
+      agentId: this.agentId,
+      delegationContextId,
+      memoryContext,
+      additionalContext
+    };
+    
+    // Generate plan
+    const plan = await Planner.plan(planningContext);
+    
+    // Store plan in memory as 'decision'
+    if (this.memory) {
+      const planSummary = `Created plan for "${goal}" with ${plan.steps.length} steps.`;
+      
+      await this.memory.write({
+        content: planSummary,
+        scope: 'shortTerm',
+        kind: 'decision',
+        timestamp: Date.now(),
+        relevance: 0.8,
+        contextId: delegationContextId,
+        tags: [...tags, 'plan', 'decision']
+      });
+    }
+    
+    return plan;
+  }
+
+  /**
+   * Execute a plan
+   */
+  async executePlan(plan: Plan): Promise<{ success: boolean; results: any[] }> {
+    console.log(`[${this.agentId}] Executing plan: ${plan.title}`);
+    
+    // Execute the plan
+    const result = await Planner.executePlan(plan);
+    
+    // After execution, consolidate the memories related to this task
+    if (plan.context.delegationContextId) {
+      await this.consolidateMemory({ 
+        contextId: plan.context.delegationContextId,
+        targetScope: 'reflections'
+      });
+    }
+    
+    return result;
+  }
+
+  /**
    * Handle a task handoff message
    */
   protected async handleTaskHandoff(message: ExtendedAgentMessage): Promise<void> {
     try {
       // Extract task details from message payload
-      const { taskId, goal, context } = message.payload;
+      const { taskId, goal, context, tags } = message.payload;
       
       console.log(`[${this.agentId}] Handling task handoff: ${taskId}`);
       
       // Create context with delegation tracking
-      const taskContext = {
-        ...context,
-        delegationContextId: message.delegationContextId,
-        parentTaskId: message.correlationId,
-        originAgentId: message.metadata?.originAgentId || message.fromAgentId,
-        handoffFromAgent: message.fromAgentId
-      };
+      const delegationContextId = message.delegationContextId || `task_${Date.now()}`;
       
-      // Plan and execute the task
-      const result = await this.planAndExecute(goal, taskContext);
+      // Plan the task with memory context injection
+      const plan = await this.planTask({
+        goal,
+        tags: tags || [],
+        delegationContextId,
+        additionalContext: {
+          ...context,
+          parentTaskId: message.correlationId,
+          originAgentId: message.metadata?.originAgentId || message.fromAgentId,
+          handoffFromAgent: message.fromAgentId
+        }
+      });
+      
+      // Execute the plan
+      const result = await this.executePlan(plan);
       
       // Send response back to the sender
       await MessageRouter.sendResponse(message, {
         taskId,
-        status: 'completed',
-        result
+        status: result.success ? 'completed' : 'failed',
+        result: result.results
       });
     } catch (error) {
       console.error(`[${this.agentId}] Error handling task handoff:`, error);

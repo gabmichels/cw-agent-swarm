@@ -5,7 +5,7 @@ Goal: Turn the platform from robust to fully observable, auditable, and self-awa
 ✅ [COMPLETE] Agent Dashboard UI
 Replaced "Projects" with "Agents" in nav, implemented live dashboard at /agents
 
-🔜 Task: Memory Layer Upgrade
+✅ [COMPLETE] Memory Layer Upgrade
  Add memory tiers: shortTerm, longTerm, inbox, reflections
 
  Implement MemoryPruner.ts to forget irrelevant or outdated entries
