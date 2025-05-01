@@ -11,6 +11,7 @@
 import { ChatOpenAI } from '@langchain/openai';
 import { AgentMemory } from '../../../lib/memory';
 import { BaseTool } from '../../../lib/shared/types/agentTypes';
+import { AgentMonitor } from '../monitoring/AgentMonitor';
 
 // Basic agent configuration
 export interface AgentBaseConfig {
@@ -76,8 +77,21 @@ export class AgentBase {
    * Initialize the agent with necessary services
    */
   async initialize(): Promise<void> {
+    const startTime = Date.now();
     try {
       console.log(`Initializing agent ${this.agentId}...`);
+      
+      // Log initialization start
+      AgentMonitor.log({
+        agentId: this.agentId,
+        taskId: `init_${this.agentId}`,
+        eventType: 'task_start',
+        timestamp: startTime,
+        metadata: {
+          capabilityLevel: this.capabilityLevel,
+          toolPermissionsCount: this.toolPermissions.length
+        }
+      });
       
       // Initialize model
       this.model = new ChatOpenAI({
@@ -89,8 +103,32 @@ export class AgentBase {
       
       this.initialized = true;
       console.log(`Agent ${this.agentId} initialized successfully`);
+      
+      // Log initialization success
+      AgentMonitor.log({
+        agentId: this.agentId,
+        taskId: `init_${this.agentId}`,
+        eventType: 'task_end',
+        status: 'success',
+        timestamp: Date.now(),
+        durationMs: Date.now() - startTime
+      });
     } catch (error) {
       console.error(`Error initializing agent ${this.agentId}:`, error);
+      
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      
+      // Log initialization error
+      AgentMonitor.log({
+        agentId: this.agentId,
+        taskId: `init_${this.agentId}`,
+        eventType: 'error',
+        status: 'failure',
+        timestamp: Date.now(),
+        durationMs: Date.now() - startTime,
+        errorMessage
+      });
+      
       throw error;
     }
   }
@@ -114,7 +152,41 @@ export class AgentBase {
    * This will be implemented by specific agent subclasses
    */
   async processMessage(message: string, options?: any): Promise<string> {
-    throw new Error('Method not implemented in base class');
+    const startTime = Date.now();
+    const taskId = `msg_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+    
+    // Log message processing start
+    AgentMonitor.log({
+      agentId: this.agentId,
+      taskId,
+      taskType: 'message',
+      eventType: 'task_start',
+      timestamp: startTime,
+      metadata: { 
+        messageLength: message.length,
+        options 
+      }
+    });
+    
+    try {
+      throw new Error('Method not implemented in base class');
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      
+      // Log error
+      AgentMonitor.log({
+        agentId: this.agentId,
+        taskId,
+        taskType: 'message',
+        eventType: 'error',
+        status: 'failure',
+        timestamp: Date.now(),
+        durationMs: Date.now() - startTime,
+        errorMessage
+      });
+      
+      throw error;
+    }
   }
 
   /**
@@ -122,7 +194,41 @@ export class AgentBase {
    * This will be implemented by specific agent subclasses
    */
   async planAndExecute(goal: string, options?: any): Promise<any> {
-    throw new Error('Method not implemented in base class');
+    const startTime = Date.now();
+    const taskId = `task_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+    
+    // Log task planning start
+    AgentMonitor.log({
+      agentId: this.agentId,
+      taskId,
+      taskType: 'planning',
+      eventType: 'task_start',
+      timestamp: startTime,
+      metadata: { 
+        goal,
+        options 
+      }
+    });
+    
+    try {
+      throw new Error('Method not implemented in base class');
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      
+      // Log error
+      AgentMonitor.log({
+        agentId: this.agentId,
+        taskId,
+        taskType: 'planning',
+        eventType: 'error',
+        status: 'failure',
+        timestamp: Date.now(),
+        durationMs: Date.now() - startTime,
+        errorMessage
+      });
+      
+      throw error;
+    }
   }
 
   /**
@@ -151,7 +257,37 @@ export class AgentBase {
    * Shutdown and cleanup
    */
   async shutdown(): Promise<void> {
-    console.log(`Shutting down agent ${this.agentId}...`);
-    // Cleanup logic will be added here
+    const startTime = Date.now();
+    
+    try {
+      console.log(`Shutting down agent ${this.agentId}...`);
+      // Cleanup logic will be added here
+      
+      // Log shutdown success
+      AgentMonitor.log({
+        agentId: this.agentId,
+        taskId: `shutdown_${this.agentId}`,
+        eventType: 'task_end',
+        status: 'success',
+        timestamp: Date.now(),
+        durationMs: Date.now() - startTime
+      });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      
+      // Log shutdown error
+      AgentMonitor.log({
+        agentId: this.agentId,
+        taskId: `shutdown_${this.agentId}`,
+        eventType: 'error',
+        status: 'failure',
+        timestamp: Date.now(),
+        durationMs: Date.now() - startTime,
+        errorMessage
+      });
+      
+      // Still want to log the error but not throw during shutdown
+      console.error(`Error during agent ${this.agentId} shutdown:`, error);
+    }
   }
 } 

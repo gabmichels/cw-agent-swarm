@@ -11,6 +11,7 @@
 import { ChatOpenAI } from '@langchain/openai';
 import { Plan, PlanStep } from '../planning/Planner';
 import { ToolRouter, ToolResult } from '../tools/ToolRouter';
+import { AgentMonitor } from '../monitoring/AgentMonitor';
 
 // Execution status enum
 export enum ExecutionStatus {
@@ -104,8 +105,25 @@ export class Executor {
     context: ExecutionContext,
     options: ExecutionOptions = {}
   ): Promise<ExecutionResult> {
+    const startTime = Date.now();
+    
     try {
       console.log(`Executing plan ${plan.id} for agent ${context.agentId}`);
+      
+      // Log task start
+      AgentMonitor.log({
+        agentId: context.agentId,
+        taskId: plan.id,
+        taskType: plan.goal || 'execution',
+        eventType: 'task_start',
+        timestamp: startTime,
+        parentTaskId: context.sessionId,
+        metadata: { 
+          planSteps: plan.steps.length,
+          planGoal: plan.goal,
+          options
+        }
+      });
       
       // Create execution result object
       const executionId = `exec_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
@@ -128,6 +146,20 @@ export class Executor {
         executionResult.endTime = new Date();
         executionResult.success = true;
         executionResult.finalOutput = 'Dry run completed successfully';
+        
+        // Log task end for dry run
+        AgentMonitor.log({
+          agentId: context.agentId,
+          taskId: plan.id,
+          taskType: plan.goal || 'execution',
+          eventType: 'task_end',
+          status: 'success',
+          timestamp: Date.now(),
+          durationMs: Date.now() - startTime,
+          parentTaskId: context.sessionId,
+          metadata: { dryRun: true }
+        });
+        
         return executionResult;
       }
       
@@ -143,6 +175,24 @@ export class Executor {
           executionResult.endTime = new Date();
           executionResult.success = false;
           executionResult.error = `Failed at step ${step.id}: ${stepResult.error}`;
+          
+          // Log task end with failure
+          AgentMonitor.log({
+            agentId: context.agentId,
+            taskId: plan.id,
+            taskType: plan.goal || 'execution',
+            eventType: 'task_end',
+            status: 'failure',
+            timestamp: Date.now(),
+            durationMs: Date.now() - startTime,
+            errorMessage: executionResult.error,
+            parentTaskId: context.sessionId,
+            metadata: { 
+              completedSteps: executionResult.stepResults.length,
+              totalSteps: plan.steps.length 
+            }
+          });
+          
           break;
         }
       }
@@ -159,6 +209,22 @@ export class Executor {
         );
         
         executionResult.finalOutput = `Completed ${completedSteps.length} of ${plan.steps.length} steps successfully.`;
+        
+        // Log task end with success
+        AgentMonitor.log({
+          agentId: context.agentId,
+          taskId: plan.id,
+          taskType: plan.goal || 'execution',
+          eventType: 'task_end',
+          status: 'success',
+          timestamp: Date.now(),
+          durationMs: Date.now() - startTime,
+          parentTaskId: context.sessionId,
+          metadata: { 
+            completedSteps: completedSteps.length,
+            totalSteps: plan.steps.length 
+          }
+        });
       }
       
       // Clean up
@@ -167,6 +233,21 @@ export class Executor {
       return executionResult;
     } catch (error) {
       console.error(`Error executing plan ${plan.id}:`, error);
+      
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      
+      // Log error
+      AgentMonitor.log({
+        agentId: context.agentId,
+        taskId: plan.id,
+        taskType: plan.goal || 'execution',
+        eventType: 'error',
+        status: 'failure',
+        timestamp: Date.now(),
+        durationMs: Date.now() - startTime,
+        errorMessage,
+        parentTaskId: context.sessionId
+      });
       
       // Return error result
       return {
@@ -177,7 +258,7 @@ export class Executor {
         endTime: new Date(),
         stepResults: [],
         success: false,
-        error: `Execution error: ${error instanceof Error ? error.message : String(error)}`
+        error: `Execution error: ${errorMessage}`
       };
     }
   }
@@ -190,8 +271,24 @@ export class Executor {
     context: ExecutionContext,
     options: ExecutionOptions = {}
   ): Promise<StepExecutionResult> {
+    const stepStartTime = Date.now();
+    
     try {
       console.log(`Executing step ${step.id}: ${step.action}`);
+      
+      // Log step start
+      AgentMonitor.log({
+        agentId: context.agentId,
+        taskId: step.id,
+        taskType: 'step',
+        eventType: 'task_start',
+        timestamp: stepStartTime,
+        parentTaskId: context.sessionId,
+        metadata: { 
+          action: step.action,
+          tools: step.tools
+        }
+      });
       
       const stepResult: StepExecutionResult = {
         stepId: step.id,
@@ -207,6 +304,19 @@ export class Executor {
           // Build parameters (would normally be extracted from step action by LLM)
           const params = { action: step.action };
           
+          // Log tool start
+          AgentMonitor.log({
+            agentId: context.agentId,
+            taskId: step.id,
+            taskType: 'step',
+            toolUsed: toolName,
+            eventType: 'tool_start',
+            timestamp: Date.now(),
+            parentTaskId: context.sessionId
+          });
+          
+          const toolStartTime = Date.now();
+          
           // Execute the tool
           const toolResult = await this.toolRouter.executeTool(
             context.agentId,
@@ -214,6 +324,23 @@ export class Executor {
             params,
             { step, context }
           );
+          
+          // Log tool end
+          AgentMonitor.log({
+            agentId: context.agentId,
+            taskId: step.id,
+            taskType: 'step',
+            toolUsed: toolName,
+            eventType: 'tool_end',
+            status: toolResult.success ? 'success' : 'failure',
+            timestamp: Date.now(),
+            durationMs: Date.now() - toolStartTime,
+            errorMessage: toolResult.error,
+            parentTaskId: context.sessionId,
+            metadata: { 
+              resultData: toolResult.data ? JSON.stringify(toolResult.data).substring(0, 100) : undefined
+            }
+          });
           
           stepResult.toolResults!.push(toolResult);
           
@@ -235,16 +362,48 @@ export class Executor {
       }
       
       stepResult.endTime = new Date();
+      
+      // Log step end
+      AgentMonitor.log({
+        agentId: context.agentId,
+        taskId: step.id,
+        taskType: 'step',
+        eventType: 'task_end',
+        status: stepResult.status === ExecutionStatus.COMPLETED ? 'success' : 'failure',
+        timestamp: Date.now(),
+        durationMs: Date.now() - stepStartTime,
+        errorMessage: stepResult.error,
+        parentTaskId: context.sessionId,
+        metadata: { 
+          output: stepResult.output ? stepResult.output.substring(0, 100) : undefined
+        }
+      });
+      
       return stepResult;
     } catch (error) {
       console.error(`Error executing step ${step.id}:`, error);
+      
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      
+      // Log error
+      AgentMonitor.log({
+        agentId: context.agentId,
+        taskId: step.id,
+        taskType: 'step',
+        eventType: 'error',
+        status: 'failure',
+        timestamp: Date.now(),
+        durationMs: Date.now() - stepStartTime,
+        errorMessage,
+        parentTaskId: context.sessionId
+      });
       
       return {
         stepId: step.id,
         status: ExecutionStatus.FAILED,
         startTime: new Date(),
         endTime: new Date(),
-        error: `Step execution error: ${error instanceof Error ? error.message : String(error)}`
+        error: `Step execution error: ${errorMessage}`
       };
     }
   }

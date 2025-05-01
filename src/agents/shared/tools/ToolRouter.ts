@@ -8,6 +8,8 @@
  * - Tool discovery and capability matching
  */
 
+import { AgentMonitor } from '../monitoring/AgentMonitor';
+
 // Base tool interface
 export interface ToolDefinition {
   name: string;
@@ -128,30 +130,88 @@ export class ToolRouter {
     params: Record<string, any>,
     agentContext: Record<string, any> = {}
   ): Promise<ToolResult> {
+    const startTime = Date.now();
+    const taskId = `tool_${toolName}_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+    
     try {
+      // Log tool execution start
+      AgentMonitor.log({
+        agentId,
+        taskId,
+        toolUsed: toolName,
+        eventType: 'tool_start',
+        timestamp: startTime,
+        metadata: {
+          params: JSON.stringify(params).substring(0, 100),
+          contextType: Object.keys(agentContext)
+        }
+      });
+      
       // Check permission
       if (!this.hasToolPermission(agentId, toolName)) {
+        const errorMessage = `Agent ${agentId} does not have permission to use tool ${toolName}`;
+        
+        // Log permission error
+        AgentMonitor.log({
+          agentId,
+          taskId,
+          toolUsed: toolName,
+          eventType: 'tool_end',
+          status: 'failure',
+          timestamp: Date.now(),
+          durationMs: Date.now() - startTime,
+          errorMessage
+        });
+        
         return {
           success: false,
-          error: `Agent ${agentId} does not have permission to use tool ${toolName}`
+          error: errorMessage
         };
       }
       
       // Get the tool
       const tool = this.tools.get(toolName);
       if (!tool) {
+        const errorMessage = `Tool ${toolName} not found`;
+        
+        // Log tool not found error
+        AgentMonitor.log({
+          agentId,
+          taskId,
+          toolUsed: toolName,
+          eventType: 'tool_end',
+          status: 'failure',
+          timestamp: Date.now(),
+          durationMs: Date.now() - startTime,
+          errorMessage
+        });
+        
         return {
           success: false,
-          error: `Tool ${toolName} not found`
+          error: errorMessage
         };
       }
       
       // Check required parameters
       for (const requiredParam of tool.requiredParams) {
         if (!(requiredParam in params)) {
+          const errorMessage = `Missing required parameter: ${requiredParam}`;
+          
+          // Log missing parameter error
+          AgentMonitor.log({
+            agentId,
+            taskId,
+            toolUsed: toolName,
+            eventType: 'tool_end',
+            status: 'failure',
+            timestamp: Date.now(),
+            durationMs: Date.now() - startTime,
+            errorMessage
+          });
+          
           return {
             success: false,
-            error: `Missing required parameter: ${requiredParam}`
+            error: errorMessage
           };
         }
       }
@@ -164,9 +224,38 @@ export class ToolRouter {
         this.trackToolUsage(agentId, toolName);
       }
       
+      // Log tool execution result
+      AgentMonitor.log({
+        agentId,
+        taskId,
+        toolUsed: toolName,
+        eventType: 'tool_end',
+        status: result.success ? 'success' : 'failure',
+        timestamp: Date.now(),
+        durationMs: Date.now() - startTime,
+        errorMessage: result.error,
+        metadata: {
+          resultMessage: result.message,
+          resultData: result.data ? JSON.stringify(result.data).substring(0, 100) : undefined
+        }
+      });
+      
       return result;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
+      
+      // Log execution error
+      AgentMonitor.log({
+        agentId,
+        taskId,
+        toolUsed: toolName,
+        eventType: 'error',
+        status: 'failure',
+        timestamp: Date.now(),
+        durationMs: Date.now() - startTime,
+        errorMessage
+      });
+      
       return {
         success: false,
         error: `Error executing tool ${toolName}: ${errorMessage}`
