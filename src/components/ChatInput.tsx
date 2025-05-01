@@ -1,4 +1,4 @@
-import React, { FormEvent, useRef } from 'react';
+import React, { FormEvent, useRef, KeyboardEvent } from 'react';
 import { Send, X } from 'lucide-react';
 
 interface FileAttachment {
@@ -15,7 +15,7 @@ interface ChatInputProps {
   handleSendMessage: (e: FormEvent<HTMLFormElement>) => void;
   isLoading: boolean;
   handleFileSelect: (file: File) => void;
-  inputRef: React.RefObject<HTMLInputElement>;
+  inputRef: React.RefObject<HTMLTextAreaElement>;
 }
 
 const ChatInput: React.FC<ChatInputProps> = ({
@@ -28,6 +28,19 @@ const ChatInput: React.FC<ChatInputProps> = ({
   handleFileSelect,
   inputRef,
 }) => {
+  const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    // Submit on ENTER without SHIFT key
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      // Submit the form if we have content
+      if (inputMessage.trim() || pendingAttachments.length > 0) {
+        const form = e.currentTarget.form;
+        if (form) form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+      }
+    }
+    // SHIFT+ENTER adds a newline (default textarea behavior, no action needed)
+  };
+
   return (
     <div>
       {/* File attachment previews */}
@@ -109,14 +122,16 @@ const ChatInput: React.FC<ChatInputProps> = ({
             />
           </svg>
         </button>
-        <input
-          type="text"
+        <textarea
           ref={inputRef}
           value={inputMessage}
           onChange={(e) => setInputMessage(e.target.value)}
+          onKeyDown={handleKeyDown}
           placeholder={pendingAttachments.length > 0 ? "Add context about the file..." : "Type your message..."}
-          className="flex-1 bg-gray-700 border border-gray-600 rounded-l-lg py-2 px-3 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="flex-1 bg-gray-700 border border-gray-600 rounded-l-lg py-2 px-3 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
           disabled={isLoading}
+          rows={1}
+          style={{ minHeight: '40px', maxHeight: '150px', overflow: 'auto' }}
         />
         <button
           type="submit"

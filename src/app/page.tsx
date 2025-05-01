@@ -44,7 +44,7 @@ export default function Home() {
   const [chloeCheckResults, setChloeCheckResults] = useState<any>(null);
   const [fixInstructions, setFixInstructions] = useState<any>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const [memoryViewMode, setMemoryViewMode] = useState('context');
   const [allMemories, setAllMemories] = useState<any[]>([]);
   const [isLoadingMemories, setIsLoadingMemories] = useState(false);
