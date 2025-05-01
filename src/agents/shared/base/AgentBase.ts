@@ -290,4 +290,169 @@ export class AgentBase {
       console.error(`Error during agent ${this.agentId} shutdown:`, error);
     }
   }
+
+  /**
+   * Delegate a task to another agent
+   * This will be implemented by specific agent subclasses that support delegation
+   */
+  async delegateTask(
+    targetAgentId: string, 
+    taskDescription: string, 
+    options?: any
+  ): Promise<any> {
+    const startTime = Date.now();
+    const delegationId = `delegation_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+    const currentTaskId = options?.parentTaskId || `task_${this.agentId}_${Date.now()}`;
+    
+    // Log delegation start
+    AgentMonitor.log({
+      agentId: this.agentId,
+      taskId: currentTaskId,
+      eventType: 'delegation',
+      timestamp: startTime,
+      delegationContextId: delegationId,
+      metadata: { 
+        targetAgentId,
+        taskDescription: taskDescription.substring(0, 100),
+        options
+      }
+    });
+    
+    try {
+      // In a real implementation, would find and call the target agent
+      console.log(`[${this.agentId}] Delegating task to ${targetAgentId}: ${taskDescription}`);
+      
+      // Prepare delegation context that includes parent task information
+      const delegationContext = {
+        parentTaskId: currentTaskId,
+        delegationContextId: delegationId,
+        delegatingAgentId: this.agentId,
+        ...options
+      };
+      
+      // This would be implemented in subclasses or through an agent registry
+      // For now, just simulate successful delegation
+      const result = {
+        success: true,
+        message: `Simulated delegation to ${targetAgentId}`,
+        data: { delegated: true, taskId: `task_${targetAgentId}_${Date.now()}` }
+      };
+      
+      // Log delegation success
+      AgentMonitor.log({
+        agentId: this.agentId,
+        taskId: currentTaskId,
+        eventType: 'delegation',
+        status: 'success',
+        timestamp: Date.now(),
+        durationMs: Date.now() - startTime,
+        delegationContextId: delegationId,
+        metadata: { 
+          result: JSON.stringify(result).substring(0, 100)
+        }
+      });
+      
+      return result;
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      
+      // Log delegation error
+      AgentMonitor.log({
+        agentId: this.agentId,
+        taskId: currentTaskId,
+        eventType: 'delegation',
+        status: 'failure',
+        timestamp: Date.now(),
+        durationMs: Date.now() - startTime,
+        errorMessage,
+        delegationContextId: delegationId
+      });
+      
+      // Re-throw the error or return a failure result
+      throw error;
+    }
+  }
+
+  /**
+   * Process a delegated task from another agent
+   * This will be implemented by specific agent subclasses that support delegation
+   */
+  async processDelegatedTask(
+    taskDescription: string, 
+    delegationContext: {
+      parentTaskId: string;
+      delegationContextId: string;
+      delegatingAgentId: string;
+    }
+  ): Promise<any> {
+    const startTime = Date.now();
+    const taskId = `delegated_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+    
+    // Log delegated task start
+    AgentMonitor.log({
+      agentId: this.agentId,
+      taskId,
+      taskType: 'delegated_task',
+      eventType: 'task_start',
+      timestamp: startTime,
+      parentTaskId: delegationContext.parentTaskId,
+      delegationContextId: delegationContext.delegationContextId,
+      tags: [`from:${delegationContext.delegatingAgentId}`],
+      metadata: { 
+        taskDescription: taskDescription.substring(0, 100),
+        delegatingAgentId: delegationContext.delegatingAgentId
+      }
+    });
+    
+    try {
+      // This would be implemented in subclasses
+      console.log(`[${this.agentId}] Processing delegated task from ${delegationContext.delegatingAgentId}`);
+      
+      // For now, just simulate successful processing
+      const result = {
+        success: true,
+        message: `Simulated processing of delegated task by ${this.agentId}`,
+        data: { processed: true }
+      };
+      
+      // Log delegated task success
+      AgentMonitor.log({
+        agentId: this.agentId,
+        taskId,
+        taskType: 'delegated_task',
+        eventType: 'task_end',
+        status: 'success',
+        timestamp: Date.now(),
+        durationMs: Date.now() - startTime,
+        parentTaskId: delegationContext.parentTaskId,
+        delegationContextId: delegationContext.delegationContextId,
+        tags: [`from:${delegationContext.delegatingAgentId}`],
+        metadata: { 
+          result: JSON.stringify(result).substring(0, 100)
+        }
+      });
+      
+      return result;
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      
+      // Log delegated task error
+      AgentMonitor.log({
+        agentId: this.agentId,
+        taskId,
+        taskType: 'delegated_task',
+        eventType: 'error',
+        status: 'failure',
+        timestamp: Date.now(),
+        durationMs: Date.now() - startTime,
+        errorMessage,
+        parentTaskId: delegationContext.parentTaskId,
+        delegationContextId: delegationContext.delegationContextId,
+        tags: [`from:${delegationContext.delegatingAgentId}`]
+      });
+      
+      // Re-throw the error or return a failure result
+      throw error;
+    }
+  }
 } 
