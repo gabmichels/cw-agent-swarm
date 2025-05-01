@@ -20,7 +20,8 @@
     "test:weekly-self-improvement": "tsx src/agents/chloe/self-improvement/test-weekly-self-improvement.ts",
     "test:effort-estimation": "tsx src/scripts/test-effort-estimation.ts",
     "test:tool-failure": "tsx src/agents/chloe/tools/test-tool-failure.ts",
-    "chloe:scheduled-tasks": "tsx src/scheduledTasks/index.ts"
+    "chloe:scheduled-tasks": "tsx src/scheduledTasks/index.ts",
+    "capability-demo": "ts-node src/scripts/run-capability-demo.ts"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",

@@ -13,6 +13,7 @@ import { Plan } from '../planning/Planner';
 import { ExecutionResult } from '../execution/Executor';
 import { AgentMonitor } from '../monitoring/AgentMonitor';
 import { AgentHealthChecker } from './AgentHealthChecker';
+import { CapabilityRegistry, CapabilityType, CapabilityLevel, Capability } from './CapabilityRegistry';
 import * as crypto from 'crypto';
 
 // Agent registry entry
@@ -30,6 +31,10 @@ export interface DelegationRequest {
   taskId: string;
   goal: string;
   requiredCapabilities?: string[];
+  preferredCapabilities?: string[];
+  requiredCapabilityLevels?: Record<string, CapabilityLevel>;
+  preferredDomain?: string;
+  requiredRoles?: string[];
   priority?: number;
   deadline?: Date;
   context?: Record<string, any>;
@@ -60,6 +65,7 @@ export interface CoordinatorOptions {
   defaultAgentId?: string;
   enableLoadBalancing?: boolean;
   enableReliabilityTracking?: boolean;
+  enableCapabilityMatching?: boolean;
   agentTimeout?: number;
   healthCheckConfig?: {
     enableHealthChecks?: boolean;
@@ -76,12 +82,14 @@ export class AgentCoordinator {
   private delegations: Map<string, DelegationResult> = new Map();
   private options: CoordinatorOptions;
   private initialized: boolean = false;
+  private capabilityRegistry: CapabilityRegistry;
   
   constructor(options: CoordinatorOptions = {}) {
     this.options = {
       defaultAgentId: 'chloe',
       enableLoadBalancing: true,
       enableReliabilityTracking: true,
+      enableCapabilityMatching: true,
       agentTimeout: 60000, // 1 minute default timeout
       healthCheckConfig: {
         enableHealthChecks: true,
@@ -90,6 +98,9 @@ export class AgentCoordinator {
       },
       ...options
     };
+    
+    // Get capability registry instance
+    this.capabilityRegistry = CapabilityRegistry.getInstance();
   }
   
   /**
@@ -118,7 +129,17 @@ export class AgentCoordinator {
   /**
    * Register an agent with the coordinator
    */
-  registerAgent(agent: AgentBase, capabilities: string[], domain: string, quota: number = 5): void {
+  registerAgent(
+    agent: AgentBase, 
+    capabilities: string[], 
+    domain: string, 
+    quota: number = 5,
+    options?: {
+      capabilityLevels?: Record<string, CapabilityLevel>;
+      roles?: string[];
+      domains?: string[];
+    }
+  ): void {
     const agentId = agent.getAgentId();
     
     if (this.agents.has(agentId)) {
@@ -137,6 +158,29 @@ export class AgentCoordinator {
     // Register with health checker for quota enforcement
     if (this.options.healthCheckConfig?.enableHealthChecks) {
       AgentHealthChecker.register(agentId, quota);
+    }
+    
+    // Register capabilities if capability matching is enabled
+    if (this.options.enableCapabilityMatching) {
+      // Convert capability array to record with default levels
+      const capabilityLevels: Record<string, CapabilityLevel> = {};
+      
+      capabilities.forEach(cap => {
+        // Use provided level or default to STANDARD
+        capabilityLevels[cap] = (options?.capabilityLevels && options.capabilityLevels[cap]) 
+          ? options.capabilityLevels[cap] 
+          : CapabilityLevel.INTERMEDIATE;
+      });
+      
+      // Register with capability registry
+      this.capabilityRegistry.registerAgentCapabilities(
+        agentId,
+        capabilityLevels,
+        {
+          preferredDomains: options?.domains || [domain],
+          primaryRoles: options?.roles || []
+        }
+      );
     }
     
     console.log(`Registered agent ${agentId} with capabilities: ${capabilities.join(', ')} and quota: ${quota}`);
@@ -407,6 +451,30 @@ export class AgentCoordinator {
    * Find the best agent for a task
    */
   private findBestAgent(request: DelegationRequest): string | null {
+    // If capability matching is enabled and required capabilities are specified, use capability registry
+    if (this.options.enableCapabilityMatching && 
+        request.requiredCapabilities && 
+        request.requiredCapabilities.length > 0) {
+      
+      const bestAgent = this.capabilityRegistry.findBestAgentForTask({
+        requiredCapabilities: request.requiredCapabilities,
+        preferredCapabilities: request.preferredCapabilities,
+        requiredLevels: request.requiredCapabilityLevels,
+        preferredDomain: request.preferredDomain,
+        requiredRoles: request.requiredRoles,
+        minMatchScore: 0.6 // Require at least 60% match
+      });
+      
+      if (bestAgent) {
+        console.log(`Found best agent ${bestAgent} based on capability matching`);
+        return bestAgent;
+      }
+      
+      console.warn('No agent found with required capabilities, falling back to standard selection');
+    }
+    
+    // Fall back to the original logic if capability matching is disabled or no match found
+    
     // Get available agents
     const availableAgents = Array.from(this.agents.entries())
       .filter(([_, entry]) => entry.status === 'available')
@@ -458,6 +526,56 @@ export class AgentCoordinator {
    * Find a fallback agent when primary is unavailable
    */
   private findFallbackAgent(request: DelegationRequest, excludedAgentId: string): string | null {
+    // If capability matching is enabled, use capability registry with relaxed requirements
+    if (this.options.enableCapabilityMatching && 
+        request.requiredCapabilities && 
+        request.requiredCapabilities.length > 0) {
+      
+      // Use a lower match threshold for fallbacks
+      const fallbackAgent = this.capabilityRegistry.findBestAgentForTask({
+        requiredCapabilities: request.requiredCapabilities,
+        preferredCapabilities: request.preferredCapabilities,
+        requiredLevels: request.requiredCapabilityLevels,
+        preferredDomain: request.preferredDomain,
+        requiredRoles: request.requiredRoles,
+        minMatchScore: 0.4, // Lower threshold for fallbacks
+        includeUnavailableAgents: false
+      });
+      
+      if (fallbackAgent && fallbackAgent !== excludedAgentId) {
+        console.log(`Found fallback agent ${fallbackAgent} based on capability matching`);
+        return fallbackAgent;
+      }
+      
+      // If we still didn't find a fallback, suggest alternative capabilities
+      const alternatives = this.capabilityRegistry.suggestAlternativeCapabilities(
+        request.requiredCapabilities
+      );
+      
+      if (alternatives.length > 0) {
+        console.log(`Suggesting alternative capabilities: ${alternatives.map(c => c.name).join(', ')}`);
+        
+        // Try to find an agent with the alternative capabilities
+        const alternativeCapIds = alternatives.map(c => c.id);
+        
+        // Build a new request with alternative capabilities
+        const alternativeRequest: DelegationRequest = {
+          ...request,
+          requiredCapabilities: alternativeCapIds
+        };
+        
+        // Try to find an agent with these alternative capabilities
+        const alternativeAgent = this.findBestAgent(alternativeRequest);
+        
+        if (alternativeAgent && alternativeAgent !== excludedAgentId) {
+          console.log(`Found alternative agent ${alternativeAgent} with similar capabilities`);
+          return alternativeAgent;
+        }
+      }
+    }
+    
+    // Fall back to the original logic if capability matching is disabled or no match found
+    
     // First get all candidates with required capabilities
     const candidates = Array.from(this.agents.entries())
       .filter(([id, entry]) => id !== excludedAgentId && 
@@ -559,5 +677,62 @@ export class AgentCoordinator {
     }
     
     return chain;
+  }
+  
+  /**
+   * Get all agents with a specific capability
+   */
+  getAgentsWithCapability(capability: string): string[] {
+    if (this.options.enableCapabilityMatching) {
+      return this.capabilityRegistry.getAgentsWithCapability(capability);
+    }
+    
+    // Fallback if capability registry not enabled
+    const agents: string[] = [];
+    
+    for (const [agentId, entry] of Array.from(this.agents.entries())) {
+      if (entry.capabilities.includes(capability)) {
+        agents.push(agentId);
+      }
+    }
+    
+    return agents;
+  }
+  
+  /**
+   * Register a new capability definition
+   */
+  registerCapability(capability: Capability): void {
+    if (!this.options.enableCapabilityMatching) {
+      console.warn('Capability matching is disabled, but registering capability anyway');
+    }
+    
+    this.capabilityRegistry.registerCapability(capability);
+  }
+  
+  /**
+   * Get all registered capabilities
+   */
+  getAllCapabilities(): Capability[] {
+    return this.capabilityRegistry.getAllCapabilities();
+  }
+  
+  /**
+   * Get all capabilities for an agent
+   */
+  getAgentCapabilities(agentId: string): Record<string, CapabilityLevel> {
+    const capabilities = this.capabilityRegistry.getAgentCapabilities(agentId);
+    
+    if (!capabilities) {
+      return {};
+    }
+    
+    // Convert Map to Record
+    const result: Record<string, CapabilityLevel> = {};
+    capabilities.forEach((level, id) => {
+      result[id] = level;
+    });
+    
+    return result;
   }
 } 

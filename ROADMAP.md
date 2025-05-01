@@ -1,60 +1,50 @@
-ROADMAP.md – Multi-Agent System Maturity Plan
-🧭 Phase 1: Observability & Memory Maturity (Weeks 1–2)
-Goal: Turn the platform from robust to fully observable, auditable, and self-aware.
+# 🧠 ROADMAP.md – Multi-Agent System Maturity Plan
 
-✅ [COMPLETE] Agent Dashboard UI
-Replaced "Projects" with "Agents" in nav, implemented live dashboard at /agents
+---
 
-✅ [COMPLETE] Memory Layer Upgrade
- Add memory tiers: shortTerm, longTerm, inbox, reflections
+## 🧭 Phase 1: Observability & Memory Maturity (Weeks 1–2)  
+**Goal:** Turn the platform from robust to fully observable, auditable, and self-aware.
 
- Implement MemoryPruner.ts to forget irrelevant or outdated entries
+✅ Agent Dashboard UI  
+✅ Memory Layer Upgrade  
+✅ Ethics Middleware v1  
 
- Introduce MemorySchema types for structured memory (e.g., messages, decisions, facts)
+---
 
- Add MemoryConsolidator.ts to periodically summarize entries
+## 🧭 Phase 2: Execution Resilience + Coordination Scaling (Weeks 3–5)  
+**Goal:** Prepare the system for intelligent task routing under load.
 
-✅ [COMPLETE] Ethics Middleware v1
- Create BiasAuditor.ts and hook into Planner + ToolRouter
+✅ Execution Hardening  
+✅ Coordinator Health & Capability  
 
- Define EthicsPolicy.ts with rules like “Avoid stereotyped outputs”
+---
 
- Log violations to AgentMonitor as eventType: 'ethics_violation'
+## 🧭 Phase 3: MCP Runtime Layer (Weeks 6–7)  
+**Goal:** Introduce orchestration, modularity, and runtime control across all agents.
 
- Add reflection prompt about fairness, bias, and safety
+✅ Agent Capability Discovery  
+- Implemented `AgentCapabilityRegistry`  
+- Extended `AgentBase` with capabilities, roles, tags  
+- Integrated dynamic matching into `AgentCoordinator`  
+- Created standard skill definitions and demo suite  
+- Documented matching system and future extensibility  
 
-🧭 Phase 2: Execution Resilience + Coordination Scaling (Weeks 3–5)
-Goal: Prepare the system for intelligent task routing under load.
+🔜 Task: Agent Control Plane Setup  
+- Create `MCPRuntime.ts` for registration, routing, and lifecycle  
+- Centralize registry of active/idle/failed agents  
 
-✅ [COMPLETE] Execution Hardening
- Add retryCount, retryDelay to tasks
+🔜 Task: Global Task Routing  
+- Dispatch tasks via MCP based on skill, load, health  
 
- Implement backoff + retry logic in Executor.ts
+🔜 Task: Scalable Agent Bootstrapping  
+- Chloe suggests new agents  
+- UI generates config stubs + MD docs  
+- MCP supports spawning + onboarding flows  
 
- Add timeoutMs + cancellation support for long-running tasks
+---
 
-✅ [COMPLETE] Coordinator Health & Capability
- Add AgentHealthChecker.ts to validate agent availability
+## 🧭 Phase 4: Analytics + Governance (Post-MCP, Optional Weeks 8–9)  
+**Goal:** Expand from introspection to intelligence + oversight.
 
- Introduce per-agent delegation quotas
-
- Add /agent/capabilities endpoint or dynamic broadcast discovery
-
- Enable fallback agent suggestions if one fails
-
-🧭 Phase 3: Analytics + Governance (Optional Weeks 6+)
-Goal: Expand from introspection to intelligence + oversight.
-
-🔜 Task: AgentMonitor Storage + Analytics
- Store logs in file or DB (e.g., Supabase / SQLite / DuckDB)
-
- Implement AgentStats.ts to generate real-time charts
-
- Add alerting for critical failures or long idle times
-
-🔜 Task: Ethical Governance Layer
- Add safety guardrails (e.g., don’t generate financial advice)
-
- Introduce transparency logs for decisions
-
- Build policy override + escalation workflow
+🔜 AgentMonitor Storage + AgentStats  
+🔜 Ethical Governance Layer  

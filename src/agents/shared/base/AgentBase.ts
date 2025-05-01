@@ -20,6 +20,7 @@ import { AgentMonitor } from '../monitoring/AgentMonitor';
 import { AgentMessage, MessageRouter, MessageType } from '../messaging/MessageRouter';
 import { Planner, PlanningContext, Plan } from '../planning/Planner';
 import { AgentHealthChecker } from '../coordination/AgentHealthChecker';
+import { CapabilityRegistry, CapabilityLevel, CapabilityType, Capability } from '../coordination/CapabilityRegistry';
 
 // Extend MessageType to include 'command' type
 type ExtendedMessageType = MessageType | 'command';
@@ -39,6 +40,11 @@ export interface AgentBaseConfig {
   temperature?: number;
   maxTokens?: number;
   quota?: number; // Maximum concurrent tasks the agent can handle
+  capabilities?: { // Agent capabilities configuration
+    skills?: Record<string, CapabilityLevel>;
+    domains?: string[];
+    roles?: string[];
+  };
   memoryOptions?: {
     enableAutoPruning?: boolean;
     pruningIntervalMs?: number;
@@ -85,6 +91,10 @@ export class AgentBase {
   protected memoryPruningTimer: NodeJS.Timeout | null = null;
   protected memoryConsolidationTimer: NodeJS.Timeout | null = null;
   protected quota: number;
+  protected capabilities: Record<string, CapabilityLevel> = {};
+  protected domains: string[] = [];
+  protected roles: string[] = [];
+  protected capabilityRegistry: CapabilityRegistry;
 
   constructor(options: AgentBaseOptions) {
     if (!options.config.agentId) {
@@ -99,6 +109,11 @@ export class AgentBase {
       temperature: 0.7,
       maxTokens: 4000,
       quota: 5, // Default to 5 concurrent tasks
+      capabilities: {
+        skills: {},
+        domains: [],
+        roles: []
+      },
       memoryOptions: {
         enableAutoPruning: true,
         pruningIntervalMs: 300000, // 5 minutes
@@ -118,6 +133,16 @@ export class AgentBase {
     this.toolPermissions = options.toolPermissions || [];
     this.memoryScopes = options.memoryScopes || this.memoryScopes;
     this.quota = this.config.quota || 5;
+    
+    // Set up capabilities
+    if (this.config.capabilities) {
+      this.capabilities = this.config.capabilities.skills || {};
+      this.domains = this.config.capabilities.domains || [];
+      this.roles = this.config.capabilities.roles || [];
+    }
+    
+    // Get capability registry
+    this.capabilityRegistry = CapabilityRegistry.getInstance();
   }
 
   /**
@@ -143,6 +168,9 @@ export class AgentBase {
       
       // Register with health checker
       AgentHealthChecker.register(this.agentId, this.quota);
+      
+      // Register agent capabilities
+      this.registerCapabilities();
       
       // Initialize model
       this.model = new ChatOpenAI({
@@ -198,6 +226,137 @@ export class AgentBase {
       
       throw error;
     }
+  }
+  
+  /**
+   * Register the agent's capabilities with the capability registry
+   */
+  protected registerCapabilities(): void {
+    // Register capabilities with the registry
+    this.capabilityRegistry.registerAgentCapabilities(
+      this.agentId,
+      this.capabilities,
+      {
+        preferredDomains: this.domains,
+        primaryRoles: this.roles
+      }
+    );
+    
+    console.log(`Registered ${Object.keys(this.capabilities).length} capabilities for agent ${this.agentId}`);
+  }
+  
+  /**
+   * Declare a new capability for this agent
+   */
+  declareCapability(
+    capabilityId: string, 
+    level: CapabilityLevel = CapabilityLevel.INTERMEDIATE
+  ): void {
+    // Add to agent's capabilities
+    this.capabilities[capabilityId] = level;
+    
+    // Update in registry
+    this.capabilityRegistry.registerAgentCapabilities(
+      this.agentId,
+      { [capabilityId]: level },
+      {
+        preferredDomains: this.domains,
+        primaryRoles: this.roles
+      }
+    );
+    
+    console.log(`Declared capability ${capabilityId} at level ${level} for agent ${this.agentId}`);
+  }
+  
+  /**
+   * Add a domain of expertise for this agent
+   */
+  addDomain(domain: string): void {
+    if (!this.domains.includes(domain)) {
+      this.domains.push(domain);
+      
+      // Update in registry
+      this.capabilityRegistry.registerAgentCapabilities(
+        this.agentId,
+        this.capabilities,
+        {
+          preferredDomains: this.domains,
+          primaryRoles: this.roles
+        }
+      );
+      
+      console.log(`Added domain ${domain} for agent ${this.agentId}`);
+    }
+  }
+  
+  /**
+   * Add a role for this agent
+   */
+  addRole(role: string): void {
+    if (!this.roles.includes(role)) {
+      this.roles.push(role);
+      
+      // Update in registry
+      this.capabilityRegistry.registerAgentCapabilities(
+        this.agentId,
+        this.capabilities,
+        {
+          preferredDomains: this.domains,
+          primaryRoles: this.roles
+        }
+      );
+      
+      console.log(`Added role ${role} for agent ${this.agentId}`);
+    }
+  }
+  
+  /**
+   * Check if agent has a specific capability
+   */
+  hasAgentCapability(capabilityId: string): boolean {
+    return capabilityId in this.capabilities;
+  }
+  
+  /**
+   * Get agent's capability level for a specific capability
+   */
+  getSpecificCapabilityLevel(capabilityId: string): CapabilityLevel | null {
+    return this.capabilities[capabilityId] || null;
+  }
+  
+  /**
+   * Check if agent specializes in a domain
+   */
+  specializesInDomain(domain: string): boolean {
+    return this.domains.includes(domain);
+  }
+  
+  /**
+   * Check if agent has a specific role
+   */
+  hasRole(role: string): boolean {
+    return this.roles.includes(role);
+  }
+  
+  /**
+   * Get all agent capabilities
+   */
+  getCapabilities(): Record<string, CapabilityLevel> {
+    return { ...this.capabilities };
+  }
+  
+  /**
+   * Get all agent domains
+   */
+  getDomains(): string[] {
+    return [...this.domains];
+  }
+  
+  /**
+   * Get all agent roles
+   */
+  getRoles(): string[] {
+    return [...this.roles];
   }
 
   /**
@@ -872,7 +1031,7 @@ export class AgentBase {
   /**
    * Get agent's capability level
    */
-  getCapabilityLevel(): AgentCapabilityLevel {
+  getAgentCapabilityLevel(): AgentCapabilityLevel {
     return this.capabilityLevel;
   }
 
