@@ -50,7 +50,6 @@ export {
 } from './autonomy';
 
 // Re-export types
-export type { PersonaOptions } from './persona';
 
 // Import for singleton
 import { ChloeAgent } from './core/agent';

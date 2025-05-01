@@ -6,8 +6,9 @@ import { SYSTEM_PROMPTS } from '../../../lib/shared';
 import { AutonomySystem, AutonomyDiagnosis } from '../../../lib/shared/types/agent';
 import { Notifier } from '../notifiers';
 import { TaskLogger } from './taskLogger';
-import { Persona } from '../persona';
-import { ChloeMemory } from '../memory';
+import { TaskStatus } from '../../../constants/task';
+import { Message } from '../types/message';
+import { RobustSafeguards } from './robustSafeguards';
 import { 
   IAgent, 
   MessageOptions,
@@ -32,7 +33,7 @@ import { ThoughtManager } from './thoughtManager';
 import { MarketScannerManager } from './marketScannerManager';
 import { KnowledgeGapsManager } from './knowledgeGapsManager';
 import { StateManager } from './stateManager';
-import { RobustSafeguards } from './robustSafeguards';
+import { ChloeMemory } from '../memory';
 
 export interface ChloeAgentOptions {
   config?: Partial<AgentConfig>;
@@ -77,7 +78,6 @@ export class ChloeAgent implements IAgent {
   // Core systems
   private model: ChatOpenAI | null = null;
   private taskLogger: TaskLogger;
-  private persona: Persona | null = null;
   private autonomySystem: AutonomySystem | null = null;
   
   // Managers
@@ -138,21 +138,6 @@ export class ChloeAgent implements IAgent {
       // Make model available globally for TaskLogger to use
       global.model = this.model;
       
-      // Initialize persona system
-      this.persona = new Persona();
-      await this.persona.initialize();
-      
-      // Load persona and update system prompt if successful
-      try {
-        const systemPrompt = await this.persona.loadPersona();
-        if (systemPrompt) {
-          this.config.systemPrompt = systemPrompt;
-          console.log('Updated system prompt from persona files');
-        }
-      } catch (error) {
-        console.warn('Failed to load persona files, using default system prompt', error);
-      }
-
       // Initialize task logger
       await this.taskLogger.initialize();
       
@@ -259,7 +244,7 @@ export class ChloeAgent implements IAgent {
       this.taskLogger?.logAction('Handling as general knowledge question', { message });
       
       try {
-        // Process directly with the model using the persona's system prompt
+        // Process directly with the model using the config system prompt
         if (!this.model) {
           throw new Error('Model not initialized');
         }
