@@ -19,6 +19,9 @@ export interface PlanStep {
   tools?: string[];
   subgoal?: string;
   dependsOn?: string[];
+  // Delegation tracking fields
+  parentStepId?: string;
+  delegationContextId?: string;
 }
 
 // Full plan with metadata and steps
@@ -31,6 +34,10 @@ export interface Plan {
   agentId: string;
   estimatedSteps?: number;
   estimatedCompletionTime?: number;
+  // Delegation tracking fields
+  parentTaskId?: string;
+  delegationContextId?: string;
+  originAgentId?: string;
 }
 
 // Planning options
@@ -95,6 +102,22 @@ export class Planner {
       // Create plan ID
       const planId = `plan_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
       
+      // Preserve delegation context if provided in options
+      const delegationContext = options.context?.find(c => c.includes('delegationContextId:'));
+      const delegationContextId = delegationContext 
+        ? delegationContext.split('delegationContextId:')[1].trim()
+        : undefined;
+        
+      const parentTaskContext = options.context?.find(c => c.includes('parentTaskId:'));
+      const parentTaskId = parentTaskContext
+        ? parentTaskContext.split('parentTaskId:')[1].trim()
+        : undefined;
+        
+      const originAgentContext = options.context?.find(c => c.includes('originAgentId:'));
+      const originAgentId = originAgentContext
+        ? originAgentContext.split('originAgentId:')[1].trim()
+        : undefined;
+      
       // Placeholder plan with empty steps
       const plan: Plan = {
         id: planId,
@@ -102,7 +125,10 @@ export class Planner {
         steps: [],
         createdAt: new Date(),
         agentId,
-        context: options.context?.join('\n')
+        context: options.context?.join('\n'),
+        delegationContextId,
+        parentTaskId,
+        originAgentId
       };
       
       // In the actual implementation, this would use the LLM to generate steps

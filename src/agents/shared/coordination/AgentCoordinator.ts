@@ -11,6 +11,8 @@
 import { AgentBase, AgentCapabilityLevel } from '../base/AgentBase';
 import { Plan } from '../planning/Planner';
 import { ExecutionResult } from '../execution/Executor';
+import { AgentMonitor } from '../monitoring/AgentMonitor';
+import * as crypto from 'crypto';
 
 // Agent registry entry
 export interface RegisteredAgent {
@@ -31,6 +33,10 @@ export interface DelegationRequest {
   deadline?: Date;
   context?: Record<string, any>;
   requestingAgentId: string;
+  // Delegation tracking fields
+  parentTaskId?: string;
+  delegationContextId?: string;
+  originAgentId?: string;
 }
 
 // Delegation result
@@ -42,6 +48,10 @@ export interface DelegationResult {
   error?: string;
   startTime?: Date;
   completionTime?: Date;
+  // Delegation tracking fields
+  delegationContextId?: string;
+  parentTaskId?: string;
+  originAgentId?: string;
 }
 
 // Coordinator options
@@ -121,6 +131,13 @@ export class AgentCoordinator {
       
       console.log(`Delegating task ${request.taskId}: ${request.goal}`);
       
+      // Generate delegation tracking IDs if not provided
+      const delegationContextId = request.delegationContextId || 
+        `delegation_${crypto.randomUUID()}`;
+      
+      const parentTaskId = request.parentTaskId || request.taskId;
+      const originAgentId = request.originAgentId || request.requestingAgentId;
+      
       // Find the most appropriate agent
       const assignedAgentId = this.findBestAgent(request);
       
@@ -129,7 +146,10 @@ export class AgentCoordinator {
           taskId: request.taskId,
           assignedAgentId: '',
           status: 'rejected',
-          error: 'No suitable agent found for this task'
+          error: 'No suitable agent found for this task',
+          delegationContextId,
+          parentTaskId,
+          originAgentId
         };
       }
       
@@ -138,8 +158,28 @@ export class AgentCoordinator {
         taskId: request.taskId,
         assignedAgentId,
         status: 'accepted',
-        startTime: new Date()
+        startTime: new Date(),
+        delegationContextId,
+        parentTaskId,
+        originAgentId
       };
+      
+      // Log delegation event
+      AgentMonitor.log({
+        agentId: request.requestingAgentId,
+        taskId: request.taskId,
+        parentTaskId,
+        delegationContextId,
+        eventType: 'delegation',
+        status: 'success',
+        timestamp: Date.now(),
+        metadata: {
+          toAgent: assignedAgentId,
+          fromAgent: request.requestingAgentId,
+          taskGoal: request.goal,
+          originAgentId
+        }
+      });
       
       // Store delegation
       this.delegations.set(request.taskId, delegation);
@@ -148,8 +188,23 @@ export class AgentCoordinator {
       const agentEntry = this.agents.get(assignedAgentId)!;
       agentEntry.status = 'busy';
       
+      // Enhance context with delegation tracking information
+      const enhancedContext = {
+        ...(request.context || {}),
+        delegationContextId,
+        parentTaskId,
+        originAgentId,
+        delegatingAgentId: request.requestingAgentId
+      };
+      
       // Execute the task asynchronously
-      this.executeTaskAsync(request, assignedAgentId).catch(error => {
+      this.executeTaskAsync({
+        ...request,
+        delegationContextId,
+        parentTaskId,
+        originAgentId,
+        context: enhancedContext
+      }, assignedAgentId).catch(error => {
         console.error(`Error executing delegated task ${request.taskId}:`, error);
       });
       
@@ -176,7 +231,7 @@ export class AgentCoordinator {
         throw new Error(`Agent ${agentId} not found`);
       }
       
-      // Execute the task
+      // Execute the task with delegation context
       const result = await agent.planAndExecute(request.goal, request.context);
       
       // Update delegation result
@@ -185,6 +240,24 @@ export class AgentCoordinator {
         delegation.status = 'completed';
         delegation.result = result;
         delegation.completionTime = new Date();
+      }
+      
+      // Log task completion
+      if (request.delegationContextId) {
+        AgentMonitor.log({
+          agentId,
+          taskId: request.taskId,
+          parentTaskId: request.parentTaskId,
+          delegationContextId: request.delegationContextId,
+          eventType: 'task_end',
+          status: 'success',
+          timestamp: Date.now(),
+          metadata: {
+            fromAgent: request.requestingAgentId,
+            originAgentId: request.originAgentId,
+            result: JSON.stringify(result).substring(0, 100)
+          }
+        });
       }
       
       // Update agent status and reliability
@@ -209,6 +282,24 @@ export class AgentCoordinator {
         delegation.status = 'failed';
         delegation.error = `Execution error: ${error instanceof Error ? error.message : String(error)}`;
         delegation.completionTime = new Date();
+      }
+      
+      // Log task failure
+      if (request.delegationContextId) {
+        AgentMonitor.log({
+          agentId,
+          taskId: request.taskId,
+          parentTaskId: request.parentTaskId,
+          delegationContextId: request.delegationContextId,
+          eventType: 'error',
+          status: 'failure',
+          timestamp: Date.now(),
+          errorMessage: error instanceof Error ? error.message : String(error),
+          metadata: {
+            fromAgent: request.requestingAgentId,
+            originAgentId: request.originAgentId
+          }
+        });
       }
       
       // Update agent status and reliability
@@ -296,5 +387,44 @@ export class AgentCoordinator {
   async shutdown(): Promise<void> {
     console.log('Shutting down AgentCoordinator...');
     // Cleanup logic will be added here
+  }
+  
+  /**
+   * Get delegation chain for a task
+   */
+  getDelegationChain(taskId: string): DelegationResult[] {
+    const chain: DelegationResult[] = [];
+    let currentTaskId = taskId;
+    
+    // Find the task
+    const task = this.delegations.get(currentTaskId);
+    if (!task) {
+      return chain;
+    }
+    
+    // Add the task to the chain
+    chain.push(task);
+    
+    // Find all other tasks in the same delegation context
+    if (task.delegationContextId) {
+      // Convert Map entries to Array before iterating
+      Array.from(this.delegations.entries()).forEach(([id, delegation]) => {
+        if (id !== currentTaskId && delegation.delegationContextId === task.delegationContextId) {
+          chain.push(delegation);
+        }
+      });
+      
+      // Sort by parentTaskId to reconstruct the chain order
+      chain.sort((a, b) => {
+        // Tasks without parentTaskId come first (they are root tasks)
+        if (!a.parentTaskId) return -1;
+        if (!b.parentTaskId) return 1;
+        
+        // Otherwise sort by parentTaskId
+        return a.parentTaskId.localeCompare(b.parentTaskId);
+      });
+    }
+    
+    return chain;
   }
 } 

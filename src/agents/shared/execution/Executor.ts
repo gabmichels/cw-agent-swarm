@@ -64,6 +64,10 @@ export interface ExecutionContext {
   variables?: Record<string, any>;
   memory?: any;
   previousResults?: Record<string, any>;
+  // Delegation tracking fields
+  parentTaskId?: string;
+  delegationContextId?: string;
+  originAgentId?: string;
 }
 
 /**
@@ -110,18 +114,33 @@ export class Executor {
     try {
       console.log(`Executing plan ${plan.id} for agent ${context.agentId}`);
       
-      // Log task start
+      // Ensure delegation tracking fields are passed through
+      if (plan.delegationContextId) {
+        context.delegationContextId = plan.delegationContextId;
+      }
+      
+      if (plan.parentTaskId) {
+        context.parentTaskId = plan.parentTaskId;
+      }
+      
+      if (plan.originAgentId) {
+        context.originAgentId = plan.originAgentId;
+      }
+      
+      // Log task start with delegation context
       AgentMonitor.log({
         agentId: context.agentId,
         taskId: plan.id,
         taskType: plan.goal || 'execution',
         eventType: 'task_start',
         timestamp: startTime,
-        parentTaskId: context.sessionId,
+        parentTaskId: context.parentTaskId || context.sessionId,
+        delegationContextId: context.delegationContextId,
         metadata: { 
           planSteps: plan.steps.length,
           planGoal: plan.goal,
-          options
+          options,
+          originAgentId: context.originAgentId || context.agentId
         }
       });
       
@@ -210,7 +229,7 @@ export class Executor {
         
         executionResult.finalOutput = `Completed ${completedSteps.length} of ${plan.steps.length} steps successfully.`;
         
-        // Log task end with success
+        // Log task end with success including delegation context
         AgentMonitor.log({
           agentId: context.agentId,
           taskId: plan.id,
@@ -219,10 +238,12 @@ export class Executor {
           status: 'success',
           timestamp: Date.now(),
           durationMs: Date.now() - startTime,
-          parentTaskId: context.sessionId,
+          parentTaskId: context.parentTaskId || context.sessionId,
+          delegationContextId: context.delegationContextId,
           metadata: { 
             completedSteps: completedSteps.length,
-            totalSteps: plan.steps.length 
+            totalSteps: plan.steps.length,
+            originAgentId: context.originAgentId || context.agentId
           }
         });
       }
@@ -236,7 +257,7 @@ export class Executor {
       
       const errorMessage = error instanceof Error ? error.message : String(error);
       
-      // Log error
+      // Log error with delegation context
       AgentMonitor.log({
         agentId: context.agentId,
         taskId: plan.id,
@@ -246,7 +267,11 @@ export class Executor {
         timestamp: Date.now(),
         durationMs: Date.now() - startTime,
         errorMessage,
-        parentTaskId: context.sessionId
+        parentTaskId: context.parentTaskId || context.sessionId,
+        delegationContextId: context.delegationContextId,
+        metadata: {
+          originAgentId: context.originAgentId || context.agentId
+        }
       });
       
       // Return error result
@@ -276,7 +301,7 @@ export class Executor {
     try {
       console.log(`Executing step ${step.id}: ${step.action}`);
       
-      // Log step start
+      // Log step start with delegation context
       AgentMonitor.log({
         agentId: context.agentId,
         taskId: step.id,
@@ -284,9 +309,11 @@ export class Executor {
         eventType: 'task_start',
         timestamp: stepStartTime,
         parentTaskId: context.sessionId,
+        delegationContextId: context.delegationContextId,
         metadata: { 
           action: step.action,
-          tools: step.tools
+          tools: step.tools,
+          originAgentId: context.originAgentId || context.agentId
         }
       });
       

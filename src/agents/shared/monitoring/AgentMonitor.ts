@@ -29,6 +29,19 @@ export interface AgentEvent {
   metadata?: Record<string, any>;
 }
 
+// Delegation Chain Link representing a node in a delegation tree
+export interface DelegationChainLink {
+  taskId: string;
+  agentId: string;
+  eventType: string;
+  status?: string;
+  timestamp: number;
+  parentTaskId?: string;
+  delegationContextId?: string;
+  children: DelegationChainLink[];
+  metadata?: Record<string, any>;
+}
+
 export class AgentMonitor {
   private static logs: AgentEvent[] = [];
   private static logFilePath: string | null = null;
@@ -153,5 +166,141 @@ export class AgentMonitor {
       agentActivity,
       toolUsage
     };
+  }
+
+  /**
+   * Get delegation chain for a specific task or delegation context
+   */
+  static getDelegationChain(
+    identifier: { taskId?: string; delegationContextId?: string }
+  ): DelegationChainLink[] {
+    if (!identifier.taskId && !identifier.delegationContextId) {
+      throw new Error('Either taskId or delegationContextId must be provided');
+    }
+    
+    // Find all events for this delegation context or task
+    let relevantEvents: AgentEvent[] = [];
+    
+    if (identifier.delegationContextId) {
+      // Get all events with this delegation context ID
+      relevantEvents = AgentMonitor.logs.filter(
+        log => log.delegationContextId === identifier.delegationContextId
+      );
+    } else if (identifier.taskId) {
+      // First find the delegation context for this task
+      const taskEvent = AgentMonitor.logs.find(log => log.taskId === identifier.taskId);
+      if (!taskEvent) {
+        return [];
+      }
+      
+      // If we have a delegation context, get all events with that context
+      if (taskEvent.delegationContextId) {
+        relevantEvents = AgentMonitor.logs.filter(
+          log => log.delegationContextId === taskEvent.delegationContextId
+        );
+      } else {
+        // Otherwise, just get events for this specific task
+        relevantEvents = AgentMonitor.logs.filter(log => log.taskId === identifier.taskId);
+      }
+    }
+    
+    // Sort by timestamp to get chronological order
+    relevantEvents.sort((a, b) => a.timestamp - b.timestamp);
+    
+    // Build a map of task IDs to their events
+    const taskEventMap = new Map<string, AgentEvent[]>();
+    for (const event of relevantEvents) {
+      if (!taskEventMap.has(event.taskId)) {
+        taskEventMap.set(event.taskId, []);
+      }
+      taskEventMap.get(event.taskId)?.push(event);
+    }
+    
+    // Find root tasks (those without parentTaskId or with parentTaskId outside the context)
+    const rootTasks = relevantEvents.filter(event => 
+      !event.parentTaskId || !relevantEvents.some(e => e.taskId === event.parentTaskId)
+    );
+    
+    // Helper function to recursively build the tree
+    function buildTree(event: AgentEvent): DelegationChainLink {
+      const link: DelegationChainLink = {
+        taskId: event.taskId,
+        agentId: event.agentId,
+        eventType: event.eventType,
+        status: event.status,
+        timestamp: event.timestamp,
+        parentTaskId: event.parentTaskId,
+        delegationContextId: event.delegationContextId,
+        children: [],
+        metadata: event.metadata
+      };
+      
+      // Find child tasks
+      const childEvents = relevantEvents.filter(e => e.parentTaskId === event.taskId);
+      
+      // Sort children by timestamp
+      childEvents.sort((a, b) => a.timestamp - b.timestamp);
+      
+      // Process child events
+      for (const childEvent of childEvents) {
+        // Avoid circular references
+        if (childEvent.taskId !== event.taskId) {
+          link.children.push(buildTree(childEvent));
+        }
+      }
+      
+      return link;
+    }
+    
+    // Build trees from root tasks
+    const delegationChain: DelegationChainLink[] = [];
+    for (const rootEvent of rootTasks) {
+      delegationChain.push(buildTree(rootEvent));
+    }
+    
+    return delegationChain;
+  }
+  
+  /**
+   * Generate a visualization of the delegation chain as a Mermaid flowchart
+   */
+  static generateDelegationFlowchart(
+    identifier: { taskId?: string; delegationContextId?: string }
+  ): string {
+    const chain = AgentMonitor.getDelegationChain(identifier);
+    if (chain.length === 0) {
+      return 'flowchart TD\n  NoData["No delegation data found"]';
+    }
+    
+    let mermaidCode = 'flowchart TD\n';
+    
+    // Helper function to recursively add nodes and connections
+    function addToFlowchart(node: DelegationChainLink, depth: number = 0): void {
+      // Create node ID (sanitized task ID)
+      const nodeId = `task_${node.taskId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+      
+      // Add node with label showing agent and task
+      const status = node.status ? ` (${node.status})` : '';
+      const indent = '  '.repeat(depth + 1);
+      mermaidCode += `${indent}${nodeId}["${node.agentId}: ${node.taskId.substring(0, 10)}${status}"]\n`;
+      
+      // Process children
+      for (const child of node.children) {
+        const childId = `task_${child.taskId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+        
+        // Add child node
+        addToFlowchart(child, depth + 1);
+        
+        // Add connection
+        mermaidCode += `${indent}${nodeId} --> ${childId}\n`;
+      }
+    }
+    
+    // Add each root node to the flowchart
+    for (const root of chain) {
+      addToFlowchart(root);
+    }
+    
+    return mermaidCode;
   }
 } 
