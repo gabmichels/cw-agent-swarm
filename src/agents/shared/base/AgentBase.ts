@@ -19,6 +19,7 @@ import { BaseTool } from '../../../lib/shared/types/agentTypes';
 import { AgentMonitor } from '../monitoring/AgentMonitor';
 import { AgentMessage, MessageRouter, MessageType } from '../messaging/MessageRouter';
 import { Planner, PlanningContext, Plan } from '../planning/Planner';
+import { AgentHealthChecker } from '../coordination/AgentHealthChecker';
 
 // Extend MessageType to include 'command' type
 type ExtendedMessageType = MessageType | 'command';
@@ -37,6 +38,7 @@ export interface AgentBaseConfig {
   model?: string;
   temperature?: number;
   maxTokens?: number;
+  quota?: number; // Maximum concurrent tasks the agent can handle
   memoryOptions?: {
     enableAutoPruning?: boolean;
     pruningIntervalMs?: number;
@@ -82,6 +84,7 @@ export class AgentBase {
   protected messageInbox: ExtendedAgentMessage[] = [];
   protected memoryPruningTimer: NodeJS.Timeout | null = null;
   protected memoryConsolidationTimer: NodeJS.Timeout | null = null;
+  protected quota: number;
 
   constructor(options: AgentBaseOptions) {
     if (!options.config.agentId) {
@@ -95,6 +98,7 @@ export class AgentBase {
       model: 'gpt-4',
       temperature: 0.7,
       maxTokens: 4000,
+      quota: 5, // Default to 5 concurrent tasks
       memoryOptions: {
         enableAutoPruning: true,
         pruningIntervalMs: 300000, // 5 minutes
@@ -113,6 +117,7 @@ export class AgentBase {
     this.capabilityLevel = options.capabilityLevel || AgentCapabilityLevel.BASIC;
     this.toolPermissions = options.toolPermissions || [];
     this.memoryScopes = options.memoryScopes || this.memoryScopes;
+    this.quota = this.config.quota || 5;
   }
 
   /**
@@ -131,9 +136,13 @@ export class AgentBase {
         timestamp: startTime,
         metadata: {
           capabilityLevel: this.capabilityLevel,
-          toolPermissionsCount: this.toolPermissions.length
+          toolPermissionsCount: this.toolPermissions.length,
+          quota: this.quota
         }
       });
+      
+      // Register with health checker
+      AgentHealthChecker.register(this.agentId, this.quota);
       
       // Initialize model
       this.model = new ChatOpenAI({
@@ -681,84 +690,165 @@ export class AgentBase {
   }
 
   /**
-   * Process a message or task
-   * This will be implemented by specific agent subclasses
+   * Process a message to generate a response
+   * This is a high-level method that should be implemented by specific agent subclasses
    */
   async processMessage(message: string, options?: any): Promise<string> {
-    const startTime = Date.now();
-    const taskId = `msg_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+    if (!this.initialized) {
+      throw new Error(`Agent ${this.agentId} not initialized`);
+    }
     
-    // Log message processing start
-    AgentMonitor.log({
-      agentId: this.agentId,
-      taskId,
-      taskType: 'message',
-      eventType: 'task_start',
-      timestamp: startTime,
-      metadata: { 
-        messageLength: message.length,
-        options 
+    // Check if agent is available based on health and quota
+    if (!AgentHealthChecker.isAvailable(this.agentId)) {
+      const status = AgentHealthChecker.getStatus(this.agentId);
+      if (!status?.healthy) {
+        throw new Error(`Agent ${this.agentId} is unhealthy and cannot process messages`);
+      } else {
+        throw new Error(`Agent ${this.agentId} at quota limit (${status?.currentLoad}/${status?.quota})`);
       }
-    });
+    }
+    
+    // Begin task tracking in health checker
+    AgentHealthChecker.beginTask(this.agentId);
     
     try {
-      throw new Error('Method not implemented in base class');
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const startTime = Date.now();
+      const taskId = `msg_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
       
-      // Log error
+      // Log message processing start
       AgentMonitor.log({
         agentId: this.agentId,
         taskId,
         taskType: 'message',
-        eventType: 'error',
-        status: 'failure',
+        eventType: 'task_start',
+        timestamp: startTime,
+        metadata: { messageLength: message.length }
+      });
+      
+      // Default implementation that real agents should override
+      console.log(`Agent ${this.agentId} processing message: ${message.substring(0, 100)}${message.length > 100 ? '...' : ''}`);
+      
+      // Store message in memory if available
+      if (this.memory) {
+        await this.memory.write({
+          content: message,
+          kind: 'user_message' as MemoryKind,
+          scope: 'shortTerm',
+          relevance: 0.8,
+          timestamp: Date.now()
+        });
+      }
+      
+      // Generate a simple response (in real agents, this would use LLMs, tools, etc.)
+      const response = `Agent ${this.agentId} received your message (${message.length} chars)`;
+      
+      // Log message processing completion
+      AgentMonitor.log({
+        agentId: this.agentId,
+        taskId,
+        taskType: 'message',
+        eventType: 'task_end',
+        status: 'success',
         timestamp: Date.now(),
         durationMs: Date.now() - startTime,
-        errorMessage
+        metadata: { responseLength: response.length }
       });
+      
+      // Report task success
+      AgentHealthChecker.reportSuccess(this.agentId);
+      
+      return response;
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error(`Error in ${this.agentId} processMessage:`, error);
+      
+      // Report task failure
+      AgentHealthChecker.reportFailure(this.agentId, errorMessage);
       
       throw error;
     }
   }
 
   /**
-   * Plan and execute a task
-   * This will be implemented by specific agent subclasses
+   * Plan and execute a task with a given goal
+   * This is a high-level method that should be implemented by specific agent subclasses
    */
   async planAndExecute(goal: string, options?: any): Promise<any> {
-    const startTime = Date.now();
-    const taskId = `task_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+    if (!this.initialized) {
+      throw new Error(`Agent ${this.agentId} not initialized`);
+    }
     
-    // Log task planning start
-    AgentMonitor.log({
-      agentId: this.agentId,
-      taskId,
-      taskType: 'planning',
-      eventType: 'task_start',
-      timestamp: startTime,
-      metadata: { 
-        goal,
-        options 
+    // Check if agent is available based on health and quota
+    if (!AgentHealthChecker.isAvailable(this.agentId)) {
+      const status = AgentHealthChecker.getStatus(this.agentId);
+      if (!status?.healthy) {
+        throw new Error(`Agent ${this.agentId} is unhealthy and cannot execute tasks`);
+      } else {
+        throw new Error(`Agent ${this.agentId} at quota limit (${status?.currentLoad}/${status?.quota})`);
       }
-    });
+    }
+    
+    // Begin task tracking in health checker
+    AgentHealthChecker.beginTask(this.agentId);
     
     try {
-      throw new Error('Method not implemented in base class');
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const startTime = Date.now();
+      const taskId = `task_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
       
-      // Log error
+      // Log task start
       AgentMonitor.log({
         agentId: this.agentId,
         taskId,
-        taskType: 'planning',
-        eventType: 'error',
-        status: 'failure',
+        taskType: 'plan_and_execute',
+        eventType: 'task_start',
+        timestamp: startTime,
+        metadata: {
+          goal,
+          options: options ? JSON.stringify(options).substring(0, 100) : undefined
+        }
+      });
+      
+      console.log(`Agent ${this.agentId} planning and executing goal: ${goal}`);
+      
+      // In a real implementation, this method would:
+      // 1. Plan the task using the Planner
+      // 2. Execute the plan steps
+      // 3. Handle errors and adapt as needed
+      // For now, we just simulate a successful execution
+      
+      const result = {
+        success: true,
+        message: `Simulated execution of goal: ${goal}`,
+        data: {
+          // Would contain actual execution results
+          executionTime: Date.now() - startTime
+        }
+      };
+      
+      // Log task completion
+      AgentMonitor.log({
+        agentId: this.agentId,
+        taskId,
+        taskType: 'plan_and_execute',
+        eventType: 'task_end',
+        status: 'success',
         timestamp: Date.now(),
         durationMs: Date.now() - startTime,
-        errorMessage
+        metadata: {
+          result: JSON.stringify(result).substring(0, 100)
+        }
       });
+      
+      // Report task success
+      AgentHealthChecker.reportSuccess(this.agentId);
+      
+      return result;
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error(`Error in ${this.agentId} planAndExecute:`, error);
+      
+      // Report task failure
+      AgentHealthChecker.reportFailure(this.agentId, errorMessage);
       
       throw error;
     }
@@ -787,13 +877,47 @@ export class AgentBase {
   }
 
   /**
-   * Shutdown and cleanup
+   * Get the agent's quota
+   */
+  getQuota(): number {
+    return this.quota;
+  }
+
+  /**
+   * Update the agent's quota
+   */
+  updateQuota(newQuota: number): void {
+    this.quota = newQuota;
+    AgentHealthChecker.updateQuota(this.agentId, newQuota);
+    console.log(`Updated quota for agent ${this.agentId} to ${newQuota}`);
+  }
+
+  /**
+   * Get the agent's current health status
+   */
+  getHealthStatus(): any {
+    return AgentHealthChecker.getStatus(this.agentId);
+  }
+
+  /**
+   * Reset the agent's health status
+   */
+  resetHealth(): void {
+    AgentHealthChecker.resetHealthStatus(this.agentId);
+    console.log(`Reset health status for agent ${this.agentId}`);
+  }
+
+  /**
+   * Shutdown the agent
    */
   async shutdown(): Promise<void> {
-    const startTime = Date.now();
-    
     try {
       console.log(`Shutting down agent ${this.agentId}...`);
+      
+      // Reset agent state to ensure it's not taking new tasks
+      if (AgentHealthChecker.getStatus(this.agentId)) {
+        AgentHealthChecker.reportFailure(this.agentId, 'Agent shutting down');
+      }
       
       // Cancel scheduled memory pruning
       if (this.memoryPruningTimer) {

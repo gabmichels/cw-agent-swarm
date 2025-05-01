@@ -26,14 +26,14 @@ Replaced "Projects" with "Agents" in nav, implemented live dashboard at /agents
 🧭 Phase 2: Execution Resilience + Coordination Scaling (Weeks 3–5)
 Goal: Prepare the system for intelligent task routing under load.
 
-🔜 Task: Execution Hardening
+✅ [COMPLETE] Execution Hardening
  Add retryCount, retryDelay to tasks
 
  Implement backoff + retry logic in Executor.ts
 
  Add timeoutMs + cancellation support for long-running tasks
 
-🔜 Task: Coordinator Health & Capability
+✅ [COMPLETE] Coordinator Health & Capability
  Add AgentHealthChecker.ts to validate agent availability
 
  Introduce per-agent delegation quotas

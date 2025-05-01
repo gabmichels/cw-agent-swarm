@@ -12,6 +12,7 @@ import { AgentBase, AgentCapabilityLevel } from '../base/AgentBase';
 import { Plan } from '../planning/Planner';
 import { ExecutionResult } from '../execution/Executor';
 import { AgentMonitor } from '../monitoring/AgentMonitor';
+import { AgentHealthChecker } from './AgentHealthChecker';
 import * as crypto from 'crypto';
 
 // Agent registry entry
@@ -60,6 +61,11 @@ export interface CoordinatorOptions {
   enableLoadBalancing?: boolean;
   enableReliabilityTracking?: boolean;
   agentTimeout?: number;
+  healthCheckConfig?: {
+    enableHealthChecks?: boolean;
+    quotaEnforcement?: boolean;
+    unhealthyFailureThreshold?: number;
+  };
 }
 
 /**
@@ -77,6 +83,11 @@ export class AgentCoordinator {
       enableLoadBalancing: true,
       enableReliabilityTracking: true,
       agentTimeout: 60000, // 1 minute default timeout
+      healthCheckConfig: {
+        enableHealthChecks: true,
+        quotaEnforcement: true,
+        unhealthyFailureThreshold: 0.6
+      },
       ...options
     };
   }
@@ -88,7 +99,13 @@ export class AgentCoordinator {
     try {
       console.log('Initializing AgentCoordinator...');
       
-      // Initialization logic will be added here
+      // Initialize health checker if enabled
+      if (this.options.healthCheckConfig?.enableHealthChecks) {
+        AgentHealthChecker.initialize({
+          quotaEnforcement: this.options.healthCheckConfig.quotaEnforcement,
+          unhealthyFailureThreshold: this.options.healthCheckConfig.unhealthyFailureThreshold
+        });
+      }
       
       this.initialized = true;
       console.log('AgentCoordinator initialized successfully');
@@ -101,7 +118,7 @@ export class AgentCoordinator {
   /**
    * Register an agent with the coordinator
    */
-  registerAgent(agent: AgentBase, capabilities: string[], domain: string): void {
+  registerAgent(agent: AgentBase, capabilities: string[], domain: string, quota: number = 5): void {
     const agentId = agent.getAgentId();
     
     if (this.agents.has(agentId)) {
@@ -117,7 +134,12 @@ export class AgentCoordinator {
       lastActive: new Date()
     });
     
-    console.log(`Registered agent ${agentId} with capabilities: ${capabilities.join(', ')}`);
+    // Register with health checker for quota enforcement
+    if (this.options.healthCheckConfig?.enableHealthChecks) {
+      AgentHealthChecker.register(agentId, quota);
+    }
+    
+    console.log(`Registered agent ${agentId} with capabilities: ${capabilities.join(', ')} and quota: ${quota}`);
   }
   
   /**
@@ -138,8 +160,8 @@ export class AgentCoordinator {
       const parentTaskId = request.parentTaskId || request.taskId;
       const originAgentId = request.originAgentId || request.requestingAgentId;
       
-      // Find the most appropriate agent
-      const assignedAgentId = this.findBestAgent(request);
+      // Find the most appropriate agent with health awareness
+      let assignedAgentId = this.findBestAgent(request);
       
       if (!assignedAgentId) {
         return {
@@ -151,6 +173,58 @@ export class AgentCoordinator {
           parentTaskId,
           originAgentId
         };
+      }
+      
+      // Check if agent is available based on health and quota
+      if (this.options.healthCheckConfig?.enableHealthChecks) {
+        if (!AgentHealthChecker.isAvailable(assignedAgentId)) {
+          const fallbackAgentId = this.findFallbackAgent(request, assignedAgentId);
+          
+          if (!fallbackAgentId) {
+            return {
+              taskId: request.taskId,
+              assignedAgentId: '',
+              status: 'rejected',
+              error: `Primary agent ${assignedAgentId} unavailable and no fallback found`,
+              delegationContextId,
+              parentTaskId,
+              originAgentId
+            };
+          }
+          
+          // Log fallback routing
+          console.log(`Primary agent ${assignedAgentId} unavailable, using fallback ${fallbackAgentId}`);
+          AgentMonitor.log({
+            agentId: request.requestingAgentId,
+            taskId: request.taskId,
+            parentTaskId,
+            delegationContextId,
+            eventType: 'delegation',
+            status: 'success',
+            timestamp: Date.now(),
+            metadata: {
+              fallbackReason: AgentHealthChecker.getStatus(assignedAgentId)?.healthy ? 'quota_exceeded' : 'unhealthy',
+              originalAgent: assignedAgentId,
+              fallbackAgent: fallbackAgentId
+            }
+          });
+          
+          // Use fallback instead
+          assignedAgentId = fallbackAgentId;
+        }
+        
+        // Track task start for quota management
+        if (!AgentHealthChecker.beginTask(assignedAgentId)) {
+          return {
+            taskId: request.taskId,
+            assignedAgentId: '',
+            status: 'rejected',
+            error: `Agent ${assignedAgentId} rejected task due to quota limits`,
+            delegationContextId,
+            parentTaskId,
+            originAgentId
+          };
+        }
       }
       
       // Create delegation result
@@ -177,7 +251,8 @@ export class AgentCoordinator {
           toAgent: assignedAgentId,
           fromAgent: request.requestingAgentId,
           taskGoal: request.goal,
-          originAgentId
+          originAgentId,
+          agentHealth: AgentHealthChecker.getStatus(assignedAgentId)
         }
       });
       
@@ -187,6 +262,7 @@ export class AgentCoordinator {
       // Update agent status
       const agentEntry = this.agents.get(assignedAgentId)!;
       agentEntry.status = 'busy';
+      agentEntry.lastActive = new Date();
       
       // Enhance context with delegation tracking information
       const enhancedContext = {
@@ -242,6 +318,11 @@ export class AgentCoordinator {
         delegation.completionTime = new Date();
       }
       
+      // Update health checker on success
+      if (this.options.healthCheckConfig?.enableHealthChecks) {
+        AgentHealthChecker.reportSuccess(agentId);
+      }
+      
       // Log task completion
       if (request.delegationContextId) {
         AgentMonitor.log({
@@ -275,6 +356,12 @@ export class AgentCoordinator {
       }
     } catch (error) {
       console.error(`Error executing task ${request.taskId} by agent ${agentId}:`, error);
+      
+      // Update health checker on failure
+      if (this.options.healthCheckConfig?.enableHealthChecks) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        AgentHealthChecker.reportFailure(agentId, errorMessage);
+      }
       
       // Update delegation result
       const delegation = this.delegations.get(request.taskId);
@@ -343,6 +430,21 @@ export class AgentCoordinator {
       return null;
     }
     
+    // If health checks enabled, consider agent health status
+    if (this.options.healthCheckConfig?.enableHealthChecks) {
+      // Filter for healthy agents first
+      const healthyCandidates = candidates.filter(({ id }) => 
+        AgentHealthChecker.isAvailable(id)
+      );
+      
+      // If we have healthy candidates, use those
+      if (healthyCandidates.length > 0) {
+        candidates = healthyCandidates;
+      } else {
+        console.warn('No healthy agents available with required capabilities, using fallbacks');
+      }
+    }
+    
     // Sort by reliability if tracking is enabled
     if (this.options.enableReliabilityTracking) {
       candidates.sort((a, b) => b.entry.reliability - a.entry.reliability);
@@ -350,6 +452,31 @@ export class AgentCoordinator {
     
     // Return the best candidate
     return candidates[0].id;
+  }
+  
+  /**
+   * Find a fallback agent when primary is unavailable
+   */
+  private findFallbackAgent(request: DelegationRequest, excludedAgentId: string): string | null {
+    // First get all candidates with required capabilities
+    const candidates = Array.from(this.agents.entries())
+      .filter(([id, entry]) => id !== excludedAgentId && 
+                               entry.status === 'available' &&
+                               (!request.requiredCapabilities || 
+                                request.requiredCapabilities.every(cap => entry.capabilities.includes(cap))))
+      .map(([id]) => id);
+    
+    if (candidates.length === 0) {
+      return null;
+    }
+    
+    // Use AgentHealthChecker to find best available agent from candidates
+    if (this.options.healthCheckConfig?.enableHealthChecks) {
+      return AgentHealthChecker.getBestAvailable(candidates);
+    }
+    
+    // Fallback to first candidate if health checking not enabled
+    return candidates[0];
   }
   
   /**
@@ -386,6 +513,12 @@ export class AgentCoordinator {
    */
   async shutdown(): Promise<void> {
     console.log('Shutting down AgentCoordinator...');
+    
+    // Shutdown health checker if enabled
+    if (this.options.healthCheckConfig?.enableHealthChecks) {
+      AgentHealthChecker.shutdown();
+    }
+    
     // Cleanup logic will be added here
   }
   
