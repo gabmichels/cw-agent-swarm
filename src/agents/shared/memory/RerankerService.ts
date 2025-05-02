@@ -102,21 +102,32 @@ export class RerankerService {
       return emptyResult;
     }
     
+    // Pre-filter any entries that are explicitly marked as unreliable
+    const filteredEntries = entries.filter(entry => 
+      !entry.metadata?.flaggedUnreliable && 
+      !entry.metadata?.excludeFromRetrieval
+    );
+    
+    // If no entries left after filtering, return empty result
+    if (filteredEntries.length === 0) {
+      return emptyResult;
+    }
+    
     // If we have only one entry, evaluate its relevance
-    if (entries.length === 1) {
-      const relevance = await this.evaluateSingleEntryRelevance(query, entries[0]);
+    if (filteredEntries.length === 1) {
+      const relevance = await this.evaluateSingleEntryRelevance(query, filteredEntries[0]);
       
       // Add score to metadata if requested
       if (options.returnScores) {
-        entries[0].metadata = {
-          ...entries[0].metadata,
+        filteredEntries[0].metadata = {
+          ...filteredEntries[0].metadata,
           rerankScore: relevance.score,
           rerankReasoning: relevance.reasoning
         };
       }
       
       return {
-        entries,
+        entries: filteredEntries,
         confidenceThresholdMet: relevance.score >= confidenceThreshold,
         topScore: relevance.score,
         validationResult: {
@@ -128,15 +139,15 @@ export class RerankerService {
     
     try {
       // Process in batches if needed
-      if (entries.length > this.maxBatchSize) {
-        return this.rankInBatchesWithConfidence(query, entries, { 
+      if (filteredEntries.length > this.maxBatchSize) {
+        return this.rankInBatchesWithConfidence(query, filteredEntries, { 
           ...options, 
           confidenceThreshold 
         });
       }
       
       // Prepare entries for reranking
-      const formattedEntries = entries.map(entry => {
+      const formattedEntries = filteredEntries.map(entry => {
         // Extract clean content from memory entries
         const content = entry.content || '';
         const metadata = entry.metadata || {};
@@ -218,7 +229,7 @@ Example:
         if (!rankings || !Array.isArray(rankings) || rankings.length === 0) {
           logger.warn('Reranker: Invalid or empty rankings, returning original order');
           return {
-            entries,
+            entries: filteredEntries,
             confidenceThresholdMet: false
           };
         }
@@ -230,8 +241,8 @@ Example:
           .map(ranking => {
             // Adjust for 1-based indexing in the response
             const index = ranking.index - 1;
-            if (index >= 0 && index < entries.length) {
-              const entry = entries[index];
+            if (index >= 0 && index < filteredEntries.length) {
+              const entry = filteredEntries[index];
               // Add reranking metadata if requested
               if (options.returnScores) {
                 entry.metadata = {
@@ -248,7 +259,7 @@ Example:
         
         // Handle any entries not included in rankings
         const rankedIds = new Set(reranked.map(e => e.id));
-        const unrankedEntries = entries.filter(e => !rankedIds.has(e.id));
+        const unrankedEntries = filteredEntries.filter(e => !rankedIds.has(e.id));
         
         // Get top score
         const topScore = rankings.length > 0 ? rankings[0].score : 0;
@@ -272,14 +283,14 @@ Example:
       } catch (parseError) {
         logger.error('Reranker: Error parsing rankings', parseError);
         return {
-          entries,
+          entries: filteredEntries,
           confidenceThresholdMet: false
         };
       }
     } catch (error) {
       logger.error('Reranker: Error during reranking', error);
       return {
-        entries,
+        entries: filteredEntries,
         confidenceThresholdMet: false
       };
     }

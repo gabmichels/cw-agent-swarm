@@ -189,8 +189,26 @@ export class MemoryRouter {
     }
     
     // Memory retrieval logic will be implemented here
+    // In a real implementation, this would query the vector database
     
-    // Placeholder return
+    // Filter out any entries that have been flagged as unreliable
+    const memories = await this.retrieveMemories(query, options);
+    return memories.filter(memory => 
+      !memory.metadata?.flaggedUnreliable && 
+      !memory.metadata?.excludeFromRetrieval
+    );
+  }
+  
+  /**
+   * Helper method to retrieve memories (placeholder for actual implementation)
+   * This would typically connect to the vector database
+   */
+  private async retrieveMemories(
+    query: string,
+    options: MemorySearchOptions = {}
+  ): Promise<MemoryEntry[]> {
+    // Placeholder implementation
+    // In a real implementation, this would query the vector database
     return [];
   }
   
@@ -232,10 +250,16 @@ export class MemoryRouter {
         }
       );
       
+      // Ensure we don't include unreliable content in our candidates
+      const filteredCandidates = candidates.filter(memory => 
+        !memory.metadata?.flaggedUnreliable && 
+        !memory.metadata?.excludeFromRetrieval
+      );
+      
       // If reranking is not enabled or we don't have the reranker, return as is
       if (!this.options.enableReranking || !this.rerankerService) {
         return {
-          entries: candidates.slice(0, finalLimit),
+          entries: filteredCandidates.slice(0, finalLimit),
           hasConfidence: false
         };
       }
@@ -243,7 +267,7 @@ export class MemoryRouter {
       // Step 2: Rerank the candidates with confidence threshold and validation
       const rerankedResult = await this.rerankerService.rerankWithConfidence(
         query, 
-        candidates, 
+        filteredCandidates, 
         {
           debug: options.debug,
           returnScores: options.returnScores || true,

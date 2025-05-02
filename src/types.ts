@@ -3,6 +3,7 @@ import { MessageType } from './constants/message';
 
 // Define message type for better type safety
 export interface Message {
+  id?: string; // Unique identifier for the message
   sender: string;
   content: string;
   timestamp: Date;

@@ -1,28 +1,25 @@
 import React, { useState, useEffect } from 'react';
 import { Message, FileAttachment } from '../types';
 import MarkdownRenderer from './MarkdownRenderer';
-import { Copy, FileText, MoreVertical, Star, Database } from 'lucide-react';
 import { highlightSearchMatches } from '../utils/smartSearch';
+import ChatBubbleMenu from './ChatBubbleMenu';
 
 interface ChatBubbleProps {
   message: Message;
   onImageClick: (attachment: FileAttachment, e: React.MouseEvent) => void;
   isInternalMessage?: boolean; // Flag indicating if this is an internal thought/reflection
   searchHighlight?: string; // Search query text to highlight
-}
-
-interface ContextMenuState {
-  visible: boolean;
-  position: 'top' | 'bottom';
+  'data-message-id'?: string; // Added property for message identification
 }
 
 const ChatBubble: React.FC<ChatBubbleProps> = ({ 
   message, 
   onImageClick,
   isInternalMessage = false,
-  searchHighlight = ''
+  searchHighlight = '',
+  'data-message-id': dataMessageId
 }) => {
-  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  const [showMenu, setShowMenu] = useState(false);
   const [highlightedContent, setHighlightedContent] = useState<string | null>(null);
   
   // Process search highlighting when content or search terms change
@@ -61,15 +58,9 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
     return null;
   }
 
-  // Show/hide context menu
-  const handleContextMenuClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    
-    // Determine if we should show the menu above or below
-    const position = window.innerHeight - e.clientY < 100 ? 'top' : 'bottom';
-    
-    // Toggle menu visibility
-    setContextMenu(contextMenu ? null : { visible: true, position });
+  // Toggle menu visibility
+  const toggleMenu = () => {
+    setShowMenu(!showMenu);
   };
 
   // Copy message content to clipboard
@@ -77,7 +68,6 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
     navigator.clipboard.writeText(text).then(() => {
       // Show toast notification
       showToast('Copied to clipboard!');
-      setContextMenu(null);
     }).catch(err => {
       console.error('Failed to copy text: ', err);
     });
@@ -87,7 +77,6 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
   const flagAsImportant = async (content: string) => {
     try {
       showToast('Flagging message as highly important...');
-      setContextMenu(null);
       
       const response = await fetch('/api/memory/flag-important', {
         method: 'POST',
@@ -112,11 +101,69 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
     }
   };
 
+  // Flag message as unreliable (thumbs down)
+  const flagAsUnreliable = async (content: string) => {
+    try {
+      showToast('Flagging message as unreliable...');
+      
+      const response = await fetch('/api/memory/flag-unreliable', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          content,
+          messageId: message.id,
+          timestamp: message.timestamp?.toISOString() || new Date().toISOString()
+        }),
+      });
+      
+      const data = await response.json();
+      if (data.success) {
+        showToast('Message flagged as unreliable! Future retrievals will exclude this content.');
+      } else {
+        showToast('Failed to flag message');
+      }
+    } catch (error) {
+      console.error('Error flagging message as unreliable:', error);
+      showToast('Error flagging message');
+    }
+  };
+
+  // Request regeneration (after thumbs down)
+  const requestRegeneration = async (content: string) => {
+    try {
+      showToast('Requesting regeneration...');
+      
+      const response = await fetch('/api/chat/regenerate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          messageId: message.id,
+          avoidContent: content,
+          timestamp: message.timestamp?.toISOString() || new Date().toISOString()
+        }),
+      });
+      
+      const data = await response.json();
+      if (data.success) {
+        showToast('Regenerating response...');
+        // The UI will update automatically when the response comes in
+      } else {
+        showToast('Failed to regenerate response');
+      }
+    } catch (error) {
+      console.error('Error requesting regeneration:', error);
+      showToast('Error requesting regeneration');
+    }
+  };
+
   // Add to knowledge base
   const addToKnowledge = async (content: string) => {
     try {
       showToast('Adding to knowledge base...');
-      setContextMenu(null);
       
       // Safely extract any metadata from the message
       const metadata = (message as any).metadata || {};
@@ -153,7 +200,6 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
   const exportToCoda = async (content: string) => {
     try {
       showToast('Exporting to Coda...');
-      setContextMenu(null);
       
       // Call the API to generate a title and create the document
       const response = await fetch('/api/tools/coda-export-content', {
@@ -214,10 +260,17 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
     ? new Date(message.timestamp).toLocaleTimeString()
     : 'Unknown time';
 
+  // Check if this is an assistant message (not a user message)
+  const isAssistantMessage = senderName !== 'You';
+
   return (
-    <div className={`flex ${senderName === 'You' ? 'justify-end' : 'justify-start'} mb-4`}>
-      <div className={`flex flex-col ${senderName === 'You' ? 'items-end' : 'items-start'}`}>
-        <div className={`w-auto max-w-none rounded-lg p-3 shadow ${
+    <div 
+      className={`flex ${senderName === 'You' ? 'justify-end' : 'justify-start'} mb-4`}
+      onMouseEnter={() => setShowMenu(true)}
+      onMouseLeave={() => setShowMenu(false)}
+    >
+      <div className={`flex flex-col ${senderName === 'You' ? 'items-end' : 'items-start'} max-w-2xl mr-3`}>
+        <div className={`w-full rounded-lg p-3 shadow ${
           isInternalMessage 
             ? 'bg-gray-900 text-gray-300 border border-amber-500' // Visual style for internal messages
           : senderName === 'You'
@@ -225,76 +278,29 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
             : 'bg-gray-700 text-white'
         }`}>
           {/* Message content */}
-          <div className="mb-1 relative pr-6 group">
-            {/* Render message with or without highlighting - DISABLED FOR NOW */}
-            {/*
-            {searchHighlight && highlightedContent ? (
-              <div 
-                className="prose dark:prose-invert max-w-none prose-sm"
-                dangerouslySetInnerHTML={{ __html: highlightedContent }}
-              />
-            ) : (
-            */}
-              <MarkdownRenderer content={message.content} onImageClick={handleImageClick} />
-            {/*}*/}
+          <div className="mb-1 relative">
+            <MarkdownRenderer content={message.content} onImageClick={handleImageClick} />
             
-            <button 
-              onClick={handleContextMenuClick}
-              className="absolute top-0 right-0 p-1 rounded-full text-gray-400 opacity-0 group-hover:opacity-100 hover:bg-gray-800 hover:text-white transition-opacity"
-              aria-label="Message options"
-            >
-              <MoreVertical className="h-4 w-4" />
-            </button>
-            
-            {/* Context menu */}
-            {contextMenu && contextMenu.visible && (
-              <div 
-                className={`absolute ${
-                  contextMenu.position === 'top' 
-                    ? 'bottom-full mb-1' 
-                    : 'top-full mt-1'
-                } right-0 z-10 w-48 bg-gray-800 rounded-md shadow-lg py-1`}
-              >
-                <button 
-                  onClick={() => copyToClipboard(message.content || '')}
-                  className="flex items-center w-full px-4 py-2 text-sm text-gray-300 hover:bg-gray-700"
-                >
-                  <Copy className="h-4 w-4 mr-2" />
-                  Copy text
-                </button>
-                
-                <button 
-                  onClick={() => flagAsImportant(message.content || '')}
-                  className="flex items-center w-full px-4 py-2 text-sm text-gray-300 hover:bg-gray-700"
-                >
-                  <Star className="h-4 w-4 mr-2" />
-                  Flag as important
-                </button>
-                
-                <button 
-                  onClick={() => addToKnowledge(message.content || '')}
-                  className="flex items-center w-full px-4 py-2 text-sm text-gray-300 hover:bg-gray-700"
-                >
-                  <Database className="h-4 w-4 mr-2" />
-                  Add to knowledge
-                </button>
-                
-                <button 
-                  onClick={() => exportToCoda(message.content || '')}
-                  className="flex items-center w-full px-4 py-2 text-sm text-gray-300 hover:bg-gray-700"
-                >
-                  <FileText className="h-4 w-4 mr-2" />
-                  Export to Coda
-                </button>
-              </div>
-            )}
+            {/* Message metadata */}
+            <div className="text-xs opacity-70 flex justify-between items-center mt-2">
+              <span>{senderName}</span>
+              <span>{formattedTime}</span>
+            </div>
           </div>
+        </div>
         
-          {/* Message metadata */}
-          <div className="text-xs opacity-70 flex justify-between items-center">
-            <span>{senderName}</span>
-            <span>{formattedTime}</span>
-          </div>
+        {/* Always render the menu but control visibility with CSS opacity */}
+        <div className={`transition-opacity duration-200 ${showMenu ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+          <ChatBubbleMenu
+            message={message}
+            onCopyText={copyToClipboard}
+            onFlagUnreliable={flagAsUnreliable}
+            onRegenerate={requestRegeneration}
+            onFlagImportant={flagAsImportant}
+            onAddToKnowledge={addToKnowledge}
+            onExportToCoda={exportToCoda}
+            isAssistantMessage={isAssistantMessage}
+          />
         </div>
       </div>
     </div>

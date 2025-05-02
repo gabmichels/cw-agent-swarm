@@ -1,16 +1,24 @@
-import React, { useEffect, useRef, useMemo } from 'react';
+import React, { useEffect, useRef, useMemo, useState, useCallback } from 'react';
 import { Message, FileAttachment } from '../types';
 import ChatBubble from './ChatBubble';
 import { filterChatVisibleMessages, isInternalMessage } from '../utils/messageFilters';
 import { MessageType } from '../constants/message';
 import { smartSearchMessages } from '../utils/smartSearch';
 
+// Extend Message type for internal use with optional id
+interface MessageWithId extends Message {
+  id?: string;
+}
+
 interface ChatMessagesProps {
-  messages: Message[];
+  messages: MessageWithId[];
   isLoading?: boolean;
   onImageClick: (attachment: FileAttachment, e: React.MouseEvent) => void;
   showInternalMessages?: boolean; // Dev mode flag to show internal messages
   searchQuery?: string; // Added search query prop
+  initialMessageId?: string; // Allow jumping to a specific message ID
+  pageSize?: number; // Number of messages to load at once
+  preloadCount?: number; // Number of messages to preload
 }
 
 const ChatMessages: React.FC<ChatMessagesProps> = ({ 
@@ -18,29 +26,25 @@ const ChatMessages: React.FC<ChatMessagesProps> = ({
   isLoading = false, 
   onImageClick,
   showInternalMessages = false,
-  searchQuery = ''
+  searchQuery = '',
+  initialMessageId = '',
+  pageSize = 20,
+  preloadCount = 10
 }) => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const [visibleRange, setVisibleRange] = useState<{ start: number; end: number }>({ 
+    start: 0, 
+    end: 0 
+  });
+  const [isScrollingUp, setIsScrollingUp] = useState(false);
+  const [lastScrollTop, setLastScrollTop] = useState(0);
+  const [hasJumpedToMessage, setHasJumpedToMessage] = useState(false);
+  const [prevMessageCount, setPrevMessageCount] = useState(0);
+  const [lastManualScrollTime, setLastManualScrollTime] = useState(0);
 
-  // Debug logging
-  useEffect(() => {
-    console.debug(
-      `ChatMessages received ${messages?.length || 0} messages, ` +
-      `showInternal=${showInternalMessages}` +
-      (searchQuery ? `, searchQuery="${searchQuery}"` : '')
-    );
-  }, [messages, showInternalMessages, searchQuery]);
-
-  // Scroll to bottom when messages change
-  useEffect(() => {
-    // Only auto-scroll if there's no active search
-    if (!searchQuery) {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [messages, searchQuery]);
-
-  // Combined filtering logic for visibility and search
-  const filteredMessages = useMemo(() => {
+  // Apply filters for internal messages and search
+  const processedMessages = useMemo(() => {
     if (!messages || !Array.isArray(messages)) {
       return [];
     }
@@ -131,36 +135,210 @@ const ChatMessages: React.FC<ChatMessagesProps> = ({
       console.log(`Filtered ${messages.length - visibleMessages.length} internal messages`);
     }
     
-    // Next, apply search filtering if there's a search query - DISABLED FOR NOW
-    /*
+    // Apply search filtering if search query exists
     if (searchQuery && searchQuery.trim() !== '') {
       console.log('Applying search for query:', searchQuery);
-       
-      // Use a simpler, direct text match for debugging
-      const simpleResults = visibleMessages.filter(message => 
-        message.content.toLowerCase().includes(searchQuery.toLowerCase())
-      );
-       
-      console.log(`Simple search returned ${simpleResults.length} matches`);
-       
-      // Use smart search as well for comparison
-      const smartResults = smartSearchMessages(visibleMessages, searchQuery, {
+      
+      // Use smart search for better results
+      const searchResults = smartSearchMessages(visibleMessages, searchQuery, {
         threshold: 0.65,
         includeMetadata: true
       });
-       
-      console.log(`Smart search returned ${smartResults.length} matches`);
-       
-      // Use the simple results for now to debug
-      return simpleResults;
+      
+      console.log(`Search returned ${searchResults.length} matches`);
+      return searchResults;
     }
-    */
     
     return visibleMessages;
   }, [messages, showInternalMessages, searchQuery]);
 
+  // Determine which messages to display based on pagination
+  const visibleMessages = useMemo(() => {
+    if (!processedMessages.length) return [];
+    
+    if (searchQuery) {
+      // When searching, we're showing all matches
+      return processedMessages;
+    }
+    
+    const { start, end } = visibleRange;
+    // If no range is set yet or invalid range, show at least the last 20 messages
+    if (start === 0 && end === 0) {
+      const displayEnd = processedMessages.length;
+      const displayStart = Math.max(0, displayEnd - pageSize);
+      return processedMessages.slice(displayStart, displayEnd);
+    }
+    
+    return processedMessages.slice(start, end);
+  }, [processedMessages, visibleRange, searchQuery, pageSize]);
+  
+  // Debug logging
+  useEffect(() => {
+    console.debug(
+      `ChatMessages received ${messages?.length || 0} messages, ` +
+      `showInternal=${showInternalMessages}` +
+      (searchQuery ? `, searchQuery="${searchQuery}"` : '')
+    );
+    
+    // Log container dimensions
+    if (messagesContainerRef.current) {
+      const { clientHeight, scrollHeight } = messagesContainerRef.current;
+      console.debug(
+        `Container dimensions: clientHeight=${clientHeight}, ` +
+        `scrollHeight=${scrollHeight}, ` +
+        `messagesVisible=${visibleMessages.length}`
+      );
+    }
+  }, [messages, showInternalMessages, searchQuery, visibleMessages]);
+
+  // Initialize visible range - start with most recent messages
+  useEffect(() => {
+    if (processedMessages.length > 0) {
+      if (initialMessageId) {
+        // Find the message index by ID
+        const messageIndex = processedMessages.findIndex(m => m.id === initialMessageId);
+        if (messageIndex !== -1) {
+          // Calculate range around the found message
+          const start = Math.max(0, messageIndex - preloadCount);
+          const end = Math.min(processedMessages.length, messageIndex + pageSize - preloadCount);
+          setVisibleRange({ start, end });
+          setHasJumpedToMessage(true);
+        } else {
+          // If message not found, show most recent messages
+          const end = processedMessages.length;
+          const start = Math.max(0, end - pageSize);
+          setVisibleRange({ start, end });
+        }
+      } else {
+        // No specific message requested, show most recent messages
+        const end = processedMessages.length;
+        const start = Math.max(0, end - pageSize);
+        setVisibleRange({ start, end });
+      }
+    }
+  }, [processedMessages, initialMessageId, pageSize, preloadCount]);
+
+  // Scroll handling for lazy loading
+  const handleScroll = useCallback(() => {
+    if (!messagesContainerRef.current) return;
+    
+    // Record the time of this manual scroll
+    setLastManualScrollTime(Date.now());
+    
+    const { scrollTop, scrollHeight, clientHeight } = messagesContainerRef.current;
+    
+    // Calculate scroll position - 0 is at top, 1 is at bottom
+    const scrollPosition = scrollTop / (scrollHeight - clientHeight || 1);
+    
+    // Detect scroll direction
+    const scrollDirection = scrollTop < lastScrollTop ? 'up' : 'down';
+    setLastScrollTop(scrollTop);
+    
+    // User has scrolled away from the bottom - disable auto-scrolling
+    const isAtBottom = scrollPosition > 0.9;
+    if (!isAtBottom) {
+      setIsScrollingUp(true);
+    } else if (scrollDirection === 'down' && isAtBottom) {
+      // User has scrolled back to the bottom - re-enable auto-scrolling
+      setIsScrollingUp(false);
+    }
+    
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`Scroll: pos=${scrollPosition.toFixed(2)}, dir=${scrollDirection}, atBottom=${isAtBottom}, preventAutoScroll=${isScrollingUp}`);
+    }
+    
+    // Near top - load previous messages (when scrolling up and near top)
+    if (scrollTop < 200 && visibleRange.start > 0) {
+      const newStart = Math.max(0, visibleRange.start - preloadCount);
+      setVisibleRange(prev => {
+        // Preserve scroll position when adding content at the top
+        if (newStart < prev.start) {
+          const currentScrollPos = scrollTop;
+          requestAnimationFrame(() => {
+            if (messagesContainerRef.current) {
+              const newScrollHeight = messagesContainerRef.current.scrollHeight;
+              messagesContainerRef.current.scrollTop = 
+                currentScrollPos + (newScrollHeight - scrollHeight);
+            }
+          });
+        }
+        return { ...prev, start: newStart };
+      });
+    }
+    
+    // Near bottom - load next messages if not at the end
+    if (scrollHeight - scrollTop - clientHeight < 200 && 
+        visibleRange.end < processedMessages.length) {
+      setVisibleRange(prev => ({
+        ...prev,
+        end: Math.min(processedMessages.length, prev.end + preloadCount)
+      }));
+    }
+  }, [lastScrollTop, visibleRange, processedMessages.length, preloadCount]);
+
+  // Set up scroll listener
+  useEffect(() => {
+    const container = messagesContainerRef.current;
+    if (container) {
+      container.addEventListener('scroll', handleScroll);
+      
+      // Initial check to see if we need to load more in either direction
+      handleScroll();
+      
+      return () => container.removeEventListener('scroll', handleScroll);
+    }
+  }, [handleScroll]);
+
+  // Scroll to bottom for new messages
+  useEffect(() => {
+    // Check if we have new messages by comparing current count with previous count
+    const hasNewMessages = messages.length > prevMessageCount;
+    setPrevMessageCount(messages.length);
+    
+    // Check if we've manually scrolled recently (within the last 1.5 seconds)
+    const hasManuallyScrolledRecently = Date.now() - lastManualScrollTime < 1500;
+
+    // Only auto-scroll if:
+    // - There's no active search
+    // - We're not in the middle of scrolling up
+    // - We haven't just jumped to a specific message
+    // - We're adding a new message (messages.length increased)
+    // - We haven't manually scrolled in the last 1.5 seconds
+    const shouldScrollToBottom = !searchQuery && 
+                               !isScrollingUp && 
+                               !hasJumpedToMessage &&
+                               hasNewMessages &&
+                               !hasManuallyScrolledRecently;
+                               
+    if (shouldScrollToBottom) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+    
+    // Reset the jump flag after the first render
+    if (hasJumpedToMessage) {
+      setHasJumpedToMessage(false);
+    }
+    
+    // Make sure visible range is set
+    if (processedMessages.length > 0 && visibleRange.start === 0 && visibleRange.end === 0) {
+      const end = processedMessages.length;
+      const start = Math.max(0, end - pageSize);
+      setVisibleRange({ start, end });
+    }
+  }, [messages.length, searchQuery, isScrollingUp, hasJumpedToMessage, processedMessages, visibleRange, pageSize, lastManualScrollTime]);
+
+  // Scroll to specific message if initialMessageId is provided
+  useEffect(() => {
+    if (initialMessageId && hasJumpedToMessage) {
+      const messageElement = document.querySelector(`[data-message-id="${initialMessageId}"]`);
+      if (messageElement) {
+        messageElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }
+  }, [initialMessageId, visibleMessages, hasJumpedToMessage]);
+
   // Make sure we have valid messages to display
-  if (!filteredMessages || !Array.isArray(filteredMessages) || filteredMessages.length === 0) {
+  if (!processedMessages || !Array.isArray(processedMessages) || processedMessages.length === 0) {
     return (
       <div className="space-y-12">
         {isLoading ? (
@@ -192,35 +370,66 @@ const ChatMessages: React.FC<ChatMessagesProps> = ({
   }
 
   return (
-    <div className="space-y-12">
-      {/* Search info banner - disabled for now 
+    <div 
+      ref={messagesContainerRef} 
+      className="overflow-y-auto h-full space-y-4 pr-0 pl-4 pt-4 pb-4"
+      role="log"
+      aria-live="polite"
+      style={{ 
+        minHeight: '300px', 
+        height: '100%',
+        overflowY: 'auto',
+        scrollbarWidth: 'thin',
+        scrollbarColor: '#4a5568 #1a202c'
+      }}
+    >
+      <style jsx>{`
+        div {
+          /* Webkit browsers like Chrome, Safari */
+          &::-webkit-scrollbar {
+            width: 8px;
+          }
+          &::-webkit-scrollbar-track {
+            background: #1a202c;
+          }
+          &::-webkit-scrollbar-thumb {
+            background-color: #4a5568;
+            border-radius: 4px;
+          }
+          &::-webkit-scrollbar-thumb:hover {
+            background-color: #718096;
+          }
+          
+          /* Firefox */
+          scrollbar-width: thin;
+          scrollbar-color: #4a5568 #1a202c;
+        }
+      `}</style>
+      
+      {/* Search results banner */}
       {searchQuery && (
         <div className="sticky top-0 z-10 bg-blue-900 text-white text-sm p-2 rounded mb-4 flex justify-between items-center">
-          <span>Showing {filteredMessages.length} results for "{searchQuery}"</span>
-          {filteredMessages.length < messages.filter(m => !m.isInternalMessage).length && (
-            <span className="text-xs text-blue-200">
-              ({messages.filter(m => !m.isInternalMessage).length - filteredMessages.length} messages filtered)
-            </span>
-          )}
+          <span>Showing {processedMessages.length} results for "{searchQuery}"</span>
         </div>
       )}
-      */}
       
       {/* Debug info - only show in development */}
       {process.env.NODE_ENV === 'development' && (
         <div className="text-xs text-gray-500 mb-2 p-2 border border-gray-700 rounded">
-          Showing {filteredMessages.length} of {messages?.length || 0} messages 
+          Showing {visibleMessages.length} of {processedMessages.length} processed messages 
+          (total: {messages?.length || 0})
           {searchQuery ? ` (filtered by search: "${searchQuery}")` : ''} (Dev)
         </div>
       )}
     
-      {filteredMessages.map((message, index) => (
+      {visibleMessages.map((message, index) => (
         <ChatBubble 
-          key={`msg-${index}-${message.timestamp?.getTime() || index}`}
+          key={`msg-${message.id || index}-${message.timestamp?.getTime() || index}`}
           message={message}
           onImageClick={onImageClick}
           isInternalMessage={message.isInternalMessage || false}
           searchHighlight={searchQuery}
+          data-message-id={message.id || `msg-${index}`}
         />
       ))}
       

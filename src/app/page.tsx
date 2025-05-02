@@ -58,6 +58,8 @@ export default function Home() {
   const [imageCaption, setImageCaption] = useState<string>('');
   const [isImageModalOpen, setIsImageModalOpen] = useState(false);
   const [showInternalMessages, setShowInternalMessages] = useState<boolean>(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedMessageId, setSelectedMessageId] = useState('');
   
   // Initialize showInternalMessages from localStorage
   useEffect(() => {
@@ -1949,6 +1951,19 @@ For detailed instructions, see the Debug panel.`,
     return () => window.removeEventListener('keydown', handleKeyPress);
   }, [messages, showInternalMessages]);
 
+  // Search messages
+  const handleSearch = (query: string) => {
+    setSearchQuery(query);
+    setSelectedMessageId(''); // Reset selected message when performing a new search
+  };
+  
+  // Jump to a specific message
+  const jumpToMessage = (messageId: string) => {
+    setSelectedMessageId(messageId);
+    // Clear search when jumping to a message
+    if (searchQuery) setSearchQuery('');
+  };
+
   return (
     <div className="flex flex-col h-screen bg-gray-900 text-white">
       {/* Image Modal */}
@@ -1996,19 +2011,20 @@ For detailed instructions, see the Debug panel.`,
         {/* Chat container */}
         <div className={`flex-1 flex flex-col ${isFullscreen ? 'w-full' : ''}`}>
           <div className="flex-1 flex flex-col overflow-hidden">
-            {/* Chat header with tabs and fullscreen toggle */}
+            {/* Chat header with tabs, fullscreen toggle, and search */}
             <TabsNavigation
               selectedTab={selectedTab}
               setSelectedTab={setSelectedTab}
               isFullscreen={isFullscreen}
               toggleFullscreen={toggleFullscreen}
+              onSearch={handleSearch}
             />
 
             {/* Main chat area */}
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
               {selectedTab === 'chat' && (
                 <div className="flex flex-col h-full overflow-hidden">
-                  <div className="flex-1 overflow-y-auto p-4 mb-4">
+                  <div className="flex-1 h-full">
                     {/* Use the new ChatMessages component */}
                     {messages.length > 0 && (
                       <ChatMessages 
@@ -2016,6 +2032,10 @@ For detailed instructions, see the Debug panel.`,
                         isLoading={isLoading}
                         onImageClick={handleImageClick}
                         showInternalMessages={showInternalMessages}
+                        pageSize={20}
+                        preloadCount={10}
+                        searchQuery={searchQuery}
+                        initialMessageId={selectedMessageId}
                       />
                     )}
                     
