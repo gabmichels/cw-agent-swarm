@@ -21,6 +21,7 @@ import {
 import { KnowledgeGraph } from '../KnowledgeGraph';
 import { KnowledgeGraphService } from '../KnowledgeGraphService';
 import { logger } from '../../logging';
+import { KnowledgeGraphManager } from '../../../agents/chloe/knowledge/graphManager';
 
 // Initialize OpenAI client
 const openai = new OpenAI({
@@ -36,6 +37,7 @@ export class KnowledgeFlaggingService {
   private knowledgeGraphService: KnowledgeGraphService;
   private dataDir: string;
   private initialized: boolean = false;
+  private knowledgeGraphManager: KnowledgeGraphManager | null = null;
   
   /**
    * Create a new knowledge flagging service
@@ -361,6 +363,9 @@ export class KnowledgeFlaggingService {
     metadata: Record<string, any> = {}
   ): Promise<FlaggingResult> {
     try {
+      // Extract tags from metadata if present
+      const tags = metadata.tags || [];
+      
       const flaggedItem: FlaggedKnowledgeItem = {
         id: uuidv4(),
         title,
@@ -376,6 +381,7 @@ export class KnowledgeFlaggingService {
         suggestedProperties,
         metadata: {
           manualEntryDate: new Date().toISOString(),
+          tags, // Store tags in metadata
           ...metadata
         }
       };
@@ -484,6 +490,16 @@ export class KnowledgeFlaggingService {
   }
 
   /**
+   * Get or create the KnowledgeGraphManager instance
+   */
+  private getKnowledgeGraphManager(): KnowledgeGraphManager {
+    if (!this.knowledgeGraphManager) {
+      this.knowledgeGraphManager = new KnowledgeGraphManager();
+    }
+    return this.knowledgeGraphManager;
+  }
+
+  /**
    * Process an approved item by adding it to the knowledge graph
    */
   public async processApprovedItem(id: string): Promise<FlaggingResult> {
@@ -504,6 +520,30 @@ export class KnowledgeFlaggingService {
       
       if (!itemId) {
         return { success: false, error: `Failed to add item to knowledge graph` };
+      }
+      
+      // If there are tags in the metadata, sync them to the graph node
+      if (item.metadata?.tags && Array.isArray(item.metadata.tags)) {
+        try {
+          const graphManager = this.getKnowledgeGraphManager();
+          
+          // Create a memory-like object with id and tags
+          const memoryObject = {
+            id: itemId,
+            tags: item.metadata.tags,
+            metadata: {
+              flaggedItemId: id,
+              ...item.metadata
+            }
+          };
+          
+          // Sync tags to the graph
+          await graphManager.syncTagsToGraph(memoryObject);
+          logger.info(`Synced ${item.metadata.tags.length} tags to graph node ${itemId}`);
+        } catch (tagSyncError) {
+          logger.error(`Error syncing tags to graph for item ${id}:`, tagSyncError);
+          // Continue processing even if tag sync fails
+        }
       }
       
       // Mark as processed

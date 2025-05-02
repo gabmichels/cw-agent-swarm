@@ -438,12 +438,19 @@ export class ChloeMemory {
   }
 
   /**
-   * Get relevant memories for a query
+   * Get relevant memories for a query with tag-based prioritization
+   * @param query Search query
+   * @param limit Maximum number of results to return
+   * @param types Optional memory types to search
+   * @param contextTags Optional tags from current context to prioritize matching memories
+   * @param tagBoostFactor Optional factor to boost tag matches (default: 2)
    */
   async getRelevantMemories(
     query: string,
     limit: number = 5,
-    types?: string[]
+    types?: string[],
+    contextTags?: string[],
+    tagBoostFactor: number = 2
   ): Promise<MemoryEntry[]> {
     if (!this.initialized) {
       await this.initialize();
@@ -464,10 +471,19 @@ export class ChloeMemory {
       
       let allRelevantMemories: MemoryEntry[] = [];
       
+      // Determine if we have context tags to prioritize
+      const hasContextTags = contextTags && contextTags.length > 0;
+      
+      // If we have context tags, increase the limit to ensure we get enough candidates
+      // to filter by tag relevance
+      const searchLimit = hasContextTags 
+        ? Math.max(limit * 2, 10) // Double the limit or at least 10
+        : limit;
+      
       // Search for each memory type
       for (const type of memoryTypes) {
         let baseType: MemoryType;
-        let filter = {};
+        let filter: Record<string, any> = {};
         
         // Determine if this is a base type or extended type
         if (Object.values(MemoryType).includes(type as MemoryType)) {
@@ -478,13 +494,25 @@ export class ChloeMemory {
           filter = { type };
         }
         
+        // If we have context tags, we can include them in the filter to get better matches
+        // But we'll do our own post-processing to prioritize them
+        if (hasContextTags) {
+          // Use tags in filter only if tag-based search is specifically requested
+          // We'll do a separate prioritization step later
+          // Uncomment the next lines if you want direct tag filtering:
+          /*
+          // Add tags to filter, but don't require all (any match is good)
+          filter.tags = contextTags;
+          */
+        }
+        
         // Perform the semantic search
         if (typeof window === 'undefined') {
           const records = await serverQdrant.searchMemory(
             baseType as QdrantMemoryType, 
             query, 
             { 
-              limit: Math.ceil(limit / memoryTypes.length),
+              limit: Math.ceil(searchLimit / memoryTypes.length),
               filter
             }
           );
@@ -495,9 +523,54 @@ export class ChloeMemory {
         }
       }
       
-      // Sort by relevance (if we had scores, but we don't currently)
-      // For now, limit to the requested number
-      return allRelevantMemories.slice(0, limit);
+      // If we have context tags, prioritize memories that have matching tags
+      if (hasContextTags) {
+        // Calculate a tag-match score for each memory
+        const scoredMemories = allRelevantMemories.map(memory => {
+          const memoryTags = memory.tags || [];
+          const tagMatches = memoryTags.filter(tag => 
+            contextTags!.includes(tag.toLowerCase())
+          ).length;
+          
+          // Calculate score: 1 + (matchCount * boost / max possible matches)
+          // This gives a balanced boost without overwhelming semantic matches
+          const tagBoost = tagMatches > 0 
+            ? 1 + (tagMatches * tagBoostFactor / contextTags!.length) 
+            : 1;
+            
+          return {
+            memory,
+            score: tagBoost,
+            tagMatches
+          };
+        });
+        
+        // Sort by score (highest first) and extract the memories
+        allRelevantMemories = scoredMemories
+          .sort((a, b) => {
+            // First sort by tag matches
+            if (b.tagMatches !== a.tagMatches) {
+              return b.tagMatches - a.tagMatches;
+            }
+            // Then by score for same tag match count
+            return b.score - a.score;
+          })
+          .map(item => item.memory);
+      }
+      
+      // Dynamically adjust limit based on tag matches if contextTags are provided
+      const effectiveLimit = hasContextTags 
+        ? Math.min(
+            // Return more results if we have good tag matches
+            allRelevantMemories.filter(m => 
+              m.tags?.some(tag => contextTags!.includes(tag.toLowerCase()))
+            ).length + Math.ceil(limit / 2),
+            limit * 2 // Don't exceed double the original limit
+          )
+        : limit;
+      
+      // Return the top N memories after tag-based prioritization
+      return allRelevantMemories.slice(0, effectiveLimit);
     } catch (error) {
       console.error('Error retrieving relevant memories:', error);
       return [];

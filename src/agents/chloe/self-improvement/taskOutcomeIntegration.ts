@@ -113,15 +113,17 @@ export async function processCompletedTask(
  * @param taskDescription Description of the task
  * @param taskType Optional task type
  * @param memory Memory system
+ * @param contextTags Optional tags to prioritize memory matches
  * @returns Promise<string[]> Array of relevant lessons
  */
 export async function getLessonsForTask(
   taskDescription: string,
   taskType: string | undefined,
-  memory: ChloeMemory
+  memory: ChloeMemory,
+  contextTags?: string[]
 ): Promise<string[]> {
   try {
-    return await getRelevantLessons(taskDescription, taskType, memory);
+    return await getRelevantLessons(taskDescription, taskType, memory, 3, contextTags);
   } catch (error) {
     console.error('Error retrieving lessons for task:', error);
     return [];

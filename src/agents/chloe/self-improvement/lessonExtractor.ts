@@ -288,21 +288,28 @@ Created: ${lesson.created.toISOString()}`;
  * @param taskType Optional task type for more targeted lessons
  * @param memory ChloeMemory instance
  * @param limit Maximum number of lessons to retrieve
+ * @param contextTags Optional tags to prioritize memory matches
  * @returns Promise<string[]> Array of relevant lesson content
  */
 export async function getRelevantLessons(
   task: string,
   taskType: string | undefined,
   memory: ChloeMemory,
-  limit: number = 3
+  limit: number = 3,
+  contextTags?: string[]
 ): Promise<string[]> {
   // Build a search query that combines task description and type
   const searchQuery = taskType 
     ? `LESSON for ${taskType} task: ${task}`
     : `LESSON for task: ${task}`;
   
-  // Query memory for relevant lessons
-  const lessons = await memory.getRelevantMemories(searchQuery, limit * 2);
+  // Query memory for relevant lessons, passing context tags for prioritization
+  const lessons = await memory.getRelevantMemories(
+    searchQuery, 
+    limit * 2,
+    undefined, // types - use default
+    contextTags // contextTags for tag-based prioritization
+  );
   
   // Filter for actual lessons
   const lessonMemories = lessons.filter(mem => 

@@ -64,6 +64,101 @@ export class KnowledgeGraphManager {
   }
 
   /**
+   * Sync tags between memory entries and corresponding nodes in the knowledge graph
+   * @param memory The memory entry containing tags to sync
+   * @param nodeId Optional specific node ID to update (if null, will look for matching nodes)
+   * @returns Boolean indicating if tags were successfully synced
+   */
+  async syncTagsToGraph(memory: { id: string; tags?: string[]; metadata?: any }): Promise<boolean> {
+    try {
+      if (!memory.tags || !Array.isArray(memory.tags) || memory.tags.length === 0) {
+        console.log(`No tags to sync for memory ${memory.id}`);
+        return false;
+      }
+
+      // First try to find the node by memory ID in metadata
+      let nodeToUpdate: KnowledgeNode | undefined;
+      let nodeId: string | undefined;
+
+      // Search for nodes that might be linked to this memory
+      const nodeEntries = Array.from(this.nodes.entries());
+      for (let i = 0; i < nodeEntries.length; i++) {
+        const [id, node] = nodeEntries[i];
+        // Check various common metadata fields that might contain the memory ID
+        if (
+          node.metadata?.memoryId === memory.id ||
+          node.metadata?.sourceMemoryId === memory.id ||
+          node.metadata?.originalId === memory.id ||
+          node.metadata?.flaggedItemId === memory.id
+        ) {
+          nodeToUpdate = node;
+          nodeId = id;
+          break;
+        }
+      }
+
+      if (!nodeToUpdate) {
+        console.log(`No matching node found for memory ${memory.id}`);
+        return false;
+      }
+
+      // Update the node's tags, merging with existing tags
+      const existingTags = nodeToUpdate.tags || [];
+      const uniqueTags = new Set<string>();
+      existingTags.forEach(tag => uniqueTags.add(tag));
+      memory.tags.forEach(tag => uniqueTags.add(tag));
+      const newTags = Array.from(uniqueTags);
+      
+      nodeToUpdate.tags = newTags;
+      
+      // Also add tags to metadata for additional context
+      if (!nodeToUpdate.metadata) {
+        nodeToUpdate.metadata = {};
+      }
+      nodeToUpdate.metadata.tags = newTags;
+      nodeToUpdate.metadata.lastTagSync = new Date().toISOString();
+
+      // Update the node in the graph
+      this.nodes.set(nodeId!, nodeToUpdate);
+      
+      console.log(`Successfully synced ${memory.tags.length} tags to node ${nodeId}`);
+      return true;
+    } catch (error) {
+      console.error(`Error syncing tags to graph:`, error);
+      return false;
+    }
+  }
+
+  /**
+   * Find nodes that match specific tags
+   * @param tags Array of tags to search for
+   * @param matchAll If true, nodes must have all tags; if false, match any tag
+   * @returns Array of matching nodes
+   */
+  async findNodesByTags(tags: string[], matchAll: boolean = false): Promise<KnowledgeNode[]> {
+    if (!tags || tags.length === 0) {
+      return [];
+    }
+
+    return Array.from(this.nodes.values()).filter(node => {
+      if (!node.tags || node.tags.length === 0) {
+        return false;
+      }
+
+      const nodeTags = node.tags.map(tag => tag.toLowerCase());
+      const searchTags = tags.map(tag => tag.toLowerCase());
+
+      if (matchAll) {
+        // Node must have all specified tags
+        return searchTags.every(tag => nodeTags.includes(tag));
+      } else {
+        // Node must have at least one of the specified tags
+        return searchTags.some(tag => nodeTags.includes(tag));
+      }
+    });
+  }
+
+  /**
    * Add an edge between two nodes
    * @param edge The edge to add
    */

@@ -11,6 +11,7 @@ import {
 } from './types';
 import { FlaggedKnowledgeItem } from './flagging/types';
 import { logger } from '../logging';
+import { KnowledgeGraphManager, KnowledgeNode } from '../../agents/chloe/knowledge/graphManager';
 
 // Initialize OpenAI client
 const openai = new OpenAI({
@@ -51,9 +52,66 @@ export interface SuggestedGraphRelationship {
 export class KnowledgeGraphService {
   private knowledgeGraph: KnowledgeGraph;
   private qualityScores: Map<string, QualityScore> = new Map();
+  private graphManager: KnowledgeGraphManager | null = null;
   
   constructor(knowledgeGraph: KnowledgeGraph) {
     this.knowledgeGraph = knowledgeGraph;
+  }
+  
+  /**
+   * Get or create the KnowledgeGraphManager instance
+   */
+  private getGraphManager(): KnowledgeGraphManager {
+    if (!this.graphManager) {
+      this.graphManager = new KnowledgeGraphManager();
+    }
+    return this.graphManager;
+  }
+  
+  /**
+   * Search for knowledge nodes by tags
+   * @param tags Array of tags to search for
+   * @param matchAll If true, nodes must match all tags; otherwise match any tag
+   * @returns Array of matched knowledge nodes
+   */
+  public async searchNodesByTags(tags: string[], matchAll: boolean = false): Promise<KnowledgeNode[]> {
+    if (!tags || tags.length === 0) {
+      return [];
+    }
+    
+    const graphManager = this.getGraphManager();
+    return graphManager.findNodesByTags(tags, matchAll);
+  }
+  
+  /**
+   * Update tags for a knowledge item
+   * @param itemId The ID of the knowledge item
+   * @param tags The tags to assign to the item
+   * @param append If true, append tags to existing ones; if false, replace
+   */
+  public async updateItemTags(itemId: string, tags: string[], append: boolean = true): Promise<boolean> {
+    if (!itemId || !tags || tags.length === 0) {
+      return false;
+    }
+    
+    try {
+      const graphManager = this.getGraphManager();
+      
+      // Create memory-like object for tag syncing
+      const memoryObject = {
+        id: itemId,
+        tags: tags,
+        metadata: {
+          updateTimestamp: new Date().toISOString(),
+          replaceExisting: !append
+        }
+      };
+      
+      return await graphManager.syncTagsToGraph(memoryObject);
+    } catch (error) {
+      logger.error(`Error updating tags for item ${itemId}:`, error);
+      return false;
+    }
   }
   
   /**

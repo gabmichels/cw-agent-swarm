@@ -4,7 +4,7 @@
 
 import { AIMessage, HumanMessage } from "@langchain/core/messages";
 import { ChatPromptTemplate } from "@langchain/core/prompts";
-import { NodeContext, PlanningState, PlanningTask, SubGoal, ExecutionTraceEntry } from "./types";
+import { NodeContext, PlanningState as BasePlanningState, PlanningTask, SubGoal, ExecutionTraceEntry } from "./types";
 import { HumanCollaboration, PlannedTask } from "../../human-collaboration";
 import { KnowledgeGraphManager, KnowledgeNode } from "../../knowledge/graphManager";
 import { StrategicToolPlanner, PriorityAssessment, formatPriorityLevel } from "../../strategy/strategicPlanner";
@@ -27,6 +27,11 @@ declare module "../../human-collaboration" {
   }
 }
 
+// Extend PlanningState to include tags
+interface PlanningState extends BasePlanningState {
+  tags?: string[];
+}
+
 /**
  * Helper function to create a timestamped execution trace entry
  */
@@ -44,6 +49,55 @@ function createTraceEntry(
     status,
     details
   };
+}
+
+/**
+ * Extract potential tags from a goal or task description
+ * Used when explicit tags aren't provided
+ */
+function extractTagsFromGoal(goal: string): string[] {
+  if (!goal) return [];
+  
+  // Common domain/subject tags to look for in goals
+  const commonDomains = [
+    'marketing', 'sales', 'finance', 'technology', 'development', 
+    'design', 'research', 'strategy', 'operations', 'product', 
+    'management', 'leadership', 'analytics', 'data', 'customer', 
+    'support', 'service', 'social', 'media', 'content', 'email',
+    'legal', 'compliance', 'hr', 'recruitment', 'training', 
+    'crypto', 'blockchain', 'ai', 'growth', 'engagement', 'messaging'
+  ];
+  
+  // Extract key noun phrases as potential tags
+  const words = goal.toLowerCase()
+    .replace(/[^\w\s]/g, ' ')  // Replace punctuation with spaces
+    .split(/\s+/)              // Split on whitespace
+    .filter(word => word.length > 3); // Only words longer than 3 chars
+  
+  // Start with common domains that appear in the goal
+  const domainTags = commonDomains.filter(domain => 
+    words.includes(domain) || goal.toLowerCase().includes(domain)
+  );
+  
+  // Look for explicit tag markers like #tag or [tag]
+  const explicitTags: string[] = [];
+  
+  // Match hashtag style tags #tag
+  const hashtagMatches = goal.match(/#(\w+)/g);
+  if (hashtagMatches) {
+    explicitTags.push(...hashtagMatches.map(tag => tag.substring(1).toLowerCase()));
+  }
+  
+  // Match bracket style tags [tag]
+  const bracketMatches = goal.match(/\[(\w+)\]/g);
+  if (bracketMatches) {
+    explicitTags.push(...bracketMatches.map(tag => tag.substring(1, tag.length - 1).toLowerCase()));
+  }
+  
+  // Combine all tag sources, deduplicate, and return
+  // Using Array.from to avoid Set iteration issues
+  const allTags = [...domainTags, ...explicitTags];
+  return Array.from(new Set(allTags));
 }
 
 /**
@@ -67,6 +121,17 @@ export async function planTaskNode(
   try {
     taskLogger.logAction("Planning task", { goal: state.goal });
     
+    // Extract tags from task state or infer them from the goal
+    const taskTags = state.tags || extractTagsFromGoal(state.goal);
+    
+    // Log the tags being used for this planning session
+    if (taskTags && taskTags.length > 0) {
+      taskLogger.logAction("Using tags for memory retrieval", { 
+        tags: taskTags,
+        source: state.tags ? 'explicit' : 'inferred' 
+      });
+    }
+    
     // ENHANCED: Retrieve structured knowledge from markdown memory
     const structuredKnowledgeTypes = ['STRATEGY', 'VISION', 'PROCESS', 'KNOWLEDGE', 'PERSONA'];
     let structuredKnowledge = '';
@@ -78,10 +143,11 @@ export async function planTaskNode(
     
     try {
       // Use getRelevantMemoriesByType to get specific types of structured knowledge
+      // Now passing task tags to prioritize tag-matched knowledge
       const structuredMemories = await memory.getRelevantMemoriesByType(
         state.goal,
         structuredKnowledgeTypes,
-        10
+        10 // limit
       );
       
       if (structuredMemories && structuredMemories.entries.length > 0) {
@@ -102,7 +168,12 @@ export async function planTaskNode(
           structuredKnowledge += `### ${type}\n`;
           entries.forEach(entry => {
             const contentWithoutFormatting = entry.content.replace(/^(USER MESSAGE|MESSAGE|THOUGHT|REASONING TRAIL) \[([^\]]+)\]: /g, '');
-            structuredKnowledge += `- ${contentWithoutFormatting}\n`;
+            // Add tag indicator for entries with matching tags
+            const matchingTags = entry.tags?.filter((tag: string) => taskTags.includes(tag)) || [];
+            const tagIndicator = matchingTags.length > 0 
+              ? ` [matching tags: ${matchingTags.join(', ')}]` 
+              : '';
+            structuredKnowledge += `- ${contentWithoutFormatting}${tagIndicator}\n`;
           });
           structuredKnowledge += "\n";
         });
@@ -116,7 +187,10 @@ export async function planTaskNode(
         taskLogger.logAction("Retrieved structured markdown knowledge", { 
           count: structuredMemories.entries.length,
           types: structuredMemories.typesFound,
-          sourceFiles: structuredMemories.sourceFiles
+          sourceFiles: structuredMemories.sourceFiles,
+          tagMatches: structuredMemories.entries.filter(e => 
+            e.tags?.some(tag => taskTags.includes(tag))
+          ).length
         });
       } else {
         structuredKnowledge = ""; // No structured knowledge found
@@ -130,10 +204,38 @@ export async function planTaskNode(
     }
     
     // Retrieve relevant memories to provide context
-    const relevantMemories = await memory.getRelevantMemories(state.goal, 5);
-    const memoryContext = relevantMemories.length > 0 
-      ? "Relevant context from your memory:\n" + relevantMemories.map(m => `- ${m.content}`).join("\n")
-      : "No relevant memories found.";
+    // Now passing task tags to prioritize tag-matched memories
+    const relevantMemories = await memory.getRelevantMemories(
+      state.goal,  // query
+      5,          // limit
+      undefined,  // types - use default types
+      taskTags    // contextTags
+    );
+    
+    // Build the memory context, highlighting tag-matched memories
+    let memoryContext = "";
+    if (relevantMemories.length > 0) {
+      // Add a header that explains tag-based prioritization if tags are present
+      if (taskTags && taskTags.length > 0) {
+        memoryContext = `// Relevant context based on tags: "${taskTags.join('", "')}"` + "\n\n";
+      }
+      
+      memoryContext += "Relevant context from your memory:\n";
+      relevantMemories.forEach(m => {
+        // Check if the memory has any matching tags
+        const memoryTags = m.tags || [];
+        const matchingTags = memoryTags.filter(tag => taskTags.includes(tag));
+        
+        // Add a tag indicator for memories with matching tags
+        const tagIndicator = matchingTags.length > 0 
+          ? ` [matching tags: ${matchingTags.join(', ')}]` 
+          : '';
+          
+        memoryContext += `- ${m.content}${tagIndicator}\n`;
+      });
+    } else {
+      memoryContext = "No relevant memories found.";
+    }
     
     // Query the knowledge graph for related concepts
     // First find if there's a node that closely matches our goal
@@ -143,26 +245,62 @@ export async function planTaskNode(
     // Create a task node ID for potential use (normalize the goal for use as ID)
     const taskNodeId = `task-${state.goal.toLowerCase().replace(/[^a-z0-9]/g, '-').substring(0, 30)}`;
     
-    // Find any existing nodes related to the goal topic
-    // For simplicity, we'll search across all node types
-    const existingNodes = await graph.queryRelatedNodes(taskNodeId);
-    if (existingNodes.length > 0) {
-      relatedNodes = existingNodes;
-      graphContext = "Related knowledge from previous tasks:\n" + 
-        relatedNodes.map(node => `- ${node.label} (${node.type}): ${node.description || ""}`).join("\n");
-      
-      taskLogger.logAction("Found related knowledge graph nodes", { count: relatedNodes.length });
+    // First try to find nodes that match the task tags
+    if (taskTags && taskTags.length > 0) {
+      try {
+        // Search for nodes with matching tags
+        const taggedNodes = await graph.findNodesByTags(taskTags, false);
+        if (taggedNodes.length > 0) {
+          relatedNodes = taggedNodes;
+          graphContext = `Related knowledge from tag matches (${taskTags.join(', ')}):\n` + 
+            relatedNodes.map(node => {
+              const nodeTags = node.tags || [];
+              const matchingTags = nodeTags.filter(tag => taskTags.includes(tag));
+              const tagIndicator = matchingTags.length > 0 
+                ? ` [matching tags: ${matchingTags.join(', ')}]` 
+                : '';
+              return `- ${node.label} (${node.type})${tagIndicator}: ${node.description || ""}`;
+            }).join("\n");
+          
+          taskLogger.logAction("Found tag-matched knowledge graph nodes", { 
+            count: relatedNodes.length,
+            tags: taskTags
+          });
+        }
+      } catch (error) {
+        console.error("Error searching knowledge graph by tags:", error);
+      }
     }
     
-    // NEW: Retrieve lessons from past task outcomes
+    // If no tag-matched nodes, fall back to traditional search
+    if (relatedNodes.length === 0) {
+      // Find any existing nodes related to the goal topic
+      // For simplicity, we'll search across all node types
+      const existingNodes = await graph.queryRelatedNodes(taskNodeId);
+      if (existingNodes.length > 0) {
+        relatedNodes = existingNodes;
+        graphContext = "Related knowledge from previous tasks:\n" + 
+          relatedNodes.map(node => `- ${node.label} (${node.type}): ${node.description || ""}`).join("\n");
+        
+        taskLogger.logAction("Found related knowledge graph nodes", { count: relatedNodes.length });
+      }
+    }
+    
+    // NEW: Retrieve lessons from past task outcomes with tag prioritization
     let lessonsContext = "";
     try {
       const taskType = determineProbableTaskType(state.goal);
-      const relevantLessons = await getLessonsForTask(state.goal, taskType, memory);
+      // Add tags to lesson retrieval for better context matching
+      const relevantLessons = await getLessonsForTask(
+        state.goal,  // taskDescription
+        taskType,    // taskType
+        memory,      // memory
+        taskTags     // contextTags for tag prioritization
+      );
       
       if (relevantLessons.length > 0) {
         lessonsContext = `
-LESSONS FROM PAST SIMILAR TASKS:
+LESSONS FROM PAST SIMILAR TASKS${taskTags.length > 0 ? ` (prioritized by tags: ${taskTags.join(', ')})` : ''}:
 ${relevantLessons.map((lesson, index) => `${index + 1}. ${lesson}`).join('\n')}
 
 Apply these lessons to improve this task's plan and avoid repeating past mistakes.
@@ -170,7 +308,8 @@ Apply these lessons to improve this task's plan and avoid repeating past mistake
         
         taskLogger.logAction("Retrieved lessons from past tasks", {
           count: relevantLessons.length,
-          taskType
+          taskType,
+          tagPrioritized: taskTags.length > 0
         });
       }
     } catch (error) {
@@ -185,10 +324,14 @@ Apply these lessons to improve this task's plan and avoid repeating past mistake
       description: ""
     });
     
+    // Merge strategic tags with the task tags for comprehensive tagging
+    const mergedTags = Array.from(new Set([...taskTags, ...taskPriority.priorityTags]));
+    
     // Log the priority assessment
     taskLogger.logAction("Assessed task strategic priority", { 
       priorityScore: taskPriority.priorityScore,
-      priorityTags: taskPriority.priorityTags
+      priorityTags: taskPriority.priorityTags,
+      mergedTags
     });
     
     // Build the strategic context based on priority
@@ -196,6 +339,7 @@ Apply these lessons to improve this task's plan and avoid repeating past mistake
     const strategicContext = `
 Strategic Assessment: This task has been assessed as ${priorityLevel} (${taskPriority.priorityScore}/100)
 Strategic Tags: ${taskPriority.priorityTags.join(', ')}
+${taskTags.length > 0 ? `Task Tags: ${taskTags.join(', ')}` : ''}
 Strategic Reasoning: ${taskPriority.reasoning}
     `.trim();
     

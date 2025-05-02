@@ -217,8 +217,18 @@ export class MemoryManager implements IManager {
 
   /**
    * Get memories that match the query
+   * Automatically extracts contextual tags from the query to prioritize tag-matched memories
+   * 
+   * @param query The search query
+   * @param limit Maximum number of results to return
+   * @param contextTags Optional explicit tags to prioritize (if not provided, will be extracted from query)
+   * @returns Array of memory strings
    */
-  async getRelevantMemories(query: string, limit: number = 5): Promise<string[]> {
+  async getRelevantMemories(
+    query: string, 
+    limit: number = 5, 
+    contextTags?: string[]
+  ): Promise<string[]> {
     if (!this.initialized) {
       await this.initialize();
     }
@@ -227,9 +237,67 @@ export class MemoryManager implements IManager {
       throw new Error('ChloeMemory not initialized');
     }
     
+    // Extract potential tags from the query if explicit tags aren't provided
+    const extractedTags = contextTags || this.extractTagsFromQuery(query);
+    
     // Convert MemoryEntry[] to string[]
-    const memories = await this.chloeMemory.getRelevantMemories(query, limit);
+    const memories = await this.chloeMemory.getRelevantMemories(
+      query, 
+      limit, 
+      undefined, // Use default types
+      extractedTags
+    );
+    
     return memories.map(memory => typeof memory === 'string' ? memory : memory.content);
+  }
+  
+  /**
+   * Extract potential tags from a query
+   * This helps identify topic tags that might be relevant to the query
+   * 
+   * @param query The query to extract tags from
+   * @returns Array of potential tags
+   */
+  private extractTagsFromQuery(query: string): string[] {
+    if (!query) return [];
+    
+    // Common domain/subject tags that might appear in queries
+    const commonDomains = [
+      'marketing', 'sales', 'finance', 'technology', 'development', 
+      'design', 'research', 'strategy', 'operations', 'product', 
+      'management', 'leadership', 'analytics', 'data', 'customer', 
+      'support', 'service', 'social', 'media', 'content', 'email',
+      'legal', 'compliance', 'hr', 'recruitment', 'training'
+    ];
+    
+    // Extract key noun phrases as potential tags
+    const words = query.toLowerCase()
+      .replace(/[^\w\s]/g, ' ')  // Replace punctuation with spaces
+      .split(/\s+/)              // Split on whitespace
+      .filter(word => word.length > 3); // Only words longer than 3 chars
+    
+    // Start with common domains that appear in the query
+    const domainTags = commonDomains.filter(domain => 
+      words.includes(domain) || query.toLowerCase().includes(domain)
+    );
+    
+    // Look for explicit tag markers like #tag or [tag]
+    const explicitTags: string[] = [];
+    
+    // Match hashtag style tags #tag
+    const hashtagMatches = query.match(/#(\w+)/g);
+    if (hashtagMatches) {
+      explicitTags.push(...hashtagMatches.map(tag => tag.substring(1).toLowerCase()));
+    }
+    
+    // Match bracket style tags [tag]
+    const bracketMatches = query.match(/\[(\w+)\]/g);
+    if (bracketMatches) {
+      explicitTags.push(...bracketMatches.map(tag => tag.substring(1, tag.length - 1).toLowerCase()));
+    }
+    
+    // Combine all tag sources, deduplicate, and return
+    return Array.from(new Set([...domainTags, ...explicitTags]));
   }
 
   /**
