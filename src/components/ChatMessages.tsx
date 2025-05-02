@@ -88,9 +88,22 @@ const ChatMessages: React.FC<ChatMessagesProps> = ({
         // System messages
         messageText.includes('performance review:') ||
         messageText.includes('success rate:') ||
-        messageText.includes('task completion:')
+        messageText.includes('task completion:') ||
+        // Filter markdown content
+        messageText.startsWith('# ')
       ) {
         return false;
+      }
+      
+      // Check for metadata indicating markdown source
+      if (message.metadata) {
+        if (
+          message.metadata.source === 'file' || 
+          message.metadata.filePath || 
+          message.metadata.isKnowledge
+        ) {
+          return false;
+        }
       }
       
       // Check for sender patterns indicating internal messages

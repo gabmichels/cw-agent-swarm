@@ -12,6 +12,7 @@ export interface Message {
   visionResponseFor?: string; // Timestamp string of the message this is a vision response for
   messageType?: MessageType; // Type of message for proper routing
   isInternalMessage?: boolean; // Flag to indicate if message should be shown in chat UI
+  metadata?: Record<string, any>; // Additional message metadata
 }
 
 // Define interface for file attachment

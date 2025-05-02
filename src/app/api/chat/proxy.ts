@@ -9,6 +9,7 @@ import {
   DEBUG_CONSTANTS 
 } from '../../../constants/proxy';
 import { STORAGE_KEYS, DEFAULTS } from '../../../constants/qdrant';
+import { MemorySource } from '../../../constants/memory';
 
 // Dynamically import the Chloe agent to avoid import errors
 async function getChloeAgent() {
@@ -115,8 +116,15 @@ async function loadChatHistoryFromQdrant(specificUserId?: string) {
 
         // Skip messages from internal sources
         if (message.metadata[METADATA_KEYS.SOURCE] === MESSAGE_SOURCES.INTERNAL || 
-            message.metadata[METADATA_KEYS.SOURCE] === MESSAGE_SOURCES.SYSTEM) {
-          console.log(`Filtering out message ${message.id} from internal/system source`);
+            message.metadata[METADATA_KEYS.SOURCE] === MESSAGE_SOURCES.SYSTEM ||
+            message.metadata[METADATA_KEYS.SOURCE] === MemorySource.FILE) {
+          console.log(`Filtering out message ${message.id} from internal/system/file source`);
+          return false;
+        }
+
+        // Skip messages with file paths (indicating markdown file source)
+        if (message.metadata.filePath) {
+          console.log(`Filtering out message ${message.id} with filePath: ${message.metadata.filePath}`);
           return false;
         }
 
@@ -145,7 +153,15 @@ async function loadChatHistoryFromQdrant(specificUserId?: string) {
           message.text.startsWith(INTERNAL_MESSAGE_PATTERNS.TIMESTAMP_PREFIX) ||
           message.text.startsWith(INTERNAL_MESSAGE_PATTERNS.IMPORTANT_THOUGHT_PREFIX) ||
           message.text.startsWith(INTERNAL_MESSAGE_PATTERNS.IMPORTANT_THOUGHT_PREFIX_LC) ||
-          message.text.includes(INTERNAL_MESSAGE_PATTERNS.IMPORTANT_THOUGHT)) {  // Timestamp markers often indicate internal messages
+          message.text.includes(INTERNAL_MESSAGE_PATTERNS.IMPORTANT_THOUGHT) ||
+          // Markdown content patterns
+          message.text.startsWith(INTERNAL_MESSAGE_PATTERNS.MARKDOWN_HEADER_PREFIX) ||
+          message.text.startsWith(INTERNAL_MESSAGE_PATTERNS.MARKDOWN_SUBHEADER_PREFIX) ||
+          message.text.startsWith(INTERNAL_MESSAGE_PATTERNS.YAML_FRONTMATTER_START) ||
+          // Filter out message format patterns that indicate duplicates
+          message.text.match(/^USER MESSAGE \[\d{4}-\d{2}-\d{2}/) ||
+          message.text.match(/^MESSAGE \[\d{4}-\d{2}-\d{2}/) ||
+          (message.text.indexOf('[') === 0 && message.text.indexOf(']:') > 0)) {
         console.log(`Filtering out internal message ${message.id} based on content pattern`);
         return false;
       }

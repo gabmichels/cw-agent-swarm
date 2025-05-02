@@ -316,7 +316,9 @@ export async function loadAllMarkdownAsMemory(knowledgeDir: string = 'data/knowl
               type: entry.type,
               tags: entry.tags,
               importance: entry.importance,
-              source: entry.source
+              source: entry.source,
+              notForChat: true,
+              isInternalMessage: true
             }
           );
           

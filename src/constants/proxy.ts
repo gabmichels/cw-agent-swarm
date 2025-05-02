@@ -30,6 +30,11 @@ export const INTERNAL_MESSAGE_PATTERNS = {
   IMPORTANT_THOUGHT_PREFIX: '!IMPORTANT! THOUGHT:',
   IMPORTANT_THOUGHT_PREFIX_LC: '!important! thought:',
   IMPORTANT_THOUGHT: '!IMPORTANT!',
+
+  // Markdown file content patterns
+  MARKDOWN_HEADER_PREFIX: '# ',
+  MARKDOWN_SUBHEADER_PREFIX: '## ',
+  YAML_FRONTMATTER_START: '---',
 };
 
 /**
