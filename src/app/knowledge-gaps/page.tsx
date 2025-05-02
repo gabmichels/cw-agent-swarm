@@ -193,9 +193,9 @@ export default function KnowledgeGapsPage() {
                 onChange={(e) => setFilter(e.target.value as any)}
                 className="bg-gray-700 border border-gray-600 rounded px-3 py-2"
               >
-                <option value="all">All Gaps</option>
-                <option value="unresolved">Unresolved Only</option>
-                <option value="resolved">Resolved Only</option>
+                <option key="all" value="all">All Gaps</option>
+                <option key="unresolved" value="unresolved">Unresolved Only</option>
+                <option key="resolved" value="resolved">Resolved Only</option>
               </select>
               <button
                 onClick={fetchKnowledgeGaps}

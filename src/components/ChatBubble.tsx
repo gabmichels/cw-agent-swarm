@@ -56,6 +56,26 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
     }
   }, [message, isInternalMessage, searchHighlight]);
 
+  useEffect(() => {
+    // Safety check for empty messages
+    if (!message.content) return;
+
+    // Special handling for markdown content in user messages
+    // This ensures markdown with code blocks displays properly in user bubbles
+    if (message.sender === 'You' && 
+        (message.content.includes('```') || 
+         message.content.includes('#') || 
+         message.content.includes('---'))) {
+      
+      console.debug('User message contains markdown, ensuring proper rendering');
+      
+      // Force a redraw of the message content
+      const updatedContent = message.content;
+      setMessageVersions([updatedContent]);
+      setCurrentVersionIndex(0);
+    }
+  }, [message.content, message.sender]);
+
   // Safety check - if we somehow received an invalid message
   if (!message || !message.content) {
     console.warn('Received invalid message in ChatBubble:', message);
@@ -306,24 +326,42 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
 
   // Get current content based on version index
   const currentContent = messageVersions[currentVersionIndex] || '';
+  
+  // Check if this is a user message
+  const isUserMessage = senderName === 'You';
 
+  // Determine CSS classes for message alignment and styling
+  const alignmentClasses = isUserMessage 
+    ? 'ml-auto' 
+    : 'mr-auto';
+  
+  const bgColorClasses = isUserMessage
+    ? 'bg-blue-600 text-white' 
+    : 'bg-gray-800 text-white';
+
+  // Get timestamp from message
+  const timestamp = message.timestamp instanceof Date 
+    ? message.timestamp 
+    : new Date(message.timestamp || Date.now());
+
+  const mainContent = highlightedContent || messageVersions[currentVersionIndex];
+  
   return (
     <div 
       className={`flex ${senderName === 'You' ? 'justify-end' : 'justify-start'} mb-4`}
       onMouseEnter={() => setShowMenu(true)}
       onMouseLeave={() => setShowMenu(false)}
+      id={message.id ? `message-${message.id}` : undefined}
     >
       <div className={`flex flex-col ${senderName === 'You' ? 'items-end' : 'items-start'} max-w-2xl mr-3`}>
-        <div className={`w-full rounded-lg p-3 shadow ${
-          isInternalMessage 
-            ? 'bg-gray-900 text-gray-300 border border-amber-500' // Visual style for internal messages
-          : senderName === 'You'
-            ? 'bg-blue-600 text-white'
-            : 'bg-gray-700 text-white'
-        }`}>
+        <div className={`w-full rounded-lg p-3 shadow ${bgColorClasses}`}>
           {/* Message content */}
           <div className="mb-1 relative">
-            <MarkdownRenderer content={currentContent} onImageClick={handleImageClick} />
+            <MarkdownRenderer 
+              content={mainContent} 
+              onImageClick={handleImageClick} 
+              isUserMessage={isUserMessage}
+            />
             
             {/* Message metadata with version indicators */}
             <div className="text-xs opacity-70 flex justify-between items-center mt-2">

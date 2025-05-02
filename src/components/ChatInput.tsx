@@ -1,4 +1,4 @@
-import React, { FormEvent, useRef, KeyboardEvent } from 'react';
+import React, { FormEvent, useRef, KeyboardEvent, useState, useEffect } from 'react';
 import { Send, X } from 'lucide-react';
 
 interface FileAttachment {
@@ -28,6 +28,9 @@ const ChatInput: React.FC<ChatInputProps> = ({
   handleFileSelect,
   inputRef,
 }) => {
+  const [isFocused, setIsFocused] = useState(false);
+  const textareaWrapperRef = useRef<HTMLDivElement>(null);
+  
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     // Submit on ENTER without SHIFT key
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -40,6 +43,21 @@ const ChatInput: React.FC<ChatInputProps> = ({
     }
     // SHIFT+ENTER adds a newline (default textarea behavior, no action needed)
   };
+
+  // Auto-resize textarea based on content height
+  useEffect(() => {
+    if (inputRef.current) {
+      // Reset height to auto to get the correct scrollHeight
+      inputRef.current.style.height = 'auto';
+      
+      // Calculate required height (with maximum)
+      const newHeight = isFocused 
+        ? Math.min(inputRef.current.scrollHeight, 150) 
+        : Math.min(40, inputRef.current.scrollHeight);
+      
+      inputRef.current.style.height = `${newHeight}px`;
+    }
+  }, [inputMessage, isFocused, inputRef]);
 
   return (
     <div>
@@ -122,17 +140,28 @@ const ChatInput: React.FC<ChatInputProps> = ({
             />
           </svg>
         </button>
-        <textarea
-          ref={inputRef}
-          value={inputMessage}
-          onChange={(e) => setInputMessage(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder={pendingAttachments.length > 0 ? "Add context about the file..." : "Type your message..."}
-          className="flex-1 bg-gray-700 border border-gray-600 rounded-l-lg py-2 px-3 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-          disabled={isLoading}
-          rows={1}
-          style={{ minHeight: '40px', maxHeight: '150px', overflow: 'auto' }}
-        />
+        <div ref={textareaWrapperRef} className="flex-1 relative">
+          <textarea
+            ref={inputRef}
+            value={inputMessage}
+            onChange={(e) => setInputMessage(e.target.value)}
+            onKeyDown={handleKeyDown}
+            onFocus={() => setIsFocused(true)}
+            onBlur={() => setIsFocused(false)}
+            placeholder={pendingAttachments.length > 0 ? "Add context about the file..." : "Type your message..."}
+            className="w-full bg-gray-700 border border-gray-600 rounded-l-lg py-2 px-3 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none transition-all duration-200"
+            disabled={isLoading}
+            rows={1}
+            style={{ 
+              minHeight: '40px', 
+              maxHeight: '150px', 
+              height: isFocused ? 'auto' : '40px',
+              overflow: isFocused ? 'auto' : 'hidden',
+              textOverflow: isFocused ? 'clip' : 'ellipsis',
+              whiteSpace: isFocused ? 'pre-wrap' : 'nowrap'
+            }}
+          />
+        </div>
         <button
           type="submit"
           className="bg-blue-600 hover:bg-blue-700 rounded-r-lg py-2 px-4 text-white font-semibold focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"

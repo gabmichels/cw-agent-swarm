@@ -571,7 +571,11 @@ const KnowledgeGapsPanel: React.FC = () => {
         </Typography>
       ) : (
         <Box>
-          {gaps.map(renderGapCard)}
+          {gaps.map((gap) => (
+            <React.Fragment key={gap.id}>
+              {renderGapCard(gap)}
+            </React.Fragment>
+          ))}
         </Box>
       )}
     </Box>

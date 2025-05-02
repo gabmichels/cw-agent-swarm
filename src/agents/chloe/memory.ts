@@ -462,7 +462,7 @@ export class ChloeMemory {
     if (!this.initialized) {
       await this.initialize();
     }
-    
+
     try {
       // If specific types are requested, use them, otherwise use default types
       const memoryTypes = types || [
@@ -480,7 +480,7 @@ export class ChloeMemory {
       
       // Determine if we have context tags to prioritize
       const hasContextTags = contextTags && contextTags.length > 0;
-      
+        
       // If we have context tags, increase the limit to ensure we get enough candidates
       // to filter by tag relevance
       const searchLimit = hasContextTags 
@@ -523,7 +523,7 @@ export class ChloeMemory {
               filter
             }
           );
-          
+        
           // Convert to memory entries
           const entries = this.convertRecordsToMemoryEntries(records);
           allRelevantMemories = [...allRelevantMemories, ...entries];

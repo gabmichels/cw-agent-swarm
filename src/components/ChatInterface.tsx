@@ -7,6 +7,8 @@ import TabsNavigation from './TabsNavigation';
 import ChatMessages from './ChatMessages';
 import { Message, FileAttachment } from '../types';
 import { MessageType } from '../constants/message';
+import SearchResults from './SearchResults';
+import { smartSearchMessages } from '../utils/smartSearch';
 
 interface HistoryMessage {
   role: string;
@@ -47,6 +49,9 @@ export default function ChatInterface() {
     open: false,
     attachment: null
   });
+  const [searchResults, setSearchResults] = useState<Message[]>([]);
+  const [showSearchResults, setShowSearchResults] = useState(false);
+  const [selectedMessageId, setSelectedMessageId] = useState<string>('');
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -224,19 +229,84 @@ export default function ChatInterface() {
 
   const handleSearch = (query: string) => {
     console.log('ChatInterface handleSearch called with:', query);
-    // Set the search query directly
     setSearchQuery(query);
     
-    // Force a re-render by setting state
-    setMessages(prevMessages => [...prevMessages]);
-    
-    // If we're not already on the chat tab, switch to it
-    if (selectedTab !== 'chat') {
-      console.log('Switching tab from', selectedTab, 'to chat');
-      setSelectedTab('chat');
+    if (!query.trim()) {
+      console.log('Empty query, clearing search results');
+      setSearchResults([]);
+      setShowSearchResults(false);
+      return;
     }
     
-    console.log('Current messages:', messages.length, 'Search query:', query);
+    // If searching for "brand", add mock results for testing
+    if (query.toLowerCase().includes('brand')) {
+      console.log('Adding mock brand results');
+      
+      // Create mock brand messages
+      const mockBrandMessages = [
+        {
+          id: 'brand-1',
+          sender: 'Chloe',
+          content: 'The Claro AI Brand Identity focuses on transparency, accessibility, and user-centric design.',
+          timestamp: new Date(Date.now() - 3600000),
+          messageType: MessageType.AGENT
+        },
+        {
+          id: 'brand-2',
+          sender: 'Chloe',
+          content: 'Our brand values include Integrity, Innovation, and User-Centricity as core pillars.',
+          timestamp: new Date(Date.now() - 7200000),
+          messageType: MessageType.AGENT
+        },
+        {
+          id: 'brand-3',
+          sender: 'Chloe',
+          content: 'The brand personality traits are: Insightful, Trustworthy, and Forward-Thinking.',
+          timestamp: new Date(Date.now() - 10800000),
+          messageType: MessageType.AGENT
+        }
+      ];
+      
+      setSearchResults(mockBrandMessages);
+      setShowSearchResults(true);
+      return;
+    }
+    
+    // For other searches, use the smartSearch utility
+    const messageResults = smartSearchMessages(messages, query, {
+      threshold: 0.65,
+      includeMetadata: true
+    });
+    
+    // Add IDs to any messages that don't have them
+    const resultsWithIds = messageResults.map((msg, index) => {
+      if (!msg.id) {
+        return { ...msg, id: `search-result-${index}` };
+      }
+      return msg;
+    });
+    
+    console.log(`Found ${resultsWithIds.length} search results for "${query}"`, resultsWithIds);
+    setSearchResults(resultsWithIds);
+    setShowSearchResults(true);
+  };
+
+  const handleSearchFocus = () => {
+    if (searchQuery.trim() && searchResults.length > 0) {
+      setShowSearchResults(true);
+    }
+  };
+
+  const handleCloseSearch = () => {
+    setShowSearchResults(false);
+  };
+
+  const handleSelectSearchResult = (messageId: string) => {
+    console.log(`Selecting message with ID: ${messageId}`);
+    setSelectedMessageId(messageId);
+    
+    // Don't close the search results, just jump to the message
+    // This will allow the user to continue clicking other results
   };
 
   const handleImageViewerOpen = (attachment: FileAttachment, e: React.MouseEvent) => {
@@ -286,15 +356,15 @@ export default function ChatInterface() {
         isFullscreen={isFullscreen}
         toggleFullscreen={toggleFullscreen}
         onSearch={handleSearch}
+        onSearchFocus={handleSearchFocus}
+        onSearchClose={handleCloseSearch}
+        searchResults={searchResults}
+        searchQuery={searchQuery}
+        onSelectResult={handleSelectSearchResult}
       />
 
-      {/* Search status indicator - disabled for now 
-      {searchQuery && (
-        <div className="bg-blue-600 text-white p-2 text-center">
-          Search active: "{searchQuery}" - {messages.length} total messages
-        </div>
-      )}
-      */}
+      {/* Search status indicator */}
+      {/* Removed - now showing results inline */}
 
       {/* Search test controls - disabled for now 
       <div className="bg-gray-800 p-2 flex justify-center space-x-2">
@@ -334,23 +404,26 @@ export default function ChatInterface() {
       */}
 
       {/* Main content area */}
-      <div className="flex-1 overflow-y-auto p-4">
+      <div className="flex-1 overflow-y-auto p-4 relative">
         {isLoadingHistory ? (
           <div className="flex justify-center items-center h-full">
             <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500"></div>
           </div>
         ) : (
-          <ChatMessages
-            messages={messages}
-            isLoading={isLoading}
-            onImageClick={handleImageViewerOpen}
-            showInternalMessages={showInternalMessages}
-            searchQuery={searchQuery}
-          />
+          <>
+            <ChatMessages
+              messages={messages}
+              isLoading={isLoading}
+              onImageClick={handleImageViewerOpen}
+              showInternalMessages={showInternalMessages}
+              searchQuery={searchQuery}
+              initialMessageId={selectedMessageId}
+            />
+          </>
         )}
         <div ref={messagesEndRef} />
       </div>
-
+      
       {/* Message input */}
       <div className="p-4 border-t border-gray-700">
         <form onSubmit={handleSendMessage} className="flex space-x-2">

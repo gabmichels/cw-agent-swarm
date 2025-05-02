@@ -49,7 +49,7 @@ const ChatMessages: React.FC<ChatMessagesProps> = ({
       return [];
     }
     
-    console.log('Filtering messages with searchQuery:', searchQuery);
+    console.log('Processing messages for display');
     
     // First, filter for visible messages based on internal/dev mode settings
     let visibleMessages = messages;
@@ -135,31 +135,14 @@ const ChatMessages: React.FC<ChatMessagesProps> = ({
       console.log(`Filtered ${messages.length - visibleMessages.length} internal messages`);
     }
     
-    // Apply search filtering if search query exists
-    if (searchQuery && searchQuery.trim() !== '') {
-      console.log('Applying search for query:', searchQuery);
-      
-      // Use smart search for better results
-      const searchResults = smartSearchMessages(visibleMessages, searchQuery, {
-        threshold: 0.65,
-        includeMetadata: true
-      });
-      
-      console.log(`Search returned ${searchResults.length} matches`);
-      return searchResults;
-    }
-    
+    // We no longer filter messages based on search query
+    // Search is now handled by the dropdown UI
     return visibleMessages;
-  }, [messages, showInternalMessages, searchQuery]);
+  }, [messages, showInternalMessages]);
 
   // Determine which messages to display based on pagination
   const visibleMessages = useMemo(() => {
     if (!processedMessages.length) return [];
-    
-    if (searchQuery) {
-      // When searching, we're showing all matches
-      return processedMessages;
-    }
     
     const { start, end } = visibleRange;
     // If no range is set yet or invalid range, show at least the last 20 messages
@@ -170,7 +153,7 @@ const ChatMessages: React.FC<ChatMessagesProps> = ({
     }
     
     return processedMessages.slice(start, end);
-  }, [processedMessages, visibleRange, searchQuery, pageSize]);
+  }, [processedMessages, visibleRange, pageSize]);
   
   // Debug logging
   useEffect(() => {
@@ -327,15 +310,38 @@ const ChatMessages: React.FC<ChatMessagesProps> = ({
     }
   }, [messages.length, searchQuery, isScrollingUp, hasJumpedToMessage, processedMessages, visibleRange, pageSize, lastManualScrollTime]);
 
-  // Scroll to specific message if initialMessageId is provided
+  // Scroll to the selected message when initialMessageId changes
   useEffect(() => {
-    if (initialMessageId && hasJumpedToMessage) {
-      const messageElement = document.querySelector(`[data-message-id="${initialMessageId}"]`);
-      if (messageElement) {
-        messageElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    if (initialMessageId && processedMessages.length > 0) {
+      // Find the message by ID
+      const messageIndex = processedMessages.findIndex(m => m.id === initialMessageId);
+      
+      if (messageIndex !== -1) {
+        console.log(`Found selected message at index ${messageIndex}, scrolling to it`);
+        
+        // Set the visible range around this message
+        const start = Math.max(0, messageIndex - preloadCount);
+        const end = Math.min(processedMessages.length, messageIndex + pageSize - preloadCount);
+        setVisibleRange({ start, end });
+        
+        // Find the DOM element for this message and scroll to it
+        setTimeout(() => {
+          const messageElement = document.getElementById(`message-${initialMessageId}`);
+          if (messageElement) {
+            messageElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            
+            // Add a highlight effect temporarily
+            messageElement.classList.add('bg-blue-900', 'transition-colors', 'duration-500');
+            setTimeout(() => {
+              messageElement.classList.remove('bg-blue-900', 'transition-colors', 'duration-500');
+            }, 2000);
+          }
+        }, 100);
+      } else {
+        console.log(`Message with ID ${initialMessageId} not found`);
       }
     }
-  }, [initialMessageId, visibleMessages, hasJumpedToMessage]);
+  }, [initialMessageId, processedMessages, pageSize, preloadCount]);
 
   // Make sure we have valid messages to display
   if (!processedMessages || !Array.isArray(processedMessages) || processedMessages.length === 0) {

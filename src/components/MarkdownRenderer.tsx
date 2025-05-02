@@ -8,6 +8,7 @@ interface MarkdownRendererProps {
   content?: string;  // Make content optional
   className?: string;
   onImageClick?: (attachment: FileAttachment, e: React.MouseEvent) => void;
+  isUserMessage?: boolean; // Add property to identify user messages
 }
 
 // Type for the code component props
@@ -21,11 +22,12 @@ interface CodeProps {
 const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ 
   content = '', 
   className = '',
-  onImageClick
+  onImageClick,
+  isUserMessage = false
 }) => {
   // Pre-process content with null safety
   // Default to empty string if content is undefined or null
-  const processedContent = content
+  let processedContent = content
     ? content
     .replace(/\\n/g, '\n')
         .replace(/\\"/g, '"')
@@ -33,6 +35,22 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
         .replace(/\\'/g, "'")
         .replace(/\\\\/g, "\\")
     : '';
+
+  // Apply special processing for user messages with markdown
+  if (isUserMessage && (
+    processedContent.includes('```') || 
+    processedContent.includes('#') || 
+    processedContent.includes('---')
+  )) {
+    // Ensure code blocks are properly formatted
+    // This addresses issues with pasted markdown content
+    console.debug('Processing user message with markdown content');
+    
+    // Make sure code blocks have proper line breaks
+    processedContent = processedContent
+      .replace(/```([\w]*)\s*\n/g, '```$1\n')
+      .replace(/```\s*$/g, '\n```');
+  }
 
   // Handle image click if the callback is provided
   const handleImageClick = (e: React.MouseEvent<HTMLImageElement>) => {

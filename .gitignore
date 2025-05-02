@@ -64,4 +64,5 @@ data/files/uploads/
 data/files/storage/
 
 # Performance metrics
-/data/self-improvement/performance-metrics.json
+data/self-improvement/performance_metrics.json
+
