@@ -1,6 +1,7 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { AlertCircleIcon, Filter, X, Tag, Info, RefreshCw, ChevronDown } from 'lucide-react';
+import MemoryItemComponent from '../memory/MemoryItem';
 import { MemoryItem } from '../../types';
-import { AlertCircleIcon, Filter, X, Tag, Info, RefreshCw } from 'lucide-react';
 
 // Define types for the debug result
 interface SuspectedMessage {
@@ -20,8 +21,19 @@ interface DebugResult {
 
 interface MemoryTabProps {
   isLoadingMemories: boolean;
-  allMemories: MemoryItem[];
+  allMemories: (MemoryItem & { metadata?: Record<string, any>; kind?: string })[];
   onRefresh?: () => void;
+}
+
+// Extend MemoryItem type to include metadata
+interface ExtendedMemoryItem {
+  id: string;
+  content: string;
+  category?: string;
+  kind?: string;
+  tags?: string[];
+  created?: Date | string;
+  metadata?: Record<string, any>;
 }
 
 const MemoryTab: React.FC<MemoryTabProps> = ({
@@ -34,6 +46,49 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
   const [selectedTagFilter, setSelectedTagFilter] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState('');
   const [memoryCount, setMemoryCount] = useState<number>(0);
+  const [selectedTypes, setSelectedTypes] = useState<string[]>([]);
+  const [typeMenuOpen, setTypeMenuOpen] = useState(false);
+  const typeMenuRef = useRef<HTMLDivElement>(null);
+
+  // Predefined memory types
+  const MEMORY_TYPES = [
+    "message",
+    "thought",
+    "reflection",
+    "fact",
+    "insight",
+    "system_learning",
+    "task",
+    "decision",
+    "feedback",
+    "knowledge"
+  ];
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (typeMenuRef.current && !typeMenuRef.current.contains(event.target as Node)) {
+        setTypeMenuOpen(false);
+      }
+    }
+    
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, []);
+
+  // All possible memory types
+  const memoryTypes = useMemo(() => {
+    const typeSet = new Set<string>();
+    if (allMemories && Array.isArray(allMemories)) {
+      allMemories.forEach(memory => {
+        if (memory.kind) typeSet.add(memory.kind);
+        if (memory.metadata?.type) typeSet.add(memory.metadata.type);
+      });
+    }
+    return Array.from(typeSet).sort();
+  }, [allMemories]);
 
   // Log memory data when it changes
   useEffect(() => {
@@ -61,68 +116,144 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
     return Array.from(tagSet).sort();
   }, [allMemories]);
 
-  // Filter memories based on selected tag and search query
+  // Filter memories based on selected tag, search query, and memory types
   const filteredMemories = useMemo(() => {
-    if (!allMemories || !Array.isArray(allMemories)) {
-      console.warn('MemoryTab: allMemories is not an array:', allMemories);
-      return [];
-    }
+    if (!allMemories) return [];
     
-    return allMemories.filter(memory => {
-      // Skip null or undefined memories
-      if (!memory) return false;
-      
+    const filtered = allMemories.filter(memory => {
       // Filter by tag if one is selected
       const matchesTag = !selectedTagFilter || 
-        (memory.tags && Array.isArray(memory.tags) && memory.tags.includes(selectedTagFilter));
+        (memory.tags && memory.tags.includes(selectedTagFilter));
       
       // Filter by search query if provided
       const matchesSearch = !searchQuery || 
-        (memory.content && typeof memory.content === 'string' && 
-         memory.content.toLowerCase().includes(searchQuery.toLowerCase()));
+        (memory.content && memory.content.toLowerCase().includes(searchQuery.toLowerCase()));
       
-      return matchesTag && matchesSearch;
+      // Filter by memory types if any are selected
+      const matchesType = selectedTypes.length === 0 || 
+        (memory.kind && selectedTypes.includes(memory.kind)) ||
+        (memory.metadata?.type && selectedTypes.includes(memory.metadata.type)) ||
+        (memory.category && selectedTypes.includes(memory.category));
+      
+      return matchesTag && matchesSearch && matchesType;
     });
-  }, [allMemories, selectedTagFilter, searchQuery]);
 
+    // Sort by date (newest first)
+    return filtered.sort((a, b) => {
+      const dateA = a.created ? new Date(a.created).getTime() : 
+                  a.timestamp ? new Date(a.timestamp).getTime() : 0;
+      const dateB = b.created ? new Date(b.created).getTime() : 
+                  b.timestamp ? new Date(b.timestamp).getTime() : 0;
+      return dateB - dateA; // Descending order (newest first)
+    });
+  }, [allMemories, selectedTagFilter, searchQuery, selectedTypes]);
+
+  // Toggle memory type selection
+  const toggleTypeSelection = (type: string) => {
+    setSelectedTypes(prev => 
+      prev.includes(type) 
+        ? prev.filter(t => t !== type) 
+        : [...prev, type]
+    );
+  };
+
+  // Check for incorrect reflections
   const checkIncorrectReflections = async () => {
     setIsChecking(true);
     try {
-      const res = await fetch('/api/cleanup-messages');
-      const data = await res.json();
+      const response = await fetch('/api/memory/debug/check-reflections');
+      const data = await response.json();
       setDebugResult(data);
-      console.log('Found incorrect reflections:', data);
     } catch (error) {
       console.error('Error checking reflections:', error);
-      setDebugResult({ 
-        status: 'error', 
-        message: error instanceof Error ? error.message : String(error),
+      setDebugResult({
+        status: 'error',
+        message: 'Failed to check reflections',
         totalMessages: 0,
         suspectedReflectionCount: 0,
-        suspectedMessages: []
+        suspectedMessages: [],
+        error: error instanceof Error ? error.message : String(error)
       });
     } finally {
       setIsChecking(false);
     }
   };
 
+  // Clear filters
   const clearFilters = () => {
     setSelectedTagFilter('');
     setSearchQuery('');
+    setSelectedTypes([]);
   };
 
+  // Handle refresh
   const handleRefresh = () => {
     if (onRefresh) {
       onRefresh();
     }
   };
 
+  // Handle tag update from memory item
+  const handleTagUpdate = async (memoryId: string, tags: string[]) => {
+    try {
+      const response = await fetch('/api/memory/updateTags', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          memoryId,
+          tags,
+          action: 'approve'
+        }),
+      });
+
+      if (response.ok) {
+        // Update is handled by refreshing the data
+        if (onRefresh) {
+          onRefresh();
+        }
+      } else {
+        console.error('Failed to update tags');
+      }
+    } catch (error) {
+      console.error('Error updating tags:', error);
+    }
+  };
+
+  // Handle tag suggestion rejection
+  const handleTagRejection = async (memoryId: string) => {
+    try {
+      const response = await fetch('/api/memory/updateTags', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          memoryId,
+          action: 'reject'
+        }),
+      });
+
+      if (response.ok) {
+        // Update is handled by refreshing the data
+        if (onRefresh) {
+          onRefresh();
+        }
+      } else {
+        console.error('Failed to reject tag suggestions');
+      }
+    } catch (error) {
+      console.error('Error rejecting tag suggestions:', error);
+    }
+  };
+
   return (
-    <div className="bg-gray-800 rounded-lg p-4">
+    <div className="bg-gray-800 p-4 rounded-lg">
       <div className="flex justify-between items-center mb-4">
         <h2 className="text-xl font-bold">Memory Explorer</h2>
         
-        <div className="flex space-x-2">
+        <div className="flex gap-2">
           <button 
             onClick={handleRefresh}
             className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded-md flex items-center text-sm"
@@ -182,20 +313,59 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
               </select>
             </div>
             
+            {/* Memory Type filter (dropdown menu) */}
+            <div className="flex-1 min-w-[200px] relative" ref={typeMenuRef}>
+              <button
+                onClick={() => setTypeMenuOpen(!typeMenuOpen)}
+                className="w-full flex justify-between items-center px-3 py-1.5 bg-gray-800 border border-gray-600 rounded text-sm"
+              >
+                <span>
+                  {selectedTypes.length === 0 
+                    ? "All Memory Types" 
+                    : `${selectedTypes.length} type${selectedTypes.length > 1 ? 's' : ''} selected`}
+                </span>
+                <ChevronDown className="h-4 w-4 ml-2" />
+              </button>
+              
+              {typeMenuOpen && (
+                <div className="absolute z-10 mt-1 w-full bg-gray-800 border border-gray-600 rounded shadow-lg">
+                  <div className="p-2 max-h-60 overflow-y-auto">
+                    {MEMORY_TYPES.map(type => (
+                      <div 
+                        key={type} 
+                        className={`px-2 py-1.5 cursor-pointer rounded text-sm flex items-center ${
+                          selectedTypes.includes(type) ? 'bg-blue-800' : 'hover:bg-gray-700'
+                        }`}
+                        onClick={() => toggleTypeSelection(type)}
+                      >
+                        <input 
+                          type="checkbox" 
+                          checked={selectedTypes.includes(type)} 
+                          onChange={() => {}} 
+                          className="mr-2"
+                        />
+                        <span>{type.replace(/_/g, ' ')}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+            
             {/* Clear filters button */}
-            {(selectedTagFilter || searchQuery) && (
+            {(selectedTagFilter || searchQuery || selectedTypes.length > 0) && (
               <button 
                 onClick={clearFilters}
                 className="bg-gray-600 hover:bg-gray-500 text-white px-3 py-1.5 rounded-md flex items-center text-sm"
               >
-                <X className="h-4 w-4 mr-1" /> Clear
+                <X className="h-4 w-4 mr-1" /> Clear All
               </button>
             )}
           </div>
         </div>
         
         {/* Display active filters */}
-        {(selectedTagFilter || searchQuery) && (
+        {(selectedTagFilter || searchQuery || selectedTypes.length > 0) && (
           <div className="mt-2 flex items-center gap-2">
             <span className="text-xs text-gray-400">Active filters:</span>
             <div className="flex flex-wrap gap-1.5">
@@ -209,6 +379,17 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
                   "{searchQuery}"
                 </span>
               )}
+              {selectedTypes.map(type => (
+                <span 
+                  key={type} 
+                  className="bg-purple-600/30 text-purple-100 text-xs px-2 py-0.5 rounded-full flex items-center"
+                  onClick={() => toggleTypeSelection(type)}
+                  style={{ cursor: 'pointer' }}
+                >
+                  {type.replace(/_/g, ' ')}
+                  <X className="h-3 w-3 ml-1" />
+                </span>
+              ))}
             </div>
           </div>
         )}
@@ -273,52 +454,15 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
           )}
         </div>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-700">
-            <thead className="bg-gray-700">
-              <tr>
-                <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Content</th>
-                <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Category</th>
-                <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Tags</th>
-                <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Created</th>
-              </tr>
-            </thead>
-            <tbody className="bg-gray-800 divide-y divide-gray-700">
-              {filteredMemories.map((memory, index) => (
-                <tr key={memory.id || index} className="hover:bg-gray-750">
-                  <td className="px-4 py-3 whitespace-normal text-sm max-w-xs overflow-hidden">
-                    {memory.content || 'No content'}
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap text-sm">
-                    <span className="px-2 py-0.5 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-800 text-blue-100">
-                      {memory.category || 'Unknown'}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 whitespace-normal text-sm">
-                    {memory.tags && memory.tags.length > 0 ? (
-                      <div className="flex flex-wrap gap-1">
-                        {memory.tags.map((tag, tagIndex) => (
-                          <span 
-                            key={`${tag}-${tagIndex}`}
-                            className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-700 text-gray-200 hover:bg-blue-700 hover:text-white cursor-pointer"
-                            onClick={() => setSelectedTagFilter(tag)}
-                            title={`Filter by ${tag}`}
-                          >
-                            {tag}
-                          </span>
-                        ))}
-                      </div>
-                    ) : (
-                      <span className="text-gray-500">None</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap text-sm">
-                    {memory.created ? new Date(memory.created).toLocaleString() : 'Unknown'}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="space-y-4">
+          {filteredMemories.map((memory, index) => (
+            <MemoryItemComponent
+              key={memory.id || index}
+              memory={memory}
+              onTagUpdate={handleTagUpdate}
+              onTagSuggestionRemove={handleTagRejection}
+            />
+          ))}
         </div>
       )}
     </div>
