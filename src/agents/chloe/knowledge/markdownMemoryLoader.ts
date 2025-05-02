@@ -257,11 +257,13 @@ export async function loadAllMarkdownAsMemory(knowledgeDir: string = 'data/knowl
   filesProcessed: number;
   entriesAdded: number;
   typeStats: Record<string, number>;
+  filesSkipped: number;
 }> {
   const stats = {
     filesProcessed: 0,
     entriesAdded: 0,
-    typeStats: {} as Record<string, number>
+    typeStats: {} as Record<string, number>,
+    filesSkipped: 0
   };
   
   try {
@@ -296,6 +298,65 @@ export async function loadAllMarkdownAsMemory(knowledgeDir: string = 'data/knowl
     for (const file of allFiles) {
       const fullPath = path.join(knowledgeDir, file);
       try {
+        // Get file stats to check last modified time
+        const fileStats = await fs.stat(fullPath);
+        const lastModified = fileStats.mtimeMs;
+        
+        // Check if this file already exists in memory with the same last modified time
+        // by searching for entries with this filePath
+        const existingEntries = await memory.searchMemory(
+          'document',
+          '',
+          {
+            filter: {
+              filePath: file
+            },
+            limit: 1 // We just need to know if any exist
+          }
+        );
+        
+        const entryExists = existingEntries && existingEntries.length > 0;
+        
+        // If we have an entry for this file and at least one has matching or newer lastModified time,
+        // skip processing it to avoid duplicate entries
+        if (entryExists) {
+          const existingEntry = existingEntries[0];
+          const existingModified = existingEntry.metadata?.lastModified ? 
+            new Date(existingEntry.metadata.lastModified).getTime() : 0;
+          
+          if (existingModified >= lastModified) {
+            console.log(`Skipping ${file} - already in memory with same or newer version`);
+            stats.filesSkipped++;
+            continue; // Skip to next file
+          }
+          
+          // If existing entry is older, mark it as superseded before adding new version
+          console.log(`Updating ${file} - found older version in memory`);
+          
+          // Search for ALL entries from this file to supersede them
+          const allExistingEntries = await memory.searchMemory(
+            null, // Search across all collections
+            '',
+            {
+              filter: {
+                filePath: file
+              },
+              limit: 50 // Get all entries for this file, with a reasonable limit
+            }
+          );
+          
+          // Mark all existing entries as superseded
+          for (const entry of allExistingEntries) {
+            await memory.updateMemoryMetadata(entry.id, {
+              superseded: true,
+              supersededAt: new Date().toISOString()
+            });
+          }
+          
+          console.log(`Marked ${allExistingEntries.length} existing entries as superseded for ${file}`);
+        }
+        
+        // Process the file since it's either new or modified
         const content = await fs.readFile(fullPath, 'utf-8');
         const memoryEntries = await markdownToMemoryEntries(file, content);
         
@@ -318,7 +379,8 @@ export async function loadAllMarkdownAsMemory(knowledgeDir: string = 'data/knowl
               importance: entry.importance,
               source: entry.source,
               notForChat: true,
-              isInternalMessage: true
+              isInternalMessage: true,
+              lastModified: new Date(lastModified).toISOString()
             }
           );
           
@@ -335,6 +397,7 @@ export async function loadAllMarkdownAsMemory(knowledgeDir: string = 'data/knowl
     
     console.log('Finished loading markdown files as memory:');
     console.log(`- Files processed: ${stats.filesProcessed}`);
+    console.log(`- Files skipped (already in memory): ${stats.filesSkipped}`);
     console.log(`- Memory entries added: ${stats.entriesAdded}`);
     console.log('- Types distribution:', stats.typeStats);
     

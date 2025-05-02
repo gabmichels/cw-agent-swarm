@@ -46,6 +46,7 @@ async function main() {
     // Output summary
     console.log('\n=== Markdown Memory Reload Complete ===');
     console.log(`📄 Processed ${result.filesProcessed} files`);
+    console.log(`🔄 Skipped ${result.filesSkipped} files (already in memory)`);
     console.log(`🧠 Added ${result.entriesAdded} memory entries`);
     console.log('\nMemory types:');
     

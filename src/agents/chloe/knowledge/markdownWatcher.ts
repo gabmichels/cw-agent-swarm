@@ -277,6 +277,7 @@ export class MarkdownWatcher {
     filesProcessed: number;
     entriesAdded: number;
     typeStats: Record<string, number>;
+    filesSkipped: number;
   }> {
     // Clear the cache
     this.fileCache.clear();

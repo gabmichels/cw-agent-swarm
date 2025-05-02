@@ -165,7 +165,8 @@ export class ChloeAgent implements IAgent {
         this.taskLogger?.logAction('Loaded markdown files as memory entries', {
           filesProcessed: markdownStats.filesProcessed,
           entriesAdded: markdownStats.entriesAdded,
-          typeStats: markdownStats.typeStats
+          typeStats: markdownStats.typeStats,
+          filesSkipped: markdownStats.filesSkipped
         });
         console.log('Successfully loaded markdown content into memory system');
       } catch (error) {
