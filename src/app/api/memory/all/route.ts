@@ -8,17 +8,23 @@ export const runtime = 'nodejs';
  */
 export async function GET(request: NextRequest) {
   try {
+    console.log('[memory/all/route] Initializing memory system to fetch memories');
+    
     // Get query parameters
     const { searchParams } = new URL(request.url);
     const queryLimit = searchParams.get('limit');
-    const limit = queryLimit ? parseInt(queryLimit, 10) : 50;
+    const limit = queryLimit ? parseInt(queryLimit, 10) : 100;
     const type = searchParams.get('type') as 'message' | 'thought' | 'document' | 'task' | null;
     
     // Get all tags from the search params (can be multiple)
     const tags = searchParams.getAll('tags');
     
     // Initialize Qdrant memory
-    await serverQdrant.initMemory();
+    await serverQdrant.initMemory({
+      useOpenAI: process.env.USE_OPENAI_EMBEDDINGS === 'true'
+    });
+    
+    console.log(`[memory/all/route] Fetching memories with type=${type || 'all'}, limit=${limit}, tags=${tags.join(',') || 'none'}`);
     
     // Create filter for tags if provided
     const filter: Record<string, any> = {};
@@ -38,32 +44,22 @@ export async function GET(request: NextRequest) {
       }
     );
     
-    // Format the response
-    const items = memoryEntries.map(record => ({
-      id: record.id,
-      text: record.text,
-      type: record.type,
-      timestamp: record.timestamp,
-      tags: record.metadata?.tags || [],
-      importance: record.metadata?.importance || 'medium',
-      source: record.metadata?.source || 'unknown',
-      metadata: record.metadata || {}
-    }));
+    console.log(`[memory/all/route] Retrieved ${memoryEntries?.length || 0} memory entries`);
     
-    return NextResponse.json({
-      success: true,
-      items,
-      count: items.length,
-      filters: {
-        type,
-        tags
-      }
-    });
+    // Format the response
+    const items = memoryEntries && Array.isArray(memoryEntries) 
+      ? memoryEntries.map(record => formatMemory(record))
+      : [];
+    
+    console.log(`[memory/all/route] Returning ${items.length} formatted items`);
+    
+    // Return the formatted items directly as an array
+    return NextResponse.json(items);
   } catch (error) {
     console.error('Error fetching memory entries:', error);
     return NextResponse.json(
-      { success: false, error: 'Failed to fetch memory entries' },
-      { status: 500 }
+      [],
+      { status: 200 }  // Return empty array with 200 status to prevent UI errors
     );
   }
 }
@@ -72,15 +68,25 @@ export async function GET(request: NextRequest) {
  * Helper function to format memory records
  */
 function formatMemory(record: any) {
-  return {
-    id: record.id,
-    content: record.text,
-    created: record.timestamp,
-    timestamp: record.timestamp,
-    type: record.type,
-    category: record.metadata?.category || record.metadata?.tag || record.type,
-    source: record.metadata?.source || 'system',
-    importance: record.metadata?.importance || 'medium',
-    tags: record.metadata?.tags || []
-  };
+  if (!record) {
+    console.warn('Received undefined or null memory record');
+    return null;
+  }
+  
+  try {
+    return {
+      id: record.id || `id-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+      content: record.text || '',
+      created: record.timestamp || new Date().toISOString(),
+      timestamp: record.timestamp || new Date().toISOString(),
+      type: record.type || 'unknown',
+      category: record.metadata?.category || record.metadata?.tag || record.type || 'unknown',
+      source: record.metadata?.source || 'system',
+      importance: record.metadata?.importance || 'medium',
+      tags: Array.isArray(record.metadata?.tags) ? record.metadata.tags : []
+    };
+  } catch (err) {
+    console.error('Error formatting memory record:', err, record);
+    return null;
+  }
 } 

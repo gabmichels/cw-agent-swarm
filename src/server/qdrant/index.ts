@@ -1469,13 +1469,14 @@ export async function getAllMemories(
   type: string | null, 
   limit: number = 100
 ): Promise<any[]> {
-  if (!qdrantInstance) {
-    await initMemory();
-  }
-  
   try {
     if (!qdrantInstance) {
-      console.error('Failed to initialize qdrantInstance');
+      console.log('qdrantInstance not initialized, initializing now...');
+      await initMemory();
+    }
+    
+    if (!qdrantInstance) {
+      console.error('Failed to initialize qdrantInstance even after retry');
       return [];
     }
     
@@ -1488,21 +1489,40 @@ export async function getAllMemories(
         ? [COLLECTIONS[type as keyof typeof COLLECTIONS]] 
         : Object.values(COLLECTIONS);
       
-      // Use search with empty query to get all memories
-      const results = await Promise.all(
-        collectionsToSearch.map(collection => 
-          qdrantInstance!.searchMemory(type as any, "", { limit })
-        )
-      );
+      console.log(`Searching ${collectionsToSearch.length} collections: ${collectionsToSearch.join(', ')}`);
       
-      return results.flat();
+      try {
+        // Use search with empty query to get all memories
+        const results = await Promise.all(
+          collectionsToSearch.map(async (collection) => {
+            try {
+              const result = await qdrantInstance!.searchMemory(type as any, "", { limit });
+              console.log(`Retrieved ${result?.length || 0} memories from collection ${collection}`);
+              return Array.isArray(result) ? result : [];
+            } catch (collectionError) {
+              console.error(`Error searching collection ${collection}:`, collectionError);
+              return [];
+            }
+          })
+        );
+        
+        const flatResults = results.flat();
+        console.log(`Retrieved ${flatResults.length} total memories across all collections`);
+        return flatResults;
+      } catch (searchError) {
+        console.error('Error during multi-collection search:', searchError);
+        return [];
+      }
     }
     
     // Get memories from a specific collection using scroll API
     try {
+      console.log(`Searching single collection ${collectionName} for memories`);
       // Since we can't directly access the client, we'll use the searchMemory method 
       // with an empty query which will return all memories of the specified type
-      return qdrantInstance.searchMemory(type as any, "", { limit });
+      const result = await qdrantInstance.searchMemory(type as any, "", { limit });
+      console.log(`Retrieved ${result?.length || 0} memories from collection ${collectionName}`);
+      return Array.isArray(result) ? result : [];
     } catch (error) {
       console.error(`Error getting memories from collection ${collectionName}:`, error);
       return [];

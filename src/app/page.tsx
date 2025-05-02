@@ -862,23 +862,70 @@ For detailed instructions, see the Debug panel.`,
 
   // Fetch all memories
   const fetchAllMemories = async () => {
+    console.log('Fetching all memories...');
     setIsLoadingMemories(true);
+    setAllMemories([]); // Clear existing memories while loading
     
     try {
-      const response = await fetch('/api/memory/all');
+      // Use the correct API endpoint URL (without /route)
+      const response = await fetch(`/api/memory/all?_=${Date.now()}`, {
+        method: 'GET',
+        headers: {
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache'
+        }
+      });
       
       if (!response.ok) {
+        console.error(`API error: ${response.status} - ${response.statusText}`);
         throw new Error(`API error: ${response.status}`);
       }
       
-      const data = await response.json();
-      setAllMemories(data);
+      // Log the raw response for debugging
+      const responseText = await response.text();
+      console.log(`Memory API response (first 100 chars): ${responseText.substring(0, 100)}...`);
+      
+      let data;
+      try {
+        // Try to parse the response as JSON
+        data = JSON.parse(responseText);
+      } catch (parseError) {
+        console.error('Failed to parse memory API response:', parseError);
+        console.error('Raw response:', responseText.substring(0, 200));
+        setAllMemories([]);
+        return;
+      }
+      
+      // Determine if we have a valid data structure
+      if (Array.isArray(data)) {
+        console.log(`Fetched ${data.length} memories (array format)`);
+        
+        // Filter out any null or invalid entries
+        const validMemories = data.filter((item: any) => item && typeof item === 'object');
+        console.log(`Valid memories: ${validMemories.length} out of ${data.length}`);
+        
+        setAllMemories(validMemories);
+      } else if (data && typeof data === 'object' && Array.isArray(data.items)) {
+        // Handle response format with items array
+        console.log(`Fetched ${data.items.length} memories (object.items format)`);
+        setAllMemories(data.items);
+      } else {
+        console.error('Memory API did not return a recognized format:', typeof data, data);
+        setAllMemories([]);
+      }
     } catch (error) {
       console.error("Error fetching all memories:", error);
+      setAllMemories([]);
     } finally {
       setIsLoadingMemories(false);
     }
   };
+
+  // Add an automatic fetch when the app loads
+  useEffect(() => {
+    // Initial fetch of memories when the app loads
+    fetchAllMemories();
+  }, []);
 
   // Fetch scheduled tasks
   const fetchScheduledTasks = async (retryAttempt = 0, maxRetries = 5): Promise<void> => {
@@ -1992,6 +2039,7 @@ For detailed instructions, see the Debug panel.`,
                 <MemoryTab
                   isLoadingMemories={isLoadingMemories}
                   allMemories={allMemories}
+                  onRefresh={fetchAllMemories}
                 />
               )}
               

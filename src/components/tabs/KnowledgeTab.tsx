@@ -3,6 +3,7 @@ import KnowledgeStats from '../knowledge/KnowledgeStats';
 import FlaggedItemsList from '../knowledge/FlaggedItemsList';
 import TagSelector from '../knowledge/TagSelector';
 import TaggedItemsList from '../knowledge/TaggedItemsList';
+import FlaggedMessagesApproval from '../knowledge/FlaggedMessagesApproval';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 
 interface KnowledgeTabProps {
@@ -109,8 +110,9 @@ const KnowledgeTab: React.FC<KnowledgeTabProps> = () => {
         onValueChange={setActiveTab}
         className="mb-6"
       >
-        <TabsList className="grid grid-cols-2 mb-4">
+        <TabsList className="grid grid-cols-3 mb-4">
           <TabsTrigger value="flagged">Flagged Items</TabsTrigger>
+          <TabsTrigger value="messages">Message Approval</TabsTrigger>
           <TabsTrigger value="tagged">By Tag</TabsTrigger>
         </TabsList>
         
@@ -171,6 +173,10 @@ const KnowledgeTab: React.FC<KnowledgeTabProps> = () => {
             items={flaggedItems}
             onRefresh={() => setFilter({...filter})} 
           />
+        </TabsContent>
+        
+        <TabsContent value="messages">
+          <FlaggedMessagesApproval />
         </TabsContent>
         
         <TabsContent value="tagged">
