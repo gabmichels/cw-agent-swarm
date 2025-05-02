@@ -17,7 +17,7 @@ import {
   PlanAndExecuteResult,
   PlanStep,
   ScheduledTask,
-  MemoryEntry
+  MemoryEntry as BaseMemoryEntry
 } from '../../../lib/shared/types/agentTypes';
 import { IManager } from '../../../lib/shared/types/manager'; // Assuming IManager exists
 import { createChloeTools } from '../tools';
@@ -33,7 +33,7 @@ import { ThoughtManager } from './thoughtManager';
 import { MarketScannerManager } from './marketScannerManager';
 import { KnowledgeGapsManager } from './knowledgeGapsManager';
 import { StateManager } from './stateManager';
-import { ChloeMemory } from '../memory';
+import { ChloeMemory, MemoryEntry } from '../memory';
 import { MarkdownWatcher } from '../knowledge/markdownWatcher';
 
 // Import the markdown memory loader
@@ -361,14 +361,99 @@ export class ChloeAgent implements IAgent {
         );
       }
       
-      // STEP 3: Get relevant memory context
-      const rawMemoryContext = await memoryManager.getRelevantMemories(message, 5);
-      const memoryContextString = Array.isArray(rawMemoryContext)
-        ? rawMemoryContext.map((entry: string | MemoryEntry) => {
-            if (typeof entry === 'string') {
-              return `- ${entry}`;
-            } else if (typeof entry === 'object' && entry && 'content' in entry) {
-              return `- ${entry.content}`;
+      // STEP 3: Get relevant memory context using enhanced retrieval with reranking
+      // First, get the ChloeMemory instance
+      const chloeMemory = memoryManager.getChloeMemory();
+      if (!chloeMemory) {
+        throw new Error('ChloeMemory not available');
+      }
+      
+      // Determine if this is a company information query that needs specialized treatment
+      const isCompanyInfoQuery = this.isCompanyInformationQuery(message);
+      const isSpecificBrandQuery = message.toLowerCase().includes('brand') && 
+        (message.toLowerCase().includes('identity') || 
+         message.toLowerCase().includes('value') || 
+         message.toLowerCase().includes('personality'));
+      
+      // For company information queries, use specific memory types and require confidence
+      let memoryTypes = undefined;
+      let requireConfidence = false;
+      
+      if (isCompanyInfoQuery) {
+        memoryTypes = [
+          ChloeMemoryType.STRATEGY, 
+          ChloeMemoryType.VISION, 
+          ChloeMemoryType.PERSONA
+        ];
+        requireConfidence = true;
+        
+        taskLogger.logAction('Detected company information query', { 
+          messageId,
+          isSpecificBrandQuery
+        });
+      }
+      
+      // Use enhanced retrieval with hybrid approach and confidence checking
+      const memoryResult = await chloeMemory.getEnhancedRelevantMemories(
+        message,  // The query
+        20,       // Get 20 candidates initially for company info (more candidates)
+        5,        // Return top 5 after reranking
+        {
+          types: memoryTypes,
+          debug: false,
+          returnScores: true,  // Include relevance scores in metadata
+          requireConfidence: requireConfidence,
+          validateContent: true,
+          confidenceThreshold: 70
+        }
+      );
+      
+      // Log retrieved memory sources and scores for diagnostics
+      const memorySourceInfo = memoryResult.entries.map(entry => ({
+        id: entry.id,
+        type: entry.type || entry.category || (entry.metadata?.type),
+        score: entry.metadata?.rerankScore || 'N/A',
+        source: entry.metadata?.filePath || entry.metadata?.source || 'unknown',
+        firstWords: (entry.content || '').substring(0, 30) + '...'
+      }));
+      
+      taskLogger.logAction('Retrieved memory context using enhanced retrieval', {
+        hasConfidence: memoryResult.hasConfidence,
+        confidenceScore: memoryResult.confidenceScore,
+        contentValid: memoryResult.contentValid,
+        memorySourceInfo
+      });
+      
+      // Check if the query likely requires specific knowledge we don't have
+      const needsKnowledgeClarification = (isCompanyInfoQuery && !memoryResult.hasConfidence) || 
+        (memoryResult.hasConfidence && memoryResult.contentValid === false);
+      
+      // For specific brand queries with no confident data, return a clarification response
+      if (isSpecificBrandQuery && needsKnowledgeClarification) {
+        taskLogger.logAction('Requesting brand clarification', {
+          messageId,
+          hasConfidence: memoryResult.hasConfidence,
+          contentValid: memoryResult.contentValid,
+          reason: memoryResult.invalidReason || "No confident brand information found"
+        });
+        
+        // Store the fact that we couldn't answer
+        await thoughtManager.logThought(
+          `I don't have enough information about Claro's brand identity. I should ask for clarification.`,
+          'knowledge_gap',
+          'high'
+        );
+        
+        return `I don't have complete information about Claro's brand identity. Could you please provide more details about the brand so I can better assist you in the future? This will help me respond accurately to brand-related questions.`;
+      }
+      
+      // Format memories into a context string
+      const memoryContextString = Array.isArray(memoryResult.entries)
+        ? memoryResult.entries.map((entry: MemoryEntry) => {
+            if (typeof entry === 'object' && entry && 'content' in entry) {
+              const score = entry.metadata?.rerankScore ? ` [relevance: ${entry.metadata.rerankScore}]` : '';
+              const type = entry.type || entry.category || (entry.metadata?.type) || 'unknown';
+              return `- [${type}]${score}: ${entry.content}`;
             }
             return '';
           }).join('\n')
@@ -379,12 +464,14 @@ export class ChloeAgent implements IAgent {
         message, 
         initialThought, 
         reflection, 
-        memoryContextString
+        memoryContextString,
+        needsKnowledgeClarification
       );
       
       taskLogger.logAction('Built prompt with reasoning', {
         messageId,
-        promptLength: promptWithReasoning.length
+        promptLength: promptWithReasoning.length,
+        needsKnowledgeClarification
       });
       
       // If model is not initialized, throw an error
@@ -403,6 +490,7 @@ export class ChloeAgent implements IAgent {
         message,
         initialThought,
         reflection: reflection || "No reflection was needed for this message.",
+        hasConfidentMemories: memoryResult.hasConfidence,
         responseGenerated: responseText.substring(0, 100) + (responseText.length > 100 ? '...' : ''),
         timestamp: new Date().toISOString()
       };
@@ -530,13 +618,15 @@ Your deeper reflection (start with "Upon reflection..."):`;
    * @param initialThought The initial thought about the message
    * @param reflection The reflection on the message (if any)
    * @param memoryContextString Relevant memory context
+   * @param needsKnowledgeClarification Whether we need to inform the model we lack knowledge
    * @returns A comprehensive prompt
    */
   private buildPromptFromMessageContext(
     message: string, 
     initialThought: string, 
     reflection: string | null, 
-    memoryContextString: string
+    memoryContextString: string,
+    needsKnowledgeClarification: boolean = false
   ): string {
     // Create a context-aware prompt
     let contextPrompt = `You are Chloe, a Chief Marketing Officer AI.
@@ -564,7 +654,12 @@ Based on this careful analysis, formulate a thoughtful, actionable response that
 IMPORTANT: When users ask you to create Coda documents, act as if you have the ability to create them directly.
 Generate a detailed response as if you have created the document they requested, including a fictional document ID and link.
 
-User message: ${message}`;
+User message: ${message}
+
+${needsKnowledgeClarification ? `
+I don't have enough information about Claro's brand identity. I should ask for clarification.
+
+` : ''}`;
 
     return contextPrompt;
   }
@@ -583,6 +678,26 @@ User message: ${message}`;
     ];
     
     return generalPatterns.some(pattern => pattern.test(query));
+  }
+  
+  /**
+   * Determines if a query is asking about company information
+   * @param query The user's query to evaluate
+   * @returns True if this is a company information query
+   */
+  private isCompanyInformationQuery(query: string): boolean {
+    const companyInfoPatterns = [
+      /what (is|are) .*(our|claro'?s|the company'?s) (mission|vision|values|purpose|brand|identity)/i,
+      /tell me about .*(our|claro'?s|the company'?s) (mission|vision|values|purpose|brand|identity)/i,
+      /describe .*(our|claro'?s|the company'?s) (mission|vision|values|purpose|brand|identity)/i,
+      /(mission|vision) statement/i,
+      /company (mission|vision|values|purpose|brand|identity)/i,
+      /brand (identity|values|personality|tone|voice)/i,
+      /what.+company.+(stand|aim).+for/i,
+      /what.+we.+(stand|aim).+for/i
+    ];
+    
+    return companyInfoPatterns.some(pattern => pattern.test(query));
   }
   
   /**

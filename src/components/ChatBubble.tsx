@@ -2,11 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { Message, FileAttachment } from '../types';
 import MarkdownRenderer from './MarkdownRenderer';
 import { Copy, FileText, MoreVertical, Star, Database } from 'lucide-react';
+import { highlightSearchMatches } from '../utils/smartSearch';
 
 interface ChatBubbleProps {
   message: Message;
   onImageClick: (attachment: FileAttachment, e: React.MouseEvent) => void;
   isInternalMessage?: boolean; // Flag indicating if this is an internal thought/reflection
+  searchHighlight?: string; // Search query text to highlight
 }
 
 interface ContextMenuState {
@@ -17,9 +19,28 @@ interface ContextMenuState {
 const ChatBubble: React.FC<ChatBubbleProps> = ({ 
   message, 
   onImageClick,
-  isInternalMessage = false
+  isInternalMessage = false,
+  searchHighlight = ''
 }) => {
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  const [highlightedContent, setHighlightedContent] = useState<string | null>(null);
+  
+  // Process search highlighting when content or search terms change
+  useEffect(() => {
+    if (searchHighlight && message.content) {
+      try {
+        const highlighted = highlightSearchMatches(message.content, searchHighlight, {
+          highlightClass: 'bg-yellow-300 dark:bg-yellow-600 text-black dark:text-white rounded px-1'
+        });
+        setHighlightedContent(highlighted);
+      } catch (e) {
+        console.error('Error highlighting search matches:', e);
+        setHighlightedContent(null);
+      }
+    } else {
+      setHighlightedContent(null);
+    }
+  }, [message.content, searchHighlight]);
   
   // Debug logging on mount
   useEffect(() => {
@@ -28,10 +49,11 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
         sender: message.sender,
         content: message.content?.substring(0, 30),
         isInternal: isInternalMessage,
-        type: message.messageType
+        type: message.messageType,
+        searchHighlight: searchHighlight ? `"${searchHighlight}"` : 'none'
       });
     }
-  }, [message, isInternalMessage]);
+  }, [message, isInternalMessage, searchHighlight]);
 
   // Safety check - if we somehow received an invalid message
   if (!message || !message.content) {
@@ -194,101 +216,86 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
 
   return (
     <div className={`flex ${senderName === 'You' ? 'justify-end' : 'justify-start'} mb-4`}>
-      <div className={`min-w-[75%] max-w-[80%] rounded-lg p-3 shadow ${
-        isInternalMessage 
-          ? 'bg-gray-900 text-gray-300 border border-amber-500' // Visual style for internal messages
-          : senderName === 'You' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-white'
-      } relative`}>
-        {/* Add an indicator if this is an internal message */}
-        {isInternalMessage && (
-          <div className="text-xs text-amber-400 font-mono mb-1">
-            {message.messageType || 'INTERNAL'}
-          </div>
-        )}
-        
-        {/* Message content */}
-        <div className={`prose prose-sm w-full ${
-          isInternalMessage ? 'prose-amber' : 'prose-invert'
+      <div className={`flex flex-col ${senderName === 'You' ? 'items-end' : 'items-start'}`}>
+        <div className={`w-auto max-w-none rounded-lg p-3 shadow ${
+          isInternalMessage 
+            ? 'bg-gray-900 text-gray-300 border border-amber-500' // Visual style for internal messages
+          : senderName === 'You'
+            ? 'bg-blue-600 text-white'
+            : 'bg-gray-700 text-white'
         }`}>
-          <MarkdownRenderer content={message.content} />
-        </div>
-        
-        {/* Attachments if any */}
-        {message.attachments && message.attachments.length > 0 && (
-          <div className="mt-2 space-y-2">
-            {message.attachments.map((attachment, index) => (
+          {/* Message content */}
+          <div className="mb-1 relative pr-6 group">
+            {/* Render message with or without highlighting - DISABLED FOR NOW */}
+            {/*
+            {searchHighlight && highlightedContent ? (
               <div 
-                key={index} 
-                className="rounded bg-gray-800 p-2 hover:bg-gray-750 transition cursor-pointer"
-                onClick={(e) => handleImageClick(attachment, e)}
-              >
-                {attachment.type === 'image' ? (
-                  <div>
-                    <img 
-                      src={attachment.preview} 
-                      alt={attachment.filename || 'Image attachment'} 
-                      className="max-h-64 max-w-full rounded"
-                    />
-                    <div className="text-xs text-gray-400 mt-1">{attachment.filename}</div>
-                  </div>
-                ) : (
-                  <div className="flex items-center">
-                    <FileText className="mr-2 text-gray-400" size={16} />
-                    <span className="text-sm">{attachment.filename}</span>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-        
-        {/* Context menu button in top-right */}
-        <div className="absolute top-2 right-2">
-          <button 
-            onClick={handleContextMenuClick}
-            className="text-gray-400 hover:text-white ml-2 p-1 rounded hover:bg-gray-600"
-            title="Options"
-          >
-            <MoreVertical size={16} />
-          </button>
-          
-          {/* Context Menu */}
-          {contextMenu && (
-            <div 
-              className={`absolute ${contextMenu.position === 'top' ? 'bottom-full mb-1' : 'top-full mt-1'} right-0
-                bg-gray-800 rounded-md shadow-lg py-1 border border-gray-700 z-50 w-44`}
-              onClick={(e) => e.stopPropagation()}
+                className="prose dark:prose-invert max-w-none prose-sm"
+                dangerouslySetInnerHTML={{ __html: highlightedContent }}
+              />
+            ) : (
+            */}
+              <MarkdownRenderer content={message.content} onImageClick={handleImageClick} />
+            {/*}*/}
+            
+            <button 
+              onClick={handleContextMenuClick}
+              className="absolute top-0 right-0 p-1 rounded-full text-gray-400 opacity-0 group-hover:opacity-100 hover:bg-gray-800 hover:text-white transition-opacity"
+              aria-label="Message options"
             >
-              <button 
-                className="w-full text-left px-4 py-2 text-sm hover:bg-gray-700 flex items-center"
-                onClick={() => copyToClipboard(message.content)}
+              <MoreVertical className="h-4 w-4" />
+            </button>
+            
+            {/* Context menu */}
+            {contextMenu && contextMenu.visible && (
+              <div 
+                className={`absolute ${
+                  contextMenu.position === 'top' 
+                    ? 'bottom-full mb-1' 
+                    : 'top-full mt-1'
+                } right-0 z-10 w-48 bg-gray-800 rounded-md shadow-lg py-1`}
               >
-                <Copy size={14} className="mr-2" /> Copy Text
-              </button>
-              <button 
-                className="w-full text-left px-4 py-2 text-sm hover:bg-gray-700 flex items-center"
-                onClick={() => flagAsImportant(message.content)}
-              >
-                <Star size={14} className="mr-2" /> Flag as Important
-              </button>
-              <button 
-                className="w-full text-left px-4 py-2 text-sm hover:bg-gray-700 flex items-center"
-                onClick={() => addToKnowledge(message.content)}
-              >
-                <Database size={14} className="mr-2" /> Add to Knowledge
-              </button>
-              <button 
-                className="w-full text-left px-4 py-2 text-sm hover:bg-gray-700 flex items-center"
-                onClick={() => exportToCoda(message.content)}
-              >
-                <FileText size={14} className="mr-2" /> Export to Coda
-              </button>
-            </div>
-          )}
-        </div>
+                <button 
+                  onClick={() => copyToClipboard(message.content || '')}
+                  className="flex items-center w-full px-4 py-2 text-sm text-gray-300 hover:bg-gray-700"
+                >
+                  <Copy className="h-4 w-4 mr-2" />
+                  Copy text
+                </button>
+                
+                <button 
+                  onClick={() => flagAsImportant(message.content || '')}
+                  className="flex items-center w-full px-4 py-2 text-sm text-gray-300 hover:bg-gray-700"
+                >
+                  <Star className="h-4 w-4 mr-2" />
+                  Flag as important
+                </button>
+                
+                <button 
+                  onClick={() => addToKnowledge(message.content || '')}
+                  className="flex items-center w-full px-4 py-2 text-sm text-gray-300 hover:bg-gray-700"
+                >
+                  <Database className="h-4 w-4 mr-2" />
+                  Add to knowledge
+                </button>
+                
+                <button 
+                  onClick={() => exportToCoda(message.content || '')}
+                  className="flex items-center w-full px-4 py-2 text-sm text-gray-300 hover:bg-gray-700"
+                >
+                  <FileText className="h-4 w-4 mr-2" />
+                  Export to Coda
+                </button>
+              </div>
+            )}
+          </div>
         
-        {/* Show timestamp */}
-        <div className="text-xs text-gray-400 mt-1">{formattedTime}</div>
+          {/* Message metadata */}
+          <div className="text-xs opacity-70 flex justify-between items-center">
+            <span>{senderName}</span>
+            <span>{formattedTime}</span>
+          </div>
+        </div>
       </div>
     </div>
   );

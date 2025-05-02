@@ -19,6 +19,7 @@ import {
   ImportanceLevel, 
   MemorySource 
 } from '../../constants/memory';
+import { RerankerService } from './services/reranker';
 
 // Define a custom memory type that includes 'insight' for this implementation
 export type ChloeMemoryType = string;
@@ -88,11 +89,17 @@ export class ChloeMemory {
   private externalMemory?: ExtendedAgentMemory;
   private initialized: boolean = false;
   private memoryStore: { entries: MemoryEntry[] } = { entries: [] }; // Add simple local memory store
+  private rerankerService: RerankerService | null = null;
 
   constructor(options?: ChloeMemoryOptions) {
     this.agentId = options?.agentId || 'chloe';
     this.useExternalMemory = options?.useExternalMemory || false;
     this.externalMemory = options?.externalMemory;
+    
+    // Initialize reranker service
+    if (typeof window === 'undefined') {
+      this.rerankerService = new RerankerService();
+    }
     
     // Server-side only initialization
     if (typeof window === 'undefined') {
@@ -826,6 +833,103 @@ export class ChloeMemory {
     } catch (error) {
       console.error('Error retrieving relevant memories by type:', error);
       return { entries: [], sourceFiles: [], typesFound: [] };
+    }
+  }
+
+  /**
+   * Enhanced memory retrieval with reranking - get relevant memories with hybrid approach
+   * @param query User query to find relevant memories for
+   * @param candidateLimit Number of initial candidates to retrieve
+   * @param finalLimit Number of final results to return after reranking
+   * @param options Additional options like debug mode
+   * @returns Reranked relevant memory entries
+   */
+  async getEnhancedRelevantMemories(
+    query: string,
+    candidateLimit: number = 15,
+    finalLimit: number = 5,
+    options: {
+      types?: string[];
+      debug?: boolean;
+      returnScores?: boolean;
+      confidenceThreshold?: number;
+      validateContent?: boolean;
+      requireConfidence?: boolean;
+    } = {}
+  ): Promise<{
+    entries: MemoryEntry[];
+    hasConfidence: boolean;
+    confidenceScore?: number;
+    contentValid?: boolean;
+    invalidReason?: string;
+  }> {
+    if (!this.initialized) {
+      await this.initialize();
+    }
+    
+    try {
+      // Step 1: Get a broader set of candidates using vector search
+      const candidates = await this.getRelevantMemories(
+        query,
+        candidateLimit,
+        options.types
+      );
+      
+      // If we don't have the reranker or we have few candidates, return as is
+      if (!this.rerankerService) {
+        return {
+          entries: candidates.slice(0, finalLimit),
+          hasConfidence: false
+        };
+      }
+      
+      // Step 2: Rerank the candidates with confidence threshold and validation
+      const rerankedResult = await this.rerankerService.rerankWithConfidence(
+        query, 
+        candidates, 
+        {
+          debug: options.debug,
+          returnScores: options.returnScores || true,
+          confidenceThreshold: options.confidenceThreshold || 70,
+          validateContent: options.validateContent || true
+        }
+      );
+      
+      // If caller requires confidence and it wasn't met, return empty results
+      if (options.requireConfidence === true && !rerankedResult.confidenceThresholdMet) {
+        return {
+          entries: [],
+          hasConfidence: false,
+          confidenceScore: rerankedResult.topScore
+        };
+      }
+      
+      // Extract validation result if available
+      let contentValid: boolean | undefined;
+      let invalidReason: string | undefined;
+      
+      if (rerankedResult.validationResult) {
+        contentValid = rerankedResult.validationResult.isValid;
+        invalidReason = rerankedResult.validationResult.reason;
+      }
+      
+      // Return the top results with confidence information
+      return {
+        entries: rerankedResult.entries.slice(0, finalLimit),
+        hasConfidence: rerankedResult.confidenceThresholdMet,
+        confidenceScore: rerankedResult.topScore,
+        contentValid,
+        invalidReason
+      };
+    } catch (error) {
+      console.error('Error in enhanced memory retrieval:', error);
+      
+      // Fallback to regular retrieval if reranking fails
+      const fallbackResults = await this.getRelevantMemories(query, finalLimit, options.types);
+      return {
+        entries: fallbackResults,
+        hasConfidence: false
+      };
     }
   }
 }

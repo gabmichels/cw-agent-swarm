@@ -2,10 +2,12 @@ import React from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
+import { FileAttachment } from '../types';
 
 interface MarkdownRendererProps {
   content?: string;  // Make content optional
   className?: string;
+  onImageClick?: (attachment: FileAttachment, e: React.MouseEvent) => void;
 }
 
 // Type for the code component props
@@ -16,7 +18,11 @@ interface CodeProps {
   children?: React.ReactNode;
 }
 
-const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content = '', className = '' }) => {
+const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ 
+  content = '', 
+  className = '',
+  onImageClick
+}) => {
   // Pre-process content with null safety
   // Default to empty string if content is undefined or null
   const processedContent = content
@@ -27,6 +33,27 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content = '', class
         .replace(/\\'/g, "'")
         .replace(/\\\\/g, "\\")
     : '';
+
+  // Handle image click if the callback is provided
+  const handleImageClick = (e: React.MouseEvent<HTMLImageElement>) => {
+    if (onImageClick) {
+      // Create a temporary attachment object from the image
+      const imgElement = e.currentTarget;
+      const blob = new Blob([], { type: 'image/png' });
+      const file = new File([blob], imgElement.alt || 'image.png', { type: 'image/png' });
+      
+      const attachment: FileAttachment = {
+        file: file,
+        type: 'image',
+        preview: imgElement.src,
+        filename: imgElement.alt || 'Image',
+        size: 0,
+        mimeType: 'image/png'
+      };
+      
+      onImageClick(attachment, e);
+    }
+  };
 
   return (
     <div className={`prose dark:prose-invert prose-headings:text-white prose-p:text-gray-200 prose-strong:text-purple-300 prose-em:text-gray-300 max-w-none w-full ${className}`}>
@@ -64,7 +91,12 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content = '', class
           },
           img: ({node, ...props}) => (
             <div className="my-4 flex justify-center">
-              <img className="max-w-full rounded-md shadow-md" {...props} alt={props.alt || 'Image'} />
+              <img 
+                className="max-w-full rounded-md shadow-md cursor-pointer hover:opacity-90 transition-opacity" 
+                onClick={onImageClick ? handleImageClick : undefined}
+                {...props} 
+                alt={props.alt || 'Image'} 
+              />
             </div>
           ),
           table: ({node, ...props}) => (
