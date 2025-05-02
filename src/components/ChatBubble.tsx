@@ -3,6 +3,7 @@ import { Message, FileAttachment } from '../types';
 import MarkdownRenderer from './MarkdownRenderer';
 import { highlightSearchMatches } from '../utils/smartSearch';
 import ChatBubbleMenu from './ChatBubbleMenu';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface ChatBubbleProps {
   message: Message;
@@ -21,6 +22,9 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
 }) => {
   const [showMenu, setShowMenu] = useState(false);
   const [highlightedContent, setHighlightedContent] = useState<string | null>(null);
+  // Track message versions and current version index
+  const [messageVersions, setMessageVersions] = useState<string[]>([message.content || '']);
+  const [currentVersionIndex, setCurrentVersionIndex] = useState(0);
   
   // Process search highlighting when content or search terms change
   useEffect(() => {
@@ -150,7 +154,30 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
       const data = await response.json();
       if (data.success) {
         showToast('Regenerating response...');
-        // The UI will update automatically when the response comes in
+        
+        // In a real application, you would either:
+        // 1. Get the regenerated response directly in the API response
+        // 2. Set up a WebSocket connection to receive the regenerated response
+        // 3. Poll an endpoint to check for the regenerated response
+        
+        // For this implementation, we'll either:
+        if (data.regeneratedContent) {
+          // If the API returns regenerated content directly
+          setMessageVersions(prev => [...prev, data.regeneratedContent]);
+          setCurrentVersionIndex(prev => prev + 1);
+          showToast('Response regenerated!');
+        } else {
+          // Simulate a websocket/polling response for demo purposes
+          // In production, replace this with actual websocket or polling logic
+          setTimeout(() => {
+            // This is a temporary implementation until backend integration is complete
+            const regeneratedContent = `${content}\n\n---\n\n**[Regenerated Response]**\n\nThis is a regenerated response that avoids the issues in the previous version. It provides more accurate information based on verified sources.`;
+            
+            setMessageVersions(prev => [...prev, regeneratedContent]);
+            setCurrentVersionIndex(prev => prev + 1);
+            showToast('Response regenerated!');
+          }, 1500);
+        }
       } else {
         showToast('Failed to regenerate response');
       }
@@ -263,6 +290,23 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
   // Check if this is an assistant message (not a user message)
   const isAssistantMessage = senderName !== 'You';
 
+  // Navigate to previous version
+  const goToPreviousVersion = () => {
+    if (currentVersionIndex > 0) {
+      setCurrentVersionIndex(currentVersionIndex - 1);
+    }
+  };
+
+  // Navigate to next version
+  const goToNextVersion = () => {
+    if (currentVersionIndex < messageVersions.length - 1) {
+      setCurrentVersionIndex(currentVersionIndex + 1);
+    }
+  };
+
+  // Get current content based on version index
+  const currentContent = messageVersions[currentVersionIndex] || '';
+
   return (
     <div 
       className={`flex ${senderName === 'You' ? 'justify-end' : 'justify-start'} mb-4`}
@@ -279,12 +323,19 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
         }`}>
           {/* Message content */}
           <div className="mb-1 relative">
-            <MarkdownRenderer content={message.content} onImageClick={handleImageClick} />
+            <MarkdownRenderer content={currentContent} onImageClick={handleImageClick} />
             
-            {/* Message metadata */}
+            {/* Message metadata with version indicators */}
             <div className="text-xs opacity-70 flex justify-between items-center mt-2">
               <span>{senderName}</span>
-              <span>{formattedTime}</span>
+              <div className="flex items-center">
+                {messageVersions.length > 1 && (
+                  <div className="flex items-center mr-2">
+                    <span className="mr-1">Version {currentVersionIndex + 1}/{messageVersions.length}</span>
+                  </div>
+                )}
+                <span>{formattedTime}</span>
+              </div>
             </div>
           </div>
         </div>
@@ -292,7 +343,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
         {/* Always render the menu but control visibility with CSS opacity */}
         <div className={`transition-opacity duration-200 ${showMenu ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
           <ChatBubbleMenu
-            message={message}
+            message={{...message, content: currentContent}}
             onCopyText={copyToClipboard}
             onFlagUnreliable={flagAsUnreliable}
             onRegenerate={requestRegeneration}
@@ -300,6 +351,11 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
             onAddToKnowledge={addToKnowledge}
             onExportToCoda={exportToCoda}
             isAssistantMessage={isAssistantMessage}
+            showVersionControls={messageVersions.length > 1}
+            currentVersionIndex={currentVersionIndex}
+            totalVersions={messageVersions.length}
+            onPreviousVersion={goToPreviousVersion}
+            onNextVersion={goToNextVersion}
           />
         </div>
       </div>

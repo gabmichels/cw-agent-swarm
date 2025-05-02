@@ -1,5 +1,5 @@
 import React from 'react';
-import { Copy, FileText, Star, Database, ThumbsDown, RefreshCw } from 'lucide-react';
+import { Copy, FileText, Star, Database, ThumbsDown, RefreshCw, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Message } from '../types';
 
 interface ChatBubbleMenuProps {
@@ -11,6 +11,12 @@ interface ChatBubbleMenuProps {
   onAddToKnowledge: (content: string) => void;
   onExportToCoda: (content: string) => void;
   isAssistantMessage: boolean;
+  // Version control props
+  showVersionControls?: boolean;
+  currentVersionIndex?: number;
+  totalVersions?: number;
+  onPreviousVersion?: () => void;
+  onNextVersion?: () => void;
 }
 
 const ChatBubbleMenu: React.FC<ChatBubbleMenuProps> = ({
@@ -21,7 +27,12 @@ const ChatBubbleMenu: React.FC<ChatBubbleMenuProps> = ({
   onFlagImportant,
   onAddToKnowledge,
   onExportToCoda,
-  isAssistantMessage
+  isAssistantMessage,
+  showVersionControls = false,
+  currentVersionIndex = 0,
+  totalVersions = 1,
+  onPreviousVersion,
+  onNextVersion
 }) => {
   const handleAction = (action: (content: string) => void) => {
     if (message.content) {
@@ -57,6 +68,37 @@ const ChatBubbleMenu: React.FC<ChatBubbleMenuProps> = ({
           >
             <RefreshCw className="h-4 w-4" />
           </button>
+          
+          {/* Version controls */}
+          {showVersionControls && onPreviousVersion && onNextVersion && (
+            <div className="flex items-center ml-2 mr-2">
+              <button 
+                onClick={onPreviousVersion}
+                disabled={currentVersionIndex === 0}
+                className={`p-1.5 rounded-full ${currentVersionIndex === 0 
+                  ? 'opacity-50 cursor-not-allowed' 
+                  : 'hover:bg-gray-800 hover:text-blue-400 transition-colors'}`}
+                title="Previous version"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+              
+              <span className="text-xs mx-1">
+                {currentVersionIndex + 1}/{totalVersions}
+              </span>
+              
+              <button 
+                onClick={onNextVersion}
+                disabled={currentVersionIndex === totalVersions - 1}
+                className={`p-1.5 rounded-full ${currentVersionIndex === totalVersions - 1 
+                  ? 'opacity-50 cursor-not-allowed' 
+                  : 'hover:bg-gray-800 hover:text-blue-400 transition-colors'}`}
+                title="Next version"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            </div>
+          )}
         </>
       )}
       
