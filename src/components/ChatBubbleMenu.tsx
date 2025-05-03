@@ -1,5 +1,5 @@
 import React from 'react';
-import { Copy, FileText, Star, Database, ThumbsDown, RefreshCw, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Copy, FileText, Star, Database, ThumbsDown, RefreshCw, ChevronLeft, ChevronRight, Trash2 } from 'lucide-react';
 import { Message } from '../types';
 
 interface ChatBubbleMenuProps {
@@ -10,6 +10,7 @@ interface ChatBubbleMenuProps {
   onFlagImportant: (content: string) => void;
   onAddToKnowledge: (content: string) => void;
   onExportToCoda: (content: string) => void;
+  onDeleteMessage?: (timestamp: Date) => void;
   isAssistantMessage: boolean;
   // Version control props
   showVersionControls?: boolean;
@@ -27,6 +28,7 @@ const ChatBubbleMenu: React.FC<ChatBubbleMenuProps> = ({
   onFlagImportant,
   onAddToKnowledge,
   onExportToCoda,
+  onDeleteMessage,
   isAssistantMessage,
   showVersionControls = false,
   currentVersionIndex = 0,
@@ -37,6 +39,13 @@ const ChatBubbleMenu: React.FC<ChatBubbleMenuProps> = ({
   const handleAction = (action: (content: string) => void) => {
     if (message.content) {
       action(message.content);
+    }
+  };
+
+  // Handle delete message action
+  const handleDelete = () => {
+    if (message.timestamp && onDeleteMessage) {
+      onDeleteMessage(message.timestamp);
     }
   };
 
@@ -125,6 +134,25 @@ const ChatBubbleMenu: React.FC<ChatBubbleMenuProps> = ({
       >
         <FileText className="h-4 w-4" />
       </button>
+      
+      {/* Add delete message button */}
+      {onDeleteMessage && (
+        <div 
+          className={`flex items-center gap-1 text-sm text-red-500 hover:text-red-400 transition-colors p-1 px-2 rounded cursor-pointer hover:bg-gray-800`}
+          onClick={(e) => {
+            e.stopPropagation();
+            if (onDeleteMessage) {
+              console.log('Delete message clicked, timestamp:', message.timestamp);
+              onDeleteMessage(message.timestamp instanceof Date ? message.timestamp : new Date(message.timestamp || Date.now()));
+            } else {
+              console.warn('Delete message handler not provided');
+            }
+          }}
+        >
+          <Trash2 size={14} />
+          <span>Delete</span>
+        </div>
+      )}
     </div>
   );
 };

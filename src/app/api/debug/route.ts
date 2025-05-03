@@ -1,31 +1,78 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import * as fs from 'fs';
+import * as path from 'path';
 
-export async function GET() {
+// Make sure this runs server-side only
+export const runtime = 'nodejs';
+
+/**
+ * Recursively find all route files in the API directory
+ */
+function findApiRoutes(dir: string, baseDir: string): string[] {
+  const routes: string[] = [];
+  
   try {
-    console.log('Testing chat API...');
+    const files = fs.readdirSync(dir);
     
-    // Test a simple message
-    const testMessage = "Hi Chloe, this is a test message";
+    for (const file of files) {
+      const fullPath = path.join(dir, file);
+      const stat = fs.statSync(fullPath);
+      
+      if (stat.isDirectory()) {
+        // Recursively search subdirectories
+        routes.push(...findApiRoutes(fullPath, baseDir));
+      } else if (file === 'route.ts' || file === 'route.js') {
+        // Found a route file
+        const relativePath = path.relative(baseDir, dir);
+        const apiPath = '/' + relativePath.replace(/\\/g, '/');
+        routes.push(apiPath);
+      }
+    }
+  } catch (error) {
+    console.error('Error reading directory:', error);
+  }
+  
+  return routes;
+}
+
+/**
+ * GET handler that returns debug information about the API
+ */
+export async function GET(request: NextRequest) {
+  try {
+    // Get base directory for API routes
+    const apiBaseDir = path.resolve(process.cwd(), 'src/app/api');
     
-    // For real implementation, we would use:
-    // const chloe = require('../../../agents/chloe');
-    // const response = await chloe.processMessage(testMessage);
+    // Find all API routes
+    const routes = findApiRoutes(apiBaseDir, apiBaseDir);
     
-    // For now, simulate a response
-    const response = `This is a test response to your message: "${testMessage}"`;
+    // Get system information
+    const systemInfo = {
+      nodejsVersion: process.version,
+      platform: process.platform,
+      arch: process.arch,
+      uptime: process.uptime(),
+      cwd: process.cwd(),
+      env: process.env.NODE_ENV
+    };
     
     return NextResponse.json({
-      status: 'success',
-      testMessage,
-      response
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+      apiRoutes: routes.sort(),
+      systemInfo,
+      requestInfo: {
+        url: request.url,
+        method: request.method,
+        headers: Object.fromEntries(request.headers.entries())
+      }
     });
   } catch (error: any) {
-    console.error('Error testing chat API:', error);
     return NextResponse.json(
-      { 
+      {
         status: 'error',
-        error: error.message || 'Unknown error',
-        stack: error.stack 
+        error: error.message,
+        stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
       },
       { status: 500 }
     );

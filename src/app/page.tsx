@@ -20,6 +20,7 @@ import DevModeToggle from '../components/DevModeToggle';
 import { filterChatVisibleMessages } from '../utils/messageFilters';
 import { MessageType } from '../constants/message';
 import { analyzeMessageTypes, exportDebugMessages, toggleMessageDebugging } from '../utils/messageDebug';
+import { FileAttachmentType } from '../constants/file';
 
 // Add constants for storage
 const SAVED_ATTACHMENTS_KEY = 'crowd-wisdom-saved-attachments';
@@ -60,6 +61,7 @@ export default function Home() {
   const [showInternalMessages, setShowInternalMessages] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedMessageId, setSelectedMessageId] = useState('');
+  const [prevMessageCount, setPrevMessageCount] = useState(0);
   
   // Initialize showInternalMessages from localStorage
   useEffect(() => {
@@ -314,11 +316,11 @@ export default function Home() {
   const handleFileSelect = async (file: File) => {
     try {
       // Determine file type for appropriate handling
-      let fileType: FileAttachment['type'] = 'other';
+      let fileType: FileAttachment['type'] = FileAttachmentType.OTHER;
       let preview = '';
       
       if (file.type.startsWith('image/')) {
-        fileType = 'image';
+        fileType = FileAttachmentType.IMAGE;
         
         // Create a unique ID for this image
         const imageId = `img_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
@@ -365,7 +367,7 @@ export default function Home() {
           }]);
         }
       } else if (file.type === 'application/pdf') {
-        fileType = 'pdf';
+        fileType = FileAttachmentType.PDF;
         preview = URL.createObjectURL(file);
         
         // Add to pending attachments
@@ -375,7 +377,7 @@ export default function Home() {
           type: fileType
         }]);
       } else if (file.type.includes('document') || file.name.endsWith('.docx') || file.name.endsWith('.doc')) {
-        fileType = 'document';
+        fileType = FileAttachmentType.DOCUMENT;
         
         // Add to pending attachments
         setPendingAttachments(prev => [...prev, {
@@ -384,7 +386,7 @@ export default function Home() {
           type: fileType
         }]);
       } else if (file.type.includes('text') || file.name.endsWith('.txt') || file.name.endsWith('.md')) {
-        fileType = 'text';
+        fileType = FileAttachmentType.TEXT;
         // For text files, we can read and preview the content
         const text = await file.text();
         preview = text.substring(0, 150) + (text.length > 150 ? '...' : '');
@@ -419,7 +421,7 @@ export default function Home() {
     setPendingAttachments(prev => {
       const updated = [...prev];
       // Revoke the object URL if it's an image to prevent memory leaks
-      if (updated[index].preview && updated[index].type === 'image') {
+      if (updated[index].preview && updated[index].type === FileAttachmentType.IMAGE) {
         URL.revokeObjectURL(updated[index].preview);
       }
       updated.splice(index, 1);
@@ -1303,7 +1305,7 @@ For detailed instructions, see the Debug panel.`,
         const msg = newMessages[i];
         
         // If this is a user message with image attachments, remember its timestamp
-        if (msg.sender === 'You' && msg.attachments && msg.attachments.some(att => att.type === 'image')) {
+        if (msg.sender === 'You' && msg.attachments && msg.attachments.some(att => att.type === FileAttachmentType.IMAGE)) {
           lastImageMessageTimestamp = msg.timestamp.toISOString();
           console.log(`Found image message with timestamp: ${lastImageMessageTimestamp}`);
         } 
@@ -1372,7 +1374,7 @@ For detailed instructions, see the Debug panel.`,
         for (const msg of savedMessages) {
           if (msg.attachments) {
             for (const att of msg.attachments) {
-              if (att.type === 'image' && att.fileId && (!att.preview || att.preview === '')) {
+              if (att.type === FileAttachmentType.IMAGE && att.fileId && (!att.preview || att.preview === '')) {
                 try {
                   // Try to get the full image data from storage
                   const fullImageData = await getImageDataFromStorage(att.fileId);
@@ -1555,28 +1557,25 @@ For detailed instructions, see the Debug panel.`,
     loadInitialChat();
   }, [selectedAgent]);
 
-  // Auto-scroll to bottom when messages change or when switching to chat tab
+  // Auto-scroll to bottom only when new messages are added or when switching to chat tab for the first time
   useEffect(() => {
-    if (selectedTab === 'chat') {
-      // Use a shorter timeout to make it feel more responsive
+    // Only auto-scroll in these specific conditions:
+    // 1. When a new message is added (messages.length changes)
+    // 2. When switching to the chat tab (selectedTab becomes 'chat')
+    // 3. Don't re-scroll if we're just re-rendering for other reasons
+    
+    // Track if we're adding a new message by comparing with previous message count
+    const isNewMessage = messages.length > prevMessageCount;
+    setPrevMessageCount(messages.length);
+    
+    if (selectedTab === 'chat' && (isNewMessage || isLoading === false)) {
       setTimeout(() => {
         if (messagesEndRef.current) {
-          messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+          messagesEndRef.current.scrollIntoView({ behavior: isNewMessage ? 'smooth' : 'auto' });
         }
       }, 50);
     }
-  }, [messages, selectedTab, isLoading]);
-
-  // Ensure scroll to bottom after initial chat is loaded
-  useEffect(() => {
-    if (!isLoading && messages.length > 0 && selectedTab === 'chat') {
-      setTimeout(() => {
-        if (messagesEndRef.current) {
-          messagesEndRef.current.scrollIntoView({ behavior: 'auto' });
-        }
-      }, 100);
-    }
-  }, [isLoading, messages.length, selectedTab]);
+  }, [messages.length, selectedTab, isLoading, prevMessageCount]);
 
   // Function to handle file viewing from the Files tab
   const handleFileImageClick = async (fileId: string, filename: string) => {
@@ -1691,7 +1690,7 @@ For detailed instructions, see the Debug panel.`,
         const previousImageMessage = messages.slice().reverse().find(msg => 
           msg.sender === 'You' && 
           msg.attachments && 
-          msg.attachments.some(att => att.type === 'image')
+          msg.attachments.some(att => att.type === FileAttachmentType.IMAGE)
         );
         
         if (previousImageMessage && previousImageMessage.timestamp) {
@@ -1968,6 +1967,69 @@ For detailed instructions, see the Debug panel.`,
     // Clear search when jumping to a message
     if (searchQuery) setSearchQuery('');
   };
+
+  // Add a more robust event listener for message deletion that works even with fallbacks
+  useEffect(() => {
+    // Event handler for message deletion
+    const handleMessageDeleted = (event: Event) => {
+      try {
+        const customEvent = event as CustomEvent;
+        const deletedTimestamp = customEvent.detail?.timestamp;
+        
+        if (deletedTimestamp) {
+          console.log(`Message deleted event received for timestamp: ${deletedTimestamp}`);
+          
+          // Update the messages state to remove the deleted message
+          setMessages(prevMessages => {
+            if (!Array.isArray(prevMessages)) return prevMessages;
+            
+            // Find and remove the message with the matching timestamp
+            const updatedMessages = prevMessages.filter(msg => {
+              try {
+                // Handle different timestamp formats
+                const msgTimestamp = msg.timestamp instanceof Date 
+                  ? msg.timestamp.toISOString() 
+                  : typeof msg.timestamp === 'string'
+                    ? msg.timestamp
+                    : null;
+                    
+                return msgTimestamp !== deletedTimestamp;
+              } catch (err) {
+                console.error('Error comparing message timestamps:', err);
+                return true; // Keep the message if we can't compare
+              }
+            });
+            
+            console.log(`Removed ${prevMessages.length - updatedMessages.length} messages`);
+            
+            // If no messages were removed, log an exception
+            if (prevMessages.length === updatedMessages.length) {
+              console.warn(`No messages were removed for timestamp: ${deletedTimestamp}`);
+              console.log('Available message timestamps:', 
+                prevMessages.map(m => m.timestamp instanceof Date 
+                  ? m.timestamp.toISOString() 
+                  : m.timestamp)
+              );
+            }
+            
+            return updatedMessages;
+          });
+        } else {
+          console.error('Delete event received but no timestamp in the event details');
+        }
+      } catch (error) {
+        console.error('Error handling message deletion event:', error);
+      }
+    };
+
+    // Add the event listener
+    document.addEventListener('messageDeleted', handleMessageDeleted);
+    
+    // Clean up on unmount
+    return () => {
+      document.removeEventListener('messageDeleted', handleMessageDeleted);
+    };
+  }, []);
 
   return (
     <div className="flex flex-col h-screen bg-gray-900 text-white">
