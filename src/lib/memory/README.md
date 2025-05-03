@@ -85,4 +85,123 @@ const priority = memory.extractPriority("This is crucial and urgent");
 // Returns "high"
 ```
 
-This enhanced memory system replaces the legacy Python-based memory systems and provides a foundation for true agent autonomy by enabling learning and adaptation over time. 
+This enhanced memory system replaces the legacy Python-based memory systems and provides a foundation for true agent autonomy by enabling learning and adaptation over time.
+
+# Memory System: Tag Extraction and Importance Calculation
+
+This directory contains the core utilities for memory management in the agent system, including tag extraction and importance calculation.
+
+## Tag Extraction System
+
+The new `TagExtractor` utility provides sophisticated keyword/tag extraction from content using multiple algorithms:
+
+### Features
+
+- **Multiple Algorithms**: 
+  - TF-IDF: Best for longer documents, considers term frequency and rarity
+  - RAKE: Optimized for shorter texts, extracts multi-word phrases
+  - Basic: Simple frequency-based extraction
+
+- **Normalization Pipeline**:
+  - Stemming to handle word variations
+  - Stopword filtering with domain-specific additions
+  - Text cleaning and normalization
+
+- **Corpus-Aware Processing**:
+  - Maintains global term statistics across documents
+  - Improves extraction quality over time as more content is processed
+  - Calculates inverse document frequency for better significance estimation
+
+- **Confidence Scoring**:
+  - Each tag has a confidence score indicating extraction reliability
+  - Used in retrieval and importance calculations
+
+- **Tag Management**:
+  - Support for manually approved vs. automatically generated tags
+  - Tag merging from multiple sources with prioritization
+  - Calculation of tag overlap for boosting search results
+
+## Importance Calculation
+
+The `ImportanceCalculator` determines the importance of memory items based on multiple factors:
+
+### Features
+
+- **Multi-Factor Scoring**:
+  - Document length (longer content often has more value)
+  - Tag quality and confidence
+  - Source type (markdown gets higher scores)
+  - Embedding centrality
+  - Keyword presence
+  - Recency
+
+- **Consistent Scoring**:
+  - Centralized calculation for all memory types
+  - Normalized scores between 0 and 1
+  - Mapping to traditional importance levels (CRITICAL, HIGH, etc.)
+
+- **Tag Integration**:
+  - Uses tag confidence in importance calculation
+  - Higher quality tags increase importance
+  - Adjustable weights per factor
+
+- **Search Enhancement**:
+  - Tag overlap boosts search relevance
+  - Importance scores influence retrieval ranking
+
+## Memory Storage and Retrieval
+
+The memory storage system has been enhanced to:
+
+1. Automatically extract tags during memory ingestion
+2. Calculate importance scores based on multiple factors
+3. Store tags and importance scores with memories
+4. Boost search results based on tag overlap with queries
+
+## Usage
+
+### Tag Extraction
+
+```typescript
+import { TagExtractor, TagAlgorithm } from '../lib/memory/TagExtractor';
+
+// Extract tags from content
+const tags = TagExtractor.extractTags(content, {
+  algorithm: TagAlgorithm.TFIDF,
+  maxTags: 10,
+  minConfidence: 0.2
+});
+
+// Use the tags
+const tagStrings = tags.map(tag => tag.text);
+console.log("Extracted tags:", tagStrings);
+```
+
+### Importance Calculation
+
+```typescript
+import { ImportanceCalculator } from '../lib/memory/ImportanceCalculator';
+
+// Calculate importance score
+const importanceScore = ImportanceCalculator.calculateImportanceScore({
+  content: documentContent,
+  source: MemorySource.FILE,
+  type: ChloeMemoryType.KNOWLEDGE,
+  tags: extractedTags,
+  tagConfidence: 0.85,
+  embedding: contentEmbedding
+});
+
+// Map to traditional importance level
+const importanceLevel = ImportanceCalculator.scoreToImportanceLevel(importanceScore);
+```
+
+### Tag-Based Search Boosting
+
+When searching memories, results are automatically boosted based on tag overlap with the query:
+
+```typescript
+// This happens automatically in the searchMemory function
+const results = await searchMemory(type, query, options);
+// Results are boosted based on tag overlap with query
+``` 

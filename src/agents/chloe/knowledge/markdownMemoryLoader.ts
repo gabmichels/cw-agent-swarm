@@ -7,6 +7,7 @@ import * as memory from '../../../server/qdrant';
 import { ImportanceLevel, MemorySource, ChloeMemoryType } from '../../../constants/memory';
 import { logger } from '../../../lib/logging';
 import { ImportanceCalculator } from '../../../lib/memory/ImportanceCalculator';
+import { TagExtractor, Tag, TagAlgorithm } from '../../../lib/memory/TagExtractor';
 
 // Import the constants for memory types
 import { MEMORY_TYPES } from '../../../constants/qdrant';
@@ -192,22 +193,103 @@ function extractKeywordsFromText(text: string): string[] {
   return Array.from(new Set(words));
 }
 
+// Fix for MAX_CHUNK_SIZE and split function
+const MAX_CHUNK_SIZE = 4000; // Max size for a chunk in characters
+
 /**
- * Extract title from markdown content
- * @param content Markdown content
- * @param filePath Fallback file path for title extraction
- * @returns Extracted title
+ * Split markdown into smaller chunks for better memory retrieval
  */
-function extractTitle(content: string, filePath: string): string {
-  // Look for the first H1 heading
-  const titleMatch = content.match(/^#\s+(.*?)$/m);
-  if (titleMatch && titleMatch[1]) {
-    return titleMatch[1].trim();
+async function splitMarkdownIntoChunks(content: string): Promise<string[]> {
+  // If content is small enough, just return it as a single chunk
+  if (content.length <= MAX_CHUNK_SIZE) {
+    return [content];
+  }
+
+  // Split by headers
+  const headerSections = content.split(/^#{1,6} /gm);
+  const chunks: string[] = [];
+  let currentChunk = '';
+
+  // Process each section
+  for (const section of headerSections) {
+    // If adding this section would make the chunk too large
+    if (currentChunk.length + section.length > MAX_CHUNK_SIZE) {
+      // If current chunk is not empty, add it to chunks
+      if (currentChunk.length > 0) {
+        chunks.push(currentChunk);
+        currentChunk = '';
+      }
+      
+      // If the section itself is too large, split it further
+      if (section.length > MAX_CHUNK_SIZE) {
+        // Split by paragraphs
+        const paragraphs = section.split(/\n\s*\n/);
+        for (const paragraph of paragraphs) {
+          if (currentChunk.length + paragraph.length > MAX_CHUNK_SIZE) {
+            if (currentChunk.length > 0) {
+              chunks.push(currentChunk);
+              currentChunk = '';
+            }
+            
+            // If paragraph is still too large, split it by sentences
+            if (paragraph.length > MAX_CHUNK_SIZE) {
+              const sentences = paragraph.split(/(?<=[.!?])\s+/);
+              for (const sentence of sentences) {
+                if (currentChunk.length + sentence.length > MAX_CHUNK_SIZE) {
+                  if (currentChunk.length > 0) {
+                    chunks.push(currentChunk);
+                  }
+                  
+                  // If sentence is too large, split arbitrarily
+                  for (let i = 0; i < sentence.length; i += MAX_CHUNK_SIZE) {
+                    chunks.push(sentence.substring(i, i + MAX_CHUNK_SIZE));
+                  }
+                  
+                  currentChunk = '';
+                } else {
+                  currentChunk += (currentChunk ? ' ' : '') + sentence;
+                }
+              }
+            } else {
+              chunks.push(paragraph);
+            }
+          } else {
+            currentChunk += (currentChunk ? '\n\n' : '') + paragraph;
+          }
+        }
+      } else {
+        chunks.push(section);
+      }
+    } else {
+      currentChunk += (currentChunk ? '\n' : '') + section;
+    }
   }
   
-  // Fallback to filename without extension
-  const fileName = path.basename(filePath, path.extname(filePath));
-  return fileName.replace(/[-_]/g, ' ');
+  // Add the last chunk if not empty
+  if (currentChunk.length > 0) {
+    chunks.push(currentChunk);
+  }
+  
+  return chunks;
+}
+
+/**
+ * Extract title from frontmatter or first heading
+ */
+function extractTitle(frontMatter: any, content: string): string {
+  // Use frontmatter title if available
+  if (frontMatter.title) {
+    return frontMatter.title;
+  }
+  
+  // Try to extract the first heading
+  const headingMatch = content.match(/^#\s+(.+)$/m);
+  if (headingMatch && headingMatch[1]) {
+    return headingMatch[1].trim();
+  }
+  
+  // Fallback to filename if needed
+  return 'Untitled Document';
 }
 
 /**
@@ -617,57 +699,134 @@ export async function markdownToMemoryEntries(filePath: string, content: string)
     source: MemorySource.FILE,
     contentType: 'markdown',
     fileType: 'md',
-    extractedFrom: filePath,
-    lastModified: new Date().toISOString()
-  };
-  
-  // Extract title from frontmatter or first heading
-  const title = frontMatter.title || extractTitle(markdownContent, filePath);
-  
-  // Extract tags from frontmatter or generate from content
-  const frontmatterTags = frontMatter.tags || [];
-  const tags = Array.from(new Set([
-    ...frontmatterTags,
-    ...getStandardTagsFromPath(filePath)
-  ]));
-  
-  // Determine the type of markdown content
-  const type = frontMatter.type || determineMemoryType(filePath);
-  
-  // Calculate importance using the new ImportanceCalculator
-  // For markdown files, we want to ensure they're treated as critical
-  const importanceData = {
-    content: markdownContent,
-    source: MemorySource.FILE,
-    type,
-    tags,
-    tagConfidence: 1.0, // High confidence in tags for markdown files
-    metadata: {
-      ...standardMetadata,
-      ...frontMatter
-    }
-  };
-  
-  // Calculate the importance score - markdown files should get a top score
-  const importanceScore = ImportanceCalculator.calculateImportanceScore(importanceData);
-  
-  // Always set markdown importance to CRITICAL, as required
-  const importanceLevel = ImportanceLevel.CRITICAL;
-  
-  return [{
-    title,
-    content: markdownContent,
-    type,
-    tags: Array.from(new Set([...tags, ...extractKeywordsFromText(title), ...extractTags(markdownContent)])),
-    importance: importanceLevel,
-    importance_score: importanceScore, // Store the calculated score
-    source: MemorySource.FILE,
     filePath,
-    metadata: {
-      ...standardMetadata,
-      importance_score: importanceScore // Include score in metadata
-    }
-  }];
+    lastModified: new Date().toISOString(),
+    critical: true, // Markdown files are always critical
+    ...frontMatter // Include any frontmatter as metadata
+  };
+  
+  // Extract the title from frontmatter or first heading
+  const title = extractTitle(frontMatter, markdownContent);
+  
+  // Get predefined tags from frontmatter
+  const predefinedTags = frontMatter.tags || [];
+  
+  // Extract tags from title and content
+  const extractedTags = extractTagsFromMarkdown(title, markdownContent, predefinedTags);
+  
+  // Get all unique tags as strings
+  const allTagStrings = [
+    ...Array.isArray(predefinedTags) ? predefinedTags : [predefinedTags],
+    ...extractedTags.map(tag => tag.text)
+  ].filter((value, index, self) => self.indexOf(value) === index); // Remove duplicates
+  
+  // Calculate importance directly for markdown (always high)
+  const importanceScore = ImportanceCalculator.calculateImportanceScore({
+    content: markdownContent,
+    source: MemorySource.FILE,
+    type: ChloeMemoryType.KNOWLEDGE,
+    tags: extractedTags,
+    tagConfidence: 0.9, // High confidence for markdown files
+    metadata: standardMetadata
+  });
+  
+  // For small files, return as a single memory entry
+  if (markdownContent.length < MAX_CHUNK_SIZE) {
+    return [{
+      title,
+      content: markdownContent,
+      type: ChloeMemoryType.KNOWLEDGE,
+      tags: allTagStrings,
+      importance: ImportanceLevel.CRITICAL, // Markdown is always critical
+      importance_score: importanceScore,
+      source: MemorySource.FILE,
+      filePath,
+      metadata: {
+        ...standardMetadata,
+        extractedTags,
+        tagConfidence: 0.9,
+      }
+    }];
+  }
+  
+  // For larger files, split into chunks
+  const chunks = await splitMarkdownIntoChunks(markdownContent);
+  
+  // Create a memory entry for each chunk
+  return chunks.map((chunk, index) => {
+    // Extract chunk-specific tags
+    const chunkTags = TagExtractor.extractTags(chunk, {
+      algorithm: TagAlgorithm.TFIDF,
+      maxTags: 10
+    });
+    
+    // Combine with file-level tags in a way compatible with the Tag interface
+    const mergedTagsArray = TagExtractor.mergeTags(extractedTags, chunkTags);
+    
+    // Map to string tags for storage
+    const stringTags = [
+      ...allTagStrings,
+      ...chunkTags.map(tag => tag.text)
+    ].filter((value, index, self) => self.indexOf(value) === index); // Remove duplicates
+    
+    // Calculate chunk-specific importance
+    const chunkImportanceScore = ImportanceCalculator.calculateImportanceScore({
+      content: chunk,
+      source: MemorySource.FILE,
+      type: ChloeMemoryType.KNOWLEDGE,
+      tags: mergedTagsArray,
+      tagConfidence: 0.85,
+      metadata: standardMetadata
+    });
+    
+    return {
+      title: `${title} (Part ${index + 1})`,
+      content: chunk,
+      type: ChloeMemoryType.KNOWLEDGE,
+      tags: stringTags,
+      importance: ImportanceLevel.CRITICAL,
+      importance_score: chunkImportanceScore,
+      source: MemorySource.FILE,
+      filePath,
+      metadata: {
+        ...standardMetadata,
+        extractedTags: mergedTagsArray.map(tag => ({ text: tag.text, confidence: tag.confidence })),
+        tagConfidence: 0.85,
+        partIndex: index,
+        totalParts: chunks.length
+      }
+    };
+  });
+}
+
+/**
+ * Extract tags from markdown content
+ */
+function extractTagsFromMarkdown(
+  title: string,
+  content: string,
+  predefinedTags: string[] = []
+): Tag[] {
+  // Extract tags using title and content with different weights
+  const extractedTags = TagExtractor.extractTagsFromFields([
+    { content: title, weight: 1.5 },     // Title has higher weight
+    { content: content, weight: 1.0 }    // Content has standard weight
+  ], {
+    algorithm: TagAlgorithm.TFIDF,
+    maxTags: 15,
+    minConfidence: 0.2
+  });
+  
+  // Convert predefined tags to Tag objects with maximum confidence
+  const predefinedTagObjects = predefinedTags.map(tag => ({
+    text: tag,
+    confidence: 1.0,
+    approved: true,
+    algorithm: 'manual' as any
+  })) as Tag[];
+  
+  // Merge predefined tags with extracted tags, prioritizing predefined
+  return TagExtractor.mergeTags(predefinedTagObjects, extractedTags);
 }
 
 /**

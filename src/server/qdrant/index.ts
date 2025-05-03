@@ -15,6 +15,8 @@ import {
 } from '../../constants/qdrant';
 import { ImportanceLevel } from '../../constants/memory';
 import { ImportanceCalculator } from '../../lib/memory/ImportanceCalculator';
+import { TagExtractor, Tag, TagAlgorithm } from '../../lib/memory/TagExtractor';
+import { extractTagsFromQuery } from './search-helpers';
 
 // Make sure this file is only executed on the server
 if (typeof window !== 'undefined') {
@@ -36,6 +38,11 @@ export interface MemoryRecord {
   timestamp: string;
   type: QdrantMemoryType;
   metadata: Record<string, any>;
+}
+
+// Memory record with score information for search results
+export interface ScoredMemoryRecord extends MemoryRecord {
+  score: number;
 }
 
 // Search options for memory retrieval
@@ -542,147 +549,129 @@ class QdrantHandler {
     return this.createSimplestFilter(filter);
   }
 
-  async searchMemory(type: QdrantMemoryType | null, query: string, options: MemorySearchOptions = {}): Promise<MemoryRecord[]> {
-    if (!this.initialized) {
-      await this.initialize();
+  async searchMemories(
+    type: QdrantMemoryType | null,
+    query: string,
+    options: MemorySearchOptions = {}
+  ): Promise<MemoryRecord[]> {
+    try {
+      if (!this.initialized) {
+        await this.initialize();
+      }
+      
+      // If a specific collection is requested, search only that one
+      if (type) {
+        const collectionName = COLLECTIONS[type];
+        if (!collectionName) {
+          throw new Error(`Invalid memory type: ${type}`);
+        }
+        
+        return this.searchInCollection(collectionName, query, options);
+      }
+      
+      // If no specific type is requested, search across all collections
+      const allResults: MemoryRecord[] = [];
+      
+      for (const collectionName of Object.values(COLLECTIONS)) {
+        try {
+          const results = await this.searchInCollection(collectionName, query, options);
+          allResults.push(...results);
+        } catch (error) {
+          console.error(`Error searching collection ${collectionName}:`, error);
+        }
+      }
+      
+      // Sort combined results by score if available, fallback to timestamp
+      return allResults.sort((a, b) => {
+        if ('score' in a && 'score' in b) {
+          return (b as any).score - (a as any).score;
+        }
+        
+        // Fallback to sorting by timestamp (newest first)
+        return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
+      }).slice(0, options.limit || 10);
+    } catch (error) {
+      console.error('Error in searchMemories:', error);
+      return [];
+    }
+  }
+
+  private async searchInCollection(
+    collectionName: string,
+    query: string,
+    options: MemorySearchOptions = {}
+  ): Promise<MemoryRecord[]> {
+    // Fallback to in-memory storage if not using Qdrant
+    if (!this.useQdrant) {
+      return this.fallbackStorage.searchMemory(collectionName, query, options);
     }
     
     try {
-      // Determine which collections to search
-      const collectionsToSearch: string[] = type 
-        ? [COLLECTIONS[type]] 
-        : Object.values(COLLECTIONS);
-      
-      // Define limit
-      const limit = options.limit || 5;
-      
-      // If Qdrant is unavailable, use in-memory fallback
-      if (!this.useQdrant) {
-        // Combine results from all collections
-        const results = await Promise.all(
-          collectionsToSearch.map(collectionName => 
-            this.fallbackStorage.searchMemory(collectionName, query, options)
-          )
-        );
-        
-        return results.flat().slice(0, limit);
-      }
-      
-      // Generate embedding for query
-      const queryEmbedding = await this.embeddingFunction(query);
-      
-      // Validate and normalize the query vector
-      const safeQueryVector = this.validateVectorForQdrant(queryEmbedding);
-      
-      // Search each collection and combine results
-      const results = await Promise.all(
-        collectionsToSearch.map(async (collectionName) => {
-          try {
-            // ULTRA SIMPLE APPROACH: Start with minimal parameters that are guaranteed to work
-            let searchParams: any = {
-              vector: safeQueryVector,
-              limit: limit,
-              with_payload: true
-            };
-            
-            // Only add filter if absolutely needed, and in the simplest form possible
-            if (options.filter && Object.keys(options.filter).length > 0) {
-              // Create a simplified version of the filter
-              const simpleFilter = this.createSimplestFilter(options.filter);
-              if (simpleFilter) {
-                searchParams.filter = simpleFilter;
-              }
-            }
-            
-            // Log what we're about to do
-            console.log(`Searching collection ${collectionName} with simplified parameters`);
-            
-            try {
-              // Execute the search
-              const searchResult = await this.client.search(collectionName, searchParams);
-              console.log(`Search successful, found ${searchResult.length} results`);
-              
-              // Convert to our format
-              return searchResult.map(result => this.extractMemoryRecord(result));
-            } catch (e: any) {
-              // If we get an error, try again without ANY filter
-              console.error(`Error with filter, trying without filter: ${e.message}`);
-              const backupParams = {
-                vector: safeQueryVector,
-                limit: limit,
-                with_payload: true
-              };
-              
-              const backupResult = await this.client.search(collectionName, backupParams);
-              return backupResult.map(result => this.extractMemoryRecord(result)); 
-            }
-          } catch (error) {
-            console.error(`Error searching collection ${collectionName}:`, error);
-            
-            // If collection doesn't exist yet, return empty results
-            if (error instanceof Error && error.message && (
-              error.message.includes('not found') || 
-              error.message.includes('does not exist')
-            )) {
-              console.warn(`Collection ${collectionName} does not exist yet, returning empty results`);
-              return [];
-            }
-            
-            // For other errors, fall back to in-memory
-            this.useQdrant = false;
-            return this.fallbackStorage.searchMemory(collectionName, query, options);
+      // If query is empty, use scroll API to get recent memories
+      if (!query || query.trim().length === 0) {
+        const response = await this.client.scroll(collectionName, {
+          limit: options.limit || 10,
+          with_payload: true,
+          with_vector: false,
+          filter: options.filter ? this.buildQdrantFilter(options.filter) : undefined,
+          order_by: {
+            key: 'timestamp',
+            direction: 'desc'
           }
-        })
-      );
-      
-      // Flatten and sort by score (would need to modify interface to include score)
-      const flatResults = results.flat().slice(0, limit);
-      
-      // Post-process to incorporate importance_score into ranking
-      if (flatResults && flatResults.length > 0) {
-        // Adjust score based on importance_score
-        // Calculate new scores as: originalScore * (1 + importanceBoost)
-        const processedResults = flatResults.map(result => {
-          const importanceScore = result.metadata.importance_score || 0.5; // Default if not set
-          const importanceBoost = importanceScore / 2; // Convert 0-1 score to 0-0.5 boost
-          
-          // Clone the result to avoid modifying the original
-          return {
-            ...result,
-            metadata: {
-              ...result.metadata,
-              _originalScore: result.metadata._score, // Preserve original score
-              _scoreWithImportance: result.metadata._score * (1 + importanceBoost) // Boosted score
-            }
-          };
         });
         
-        // Sort by the new score
-        return processedResults.sort((a, b) => 
-          (b.metadata._scoreWithImportance || 0) - (a.metadata._scoreWithImportance || 0)
-        );
+        if (!response || !response.points) {
+          return [];
+        }
+        
+        return response.points.map(point => this.extractMemoryRecord(point));
       }
       
-      return flatResults;
+      // For actual search queries, get embedding and search by vector similarity
+      const embedding = await this.embeddingFunction(query);
+      
+      const searchResponse = await this.client.search(collectionName, {
+        vector: embedding,
+        limit: options.limit || 10,
+        filter: options.filter ? this.buildQdrantFilter(options.filter) : undefined,
+        with_payload: true,
+        with_vector: false
+      });
+      
+      if (!searchResponse) {
+        return [];
+      }
+      
+      // Transform results to MemoryRecord objects with scores
+      return searchResponse.map(result => {
+        const record = this.extractMemoryRecord(result);
+        return {
+          ...record,
+          score: result.score || 0
+        };
+      });
     } catch (error) {
-      console.error('Failed to search Qdrant memory, using fallback:', error);
-      this.useQdrant = false;
+      console.error(`Error searching collection ${collectionName}:`, error);
       
-      // Fall back to in-memory search
-      const collectionsToSearch: string[] = type 
-        ? [COLLECTIONS[type]] 
-        : Object.values(COLLECTIONS);
-      
-      const results = await Promise.all(
-        collectionsToSearch.map(collectionName => 
-          this.fallbackStorage.searchMemory(collectionName, query, options)
-        )
-      );
-      
-      return results.flat().slice(0, options.limit || 5);
+      // Fallback to in-memory storage
+      return this.fallbackStorage.searchMemory(collectionName, query, options);
     }
   }
-  
+
+  private extractMetadata(payload: any): Record<string, any> {
+    // Extract metadata fields from payload (excluding standard fields)
+    const standardFields = ['text', 'timestamp', 'type', 'stringId'];
+    const metadata: Record<string, any> = {};
+    
+    for (const [key, value] of Object.entries(payload)) {
+      if (!standardFields.includes(key)) {
+        metadata[key] = value;
+      }
+    }
+    
+    return metadata;
+  }
+
   // Create the simplest possible filter that's guaranteed to work with Qdrant
   private createSimplestFilter(filter: Record<string, any>): any {
     try {
@@ -711,20 +700,6 @@ class QdrantHandler {
       console.error("Error creating filter, skipping filter:", error);
       return null; // Return null on any error to skip filtering
     }
-  }
-  
-  private extractMetadata(payload: any): Record<string, any> {
-    // Extract metadata fields from payload (excluding standard fields)
-    const standardFields = ['text', 'timestamp', 'type', 'stringId'];
-    const metadata: Record<string, any> = {};
-    
-    for (const [key, value] of Object.entries(payload)) {
-      if (!standardFields.includes(key)) {
-        metadata[key] = value;
-      }
-    }
-    
-    return metadata;
   }
 
   async getRecentMemories(type: QdrantMemoryType, limit: number = 10): Promise<MemoryRecord[]> {
@@ -1220,7 +1195,9 @@ export async function initMemory(options?: {
   initializationPromise = (async () => {
     try {
       console.log('Starting Qdrant initialization');
-      await qdrantInstance!.initialize();
+      if (qdrantInstance) {
+        await qdrantInstance.initialize();
+      }
       console.log('Qdrant initialization completed successfully');
     } catch (error) {
       console.error('Qdrant initialization failed:', error);
@@ -1247,7 +1224,7 @@ export async function addMemory(
     await initMemory();
   }
   
-  return qdrantInstance!.addMemory(type, content, metadata);
+  return qdrantInstance ? qdrantInstance.addMemory(type, content, metadata) : '';
 }
 
 export async function searchMemory(
@@ -1255,38 +1232,93 @@ export async function searchMemory(
   query: string,
   options: MemorySearchOptions = {}
 ): Promise<MemoryRecord[]> {
-  if (!qdrantInstance) {
-    await initMemory();
-  }
-  
-  const results = await qdrantInstance!.searchMemory(type, query, options);
-  
-  // Post-process to incorporate importance_score into ranking
-  if (results && results.length > 0) {
-    // Adjust score based on importance_score
-    // Calculate new scores as: originalScore * (1 + importanceBoost)
-    const processedResults = results.map(result => {
-      const importanceScore = result.metadata.importance_score || 0.5; // Default if not set
-      const importanceBoost = importanceScore / 2; // Convert 0-1 score to 0-0.5 boost
-      
-      // Clone the result to avoid modifying the original
-      return {
-        ...result,
-        metadata: {
-          ...result.metadata,
-          _originalScore: result.metadata._score, // Preserve original score
-          _scoreWithImportance: result.metadata._score * (1 + importanceBoost) // Boosted score
-        }
-      };
-    });
+  try {
+    if (!qdrantInstance) {
+      await initMemory();
+    }
+
+    // Get results from standard vector search
+    const results = qdrantInstance ? await qdrantInstance.searchMemories(type, query, options) : [];
     
-    // Sort by the new score
-    return processedResults.sort((a, b) => 
-      (b.metadata._scoreWithImportance || 0) - (a.metadata._scoreWithImportance || 0)
-    );
+    // Extract tags from query for potential boosting
+    if (query && query.trim().length > 0 && results.length > 0) {
+      // Extract tags from the query
+      const extractedTags = TagExtractor.extractTags(query, {
+        algorithm: TagAlgorithm.RAKE, // RAKE works better for short queries
+        maxTags: 5,
+        minConfidence: 0.2
+      });
+      
+      const queryTags = extractedTags.map(tag => tag.text);
+      
+      // Apply tag-based boosting
+      if (queryTags.length > 0) {
+        // Process each result to boost by tag relevance
+        return results.map(result => {
+          const memoryTags = result.metadata?.tags || [];
+          
+          // Calculate boost based on tag overlap
+          const boostFactor = tagOverlapBoost(queryTags, memoryTags as string[]);
+          
+          // Apply boost to result score (if available)
+          if ('score' in result) {
+            const boostedResult = { 
+              ...result,
+              score: (result as any).score * boostFactor
+            };
+            
+            // Store the boost factor in metadata for debugging
+            boostedResult.metadata = {
+              ...boostedResult.metadata,
+              _tagBoostFactor: boostFactor
+            };
+            
+            return boostedResult;
+          }
+          
+          return result;
+        }).sort((a, b) => {
+          // If both have scores, sort by score
+          if ('score' in a && 'score' in b) {
+            return (b as any).score - (a as any).score;
+          }
+          
+          // Otherwise keep original order
+          return 0;
+        });
+      }
+    }
+    
+    // Return the original results if no tag boosting was applied
+    return results;
+  } catch (error) {
+    console.error('Error searching memory:', error);
+    return [];
+  }
+}
+
+/**
+ * Calculate a boost factor based on tag overlap between query and memory
+ */
+function tagOverlapBoost(queryTags: string[], memoryTags: string[]): number {
+  if (!queryTags || !memoryTags || queryTags.length === 0 || memoryTags.length === 0) {
+    return 1.0; // No boost
   }
   
-  return results;
+  // Count overlapping tags
+  let overlapCount = 0;
+  for (const tag of queryTags) {
+    if (memoryTags.some(t => t.toLowerCase() === tag.toLowerCase())) {
+      overlapCount++;
+    }
+  }
+  
+  // Calculate overlap ratio
+  const overlapRatio = overlapCount / Math.min(queryTags.length, memoryTags.length);
+  
+  // Convert to boost factor (1.0 = no boost, >1.0 = boost)
+  // Use exponential formula to give more weight to higher overlaps
+  return 1.0 + (Math.pow(overlapRatio, 2) * 0.5);
 }
 
 export async function getRecentMemories(
@@ -1297,7 +1329,7 @@ export async function getRecentMemories(
     await initMemory();
   }
   
-  return qdrantInstance!.getRecentMemories(type, limit);
+  return qdrantInstance ? qdrantInstance.getRecentMemories(type, limit) : [];
 }
 
 // Reset functions
@@ -1308,7 +1340,7 @@ export async function resetCollection(
     await initMemory();
   }
   
-  return qdrantInstance!.resetCollection(type);
+  return qdrantInstance ? qdrantInstance.resetCollection(type) : false;
 }
 
 export async function resetAllCollections(): Promise<boolean> {
@@ -1316,7 +1348,7 @@ export async function resetAllCollections(): Promise<boolean> {
     await initMemory();
   }
   
-  return qdrantInstance!.resetAllCollections();
+  return qdrantInstance ? qdrantInstance.resetAllCollections() : false;
 }
 
 // Export function to check if initialized
@@ -1325,7 +1357,7 @@ export function isInitialized(): boolean {
 }
 
 // Add a function to get all memories of a specific type
-async function getAllMemoriesByType(
+export async function getAllMemoriesByType(
   type: QdrantMemoryType
 ): Promise<MemoryRecord[]> {
   if (!qdrantInstance) {
@@ -1336,15 +1368,12 @@ async function getAllMemoriesByType(
     // We're using an empty query to get all memories of this type
     // The empty query will rely on the vector search but will return all results
     // sorted by vector similarity with a random vector (effectively random order)
-    return qdrantInstance!.searchMemory(type, "", { limit: 100 });
+    return qdrantInstance ? qdrantInstance.searchMemories(type, "", { limit: 100 }) : [];
   } catch (error) {
     console.error(`Error getting all memories of type ${type}:`, error);
     return [];
   }
 }
-
-// Export the new function
-export { getAllMemoriesByType };
 
 // Add a diagnostic function to identify message storage issues
 export async function diagnoseDatabaseHealth(): Promise<{ 
@@ -1358,7 +1387,7 @@ export async function diagnoseDatabaseHealth(): Promise<{
   
   try {
     // Get recent messages to check what's in the database
-    const recentMessages = await qdrantInstance!.getRecentMemories('message', 20);
+    const recentMessages = qdrantInstance ? await qdrantInstance.getRecentMemories('message', 20) : [];
     
     // Return diagnostic information
     return {
@@ -1431,7 +1460,7 @@ export async function getRecentChatMessages(options: {
     if (options.until) console.log(`Until: ${options.until.toISOString()}`);
     
     // Get recent messages sorted by timestamp (newest first)
-    const searchResponse = await qdrantInstance.searchMemory('message', '', { 
+    const searchResponse = await qdrantInstance.searchMemories('message', '', { 
       limit,
       filter
     });
@@ -1589,7 +1618,8 @@ export async function getAllMemories(
         const results = await Promise.all(
           collectionsToSearch.map(async (collection) => {
             try {
-              const result = await qdrantInstance!.searchMemory(type as any, "", { limit });
+              const result = qdrantInstance ? 
+                await qdrantInstance.searchMemories(type as any, "", { limit }) : [];
               console.log(`Retrieved ${result?.length || 0} memories from collection ${collection}`);
               return Array.isArray(result) ? result : [];
             } catch (collectionError) {
@@ -1611,9 +1641,10 @@ export async function getAllMemories(
     // Get memories from a specific collection using scroll API
     try {
       console.log(`Searching single collection ${collectionName} for memories`);
-      // Since we can't directly access the client, we'll use the searchMemory method 
+      // Since we can't directly access the client, we'll use the searchMemories method 
       // with an empty query which will return all memories of the specified type
-      const result = await qdrantInstance.searchMemory(type as any, "", { limit });
+      const result = qdrantInstance ? 
+        await qdrantInstance.searchMemories(type as any, "", { limit }) : [];
       console.log(`Retrieved ${result?.length || 0} memories from collection ${collectionName}`);
       return Array.isArray(result) ? result : [];
     } catch (error) {
@@ -1672,12 +1703,13 @@ export async function addToCollection(collectionName: string, embedding: number[
     
     // Create a fake memory record to use the existing addMemory function
     // We use this as a wrapper around the actual client
-    const stringId = await qdrantInstance!.addMemory('message', JSON.stringify(payload), {
-      ...payload,
-      _embedding: embedding,
-      _originalCollection: collectionName,
-      _custom: true
-    });
+    const stringId = qdrantInstance ? 
+      await qdrantInstance.addMemory('message', JSON.stringify(payload), {
+        ...payload,
+        _embedding: embedding,
+        _originalCollection: collectionName,
+        _custom: true
+      }) : '';
     
     return !!stringId;
   } catch (error) {
@@ -1693,12 +1725,13 @@ export async function search(collectionName: string, embedding: number[], limit:
   
   try {
     // Use the existing search function but map the results
-    const results = await qdrantInstance!.searchMemory('message', '', {
-      limit,
-      filter: {
-        _originalCollection: collectionName
-      }
-    });
+    const results = qdrantInstance ? 
+      await qdrantInstance.searchMemories('message', '', {
+        limit,
+        filter: {
+          _originalCollection: collectionName
+        }
+      }) : [];
     
     return results.map(result => ({
       id: result.id,
@@ -1718,7 +1751,8 @@ export async function getRecentPoints(collectionName: string, limit: number = 5)
   
   try {
     // Use the existing getRecentMemories function
-    const memories = await qdrantInstance!.getRecentMemories('message', limit);
+    const memories = qdrantInstance ? 
+      await qdrantInstance.getRecentMemories('message', limit) : [];
     
     // Filter by the original collection and map to the expected format
     return memories
@@ -1739,7 +1773,7 @@ export async function getMessageCount(): Promise<number> {
   if (!qdrantInstance) {
     await initMemory();
   }
-  return qdrantInstance!.getMessageCount();
+  return qdrantInstance ? qdrantInstance.getMessageCount() : 0;
 }
 
 /**
@@ -1759,17 +1793,18 @@ export async function getMemoriesByImportance(
 
     for (const type of collections) {
       try {
-        // Use the more appropriate searchMemory method from the instance
-        const memories = await qdrantInstance!.searchMemory(
-          type,
-          '', // Empty query to match all documents
-          {
-            limit: Math.floor(limit / collections.length), // Split limit across collections
-            filter: {
-              importance: importance
+        // Use the more appropriate searchMemories method from the instance
+        const memories = qdrantInstance ? 
+          await qdrantInstance.searchMemories(
+            type,
+            '', // Empty query to match all documents
+            {
+              limit: Math.floor(limit / collections.length), // Split limit across collections
+              filter: {
+                importance: importance
+              }
             }
-          }
-        );
+          ) : [];
         
         allMemories = [...allMemories, ...memories];
       } catch (error) {
@@ -1856,7 +1891,7 @@ export async function deleteMemory(
     const collectionName = type ? COLLECTIONS[type] : COLLECTIONS.document;
     
     // Use the singleton instance like other functions do
-    return await qdrantInstance!.deletePoint(collectionName, id);
+    return qdrantInstance ? await qdrantInstance.deletePoint(collectionName, id) : false;
   } catch (error) {
     console.error('Error deleting memory:', error);
     return false;
@@ -1892,7 +1927,7 @@ export async function updateMemory(
     
     // Search across all types to find this memory
     // This is a hack since we don't have a direct getMemoryById function
-    const memories = await qdrantInstance?.searchMemory(null, "", searchOptions);
+    const memories = await qdrantInstance?.searchMemories(null, "", searchOptions);
     
     if (!memories || memories.length === 0) {
       console.error(`Memory not found: ${id}`);
@@ -1981,54 +2016,119 @@ export async function storeMemory(
     importance?: ImportanceLevel;
     importance_score?: number;
     existingEmbedding?: number[];
-    tags?: string[];
+    tags?: Array<string | Tag>;
+    tagConfidence?: number;
   } = {}
 ): Promise<string> {
   try {
-    if (!qdrantInstance) {
-      await initMemory();
-    }
+    // First, generate an embedding for the content
+    let embedding = options.existingEmbedding;
     
-    // Get or generate embedding
-    let embedding: number[] = options.existingEmbedding || [];
-    if (!embedding || embedding.length === 0) {
+    if (!embedding) {
       const result = await getEmbedding(content);
       embedding = result.embedding;
     }
     
+    // Generate tags if not provided
+    let tags: Array<string | Tag> = options.tags || [];
+    let tagConfidence = options.tagConfidence;
+    
+    if (tags.length === 0 && content.length > 0) {
+      // Extract tags using the TagExtractor
+      const extractionOptions = {
+        algorithm: 
+          // Use TF-IDF for longer content, RAKE for shorter content
+          content.length > 500 ? TagAlgorithm.TFIDF : TagAlgorithm.RAKE,
+        maxTags: 15,
+        minConfidence: 0.1,
+        useStemming: true
+      };
+      
+      // Special handling for different content types
+      if (source === 'file' && metadata.contentType === 'markdown') {
+        // For markdown, extract tags from title and content separately with different weights
+        const fields = [];
+        
+        if (metadata.title) {
+          fields.push({ content: metadata.title, weight: 1.5 });
+        }
+        
+        fields.push({ content, weight: 1.0 });
+        
+        // For markdown files, use multi-field extraction with weighted fields
+        const extractedTags = TagExtractor.extractTagsFromFields(fields, extractionOptions);
+        tags = extractedTags;
+        
+        // For markdown, we have high confidence in tags
+        tagConfidence = 0.9;
+      } else {
+        // For regular content, use standard extraction
+        const extractedTags = TagExtractor.extractTags(content, extractionOptions);
+        tags = extractedTags;
+        
+        // Calculate overall tag confidence from average of individual tags
+        const confidenceSum = extractedTags.reduce((sum, tag) => sum + tag.confidence, 0);
+        tagConfidence = extractedTags.length > 0 ? confidenceSum / extractedTags.length : 0.5;
+      }
+      
+      // Store tag information in metadata
+      metadata.tags = tags.map(tag => typeof tag === 'string' ? tag : tag.text);
+      metadata.tagConfidence = tagConfidence;
+      metadata.extractedTags = tags;
+    } else if (tags.length > 0) {
+      // Store provided tags in metadata
+      metadata.tags = tags.map(tag => typeof tag === 'string' ? tag : tag.text);
+      metadata.tagConfidence = tagConfidence || 0.8; // Higher confidence for manually provided tags
+      metadata.extractedTags = tags;
+    }
+    
     // Calculate importance score if not provided
     let importanceScore = options.importance_score;
-    if (importanceScore === undefined) {
+    if (importanceScore === undefined && embedding) {
       importanceScore = ImportanceCalculator.calculateImportanceScore({
         content,
         source: source as any,
         type,
         embedding,
-        tags: options.tags || [],
-        tagConfidence: metadata.tagConfidence,
+        tags: tags as (string[] | Tag[]), // Properly typed for ImportanceCalculator
+        tagConfidence,
         metadata
       });
+      metadata.importance_score = importanceScore;
     }
     
-    // If traditional importance wasn't provided, derive it from the score
+    // Map importance level from score if needed
     let importance = options.importance;
-    if (importance === undefined && importanceScore !== undefined) {
+    if (!importance && importanceScore !== undefined) {
       importance = ImportanceCalculator.scoreToImportanceLevel(importanceScore);
+      metadata.importance = importance;
     }
     
-    // Add importance score to metadata
-    const enrichedMetadata = {
-      ...metadata,
-      importance: importance || ImportanceLevel.MEDIUM,
-      importance_score: importanceScore
+    // Store the memory
+    const point = {
+      id: uuidv4(),
+      content,
+      type,
+      source,
+      embedding,
+      metadata: {
+        ...metadata,
+        importance,
+        importance_score: importanceScore,
+        tags: (metadata.tags || []) as string[],
+        tag_confidence: tagConfidence,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      }
     };
     
-    // Use the existing addMemory function to store in database
-    return await addMemory(
+    await addMemory(
       type as QdrantMemoryType,
       content,
-      enrichedMetadata
+      point.metadata
     );
+    
+    return point.id;
   } catch (error) {
     console.error('Error storing memory:', error);
     throw error;

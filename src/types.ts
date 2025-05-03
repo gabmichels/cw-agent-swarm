@@ -82,6 +82,8 @@ export interface MemoryEntry {
   metadata: any;
   importance?: number;
   importance_score?: number; // Numeric importance score between 0 and 1
+  tags?: Array<string | { text: string, confidence: number, approved?: boolean }>; // Tags with optional confidence scores
+  tag_confidence?: number; // Overall confidence in tag extraction
   created_at: string;
   updated_at: string;
 } 

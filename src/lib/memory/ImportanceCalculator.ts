@@ -1,4 +1,5 @@
 import { ImportanceLevel, MemorySource, ChloeMemoryType } from '../../constants/memory';
+import { TagExtractor, Tag } from './TagExtractor';
 
 /**
  * Interface for metadata required for importance calculation
@@ -7,7 +8,7 @@ export interface ImportanceMetadata {
   content: string;
   source?: MemorySource;
   type?: string | ChloeMemoryType;
-  tags?: string[];
+  tags?: string[] | Tag[];
   tagConfidence?: number;
   embedding?: number[];
   length?: number;
@@ -34,9 +35,10 @@ export class ImportanceCalculator {
     // Importance factors and their relative weights in the calculation
     contentLength: 0.15,      // Longer content tends to be more important (up to a point)
     tagConfidence: 0.25,      // Higher confidence in tags suggests more relevant/important content
-    embeddingCentrality: 0.2, // Higher similarity to core concepts indicates importance
-    keywordPresence: 0.3,     // Presence of important keywords
+    embeddingCentrality: 0.15, // Higher similarity to core concepts indicates importance
+    keywordPresence: 0.2,     // Presence of important keywords
     recency: 0.1,             // More recent memories may be more relevant in some cases
+    tagQuality: 0.15,         // Quality and relevance of extracted tags
   };
   
   // Core importance keywords that indicate criticality in content
@@ -100,13 +102,17 @@ export class ImportanceCalculator {
       score += data.tagConfidence * weights.tagConfidence;
     }
     
-    // 5. Embedding centrality - how close this memory is to core concepts
+    // 5. NEW: Tag quality - assess the quality of tags
+    const tagQualityScore = this.calculateTagQualityScore(data.tags || []);
+    score += tagQualityScore * weights.tagQuality;
+    
+    // 6. Embedding centrality - how close this memory is to core concepts
     if (data.embedding && this.coreConcepts.length > 0) {
       const centralityScore = this.calculateEmbeddingCentrality(data.embedding);
       score += centralityScore * weights.embeddingCentrality;
     }
     
-    // 6. Recency factor - more recent memories may be more important in some contexts
+    // 7. Recency factor - more recent memories may be more important in some contexts
     if (data.createdAt) {
       const ageInDays = (Date.now() - data.createdAt.getTime()) / (1000 * 60 * 60 * 24);
       // Newer content gets a recency boost, with diminishing returns after 30 days
@@ -185,6 +191,65 @@ export class ImportanceCalculator {
   }
   
   /**
+   * Calculate tag quality score 
+   * 
+   * @param tags Array of tags associated with the content
+   * @returns A score between 0 and 1 based on tag quality and relevance
+   */
+  private static calculateTagQualityScore(tags: string[] | Tag[]): number {
+    // If no tags, return zero
+    if (!tags || tags.length === 0) {
+      return 0;
+    }
+    
+    // Process Tag objects
+    if (typeof tags[0] === 'object') {
+      const tagObjects = tags as Tag[];
+      
+      // Calculate average confidence and boost for approved tags
+      let totalConfidence = 0;
+      let approvedCount = 0;
+      
+      for (const tag of tagObjects) {
+        totalConfidence += tag.confidence || 0.5;
+        if (tag.approved) {
+          approvedCount++;
+        }
+      }
+      
+      // Calculate base score from confidence
+      let score = totalConfidence / tagObjects.length;
+      
+      // Boost score for approved tags
+      if (approvedCount > 0) {
+        const approvalBoost = (approvedCount / tagObjects.length) * 0.3;
+        score += approvalBoost;
+      }
+      
+      // Boost for tag count - more tags (up to a reasonable number) suggest better tagging
+      const countFactor = Math.min(tagObjects.length / 10, 1) * 0.2;
+      score += countFactor;
+      
+      return Math.min(score, 1);
+    } 
+    // Process string tags
+    else {
+      const stringTags = tags as string[];
+      
+      // For simple string tags, use count as a quality indicator
+      // More tags suggest better tagging quality (up to a reasonable number)
+      const countFactor = Math.min(stringTags.length / 10, 1) * 0.7;
+      
+      // Average tag length as a quality indicator
+      // Longer tags tend to be more specific and meaningful
+      const avgTagLength = stringTags.reduce((sum, tag) => sum + tag.length, 0) / stringTags.length;
+      const lengthFactor = Math.min(avgTagLength / 10, 1) * 0.3;
+      
+      return Math.min(countFactor + lengthFactor, 1);
+    }
+  }
+  
+  /**
    * Calculate embedding centrality - how closely this embedding matches to core concepts
    * 
    * @param embedding The embedding vector to evaluate
@@ -251,5 +316,29 @@ export class ImportanceCalculator {
    */
   public static updateWeights(newWeights: Partial<typeof ImportanceCalculator.weights>): void {
     this.weights = { ...this.weights, ...newWeights };
+  }
+  
+  /**
+   * Calculate a boost factor based on tag overlap
+   * Used during retrieval to boost memories with tags matching the query
+   * 
+   * @param queryTags Tags from the search query
+   * @param memoryTags Tags from the memory
+   * @returns Boost factor (1.0 = no boost, >1.0 = boost)
+   */
+  public static calculateTagBoostFactor(queryTags: string[] | Tag[], memoryTags: string[] | Tag[]): number {
+    if (!queryTags || !memoryTags || queryTags.length === 0 || memoryTags.length === 0) {
+      return 1.0; // No boost if no tags
+    }
+    
+    // Calculate tag overlap using the TagExtractor utility
+    const overlapScore = TagExtractor.calculateTagOverlap(queryTags, memoryTags);
+    
+    // Convert overlap score to a boost factor
+    // Higher overlap = higher boost
+    // Use an exponential formula to make the boost more significant with higher overlap
+    const boostFactor = 1.0 + (Math.pow(overlapScore, 2) * 0.5);
+    
+    return boostFactor;
   }
 } 
