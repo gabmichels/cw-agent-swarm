@@ -17,6 +17,8 @@ export interface ScoringDetails {
   vectorScore: number;   // Original vector similarity score (0-1)
   tagScore: number;      // Tag overlap score (0-1)
   hybridScore: number;   // Combined score (vectorScore * 0.7 + tagScore * 0.3)
+  usageCount: number;    // Number of times this memory has been used
+  adjustedScore: number; // Final score after usage adjustment
   matchedTags: string[]; // Which query tags matched this memory
   queryTags: string[];   // Original tags extracted from query
 }
@@ -79,6 +81,8 @@ export function applyHybridScoring(
           vectorScore: result.score,
           tagScore,
           hybridScore,
+          usageCount: result.metadata?.usageCount || 0,
+          adjustedScore: hybridScore,
           matchedTags,
           queryTags
         } as ScoringDetails
@@ -169,4 +173,18 @@ export function extractTagsFromQuery(query: string): string[] {
   });
   
   return extractedTags.map(tag => tag.text);
+}
+
+/**
+ * Calculate a usage-based boost factor using logarithmic scaling
+ * 
+ * @param usageCount Number of times the memory has been used
+ * @returns Boost factor (1.0 = no boost)
+ */
+export function calculateUsageBoost(usageCount: number): number {
+  // Ensure we always have at least 1 for log calculation
+  const safeUsageCount = Math.max(1, usageCount);
+  
+  // Apply logarithmic scaling for diminishing returns
+  return 1 + Math.log(safeUsageCount);
 } 

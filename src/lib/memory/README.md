@@ -213,6 +213,7 @@ Memory retrieval uses a combination of:
 1. **Vector similarity search** - Content is converted to embeddings which are searched using cosine similarity
 2. **Filtering options** - Results can be filtered by type, source, importance, etc.
 3. **Hybrid scoring** - A combination of vector similarity and tag matching 
+4. **Usage-based boosting** - Frequently used memories get higher scores over time
 
 ### Hybrid Search Approach
 
@@ -220,11 +221,13 @@ The search functionality implements a hybrid scoring algorithm that combines:
 
 - **Vector similarity (70%)** - Traditional embedding-based similarity search
 - **Tag overlap (30%)** - Boosting based on shared tags between query and memory
+- **Usage tracking** - Further adjustment based on how often a memory has been useful
 
 This hybrid approach improves search relevance by:
 
 - Emphasizing content with matching tags/keywords
 - Maintaining semantic similarity as the primary ranking factor
+- Learning which memories are most useful over time
 - Providing interpretable results with diagnostic information
 
 The implementation:
@@ -232,6 +235,18 @@ The implementation:
 2. Extracts tags from the query
 3. Calculates tag overlap between query and memory tags
 4. Computes a combined score with 70/30 weighting
-5. Logs which tags contributed to matches
+5. Adjusts scores based on usage history: `adjusted_score = hybrid_score * (1 + log(usage_count))`
+6. Logs which tags contributed to matches
 
-To use the hybrid search, simply use the regular `searchMemory` function, which now implements this approach automatically. 
+To use the hybrid search, simply use the regular `searchMemory` function, which now implements this approach automatically.
+
+### Usage Tracking
+
+The system now tracks how frequently each memory is used through a feedback mechanism:
+
+1. When a memory is successfully used to answer a query, call `trackMemoryUsage(memoryId)`
+2. This increments the `usage_count` in the memory's metadata
+3. Future retrievals will boost this memory proportionally to its usage count
+4. The logarithmic scaling ensures diminishing returns for very frequently used items
+
+This creates a reinforcement learning loop where memories that prove useful get prioritized in future searches. 

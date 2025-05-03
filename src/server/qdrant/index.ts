@@ -1263,6 +1263,23 @@ function calculateTagScore(queryTags: string[], memoryTags: string[]): number {
   return overlapRatio;
 }
 
+/**
+ * Helper function to adjust scores based on memory usage count
+ * Uses logarithmic scaling to boost frequently used memories
+ * 
+ * @param score Original similarity score
+ * @param usageCount Number of times the memory has been used
+ * @returns Adjusted score
+ */
+function adjustScoreByUsage(score: number, usageCount: number = 0): number {
+  // Ensure we always have at least 1 for log calculation
+  const safeUsageCount = Math.max(1, usageCount);
+  
+  // Apply logarithmic scaling for diminishing returns
+  // ln(1) = 0, so for new memories this will be score * (1 + 0) = score
+  return score * (1 + Math.log(safeUsageCount));
+}
+
 export async function searchMemory(
   type: QdrantMemoryType | null,
   query: string,
@@ -1302,7 +1319,7 @@ export async function searchMemory(
       return vectorResults.slice(0, options.limit || 10);
     }
     
-    // Apply hybrid scoring (vector + tag overlap)
+    // Apply hybrid scoring (vector + tag overlap + usage)
     const hybridScoredResults = vectorResults.map(result => {
       // Original vector similarity score (already normalized 0-1)
       const vectorScore = 'score' in result ? (result as ScoredMemoryRecord).score : 0;
@@ -1319,16 +1336,24 @@ export async function searchMemory(
       // Compute hybrid score: 70% vector similarity + 30% tag overlap
       const hybridScore = (vectorScore * 0.7) + (tagScore * 0.3);
       
+      // Get usage count from metadata (default to 0 if not present)
+      const usageCount = result.metadata?.usage_count || 0;
+      
+      // Apply usage-based adjustment
+      const adjustedScore = adjustScoreByUsage(hybridScore, usageCount);
+      
       // Store scoring details in metadata for diagnostics
       const scoredResult: ScoredMemoryRecord = {
         ...result,
-        score: hybridScore,
+        score: adjustedScore,
         metadata: {
           ...result.metadata,
           _scoringDetails: {
             vectorScore,
             tagScore,
             hybridScore,
+            usageCount,
+            adjustedScore,
             matchedTags,
             queryTags
           }
@@ -1338,7 +1363,7 @@ export async function searchMemory(
       return scoredResult;
     });
     
-    // Sort by hybrid score and limit results
+    // Sort by adjusted score and limit results
     const finalResults = hybridScoredResults
       .sort((a, b) => b.score - a.score)
       .slice(0, options.limit || 10);
@@ -1374,6 +1399,8 @@ export async function searchMemory(
         `• Vector score: ${details.vectorScore.toFixed(3)} × 0.7 = ${(details.vectorScore * 0.7).toFixed(3)}\n` +
         `• Tag score: ${details.tagScore.toFixed(3)} × 0.3 = ${(details.tagScore * 0.3).toFixed(3)}\n` +
         `• Hybrid score: ${details.hybridScore.toFixed(3)}\n` +
+        `• Usage count: ${details.usageCount}, boost: ${(details.adjustedScore / details.hybridScore).toFixed(2)}x\n` +
+        `• Final score: ${details.adjustedScore.toFixed(3)}\n` +
         `• Matched tags: ${details.matchedTags.join(', ') || 'none'}\n` +
         `• Content excerpt: "${result.text.substring(0, 50)}..."`
       );
@@ -2197,5 +2224,48 @@ export async function storeMemory(
   } catch (error) {
     console.error('Error storing memory:', error);
     throw error;
+  }
+}
+
+/**
+ * Increment the usage count for a memory
+ * This should be called when a memory is successfully used to answer a query
+ * 
+ * @param memoryId ID of the memory that was used
+ * @returns True if the update was successful
+ */
+export async function trackMemoryUsage(memoryId: string): Promise<boolean> {
+  try {
+    if (!qdrantInstance) {
+      await initMemory();
+    }
+    
+    // First, get the current metadata to read the existing usage count
+    const memories = await searchMemory(null, "", {
+      filter: { id: memoryId },
+      limit: 1
+    });
+    
+    if (!memories || memories.length === 0) {
+      console.warn(`Cannot track usage: Memory ${memoryId} not found`);
+      return false;
+    }
+    
+    const memory = memories[0];
+    
+    // Get current usage count, defaulting to 0 if not present
+    const currentUsageCount = memory.metadata?.usage_count || 0;
+    
+    // Increment the usage count
+    const newUsageCount = currentUsageCount + 1;
+    
+    // Update the metadata with the new usage count
+    return updateMemoryMetadata(memoryId, {
+      usage_count: newUsageCount,
+      last_used: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Error tracking memory usage:', error);
+    return false;
   }
 } 
