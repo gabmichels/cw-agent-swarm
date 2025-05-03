@@ -1,18 +1,41 @@
 // Define all the necessary types
-import { ImportanceLevel } from '../../../constants/memory';
+import { ImportanceLevel, ChloeMemoryType } from '../../../constants/memory';
+import { ExtendedMemorySource } from './memory';
+
+// Define role enum for Message
+export enum MessageRole {
+  USER = 'user',
+  ASSISTANT = 'assistant',
+  SYSTEM = 'system'
+}
+
+// Define message type enum for ChloeMessage
+export enum ChloeMessageType {
+  USER = 'user',
+  SYSTEM = 'system',
+  ERROR = 'error'
+}
 
 export interface ChloeMessage {
   id: string;
   content: string;
   timestamp: Date;
-  type: 'user' | 'system' | 'error';
+  type: ChloeMessageType;
   metadata?: Record<string, any>;
+}
+
+// Define task status enum
+export enum TaskStatus {
+  PENDING = 'pending',
+  IN_PROGRESS = 'in_progress',
+  COMPLETED = 'completed',
+  FAILED = 'failed'
 }
 
 export interface Task {
   id: string;
   description: string;
-  status: 'pending' | 'in_progress' | 'completed' | 'failed';
+  status: TaskStatus;
   priority: number;
   created_at: Date;
   updated_at: Date;
@@ -22,7 +45,7 @@ export interface Task {
 export interface Message {
   id: string;
   content: string;
-  role: 'user' | 'assistant' | 'system';
+  role: MessageRole;
   metadata?: Record<string, any>;
   timestamp: Date;
   parent_id?: string;
@@ -32,9 +55,9 @@ export interface Message {
 export interface Memory {
   id: string;
   content: string;
-  type: 'message' | 'thought' | 'insight' | 'fact' | 'reflection' | 'task' | 'document';
+  type: ChloeMemoryType;
   importance: ImportanceLevel;
-  source: 'user' | 'chloe' | 'system' | 'tool' | 'web';
+  source: ExtendedMemorySource;
   context?: string;
   created: Date;
   lastAccessed?: Date;
@@ -43,15 +66,28 @@ export interface Memory {
   metadata?: Record<string, any>;
 }
 
+// Define reflection type enum
+export enum ReflectionType {
+  SUCCESS = 'success',
+  FAILURE = 'failure',
+  IMPROVEMENT = 'improvement'
+}
+
 export interface Reflection {
   id: string;
   content: string;
   timestamp: Date;
-  type: 'success' | 'failure' | 'improvement';
+  type: ReflectionType;
   metadata?: Record<string, any>;
 }
 
-export type ChannelValue<T> = 'array' | 'single';
+// Define channel value enum
+export enum ChannelValueType {
+  ARRAY = 'array',
+  SINGLE = 'single'
+}
+
+export type ChannelValue<T> = ChannelValueType;
 
 export interface ChloeState {
   messages: ChloeMessage[];
@@ -82,4 +118,11 @@ export class StateGraph<T> {
   addEdge(from: string, to: string): void {
     // Implementation will be provided by LangGraph
   }
+}
+
+// Define plan step priority levels
+export enum PlanStepPriority {
+  LOW = 'low',
+  MEDIUM = 'medium', 
+  HIGH = 'high'
 } 

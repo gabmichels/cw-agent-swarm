@@ -1,5 +1,6 @@
 // Import MessageType enum
 import { MessageType } from './constants/message';
+import { FileAttachmentType } from './constants/file';
 
 // Define message type for better type safety
 export interface Message {
@@ -19,7 +20,7 @@ export interface Message {
 // Define interface for file attachment
 export interface FileAttachment {
   file: File;
-  type: 'image' | 'pdf' | 'document' | 'text' | 'other';
+  type: FileAttachmentType;
   preview: string;
   filename?: string;
   fileId?: string;

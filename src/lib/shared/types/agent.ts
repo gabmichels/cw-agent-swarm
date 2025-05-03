@@ -3,6 +3,7 @@ import { type StateGraph } from '@langchain/langgraph';
 import { type Message, type Task } from '../types';
 import { PlanAndExecuteOptions, PlanAndExecuteResult } from './agentTypes';
 import { ImportanceLevel } from '../../../constants/memory';
+import { ExtendedMemorySource } from '../../../agents/chloe/types/memory';
 
 /**
  * Agent configuration with all required properties
@@ -141,7 +142,7 @@ export interface ScheduledTask {
  */
 export interface StrategicInsight {
   insight: string;
-  source: string;
+  source: ExtendedMemorySource | string;
   tags: string[];
   timestamp: string;
   category: string;

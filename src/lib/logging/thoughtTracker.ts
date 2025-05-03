@@ -5,12 +5,13 @@
 
 import fs from 'fs';
 import path from 'path';
+import { ThoughtType } from '../../constants/thought';
 
 export interface Thought {
   id: string;
   content: string;
   timestamp: Date;
-  type: 'observation' | 'reflection' | 'decision' | 'action' | 'plan';
+  type: ThoughtType;
   agentId: string;
   metadata?: Record<string, any>;
   parentId?: string;
@@ -54,7 +55,7 @@ export class ThoughtTracker {
    */
   addThought(
     content: string,
-    type: 'observation' | 'reflection' | 'decision' | 'action' | 'plan',
+    type: ThoughtType,
     metadata?: Record<string, any>,
     parentId?: string
   ): Thought {
@@ -91,35 +92,35 @@ export class ThoughtTracker {
    * Log an observation (something the agent noticed)
    */
   logObservation(content: string, metadata?: Record<string, any>): Thought {
-    return this.addThought(content, 'observation', metadata);
+    return this.addThought(content, ThoughtType.OBSERVATION, metadata);
   }
   
   /**
    * Log a reflection (agent thinking about past actions)
    */
   logReflection(content: string, metadata?: Record<string, any>): Thought {
-    return this.addThought(content, 'reflection', metadata);
+    return this.addThought(content, ThoughtType.REFLECTION, metadata);
   }
   
   /**
    * Log a decision (a choice the agent made)
    */
   logDecision(content: string, metadata?: Record<string, any>): Thought {
-    return this.addThought(content, 'decision', metadata);
+    return this.addThought(content, ThoughtType.DECISION, metadata);
   }
   
   /**
    * Log an action (something the agent did)
    */
   logAction(content: string, metadata?: Record<string, any>): Thought {
-    return this.addThought(content, 'action', metadata);
+    return this.addThought(content, ThoughtType.ACTION, metadata);
   }
   
   /**
    * Log a plan (series of steps the agent intends to take)
    */
   logPlan(content: string, metadata?: Record<string, any>): Thought {
-    return this.addThought(content, 'plan', metadata);
+    return this.addThought(content, ThoughtType.PLAN, metadata);
   }
   
   /**

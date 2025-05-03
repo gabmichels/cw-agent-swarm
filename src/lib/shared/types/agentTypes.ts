@@ -11,7 +11,8 @@ import { PlanningManager } from '../../../agents/chloe/core/planningManager';
 import { ReflectionManager } from '../../../agents/chloe/core/reflectionManager';
 import { Notifier } from '../../../agents/chloe/notifiers';
 import { KnowledgeGapsManager } from '@/agents/chloe/core/knowledgeGapsManager';
-import { ImportanceLevel } from '../../../constants/memory';
+import { ImportanceLevel, MemoryType as BaseMemoryType, MemorySource as BaseMemorySource, ChloeMemoryType } from '../../../constants/memory';
+import { MessageRole, TaskStatus } from '../../../agents/chloe/types/state';
 
 // ============= CORE INTERFACES =============
 
@@ -207,9 +208,9 @@ export interface ChloeMemoryOptions {
 export interface MemoryEntry {
   id: string;
   content: string;
-  type: MemoryType;
+  type: ChloeMemoryType;
   importance: ImportanceLevel;
-  source: MemorySource;
+  source: BaseMemorySource;
   context?: string;
   created: Date;
   lastAccessed?: Date;
@@ -217,20 +218,10 @@ export interface MemoryEntry {
 }
 
 /**
- * Types of memories
- */
-export type MemoryType = 'message' | 'thought' | 'insight' | 'fact' | 'reflection' | 'task' | 'document';
-
-/**
- * Sources of memories
- */
-export type MemorySource = 'user' | 'chloe' | 'system' | 'tool' | 'web' | string;
-
-/**
  * Message memory entry
  */
 export interface MessageMemory extends MemoryEntry {
-  type: 'message';
+  type: ChloeMemoryType.MESSAGE;
   sender: string;
   recipient: string;
   conversationId?: string;
@@ -250,7 +241,7 @@ export interface MessageMemory extends MemoryEntry {
  * Thought memory entry
  */
 export interface ThoughtMemory extends MemoryEntry {
-  type: 'thought';
+  type: ChloeMemoryType.THOUGHT;
   category: string;
   confidence: number;
   relatedThoughts?: string[];
@@ -265,10 +256,10 @@ export interface ThoughtMemory extends MemoryEntry {
  * Strategic insight memory entry
  */
 export interface StrategicInsightMemory extends MemoryEntry {
-  type: 'insight';
+  type: ChloeMemoryType.STRATEGIC_INSIGHT;
   category: string;
   confidence: number;
-  impact: 'low' | 'medium' | 'high';
+  impact: ImportanceLevel;
   relatedInsights?: string[];
   metadata?: {
     evidence?: string[];
@@ -281,9 +272,9 @@ export interface StrategicInsightMemory extends MemoryEntry {
  * Task memory entry
  */
 export interface TaskMemory extends MemoryEntry {
-  type: 'task';
-  status: 'pending' | 'in_progress' | 'completed' | 'failed';
-  priority: 'low' | 'medium' | 'high';
+  type: ChloeMemoryType.TASK;
+  status: TaskStatus;
+  priority: ImportanceLevel;
   dueDate?: Date;
   assignedTo?: string;
   metadata?: {
@@ -414,7 +405,7 @@ export interface PlanWithSteps {
 export interface PlanStep {
   id: string;
   description: string;
-  status: 'pending' | 'in_progress' | 'completed' | 'failed';
+  status: TaskStatus;
   tool?: string;
   params?: Record<string, unknown>;
   result?: ToolExecutionResult;
@@ -555,7 +546,7 @@ export interface AutonomySystem {
  */
 export interface ChloeState {
   messages: Array<{
-    role: 'system' | 'user' | 'assistant';
+    role: MessageRole;
     content: string;
     metadata?: Record<string, unknown>;
   }>;
@@ -563,12 +554,12 @@ export interface ChloeState {
   tasks: Array<{
     id: string;
     description: string;
-    status: 'pending' | 'in_progress' | 'completed' | 'failed';
+    status: TaskStatus;
   }>;
   currentTask?: {
     id: string;
     description: string;
-    status: 'pending' | 'in_progress' | 'completed' | 'failed';
+    status: TaskStatus;
   };
   reflections: string[];
   response?: string;
@@ -581,28 +572,28 @@ export interface ChloeState {
  * Type guard for MessageMemory
  */
 export function isMessageMemory(memory: MemoryEntry): memory is MessageMemory {
-  return memory.type === 'message';
+  return memory.type === ChloeMemoryType.MESSAGE;
 }
 
 /**
  * Type guard for ThoughtMemory
  */
 export function isThoughtMemory(memory: MemoryEntry): memory is ThoughtMemory {
-  return memory.type === 'thought';
+  return memory.type === ChloeMemoryType.THOUGHT;
 }
 
 /**
  * Type guard for StrategicInsightMemory
  */
 export function isStrategicInsightMemory(memory: MemoryEntry): memory is StrategicInsightMemory {
-  return memory.type === 'insight';
+  return memory.type === ChloeMemoryType.STRATEGIC_INSIGHT;
 }
 
 /**
  * Type guard for TaskMemory
  */
 export function isTaskMemory(memory: MemoryEntry): memory is TaskMemory {
-  return memory.type === 'task';
+  return memory.type === ChloeMemoryType.TASK;
 }
 
 /**

@@ -20,12 +20,20 @@ if (typeof window !== 'undefined') {
   throw new Error('This module can only be imported in server-side code');
 }
 
+// Type for Qdrant memory type string literals that match the constants
+export type QdrantMemoryType = 'message' | 'thought' | 'document' | 'task';
+
+// Helper function to convert from BaseMemoryType enum to QdrantMemoryType
+export function convertToQdrantType(type: QdrantMemoryType): QdrantMemoryType {
+  return type;
+}
+
 // Basic types to define memory structure
 export interface MemoryRecord {
   id: string;
   text: string;
   timestamp: string;
-  type: 'message' | 'thought' | 'document' | 'task';
+  type: QdrantMemoryType;
   metadata: Record<string, any>;
 }
 
@@ -429,7 +437,7 @@ class QdrantHandler {
     // return crypto.randomUUID();
   }
 
-  async addMemory(type: 'message' | 'thought' | 'document' | 'task', content: string, metadata: Record<string, any> = {}): Promise<string> {
+  async addMemory(type: QdrantMemoryType, content: string, metadata: Record<string, any> = {}): Promise<string> {
     if (!this.initialized) {
       await this.initialize();
     }
@@ -533,7 +541,7 @@ class QdrantHandler {
     return this.createSimplestFilter(filter);
   }
 
-  async searchMemory(type: 'message' | 'thought' | 'document' | 'task' | null, query: string, options: MemorySearchOptions = {}): Promise<MemoryRecord[]> {
+  async searchMemory(type: QdrantMemoryType | null, query: string, options: MemorySearchOptions = {}): Promise<MemoryRecord[]> {
     if (!this.initialized) {
       await this.initialize();
     }
@@ -691,7 +699,7 @@ class QdrantHandler {
     return metadata;
   }
 
-  async getRecentMemories(type: 'message' | 'thought' | 'document' | 'task', limit: number = 10): Promise<MemoryRecord[]> {
+  async getRecentMemories(type: QdrantMemoryType, limit: number = 10): Promise<MemoryRecord[]> {
     if (!this.initialized) {
       await this.initialize();
     }
@@ -808,7 +816,7 @@ class QdrantHandler {
     return this.initialized;
   }
   
-  async resetCollection(type: 'message' | 'thought' | 'document' | 'task'): Promise<boolean> {
+  async resetCollection(type: QdrantMemoryType): Promise<boolean> {
     const collectionName = COLLECTIONS[type];
     
     // Always reset the in-memory fallback
@@ -1203,7 +1211,7 @@ export async function initMemory(options?: {
 }
 
 export async function addMemory(
-  type: 'message' | 'thought' | 'document' | 'task',
+  type: QdrantMemoryType,
   content: string,
   metadata: Record<string, any> = {}
 ): Promise<string> {
@@ -1215,7 +1223,7 @@ export async function addMemory(
 }
 
 export async function searchMemory(
-  type: 'message' | 'thought' | 'document' | 'task' | null,
+  type: QdrantMemoryType | null,
   query: string,
   options: MemorySearchOptions = {}
 ): Promise<MemoryRecord[]> {
@@ -1227,7 +1235,7 @@ export async function searchMemory(
 }
 
 export async function getRecentMemories(
-  type: 'message' | 'thought' | 'document' | 'task',
+  type: QdrantMemoryType,
   limit: number = 10
 ): Promise<MemoryRecord[]> {
   if (!qdrantInstance) {
@@ -1239,7 +1247,7 @@ export async function getRecentMemories(
 
 // Reset functions
 export async function resetCollection(
-  type: 'message' | 'thought' | 'document' | 'task'
+  type: QdrantMemoryType
 ): Promise<boolean> {
   if (!qdrantInstance) {
     await initMemory();
@@ -1263,7 +1271,7 @@ export function isInitialized(): boolean {
 
 // Add a function to get all memories of a specific type
 async function getAllMemoriesByType(
-  type: 'message' | 'thought' | 'document' | 'task'
+  type: QdrantMemoryType
 ): Promise<MemoryRecord[]> {
   if (!qdrantInstance) {
     await initMemory();
@@ -1783,7 +1791,7 @@ export async function updateMemoryTags(
  * Delete a memory by ID
  */
 export async function deleteMemory(
-  type: 'message' | 'thought' | 'document' | 'task',
+  type: QdrantMemoryType,
   id: string
 ): Promise<boolean> {
   try {
@@ -1804,7 +1812,7 @@ export async function deleteMemory(
  * Update a memory with new data
  */
 export async function updateMemory(
-  type: 'message' | 'thought' | 'document' | 'task',
+  type: QdrantMemoryType,
   id: string,
   data: Record<string, any>
 ): Promise<boolean> {

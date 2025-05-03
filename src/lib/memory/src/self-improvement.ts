@@ -3,6 +3,8 @@ import * as path from 'path';
 import { FeedbackLoopSystem } from './feedback-loop';
 import { EnhancedMemory } from './enhanced-memory';
 import { IntegrationLayer } from './integration-layer';
+import { ReviewPeriod } from '../../../constants/review';
+import { ChloeMemoryType } from '../../../constants/memory';
 
 /**
  * Self-Improvement Mechanism
@@ -181,7 +183,7 @@ export class SelfImprovementMechanism {
           category: 'system_learning',
           created: new Date().toISOString()
         },
-        'document'
+        ChloeMemoryType.DOCUMENT
       );
       
       // If task failed, try to learn from it
@@ -196,7 +198,7 @@ export class SelfImprovementMechanism {
   /**
    * Run a performance review
    */
-  async runPerformanceReview(reviewType: 'daily' | 'weekly' | 'monthly' = 'daily'): Promise<PerformanceMetrics> {
+  async runPerformanceReview(reviewType: ReviewPeriod = ReviewPeriod.DAILY): Promise<PerformanceMetrics> {
     if (!this.isInitialized) {
       await this.initialize();
     }
@@ -209,15 +211,15 @@ export class SelfImprovementMechanism {
       let startDate = new Date();
       
       switch (reviewType) {
-        case 'daily':
+        case ReviewPeriod.DAILY:
           startDate.setDate(startDate.getDate() - 1);
           this.reviewSchedule.lastDaily = now;
           break;
-        case 'weekly':
+        case ReviewPeriod.WEEKLY:
           startDate.setDate(startDate.getDate() - 7);
           this.reviewSchedule.lastWeekly = now;
           break;
-        case 'monthly':
+        case ReviewPeriod.MONTHLY:
           startDate.setMonth(startDate.getMonth() - 1);
           this.reviewSchedule.lastMonthly = now;
           break;
@@ -256,7 +258,7 @@ export class SelfImprovementMechanism {
           isInternalReflection: true, // Flag to mark this as not intended for chat display
           notForChat: true // Additional flag to reinforce that this should not appear in chat
         },
-        'thought' // Use 'thought' type to ensure proper categorization
+        ChloeMemoryType.THOUGHT // Use ChloeMemoryType.THOUGHT instead of string literal
       );
       
       // Log that this is an internal reflection, not a chat message
@@ -345,7 +347,7 @@ export class SelfImprovementMechanism {
       const lastDaily = this.reviewSchedule.lastDaily;
       
       if (!lastDaily || isNextDay(lastDaily, now)) {
-        await this.runPerformanceReview('daily');
+        await this.runPerformanceReview(ReviewPeriod.DAILY);
       }
     }
     
@@ -354,7 +356,7 @@ export class SelfImprovementMechanism {
       const lastWeekly = this.reviewSchedule.lastWeekly;
       
       if (!lastWeekly || isNextWeek(lastWeekly, now)) {
-        await this.runPerformanceReview('weekly');
+        await this.runPerformanceReview(ReviewPeriod.WEEKLY);
       }
     }
     
@@ -363,7 +365,7 @@ export class SelfImprovementMechanism {
       const lastMonthly = this.reviewSchedule.lastMonthly;
       
       if (!lastMonthly || isNextMonth(lastMonthly, now)) {
-        await this.runPerformanceReview('monthly');
+        await this.runPerformanceReview(ReviewPeriod.MONTHLY);
       }
     }
   }
@@ -561,16 +563,16 @@ export class SelfImprovementMechanism {
    */
   private async implementImprovements(
     metrics: PerformanceMetrics,
-    reviewType: 'daily' | 'weekly' | 'monthly'
+    reviewType: ReviewPeriod
   ): Promise<void> {
     try {
       // Only perform pattern optimization on weekly or monthly reviews
-      if (reviewType === 'weekly' || reviewType === 'monthly') {
+      if (reviewType === ReviewPeriod.WEEKLY || reviewType === ReviewPeriod.MONTHLY) {
         await this.optimizeIntentPatterns();
       }
       
       // Only perform knowledge optimization on monthly reviews
-      if (reviewType === 'monthly') {
+      if (reviewType === ReviewPeriod.MONTHLY) {
         await this.optimizeKnowledgeConnections();
       }
       
@@ -636,7 +638,7 @@ export class SelfImprovementMechanism {
                 category: 'system_learning',
                 created: new Date().toISOString()
               },
-              'document'
+              ChloeMemoryType.DOCUMENT
             );
           }
         }
@@ -666,7 +668,7 @@ export class SelfImprovementMechanism {
           category: 'system_learning',
           created: new Date().toISOString()
         },
-        'document'
+        ChloeMemoryType.DOCUMENT
       );
     } catch (error) {
       console.error('Error investigating intent failures:', error);
@@ -741,7 +743,7 @@ export class SelfImprovementMechanism {
               created: new Date().toISOString(),
               taskType
             },
-            'document'
+            ChloeMemoryType.DOCUMENT
           );
         }
       }
@@ -773,7 +775,7 @@ export class SelfImprovementMechanism {
           taskType: taskLog.taskType,
           errorMessage: taskLog.errorMessage
         },
-        'document'
+        ChloeMemoryType.DOCUMENT
       );
     } catch (error) {
       console.error('Error learning from failure:', error);

@@ -1,11 +1,22 @@
-import { ImportanceLevel } from '../../../constants/memory';
+import { ImportanceLevel, ChloeMemoryType, MemorySource } from '../../../constants/memory';
+
+// First, create an extended enum for MemorySource that includes 'chloe', 'tool', and 'web'
+export enum ExtendedMemorySource {
+  USER = 'user',
+  CHLOE = 'chloe',
+  SYSTEM = 'system', 
+  TOOL = 'tool',
+  WEB = 'web',
+  EXTERNAL = 'external',
+  FILE = 'file'
+}
 
 export interface Memory {
   id: string;
   content: string;
-  type: 'message' | 'thought' | 'insight' | 'fact' | 'reflection' | 'task' | 'document';
+  type: ChloeMemoryType;
   importance: ImportanceLevel;
-  source: 'user' | 'chloe' | 'system' | 'tool' | 'web';
+  source: ExtendedMemorySource;
   context?: string;
   created: Date;
   lastAccessed?: Date;

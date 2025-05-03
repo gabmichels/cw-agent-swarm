@@ -1,6 +1,9 @@
 import * as serverQdrant from '../../../server/qdrant';
 import { DateTime } from 'luxon';
-import { ImportanceLevel } from '../../../constants/memory';
+import { ImportanceLevel, ChloeMemoryType } from '../../../constants/memory';
+import { RelationshipType } from '../../../constants/relationship';
+import { ExtendedMemorySource } from '../../../agents/chloe/types/memory';
+import { memoryTypeToQdrant } from '../../../lib/memory/memoryTypeAdapter';
 
 /**
  * Enhanced Memory System
@@ -18,9 +21,9 @@ export interface MemoryEntry {
   content: string;
   created: Date;
   timestamp?: string;
-  type?: string;
+  type?: ChloeMemoryType;
   category: string;
-  source: 'user' | 'chloe' | 'system';
+  source: ExtendedMemorySource;
   importance: ImportanceLevel;
   context?: string;
   tags?: string[];
@@ -28,7 +31,7 @@ export interface MemoryEntry {
   lastAccessed?: Date;
   relationships?: Array<{
     relatedId: string;
-    relationType: 'causes' | 'similar' | 'contradicts' | 'supports' | 'partOf';
+    relationType: RelationshipType;
     strength: number;
   }>;
 }
@@ -37,7 +40,7 @@ export interface MemoryEntry {
 export interface MemorySearchOptions {
   limit?: number;
   filter?: Record<string, any>;
-  type?: string;
+  type?: ChloeMemoryType;
   startDate?: Date;
   endDate?: Date;
 }
@@ -132,7 +135,7 @@ export class EnhancedMemory {
   async addMemory(
     content: string,
     metadata: Record<string, any> = {},
-    type: 'message' | 'thought' | 'document' | 'task' = 'document'
+    type: ChloeMemoryType = ChloeMemoryType.DOCUMENT
   ): Promise<string> {
     try {
       if (!this.isInitialized) {
@@ -145,7 +148,7 @@ export class EnhancedMemory {
       }
       
       // Extract dates from content if relevant
-      if (type === 'task' && !metadata.deadline) {
+      if (type === ChloeMemoryType.TASK && !metadata.deadline) {
         const extractedDate = this.extractDateFromText(content);
         if (extractedDate) {
           metadata.deadline = extractedDate.toISOString();
@@ -159,7 +162,7 @@ export class EnhancedMemory {
       metadata.lastAccessed = new Date().toISOString();
       
       // Use document type by default
-      return serverQdrant.addMemory(type, content, metadata);
+      return serverQdrant.addMemory(memoryTypeToQdrant(type), content, metadata);
     } catch (error) {
       console.error('Error adding memory:', error);
       throw error;
@@ -172,7 +175,7 @@ export class EnhancedMemory {
   async getRelevantMemories(
     query: string,
     limit: number = 5,
-    types: Array<'message' | 'thought' | 'document' | 'task'> = ['document', 'thought']
+    types: ChloeMemoryType[] = [ChloeMemoryType.DOCUMENT, ChloeMemoryType.THOUGHT]
   ): Promise<string[]> {
     try {
       if (!this.isInitialized) {
@@ -183,7 +186,7 @@ export class EnhancedMemory {
       const allResults: Array<any> = [];
       
       for (const type of types) {
-        const results = await serverQdrant.searchMemory(type, query, { limit });
+        const results = await serverQdrant.searchMemory(memoryTypeToQdrant(type), query, { limit });
         if (results && results.length > 0) {
           // Update usage count
           for (const result of results) {
@@ -240,7 +243,7 @@ export class EnhancedMemory {
           importance: 'medium',
           category: 'learning'
         },
-        'document'
+        ChloeMemoryType.DOCUMENT
       );
     } catch (error) {
       console.error('Error storing intent pattern:', error);
@@ -375,7 +378,7 @@ export class EnhancedMemory {
           category: 'system',
           content_type: 'json'
         },
-        'document'
+        ChloeMemoryType.DOCUMENT
       );
     } catch (error) {
       console.error('Error saving intent patterns:', error);
@@ -393,7 +396,7 @@ export class EnhancedMemory {
       
       // Search for the intent patterns database
       const results = await serverQdrant.searchMemory(
-        'document',
+        memoryTypeToQdrant(ChloeMemoryType.DOCUMENT),
         'Intent patterns database',
         { 
           limit: 1,
