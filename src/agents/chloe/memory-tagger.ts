@@ -360,22 +360,28 @@ ${memory.content}
     // Convert threshold to ImportanceLevel for comparison
     const thresholdLevel = this.scoreToImportanceLevel(threshold);
     
-    // Define importance level values for comparison
-    const importanceValues = {
+    // Define importance level values for comparison with better type safety
+    const importanceValues: Record<string, number> = {
       [ImportanceLevel.LOW]: 0,
       [ImportanceLevel.MEDIUM]: 1,
-      [ImportanceLevel.HIGH]: 2
+      [ImportanceLevel.HIGH]: 2,
+      [ImportanceLevel.CRITICAL]: 3
     };
     
     return Array.from(this.memories.values())
       .filter(memory => {
-        const memoryImportanceValue = importanceValues[memory.importance];
-        const thresholdImportanceValue = importanceValues[thresholdLevel];
+        // Convert memory.importance to string to ensure consistent comparison
+        const importanceKey = String(memory.importance);
+        const memoryImportanceValue = importanceValues[importanceKey] || 0;
+        const thresholdImportanceValue = importanceValues[thresholdLevel] || 0;
         return memoryImportanceValue >= thresholdImportanceValue;
       })
       .sort((a, b) => {
-        const aValue = importanceValues[a.importance];
-        const bValue = importanceValues[b.importance];
+        // Convert to string for consistent comparison
+        const aKey = String(a.importance);
+        const bKey = String(b.importance);
+        const aValue = importanceValues[aKey] || 0;
+        const bValue = importanceValues[bKey] || 0;
         return bValue - aValue; // Sort in descending order of importance
       });
   }

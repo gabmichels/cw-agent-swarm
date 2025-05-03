@@ -158,6 +158,8 @@ async function loadChatHistoryFromQdrant(specificUserId?: string) {
           message.text.startsWith(INTERNAL_MESSAGE_PATTERNS.MARKDOWN_HEADER_PREFIX) ||
           message.text.startsWith(INTERNAL_MESSAGE_PATTERNS.MARKDOWN_SUBHEADER_PREFIX) ||
           message.text.startsWith(INTERNAL_MESSAGE_PATTERNS.YAML_FRONTMATTER_START) ||
+          // Filter out market scanner insights
+          message.text.startsWith('{"insight":') ||
           // Filter out message format patterns that indicate duplicates
           message.text.match(/^USER MESSAGE \[\d{4}-\d{2}-\d{2}/) ||
           message.text.match(/^MESSAGE \[\d{4}-\d{2}-\d{2}/) ||

@@ -363,6 +363,50 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
               isUserMessage={isUserMessage}
             />
             
+            {/* Display message attachments */}
+            {message.attachments && message.attachments.length > 0 && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {message.attachments.map((attachment, index) => (
+                  <div key={index} className="relative" onClick={(e) => handleImageClick(attachment, e)}>
+                    {attachment.type === 'image' && (
+                      <div className="relative cursor-pointer hover:opacity-90 transition-opacity">
+                        <img 
+                          src={attachment.preview} 
+                          alt={attachment.filename || 'Image attachment'} 
+                          className="max-w-full h-auto rounded-md border border-gray-600 shadow-sm max-h-48"
+                        />
+                        {attachment.filename && (
+                          <div className="text-xs mt-1 text-gray-300 truncate max-w-xs">
+                            {attachment.filename}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    {attachment.type === 'pdf' && (
+                      <div className="bg-red-700 text-white rounded p-2 cursor-pointer hover:bg-red-600 transition-colors">
+                        <span className="font-bold">PDF:</span> {attachment.filename || 'Document'}
+                      </div>
+                    )}
+                    {attachment.type === 'document' && (
+                      <div className="bg-blue-700 text-white rounded p-2 cursor-pointer hover:bg-blue-600 transition-colors">
+                        <span className="font-bold">DOC:</span> {attachment.filename || 'Document'}
+                      </div>
+                    )}
+                    {attachment.type === 'text' && (
+                      <div className="bg-gray-700 text-white rounded p-2 cursor-pointer hover:bg-gray-600 transition-colors">
+                        <span className="font-bold">TXT:</span> {attachment.filename || 'Text file'}
+                      </div>
+                    )}
+                    {attachment.type === 'other' && (
+                      <div className="bg-purple-700 text-white rounded p-2 cursor-pointer hover:bg-purple-600 transition-colors">
+                        <span className="font-bold">FILE:</span> {attachment.filename || 'File'}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+            
             {/* Message metadata with version indicators */}
             <div className="text-xs opacity-70 flex justify-between items-center mt-2">
               <span>{senderName}</span>

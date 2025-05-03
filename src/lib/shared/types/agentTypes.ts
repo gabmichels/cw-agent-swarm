@@ -11,6 +11,7 @@ import { PlanningManager } from '../../../agents/chloe/core/planningManager';
 import { ReflectionManager } from '../../../agents/chloe/core/reflectionManager';
 import { Notifier } from '../../../agents/chloe/notifiers';
 import { KnowledgeGapsManager } from '@/agents/chloe/core/knowledgeGapsManager';
+import { ImportanceLevel } from '../../../constants/memory';
 
 // ============= CORE INTERFACES =============
 
@@ -219,11 +220,6 @@ export interface MemoryEntry {
  * Types of memories
  */
 export type MemoryType = 'message' | 'thought' | 'insight' | 'fact' | 'reflection' | 'task' | 'document';
-
-/**
- * Importance levels for memories
- */
-export type ImportanceLevel = 'low' | 'medium' | 'high' | number;
 
 /**
  * Sources of memories

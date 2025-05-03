@@ -1,6 +1,7 @@
 import * as serverQdrant from '../../../server/qdrant';
 import { DateTime } from 'luxon';
 import { EnhancedMemory, MemoryEntry } from './enhanced-memory';
+import { ImportanceLevel } from '../../../constants/memory';
 
 /**
  * CognitiveMemory System
@@ -16,8 +17,6 @@ import { EnhancedMemory, MemoryEntry } from './enhanced-memory';
 
 // Extended memory types
 export type MemoryEmotion = 'neutral' | 'positive' | 'negative' | 'surprise' | 'fear' | 'joy' | 'sadness' | 'anger';
-export type ImportanceLevel = 'low' | 'medium' | 'high';
-export type ExtendedImportanceLevel = ImportanceLevel | 'critical';
 
 export interface EpisodicMemory extends MemoryEntry {
   episodeId: string;
@@ -98,12 +97,8 @@ export class CognitiveMemory extends EnhancedMemory {
         emotions = await this.detectEmotions(content);
       }
       
-      // Calculate importance with extended levels
-      const extendedImportance = metadata.importance || this.calculateImportance(content, emotions);
-      
-      // Map extended importance to standard importance for base MemoryEntry compatibility
-      const standardImportance: ImportanceLevel = 
-        extendedImportance === 'critical' ? 'high' : extendedImportance as ImportanceLevel;
+      // Calculate importance
+      const importance = metadata.importance || this.calculateImportance(content, emotions);
       
       // Create extended metadata
       const episodicMetadata = {
@@ -111,9 +106,7 @@ export class CognitiveMemory extends EnhancedMemory {
         episodeId,
         sequence,
         emotions,
-        importance: standardImportance,
-        // Store critical level separately if applicable
-        criticalityLevel: extendedImportance === 'critical' ? 'critical' : null,
+        importance,
         retrievalCount: 0,
         decayFactor: 1.0, // Start with no decay
         type: 'episodic'
@@ -123,12 +116,12 @@ export class CognitiveMemory extends EnhancedMemory {
       const memoryId = await super.addMemory(content, episodicMetadata, 'document');
       
       // Add to working memory if important enough
-      if (extendedImportance === 'high' || extendedImportance === 'critical') {
+      if (importance === ImportanceLevel.HIGH || importance === ImportanceLevel.CRITICAL) {
         this.addToWorkingMemory({
           id: memoryId,
           content,
           addedAt: new Date(),
-          priority: extendedImportance === 'critical' ? 3 : 2,
+          priority: importance === ImportanceLevel.CRITICAL ? 3 : 2,
           source: 'episodic',
           relatedIds: []
         });
@@ -216,46 +209,51 @@ export class CognitiveMemory extends EnhancedMemory {
       
       let consolidatedCount = 0;
       
-      // Process each memory
+      // Process each memory record
       for (const memory of recentMemories) {
-        // Update decay factor based on usage
-        const retrievalCount = memory.metadata?.retrievalCount || 0;
-        let importance = memory.metadata?.importance || 'medium';
+        if (!memory.id) continue;
         
-        // Check for critical level
-        if (memory.metadata?.criticalityLevel === 'critical') {
-          importance = 'critical';
+        // Get importance from metadata with fallback to medium
+        const importanceValue = memory.metadata?.importance || ImportanceLevel.MEDIUM;
+        
+        // Calculate decay factor (0-1) where 0 is full decay (forget)
+        let decayFactor = 
+          String(importanceValue) === ImportanceLevel.HIGH ? 0.3 :
+          String(importanceValue) === ImportanceLevel.MEDIUM ? 0.6 :
+          0.8; // LOW importance
+        
+        // Reduce decay for frequently accessed memories
+        const retrievalCount = memory.metadata?.retrievalCount || 0;
+        if (retrievalCount > 5) {
+          decayFactor *= 0.7; // 30% less decay for frequently accessed
         }
         
-        // Calculate new decay factor - important and frequently accessed memories decay slower
-        const importanceFactor = 
-          importance === 'critical' ? 0.1 :
-          importance === 'high' ? 0.3 :
-          importance === 'medium' ? 0.6 : 
-          1.0;
+        // Highly emotional memories decay slower
+        const emotions = memory.metadata?.emotions || [];
+        if (Array.isArray(emotions) && emotions.length > 1) {
+          decayFactor *= 0.8; // 20% less decay for emotional memories
+        }
         
-        const usageFactor = Math.max(0.2, 1.0 - (retrievalCount * 0.1));
-        const newDecayFactor = Math.min(1.0, (memory.metadata?.decayFactor || 1.0) * importanceFactor * usageFactor);
+        // Apply the decay factor
+        let currentDecayFactor = memory.metadata?.decayFactor || 1.0;
+        currentDecayFactor *= decayFactor;
         
-        // Update memory metadata
-        // In a real implementation, we would need a function to update memory metadata directly
-        // For now, we'll just log what we would do
-        console.log(`Memory ${memory.id} - New decay factor: ${newDecayFactor.toFixed(2)}`);
-        
-        // If decay factor is below threshold, memory would be archived or deleted
-        if (newDecayFactor < 0.3) {
-          if (importance === 'low') {
-            console.log(`Memory ${memory.id} would be removed due to low importance and high decay`);
-            // In production: await this.removeMemory(memory.id);
-          } else {
-            console.log(`Memory ${memory.id} would be archived (reduced embedding dimensions)`);
-            // In production: await this.archiveMemory(memory.id);
-          }
+        // For very low importance memories with high decay, remove them
+        if (String(importanceValue) === ImportanceLevel.LOW && currentDecayFactor > 0.85) {
+          // Delete the memory
+          await serverQdrant.deleteMemory('document', memory.id);
+          console.log(`Removed decayed memory: ${memory.id}`);
+        } else {
+          // Update the memory with new decay factor
+          await serverQdrant.updateMemory('document', memory.id, { 
+            decayFactor: currentDecayFactor 
+          });
         }
         
         consolidatedCount++;
       }
       
+      console.log(`Consolidated ${consolidatedCount} memories`);
       return consolidatedCount;
     } catch (error) {
       console.error('Error during memory consolidation:', error);
@@ -300,31 +298,41 @@ export class CognitiveMemory extends EnhancedMemory {
   /**
    * Calculate importance based on content and emotions
    */
-  private calculateImportance(content: string, emotions: MemoryEmotion[]): ExtendedImportanceLevel {
+  private calculateImportance(content: string, emotions: MemoryEmotion[]): ImportanceLevel {
     // Default importance
-    let importance: ExtendedImportanceLevel = 'medium';
+    let importance: ImportanceLevel = ImportanceLevel.MEDIUM;
     
     // Check for critical keywords
-    if (/urgent|critical|immediate|emergency|crucial/i.test(content)) {
-      importance = 'critical';
-    } 
+    const criticalKeywords = [
+      'urgent', 'critical', 'emergency', 'immediate', 'crucial', 'vital',
+      'security', 'breach', 'violation', 'danger', 'threat', 'risk'
+    ];
+    
     // Check for high importance keywords
-    else if (/important|significant|key|essential|necessary/i.test(content)) {
-      importance = 'high';
-    }
-    // Check for low importance keywords
-    else if (/minor|trivial|secondary|whenever convenient/i.test(content)) {
-      importance = 'low';
+    const highImportanceKeywords = [
+      'important', 'significant', 'key', 'essential', 'remember', 'priority',
+      'deadline', 'required', 'necessary', 'needed', 'mandate'
+    ];
+    
+    // Check for emotional significance
+    const highEmotions = ['fear', 'surprise', 'anger'];
+    
+    // Check content for critical or high importance indicators
+    if (criticalKeywords.some(keyword => content.toLowerCase().includes(keyword))) {
+      importance = ImportanceLevel.CRITICAL;
+    } else if (
+      highImportanceKeywords.some(keyword => content.toLowerCase().includes(keyword)) || 
+      emotions.some(emotion => highEmotions.includes(emotion))
+    ) {
+      importance = ImportanceLevel.HIGH;
+    } else if (content.length < 20 || content.split(' ').length < 5) {
+      // Very short messages tend to be less important
+      importance = ImportanceLevel.LOW;
     }
     
-    // Adjust based on emotions
-    const strongEmotions: MemoryEmotion[] = ['fear', 'anger', 'surprise'];
-    if (emotions.some(e => strongEmotions.includes(e))) {
-      // Strong emotions increase importance by one level unless already critical
-      if (importance !== 'critical') {
-        importance = importance === 'high' ? 'critical' : 
-                     importance === 'medium' ? 'high' : 'medium';
-      }
+    // Emotional intensity can increase importance
+    if (emotions.length > 2 && importance !== ImportanceLevel.CRITICAL) {
+      importance = ImportanceLevel.HIGH;
     }
     
     return importance;

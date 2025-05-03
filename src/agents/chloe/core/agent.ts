@@ -39,6 +39,10 @@ import { MarkdownWatcher } from '../knowledge/markdownWatcher';
 // Import the markdown memory loader
 import { loadAllMarkdownAsMemory } from '../knowledge/markdownMemoryLoader';
 
+// Add the import for our markdown memory loader
+import { initializeMarkdownMemory } from '../init/markdownLoader';
+import { initializeAutonomy } from '../scheduler';
+
 export interface ChloeAgentOptions {
   config?: Partial<AgentConfig>;
 }
@@ -158,19 +162,16 @@ export class ChloeAgent implements IAgent {
         throw new Error('Failed to initialize ChloeMemory');
       }
       
-      // Load and vectorize markdown files
+      // Load and vectorize markdown files - use duplication checking instead of direct loading
       try {
-        console.log('Loading markdown files into memory...');
-        const markdownStats = await loadAllMarkdownAsMemory();
-        this.taskLogger?.logAction('Loaded markdown files as memory entries', {
-          filesProcessed: markdownStats.filesProcessed,
-          entriesAdded: markdownStats.entriesAdded,
-          typeStats: markdownStats.typeStats,
-          filesSkipped: markdownStats.filesSkipped
+        // Use the dedicated loader with duplication checking instead of direct loading
+        console.log('Initializing markdown memory loader...');
+        await initializeMarkdownMemory({ 
+          force: false // Don't force reload by default
         });
-        console.log('Successfully loaded markdown content into memory system');
+        console.log('Successfully initialized markdown memory loader');
       } catch (error) {
-        console.error('Error loading markdown files into memory:', error);
+        console.error('Error initializing markdown memory loader:', error);
         // Continue initialization even if markdown loading fails
       }
       
@@ -257,8 +258,23 @@ export class ChloeAgent implements IAgent {
         // Continue initialization even if watcher fails
       }
       
+      // Initialize autonomy system
+      try {
+        this.autonomySystem = initializeAutonomy(this);
+        console.log('Autonomy system initialized successfully');
+      } catch (error) {
+        console.warn('Error initializing autonomy system:', error);
+        // Non-critical error, continue initialization
+      }
+      
+      // Initialize any content loaders (this is essentially a duplicate of what we did above)
+      // But we'll keep it in case other loaders are added in the future,
+      // and we'll make sure it doesn't duplicate our markdown loading
+      // by not calling initializeMarkdownMemory() again
+      
       this._initialized = true;
-      console.log('ChloeAgent initialization complete.');
+      console.log('ChloeAgent initialized successfully');
+      return Promise.resolve();
     } catch (error) {
       console.error('Error initializing ChloeAgent:', error);
       throw error;
@@ -286,7 +302,10 @@ export class ChloeAgent implements IAgent {
           `${this.config.systemPrompt}\n\nUser: ${message}`
         );
         
-        return response.content as string;
+        // Add ReAct pattern implementation before finalizing the response
+        const finalResponse = await this.applyReActPattern(response.content as string);
+        
+        return finalResponse;
       } catch (error) {
         console.error('Error processing general knowledge question:', error);
         return "I'm sorry, I encountered an error while processing your question. Could you please try asking in a different way?";
@@ -317,14 +336,60 @@ export class ChloeAgent implements IAgent {
         hasAttachments: !!options.attachments
       });
       
-      // Store the user message in memory first so we can link thoughts to it
-      // Use standardized format: "USER MESSAGE [timestamp]: content"
+      // Get the ChloeMemory instance
+      const chloeMemory = memoryManager.getChloeMemory();
+      if (!chloeMemory) {
+        throw new Error('ChloeMemory not available');
+      }
+      
+      // NEW: Check if this message is part of an ongoing conversation thread
+      const threadAnalysis = await chloeMemory.identifyConversationThread(message);
+      
+      // Log if this is part of a conversation thread
+      if (threadAnalysis.isPartOfThread) {
+        taskLogger.logAction('Message is part of conversation thread', {
+          threadId: threadAnalysis.threadId,
+          threadTopic: threadAnalysis.threadTopic,
+          threadImportance: threadAnalysis.threadImportance
+        });
+      }
+      
+      // Determine if this appears to be a structured, multi-section document
+      const isStructuredSection = this.isStructuredSection(message);
+      
+      // Detect if this is part of onboarding/setup information that should continue
+      const isMultiPartOnboarding = 
+        threadAnalysis.isPartOfThread && 
+        (message.includes('section') || 
+         /part \d+/i.test(message) || 
+         /\d+\.\s+[\w\s]+/.test(message) ||
+         /onboarding/i.test(message) || 
+         /setup/i.test(message));
+      
+      // Determine the appropriate importance level for this message based on content
+      let messageImportance: ImportanceLevel;
+      
+      // If it's part of a thread, use the thread importance
+      if (threadAnalysis.isPartOfThread) {
+        messageImportance = threadAnalysis.threadImportance;
+      } 
+      // Otherwise use the dynamic content-based importance determination
+      else {
+        const msgTags = (options as any)?.tags || [];
+        messageImportance = chloeMemory.determineMemoryImportance(message, {
+          category: 'message',
+          tags: msgTags
+        });
+      }
+      
+      // Store the user message in memory with the determined importance
       await memoryManager.addMemory(
         `USER MESSAGE [${new Date().toISOString()}]: ${message}`,
         ChloeMemoryType.MESSAGE,
-        ImportanceLevel.MEDIUM,
+        messageImportance,
         MemorySource.USER,
-        `From user: ${options.userId}`
+        `From user: ${options.userId}`,
+        threadAnalysis.isPartOfThread ? ['thread:' + threadAnalysis.threadId, ...(threadAnalysis.threadTopic?.split(',') || [])] : undefined
       );
       
       // STEP 1: Generate initial thought about what the message is asking
@@ -334,12 +399,21 @@ export class ChloeAgent implements IAgent {
         thought: initialThought.substring(0, 100) + (initialThought.length > 100 ? '...' : '')
       });
       
-      // Store the thought in memory with link to original message
-      // ThoughtManager.logThought now handles standardized format: "THOUGHT [timestamp]: content"
+      // Store the thought in memory with link to original message and thread info if applicable
+      const thoughtTags = threadAnalysis.isPartOfThread 
+        ? ['message_understanding', 'thread:' + threadAnalysis.threadId] 
+        : ['message_understanding'];
+      
+      // Use at least medium importance for thoughts in thread context
+      const thoughtImportance = threadAnalysis.isPartOfThread && String(threadAnalysis.threadImportance) === ImportanceLevel.HIGH
+        ? 'high'
+        : 'medium';
+      
+      // Add thought to memory - note: only pass 3 args as expected by the method signature
       await thoughtManager.logThought(
         initialThought, 
         'message_understanding',
-        'medium'
+        thoughtImportance
       );
       
       // STEP 2: Determine if reflection is needed and generate if necessary
@@ -353,7 +427,12 @@ export class ChloeAgent implements IAgent {
           reflection: reflection.substring(0, 100) + (reflection.length > 100 ? '...' : '')
         });
         
-        // Store the reflection in memory
+        // Store the reflection in memory with thread connection if applicable
+        const reflectionTags = threadAnalysis.isPartOfThread 
+          ? ['strategic_reflection', 'thread:' + threadAnalysis.threadId] 
+          : ['strategic_reflection'];
+        
+        // Add reflection to memory - note: only pass 3 args as expected by the method signature
         await thoughtManager.logThought(
           reflection,
           'strategic_reflection',
@@ -361,11 +440,83 @@ export class ChloeAgent implements IAgent {
         );
       }
       
+      // If this is a structured multi-part message, determine if we should prompt for next section
+      // rather than giving a full response
+      if (isStructuredSection && isMultiPartOnboarding) {
+        // Check if this contains section identifiers suggesting more sections to come
+        const hasNumericListItems = /\d+\.\s+[\w\s]+/.test(message);
+        const mentionsMultipleItems = /sections|parts|multiple|continue/i.test(message);
+        const hasSectionHeadings = message.includes('###') || message.includes('##');
+        
+        // If we detect this is part of a multi-section document
+        if (hasNumericListItems || mentionsMultipleItems || hasSectionHeadings) {
+          taskLogger.logAction('Detected multi-part structured information', {
+            hasNumericListItems,
+            mentionsMultipleItems,
+            hasSectionHeadings
+          });
+          
+          // Analyze the message to extract section identifiers and find what might be next
+          const sectionMatch = message.match(/section (\d+)/i);
+          const partMatch = message.match(/part (\d+)/i);
+          const listItemMatch = message.match(/(\d+)\.\s+[\w\s]+/);
+          
+          // Extract current section number
+          let currentSection = 1;
+          if (sectionMatch) currentSection = parseInt(sectionMatch[1], 10);
+          else if (partMatch) currentSection = parseInt(partMatch[1], 10);
+          else if (listItemMatch) currentSection = parseInt(listItemMatch[1], 10);
+          
+          // Look for clues that there are more sections (e.g., numbering indicates more to come)
+          // or text explicitly mentions more sections coming
+          const moreExpected = 
+            currentSection < 5 || // Assuming a reasonable number of total sections
+            /continue|next|more|following/i.test(message) ||
+            /to be continued/i.test(message);
+            
+          if (moreExpected) {
+            // Generate acknowledgment and prompt for next section rather than detailed response
+            taskLogger.logAction('Prompting for next section instead of full response', {
+              currentSection,
+              threadId: threadAnalysis.threadId
+            });
+            
+            // If this is detected as a section of onboarding or setup information
+            // that's likely to continue, provide a brief acknowledgment and prompt
+            // for the next section rather than a detailed response.
+            
+            // Create simple acknowledgment response
+            return `Thank you for sharing section ${currentSection} of your information. I've stored this securely in my memory as part of our conversation.
+            
+Please continue with the next section whenever you're ready, and I'll maintain the context between all parts. Once you've shared all the information you need to, let me know, and I'll provide a comprehensive response.`;
+          }
+        }
+      }
+      
       // STEP 3: Get relevant memory context using enhanced retrieval with reranking
-      // First, get the ChloeMemory instance
-      const chloeMemory = memoryManager.getChloeMemory();
-      if (!chloeMemory) {
-        throw new Error('ChloeMemory not available');
+      // If this is part of a thread, include thread-related memories
+      const memorySearchOptions: {
+        types?: string[];
+        debug?: boolean;
+        returnScores?: boolean;
+        requireConfidence?: boolean;
+        validateContent?: boolean;
+        confidenceThreshold?: number;
+      } = {
+        debug: false,
+        returnScores: true,
+        requireConfidence: false,
+        validateContent: true,
+        confidenceThreshold: 70
+      };
+      
+      // For thread-connected messages, prioritize thread-relevant memories
+      if (threadAnalysis.isPartOfThread && threadAnalysis.relatedMemories.length > 0) {
+        // Use memories from the thread analysis
+        taskLogger.logAction('Using thread-connected memories', {
+          threadId: threadAnalysis.threadId,
+          memoryCount: threadAnalysis.relatedMemories.length
+        });
       }
       
       // Determine if this is a company information query that needs specialized treatment
@@ -376,16 +527,13 @@ export class ChloeAgent implements IAgent {
          message.toLowerCase().includes('personality'));
       
       // For company information queries, use specific memory types and require confidence
-      let memoryTypes = undefined;
-      let requireConfidence = false;
-      
       if (isCompanyInfoQuery) {
-        memoryTypes = [
+        memorySearchOptions.types = [
           ChloeMemoryType.STRATEGY, 
-          ChloeMemoryType.VISION, 
-          ChloeMemoryType.PERSONA
+          ChloeMemoryType.PERSONA, 
+          ChloeMemoryType.VISION
         ];
-        requireConfidence = true;
+        memorySearchOptions.requireConfidence = true;
         
         taskLogger.logAction('Detected company information query', { 
           messageId,
@@ -393,58 +541,52 @@ export class ChloeAgent implements IAgent {
         });
       }
       
-      // Use enhanced retrieval with hybrid approach and confidence checking
-      const memoryResult = await chloeMemory.getEnhancedRelevantMemories(
+      // Enhance memory retrieval by including thread keywords as context tags
+      const contextTags = threadAnalysis.isPartOfThread 
+        ? threadAnalysis.threadTopic?.split(',').map(tag => tag.trim()) 
+        : undefined;
+      
+      // Get memories with all the options we've configured
+      const memories = await chloeMemory.getBestMemories(
         message,  // The query
-        20,       // Get 20 candidates initially for company info (more candidates)
-        5,        // Return top 5 after reranking
+        7,        // Number of results to return
         {
-          types: memoryTypes,
-          debug: false,
-          returnScores: true,  // Include relevance scores in metadata
-          requireConfidence: requireConfidence,
-          validateContent: true,
-          confidenceThreshold: 70
+          types: memorySearchOptions.types,
+          expandQuery: true,
+          considerImportance: true,
+          requireKeywords: isCompanyInfoQuery // Require keywords for more precision on company info
         }
       );
       
-      // Log retrieved memory sources and scores for diagnostics
-      const memorySourceInfo = memoryResult.entries.map(entry => ({
-        id: entry.id,
-        type: entry.type || entry.category || (entry.metadata?.type),
-        score: entry.metadata?.rerankScore || 'N/A',
-        source: entry.metadata?.filePath || entry.metadata?.source || 'unknown',
-        firstWords: (entry.content || '').substring(0, 30) + '...'
-      }));
+      // Create a memoryResult object compatible with the rest of the code
+      const memoryResult = {
+        entries: memories,
+        hasConfidence: memories.length > 0,
+        confidenceScore: memories.length > 0 ? 0.8 : 0.0,
+        contentValid: true
+      };
       
-      taskLogger.logAction('Retrieved memory context using enhanced retrieval', {
-        hasConfidence: memoryResult.hasConfidence,
-        confidenceScore: memoryResult.confidenceScore,
-        contentValid: memoryResult.contentValid,
-        memorySourceInfo
-      });
-      
-      // Check if the query likely requires specific knowledge we don't have
-      const needsKnowledgeClarification = (isCompanyInfoQuery && !memoryResult.hasConfidence) || 
-        (memoryResult.hasConfidence && memoryResult.contentValid === false);
-      
-      // For specific brand queries with no confident data, return a clarification response
-      if (isSpecificBrandQuery && needsKnowledgeClarification) {
-        taskLogger.logAction('Requesting brand clarification', {
-          messageId,
-          hasConfidence: memoryResult.hasConfidence,
-          contentValid: memoryResult.contentValid,
-          reason: memoryResult.invalidReason || "No confident brand information found"
-        });
+      // If we have thread-related memories, include them in the context
+      if (threadAnalysis.isPartOfThread && threadAnalysis.relatedMemories.length > 0) {
+        // Create a combined set of memory entries, prioritizing thread memories
+        const combinedMemories = [
+          ...threadAnalysis.relatedMemories.slice(0, 2), // Top thread memories
+          ...memoryResult.entries,                       // Results from best memory search
+        ];
         
-        // Store the fact that we couldn't answer
-        await thoughtManager.logThought(
-          `I don't have enough information about Claro's brand identity. I should ask for clarification.`,
-          'knowledge_gap',
-          'high'
-        );
+        // Deduplicate using Set approach by ID
+        const dedupedMemories: MemoryEntry[] = [];
+        const seenIds = new Set<string>();
         
-        return `I don't have complete information about Claro's brand identity. Could you please provide more details about the brand so I can better assist you in the future? This will help me respond accurately to brand-related questions.`;
+        for (const memory of combinedMemories) {
+          if (!seenIds.has(memory.id)) {
+            seenIds.add(memory.id);
+            dedupedMemories.push(memory);
+          }
+        }
+        
+        // Replace the memory entries with our enhanced list
+        memoryResult.entries = dedupedMemories.slice(0, 7); // Limit to a reasonable number
       }
       
       // Format memories into a context string
@@ -465,13 +607,13 @@ export class ChloeAgent implements IAgent {
         initialThought, 
         reflection, 
         memoryContextString,
-        needsKnowledgeClarification
+        false
       );
       
       taskLogger.logAction('Built prompt with reasoning', {
         messageId,
         promptLength: promptWithReasoning.length,
-        needsKnowledgeClarification
+        needsKnowledgeClarification: false
       });
       
       // If model is not initialized, throw an error
@@ -516,7 +658,10 @@ export class ChloeAgent implements IAgent {
         `Response to: ${message.substring(0, 50)}...`
       );
       
-      return responseText;
+      // Add ReAct pattern implementation before finalizing the response
+      const finalResponse = await this.applyReActPattern(responseText);
+      
+      return finalResponse;
     } catch (error) {
       console.error('Error processing message:', error);
       return `I'm sorry, I encountered an error while processing your message: ${error}`;
@@ -638,7 +783,9 @@ Here's relevant context from your memory that might help with this request:
 ${memoryContextString}
 ---
 
-IMPORTANT: Pay special attention to any items marked with HIGH importance. These contain critical information that should be prioritized and remembered in your responses.
+BRAND IDENTITY REMINDER: Always carefully consider Claro's brand identity information when responding. This identity information is stored in your memory with CRITICAL importance and should be incorporated into all responses. If you're unsure, say you don't have complete information rather than inventing brand details.
+
+IMPORTANT: Pay special attention to any items marked with HIGH or CRITICAL importance. These contain essential information that should be prioritized and remembered in your responses.
 
 ## YOUR REASONING PROCESS
 
@@ -694,7 +841,19 @@ I don't have enough information about Claro's brand identity. I should ask for c
       /company (mission|vision|values|purpose|brand|identity)/i,
       /brand (identity|values|personality|tone|voice)/i,
       /what.+company.+(stand|aim).+for/i,
-      /what.+we.+(stand|aim).+for/i
+      /what.+we.+(stand|aim).+for/i,
+      // Add more patterns to better detect brand identity questions
+      /(already|previously) provided .*(brand|identity|information)/i,
+      /make (information|it|data|brand) (stick|persist|remember)/i,
+      /brand information/i,
+      /target audience/i,
+      /unique value proposition/i,
+      /brand (personality|story|guidelines)/i,
+      /visual (identity|style)/i,
+      /verbal (identity|style)/i,
+      /tone of voice/i,
+      /company (information|details)/i,
+      /claro('s)? (information|details)/i
     ];
     
     return companyInfoPatterns.some(pattern => pattern.test(query));
@@ -1182,5 +1341,186 @@ I don't have enough information about Claro's brand identity. I should ask for c
   async summarizeConversation(options: { maxEntries?: number; maxLength?: number } = {}): Promise<string | null> {
     // This is a simplified implementation to satisfy the interface
     return null;
+  }
+
+  /**
+   * Applies the ReAct (Reasoning and Acting) pattern to process the response
+   * This ensures tools are explicitly invoked before being mentioned in responses
+   */
+  private async applyReActPattern(initialResponse: string): Promise<string> {
+    // Check if the response mentions creating or using tools without explicit invocation
+    const toolActionPatterns = [
+      { 
+        pattern: /I('ve| have) created a (Coda|coda) document/i, 
+        tool: 'codaDocument',
+        action: 'create' 
+      },
+      { 
+        pattern: /view (in|on) (Coda|coda)/i, 
+        tool: 'codaDocument',
+        action: 'create' 
+      },
+      { 
+        pattern: /document ID: ([a-zA-Z0-9_-]+)/i, 
+        tool: 'codaDocument',
+        action: 'create' 
+      },
+      // Add more patterns for other tool actions that might be hallucinated
+    ];
+
+    // Check if any tool action patterns match the response
+    let needsReActProcessing = false;
+    let matchedPattern = null;
+    
+    for (const pattern of toolActionPatterns) {
+      if (pattern.pattern.test(initialResponse)) {
+        needsReActProcessing = true;
+        matchedPattern = pattern;
+        break;
+      }
+    }
+
+    // If no patterns match, return the original response
+    if (!needsReActProcessing) {
+      return initialResponse;
+    }
+
+    // Log that we're applying ReAct processing
+    if (matchedPattern) {
+      console.log(`ReAct: Detected potential tool hallucination: ${matchedPattern.tool} - ${matchedPattern.action}`);
+    } else {
+      console.log(`ReAct: Detected potential tool hallucination but couldn't identify specific pattern`);
+    }
+
+    // Apply the ReAct pattern - make the agent think step by step
+    const reactPrompt = `
+    I notice you mentioned using a tool or creating a resource in your response, but you didn't explicitly invoke the tool first. 
+
+    Let's think step by step:
+    1. What tool do you need to use? (e.g., codaDocument, webSearch, etc.)
+    2. What parameters does the tool need?
+    3. Invoke the tool explicitly using the format: 
+       Thought: I need to [reason for using tool]
+       Action: [tool_name]
+       Action Input: [parameters in JSON format]
+    4. Wait for the tool result before mentioning it in your response.
+
+    Original response:
+    ${initialResponse}
+
+    Please revise your response to either:
+    a) Remove claims about actions you haven't taken yet, or
+    b) Explicitly state that you can perform these actions if requested
+
+    Revised response:
+    `;
+
+    // Check if model is null before invoking
+    if (!this.model) {
+      console.warn('ReAct: Model is not available, returning original response');
+      return initialResponse;
+    }
+    
+    // Get the revised response
+    const modelResponse = await this.model.invoke(reactPrompt);
+    
+    // Handle different response formats from the model
+    let revisedResponse = '';
+    if (typeof modelResponse === 'string') {
+      revisedResponse = modelResponse;
+    } else if (modelResponse && typeof modelResponse === 'object' && 'content' in modelResponse) {
+      revisedResponse = modelResponse.content as string;
+    } else {
+      // If we can't get a valid response, return the original to avoid errors
+      console.warn('ReAct: Unexpected response format from model, returning original');
+      return initialResponse;
+    }
+    
+    // Clean up any remaining ReAct format elements
+    const cleanedResponse = revisedResponse
+      .replace(/^Thought:.*$/gm, '')
+      .replace(/^Action:.*$/gm, '')
+      .replace(/^Action Input:.*$/gm, '')
+      .replace(/^Observation:.*$/gm, '')
+      .trim();
+
+    return cleanedResponse;
+  }
+
+  /**
+   * Detects if a message appears to be a structured section (like onboarding info)
+   * that's likely part of a multi-section document
+   * @param message The message to analyze
+   * @returns True if this appears to be a structured section
+   */
+  private isStructuredSection(message: string): boolean {
+    // Check for structural indicators
+    const hasMarkdownHeadings = message.includes('#') && Boolean(message.match(/##+\s/));
+    const hasNumberedSections = Boolean(message.match(/\d+\.\s+[\w\s]+/));
+    const hasStructuredKeywords = /section|part|continue|overview|details|setup|onboarding/i.test(message);
+    const hasBulletPoints = Boolean(message.match(/[•\-\*]\s+[\w\s]+/));
+    
+    // Check for formatting that suggests a document section
+    const hasNeatFormatting = 
+      message.includes('\n\n') && // Multiple paragraph breaks
+      message.length > 300;      // Reasonably substantive content
+    
+    return (hasMarkdownHeadings || hasNumberedSections || hasBulletPoints) && 
+           (hasStructuredKeywords || hasNeatFormatting);
+  }
+
+  /**
+   * Force reload all markdown files into memory
+   * This is useful when files have been updated and we want to refresh our knowledge
+   * @returns A promise resolving to a summary of what was loaded
+   */
+  async reloadMarkdownFiles(): Promise<{ 
+    success: boolean; 
+    message: string;
+    stats?: {
+      filesProcessed: number;
+      entriesAdded: number;
+      filesSkipped: number;
+      duplicatesSkipped: number;
+    }
+  }> {
+    try {
+      if (!this.initialized) {
+        await this.initialize();
+      }
+      
+      this.taskLogger?.logAction('Forcing reload of all markdown files', {
+        timestamp: new Date().toISOString()
+      });
+      
+      // Import the loader dynamically to avoid circular dependencies
+      const { loadAllMarkdownAsMemory } = await import('../knowledge/markdownMemoryLoader');
+      
+      // Force reload all markdown files
+      const stats = await loadAllMarkdownAsMemory(['docs/', 'knowledge/'], {
+        force: true, // Force reload all files
+        checkForDuplicates: false // Skip duplicate checking since we're forcing reload
+      });
+      
+      this.taskLogger?.logAction('Markdown files reloaded successfully', {
+        filesProcessed: stats.filesProcessed,
+        entriesAdded: stats.entriesAdded,
+        filesSkipped: stats.filesSkipped
+      });
+      
+      return {
+        success: true,
+        message: `Successfully reloaded markdown files: Processed ${stats.filesProcessed}, Added ${stats.entriesAdded} entries, Skipped ${stats.filesSkipped} files`,
+        stats
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.taskLogger?.logAction('Error reloading markdown files', { error: errorMessage });
+      
+      return {
+        success: false,
+        message: `Error reloading markdown files: ${errorMessage}`
+      };
+    }
   }
 }

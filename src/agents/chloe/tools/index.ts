@@ -472,6 +472,116 @@ export class AppendCodaLineTool implements SimpleTool {
   }
 }
 
+/**
+ * Utility method to create a Coda document using the ReAct pattern
+ * This ensures the agent explicitly follows the correct pattern when creating documents
+ */
+export async function createCodaDocumentFromContent(
+  content: string, 
+  title?: string,
+  shouldAutoTitle: boolean = true
+): Promise<{
+  success: boolean;
+  docId?: string;
+  browserLink?: string;
+  title?: string;
+  error?: string;
+}> {
+  try {
+    console.log(`Creating Coda document from content (length: ${content.length})`);
+    
+    // Generate a title if none provided and auto-titling is enabled
+    let documentTitle = title;
+    if (!documentTitle && shouldAutoTitle) {
+      // Extract a title from the first heading or first line
+      const headingMatch = content.match(/^#\s+(.+)$/m);
+      if (headingMatch && headingMatch[1]) {
+        documentTitle = headingMatch[1].trim();
+      } else {
+        // Use the first line/sentence as the title
+        const firstLine = content.split('\n')[0].trim();
+        documentTitle = firstLine.substring(0, 50) + (firstLine.length > 50 ? '...' : '');
+      }
+    }
+    
+    // If still no title, use a default with timestamp
+    if (!documentTitle) {
+      documentTitle = `Chloe Document - ${new Date().toLocaleString()}`;
+    }
+    
+    // Create the document using the Coda integration
+    const doc = await codaIntegration.createDoc(documentTitle, content);
+    
+    console.log(`Successfully created Coda document "${documentTitle}" with ID ${doc.id}`);
+    
+    return {
+      success: true,
+      docId: doc.id,
+      browserLink: doc.browserLink,
+      title: documentTitle
+    };
+  } catch (error) {
+    console.error('Error creating Coda document:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error)
+    };
+  }
+}
+
+/**
+ * Improved Coda document tool that follows the ReAct pattern
+ * This ensures tools are invoked properly before being mentioned in responses
+ */
+export class ReActCodaDocumentTool implements SimpleTool {
+  name = 'create_coda_doc';
+  description = 'Create a Coda document with formatted content. Returns document ID and link when successful.';
+  
+  async _call(input: string): Promise<string> {
+    try {
+      // Parse input as JSON to get title and content
+      let params: {title?: string; content: string} = { content: '' };
+      
+      try {
+        params = JSON.parse(input);
+      } catch (e) {
+        // If parsing fails, treat the entire input as content
+        params.content = input;
+      }
+      
+      // Validate input
+      if (!params.content) {
+        return "Error: Content is required. Please provide a 'content' field.";
+      }
+      
+      // Create the document using our helper function
+      const result = await createCodaDocumentFromContent(
+        params.content,
+        params.title,
+        true // Auto-generate title if not provided
+      );
+      
+      if (result.success) {
+        return JSON.stringify({
+          success: true,
+          docId: result.docId,
+          title: result.title,
+          browserLink: result.browserLink,
+          message: `Successfully created Coda document "${result.title}"`
+        }, null, 2);
+      } else {
+        return JSON.stringify({
+          success: false,
+          error: result.error || "Unknown error creating Coda document"
+        }, null, 2);
+      }
+    } catch (error) {
+      console.error('Error using ReAct Coda document tool:', error);
+      return `Error creating Coda document: ${error instanceof Error ? error.message : String(error)}`;
+    }
+  }
+}
+
 // Update the createChloeTools function to include the new test tools
 export const createChloeTools = (memory: ChloeMemory, model: any, discordWebhookUrl?: string): { 
   [key: string]: SimpleTool; // Use only the index signature for flexibility
@@ -491,6 +601,7 @@ export const createChloeTools = (memory: ChloeMemory, model: any, discordWebhook
     createCodaTestDoc: new CreateCodaTestDocTool(),
     readCodaPage: new ReadCodaPageTool(),
     appendCodaLine: new AppendCodaLineTool(),
+    createCodaDoc: new ReActCodaDocumentTool(),
     
     // Add Apify tools
     // These will be registered as separate tools in the ToolManager

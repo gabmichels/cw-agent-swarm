@@ -1,5 +1,6 @@
 import * as serverQdrant from '../../../server/qdrant';
 import { DateTime } from 'luxon';
+import { ImportanceLevel } from '../../../constants/memory';
 
 /**
  * Enhanced Memory System
@@ -20,7 +21,7 @@ export interface MemoryEntry {
   type?: string;
   category: string;
   source: 'user' | 'chloe' | 'system';
-  importance: 'low' | 'medium' | 'high';
+  importance: ImportanceLevel;
   context?: string;
   tags?: string[];
   usageCount?: number;
@@ -62,13 +63,13 @@ const DATE_PATTERNS = [
 // Patterns for priority extraction
 const PRIORITY_PATTERNS = [
   // High priority indicators
-  { regex: /(urgent|crucial|critical|important|asap|immediately|emergency)/i, priority: 'high' },
+  { regex: /(urgent|crucial|critical|important|asap|immediately|emergency)/i, priority: ImportanceLevel.HIGH },
   
   // Medium priority indicators
-  { regex: /(moderate|medium|normal|standard|regular)/i, priority: 'medium' },
+  { regex: /(moderate|medium|normal|standard|regular)/i, priority: ImportanceLevel.MEDIUM },
   
   // Low priority indicators
-  { regex: /(low|minor|whenever|leisure|no rush|when you can)/i, priority: 'low' },
+  { regex: /(low|minor|whenever|leisure|no rush|when you can)/i, priority: ImportanceLevel.LOW },
 ];
 
 /**
@@ -342,25 +343,15 @@ export class EnhancedMemory {
   /**
    * Extract priority from text content
    */
-  extractPriority(text: string): 'low' | 'medium' | 'high' {
-    try {
-      // Default to medium priority
-      let priority: 'low' | 'medium' | 'high' = 'medium';
-      
-      // Check for priority indicators
-      for (const pattern of PRIORITY_PATTERNS) {
-        if (pattern.regex.test(text)) {
-          priority = pattern.priority as 'low' | 'medium' | 'high';
-          // High priority takes precedence
-          if (priority === 'high') break;
-        }
+  extractPriority(text: string): ImportanceLevel {
+    for (const pattern of PRIORITY_PATTERNS) {
+      if (pattern.regex.test(text)) {
+        return pattern.priority;
       }
-      
-      return priority;
-    } catch (error) {
-      console.error('Error extracting priority:', error);
-      return 'medium';
     }
+    
+    // Default to medium priority
+    return ImportanceLevel.MEDIUM;
   }
 
   /**

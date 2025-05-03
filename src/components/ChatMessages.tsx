@@ -94,6 +94,8 @@ const ChatMessages: React.FC<ChatMessagesProps> = ({
           messageText.startsWith('processing message:') ||
           // More reflection patterns
           messageText.startsWith('reflection on') ||
+          // Filter market scanner insights
+          messageText.startsWith('{"insight":') ||
           // Important thought patterns
           messageText.startsWith('!important! thought:') ||
           messageText.startsWith('!important!') ||
@@ -259,6 +261,21 @@ const ChatMessages: React.FC<ChatMessagesProps> = ({
     }
   }, [lastScrollTop, visibleRange, processedMessages.length, preloadCount]);
 
+  // Reliable scroll to bottom function
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
+    // Use setTimeout to ensure the DOM has updated
+    setTimeout(() => {
+      if (messagesEndRef.current) {
+        messagesEndRef.current.scrollIntoView({ behavior });
+        
+        // Add a backup direct scroll to the container as well
+        if (messagesContainerRef.current) {
+          messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+        }
+      }
+    }, 100);
+  }, []);
+
   // Set up scroll listener
   useEffect(() => {
     const container = messagesContainerRef.current;
@@ -272,29 +289,27 @@ const ChatMessages: React.FC<ChatMessagesProps> = ({
     }
   }, [handleScroll]);
 
-  // Scroll to bottom for new messages
+  // Scroll to bottom for new messages with improved logic
   useEffect(() => {
     // Check if we have new messages by comparing current count with previous count
     const hasNewMessages = messages.length > prevMessageCount;
     setPrevMessageCount(messages.length);
     
-    // Check if we've manually scrolled recently (within the last 1.5 seconds)
-    const hasManuallyScrolledRecently = Date.now() - lastManualScrollTime < 1500;
+    // Use a shorter time window for manual scroll detection (800ms instead of 1500ms)
+    const hasManuallyScrolledRecently = Date.now() - lastManualScrollTime < 800;
 
-    // Only auto-scroll if:
-    // - There's no active search
-    // - We're not in the middle of scrolling up
-    // - We haven't just jumped to a specific message
-    // - We're adding a new message (messages.length increased)
-    // - We haven't manually scrolled in the last 1.5 seconds
-    const shouldScrollToBottom = !searchQuery && 
-                               !isScrollingUp && 
-                               !hasJumpedToMessage &&
-                               hasNewMessages &&
-                               !hasManuallyScrolledRecently;
-                               
+    // Simplified auto-scroll logic:
+    // - Always scroll when new messages are added, unless:
+    // - 1. User is actively searching
+    // - 2. User has explicitly scrolled up to read earlier messages
+    // - 3. We're in the middle of jumping to a specific message
+    const shouldScrollToBottom = hasNewMessages && 
+                               !searchQuery && 
+                               (!isScrollingUp || !hasManuallyScrolledRecently);
+    
     if (shouldScrollToBottom) {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      console.log('Scrolling to bottom due to new message');
+      scrollToBottom('auto');
     }
     
     // Reset the jump flag after the first render
@@ -308,7 +323,16 @@ const ChatMessages: React.FC<ChatMessagesProps> = ({
       const start = Math.max(0, end - pageSize);
       setVisibleRange({ start, end });
     }
-  }, [messages.length, searchQuery, isScrollingUp, hasJumpedToMessage, processedMessages, visibleRange, pageSize, lastManualScrollTime]);
+  }, [messages.length, searchQuery, isScrollingUp, hasJumpedToMessage, processedMessages, 
+     visibleRange, pageSize, lastManualScrollTime, scrollToBottom]);
+
+  // Force scroll to bottom when loading completes
+  useEffect(() => {
+    if (!isLoading && messages.length > 0) {
+      // Scroll to bottom when loading finishes
+      scrollToBottom('auto');
+    }
+  }, [isLoading, messages.length, scrollToBottom]);
 
   // Scroll to the selected message when initialMessageId changes
   useEffect(() => {

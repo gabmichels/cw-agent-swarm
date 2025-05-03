@@ -1628,12 +1628,7 @@ For detailed instructions, see the Debug panel.`,
       saveAttachmentsToLocalStorage(updatedMessages);
     }
     
-    // Scroll to bottom immediately after adding user message
-    setTimeout(() => {
-      if (messagesEndRef.current) {
-        messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
-      }
-    }, 50);
+    // Remove manual scroll - ChatMessages component will handle scrolling more reliably
     
     // Store and clear input
     const sentMessage = inputMessage;

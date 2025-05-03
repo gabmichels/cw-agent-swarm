@@ -66,3 +66,6 @@ data/files/storage/
 # Performance metrics
 data/self-improvement/performance_metrics.json
 
+# File metadata
+data/files/file_metadata.json
+

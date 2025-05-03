@@ -4,6 +4,7 @@ import { glob } from 'glob';
 import matter from 'gray-matter';
 import * as memory from '../../../server/qdrant';
 import { ImportanceLevel, MemorySource, ChloeMemoryType } from '../../../constants/memory';
+import { logger } from '../../../lib/logging';
 
 // Import the constants for memory types
 import { MEMORY_TYPES } from '../../../constants/qdrant';
@@ -26,6 +27,15 @@ export interface ChloeMemoryEntry {
   importance: ImportanceLevel;
   source: string;
   filePath: string;
+  metadata?: {
+    source?: string;
+    critical?: boolean;
+    importance?: number;
+    contentType?: string;
+    extractedFrom?: string;
+    lastModified?: string;
+    [key: string]: any;
+  };
 }
 
 interface MarkdownParseResult {
@@ -35,6 +45,344 @@ interface MarkdownParseResult {
   tags: string[];
   importance: ImportanceLevel;
   type: string;
+}
+
+// Common stop words to filter out when extracting tags
+const STOP_WORDS = new Set([
+  'a', 'an', 'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'with',
+  'is', 'am', 'are', 'was', 'were', 'be', 'been', 'being', 'by', 'of', 'from',
+  'about', 'as', 'into', 'through', 'during', 'before', 'after', 'above', 'below',
+  'this', 'that', 'these', 'those', 'it', 'its', 'we', 'they', 'you', 'i', 'me',
+  'my', 'mine', 'your', 'yours', 'our', 'ours', 'their', 'theirs', 'his', 'her',
+  'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'shall', 'should',
+  'can', 'could', 'may', 'might', 'must', 'ought'
+]);
+
+/**
+ * Extract significant keywords from text to use as tags
+ * @param text Text to extract keywords from
+ * @returns Array of keywords
+ */
+function extractKeywordsFromText(text: string): string[] {
+  if (!text || typeof text !== 'string') return [];
+  
+  // Convert to lowercase and remove punctuation
+  const cleaned = text.toLowerCase()
+    .replace(/[^\w\s]/g, ' ')  // Replace punctuation with spaces
+    .replace(/\s+/g, ' ')      // Replace multiple spaces with single space
+    .trim();
+  
+  // Split into words and filter out stop words and short words
+  const words = cleaned.split(' ').filter(word => {
+    return word.length > 3 && !STOP_WORDS.has(word);
+  });
+  
+  // Return unique words
+  return Array.from(new Set(words));
+}
+
+/**
+ * Extract title from markdown content
+ * @param content Markdown content
+ * @param filePath Fallback file path for title extraction
+ * @returns Extracted title
+ */
+function extractTitle(content: string, filePath: string): string {
+  // Look for the first H1 heading
+  const titleMatch = content.match(/^#\s+(.*?)$/m);
+  if (titleMatch && titleMatch[1]) {
+    return titleMatch[1].trim();
+  }
+  
+  // Fallback to filename without extension
+  const fileName = path.basename(filePath, path.extname(filePath));
+  return fileName.replace(/[-_]/g, ' ');
+}
+
+/**
+ * Extract headings from markdown content
+ * @param content Markdown content
+ * @returns Array of headings
+ */
+function extractHeadings(content: string): string[] {
+  // Extract H1 and H2 headings
+  const headingMatches = Array.from(content.matchAll(/^(#{1,2})\s+(.*?)$/gm));
+  return headingMatches.map(match => match[2].trim());
+}
+
+/**
+ * Get standard tags based on file path
+ * @param filePath Path to markdown file
+ * @returns Array of standard tags
+ */
+function getStandardTagsFromPath(filePath: string): string[] {
+  const tags: string[] = ['markdown', 'documentation'];
+  
+  // Add tags based on directory structure
+  const normalizedPath = filePath.replace(/\\/g, '/');
+  
+  if (normalizedPath.includes('docs/')) {
+    tags.push('docs');
+  }
+  
+  if (normalizedPath.includes('knowledge/')) {
+    tags.push('knowledge');
+  }
+  
+  // Add specific domain tags based on subdirectories
+  const pathParts = normalizedPath.split('/');
+  for (let i = 0; i < pathParts.length - 1; i++) {
+    const part = pathParts[i].toLowerCase();
+    // Skip common parent directory names
+    if (part !== 'docs' && part !== 'knowledge' && part !== 'src' && part.length > 2) {
+      tags.push(part);
+    }
+  }
+  
+  return tags;
+}
+
+/**
+ * Determine memory type based on file path
+ * @param filePath Path to markdown file
+ * @returns Appropriate ChloeMemoryType
+ */
+function determineMemoryType(filePath: string): ChloeMemoryType {
+  const normalizedPath = filePath.replace(/\\/g, '/').toLowerCase();
+  
+  if (normalizedPath.includes('strategy') || normalizedPath.includes('roadmap')) {
+    return ChloeMemoryType.STRATEGY;
+  }
+  
+  if (normalizedPath.includes('persona') || normalizedPath.includes('brand')) {
+    return ChloeMemoryType.PERSONA;
+  }
+  
+  if (normalizedPath.includes('vision') || normalizedPath.includes('mission')) {
+    return ChloeMemoryType.VISION;
+  }
+  
+  if (normalizedPath.includes('process') || normalizedPath.includes('workflow')) {
+    return ChloeMemoryType.PROCESS;
+  }
+  
+  return ChloeMemoryType.KNOWLEDGE;
+}
+
+/**
+ * Load and process a markdown file into memory
+ * @param memoryManager Memory manager instance to use
+ * @param filePath Path to markdown file
+ * @returns Result of processing
+ */
+export async function processMarkdownFile(memoryManager: any, filePath: string): Promise<{
+  success: boolean;
+  memoryId?: string;
+  title?: string;
+  type?: string;
+  tags?: string[];
+  error?: string;
+}> {
+  try {
+    // Read file content
+    const content = await fs.readFile(filePath, 'utf8');
+    
+    // Extract title and headings
+    const title = extractTitle(content, filePath);
+    const headings = extractHeadings(content);
+    
+    // Extract tags from title and headings
+    const titleTags = extractKeywordsFromText(title);
+    const headingTags = headings.flatMap(heading => extractKeywordsFromText(heading));
+    
+    // Get standard tags from path
+    const standardTags = getStandardTagsFromPath(filePath);
+    
+    // Combine all tags and ensure uniqueness
+    const allTags = Array.from(new Set([
+      ...titleTags,
+      ...headingTags,
+      ...standardTags
+    ]));
+    
+    // Determine memory type based on file path
+    const memoryType = determineMemoryType(filePath);
+    
+    // Add to memory with critical importance - setting critical metadata flags
+    // This ensures markdown content is given highest priority in memory retrieval
+    const result = await memoryManager.addMemory(
+      content,
+      memoryType,
+      ImportanceLevel.CRITICAL, // Set to CRITICAL importance
+      MemorySource.FILE,
+      `Loaded from ${filePath}`,
+      allTags,
+      {
+        filePath,
+        source: "markdown",
+        critical: true,
+        importance: 1.0, // Explicitly set numerical importance for systems that use float values
+        title: title,
+        contentType: 'markdown',
+        extractedFrom: filePath,
+        lastModified: new Date().toISOString()
+      }
+    );
+    
+    logger.info(`Processed markdown file "${title}" with ${allTags.length} tags as ${memoryType}`);
+    
+    return {
+      success: true,
+      memoryId: result?.id,
+      title,
+      type: memoryType,
+      tags: allTags
+    };
+  } catch (error) {
+    logger.error(`Error processing markdown file ${filePath}:`, error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error)
+    };
+  }
+}
+
+/**
+ * Find all markdown files in the specified directories
+ * @param directories Directories to search for markdown files
+ * @returns Array of file paths
+ */
+export async function findMarkdownFiles(directories: string[] = ['docs/', 'knowledge/']): Promise<string[]> {
+  try {
+    const allFiles: string[] = [];
+    
+    for (const dir of directories) {
+      // Use glob to find all markdown files
+      const files = glob.sync(`${dir}/**/*.md`, { nodir: true });
+      allFiles.push(...files);
+    }
+    
+    return allFiles;
+  } catch (error) {
+    logger.error('Error finding markdown files:', error);
+    return [];
+  }
+}
+
+/**
+ * Load all markdown files into memory
+ * @param directoriesToLoad Optional directories to load markdown from
+ * @param options Additional loading options
+ * @returns Statistics about the loading process
+ */
+export async function loadAllMarkdownAsMemory(
+  directoriesToLoad: string[] = ['docs/', 'knowledge/'],
+  options: {
+    force?: boolean; // Whether to force reload files even if they exist
+    checkForDuplicates?: boolean; // Whether to check for duplicates
+  } = { checkForDuplicates: true }
+): Promise<{
+  filesProcessed: number;
+  entriesAdded: number;
+  typeStats: Record<string, number>;
+  filesSkipped: number;
+  duplicatesSkipped: number;
+}> {
+  try {
+    // Find all markdown files
+    const markdownFiles = await findMarkdownFiles(directoriesToLoad);
+    
+    logger.info(`Found ${markdownFiles.length} markdown files to process`);
+    
+    // Initialize stats
+    const stats = {
+      filesProcessed: 0,
+      entriesAdded: 0,
+      typeStats: {} as Record<string, number>,
+      filesSkipped: 0,
+      duplicatesSkipped: 0
+    };
+    
+    // Get memory manager instance
+    let memoryManager;
+    try {
+      // Import the MemoryManager class directly as a named export
+      const { MemoryManager } = await import('../core/memoryManager');
+      
+      memoryManager = new MemoryManager({ agentId: 'chloe' });
+      await memoryManager.initialize();
+    } catch (error) {
+      logger.error('Error initializing memory manager:', error);
+      throw new Error('Failed to initialize memory manager for markdown loading');
+    }
+    
+    // Get the memory instance to check for duplicates
+    const chloeMemory = memoryManager.getChloeMemory();
+    
+    if (!chloeMemory) {
+      throw new Error('ChloeMemory not initialized');
+    }
+    
+    // Process each file
+    for (const filePath of markdownFiles) {
+      try {
+        // Check if this file has already been loaded if duplicate checking is enabled
+        if (options.checkForDuplicates && !options.force) {
+          // Search for memories with this file path in metadata
+          const existingEntries = await chloeMemory.getEnhancedMemoriesWithHybridSearch(
+            filePath, // Use the file path as a query
+            5,        // Limit to a few results
+            {
+              types: ['document', 'knowledge', 'strategy', 'persona', 'vision', 'process'],
+              expandQuery: false
+            }
+          );
+          
+          // Check if any of the found memories have this exact file path in metadata
+          const isDuplicate = existingEntries.some(entry => 
+            entry.metadata?.filePath === filePath || 
+            entry.metadata?.extractedFrom === filePath
+          );
+          
+          if (isDuplicate) {
+            logger.info(`Skipping duplicate file: ${filePath}`);
+            stats.duplicatesSkipped++;
+            continue;
+          }
+        }
+        
+        // Process file if it's not a duplicate or if force loading is enabled
+        const result = await processMarkdownFile(memoryManager, filePath);
+        
+        if (result.success) {
+          stats.entriesAdded++;
+          stats.filesProcessed++;
+          
+          // Track memory types
+          const type = result.type || 'unknown';
+          stats.typeStats[type] = (stats.typeStats[type] || 0) + 1;
+        } else {
+          stats.filesSkipped++;
+          logger.warn(`Skipped file ${filePath}: ${result.error}`);
+        }
+      } catch (error) {
+        stats.filesSkipped++;
+        logger.error(`Error processing ${filePath}:`, error);
+      }
+    }
+    
+    logger.info(`Markdown loading complete: Processed ${stats.filesProcessed} files, added ${stats.entriesAdded} entries, skipped ${stats.duplicatesSkipped} duplicates`);
+    return stats;
+  } catch (error) {
+    logger.error('Error loading markdown files:', error);
+    return {
+      filesProcessed: 0,
+      entriesAdded: 0,
+      typeStats: {},
+      filesSkipped: 0,
+      duplicatesSkipped: 0
+    };
+  }
 }
 
 /**
@@ -49,7 +397,8 @@ export async function markdownToMemoryEntries(filePath: string, content: string)
   
   // Extract metadata from frontmatter
   const tags = data.tags || [];
-  const importance = data.importance || ImportanceLevel.MEDIUM;
+  // Always set importance to CRITICAL for markdown files
+  const importance = ImportanceLevel.CRITICAL;
   
   // Determine memory type based on file path - handle the actual folder structure
   let type = MarkdownMemoryType.KNOWLEDGE;
@@ -109,14 +458,26 @@ export async function markdownToMemoryEntries(filePath: string, content: string)
     return sections.map((section, index) => {
       const sectionTitle = section.title || (index === 0 ? title : `${title} - ${section.title || 'Section ' + (index + 1)}`);
       
+      // Extract additional tags from the section title
+      const sectionTitleTags = extractKeywordsFromText(sectionTitle);
+      const allTags = [...tags, ...sectionTitleTags, ...(section.tags || [])];
+      
       return {
         title: sectionTitle,
         content: section.content,
         type: type,
-        tags: [...tags, ...(section.tags || [])],
-        importance: section.importance || importance,
+        tags: Array.from(new Set(allTags)), // Ensure tag uniqueness
+        importance: ImportanceLevel.CRITICAL, // Always set to CRITICAL
         source: MemorySource.FILE,
-        filePath
+        filePath,
+        metadata: {
+          source: "markdown", 
+          critical: true,
+          importance: 1.0,
+          contentType: 'markdown',
+          extractedFrom: filePath,
+          lastModified: new Date().toISOString()
+        }
       };
     });
   }
@@ -127,9 +488,17 @@ export async function markdownToMemoryEntries(filePath: string, content: string)
     content: markdownContent,
     type,
     tags,
-    importance,
+    importance: ImportanceLevel.CRITICAL, // Always set to CRITICAL
     source: MemorySource.FILE,
-    filePath
+    filePath,
+    metadata: {
+      source: "markdown", 
+      critical: true,
+      importance: 1.0,
+      contentType: 'markdown',
+      extractedFrom: filePath,
+      lastModified: new Date().toISOString()
+    }
   }];
 }
 
@@ -246,166 +615,6 @@ function extractImportance(content: string): ImportanceLevel {
   }
   
   return ImportanceLevel.MEDIUM;
-}
-
-/**
- * Load all markdown files and convert them to memory entries
- * @param knowledgeDir Base directory for knowledge files
- * @returns Statistics about processed files
- */
-export async function loadAllMarkdownAsMemory(knowledgeDir: string = 'data/knowledge'): Promise<{
-  filesProcessed: number;
-  entriesAdded: number;
-  typeStats: Record<string, number>;
-  filesSkipped: number;
-}> {
-  const stats = {
-    filesProcessed: 0,
-    entriesAdded: 0,
-    typeStats: {} as Record<string, number>,
-    filesSkipped: 0
-  };
-  
-  try {
-    console.log('Loading markdown files as memory entries...');
-    
-    // Find all markdown files in knowledge directories using the actual structure
-    // Use a broader search to capture files in subdirectories
-    const companyFiles = await glob('company/**/*.md', { cwd: knowledgeDir });
-    const domainsFiles = await glob('domains/**/*.md', { cwd: knowledgeDir });
-    
-    // Look for agent-specific files in the chloe directory and other agent directories
-    const agentChloeFiles = await glob('../**/*.md', { cwd: knowledgeDir }); // Look in parent folder for chloe files
-    const otherAgentFiles = await glob('agents/**/*.md', { cwd: knowledgeDir });
-    
-    const allFiles = [
-      ...companyFiles, 
-      ...domainsFiles, 
-      ...agentChloeFiles,
-      ...otherAgentFiles
-    ];
-    
-    stats.filesProcessed = allFiles.length;
-    
-    console.log(`Found ${allFiles.length} markdown files to process`);
-    console.log('Files by directory:');
-    console.log(`- Company: ${companyFiles.length}`);
-    console.log(`- Domains: ${domainsFiles.length}`);
-    console.log(`- Agent (Chloe): ${agentChloeFiles.length}`);
-    console.log(`- Other Agents: ${otherAgentFiles.length}`);
-    
-    // Process each file
-    for (const file of allFiles) {
-      const fullPath = path.join(knowledgeDir, file);
-      try {
-        // Get file stats to check last modified time
-        const fileStats = await fs.stat(fullPath);
-        const lastModified = fileStats.mtimeMs;
-        
-        // Check if this file already exists in memory with the same last modified time
-        // by searching for entries with this filePath
-        const existingEntries = await memory.searchMemory(
-          'document',
-          '',
-          {
-            filter: {
-              filePath: file
-            },
-            limit: 1 // We just need to know if any exist
-          }
-        );
-        
-        const entryExists = existingEntries && existingEntries.length > 0;
-        
-        // If we have an entry for this file and at least one has matching or newer lastModified time,
-        // skip processing it to avoid duplicate entries
-        if (entryExists) {
-          const existingEntry = existingEntries[0];
-          const existingModified = existingEntry.metadata?.lastModified ? 
-            new Date(existingEntry.metadata.lastModified).getTime() : 0;
-          
-          if (existingModified >= lastModified) {
-            console.log(`Skipping ${file} - already in memory with same or newer version`);
-            stats.filesSkipped++;
-            continue; // Skip to next file
-          }
-          
-          // If existing entry is older, mark it as superseded before adding new version
-          console.log(`Updating ${file} - found older version in memory`);
-          
-          // Search for ALL entries from this file to supersede them
-          const allExistingEntries = await memory.searchMemory(
-            null, // Search across all collections
-            '',
-            {
-              filter: {
-                filePath: file
-              },
-              limit: 50 // Get all entries for this file, with a reasonable limit
-            }
-          );
-          
-          // Mark all existing entries as superseded
-          for (const entry of allExistingEntries) {
-            await memory.updateMemoryMetadata(entry.id, {
-              superseded: true,
-              supersededAt: new Date().toISOString()
-            });
-          }
-          
-          console.log(`Marked ${allExistingEntries.length} existing entries as superseded for ${file}`);
-        }
-        
-        // Process the file since it's either new or modified
-        const content = await fs.readFile(fullPath, 'utf-8');
-        const memoryEntries = await markdownToMemoryEntries(file, content);
-        
-        // Add each section as a separate memory entry
-        for (const entry of memoryEntries) {
-          const formattedContent = `# ${entry.title}\n\n${entry.content}`;
-          
-          // Convert to base memory type for storage
-          const baseType = convertToBaseMemoryType(entry.type);
-          
-          // Store in memory system
-          await memory.addMemory(
-            baseType as 'message' | 'thought' | 'document' | 'task',
-            formattedContent,
-            {
-              title: entry.title,
-              filePath: entry.filePath,
-              type: entry.type,
-              tags: entry.tags,
-              importance: entry.importance,
-              source: entry.source,
-              notForChat: true,
-              isInternalMessage: true,
-              lastModified: new Date(lastModified).toISOString()
-            }
-          );
-          
-          // Update statistics
-          stats.entriesAdded++;
-          stats.typeStats[entry.type] = (stats.typeStats[entry.type] || 0) + 1;
-        }
-        
-        console.log(`Processed ${file}: Added ${memoryEntries.length} memory entries`);
-      } catch (error) {
-        console.error(`Error processing file ${file}:`, error);
-      }
-    }
-    
-    console.log('Finished loading markdown files as memory:');
-    console.log(`- Files processed: ${stats.filesProcessed}`);
-    console.log(`- Files skipped (already in memory): ${stats.filesSkipped}`);
-    console.log(`- Memory entries added: ${stats.entriesAdded}`);
-    console.log('- Types distribution:', stats.typeStats);
-    
-    return stats;
-  } catch (error) {
-    console.error('Error loading markdown files as memory:', error);
-    throw error;
-  }
 }
 
 /**

@@ -2,6 +2,7 @@ import { CognitiveMemory } from '../../../lib/memory/src/cognitive-memory';
 import { KnowledgeGraph } from '../../../lib/memory/src/knowledge-graph';
 import { StructuredTool } from '@langchain/core/tools';
 import { z } from 'zod';
+import { ImportanceLevel } from '../../../constants/memory';
 
 // Define BaseTool abstract class since it's not exported from intentRouter
 abstract class BaseTool {
@@ -268,7 +269,7 @@ export class WorkingMemoryToolLC extends StructuredTool {
                 id: `wm_${Date.now()}`,
                 content,
                 addedAt: new Date(),
-                priority: importance === 'high' ? 3 : importance === 'medium' ? 2 : 1,
+                priority: importance === ImportanceLevel.HIGH ? 3 : importance === ImportanceLevel.MEDIUM ? 2 : 1,
                 source: 'external',
                 relatedIds: []
               });
@@ -605,7 +606,7 @@ export class WorkingMemoryTool extends BaseTool {
             id: `wm_${Date.now()}`,
             content,
             addedAt: new Date(),
-            priority: importance === 'high' ? 3 : importance === 'medium' ? 2 : 1,
+            priority: importance === ImportanceLevel.HIGH ? 3 : importance === ImportanceLevel.MEDIUM ? 2 : 1,
             source: 'external',
             relatedIds: []
           });
