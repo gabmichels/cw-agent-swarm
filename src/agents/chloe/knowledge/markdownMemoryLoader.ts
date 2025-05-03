@@ -213,8 +213,8 @@ function extractTitle(content: string, filePath: string): string {
  * @returns Array of headings
  */
 function extractHeadings(content: string): string[] {
-  // Extract H1 and H2 headings
-  const headingMatches = Array.from(content.matchAll(/^(#{1,2})\s+(.*?)$/gm));
+  // Extract H1, H2, and H3 headings (more comprehensive than before)
+  const headingMatches = Array.from(content.matchAll(/^(#{1,3})\s+(.*?)$/gm));
   return headingMatches.map(match => match[2].trim());
 }
 
@@ -315,6 +315,9 @@ export async function processMarkdownFile(memoryManager: any, filePath: string):
     const titleTags = extractKeywordsFromText(title);
     const headingTags = headings.flatMap(heading => extractKeywordsFromText(heading));
     
+    // Also extract explicit hashtags from content
+    const explicitTags = extractTags(content);
+    
     // Get standard tags from path
     const standardTags = getStandardTagsFromPath(filePath);
     
@@ -322,8 +325,18 @@ export async function processMarkdownFile(memoryManager: any, filePath: string):
     const allTags = Array.from(new Set([
       ...titleTags,
       ...headingTags,
+      ...explicitTags,
       ...standardTags
     ]));
+    
+    // Log detailed tag extraction info for debugging
+    logger.debug(`Tag extraction for ${filePath}:`, {
+      titleTags,
+      headingTags,
+      explicitTags,
+      standardTags,
+      combinedTags: allTags
+    });
     
     // Determine memory type based on file path
     const memoryType = determineMemoryType(filePath);
@@ -339,7 +352,7 @@ export async function processMarkdownFile(memoryManager: any, filePath: string):
     const result = await memoryManager.addMemory(
       content,
       memoryType,
-      ImportanceLevel.CRITICAL,
+      ImportanceLevel.CRITICAL,  // Always CRITICAL for markdown files
       MemorySource.FILE,
       `Loaded from ${filePath}`,
       allTags,
@@ -347,11 +360,12 @@ export async function processMarkdownFile(memoryManager: any, filePath: string):
         filePath,
         source: "markdown",
         critical: true,
-        importance: 1.0,
+        importance: 1.0,      // Explicit numeric importance
         title: title,
         contentType: 'markdown',
         extractedFrom: filePath,
-        lastModified: new Date().toISOString()
+        lastModified: new Date().toISOString(),
+        headings: headings     // Store headings for better retrieval context
       }
     );
     
@@ -588,6 +602,7 @@ export async function markdownToMemoryEntries(filePath: string, content: string)
   
   // Extract metadata from frontmatter
   const tags = data.tags || [];
+  
   // Always set importance to CRITICAL for markdown files
   const importance = ImportanceLevel.CRITICAL;
   
@@ -641,17 +656,34 @@ export async function markdownToMemoryEntries(filePath: string, content: string)
   // Get file basename as title if not specified in frontmatter
   const title = data.title || path.basename(filePath, '.md');
   
+  // Extract headings for better context
+  const headings = extractHeadings(markdownContent);
+  
+  // Create standard metadata object for all entries
+  const standardMetadata = {
+    source: "markdown", 
+    critical: true,
+    importance: 1.0,
+    contentType: 'markdown',
+    extractedFrom: filePath,
+    lastModified: new Date().toISOString(),
+    headings: headings
+  };
+  
   // If we have sections with headers, split them up
   // This creates multiple memory entries from one file
   const sections = splitMarkdownByHeaders(markdownContent);
   
   if (sections.length > 1) {
+    logger.info(`Splitting markdown file "${title}" into ${sections.length} sections`);
+    
     return sections.map((section, index) => {
       const sectionTitle = section.title || (index === 0 ? title : `${title} - ${section.title || 'Section ' + (index + 1)}`);
       
       // Extract additional tags from the section title
       const sectionTitleTags = extractKeywordsFromText(sectionTitle);
-      const allTags = [...tags, ...sectionTitleTags, ...(section.tags || [])];
+      const explicitTags = extractTags(section.content);
+      const allTags = [...tags, ...sectionTitleTags, ...explicitTags, ...(section.tags || [])];
       
       return {
         title: sectionTitle,
@@ -662,12 +694,10 @@ export async function markdownToMemoryEntries(filePath: string, content: string)
         source: MemorySource.FILE,
         filePath,
         metadata: {
-          source: "markdown", 
-          critical: true,
-          importance: 1.0,
-          contentType: 'markdown',
-          extractedFrom: filePath,
-          lastModified: new Date().toISOString()
+          ...standardMetadata,
+          sectionIndex: index,
+          sectionTitle: sectionTitle,
+          sectionCount: sections.length
         }
       };
     });
@@ -678,18 +708,11 @@ export async function markdownToMemoryEntries(filePath: string, content: string)
     title,
     content: markdownContent,
     type,
-    tags,
+    tags: Array.from(new Set([...tags, ...extractKeywordsFromText(title), ...extractTags(markdownContent)])),
     importance: ImportanceLevel.CRITICAL, // Always set to CRITICAL
     source: MemorySource.FILE,
     filePath,
-    metadata: {
-      source: "markdown", 
-      critical: true,
-      importance: 1.0,
-      contentType: 'markdown',
-      extractedFrom: filePath,
-      lastModified: new Date().toISOString()
-    }
+    metadata: standardMetadata
   }];
 }
 

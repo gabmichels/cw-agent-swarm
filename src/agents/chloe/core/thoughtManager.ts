@@ -99,7 +99,7 @@ export class ThoughtManager implements IManager {
   /**
    * Log a thought with a specific format for easier retrieval
    */
-  logThought(message: string, category: string = 'general', importance: 'low' | 'medium' | 'high' = 'low'): void {
+  logThought(message: string, category: string = 'general', importance: ImportanceLevel = ImportanceLevel.LOW): void {
     try {
       if (!this.isInitialized()) {
         this.initialize().catch(err => this.logAction('Error initializing during thought logging', { error: String(err) }));
@@ -112,26 +112,11 @@ export class ThoughtManager implements IManager {
       // Log to the task logger
       this.logAction('Thought', { thought: message, category, importance });
       
-      // Map the string importance to enum value
-      let importanceLevel: ImportanceLevel;
-      switch (importance) {
-        case 'high':
-          importanceLevel = ImportanceLevel.HIGH;
-          break;
-        case 'low':
-          importanceLevel = ImportanceLevel.LOW;
-          break;
-        case 'medium':
-        default:
-          importanceLevel = ImportanceLevel.MEDIUM;
-          break;
-      }
-      
       // Asynchronously add to memory without waiting
       this.memory.addMemory(
         formattedThought,
         ChloeMemoryType.THOUGHT,
-        importanceLevel,
+        importance,
         MemorySource.AGENT,
         category
       ).catch(error => {
@@ -148,7 +133,7 @@ export class ThoughtManager implements IManager {
    * Capture an agent thought and add it to memory
    * @deprecated Use logThought instead for standardized thought storage
    */
-  async captureThought(thought: string, category: string = 'general', importance: 'low' | 'medium' | 'high' = 'medium'): Promise<void> {
+  async captureThought(thought: string, category: string = 'general', importance: ImportanceLevel = ImportanceLevel.MEDIUM): Promise<void> {
     // Forward to the standardized method
     this.logThought(thought, category, importance);
   }
@@ -254,7 +239,7 @@ My analysis:`;
       await this.captureThought(
         `Analysis of reasoning on "${topic}": ${analysis}`,
         'meta_reasoning',
-        'high'
+        ImportanceLevel.HIGH
       );
       
       return analysis;

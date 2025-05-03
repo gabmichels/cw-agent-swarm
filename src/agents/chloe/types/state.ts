@@ -1,4 +1,6 @@
 // Define all the necessary types
+import { ImportanceLevel } from '../../../constants/memory';
+
 export interface ChloeMessage {
   id: string;
   content: string;
@@ -31,7 +33,7 @@ export interface Memory {
   id: string;
   content: string;
   type: 'message' | 'thought' | 'insight' | 'fact' | 'reflection' | 'task' | 'document';
-  importance: 'low' | 'medium' | 'high';
+  importance: ImportanceLevel;
   source: 'user' | 'chloe' | 'system' | 'tool' | 'web';
   context?: string;
   created: Date;

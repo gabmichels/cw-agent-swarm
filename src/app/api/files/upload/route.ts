@@ -4,11 +4,12 @@ import * as qdrantMemory from '../../../../server/qdrant';
 import path from 'path';
 import fs from 'fs';
 import { createEnhancedMemory } from '@/lib/memory/src/enhanced-memory';
+import { ImportanceLevel, MemorySource, MemoryType } from '@/constants/memory';
 
 // Define types based on the qdrant memory module
-type MemoryType = 'message' | 'thought' | 'document' | 'task';
-type MemoryImportance = 'low' | 'medium' | 'high';
-type MemorySource = 'user' | 'system' | 'agent';
+// type MemoryType = 'message' | 'thought' | 'document' | 'task';
+// type MemoryImportance = 'low' | 'medium' | 'high';
+// type MemorySource = 'user' | 'system' | 'agent';
 
 // Create an instance of the EnhancedMemory class
 function createEnhancedMemoryAdapter() {

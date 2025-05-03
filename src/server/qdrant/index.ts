@@ -13,6 +13,7 @@ import {
   DEFAULTS,
   FILTER_KEYS
 } from '../../constants/qdrant';
+import { ImportanceLevel } from '../../constants/memory';
 
 // Make sure this file is only executed on the server
 if (typeof window !== 'undefined') {
@@ -1682,7 +1683,7 @@ export async function getMessageCount(): Promise<number> {
  * Get memories by importance level
  */
 export async function getMemoriesByImportance(
-  importance: 'high' | 'medium' | 'low', 
+  importance: ImportanceLevel, 
   limit: number = 200
 ): Promise<MemoryRecord[]> {
   if (!qdrantInstance) {

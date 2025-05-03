@@ -2,6 +2,7 @@ import { ChatOpenAI } from '@langchain/openai';
 import { type StateGraph } from '@langchain/langgraph';
 import { type Message, type Task } from '../types';
 import { PlanAndExecuteOptions, PlanAndExecuteResult } from './agentTypes';
+import { ImportanceLevel } from '../../../constants/memory';
 
 /**
  * Agent configuration with all required properties
@@ -152,7 +153,7 @@ export interface StrategicInsight {
 export interface TaggedMemory {
   id: string;
   content: string;
-  importance: number | 'low' | 'medium' | 'high';
+  importance: number | ImportanceLevel;
   category: string;
   tags: string[];
   sentiment?: string;

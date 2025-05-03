@@ -67,7 +67,7 @@ export class MemoryRetrievalToolLC extends StructuredTool {
               content: memory.text || memory.content,
               type: memory.metadata?.type || 'unknown',
               created: memory.metadata?.created || 'unknown date',
-              importance: memory.metadata?.importance || 'medium',
+              importance: memory.metadata?.importance || ImportanceLevel.MEDIUM,
               emotions: memory.metadata?.emotions || ['neutral']
             };
           });
@@ -221,12 +221,12 @@ export class WorkingMemoryToolLC extends StructuredTool {
       schema: z.object({
         action: z.enum(['get', 'add', 'clear']).describe('Action to perform on working memory'),
         content: z.string().optional().describe('Content to add to working memory (only for add action)'),
-        importance: z.enum(['low', 'medium', 'high']).optional().describe('Importance of the content (only for add action)')
+        importance: z.enum([ImportanceLevel.LOW, ImportanceLevel.MEDIUM, ImportanceLevel.HIGH, ImportanceLevel.CRITICAL]).optional().describe('Importance of the content (only for add action)')
       }),
-      func: async ({ action, content, importance = 'medium' }: {
+      func: async ({ action, content, importance = ImportanceLevel.MEDIUM }: {
         action: 'get' | 'add' | 'clear';
         content?: string;
-        importance?: 'low' | 'medium' | 'high';
+        importance?: ImportanceLevel;
       }) => {
         try {
           switch (action) {
@@ -385,7 +385,7 @@ export class MemoryRetrievalTool extends BaseTool {
           content: memory.text || memory.content,
           type: memory.metadata?.type || 'unknown',
           created: memory.metadata?.created || 'unknown date',
-          importance: memory.metadata?.importance || 'medium',
+          importance: memory.metadata?.importance || ImportanceLevel.MEDIUM,
           emotions: memory.metadata?.emotions || ['neutral']
         };
       });
