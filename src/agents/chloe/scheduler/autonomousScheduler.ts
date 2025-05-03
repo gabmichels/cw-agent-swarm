@@ -60,7 +60,23 @@ export interface PlannedTask {
  * This is triggered weekly or when Chloe is idle
  */
 export async function runAutonomousMaintenance(): Promise<void> {
-  const scheduler = new ChloeScheduler();
+  // Create a mock agent for now
+  const mockAgent = {
+    initialize: async () => {},
+    getModel: () => null,
+    getMemory: () => null,
+    getTaskLogger: () => null,
+    notify: (message: string) => {},
+    planAndExecute: async (goal: string, options: any) => ({ success: true }),
+    runDailyTasks: async () => {},
+    runWeeklyReflection: async () => "Weekly reflection",
+    getReflectionManager: () => null,
+    getPlanningManager: () => null,
+    getKnowledgeGapsManager: () => null,
+    getToolManager: () => null
+  } as ChloeAgent;
+  
+  const scheduler = new ChloeScheduler(mockAgent);
   
   if (!scheduler.isInitialized()) {
     await scheduler.initialize();
@@ -174,7 +190,23 @@ export async function runAutonomousMaintenance(): Promise<void> {
  * This proactively identifies tasks that should be initiated autonomously
  */
 export async function checkForSelfTriggeredTasks(): Promise<PlannedTask[]> {
-  const scheduler = new ChloeScheduler();
+  // Create a mock agent for now
+  const mockAgent = {
+    initialize: async () => {},
+    getModel: () => null,
+    getMemory: () => null,
+    getTaskLogger: () => null,
+    notify: (message: string) => {},
+    planAndExecute: async (goal: string, options: any) => ({ success: true }),
+    runDailyTasks: async () => {},
+    runWeeklyReflection: async () => "Weekly reflection",
+    getReflectionManager: () => null,
+    getPlanningManager: () => null,
+    getKnowledgeGapsManager: () => null,
+    getToolManager: () => null
+  } as ChloeAgent;
+  
+  const scheduler = new ChloeScheduler(mockAgent);
   
   if (!scheduler.isInitialized()) {
     await scheduler.initialize();

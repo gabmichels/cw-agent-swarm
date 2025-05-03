@@ -13,6 +13,8 @@ import { Plan } from '../planning/Planner';
 import { PlanStep } from '../../../lib/shared/types/agentTypes';
 import { ToolRouter, ToolResult } from '../tools/ToolRouter';
 import { AgentMonitor } from '../monitoring/AgentMonitor';
+import { TaskStatus as ConstantsTaskStatus } from '../../../constants/task';
+import { TaskStatus } from '../../../agents/chloe/types/state';
 
 // Execution status enum
 export enum ExecutionStatus {
@@ -675,18 +677,13 @@ export class Executor {
     plannerStep: import('../planning/Planner').PlanStep, 
     executionId: string
   ): PlanStep {
-    // Generate a unique ID for the step
-    const stepId = `step_${executionId}_${Math.floor(Math.random() * 10000)}`;
+    const stepId = `step_${executionId}_${Date.now()}`;
     
-    // Create a compatible PlanStep
     return {
       id: stepId,
       description: plannerStep.description,
-      status: 'pending',
+      status: TaskStatus.PENDING,
       tool: plannerStep.requiredTools?.[0], // Use first tool if available
-      retryCount: plannerStep.retryCount,
-      retryDelayMs: plannerStep.retryDelayMs,
-      timeoutMs: plannerStep.timeoutMs,
       params: {
         difficulty: plannerStep.difficulty,
         estimatedTimeMinutes: plannerStep.estimatedTimeMinutes,

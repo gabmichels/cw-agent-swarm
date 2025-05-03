@@ -12,6 +12,9 @@ import {
 import { planTask, PlanResult } from '../../../server/agents/planner';
 import { executePlan } from '../../../server/agents/executor';
 import { ImportanceLevel, MemorySource, MemoryType, ChloeMemoryType as ChloeMemoryTypeEnum } from '../../../constants/memory';
+import { TaskStatus } from '../../../constants/task';
+import { ChloeAgent } from '../core/agent';
+import { ChloeScheduler } from '../scheduler/chloeScheduler';
 
 // Define interfaces for plan and execution results
 export interface PlanWithSteps {
@@ -322,11 +325,15 @@ Please create a concise, actionable plan to accomplish this task.
         message: result.message,
         plan: {
           goal: options.goalPrompt,
-          steps: result.stepResults?.map(step => ({
-            id: String(Math.random()).substring(2, 10),
-            description: step.step,
-            status: step.success ? 'completed' : 'failed'
-          })) || [],
+          steps: result.stepResults?.map(step => {
+            return {
+              id: String(Math.random()).substring(2, 10),
+              description: step.step,
+              status: step.success ? TaskStatus.COMPLETED : TaskStatus.FAILED,
+              tool: undefined,
+              params: undefined
+            } as PlanStep;
+          }) || [],
           reasoning: "Plan execution from planning manager with enhanced memory context"
         },
         error: result.error
@@ -713,5 +720,28 @@ Your task is to create an optimal plan to achieve the above goal. The plan will 
       });
       throw error;
     }
+  }
+
+  /**
+   * Gets the scheduler instance if available
+   */
+  getScheduler(): ChloeScheduler | null {
+    const mockAgent = {
+      initialize: async () => {},
+      getModel: () => null,
+      getMemory: () => null,
+      getTaskLogger: () => null,
+      notify: (message: string) => {},
+      planAndExecute: async (goal: string, options: any) => ({ success: true }),
+      runDailyTasks: async () => {},
+      runWeeklyReflection: async () => "Weekly reflection",
+      getReflectionManager: () => null,
+      getPlanningManager: () => null,
+      getKnowledgeGapsManager: () => null,
+      getToolManager: () => null
+    } as ChloeAgent;
+    
+    const scheduler = new ChloeScheduler(mockAgent);
+    return scheduler;
   }
 } 

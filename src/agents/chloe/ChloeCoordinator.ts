@@ -42,7 +42,7 @@ export class ChloeCoordinator extends AgentBase {
       config: options.config,
       capabilityLevel: AgentCapabilityLevel.COORDINATOR,
       toolPermissions: ['*'], // Chloe has access to all tools as coordinator
-      memoryScopes: ['shared', 'chloe'] // Chloe has access to shared and own memory
+      memoryScopes: ['shortTerm', 'longTerm', 'inbox', 'reflections'] // These are valid memory scopes
     });
     
     // Set Chloe-specific properties
@@ -90,9 +90,8 @@ export class ChloeCoordinator extends AgentBase {
         });
       }
       
-      // Initialize planner with model
-      this.planner = new Planner(this.model);
-      await this.planner.initialize();
+      // Initialize planner
+      this.planner = new Planner();
       
       // Initialize executor
       this.executor = new Executor(this.model, this.toolRouter);
@@ -185,10 +184,15 @@ export class ChloeCoordinator extends AgentBase {
       
       // Otherwise, handle it directly
       // Create a plan
-      const planResult = await this.planner!.planTask(this.getAgentId(), goal, {
-        maxSteps: options.maxSteps || 5,
-        includeReasoning: true,
-        context: [this.coordinatorPrompt]
+      const planResult = await Planner.plan({
+        agentId: this.getAgentId(),
+        goal,
+        tags: options.tags || [],
+        additionalContext: {
+          maxSteps: options.maxSteps || 5,
+          includeReasoning: true,
+          context: [this.coordinatorPrompt]
+        }
       });
       
       // Execute the plan
@@ -199,7 +203,7 @@ export class ChloeCoordinator extends AgentBase {
       };
       
       const executionResult = await this.executor!.executePlan(
-        planResult.plan,
+        planResult,
         executionContext,
         {
           stopOnError: options.stopOnError || false,

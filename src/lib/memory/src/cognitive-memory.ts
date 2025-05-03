@@ -1,7 +1,7 @@
 import * as serverQdrant from '../../../server/qdrant';
 import { DateTime } from 'luxon';
 import { EnhancedMemory, MemoryEntry } from './enhanced-memory';
-import { ImportanceLevel } from '../../../constants/memory';
+import { ChloeMemoryType, ImportanceLevel } from '../../../constants/memory';
 
 /**
  * CognitiveMemory System
@@ -113,7 +113,7 @@ export class CognitiveMemory extends EnhancedMemory {
       };
       
       // Add to memory
-      const memoryId = await super.addMemory(content, episodicMetadata, 'document');
+      const memoryId = await super.addMemory(content, episodicMetadata, ChloeMemoryType.DOCUMENT);
       
       // Add to working memory if important enough
       if (importance === ImportanceLevel.HIGH || importance === ImportanceLevel.CRITICAL) {
@@ -245,8 +245,10 @@ export class CognitiveMemory extends EnhancedMemory {
           console.log(`Removed decayed memory: ${memory.id}`);
         } else {
           // Update the memory with new decay factor
-          await serverQdrant.updateMemory('document', memory.id, { 
-            decayFactor: currentDecayFactor 
+          await serverQdrant.updateMemory(memory.id, { 
+            metadata: {
+              decayFactor: currentDecayFactor 
+            }
           });
         }
         

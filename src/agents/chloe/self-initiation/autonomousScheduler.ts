@@ -73,9 +73,11 @@ export class AutonomousScheduler {
     this.agent = agent;
     this.memory = agent.getMemory ? agent.getMemory() : null;
     
-    // Initialize scheduler reference
-    if ('scheduler' in agent && agent.scheduler) {
-      this.scheduler = agent.scheduler as ChloeScheduler;
+    // Initialize scheduler reference - don't access private property
+    const schedulerManager = agent.getPlanningManager?.();
+    if (schedulerManager && 'getScheduler' in schedulerManager && typeof schedulerManager.getScheduler === 'function') {
+      // Use type assertion to handle the type mismatch
+      this.scheduler = schedulerManager.getScheduler() as any;
     }
     
     console.log('AutonomousScheduler initialized');

@@ -29,17 +29,18 @@ export function setupScheduler(agent: ChloeAgent) {
       
       // Calculate capacity before running daily tasks
       try {
-        // Check if we have a scheduler property on the agent
-        const scheduler = (agent as { scheduler?: { getAgent?: () => ChloeAgent } }).scheduler || null;
+        // Check if we have a scheduler through the planning manager
+        const planningManager = agent.getPlanningManager?.();
+        const scheduler = planningManager?.getScheduler?.();
         
-        // Check if it's a valid scheduler object that has the properties we need
-        if (scheduler && typeof scheduler.getAgent === 'function') {
+        // Check if it's a valid scheduler object
+        if (scheduler) {
           console.log('Checking daily capacity...');
           
           // Try to use our capacity functions with the scheduler
           try {
             const capacity = await calculateChloeCapacity(
-              scheduler as unknown as AutonomousScheduler,
+              scheduler,
               undefined,
               undefined
             );
@@ -50,7 +51,7 @@ export function setupScheduler(agent: ChloeAgent) {
             if (capacity.overload) {
               console.log('Capacity overloaded, deferring lower priority tasks...');
               const deferResult = await deferOverflowTasks(
-                scheduler as unknown as AutonomousScheduler,
+                scheduler,
                 undefined,
                 undefined
               );

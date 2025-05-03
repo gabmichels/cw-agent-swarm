@@ -2,7 +2,7 @@ import { CognitiveMemory } from '../../../lib/memory/src/cognitive-memory';
 import { KnowledgeGraph } from '../../../lib/memory/src/knowledge-graph';
 import { StructuredTool } from '@langchain/core/tools';
 import { z } from 'zod';
-import { ImportanceLevel } from '../../../constants/memory';
+import { ImportanceLevel, ChloeMemoryType } from '../../../constants/memory';
 
 // Define BaseTool abstract class since it's not exported from intentRouter
 abstract class BaseTool {
@@ -57,7 +57,7 @@ export class MemoryRetrievalToolLC extends StructuredTool {
             memories = await cognitiveMemory.getRelevantMemories(
               query,
               limit,
-              ['document', 'thought', 'message', 'task']
+              [ChloeMemoryType.DOCUMENT, ChloeMemoryType.THOUGHT, ChloeMemoryType.MESSAGE, ChloeMemoryType.TASK]
             );
           }
           
@@ -86,7 +86,7 @@ export class MemoryRetrievalToolLC extends StructuredTool {
           return {
             success: false,
             message: `Error retrieving memories: ${error instanceof Error ? error.message : String(error)}`,
-            display: `I had trouble retrieving memories about "${query}".`
+            display: `I had trouble retrieving memories.`
           };
         }
       }
@@ -359,15 +359,17 @@ export class MemoryRetrievalTool extends BaseTool {
   }
   
   async execute(params: Record<string, any>): Promise<any> {
-    const { query, emotion, limit = 5 } = params;
-    
     try {
+      const query = params.query || '';
+      const emotion = params.emotion;
+      const limit = params.limit || 5;
+      
       let memories: any[] = [];
       
       // Retrieve by emotion if specified
       if (emotion && emotion.length > 0) {
         memories = await this.cognitiveMemory.getMemoriesByEmotion(
-          emotion as any,
+          emotion as any, 
           limit
         );
       } else {
@@ -375,7 +377,7 @@ export class MemoryRetrievalTool extends BaseTool {
         memories = await this.cognitiveMemory.getRelevantMemories(
           query,
           limit,
-          ['document', 'thought', 'message', 'task']
+          [ChloeMemoryType.DOCUMENT, ChloeMemoryType.THOUGHT, ChloeMemoryType.MESSAGE, ChloeMemoryType.TASK]
         );
       }
       
@@ -404,7 +406,7 @@ export class MemoryRetrievalTool extends BaseTool {
       return {
         success: false,
         message: `Error retrieving memories: ${error instanceof Error ? error.message : String(error)}`,
-        display: `I had trouble retrieving memories about "${query}".`
+        display: `I had trouble retrieving memories.`
       };
     }
   }

@@ -3,6 +3,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
 import { FileAttachment } from '../types';
+import { FileAttachmentType } from '../constants/file';
 
 interface MarkdownRendererProps {
   content?: string;  // Make content optional
@@ -62,7 +63,7 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
       
       const attachment: FileAttachment = {
         file: file,
-        type: 'image',
+        type: FileAttachmentType.IMAGE,
         preview: imgElement.src,
         filename: imgElement.alt || 'Image',
         size: 0,

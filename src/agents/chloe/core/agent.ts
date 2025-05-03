@@ -65,6 +65,7 @@ export interface ChloeAgent {
   getTasksWithTag?(tag: string): Promise<any[]>;
   queueTask?(task: any): Promise<any>;
   scheduleTask?(task: any): void;
+  getScheduler(): ChloeScheduler | null;
 }
 
 /**
@@ -442,7 +443,7 @@ export class ChloeAgent implements IAgent {
       await thoughtManager.logThought(
         initialThought, 
         'message_understanding',
-        thoughtImportance
+        undefined
       );
       
       // STEP 2: Determine if reflection is needed and generate if necessary
@@ -465,7 +466,7 @@ export class ChloeAgent implements IAgent {
         await thoughtManager.logThought(
           reflection,
           'strategic_reflection',
-          'high'
+          undefined
         );
       }
       
@@ -1616,5 +1617,13 @@ I don't have enough information about Claro's brand identity. I should ask for c
         message: `Error reloading markdown files: ${errorMessage}`
       };
     }
+  }
+
+  /**
+   * Gets the scheduler for this agent
+   * @returns The ChloeScheduler instance or null if not available
+   */
+  getScheduler(): ChloeScheduler | null {
+    return this.scheduler;
   }
 }

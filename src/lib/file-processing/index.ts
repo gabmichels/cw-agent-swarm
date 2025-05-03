@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { EnhancedMemory } from '../memory/src/enhanced-memory';
+import { ChloeMemoryType } from '@/constants/memory';
 
 // Define types for the libraries
 interface PdfParse {
@@ -635,7 +636,7 @@ export class FileProcessor {
           tags: metadata.tags || [],
           page: chunk.metadata.page // Add page number if available
         },
-        'document'
+        ChloeMemoryType.DOCUMENT
       );
     }
     await this.enhancedMemory.addMemory(
@@ -652,7 +653,7 @@ export class FileProcessor {
         tags: metadata.tags || [],
         extractedMetadata: metadata.extractedMetadata // Include extracted metadata here too
       },
-      'document'
+      ChloeMemoryType.DOCUMENT
     );
   }
 

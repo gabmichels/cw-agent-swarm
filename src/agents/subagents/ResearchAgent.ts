@@ -33,18 +33,18 @@ export class ResearchAgent extends AgentBase {
   private defaultSources: string[];
   
   constructor(options: ResearchAgentOptions) {
-    // Initialize with standard capability level
+    // Initialize with advanced capability level for research
     super({
       config: options.config,
-      capabilityLevel: AgentCapabilityLevel.STANDARD,
-      toolPermissions: ['web_search'], // Research agent only has search tool
-      memoryScopes: ['shared', 'research'] // Research agent has access to shared and research memory
+      capabilityLevel: AgentCapabilityLevel.ADVANCED,
+      toolPermissions: ['web_search', 'file_search', 'memory_search'],
+      memoryScopes: ['shortTerm', 'longTerm', 'inbox', 'reflections']
     });
     
     // Set research-specific properties
     this.researchPrompt = options.config.researchPrompt || 
-      "You are a specialized research agent focused on gathering accurate information.";
-    this.defaultSources = options.config.defaultSources || [];
+      "You are a research agent specialized in gathering information from various sources.";
+    this.defaultSources = options.config.defaultSources || ["web", "memory", "file"];
   }
   
   /**
@@ -86,9 +86,8 @@ export class ResearchAgent extends AgentBase {
         });
       }
       
-      // Initialize planner with model
-      this.planner = new Planner(this.model);
-      await this.planner.initialize();
+      // Initialize planner
+      this.planner = new Planner();
       
       // Initialize executor
       this.executor = new Executor(this.model, this.toolRouter);
@@ -198,15 +197,32 @@ export class ResearchAgent extends AgentBase {
     }
     
     try {
-      console.log(`ResearchAgent ${this.getAgentId()} planning research task: ${goal.substring(0, 50)}...`);
+      console.log(`ResearchAgent ${this.getAgentId()} planning task: ${goal.substring(0, 50)}...`);
       
-      // Create a research plan
-      const planResult = await this.planner!.planTask(this.getAgentId(), goal, {
-        maxSteps: options.maxSteps || 3,
-        includeReasoning: true,
-        context: [this.researchPrompt],
-        toolSet: ['web_search']
+      // Create a plan using the static Planner.plan method
+      const planResult = await Planner.plan({
+        agentId: this.getAgentId(),
+        goal,
+        tags: options.tags || [],
+        additionalContext: {
+          maxSteps: options.maxSteps || 5,
+          includeReasoning: true,
+          context: [this.researchPrompt]
+        }
       });
+      
+      // Store the plan in memory
+      await this.memoryRouter?.addMemory(
+        this.getAgentId(),
+        'research',
+        `Research Plan: ${planResult.title}\n\n${planResult.steps.map(s => `- ${s.description}`).join('\n')}`,
+        'research_plan',
+        {
+          importance: 'medium',
+          source: 'agent',
+          tags: ['research', 'plan']
+        }
+      );
       
       // Execute the plan
       const executionContext: ExecutionContext = {
@@ -216,32 +232,17 @@ export class ResearchAgent extends AgentBase {
       };
       
       const executionResult = await this.executor!.executePlan(
-        planResult.plan,
+        planResult,
         executionContext,
         {
-          stopOnError: options.stopOnError || true
+          stopOnError: options.stopOnError || false,
+          autonomyLevel: options.autonomyLevel || 0.7
         }
       );
       
-      // Store the research results in memory
-      if (executionResult.success && executionResult.finalOutput) {
-        await this.memoryRouter?.addMemory(
-          this.getAgentId(),
-          'research',
-          executionResult.finalOutput,
-          'research_result',
-          {
-            importance: 'high',
-            source: 'agent',
-            tags: ['research', 'result'],
-            context: goal
-          }
-        );
-      }
-      
       return executionResult;
     } catch (error) {
-      console.error(`Error in research planAndExecute:`, error);
+      console.error(`Error in planAndExecute:`, error);
       throw error;
     }
   }

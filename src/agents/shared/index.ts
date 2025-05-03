@@ -6,29 +6,37 @@
  */
 
 // Base Agent
-export { AgentBase } from './base/AgentBase';
+export { AgentBase, AgentCapabilityLevel } from './base/AgentBase';
 export type { 
-  AgentBaseConfig, 
+  AgentBaseConfig,
   AgentBaseOptions
 } from './base/AgentBase';
-export { AgentCapabilityLevel } from './base/AgentBase';
 
 // Memory
 export { MemoryRouter } from './memory/MemoryRouter';
-export type {
-  MemoryEntry,
-  MemorySearchOptions,
+export type { 
   MemoryRouterOptions
 } from './memory/MemoryRouter';
 
 // Planning
 export { Planner } from './planning/Planner';
-export type {
+export type { 
+  PlanningContext,
   Plan,
-  PlanStep,
-  PlanOptions,
-  PlanResult
+  PlanStep
 } from './planning/Planner';
+
+// Execution
+export { 
+  Executor,
+  ExecutionStatus
+} from './execution/Executor';
+export type {
+  ExecutionContext,
+  ExecutionOptions,
+  ExecutionResult,
+  StepExecutionResult
+} from './execution/Executor';
 
 // Tools
 export { ToolRouter } from './tools/ToolRouter';
@@ -38,15 +46,6 @@ export type {
   ToolAccessOptions,
   ToolRouterOptions
 } from './tools/ToolRouter';
-
-// Execution
-export { Executor, ExecutionStatus } from './execution/Executor';
-export type {
-  ExecutionResult,
-  StepExecutionResult,
-  ExecutionOptions,
-  ExecutionContext
-} from './execution/Executor';
 
 // Coordination
 export { AgentCoordinator } from './coordination/AgentCoordinator';

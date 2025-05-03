@@ -10,6 +10,7 @@ import {
 } from '../../../constants/proxy';
 import { STORAGE_KEYS, DEFAULTS } from '../../../constants/qdrant';
 import { MemorySource } from '../../../constants/memory';
+import { ImportanceLevel } from '../../../constants/memory';
 
 // In-memory cache and in-flight request tracking
 const responseCache = new Map<string, {
@@ -116,7 +117,7 @@ async function loadChatHistoryFromQdrant(specificUserId?: string) {
     
     // Also fetch specifically high importance messages
     console.log('Fetching high importance memories...');
-    const importantMemories = await serverQdrant.getMemoriesByImportance('high', 500);
+    const importantMemories = await serverQdrant.getMemoriesByImportance(ImportanceLevel.HIGH, 500);
     console.log(`Retrieved ${importantMemories.length} high importance memories`);
     
     // Combine and deduplicate messages

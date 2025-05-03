@@ -8,6 +8,7 @@
  */
 
 import { KnowledgeGraphManager, KnowledgeNode, KnowledgeEdge } from './graphManager';
+import { KnowledgeEdgeType } from './graph';
 
 interface GraphHealth {
   totalNodes: number;
@@ -112,8 +113,8 @@ export class KnowledgeOptimizer {
         newEdges.push({
           from: nodeA.id,
           to: nodeB.id,
-          type: 'similar_type',
-          weight: 0.5,
+          type: 'related_to',
+          strength: 0.5,
           label: `Similar ${nodeA.type}`
         });
         continue;
@@ -128,8 +129,8 @@ export class KnowledgeOptimizer {
         newEdges.push({
           from: nodeA.id,
           to: nodeB.id,
-          type: 'co_occurrence',
-          weight: 0.7,
+          type: 'related_to',
+          strength: 0.7,
           label: 'Co-occurred in source'
         });
         continue;
@@ -144,8 +145,8 @@ export class KnowledgeOptimizer {
         newEdges.push({
           from: nodeA.id,
           to: nodeB.id,
-          type: 'related_tags',
-          weight: 0.6,
+          type: 'related_to',
+          strength: 0.6,
           label: 'Related by tags'
         });
         continue;
@@ -164,8 +165,8 @@ export class KnowledgeOptimizer {
           newEdges.push({
             from: nodeA.id,
             to: nodeB.id,
-            type: 'temporal_proximity',
-            weight: 0.4,
+            type: 'related_to',
+            strength: 0.4,
             label: 'Created at similar time'
           });
         }
