@@ -20,7 +20,23 @@ vi.mock('../../core/agent', () => {
   return {
     ChloeAgent: vi.fn().mockImplementation(() => ({
       getMemory: vi.fn().mockReturnValue({
-        addMemory: vi.fn().mockResolvedValue({ id: 'memory-id' }),
+        addMemory: vi.fn().mockImplementation((content) => {
+          // Simple mock implementation of PII redaction
+          const hasPII = content.includes('@') || content.includes('phone') || content.includes('555-');
+          const redactedContent = hasPII 
+            ? content.replace(/@\w+\.\w+/g, '[REDACTED_EMAIL]').replace(/555-\d{3}-\d{4}/g, '[REDACTED_PHONE]') 
+            : content;
+          
+          return Promise.resolve({ 
+            id: 'memory-id',
+            content: redactedContent,
+            metadata: {
+              pii_redacted: hasPII,
+              pii_types_detected: hasPII ? ['EMAIL', 'PHONE'] : [],
+              pii_redaction_count: hasPII ? 1 : 0
+            }
+          });
+        }),
         getRelevantMemories: vi.fn().mockResolvedValue([])
       }),
       notify: vi.fn()

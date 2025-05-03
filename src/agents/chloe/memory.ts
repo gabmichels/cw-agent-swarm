@@ -20,6 +20,8 @@ import {
   MemorySource 
 } from '../../constants/memory';
 import { RerankerService } from './services/reranker';
+// Import PII redaction functionality
+import { redactSensitiveData, RedactionResult } from '../../lib/pii/redactor';
 
 // Define a custom memory type that includes 'insight' for this implementation
 export type ChloeMemoryType = string;
@@ -165,14 +167,28 @@ export class ChloeMemory {
     
     const memoryId = `memory_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
     
+    // Apply PII redaction before processing
+    const redactionResult = await redactSensitiveData(content);
+    
+    // Use the redacted content for storage
+    let contentToStore = redactionResult.piiDetected ? redactionResult.redactedContent : content;
+    
+    // Create extended metadata with PII redaction information
+    const extendedMetadata = {
+      ...metadata || {},
+      pii_redacted: redactionResult.piiDetected,
+      pii_types_detected: redactionResult.piiDetected ? redactionResult.detectedTypes : [],
+      pii_redaction_count: redactionResult.redactionCount
+    };
+    
     // Apply standardized formatting to memory content if it doesn't already have it
     const timestamp = new Date().toISOString();
-    let formattedContent = content;
+    let formattedContent = contentToStore;
     
     // Only format if it's not already formatted
-    if (!this.isFormattedMemory(content)) {
+    if (!this.isFormattedMemory(contentToStore)) {
       const typeLabel = type.toString().toUpperCase();
-      formattedContent = `${typeLabel} [${timestamp}]: ${content}`;
+      formattedContent = `${typeLabel} [${timestamp}]: ${contentToStore}`;
     }
     
     const baseType = this.convertToBaseMemoryType(type);
@@ -188,7 +204,7 @@ export class ChloeMemory {
       context,
       tags,
       type: baseType, // baseType is now a string which matches ChloeMemoryType
-      metadata // Include provided metadata
+      metadata: extendedMetadata // Use extended metadata with PII redaction info
     };
     
     // Add to server-side Qdrant (only when running server-side)
@@ -203,7 +219,7 @@ export class ChloeMemory {
           importance,
           source,
           tags,
-          ...metadata, // Include all metadata fields directly in the metadata object
+          ...extendedMetadata, // Include extended metadata fields
           // Ensure critical flag is set properly if importance is CRITICAL
           critical: metadata?.critical || importance === ImportanceLevel.CRITICAL
         }
@@ -218,11 +234,11 @@ export class ChloeMemory {
         importance: importance,
         source: source,
         tags: tags,
-        ...metadata // Include metadata in external memory as well
+        ...extendedMetadata // Include extended metadata in external memory as well
       });
     }
     
-    console.log(`Added new memory: ${memoryId} - ${formattedContent.substring(0, 50)}...`);
+    console.log(`Added new memory: ${memoryId} - ${formattedContent.substring(0, 50)}...${redactionResult.piiDetected ? ' (PII redacted)' : ''}`);
     return newMemory;
   }
 

@@ -45,12 +45,30 @@ vi.mock('../../memory', () => {
     category: 'test_category',
     importance: 'medium',
     source: 'system',
-    tags: ['test']
+    tags: ['test'],
+    metadata: {
+      pii_redacted: false,
+      pii_types_detected: [],
+      pii_redaction_count: 0
+    }
   };
   
   return {
     ChloeMemory: vi.fn().mockImplementation(() => ({
-      addMemory: vi.fn().mockResolvedValue(mockMemory),
+      addMemory: vi.fn().mockImplementation((content) => {
+        // Simple mock implementation of PII redaction
+        const hasPII = content.includes('@') || content.includes('phone') || content.includes('555-');
+        return Promise.resolve({
+          ...mockMemory,
+          content: hasPII ? content.replace(/@\w+\.\w+/g, '[REDACTED_EMAIL]').replace(/555-\d{3}-\d{4}/g, '[REDACTED_PHONE]') : content,
+          metadata: {
+            ...mockMemory.metadata,
+            pii_redacted: hasPII,
+            pii_types_detected: hasPII ? ['EMAIL', 'PHONE'] : [],
+            pii_redaction_count: hasPII ? 1 : 0
+          }
+        });
+      }),
       getRelevantMemories: vi.fn().mockResolvedValue([mockMemory]),
       getHighImportanceMemories: vi.fn().mockResolvedValue([mockMemory])
     }))
