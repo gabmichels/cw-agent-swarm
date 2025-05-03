@@ -6,6 +6,7 @@ import matter from 'gray-matter';
 import * as memory from '../../../server/qdrant';
 import { ImportanceLevel, MemorySource, ChloeMemoryType } from '../../../constants/memory';
 import { logger } from '../../../lib/logging';
+import { ImportanceCalculator } from '../../../lib/memory/ImportanceCalculator';
 
 // Import the constants for memory types
 import { MEMORY_TYPES } from '../../../constants/qdrant';
@@ -133,12 +134,14 @@ export interface ChloeMemoryEntry {
   type: string;
   tags: string[];
   importance: ImportanceLevel;
+  importance_score?: number;
   source: string;
   filePath: string;
   metadata?: {
     source?: string;
     critical?: boolean;
     importance?: number;
+    importance_score?: number;
     contentType?: string;
     extractedFrom?: string;
     lastModified?: string;
@@ -606,126 +609,64 @@ export async function loadAllMarkdownAsMemory(
  * @returns Array of structured memory entries
  */
 export async function markdownToMemoryEntries(filePath: string, content: string): Promise<ChloeMemoryEntry[]> {
-  // Parse front matter (YAML at the top of the file)
-  const { data, content: markdownContent } = matter(content);
+  // Extract content from markdown file
+  const { data: frontMatter, content: markdownContent } = matter(content);
   
-  // Extract metadata from frontmatter
-  const tags = data.tags || [];
-  
-  // Always set importance to CRITICAL for markdown files from knowledge repositories
-  // This ensures that these entries are given the highest priority in memory retrieval
-  const importance = ImportanceLevel.CRITICAL;
-  
-  // Determine memory type based on file path - handle the actual folder structure
-  let type = MarkdownMemoryType.KNOWLEDGE;
-  
-  const normalizedPath = filePath.replace(/\\/g, '/').toLowerCase();
-  
-  if (normalizedPath.includes('/company/')) {
-    // Company information
-    if (normalizedPath.includes('/general/') || normalizedPath.includes('/strategy/')) {
-      type = MarkdownMemoryType.STRATEGY;
-    } else if (normalizedPath.includes('/vision/')) {
-      type = MarkdownMemoryType.VISION;
-    } else if (normalizedPath.includes('/process/')) {
-      type = MarkdownMemoryType.PROCESS;
-    }
-  } else if (normalizedPath.includes('/domains/')) {
-    // Domain knowledge
-    type = MarkdownMemoryType.KNOWLEDGE;
-  } else if (
-    normalizedPath.includes('/agents/') || 
-    normalizedPath.includes('/chloe/') || 
-    normalizedPath.includes('/agent/')
-  ) {
-    // Agent persona
-    type = MarkdownMemoryType.PERSONA;
-  }
-  
-  // Override based on frontmatter if present
-  if (data.type) {
-    switch (data.type.toLowerCase()) {
-      case 'strategy':
-        type = MarkdownMemoryType.STRATEGY;
-        break;
-      case 'vision':
-        type = MarkdownMemoryType.VISION;
-        break;
-      case 'process':
-        type = MarkdownMemoryType.PROCESS;
-        break;
-      case 'persona':
-        type = MarkdownMemoryType.PERSONA;
-        break;
-      case 'knowledge':
-        type = MarkdownMemoryType.KNOWLEDGE;
-        break;
-    }
-  }
-  
-  // Get file basename as title if not specified in frontmatter
-  const title = data.title || path.basename(filePath, '.md');
-  
-  // Extract headings for better context
-  const headings = extractHeadings(markdownContent);
-  
-  // Create standard metadata object for all entries
-  // This metadata is critical for effective memory retrieval
+  // Generate standardized metadata for the file
   const standardMetadata = {
-    source: "markdown",           // Always mark the source as "markdown"
-    critical: true,               // Flag as critical for prioritized retrieval
-    importance: 1.0,              // Explicit numeric importance (highest)
-    contentType: 'markdown',      // Content type for rendering purposes
-    extractedFrom: filePath,      // Original file path for provenance
-    lastModified: new Date().toISOString(),
-    headings: headings,           // Store headings for better retrieval context
-    isPermanent: true,            // Mark as permanent to avoid garbage collection
-    priorityRetrieval: true       // Prioritize in retrieval operations
+    source: MemorySource.FILE,
+    contentType: 'markdown',
+    fileType: 'md',
+    extractedFrom: filePath,
+    lastModified: new Date().toISOString()
   };
   
-  // If we have sections with headers, split them up
-  // This creates multiple memory entries from one file
-  const sections = splitMarkdownByHeaders(markdownContent);
+  // Extract title from frontmatter or first heading
+  const title = frontMatter.title || extractTitle(markdownContent, filePath);
   
-  if (sections.length > 1) {
-    logger.info(`Splitting markdown file "${title}" into ${sections.length} sections`);
-    
-    return sections.map((section, index) => {
-      const sectionTitle = section.title || (index === 0 ? title : `${title} - ${section.title || 'Section ' + (index + 1)}`);
-      
-      // Extract additional tags from the section title
-      const sectionTitleTags = extractKeywordsFromText(sectionTitle);
-      const explicitTags = extractTags(section.content);
-      const allTags = [...tags, ...sectionTitleTags, ...explicitTags, ...(section.tags || [])];
-      
-      return {
-        title: sectionTitle,
-        content: section.content,
-        type: type,
-        tags: Array.from(new Set(allTags)), // Ensure tag uniqueness
-        importance: ImportanceLevel.CRITICAL, // Always set to CRITICAL
-        source: MemorySource.FILE,
-        filePath,
-        metadata: {
-          ...standardMetadata,
-          sectionIndex: index,
-          sectionTitle: sectionTitle,
-          sectionCount: sections.length
-        }
-      };
-    });
-  }
+  // Extract tags from frontmatter or generate from content
+  const frontmatterTags = frontMatter.tags || [];
+  const tags = Array.from(new Set([
+    ...frontmatterTags,
+    ...getStandardTagsFromPath(filePath)
+  ]));
   
-  // If no sections, return the whole document as one memory entry
+  // Determine the type of markdown content
+  const type = frontMatter.type || determineMemoryType(filePath);
+  
+  // Calculate importance using the new ImportanceCalculator
+  // For markdown files, we want to ensure they're treated as critical
+  const importanceData = {
+    content: markdownContent,
+    source: MemorySource.FILE,
+    type,
+    tags,
+    tagConfidence: 1.0, // High confidence in tags for markdown files
+    metadata: {
+      ...standardMetadata,
+      ...frontMatter
+    }
+  };
+  
+  // Calculate the importance score - markdown files should get a top score
+  const importanceScore = ImportanceCalculator.calculateImportanceScore(importanceData);
+  
+  // Always set markdown importance to CRITICAL, as required
+  const importanceLevel = ImportanceLevel.CRITICAL;
+  
   return [{
     title,
     content: markdownContent,
     type,
     tags: Array.from(new Set([...tags, ...extractKeywordsFromText(title), ...extractTags(markdownContent)])),
-    importance: ImportanceLevel.CRITICAL, // Always set to CRITICAL
+    importance: importanceLevel,
+    importance_score: importanceScore, // Store the calculated score
     source: MemorySource.FILE,
     filePath,
-    metadata: standardMetadata
+    metadata: {
+      ...standardMetadata,
+      importance_score: importanceScore // Include score in metadata
+    }
   }];
 }
 

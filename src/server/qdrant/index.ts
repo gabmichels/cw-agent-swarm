@@ -14,6 +14,7 @@ import {
   FILTER_KEYS
 } from '../../constants/qdrant';
 import { ImportanceLevel } from '../../constants/memory';
+import { ImportanceCalculator } from '../../lib/memory/ImportanceCalculator';
 
 // Make sure this file is only executed on the server
 if (typeof window !== 'undefined') {
@@ -635,7 +636,34 @@ class QdrantHandler {
       );
       
       // Flatten and sort by score (would need to modify interface to include score)
-      return results.flat().slice(0, limit);
+      const flatResults = results.flat().slice(0, limit);
+      
+      // Post-process to incorporate importance_score into ranking
+      if (flatResults && flatResults.length > 0) {
+        // Adjust score based on importance_score
+        // Calculate new scores as: originalScore * (1 + importanceBoost)
+        const processedResults = flatResults.map(result => {
+          const importanceScore = result.metadata.importance_score || 0.5; // Default if not set
+          const importanceBoost = importanceScore / 2; // Convert 0-1 score to 0-0.5 boost
+          
+          // Clone the result to avoid modifying the original
+          return {
+            ...result,
+            metadata: {
+              ...result.metadata,
+              _originalScore: result.metadata._score, // Preserve original score
+              _scoreWithImportance: result.metadata._score * (1 + importanceBoost) // Boosted score
+            }
+          };
+        });
+        
+        // Sort by the new score
+        return processedResults.sort((a, b) => 
+          (b.metadata._scoreWithImportance || 0) - (a.metadata._scoreWithImportance || 0)
+        );
+      }
+      
+      return flatResults;
     } catch (error) {
       console.error('Failed to search Qdrant memory, using fallback:', error);
       this.useQdrant = false;
@@ -1231,7 +1259,34 @@ export async function searchMemory(
     await initMemory();
   }
   
-  return qdrantInstance!.searchMemory(type, query, options);
+  const results = await qdrantInstance!.searchMemory(type, query, options);
+  
+  // Post-process to incorporate importance_score into ranking
+  if (results && results.length > 0) {
+    // Adjust score based on importance_score
+    // Calculate new scores as: originalScore * (1 + importanceBoost)
+    const processedResults = results.map(result => {
+      const importanceScore = result.metadata.importance_score || 0.5; // Default if not set
+      const importanceBoost = importanceScore / 2; // Convert 0-1 score to 0-0.5 boost
+      
+      // Clone the result to avoid modifying the original
+      return {
+        ...result,
+        metadata: {
+          ...result.metadata,
+          _originalScore: result.metadata._score, // Preserve original score
+          _scoreWithImportance: result.metadata._score * (1 + importanceBoost) // Boosted score
+        }
+      };
+    });
+    
+    // Sort by the new score
+    return processedResults.sort((a, b) => 
+      (b.metadata._scoreWithImportance || 0) - (a.metadata._scoreWithImportance || 0)
+    );
+  }
+  
+  return results;
 }
 
 export async function getRecentMemories(
@@ -1812,15 +1867,170 @@ export async function deleteMemory(
  * Update a memory with new data
  */
 export async function updateMemory(
-  type: QdrantMemoryType,
   id: string,
-  data: Record<string, any>
+  updates: {
+    content?: string;
+    type?: string;
+    source?: string;
+    metadata?: Record<string, any>;
+    importance?: ImportanceLevel;
+    importance_score?: number;
+  }
 ): Promise<boolean> {
   try {
-    // Use the existing updateMemoryMetadata function which already handles this
-    return await updateMemoryMetadata(id, data);
+    if (!qdrantInstance) {
+      await initMemory();
+    }
+    
+    // First retrieve the memory to update it
+    // We'll create a generic filter to find the memory with this ID
+    const filter = { id: id };
+    const searchOptions: MemorySearchOptions = {
+      filter: { id: id },
+      limit: 1
+    };
+    
+    // Search across all types to find this memory
+    // This is a hack since we don't have a direct getMemoryById function
+    const memories = await qdrantInstance?.searchMemory(null, "", searchOptions);
+    
+    if (!memories || memories.length === 0) {
+      console.error(`Memory not found: ${id}`);
+      return false;
+    }
+    
+    const existingMemory = memories[0];
+    
+    // Create updated metadata
+    let updatedMetadata = { ...existingMemory.metadata };
+    
+    // Update metadata if provided
+    if (updates.metadata) {
+      updatedMetadata = { ...updatedMetadata, ...updates.metadata };
+    }
+    
+    // Handle importance score and level
+    if (updates.importance_score !== undefined) {
+      updatedMetadata.importance_score = updates.importance_score;
+      // Update importance level based on score if not explicitly provided
+      if (updates.importance === undefined) {
+        updatedMetadata.importance = ImportanceCalculator.scoreToImportanceLevel(updates.importance_score);
+      }
+    }
+    
+    // Handle explicit importance level
+    if (updates.importance !== undefined) {
+      updatedMetadata.importance = updates.importance;
+    }
+    
+    // If we're updating content, we need to create a completely new memory
+    // because we need to generate a new embedding
+    if (updates.content !== undefined) {
+      // Get the existing embedding for reference
+      const { embedding } = await getEmbedding(updates.content);
+      
+      // Calculate importance score if not provided
+      let importanceScore = updates.importance_score;
+      if (importanceScore === undefined) {
+        importanceScore = ImportanceCalculator.calculateImportanceScore({
+          content: updates.content,
+          source: (updates.source || existingMemory.metadata.source) as any,
+          type: updates.type || existingMemory.type, 
+          embedding,
+          tags: updatedMetadata.tags,
+          tagConfidence: updatedMetadata.tagConfidence,
+          metadata: updatedMetadata
+        });
+        updatedMetadata.importance_score = importanceScore;
+      }
+      
+      // Delete the old memory
+      const deleted = await deleteMemory(existingMemory.type as QdrantMemoryType, id);
+      
+      if (!deleted) {
+        console.error(`Failed to delete old memory during update: ${id}`);
+      }
+      
+      // Create a new memory with the updated content and metadata
+      await addMemory(
+        existingMemory.type as QdrantMemoryType,
+        updates.content,
+        updatedMetadata
+      );
+      
+      return true;
+    }
+    
+    // If we're not updating content, just update the metadata
+    return await updateMemoryMetadata(id, updatedMetadata);
   } catch (error) {
     console.error('Error updating memory:', error);
     return false;
+  }
+}
+
+/**
+ * Store a new memory with calculated importance score
+ */
+export async function storeMemory(
+  content: string, 
+  type: string, 
+  source: string, 
+  metadata: Record<string, any> = {},
+  options: {
+    importance?: ImportanceLevel;
+    importance_score?: number;
+    existingEmbedding?: number[];
+    tags?: string[];
+  } = {}
+): Promise<string> {
+  try {
+    if (!qdrantInstance) {
+      await initMemory();
+    }
+    
+    // Get or generate embedding
+    let embedding: number[] = options.existingEmbedding || [];
+    if (!embedding || embedding.length === 0) {
+      const result = await getEmbedding(content);
+      embedding = result.embedding;
+    }
+    
+    // Calculate importance score if not provided
+    let importanceScore = options.importance_score;
+    if (importanceScore === undefined) {
+      importanceScore = ImportanceCalculator.calculateImportanceScore({
+        content,
+        source: source as any,
+        type,
+        embedding,
+        tags: options.tags || [],
+        tagConfidence: metadata.tagConfidence,
+        metadata
+      });
+    }
+    
+    // If traditional importance wasn't provided, derive it from the score
+    let importance = options.importance;
+    if (importance === undefined && importanceScore !== undefined) {
+      importance = ImportanceCalculator.scoreToImportanceLevel(importanceScore);
+    }
+    
+    // Add importance score to metadata
+    const enrichedMetadata = {
+      ...metadata,
+      importance: importance || ImportanceLevel.MEDIUM,
+      importance_score: importanceScore
+    };
+    
+    // Use the existing addMemory function to store in database
+    return await addMemory(
+      type as QdrantMemoryType,
+      content,
+      enrichedMetadata
+    );
+  } catch (error) {
+    console.error('Error storing memory:', error);
+    throw error;
   }
 } 

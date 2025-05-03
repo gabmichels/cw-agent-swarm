@@ -1,3 +1,4 @@
+import { ChloeMemoryType } from '@/constants/memory';
 import * as serverQdrant from '../../../server/qdrant';
 import { EnhancedMemory } from './enhanced-memory';
 import { FeedbackLoopSystem } from './feedback-loop';
@@ -470,7 +471,7 @@ export class IntegrationLayer {
           category: 'system',
           created: new Date().toISOString()
         },
-        'document'
+        ChloeMemoryType.DOCUMENT
       );
       
       // Store in file system for persistence

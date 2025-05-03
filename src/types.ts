@@ -71,4 +71,17 @@ export interface SocialMediaItem {
   url: string | null;
   engagement: Record<string, any>;
   sentiment: string | null;
+}
+
+export interface MemoryEntry {
+  id: string;
+  content: string;
+  type: string;
+  source: string;
+  embedding: number[];
+  metadata: any;
+  importance?: number;
+  importance_score?: number; // Numeric importance score between 0 and 1
+  created_at: string;
+  updated_at: string;
 } 

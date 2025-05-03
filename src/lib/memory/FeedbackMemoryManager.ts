@@ -9,6 +9,7 @@
 import { ChloeMemoryType, ImportanceLevel, MemorySource } from '../../constants/memory';
 import { MessageType } from '../../constants/message';
 import { storeInternalMessageToMemory } from './storeInternalMessageToMemory';
+import { ImportanceCalculator } from './ImportanceCalculator';
 
 export interface MemoryItem {
   id?: string;
@@ -292,5 +293,66 @@ Related Task: ${item.relatedTaskId || 'N/A'}
         return b.occurrenceCount - a.occurrenceCount;
       })
       .slice(0, limit);
+  }
+
+  /**
+   * Update a memory's importance based on feedback
+   * 
+   * @param memoryId The memory ID to update
+   * @param feedbackType The type of feedback (positive or negative)
+   */
+  async updateMemoryImportance(memoryId: string, feedbackType: 'positive' | 'negative'): Promise<boolean> {
+    try {
+      // First get the current memory to check its current importance
+      const memories = await this.memoryManager.searchMemory(null, "", { 
+        filter: { id: memoryId },
+        limit: 1 
+      });
+      
+      if (!memories || memories.length === 0) {
+        console.error(`Memory not found for importance update: ${memoryId}`);
+        return false;
+      }
+      
+      const memory = memories[0];
+      
+      // Get current importance score or default to medium
+      const currentScore = memory.metadata.importance_score || 0.5;
+      
+      // Adjust score based on feedback type
+      const adjustmentFactor = feedbackType === 'positive' ? 0.05 : -0.05;
+      let newScore = currentScore + adjustmentFactor;
+      
+      // Ensure score stays within 0-1 range
+      newScore = Math.max(0, Math.min(1, newScore));
+      
+      // Update the memory with new importance score
+      const updates = {
+        metadata: {
+          ...memory.metadata,
+          importance_score: newScore,
+          feedback_count: (memory.metadata.feedback_count || 0) + 1,
+          last_feedback: new Date().toISOString()
+        }
+      };
+      
+      // Also derive the importance level for backwards compatibility
+      const importanceLevel = ImportanceCalculator.scoreToImportanceLevel(newScore);
+      updates.metadata.importance = importanceLevel;
+      
+      // Update the memory
+      const updated = await this.memoryManager.updateMemory(memoryId, updates);
+      
+      if (updated) {
+        console.log(`Updated memory importance: ${memoryId}, new score: ${newScore}, new level: ${importanceLevel}`);
+      } else {
+        console.error(`Failed to update memory importance: ${memoryId}`);
+      }
+      
+      return updated;
+    } catch (error) {
+      console.error('Error updating memory importance:', error);
+      return false;
+    }
   }
 } 
