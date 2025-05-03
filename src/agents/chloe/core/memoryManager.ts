@@ -183,7 +183,8 @@ export class MemoryManager implements IManager {
     importance: ImportanceLevel = ImportanceLevel.MEDIUM,
     source: MemorySource = MemorySource.SYSTEM,
     context?: string,
-    tags?: string[]
+    tags?: string[],
+    metadata?: Record<string, any>
   ): Promise<any> {
     if (!this.initialized) {
       await this.initialize();
@@ -204,14 +205,15 @@ export class MemoryManager implements IManager {
       memoryType = MemoryType.DOCUMENT;
     }
     
-    // Add memory with the determined type
+    // Add memory with the determined type and metadata if provided
     return this.chloeMemory.addMemory(
       content,
       memoryType,
       importance,
       source,
       context,
-      tags
+      tags,
+      metadata
     );
   }
 

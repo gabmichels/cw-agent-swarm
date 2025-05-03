@@ -399,9 +399,18 @@ export async function findMarkdownFiles(directories: string[] = ['docs/', 'knowl
   try {
     const allFiles: string[] = [];
     
-    for (const dir of directories) {
+    // By default, we prioritize the docs/ and knowledge/ directories
+    // These directories contain the most important documentation and knowledge
+    // that should be stored with CRITICAL importance and critical=true flag
+    const priorityDirectories = directories.length > 0 ? directories : ['docs/', 'knowledge/'];
+    
+    for (const dir of priorityDirectories) {
       // Use glob to find all markdown files
       const files = glob.sync(`${dir}/**/*.md`, { nodir: true });
+      
+      // Log how many files were found in each directory
+      logger.info(`Found ${files.length} markdown files in ${dir}`);
+      
       allFiles.push(...files);
     }
     
@@ -603,7 +612,8 @@ export async function markdownToMemoryEntries(filePath: string, content: string)
   // Extract metadata from frontmatter
   const tags = data.tags || [];
   
-  // Always set importance to CRITICAL for markdown files
+  // Always set importance to CRITICAL for markdown files from knowledge repositories
+  // This ensures that these entries are given the highest priority in memory retrieval
   const importance = ImportanceLevel.CRITICAL;
   
   // Determine memory type based on file path - handle the actual folder structure
@@ -660,14 +670,17 @@ export async function markdownToMemoryEntries(filePath: string, content: string)
   const headings = extractHeadings(markdownContent);
   
   // Create standard metadata object for all entries
+  // This metadata is critical for effective memory retrieval
   const standardMetadata = {
-    source: "markdown", 
-    critical: true,
-    importance: 1.0,
-    contentType: 'markdown',
-    extractedFrom: filePath,
+    source: "markdown",           // Always mark the source as "markdown"
+    critical: true,               // Flag as critical for prioritized retrieval
+    importance: 1.0,              // Explicit numeric importance (highest)
+    contentType: 'markdown',      // Content type for rendering purposes
+    extractedFrom: filePath,      // Original file path for provenance
     lastModified: new Date().toISOString(),
-    headings: headings
+    headings: headings,           // Store headings for better retrieval context
+    isPermanent: true,            // Mark as permanent to avoid garbage collection
+    priorityRetrieval: true       // Prioritize in retrieval operations
   };
   
   // If we have sections with headers, split them up
@@ -784,20 +797,78 @@ function splitMarkdownByHeaders(content: string): Array<{title: string; content:
 }
 
 /**
- * Extract hashtags from content
- * @param content Text content
- * @returns Array of tags without the # symbol
+ * Extract tags from markdown content
+ * @param content Markdown content
+ * @returns Array of tags
  */
 function extractTags(content: string): string[] {
-  const tagRegex = /#([a-zA-Z0-9]+)/g;
-  const tags = [];
-  let match;
-  
-  while ((match = tagRegex.exec(content)) !== null) {
-    tags.push(match[1].toLowerCase());
+  try {
+    const tags = new Set<string>();
+    
+    // Extract explicit hashtags like #tag
+    const hashtagMatches = content.match(/#([a-zA-Z0-9_]+)/g);
+    if (hashtagMatches) {
+      for (const tag of hashtagMatches) {
+        // Remove # prefix and add to set if at least 3 chars
+        const cleanTag = tag.substring(1).toLowerCase();
+        if (cleanTag.length >= 3) {
+          tags.add(cleanTag);
+        }
+      }
+    }
+    
+    // Extract heading content as potential tags (more important for knowledge organization)
+    // Look for markdown headers (e.g., ## Heading)
+    const headingMatches = content.match(/^#+\s+(.+)$/gm);
+    if (headingMatches) {
+      for (const heading of headingMatches) {
+        // Remove heading markers and extract keywords
+        const cleanHeading = heading.replace(/^#+\s+/, '').trim();
+        
+        // Split heading into words
+        const words = cleanHeading.split(/\s+/);
+        
+        // Add individual words if 4+ chars (likely significant)
+        for (const word of words) {
+          const cleanWord = word.replace(/[^a-zA-Z0-9_]/g, '').toLowerCase();
+          if (cleanWord.length >= 4 && !isStopWord(cleanWord)) {
+            tags.add(cleanWord);
+          }
+        }
+        
+        // For multi-word headings (2-3 words), add the whole phrase as a tag
+        if (words.length >= 2 && words.length <= 3) {
+          const phraseTag = cleanHeading.toLowerCase()
+            .replace(/[^a-zA-Z0-9_\s]/g, '')  // Remove special chars except spaces
+            .replace(/\s+/g, '_');            // Replace spaces with underscores
+          
+          if (phraseTag.length >= 5) {
+            tags.add(phraseTag);
+          }
+        }
+      }
+    }
+    
+    return Array.from(tags);
+  } catch (error) {
+    logger.error('Error extracting tags:', error);
+    return [];
   }
-  
-  return tags;
+}
+
+/**
+ * Check if a word is a common stop word that shouldn't be used as a tag
+ * @param word Word to check
+ * @returns True if it's a stop word
+ */
+function isStopWord(word: string): boolean {
+  const stopWords = [
+    'the', 'and', 'for', 'with', 'this', 'that', 'from', 'have', 'has',
+    'should', 'would', 'could', 'about', 'then', 'than', 'what', 'when',
+    'where', 'which', 'their', 'they', 'them', 'these', 'those', 'some',
+    'will', 'been', 'were', 'because'
+  ];
+  return stopWords.includes(word.toLowerCase());
 }
 
 /**

@@ -30,10 +30,11 @@ type QdrantMemoryType = 'message' | 'thought' | 'document' | 'task';
 // Define pattern for detecting brand information
 const BRAND_PATTERN = /\b(brand|company|organization)\s+(mission|vision|values|identity|info|information)\b/i;
 
-export interface MemoryEntry extends BaseMemoryEntry {
+export interface MemoryEntry extends Omit<BaseMemoryEntry, 'type'> {
   category: string;
   expiresAt?: Date;
   tags?: string[];
+  type: ChloeMemoryType;
   metadata?: {
     filePath?: string;
     title?: string;
@@ -155,7 +156,8 @@ export class ChloeMemory {
     importance: ImportanceLevel = ImportanceLevel.MEDIUM,
     source: MemorySource = MemorySource.AGENT,
     context?: string,
-    tags?: string[]
+    tags?: string[],
+    metadata?: Record<string, any>
   ): Promise<MemoryEntry> {
     if (!this.initialized) {
       await this.initialize();
@@ -185,19 +187,25 @@ export class ChloeMemory {
       source,
       context,
       tags,
-      type: baseType
+      type: baseType, // baseType is now a string which matches ChloeMemoryType
+      metadata // Include provided metadata
     };
     
     // Add to server-side Qdrant (only when running server-side)
     if (typeof window === 'undefined') {
+      // Convert baseType to the expected QdrantMemoryType
+      const qdrantType = baseType as QdrantMemoryType;
       await serverQdrant.addMemory(
-        baseType as 'message' | 'thought' | 'document' | 'task',
+        qdrantType,
         formattedContent,
         {
           category: type.toString(),
           importance,
           source,
-          tags
+          tags,
+          ...metadata, // Include all metadata fields directly in the metadata object
+          // Ensure critical flag is set properly if importance is CRITICAL
+          critical: metadata?.critical || importance === ImportanceLevel.CRITICAL
         }
       );
     }
@@ -209,7 +217,8 @@ export class ChloeMemory {
         tag: type.toString(),
         importance: importance,
         source: source,
-        tags: tags
+        tags: tags,
+        ...metadata // Include metadata in external memory as well
       });
     }
     
@@ -231,10 +240,10 @@ export class ChloeMemory {
    * Convert ChloeMemoryType to a base MemoryType
    * This is a helper method to ensure type compatibility
    */
-  private convertToBaseMemoryType(type: ChloeMemoryType): MemoryType {
+  private convertToBaseMemoryType(type: ChloeMemoryType): string {
     // If the type is already a base memory type, return it directly
     if ([MemoryType.MESSAGE, MemoryType.THOUGHT, MemoryType.TASK, MemoryType.DOCUMENT].includes(type as any)) {
-      return type as any;
+      return type;
     }
     // Otherwise map to the closest base type
     switch (type) {
@@ -364,21 +373,16 @@ export class ChloeMemory {
         
         const tags = Array.isArray(metadata.tags) ? metadata.tags : [];
         
-        // Ensure type is a valid memory type
-        let memType: MemoryType;
-        if ([MemoryType.MESSAGE, MemoryType.THOUGHT, MemoryType.TASK, MemoryType.DOCUMENT].includes(record.type as MemoryType)) {
-          memType = record.type as MemoryType;
-        } else {
-          memType = MemoryType.MESSAGE;
-        }
+        // Use the record type directly as a string
+        const memType = record.type || MemoryType.MESSAGE;
         
         return {
           id,
           content,
           created,
-          type: memType,
+          type: memType, // This is a string which matches ChloeMemoryType
           category,
-          source,
+          source: source as MemorySource, // Cast to ensure correct type
           importance,
           tags
         };
@@ -389,7 +393,7 @@ export class ChloeMemory {
           id: `error_${Date.now()}`,
           content: 'Error retrieving memory content',
           created: new Date(),
-          type: MemoryType.MESSAGE,
+          type: MemoryType.MESSAGE, // This is a string which matches ChloeMemoryType
           category: 'error',
           source: MemorySource.SYSTEM,
           importance: ImportanceLevel.LOW,
