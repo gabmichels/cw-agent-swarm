@@ -305,10 +305,15 @@ export class ChloeMemory {
       
       // Build filter for date range
       const filter = {
-        timestamp: {
-          $gte: startDateISO,
-          $lte: endDateISO
-        }
+        must: [
+          {
+            key: "timestamp",
+            range: {
+              gte: startDateISO,
+              lte: endDateISO
+            }
+          }
+        ]
       };
       
       // Use external memory if available
@@ -436,9 +441,14 @@ export class ChloeMemory {
       
       if (this.useExternalMemory && this.externalMemory) {
         const filter = {
-          metadata: {
-            importance: ImportanceLevel.HIGH
-          }
+          must: [
+            {
+              key: "metadata.importance",
+              match: {
+                value: ImportanceLevel.HIGH
+              }
+            }
+          ]
         };
         
         if (typeof window === 'undefined') {
@@ -538,7 +548,16 @@ export class ChloeMemory {
         } else {
           // For extended types, search in the document collection with metadata filter
           baseType = MemoryType.DOCUMENT;
-          filter = { type };
+          filter = { 
+            must: [
+              {
+                key: "type",
+                match: {
+                  value: type
+                }
+              }
+            ]
+          };
         }
         
         // If we have context tags, we can include them in the filter to get better matches
@@ -693,9 +712,14 @@ export class ChloeMemory {
       }
       
       const filter = {
-        metadata: {
-          category: ChloeMemoryTypeEnum.INSIGHT
-        }
+        must: [
+          {
+            key: "metadata.category",
+            match: {
+              value: ChloeMemoryTypeEnum.INSIGHT
+            }
+          }
+        ]
       };
       
       let insights: MemoryEntry[] = [];
@@ -1182,9 +1206,14 @@ export class ChloeMemory {
       if (!messagesForAnalysis || messagesForAnalysis.length === 0) {
         // Get recent messages from memory
         const filter = {
-          metadata: {
-            category: MemoryType.MESSAGE
-          }
+          must: [
+            {
+              key: "metadata.category",
+              match: {
+                value: MemoryType.MESSAGE
+              }
+            }
+          ]
         };
         
         if (typeof window === 'undefined') {

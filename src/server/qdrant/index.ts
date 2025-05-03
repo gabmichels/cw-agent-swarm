@@ -545,7 +545,12 @@ class QdrantHandler {
   }
 
   private buildQdrantFilter(filter: Record<string, any>): any {
-    // Fallback to the simplified filter for guaranteed results
+    // Handle complex filters if provided
+    if (filter.must || filter.should || filter.must_not) {
+      // Return the filter as-is if it's already in Qdrant filter format
+      return filter;
+    }
+    
     return this.createSimplestFilter(filter);
   }
 
@@ -609,16 +614,27 @@ class QdrantHandler {
     try {
       // If query is empty, use scroll API to get recent memories
       if (!query || query.trim().length === 0) {
-        const response = await this.client.scroll(collectionName, {
+        // Create a properly formatted scroll request
+        const scrollParams: any = {
           limit: options.limit || 10,
           with_payload: true,
-          with_vector: false,
-          filter: options.filter ? this.buildQdrantFilter(options.filter) : undefined,
-          order_by: {
-            key: 'timestamp',
-            direction: 'desc'
-          }
-        });
+          with_vector: false
+        };
+        
+        // Only add filter if it exists
+        if (options.filter) {
+          // Format filter properly for Qdrant
+          scrollParams.filter = this.buildQdrantFilter(options.filter);
+        }
+        
+        // Add order_by correctly if timestamp field exists
+        // But don't add it if we don't know the correct field name
+        scrollParams.order_by = {
+          key: 'timestamp',
+          direction: 'desc'
+        };
+        
+        const response = await this.client.scroll(collectionName, scrollParams);
         
         if (!response || !response.points) {
           return [];
@@ -685,19 +701,32 @@ class QdrantHandler {
           typeof value === 'string' || 
           typeof value === 'number' || 
           typeof value === 'boolean')
-        .map(([field, value]) => ({
-          match: { [field]: value }
-        }));
+        .map(([field, value]) => {
+          // Check if this is a metadata field
+          if (field !== 'type' && field !== 'id' && field !== 'timestamp') {
+            // For most fields, they're stored inside metadata
+            return {
+              key: `metadata.${field}`,
+              match: {
+                value: value
+              }
+            };
+          } else {
+            // For core fields, they're stored at the root level
+            return {
+              key: field,
+              match: {
+                value: value
+              }
+            };
+          }
+        });
       
       if (conditions.length === 0) {
         return null; // No valid conditions
       }
       
-      if (conditions.length === 1) {
-        return conditions[0]; // Single condition
-      }
-      
-      // Multiple conditions combined with AND logic
+      // Always wrap conditions in a must array for Qdrant format
       return { must: conditions };
     } catch (error) {
       console.error("Error creating filter, skipping filter:", error);
@@ -723,20 +752,20 @@ class QdrantHandler {
     
     try {
       // For message collections, filter out internal messages
-      let filter = null;
+      let filter = undefined;
       
       if (type === 'message') {
-        // Create a filter to exclude internal messages
+        // Create a filter to exclude internal messages using the correct Qdrant format
         filter = {
           must_not: [
             {
-              key: 'isInternalMessage',
+              key: "metadata.isInternalMessage",
               match: {
                 value: true
               }
             },
             {
-              key: 'notForChat',
+              key: "metadata.notForChat",
               match: {
                 value: true
               }
@@ -746,75 +775,34 @@ class QdrantHandler {
       }
       
       // Get recent points with proper scrolling and filtering
-      const response = await this.client.scroll(collectionName, {
+      const scrollParams: any = {
         limit: limit,
         with_payload: true,
         with_vector: false,
-        filter: filter,
         order_by: {
-          key: 'timestamp',
-          direction: 'desc'
+          key: "timestamp",
+          direction: "desc"
         }
-      });
+      };
+      
+      // Only add filter if it exists
+      if (filter) {
+        scrollParams.filter = filter;
+      }
+      
+      const response = await this.client.scroll(collectionName, scrollParams);
       
       if (!response || !response.points) {
         console.warn(`No points returned from Qdrant for ${collectionName}`);
         return [];
       }
       
-      // Extract proper MemoryRecord objects from the response
       return response.points.map(point => this.extractMemoryRecord(point));
-    } catch (err: unknown) {
-      console.error(`Error getting recent memories from Qdrant (type: ${type}):`, err);
-      console.error('Error with filter, trying without filter:', err instanceof Error ? err.message : String(err));
+    } catch (error) {
+      console.error(`Error getting recent memories from ${collectionName}:`, error);
       
-      try {
-        // Simplified query without filters as fallback
-        const response = await this.client.scroll(collectionName, {
-          limit: limit,
-          with_payload: true,
-          with_vector: false
-        });
-        
-        if (!response || !response.points) {
-          console.warn(`No points returned from Qdrant fallback query for ${collectionName}`);
-          return [];
-        }
-        
-        // Extract records and filter out internal messages on the client side
-        const records = response.points.map(point => this.extractMemoryRecord(point));
-        
-        if (type === 'message') {
-          // Filter out internal messages manually
-          return records.filter(record => {
-            // Skip messages explicitly marked as internal
-            if (record.metadata?.isInternalMessage === true || 
-                record.metadata?.notForChat === true) {
-              return false;
-            }
-            
-            // Skip messages that start with internal message indicators
-            const content = record.text.toLowerCase();
-            if (content.startsWith('thought:') || 
-                content.startsWith('reflection:') || 
-                content.startsWith('thinking:') ||
-                content.startsWith('reflection on') ||
-                (content.startsWith('[20') && 
-                  content.includes('processing message:'))) {
-              return false;
-            }
-            
-            return true;
-          });
-        }
-        
-        return records;
-      } catch (fallbackErr) {
-        console.error(`Error in fallback query for recent memories (type: ${type}):`, fallbackErr);
-        
-        // Last resort: in-memory storage
-        return this.fallbackStorage.getRecentMemories(collectionName, limit);
-      }
+      // Fallback to in-memory storage on error
+      return this.fallbackStorage.getRecentMemories(collectionName, limit);
     }
   }
 
@@ -1007,7 +995,7 @@ class QdrantHandler {
       for (const collectionName of Array.from(this.collections)) {
         try {
           // Search for the memory using filter
-          const results = await this.client.scroll(collectionName, {
+          const response = await this.client.scroll(collectionName, {
             filter: {
               must: [
                 {
@@ -1018,12 +1006,13 @@ class QdrantHandler {
                 }
               ]
             },
-            limit: 1
+            limit: 1,
+            with_payload: true
           });
           
           // Check if we found the memory
-          if (results.points && results.points.length > 0) {
-            const point = results.points[0];
+          if (response.points && response.points.length > 0) {
+            const point = response.points[0];
             const pointId = point.id;
             
             // Get the existing payload
@@ -1050,8 +1039,7 @@ class QdrantHandler {
         }
       }
       
-      // If we get here, we didn't find the memory in any collection
-      console.warn(`Memory with ID ${memoryId} not found in any collection`);
+      // If we reach here, we didn't find the memory
       return false;
     } catch (error) {
       console.error('Error updating memory metadata:', error);
@@ -1084,7 +1072,7 @@ class QdrantHandler {
           const filter = {
             must: [
               {
-                key: "source",
+                key: "metadata.source",
                 match: {
                   value: source.toLowerCase()
                 }
@@ -1542,7 +1530,7 @@ export async function getRecentChatMessages(options: {
       filter.must.push({ 
         key: 'metadata.role', 
         match: { 
-          any: options.roles.map(role => ({ value: role }))
+          in: options.roles
         } 
       });
     }
@@ -1893,7 +1881,15 @@ export async function getMemoriesByImportance(
             {
               limit: Math.floor(limit / collections.length), // Split limit across collections
               filter: {
-                importance: importance
+                // Fix importance filter to use the proper format
+                must: [
+                  {
+                    key: "metadata.importance",
+                    match: {
+                      value: importance
+                    }
+                  }
+                ]
               }
             }
           ) : [];
