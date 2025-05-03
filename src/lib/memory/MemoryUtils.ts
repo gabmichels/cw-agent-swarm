@@ -11,6 +11,7 @@
 import { TagExtractor, Tag, TagAlgorithm } from './TagExtractor';
 import { ImportanceCalculator } from './ImportanceCalculator';
 import { searchMemory, updateMemoryMetadata, MemoryRecord } from '../../server/qdrant';
+import { MemoryGraph } from './MemoryGraph';
 
 /**
  * Types of scoring details stored for diagnostics
@@ -34,6 +35,20 @@ export interface ScoredMemoryRecord extends MemoryRecord {
     [key: string]: any;
     _scoringDetails?: ScoringDetails;
   };
+}
+
+// Singleton instance of MemoryGraph for reuse
+let memoryGraphInstance: MemoryGraph | null = null;
+
+/**
+ * Get (or initialize) the memory graph instance
+ */
+export async function getMemoryGraph(): Promise<MemoryGraph> {
+  if (!memoryGraphInstance) {
+    memoryGraphInstance = new MemoryGraph();
+    await memoryGraphInstance.initialize();
+  }
+  return memoryGraphInstance;
 }
 
 /**
@@ -400,6 +415,7 @@ export async function getMemoriesForPromptInjection(
     limit?: number;
     minConfidence?: number;
     trackUsage?: boolean;
+    useGraphBoost?: boolean;
   } = {}
 ): Promise<ScoredMemoryRecord[]> {
   try {
@@ -407,6 +423,7 @@ export async function getMemoriesForPromptInjection(
     const limit = options.limit || 3;
     const minConfidence = options.minConfidence || 0.75;
     const trackUsage = options.trackUsage !== false;
+    const useGraphBoost = options.useGraphBoost !== false; // Default to true
     
     // First extract key terms from the query
     const queryTags = extractTagsFromQuery(query);
@@ -420,8 +437,22 @@ export async function getMemoriesForPromptInjection(
     // Apply hybrid scoring
     const scoredResults = applyHybridScoring(searchResults, query);
     
+    // Apply graph-based boosting if enabled
+    let processedResults = scoredResults;
+    
+    if (useGraphBoost && scoredResults.length > 0) {
+      try {
+        const memoryGraph = await getMemoryGraph();
+        processedResults = await memoryGraph.boostConnectedMemories(scoredResults, 0.3);
+      } catch (error) {
+        console.error('Error applying graph boost:', error);
+        // Fall back to regular results if graph boost fails
+        processedResults = scoredResults;
+      }
+    }
+    
     // Filter by confidence threshold and take top results
-    const topResults = scoredResults
+    const topResults = processedResults
       .filter(result => result.score >= minConfidence)
       .slice(0, limit);
     

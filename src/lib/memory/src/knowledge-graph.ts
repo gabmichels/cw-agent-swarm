@@ -18,16 +18,20 @@ export enum RelationType {
   RELATED_TO = 'RELATED_TO',
   INCLUDES = 'INCLUDES',
   CAUSES = 'CAUSES',
+  CAUSED_BY = 'CAUSED_BY',
   INFLUENCES = 'INFLUENCES',
+  INFLUENCED_BY = 'INFLUENCED_BY',
   CONTRADICTS = 'CONTRADICTS',
   SIMILAR_TO = 'SIMILAR_TO',
   DEPENDS_ON = 'DEPENDS_ON',
+  REQUIRED_BY = 'REQUIRED_BY',
   PRECEDES = 'PRECEDES',
   FOLLOWS = 'FOLLOWS',
   IMPLIES = 'IMPLIES',
   SPECIALIZES = 'SPECIALIZES',
   GENERALIZES = 'GENERALIZES',
   INSTANCE_OF = 'INSTANCE_OF',
+  HAS_INSTANCE = 'HAS_INSTANCE',
   MEMBER_OF = 'MEMBER_OF'
 }
 
@@ -75,6 +79,7 @@ export interface GraphEdge {
   metadata: Record<string, unknown>;
   bidirectional: boolean;
   properties?: Record<string, string | number | boolean | null>;
+  weight?: number; // Added for MemoryGraph compatibility
 }
 
 /**
@@ -509,6 +514,24 @@ export class KnowledgeGraph {
       console.error('Error inferring new edges in knowledge graph:', error);
       return [];
     }
+  }
+
+  /**
+   * Add a relationship between two memory items
+   * For MemoryGraph compatibility
+   */
+  async addRelationship(
+    sourceId: string,
+    targetId: string,
+    relationshipType: RelationType,
+    metadata: Record<string, any> = {}
+  ): Promise<string> {
+    // Determine strength/weight from metadata
+    const weight = metadata.weight || 0.5;
+    delete metadata.weight; // Remove from metadata since we use it directly
+    
+    // Call the existing addEdge method
+    return this.addEdge(sourceId, targetId, relationshipType, weight, metadata);
   }
 }
 
