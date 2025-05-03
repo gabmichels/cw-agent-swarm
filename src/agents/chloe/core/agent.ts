@@ -42,6 +42,7 @@ import { loadAllMarkdownAsMemory } from '../knowledge/markdownMemoryLoader';
 // Add the import for our markdown memory loader
 import { initializeMarkdownMemory } from '../init/markdownLoader';
 import { initializeAutonomy } from '../scheduler';
+import { ChloeScheduler } from '../scheduler';
 
 export interface ChloeAgentOptions {
   config?: Partial<AgentConfig>;
@@ -87,6 +88,7 @@ export class ChloeAgent implements IAgent {
   private model: ChatOpenAI | null = null;
   private taskLogger: TaskLogger;
   private autonomySystem: AutonomySystem | null = null;
+  private scheduler: ChloeScheduler | null = null;
   
   // Managers
   private memoryManager: MemoryManager | null = null;
@@ -156,24 +158,24 @@ export class ChloeAgent implements IAgent {
       this.memoryManager = new MemoryManager({ agentId: this.agentId });
       await this.memoryManager.initialize();
       
+      // Initialize markdown memory loader
+      try {
+        console.log('Initializing markdown memory loader...');
+        await initializeMarkdownMemory({ force: false });
+        console.log('Markdown memory loader initialized');
+      } catch (error) {
+        console.warn('Failed to initialize markdown memory loader:', error);
+        // Don't throw here - we want to continue even if markdown loading fails
+      }
+      
       // Get the base memory for initializing other managers
       const chloeMemory = this.memoryManager.getChloeMemory();
       if (!chloeMemory) {
         throw new Error('Failed to initialize ChloeMemory');
       }
       
-      // Load and vectorize markdown files - use duplication checking instead of direct loading
-      try {
-        // Use the dedicated loader with duplication checking instead of direct loading
-        console.log('Initializing markdown memory loader...');
-        await initializeMarkdownMemory({ 
-          force: false // Don't force reload by default
-        });
-        console.log('Successfully initialized markdown memory loader');
-      } catch (error) {
-        console.error('Error initializing markdown memory loader:', error);
-        // Continue initialization even if markdown loading fails
-      }
+      // Initialize scheduler with this agent instance
+      this.scheduler = new ChloeScheduler(this);
       
       // Initialize tool manager
       this.toolManager = new ToolManager({

@@ -1792,6 +1792,11 @@ For detailed instructions, see the Debug panel.`,
         console.log("Saving messages with attachments to localStorage, including vision API response");
         saveAttachmentsToLocalStorage(messagesWithResponse);
       }
+      
+      // Ensure we scroll to the bottom when new messages arrive
+      setTimeout(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      }, 100);
     } catch (error) {
       console.error("Error calling API:", error);
       
@@ -1810,6 +1815,11 @@ For detailed instructions, see the Debug panel.`,
       if (currentAttachments.length > 0) {
         saveAttachmentsToLocalStorage(errorMessages);
       }
+      
+      // Ensure we scroll to the bottom for error messages too
+      setTimeout(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      }, 100);
     } finally {
       setIsLoading(false);
     }

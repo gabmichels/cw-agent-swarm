@@ -272,6 +272,17 @@ const ChatMessages: React.FC<ChatMessagesProps> = ({
         if (messagesContainerRef.current) {
           messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
         }
+        
+        // Add a secondary timeout as ultimate backup
+        setTimeout(() => {
+          if (messagesEndRef.current) {
+            messagesEndRef.current.scrollIntoView({ behavior: 'auto' });
+            
+            if (messagesContainerRef.current) {
+              messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+            }
+          }
+        }, 300);
       }
     }, 100);
   }, []);
@@ -298,18 +309,21 @@ const ChatMessages: React.FC<ChatMessagesProps> = ({
     // Use a shorter time window for manual scroll detection (800ms instead of 1500ms)
     const hasManuallyScrolledRecently = Date.now() - lastManualScrollTime < 800;
 
-    // Simplified auto-scroll logic:
-    // - Always scroll when new messages are added, unless:
-    // - 1. User is actively searching
-    // - 2. User has explicitly scrolled up to read earlier messages
-    // - 3. We're in the middle of jumping to a specific message
-    const shouldScrollToBottom = hasNewMessages && 
-                               !searchQuery && 
-                               (!isScrollingUp || !hasManuallyScrolledRecently);
+    // Be more aggressive with auto-scrolling:
+    // Only avoid scrolling if ALL conditions are met:
+    // 1. User is actively searching
+    // 2. User has explicitly scrolled up to read earlier messages
+    // 3. User manually scrolled very recently
+    // 4. We're jumping to a specific message
+    const shouldNotScroll = 
+      !!searchQuery && 
+      isScrollingUp && 
+      hasManuallyScrolledRecently && 
+      hasJumpedToMessage;
     
-    if (shouldScrollToBottom) {
-      console.log('Scrolling to bottom due to new message');
-      scrollToBottom('auto');
+    if (!shouldNotScroll) {
+      console.log('Scrolling to bottom - new messages or conditions allow scrolling');
+      scrollToBottom(hasNewMessages ? 'auto' : 'smooth');
     }
     
     // Reset the jump flag after the first render

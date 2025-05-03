@@ -78,10 +78,11 @@ export class ChloeScheduler {
 
   /**
    * Constructor for ChloeScheduler
+   * @param agent The ChloeAgent instance to use
    * @param config Scheduler configuration options
    */
-  constructor(config: SchedulerConfig = {}) {
-    this.agent = new ChloeAgent();
+  constructor(agent: ChloeAgent, config: SchedulerConfig = {}) {
+    this.agent = agent;
     this.memory = new ChloeMemory();
     this.taskLogger = new TaskLogger();
     this.config = {
@@ -217,7 +218,10 @@ export class ChloeScheduler {
       });
       
       // 1. Call runWeeklySelfImprovement() from self-improvement module
-      const selfImprovementResult = await runWeeklySelfImprovement(this.memory);
+      const { KnowledgeGraphManager } = require('../knowledge/graphManager');
+      // Create a graph manager for handling knowledge operations
+      const graphManager = new KnowledgeGraphManager();
+      const selfImprovementResult = await runWeeklySelfImprovement(this.memory, graphManager);
       
       // 2. Trigger generateWeeklyReflection() if defined
       let weeklyReflection = "";
@@ -526,14 +530,12 @@ Errors: ${selfImprovementResult.errors.length ? selfImprovementResult.errors.joi
   }
 }
 
-// Create singleton instance
-export const scheduler = new ChloeScheduler();
-
 /**
  * Entry point for running Chloe's daily cycle
  * Can be triggered by CRON or manual intervention
  */
-export async function runChloeDaily(): Promise<void> {
+export async function runChloeDaily(agent: ChloeAgent): Promise<void> {
+  const scheduler = new ChloeScheduler(agent);
   await scheduler.runDailyCycle();
 }
 
@@ -541,7 +543,8 @@ export async function runChloeDaily(): Promise<void> {
  * Entry point for running Chloe's weekly cycle
  * Can be triggered by CRON or manual intervention
  */
-export async function runChloeWeekly(): Promise<void> {
+export async function runChloeWeekly(agent: ChloeAgent): Promise<void> {
+  const scheduler = new ChloeScheduler(agent);
   await scheduler.runWeeklyCycle();
 }
 
@@ -549,6 +552,7 @@ export async function runChloeWeekly(): Promise<void> {
  * Entry point for running Chloe's maintenance tasks
  * Can be triggered by CRON or manual intervention
  */
-export async function runChloeMaintenance(): Promise<void> {
+export async function runChloeMaintenance(agent: ChloeAgent): Promise<void> {
+  const scheduler = new ChloeScheduler(agent);
   await scheduler.runMaintenance();
 } 

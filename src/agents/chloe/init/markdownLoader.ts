@@ -11,8 +11,8 @@ import { logger } from '../../../lib/logging';
 import path from 'path';
 import fs from 'fs';
 
-// Track loaded files to prevent reprocessing the same files 
-let loadedFiles: Set<string> = new Set<string>();
+// Track whether initialization has already occurred to prevent multiple loads 
+let initializationComplete = false;
 
 /**
  * Initialize the markdown memory loader and load all markdown files
@@ -26,14 +26,20 @@ export async function initializeMarkdownMemory(options: {
   directories?: string[]; // Custom directories to load from
 } = {}): Promise<void> {
   try {
+    // Skip if already initialized in this process and not forced
+    if (initializationComplete && !options.force) {
+      logger.info('Markdown memory already initialized in this process, skipping');
+      return;
+    }
+
     logger.info('Starting automatic markdown memory loader initialization...');
     
     // Set up directories to search - these contain the most important documentation
     const directoriesToLoad = options.directories || ['docs/', 'knowledge/'];
     
-    // Load all markdown files into memory in the background
+    // Load all markdown files into memory
     // Apply duplication checking by default
-    logger.info('Loading markdown documentation into memory (CRITICAL importance)...');
+    logger.info('Loading markdown documentation into memory with caching enabled...');
     
     const stats = await loadAllMarkdownAsMemory(directoriesToLoad, {
       force: options.force || false,
@@ -41,8 +47,10 @@ export async function initializeMarkdownMemory(options: {
     });
     
     // Record successful initialization details
-    logger.info(`Markdown initialization complete: Processed ${stats.filesProcessed} files, Added ${stats.entriesAdded} memory entries, Skipped ${stats.duplicatesSkipped} duplicates`);
+    logger.info(`Markdown initialization complete: Processed ${stats.filesProcessed} files, Added ${stats.entriesAdded} memory entries, Skipped ${stats.duplicatesSkipped} duplicates, Unchanged: ${stats.unchangedFiles}`);
     
+    // Mark as initialized
+    initializationComplete = true;
   } catch (error) {
     // Log the error but don't block application startup
     logger.error('Error during markdown memory initialization:', error);
