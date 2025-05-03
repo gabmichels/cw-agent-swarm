@@ -104,6 +104,33 @@ export class ChloeAgent implements IAgent {
   // New properties
   private markdownWatcher: MarkdownWatcher | null = null;
   
+  // Thought and reflection caches to avoid redundant LLM calls
+  private thoughtCache = new Map<string, {
+    thought: string;
+    timestamp: number;
+    expiry: number;
+  }>();
+  
+  private reflectionCache = new Map<string, {
+    reflection: string;
+    timestamp: number;
+    expiry: number;
+  }>();
+  
+  // Cache durations
+  private readonly THOUGHT_CACHE_TTL = 60 * 60 * 1000; // 1 hour
+  private readonly REFLECTION_CACHE_TTL = 2 * 60 * 60 * 1000; // 2 hours
+
+  // Helper to create cache keys
+  private createCacheKey(message: string, context: string = ''): string {
+    // Normalize and concatenate with context if provided
+    const normalizedMsg = message.trim().toLowerCase();
+    if (context) {
+      return `${normalizedMsg}:${context}`;
+    }
+    return normalizedMsg;
+  }
+  
   constructor(options?: ChloeAgentOptions) {
     // Initialize task logger first
     this.taskLogger = new TaskLogger();
@@ -676,24 +703,53 @@ Please continue with the next section whenever you're ready, and I'll maintain t
    * @returns A thought about the message
    */
   private async generateThought(message: string): Promise<string> {
-    if (!this.model) {
-      throw new Error('Model not initialized for thought generation');
+    // Create a cache key
+    const cacheKey = this.createCacheKey(message);
+    
+    // Check cache first
+    const cachedThought = this.thoughtCache.get(cacheKey);
+    if (cachedThought && cachedThought.expiry > Date.now()) {
+      this.taskLogger?.logAction('Using cached thought', { 
+        cacheAge: Math.round((Date.now() - cachedThought.timestamp) / 1000) + 's',
+        message: message.substring(0, 50) + (message.length > 50 ? '...' : '')
+      });
+      return cachedThought.thought;
     }
     
-    const thoughtPrompt = `You are analyzing a user message as Chloe, a Chief Marketing Officer AI. 
-Generate a thought that represents your initial understanding of what the user is asking.
-Focus on identifying:
-1. The core request or question
-2. Any implicit needs or assumptions
-3. The business context this relates to
-4. Whether this is strategic, tactical, or informational in nature
-
+    try {
+      // Create a prompt for thought generation
+      const prompt = `Consider this user message and think about what they are asking and your best approach to help them.
 User message: "${message}"
 
-Your thought (start with "The user is asking about..."):`; 
+Think step by step about:
+1. What is the user really asking for?
+2. What type of request is this (information, task, conversation, etc.)?
+3. What information or approach would be most helpful?
+4. Are there any ambiguities I should clarify?
 
-    const thoughtResponse = await this.model.invoke(thoughtPrompt);
-    return thoughtResponse.content.toString();
+Thought:`;
+      
+      if (!this.model) {
+        throw new Error('Model not initialized for thought generation');
+      }
+      
+      const thoughtResponse = await this.model.invoke(prompt);
+      
+      // Extract the thought
+      const thought = thoughtResponse.content as string;
+      
+      // Cache the thought
+      this.thoughtCache.set(cacheKey, {
+        thought,
+        timestamp: Date.now(),
+        expiry: Date.now() + this.THOUGHT_CACHE_TTL
+      });
+      
+      return thought;
+    } catch (error) {
+      console.error('Error generating thought:', error);
+      return `I need to understand what the user is asking about: "${message.substring(0, 100)}..."`;
+    }
   }
   
   /**
@@ -703,30 +759,38 @@ Your thought (start with "The user is asking about..."):`;
    * @returns True if reflection should be triggered
    */
   private shouldTriggerReflection(message: string, initialThought: string): boolean {
-    // Check message complexity and strategic nature
-    const complexityIndicators = [
-      /strategy/i, /strategic/i, /long.?term/i, /vision/i, /mission/i,
-      /competitor/i, /market analysis/i, /positioning/i, /branding/i,
-      /what (do|should) you think/i, /opinion/i, /advise/i, /recommend/i,
-      /priority/i, /prioritize/i, /difficult/i, /complex/i, /challenging/i,
-      /trade.?off/i, /decision/i, /uncertain/i, /unclear/i, /ambiguous/i
-    ];
+    // Skip reflection for simple, straightforward questions
+    if (message.length < 25 && 
+        (message.endsWith('?') || 
+         message.toLowerCase().startsWith('what') || 
+         message.toLowerCase().startsWith('who') || 
+         message.toLowerCase().startsWith('when') || 
+         message.toLowerCase().startsWith('where'))) {
+      return false;
+    }
     
-    // Check if the message contains complexity indicators
-    const isComplex = complexityIndicators.some(pattern => 
-      pattern.test(message) || pattern.test(initialThought)
-    );
+    // Skip if it's a general knowledge question (already checked earlier)
+    if (this.isGeneralKnowledgeQuestion(message)) {
+      return false;
+    }
     
-    // Check word count as a proxy for complexity
-    const wordCount = message.split(/\s+/).length;
-    const isLengthy = wordCount > 30;
+    // Skip for simple greetings or acknowledgments
+    if (/^(hi|hello|thanks|thank you|ok|yes|no|maybe|sure|great)$/i.test(message.trim())) {
+      return false;
+    }
     
-    // Check if the message asks for recommendations or strategy
-    const needsStrategicThinking = 
-      /recommend|suggest|advise|strategy|approach|plan|roadmap/i.test(message) ||
-      /should I|what would you|how would you|what's best|what approach/i.test(message);
+    // For more complex messages, check for criteria that suggest reflection would be valuable
+    const isComplexRequest = message.length > 100 || message.split(' ').length > 15;
+    const mightBeMultistep = message.includes('and') || message.includes('then') || message.includes('after');
+    const mightRequireStrategy = 
+      initialThought.includes('strategy') || 
+      initialThought.includes('plan') || 
+      initialThought.includes('approach') ||
+      message.includes('strategy') || 
+      message.includes('plan');
     
-    return isComplex || isLengthy || needsStrategicThinking;
+    // Only trigger reflection if it's likely to add value
+    return isComplexRequest || mightBeMultistep || mightRequireStrategy;
   }
   
   /**
@@ -736,27 +800,55 @@ Your thought (start with "The user is asking about..."):`;
    * @returns A reflection on the message
    */
   private async generateReflection(message: string, initialThought: string): Promise<string> {
-    if (!this.model) {
-      throw new Error('Model not initialized for reflection generation');
+    // Create cache key that combines message and thought
+    const cacheKey = this.createCacheKey(message, initialThought.substring(0, 100)); // Use first 100 chars of thought as context
+    
+    // Check cache first
+    const cachedReflection = this.reflectionCache.get(cacheKey);
+    if (cachedReflection && cachedReflection.expiry > Date.now()) {
+      this.taskLogger?.logAction('Using cached reflection', { 
+        cacheAge: Math.round((Date.now() - cachedReflection.timestamp) / 1000) + 's',
+        message: message.substring(0, 50) + (message.length > 50 ? '...' : '')
+      });
+      return cachedReflection.reflection;
     }
     
-    const reflectionPrompt = `You are Chloe, a Chief Marketing Officer AI, reflecting deeply on a user message.
-Based on the user's message and your initial thought, generate a strategic reflection that considers:
+    try {
+      const prompt = `Given this user message:
+"${message}"
 
-1. The underlying business context and implications
-2. Potential challenges, constraints, or limitations
-3. Different perspectives or approaches to consider
-4. Unspoken needs or assumptions that might need to be addressed
-5. How this connects to broader marketing strategy or business goals
+And your initial thought about it:
+${initialThought}
 
-User message: "${message}"
+Take a moment to reflect more deeply. Consider:
+1. What broader context or information might be relevant here?
+2. Are there strategic considerations I should keep in mind?
+3. What's the user's likely goal beyond just this immediate question?
+4. Are there any potential misunderstandings or assumptions I should be careful about?
 
-Your initial thought: "${initialThought}"
-
-Your deeper reflection (start with "Upon reflection..."):`; 
-
-    const reflectionResponse = await this.model.invoke(reflectionPrompt);
-    return reflectionResponse.content.toString();
+Strategic reflection:`;
+      
+      if (!this.model) {
+        throw new Error('Model not initialized for reflection generation');
+      }
+      
+      const reflectionResponse = await this.model.invoke(prompt);
+      
+      // Extract reflection
+      const reflection = reflectionResponse.content as string;
+      
+      // Cache the reflection
+      this.reflectionCache.set(cacheKey, {
+        reflection,
+        timestamp: Date.now(),
+        expiry: Date.now() + this.REFLECTION_CACHE_TTL
+      });
+      
+      return reflection;
+    } catch (error) {
+      console.error('Error generating reflection:', error);
+      return `I should consider the broader context of the user's request about "${message.substring(0, 50)}..."`;
+    }
   }
   
   /**

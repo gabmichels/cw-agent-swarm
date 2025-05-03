@@ -20,6 +20,40 @@ interface ProcessedFile {
   error?: string;
 }
 
+// File processing cache to prevent duplicate operations
+// Key format: fileId:operation (e.g. "file123:read")
+const fileOperationCache = new Map<string, {
+  result: any;
+  timestamp: number;
+  expiry: number;
+}>();
+
+// Cache TTL (10 minutes)
+const FILE_CACHE_TTL = 10 * 60 * 1000;
+
+// Helper function to check and use file cache
+function useFileCache<T>(fileId: string, operation: string, executor: () => T): T {
+  const cacheKey = `${fileId}:${operation}`;
+  const cachedResult = fileOperationCache.get(cacheKey);
+  
+  if (cachedResult && cachedResult.expiry > Date.now()) {
+    console.log(`Using cached file operation result for ${cacheKey}, age: ${Math.round((Date.now() - cachedResult.timestamp) / 1000)}s`);
+    return cachedResult.result;
+  }
+  
+  // Execute the operation
+  const result = executor();
+  
+  // Cache the result
+  fileOperationCache.set(cacheKey, {
+    result,
+    timestamp: Date.now(),
+    expiry: Date.now() + FILE_CACHE_TTL
+  });
+  
+  return result;
+}
+
 // --- Helper: Initialize Flagging Service --- 
 // Avoid initializing multiple times per request if possible
 let flaggingServiceInstance: KnowledgeFlaggingService | null = null;
