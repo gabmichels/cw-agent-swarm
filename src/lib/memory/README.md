@@ -204,4 +204,34 @@ When searching memories, results are automatically boosted based on tag overlap 
 // This happens automatically in the searchMemory function
 const results = await searchMemory(type, query, options);
 // Results are boosted based on tag overlap with query
-``` 
+```
+
+## Memory Retrieval
+
+Memory retrieval uses a combination of:
+
+1. **Vector similarity search** - Content is converted to embeddings which are searched using cosine similarity
+2. **Filtering options** - Results can be filtered by type, source, importance, etc.
+3. **Hybrid scoring** - A combination of vector similarity and tag matching 
+
+### Hybrid Search Approach
+
+The search functionality implements a hybrid scoring algorithm that combines:
+
+- **Vector similarity (70%)** - Traditional embedding-based similarity search
+- **Tag overlap (30%)** - Boosting based on shared tags between query and memory
+
+This hybrid approach improves search relevance by:
+
+- Emphasizing content with matching tags/keywords
+- Maintaining semantic similarity as the primary ranking factor
+- Providing interpretable results with diagnostic information
+
+The implementation:
+1. Retrieves the top 20 results from vector search
+2. Extracts tags from the query
+3. Calculates tag overlap between query and memory tags
+4. Computes a combined score with 70/30 weighting
+5. Logs which tags contributed to matches
+
+To use the hybrid search, simply use the regular `searchMemory` function, which now implements this approach automatically. 

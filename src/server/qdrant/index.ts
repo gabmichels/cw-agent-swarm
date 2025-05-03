@@ -630,9 +630,12 @@ class QdrantHandler {
       // For actual search queries, get embedding and search by vector similarity
       const embedding = await this.embeddingFunction(query);
       
+      // Ensure we're getting at least 20 results for proper hybrid scoring
+      const searchLimit = options.limit || 20;
+      
       const searchResponse = await this.client.search(collectionName, {
         vector: embedding,
-        limit: options.limit || 10,
+        limit: searchLimit,
         filter: options.filter ? this.buildQdrantFilter(options.filter) : undefined,
         with_payload: true,
         with_vector: false
@@ -1227,6 +1230,39 @@ export async function addMemory(
   return qdrantInstance ? qdrantInstance.addMemory(type, content, metadata) : '';
 }
 
+/**
+ * Calculate a boost factor based on tag overlap between query and memory
+ * 
+ * @param queryTags Array of tags from the query
+ * @param memoryTags Array of tags from the memory record
+ * @returns Tag overlap score normalized to 0-1 range
+ */
+function calculateTagScore(queryTags: string[], memoryTags: string[]): number {
+  if (!queryTags || !memoryTags || queryTags.length === 0 || memoryTags.length === 0) {
+    return 0.0; // No overlap
+  }
+  
+  // Count overlapping tags (case-insensitive matching)
+  let overlapCount = 0;
+  const matchedTags: string[] = [];
+  
+  for (const tag of queryTags) {
+    const tagLower = tag.toLowerCase();
+    for (const memoryTag of memoryTags) {
+      if (memoryTag.toLowerCase() === tagLower) {
+        overlapCount++;
+        matchedTags.push(tag);
+        break;
+      }
+    }
+  }
+  
+  // Calculate overlap ratio (normalize by the smaller set size)
+  const overlapRatio = overlapCount / Math.min(queryTags.length, memoryTags.length);
+  
+  return overlapRatio;
+}
+
 export async function searchMemory(
   type: QdrantMemoryType | null,
   query: string,
@@ -1237,88 +1273,117 @@ export async function searchMemory(
       await initMemory();
     }
 
-    // Get results from standard vector search
-    const results = qdrantInstance ? await qdrantInstance.searchMemories(type, query, options) : [];
+    // Get results from standard vector search (increase limit to get more candidates)
+    const searchLimit = Math.max(options.limit || 10, 20); // Ensure at least 20 candidates
+    const vectorResults = qdrantInstance ? 
+      await qdrantInstance.searchMemories(type, query, { ...options, limit: searchLimit }) : 
+      [];
     
-    // Extract tags from query for potential boosting
-    if (query && query.trim().length > 0 && results.length > 0) {
-      // Extract tags from the query
-      const extractedTags = TagExtractor.extractTags(query, {
-        algorithm: TagAlgorithm.RAKE, // RAKE works better for short queries
-        maxTags: 5,
-        minConfidence: 0.2
-      });
-      
-      const queryTags = extractedTags.map(tag => tag.text);
-      
-      // Apply tag-based boosting
-      if (queryTags.length > 0) {
-        // Process each result to boost by tag relevance
-        return results.map(result => {
-          const memoryTags = result.metadata?.tags || [];
-          
-          // Calculate boost based on tag overlap
-          const boostFactor = tagOverlapBoost(queryTags, memoryTags as string[]);
-          
-          // Apply boost to result score (if available)
-          if ('score' in result) {
-            const boostedResult = { 
-              ...result,
-              score: (result as any).score * boostFactor
-            };
-            
-            // Store the boost factor in metadata for debugging
-            boostedResult.metadata = {
-              ...boostedResult.metadata,
-              _tagBoostFactor: boostFactor
-            };
-            
-            return boostedResult;
-          }
-          
-          return result;
-        }).sort((a, b) => {
-          // If both have scores, sort by score
-          if ('score' in a && 'score' in b) {
-            return (b as any).score - (a as any).score;
-          }
-          
-          // Otherwise keep original order
-          return 0;
-        });
-      }
+    console.log(`Vector search retrieved ${vectorResults.length} initial results`);
+    
+    // If no results or very short query, just return vector results
+    if (vectorResults.length === 0 || !query || query.trim().length < 3) {
+      return vectorResults;
     }
     
-    // Return the original results if no tag boosting was applied
-    return results;
+    // Extract tags from query for hybrid scoring
+    const extractedTags = TagExtractor.extractTags(query, {
+      algorithm: TagAlgorithm.RAKE, // RAKE works better for short queries
+      maxTags: 8,
+      minConfidence: 0.15,
+      useStemming: true
+    });
+    
+    const queryTags = extractedTags.map(tag => tag.text);
+    console.log(`Tags extracted from query: ${queryTags.join(', ')}`);
+    
+    if (queryTags.length === 0) {
+      // No tags extracted, return vector results
+      return vectorResults.slice(0, options.limit || 10);
+    }
+    
+    // Apply hybrid scoring (vector + tag overlap)
+    const hybridScoredResults = vectorResults.map(result => {
+      // Original vector similarity score (already normalized 0-1)
+      const vectorScore = 'score' in result ? (result as ScoredMemoryRecord).score : 0;
+      
+      // Calculate tag overlap score
+      const memoryTags = result.metadata?.tags || [];
+      const tagScore = calculateTagScore(queryTags, memoryTags as string[]);
+      
+      // Calculate matched tags for diagnostics
+      const matchedTags = queryTags.filter(tag => 
+        (memoryTags as string[]).some(mt => mt.toLowerCase() === tag.toLowerCase())
+      );
+      
+      // Compute hybrid score: 70% vector similarity + 30% tag overlap
+      const hybridScore = (vectorScore * 0.7) + (tagScore * 0.3);
+      
+      // Store scoring details in metadata for diagnostics
+      const scoredResult: ScoredMemoryRecord = {
+        ...result,
+        score: hybridScore,
+        metadata: {
+          ...result.metadata,
+          _scoringDetails: {
+            vectorScore,
+            tagScore,
+            hybridScore,
+            matchedTags,
+            queryTags
+          }
+        }
+      };
+      
+      return scoredResult;
+    });
+    
+    // Sort by hybrid score and limit results
+    const finalResults = hybridScoredResults
+      .sort((a, b) => b.score - a.score)
+      .slice(0, options.limit || 10);
+    
+    // Add summary statistics for diagnostics
+    const resultsWithTagMatches = hybridScoredResults.filter(r => 
+      r.metadata._scoringDetails.matchedTags.length > 0
+    ).length;
+    
+    // Check if ranking order changed due to tag boosting
+    const vectorOnlyOrder = [...hybridScoredResults]
+      .sort((a, b) => 
+        b.metadata._scoringDetails.vectorScore - 
+        a.metadata._scoringDetails.vectorScore
+      )
+      .slice(0, finalResults.length)
+      .map(r => r.id);
+    
+    const hybridOrder = finalResults.map(r => r.id);
+    const rankingChanged = !vectorOnlyOrder.every((id, i) => id === hybridOrder[i]);
+    
+    console.log(
+      `Hybrid search summary: ${resultsWithTagMatches}/${hybridScoredResults.length} results had tag matches. ` +
+      `${rankingChanged ? 'Tag boosting changed result ranking.' : 'Tag boosting preserved vector ranking.'}`
+    );
+    
+    // Log detailed diagnostic information about top results
+    console.log(`----- Memory Search Results (${finalResults.length}) -----`);
+    finalResults.slice(0, 3).forEach((result, index) => {
+      const details = result.metadata._scoringDetails;
+      console.log(
+        `Result #${index + 1} [ID: ${result.id.substring(0, 8)}]:\n` +
+        `• Vector score: ${details.vectorScore.toFixed(3)} × 0.7 = ${(details.vectorScore * 0.7).toFixed(3)}\n` +
+        `• Tag score: ${details.tagScore.toFixed(3)} × 0.3 = ${(details.tagScore * 0.3).toFixed(3)}\n` +
+        `• Hybrid score: ${details.hybridScore.toFixed(3)}\n` +
+        `• Matched tags: ${details.matchedTags.join(', ') || 'none'}\n` +
+        `• Content excerpt: "${result.text.substring(0, 50)}..."`
+      );
+    });
+    
+    return finalResults;
   } catch (error) {
-    console.error('Error searching memory:', error);
+    console.error('Error in hybrid memory search:', error);
     return [];
   }
-}
-
-/**
- * Calculate a boost factor based on tag overlap between query and memory
- */
-function tagOverlapBoost(queryTags: string[], memoryTags: string[]): number {
-  if (!queryTags || !memoryTags || queryTags.length === 0 || memoryTags.length === 0) {
-    return 1.0; // No boost
-  }
-  
-  // Count overlapping tags
-  let overlapCount = 0;
-  for (const tag of queryTags) {
-    if (memoryTags.some(t => t.toLowerCase() === tag.toLowerCase())) {
-      overlapCount++;
-    }
-  }
-  
-  // Calculate overlap ratio
-  const overlapRatio = overlapCount / Math.min(queryTags.length, memoryTags.length);
-  
-  // Convert to boost factor (1.0 = no boost, >1.0 = boost)
-  // Use exponential formula to give more weight to higher overlaps
-  return 1.0 + (Math.pow(overlapRatio, 2) * 0.5);
 }
 
 export async function getRecentMemories(
