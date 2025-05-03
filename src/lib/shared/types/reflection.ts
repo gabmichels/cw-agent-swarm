@@ -12,7 +12,8 @@ export enum ReflectionType {
   TREND = 'trend',
   PATTERN = 'pattern',
   STRATEGY = 'strategy',
-  PERFORMANCE = 'performance'
+  PERFORMANCE = 'performance',
+  CAUSAL = 'causal'
 }
 
 /**
@@ -125,6 +126,30 @@ export interface StrategyReflection extends Reflection {
 }
 
 /**
+ * Interface for causal relationship reflection
+ */
+export interface CausalReflection extends Reflection {
+  type: ReflectionType.CAUSAL;
+  // Identifiers for the cause and effect memories
+  causeMemoryId: string;
+  effectMemoryId: string;
+  // Descriptive information about the relationship
+  relationshipType: string; // direct, contributing, correlated, sequential
+  description: string;
+  supportingEvidence: string[];
+  confidenceScore: number; // 0-1 scale
+  // Timeline information
+  timeframe: {
+    causeDatetime: Date;
+    effectDatetime: Date;
+    lagTime?: string; // Time between cause and effect (e.g., "3 days", "2 hours")
+  };
+  // Actionable information
+  applicability: string[]; // Contexts where this causal relationship applies
+  recommendations?: string[]; // Recommendations based on this causal insight
+}
+
+/**
  * Type guard for PerformanceReflection
  */
 export function isPerformanceReflection(reflection: Reflection): reflection is PerformanceReflection {
@@ -164,4 +189,11 @@ export function isPatternReflection(reflection: Reflection): reflection is Patte
  */
 export function isStrategyReflection(reflection: Reflection): reflection is StrategyReflection {
   return reflection.type === ReflectionType.STRATEGY && 'strategyName' in reflection;
+}
+
+/**
+ * Type guard for CausalReflection
+ */
+export function isCausalReflection(reflection: Reflection): reflection is CausalReflection {
+  return reflection.type === ReflectionType.CAUSAL && 'causeMemoryId' in reflection && 'effectMemoryId' in reflection;
 } 

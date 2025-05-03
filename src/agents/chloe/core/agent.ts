@@ -1626,4 +1626,116 @@ I don't have enough information about Claro's brand identity. I should ask for c
   getScheduler(): ChloeScheduler | null {
     return this.scheduler;
   }
+
+  /**
+   * Analyze causal relationships within a specific timeframe
+   * Used to identify and establish cause-effect relationships between events in memory
+   * 
+   * @param options Configuration options for the analysis
+   * @returns Summary of identified causal relationships
+   */
+  async analyzeCausalRelationships(options: {
+    timeframe?: { start: Date; end: Date };
+    maxRelationships?: number;
+    minConfidence?: number;
+    focusArea?: string;
+  } = {}): Promise<{
+    relationships: Array<{
+      cause: { id: string; content: string };
+      effect: { id: string; content: string };
+      description: string;
+      confidence: number;
+      relationshipType: string;
+      reflectionId?: string;
+    }>;
+    summary: string;
+  }> {
+    const reflectionManager = this.getReflectionManager();
+    
+    if (!reflectionManager) {
+      return {
+        relationships: [],
+        summary: "Causal analysis unavailable: reflection manager not initialized."
+      };
+    }
+    
+    try {
+      // Delegate to the reflection manager's causal analysis
+      return await reflectionManager.analyzeCausalRelationships(options);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error("Error analyzing causal relationships:", errorMessage);
+      
+      return {
+        relationships: [],
+        summary: `Error analyzing causal relationships: ${errorMessage}`
+      };
+    }
+  }
+
+  /**
+   * Trace a causal chain starting from a specific memory
+   * 
+   * @param memoryId ID of the memory to trace from
+   * @param options Configuration options for the trace
+   * @returns Visualization and analysis of the causal chain
+   */
+  async traceCausalChain(memoryId: string, options: {
+    maxDepth?: number;
+    direction?: 'forward' | 'backward' | 'both';
+    analyze?: boolean;
+  } = {}): Promise<{
+    origin: { id: string; content: string } | null;
+    chain: string;
+    analysis: string;
+  }> {
+    const reflectionManager = this.getReflectionManager();
+    
+    if (!reflectionManager) {
+      return {
+        origin: null,
+        chain: "Causal chain tracing unavailable: reflection manager not initialized.",
+        analysis: "Analysis unavailable: reflection manager not initialized."
+      };
+    }
+    
+    try {
+      // Delegate to the reflection manager's causal chain tracing
+      return await reflectionManager.traceCausalChain(memoryId, options);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error("Error tracing causal chain:", errorMessage);
+      
+      return {
+        origin: null,
+        chain: `Error tracing causal chain: ${errorMessage}`,
+        analysis: "Analysis unavailable due to error in causal chain tracing."
+      };
+    }
+  }
+
+  /**
+   * Run an enhanced weekly reflection that includes causal relationship analysis
+   */
+  async runEnhancedWeeklyReflection(): Promise<string> {
+    const reflectionManager = this.getReflectionManager();
+    
+    if (!reflectionManager) {
+      return "Enhanced weekly reflection unavailable: reflection manager not initialized.";
+    }
+    
+    try {
+      // Check if the enhanced reflection method is available
+      if (typeof reflectionManager.runEnhancedWeeklyReflection === 'function') {
+        return await reflectionManager.runEnhancedWeeklyReflection();
+      } else {
+        // Fallback to standard reflection
+        return await this.runWeeklyReflection();
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error("Error running enhanced weekly reflection:", errorMessage);
+      return `Error generating enhanced weekly reflection: ${errorMessage}`;
+    }
+  }
 }

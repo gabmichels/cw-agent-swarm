@@ -230,8 +230,19 @@ export class ChloeScheduler {
       } else {
         // Fallback using reflection manager
         const reflectionManager = this.agent.getReflectionManager?.();
-        if (reflectionManager && typeof reflectionManager.runWeeklyReflection === 'function') {
-          weeklyReflection = await reflectionManager.runWeeklyReflection();
+        if (reflectionManager) {
+          // Use enhanced weekly reflection with causal analysis if available
+          if (typeof reflectionManager.runEnhancedWeeklyReflection === 'function') {
+            weeklyReflection = await reflectionManager.runEnhancedWeeklyReflection();
+            this.taskLogger.logAction("Generated enhanced weekly reflection with causal analysis", {
+              timestamp: new Date().toISOString()
+            });
+          } else if (typeof reflectionManager.runWeeklyReflection === 'function') {
+            weeklyReflection = await reflectionManager.runWeeklyReflection();
+            this.taskLogger.logAction("Generated standard weekly reflection", {
+              timestamp: new Date().toISOString()
+            });
+          }
         }
       }
       

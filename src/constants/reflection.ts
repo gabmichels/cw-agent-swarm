@@ -35,6 +35,7 @@ export enum ReflectionCategory {
   USER_INTERACTION = 'user_interaction',
   TOOLS_USAGE = 'tools_usage',
   PLANNING = 'planning',
+  CAUSAL_ANALYSIS = 'causal_analysis', // Added for causal relationship analysis
 }
 
 /**
@@ -46,4 +47,15 @@ export enum InsightType {
   FAILURE = 'failure',
   IMPROVEMENT = 'improvement',
   PATTERN = 'pattern',
+  CAUSAL = 'causal', // Added for cause-effect relationships
+}
+
+/**
+ * Types of causal relationships that can be detected
+ */
+export enum CausalRelationshipType {
+  DIRECT = 'direct', // Clear direct cause and effect
+  CONTRIBUTING = 'contributing', // One of several contributing factors
+  CORRELATED = 'correlated', // Correlation observed but causation not certain
+  SEQUENTIAL = 'sequential', // Events occurred in sequence but causation not proven
 } 

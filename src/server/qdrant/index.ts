@@ -2502,3 +2502,470 @@ export async function markMemoryAsCritical(memoryId: string, isCritical: boolean
     critical: isCritical
   });
 }
+
+/**
+ * Establish a causal link between two memories (cause -> effect)
+ * 
+ * @param causeId ID of the memory that caused the effect
+ * @param effectId ID of the memory that resulted from the cause
+ * @param description Optional description of the relationship
+ * @returns True if the link was successfully established
+ */
+export async function establishCausalLink(
+  causeId: string,
+  effectId: string,
+  description: string = ''
+): Promise<boolean> {
+  try {
+    if (!qdrantInstance) {
+      await initMemory();
+    }
+    
+    // First validate that both memories exist
+    const causeMemories = await searchMemory(null, '', {
+      filter: { id: causeId },
+      limit: 1
+    });
+    
+    const effectMemories = await searchMemory(null, '', {
+      filter: { id: effectId },
+      limit: 1
+    });
+    
+    if (!causeMemories?.length || !effectMemories?.length) {
+      console.error(`Cannot establish causal link: one or both memories do not exist (${causeId} -> ${effectId})`);
+      return false;
+    }
+    
+    // Update the cause memory to add the effect to its led_to array
+    const causeUpdate = await updateMemoryMetadata(causeId, {
+      led_to: [
+        ...(causeMemories[0].metadata?.led_to || []), 
+        {
+          memoryId: effectId,
+          description,
+          timestamp: new Date().toISOString()
+        }
+      ]
+    });
+    
+    // Update the effect memory to reference its cause
+    const effectUpdate = await updateMemoryMetadata(effectId, {
+      caused_by: {
+        memoryId: causeId,
+        description,
+        timestamp: new Date().toISOString()
+      }
+    });
+    
+    return causeUpdate && effectUpdate;
+  } catch (error) {
+    console.error(`Error establishing causal link between ${causeId} and ${effectId}:`, error);
+    return false;
+  }
+}
+
+/**
+ * Trace a causal chain starting from a given memory
+ * Retrieves both causes (what led to this memory) and effects (what this memory led to)
+ * 
+ * @param memoryId ID of the memory to trace causal chains from
+ * @param options Configuration options for the trace
+ * @returns Object containing the origin memory, its causes, and its effects
+ */
+export async function traceCausalChain(
+  memoryId: string,
+  options: {
+    maxDepth?: number;
+    includeContent?: boolean;
+    direction?: 'forward' | 'backward' | 'both';
+  } = {}
+): Promise<{
+  origin: MemoryRecord | null;
+  causes: Array<{
+    memory: MemoryRecord;
+    relationship: {
+      description: string;
+      timestamp: string;
+    };
+    depth: number;
+  }>;
+  effects: Array<{
+    memory: MemoryRecord;
+    relationship: {
+      description: string;
+      timestamp: string;
+    };
+    depth: number;
+  }>;
+}> {
+  try {
+    // Set default options
+    const maxDepth = options.maxDepth || 3;
+    const includeContent = options.includeContent !== false;
+    const direction = options.direction || 'both';
+    
+    // Initialize result structure
+    const result = {
+      origin: null as MemoryRecord | null,
+      causes: [] as Array<{
+        memory: MemoryRecord;
+        relationship: {
+          description: string;
+          timestamp: string;
+        };
+        depth: number;
+      }>,
+      effects: [] as Array<{
+        memory: MemoryRecord;
+        relationship: {
+          description: string;
+          timestamp: string;
+        };
+        depth: number;
+      }>
+    };
+    
+    // Get the origin memory
+    const originMemories = await searchMemory(null, '', {
+      filter: { id: memoryId },
+      limit: 1
+    });
+    
+    if (!originMemories?.length) {
+      console.error(`Memory ${memoryId} not found for causal chain tracing`);
+      return result;
+    }
+    
+    result.origin = originMemories[0];
+    
+    // Set of processed memory IDs to avoid cycles
+    const processedMemories = new Set<string>([memoryId]);
+    
+    // Trace causes backward if requested
+    if (direction === 'both' || direction === 'backward') {
+      await traceBackward(memoryId, 1, maxDepth, processedMemories, result.causes);
+    }
+    
+    // Trace effects forward if requested
+    if (direction === 'both' || direction === 'forward') {
+      await traceForward(memoryId, 1, maxDepth, processedMemories, result.effects);
+    }
+    
+    // If content shouldn't be included, remove text field from all memories
+    if (!includeContent) {
+      if (result.origin) {
+        const { text, ...rest } = result.origin;
+        result.origin = { ...rest, text: '' } as MemoryRecord;
+      }
+      
+      result.causes = result.causes.map(item => {
+        const { text, ...rest } = item.memory;
+        return {
+          ...item,
+          memory: { ...rest, text: '' } as MemoryRecord
+        };
+      });
+      
+      result.effects = result.effects.map(item => {
+        const { text, ...rest } = item.memory;
+        return {
+          ...item,
+          memory: { ...rest, text: '' } as MemoryRecord
+        };
+      });
+    }
+    
+    return result;
+  } catch (error) {
+    console.error(`Error tracing causal chain for memory ${memoryId}:`, error);
+    return {
+      origin: null,
+      causes: [],
+      effects: []
+    };
+  }
+  
+  // Helper function to trace backward (causes)
+  async function traceBackward(
+    currentId: string,
+    currentDepth: number,
+    maxDepth: number,
+    processedIds: Set<string>,
+    results: Array<{
+      memory: MemoryRecord;
+      relationship: {
+        description: string;
+        timestamp: string;
+      };
+      depth: number;
+    }>
+  ): Promise<void> {
+    // Stop if we've reached max depth
+    if (currentDepth > maxDepth) {
+      return;
+    }
+    
+    // Get the current memory
+    const memories = await searchMemory(null, '', {
+      filter: { id: currentId },
+      limit: 1
+    });
+    
+    if (!memories?.length) {
+      return;
+    }
+    
+    const memory = memories[0];
+    
+    // Check for causes in metadata
+    const causedBy = memory.metadata?.caused_by;
+    if (!causedBy || !causedBy.memoryId) {
+      return;
+    }
+    
+    // Check if we've already processed this memory (avoid cycles)
+    if (processedIds.has(causedBy.memoryId)) {
+      return;
+    }
+    
+    // Mark as processed
+    processedIds.add(causedBy.memoryId);
+    
+    // Get the cause memory
+    const causeMemories = await searchMemory(null, '', {
+      filter: { id: causedBy.memoryId },
+      limit: 1
+    });
+    
+    if (!causeMemories?.length) {
+      return;
+    }
+    
+    // Add to results
+    results.push({
+      memory: causeMemories[0],
+      relationship: {
+        description: causedBy.description || '',
+        timestamp: causedBy.timestamp || new Date().toISOString()
+      },
+      depth: currentDepth
+    });
+    
+    // Recursively trace causes
+    await traceBackward(
+      causedBy.memoryId,
+      currentDepth + 1,
+      maxDepth,
+      processedIds,
+      results
+    );
+  }
+  
+  // Helper function to trace forward (effects)
+  async function traceForward(
+    currentId: string,
+    currentDepth: number,
+    maxDepth: number,
+    processedIds: Set<string>,
+    results: Array<{
+      memory: MemoryRecord;
+      relationship: {
+        description: string;
+        timestamp: string;
+      };
+      depth: number;
+    }>
+  ): Promise<void> {
+    // Stop if we've reached max depth
+    if (currentDepth > maxDepth) {
+      return;
+    }
+    
+    // Get the current memory
+    const memories = await searchMemory(null, '', {
+      filter: { id: currentId },
+      limit: 1
+    });
+    
+    if (!memories?.length) {
+      return;
+    }
+    
+    const memory = memories[0];
+    
+    // Check for effects in metadata
+    const ledTo = memory.metadata?.led_to || [];
+    
+    // Process each effect
+    for (const effect of ledTo) {
+      if (!effect.memoryId) {
+        continue;
+      }
+      
+      // Check if we've already processed this memory (avoid cycles)
+      if (processedIds.has(effect.memoryId)) {
+        continue;
+      }
+      
+      // Mark as processed
+      processedIds.add(effect.memoryId);
+      
+      // Get the effect memory
+      const effectMemories = await searchMemory(null, '', {
+        filter: { id: effect.memoryId },
+        limit: 1
+      });
+      
+      if (!effectMemories?.length) {
+        continue;
+      }
+      
+      // Add to results
+      results.push({
+        memory: effectMemories[0],
+        relationship: {
+          description: effect.description || '',
+          timestamp: effect.timestamp || new Date().toISOString()
+        },
+        depth: currentDepth
+      });
+      
+      // Recursively trace effects
+      await traceForward(
+        effect.memoryId,
+        currentDepth + 1,
+        maxDepth,
+        processedIds,
+        results
+      );
+    }
+  }
+}
+
+/**
+ * Get all memories that are causally related to a given memory
+ * This is a simplified version of traceCausalChain that just returns a flat list
+ * 
+ * @param memoryId ID of the memory to find related memories for
+ * @returns Array of causally related memories
+ */
+export async function getCausallyRelatedMemories(
+  memoryId: string
+): Promise<Array<{
+  memory: MemoryRecord;
+  relationship: 'cause' | 'effect';
+  description: string;
+}>> {
+  try {
+    const result: Array<{
+      memory: MemoryRecord;
+      relationship: 'cause' | 'effect';
+      description: string;
+    }> = [];
+    
+    // Get the memory
+    const memories = await searchMemory(null, '', {
+      filter: { id: memoryId },
+      limit: 1
+    });
+    
+    if (!memories?.length) {
+      return [];
+    }
+    
+    const memory = memories[0];
+    
+    // Check for causes
+    if (memory.metadata?.caused_by?.memoryId) {
+      const causeMemories = await searchMemory(null, '', {
+        filter: { id: memory.metadata.caused_by.memoryId },
+        limit: 1
+      });
+      
+      if (causeMemories?.length) {
+        result.push({
+          memory: causeMemories[0],
+          relationship: 'cause',
+          description: memory.metadata.caused_by.description || ''
+        });
+      }
+    }
+    
+    // Check for effects
+    const ledTo = memory.metadata?.led_to || [];
+    for (const effect of ledTo) {
+      if (!effect.memoryId) {
+        continue;
+      }
+      
+      const effectMemories = await searchMemory(null, '', {
+        filter: { id: effect.memoryId },
+        limit: 1
+      });
+      
+      if (effectMemories?.length) {
+        result.push({
+          memory: effectMemories[0],
+          relationship: 'effect',
+          description: effect.description || ''
+        });
+      }
+    }
+    
+    return result;
+  } catch (error) {
+    console.error(`Error getting causally related memories for ${memoryId}:`, error);
+    return [];
+  }
+}
+
+/**
+ * Add a reflection about a causal relationship between memories
+ * 
+ * @param causeId ID of the memory that caused the effect
+ * @param effectId ID of the memory that resulted from the cause
+ * @param reflection Text reflection about the relationship
+ * @returns ID of the created reflection memory
+ */
+export async function addCausalReflection(
+  causeId: string,
+  effectId: string,
+  reflection: string
+): Promise<string> {
+  try {
+    // First establish the causal link
+    const linkEstablished = await establishCausalLink(
+      causeId,
+      effectId,
+      reflection.split('\n')[0] // Use first line as short description
+    );
+    
+    if (!linkEstablished) {
+      throw new Error(`Failed to establish causal link between ${causeId} and ${effectId}`);
+    }
+    
+    // Create a new reflection memory that references both
+    const reflectionId = await addMemory(
+      'thought',
+      reflection,
+      {
+        messageType: 'reflection',
+        reflectionType: 'causal',
+        relatesTo: [causeId, effectId],
+        cause_effect_relation: {
+          cause: causeId,
+          effect: effectId
+        },
+        isInternalMessage: true,
+        notForChat: true,
+        timestamp: new Date().toISOString()
+      }
+    );
+    
+    return reflectionId;
+  } catch (error) {
+    console.error(`Error adding causal reflection for ${causeId} -> ${effectId}:`, error);
+    throw error;
+  }
+}
