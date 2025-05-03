@@ -2259,7 +2259,7 @@ export async function trackMemoryUsage(memoryId: string): Promise<boolean> {
     // Increment the usage count
     const newUsageCount = currentUsageCount + 1;
     
-    // Update the metadata with the new usage count
+    // Update the metadata with the new usage count and last_used timestamp
     return updateMemoryMetadata(memoryId, {
       usage_count: newUsageCount,
       last_used: new Date().toISOString()
@@ -2268,4 +2268,237 @@ export async function trackMemoryUsage(memoryId: string): Promise<boolean> {
     console.error('Error tracking memory usage:', error);
     return false;
   }
-} 
+}
+
+/**
+ * Reinforce a memory by increasing its importance score
+ * Called when a memory is explicitly marked as helpful
+ * 
+ * @param memoryId ID of the memory to reinforce
+ * @param reinforcementReason Optional context for why this memory was reinforced
+ * @returns True if reinforcement was successful
+ */
+export async function reinforceMemory(
+  memoryId: string,
+  reinforcementReason: string = ''
+): Promise<boolean> {
+  try {
+    if (!qdrantInstance) {
+      await initMemory();
+    }
+    
+    // Get the current metadata for this memory
+    const memories = await searchMemory(null, '', {
+      filter: { id: memoryId },
+      limit: 1
+    });
+    
+    if (!memories || memories.length === 0) {
+      console.warn(`Cannot reinforce memory: Memory ${memoryId} not found`);
+      return false;
+    }
+    
+    const memory = memories[0];
+    const metadata = memory.metadata || {};
+    
+    // Check if we've reinforced this memory recently
+    const lastReinforcedAt = metadata.last_reinforced_at 
+      ? new Date(metadata.last_reinforced_at)
+      : null;
+      
+    const now = new Date();
+    
+    // Only allow reinforcement once per hour (prevents rapid over-reinforcement)
+    if (lastReinforcedAt && now.getTime() - lastReinforcedAt.getTime() < 60 * 60 * 1000) {
+      console.log(`Memory ${memoryId} was recently reinforced, skipping`);
+      return true; // Return true as this isn't a failure
+    }
+    
+    // Get current importance score, defaulting to 0.5 if not set
+    const currentScore = metadata.importance_score || 0.5;
+    
+    // Increase importance by 20%, but max out at 1.0
+    const newScore = Math.min(currentScore * 1.2, 1.0);
+    
+    // Update the importance score and add reinforcement data
+    return updateMemoryMetadata(memoryId, {
+      importance_score: newScore,
+      importance: ImportanceCalculator.scoreToImportanceLevel(newScore),
+      last_reinforced_at: now.toISOString(),
+      reinforced: (metadata.reinforced || 0) + 1,
+      reinforcement_reason: reinforcementReason || 'explicit_reinforcement'
+    });
+  } catch (error) {
+    console.error('Error reinforcing memory:', error);
+    return false;
+  }
+}
+
+/**
+ * Decay importance scores for memories that haven't been accessed recently
+ * This should be run periodically (e.g., weekly) to reduce importance of unused memories
+ * 
+ * @param options Configuration options for the decay process
+ * @returns Statistics about the decay operation
+ */
+export async function decayMemoryImportance(options: {
+  decayPercent?: number;
+  olderThan?: number;
+  maxMemories?: number;
+  dryRun?: boolean;
+  memoryTypes?: QdrantMemoryType[];
+} = {}): Promise<{
+  processed: number;
+  decayed: number;
+  exempted: number;
+  errors: number;
+  dryRun: boolean;
+}> {
+  try {
+    if (!qdrantInstance) {
+      await initMemory();
+    }
+    
+    // Set defaults for options
+    const decayPercent = options.decayPercent || 5; // 5% decay by default
+    const olderThan = options.olderThan || 7 * 24 * 60 * 60 * 1000; // 7 days in ms
+    const maxMemories = options.maxMemories || 1000; // Process up to 1000 memories at a time
+    const dryRun = options.dryRun || false; // Don't actually update by default
+    const memoryTypes = options.memoryTypes || ['document', 'thought', 'message', 'task'];
+    
+    // Stats for the operation
+    const stats = {
+      processed: 0,
+      decayed: 0,
+      exempted: 0,
+      errors: 0,
+      dryRun
+    };
+    
+    // Get cutoff date for "unused" memories
+    const cutoffDate = new Date(Date.now() - olderThan);
+    console.log(`Decaying memories not used since ${cutoffDate.toISOString()}`);
+    
+    // Process each memory type
+    for (const type of memoryTypes) {
+      try {
+        console.log(`Processing memories of type: ${type}`);
+        
+        // Get all memories of this type that haven't been used recently
+        // In production, this should be done in batches for large collections
+        const memories = await qdrantInstance?.searchMemories(type as QdrantMemoryType, '', {
+          limit: maxMemories
+        }) || [];
+        
+        console.log(`Found ${memories.length} memories of type ${type}`);
+        
+        // Track memories to update
+        const updates = [];
+        
+        // Process each memory
+        for (const memory of memories) {
+          stats.processed++;
+          
+          try {
+            const metadata = memory.metadata || {};
+            
+            // Skip critical memories
+            if (metadata.critical === true) {
+              stats.exempted++;
+              continue;
+            }
+            
+            // Determine if this memory should be decayed
+            let shouldDecay = true;
+            
+            // Check last_used date if available
+            if (metadata.last_used) {
+              const lastUsed = new Date(metadata.last_used);
+              if (lastUsed > cutoffDate) {
+                shouldDecay = false;
+              }
+            }
+            
+            // Check usage_count - if it's been used, we can look at that too
+            if (metadata.usage_count && metadata.usage_count > 0) {
+              // If it's been used recently (has usage count but no last_used date)
+              // we should consider it recently used
+              if (!metadata.last_used) {
+                shouldDecay = false;
+              }
+            }
+            
+            // Skip if we shouldn't decay
+            if (!shouldDecay) {
+              continue;
+            }
+            
+            // Calculate new importance score
+            const currentScore = metadata.importance_score || 0.5;
+            const decayFactor = 1 - (decayPercent / 100);
+            const newScore = Math.max(0.1, currentScore * decayFactor); // Minimum 0.1
+            
+            if (dryRun) {
+              console.log(`[DRY RUN] Would decay memory ${memory.id} from ${currentScore} to ${newScore}`);
+              stats.decayed++;
+            } else {
+              // Add to batch of updates
+              updates.push({
+                id: memory.id,
+                newScore,
+                type
+              });
+            }
+          } catch (memErr) {
+            console.error(`Error processing memory ${memory.id}:`, memErr);
+            stats.errors++;
+          }
+        }
+        
+        // Apply updates (if not dry run)
+        if (!dryRun && updates.length > 0) {
+          console.log(`Applying ${updates.length} importance decay updates for type ${type}`);
+          
+          // Update each memory's importance
+          for (const update of updates) {
+            try {
+              await updateMemoryMetadata(update.id, {
+                importance_score: update.newScore,
+                importance: ImportanceCalculator.scoreToImportanceLevel(update.newScore),
+                last_decayed_at: new Date().toISOString()
+              });
+              stats.decayed++;
+            } catch (updateErr) {
+              console.error(`Error updating memory ${update.id}:`, updateErr);
+              stats.errors++;
+            }
+          }
+        }
+      } catch (typeErr) {
+        console.error(`Error processing memory type ${type}:`, typeErr);
+        stats.errors++;
+      }
+    }
+    
+    console.log(`Memory decay complete. Processed: ${stats.processed}, Decayed: ${stats.decayed}, Exempted: ${stats.exempted}, Errors: ${stats.errors}`);
+    return stats;
+  } catch (error) {
+    console.error('Error in decay operation:', error);
+    return {
+      processed: 0,
+      decayed: 0,
+      exempted: 0,
+      errors: 1,
+      dryRun: options.dryRun || false
+    };
+  }
+}
+
+/**
+ * Mark a memory as critical so it won't be affected by decay
+ */
+export async function markMemoryAsCritical(memoryId: string, isCritical: boolean = true): Promise<boolean> {
+  return updateMemoryMetadata(memoryId, {
+    critical: isCritical
+  });
+}

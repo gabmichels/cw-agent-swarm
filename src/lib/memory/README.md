@@ -249,4 +249,52 @@ The system now tracks how frequently each memory is used through a feedback mech
 3. Future retrievals will boost this memory proportionally to its usage count
 4. The logarithmic scaling ensures diminishing returns for very frequently used items
 
-This creates a reinforcement learning loop where memories that prove useful get prioritized in future searches. 
+This creates a reinforcement learning loop where memories that prove useful get prioritized in future searches.
+
+## Memory Lifecycle Management
+
+The enhanced memory system now supports a complete lifecycle management approach that mimics human memory:
+
+### Memory Reinforcement
+
+Memories can be explicitly reinforced when they prove valuable:
+
+- When a user says "that was helpful" or provides positive feedback
+- When a memory is successfully used in task execution
+- Through explicit agent decisions to reinforce important information
+
+The reinforcement mechanism:
+1. Increases the memory's importance score by 20%
+2. Tracks a `last_reinforced_at` timestamp to prevent over-reinforcement
+3. Counts how many times a memory has been reinforced
+4. Stores the reason for reinforcement
+
+### Memory Decay
+
+To prevent memory overload and maintain freshness, the system includes temporal decay:
+
+- Reduces importance scores by 5% weekly for memories that haven't been accessed
+- Critical memories (marked with `critical=true`) are exempt from decay
+- A minimum importance floor prevents valuable memories from decaying too far
+- Decay isn't applied to recently used memories
+
+### Critical Memory Protection
+
+Some memories should be retained regardless of usage:
+
+- Mark memories as critical with `markMemoryAsCritical(memoryId)`
+- Critical memories are exempt from decay but still participate in importance-based retrieval
+- Example critical memories: user preferences, important facts, agent instructions
+
+### Feedback Loop Integration
+
+The memory lifecycle creates a complete feedback loop:
+
+1. **Storage**: Memories are stored with initial importance based on content
+2. **Retrieval**: Memories are retrieved based on relevance and importance
+3. **Usage**: Successful usage increases memory usage count
+4. **Reinforcement**: Explicit feedback increases importance
+5. **Decay**: Unused memories gradually lose importance
+6. **Protection**: Critical memories are preserved regardless of usage
+
+This cycle ensures the memory system continuously improves and adapts to the user's needs. 
