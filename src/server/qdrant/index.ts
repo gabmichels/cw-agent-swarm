@@ -1336,6 +1336,12 @@ export async function searchMemory(
       await initMemory();
     }
 
+    // For empty queries, use getAllMemories to skip vector search and get everything
+    if (!query || query.trim() === '') {
+      console.log('Using getAllMemories for empty query to get all memories');
+      return getAllMemories(type, options.limit || 100);
+    }
+
     // Get results from standard vector search (increase limit to get more candidates)
     const searchLimit = Math.max(options.limit || 10, 20); // Ensure at least 20 candidates
     const vectorResults = qdrantInstance ? 
@@ -1720,77 +1726,92 @@ export async function summarizeChat(options: {
 }
 
 /**
- * Get all memories of a specific type
- * @param type Memory type to get (message, thought, document)
+ * Get all memories of a given type or from all collections if type is null
+ * @param type Optional memory type to filter by
  * @param limit Maximum number of memories to return
- * @returns Array of memory entries
+ * @returns Array of memory records
  */
 export async function getAllMemories(
-  type: string | null, 
+  type: QdrantMemoryType | null, 
   limit: number = 100
-): Promise<any[]> {
+): Promise<MemoryRecord[]> {
   try {
     if (!qdrantInstance) {
-      console.log('qdrantInstance not initialized, initializing now...');
       await initMemory();
     }
     
-    if (!qdrantInstance) {
-      console.error('Failed to initialize qdrantInstance even after retry');
-      return [];
-    }
+    console.log(`getAllMemories called with type=${type || 'all'}, limit=${limit}`);
     
-    const collectionName = type ? COLLECTIONS[type as keyof typeof COLLECTIONS] : null;
-    
-    // If no specific collection is requested or Qdrant is unavailable, combine results from all collections
-    if (!collectionName || !qdrantInstance.isInitialized()) {
-      console.log('Fetching memories from multiple collections or using fallback');
-      const collectionsToSearch = type 
-        ? [COLLECTIONS[type as keyof typeof COLLECTIONS]] 
-        : Object.values(COLLECTIONS);
-      
-      console.log(`Searching ${collectionsToSearch.length} collections: ${collectionsToSearch.join(', ')}`);
+    // If a specific type is requested, get memories just for that type
+    if (type) {
+      console.log(`Fetching memories of type: ${type}`);
       
       try {
-        // Use search with empty query to get all memories
-        const results = await Promise.all(
-          collectionsToSearch.map(async (collection) => {
-            try {
-              const result = qdrantInstance ? 
-                await qdrantInstance.searchMemories(type as any, "", { limit }) : [];
-              console.log(`Retrieved ${result?.length || 0} memories from collection ${collection}`);
-              return Array.isArray(result) ? result : [];
-            } catch (collectionError) {
-              console.error(`Error searching collection ${collection}:`, collectionError);
-              return [];
-            }
-          })
+        const memories = await qdrantInstance?.searchMemories(
+          type,
+          "",  // Empty query to get all memories
+          { limit }
         );
         
-        const flatResults = results.flat();
-        console.log(`Retrieved ${flatResults.length} total memories across all collections`);
-        return flatResults;
-      } catch (searchError) {
-        console.error('Error during multi-collection search:', searchError);
+        console.log(`Retrieved ${memories?.length || 0} memories of type ${type}`);
+        return memories || [];
+      } catch (error) {
+        console.error(`Error retrieving memories of type ${type}:`, error);
         return [];
       }
-    }
-    
-    // Get memories from a specific collection using scroll API
-    try {
-      console.log(`Searching single collection ${collectionName} for memories`);
-      // Since we can't directly access the client, we'll use the searchMemories method 
-      // with an empty query which will return all memories of the specified type
-      const result = qdrantInstance ? 
-        await qdrantInstance.searchMemories(type as any, "", { limit }) : [];
-      console.log(`Retrieved ${result?.length || 0} memories from collection ${collectionName}`);
-      return Array.isArray(result) ? result : [];
-    } catch (error) {
-      console.error(`Error getting memories from collection ${collectionName}:`, error);
-      return [];
+    } else {
+      // If no specific type, fetch from all types
+      console.log('Fetching memories from all collections');
+      
+      // Ensure we include all collection types
+      const types: QdrantMemoryType[] = ['message', 'thought', 'document', 'task', 'memory_edits'];
+      
+      // More balanced approach - divide limit fairly among collections
+      const perTypeLimit = Math.ceil(limit / types.length);
+      console.log(`Using per-type limit: ${perTypeLimit}`);
+      
+      let allMemories: MemoryRecord[] = [];
+      
+      // Fetch each type sequentially to avoid overwhelming the system
+      for (const memType of types) {
+        try {
+          console.log(`Fetching memories of type: ${memType}`);
+          const memories = await qdrantInstance?.searchMemories(
+            memType,
+            "",  // Empty query
+            { limit: perTypeLimit }
+          );
+          
+          if (memories && memories.length > 0) {
+            console.log(`Retrieved ${memories.length} memories of type ${memType}`);
+            allMemories = [...allMemories, ...memories];
+          } else {
+            console.log(`No memories found of type ${memType}`);
+          }
+        } catch (error) {
+          console.error(`Error retrieving memories of type ${memType}:`, error);
+        }
+      }
+      
+      console.log(`Retrieved ${allMemories.length} total memories from all types`);
+      
+      // Sort all memories by timestamp (newest first)
+      allMemories.sort((a, b) => {
+        const timeA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+        const timeB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+        return timeB - timeA;
+      });
+      
+      // Limit the total results
+      if (allMemories.length > limit) {
+        allMemories = allMemories.slice(0, limit);
+      }
+      
+      console.log(`Returning ${allMemories.length} total memories after sorting and limiting`);
+      return allMemories;
     }
   } catch (error) {
-    console.error('Error getting all memories:', error);
+    console.error('Error in getAllMemories:', error);
     return [];
   }
 }
@@ -3310,5 +3331,47 @@ export async function getMemoryHistory(
   } catch (error) {
     console.error('Error getting memory history:', error);
     return [];
+  }
+}
+
+/**
+ * Get a memory by its exact ID
+ * @param memoryId The ID of the memory to retrieve
+ * @returns The memory record if found, or null if not found
+ */
+export async function getMemoryById(memoryId: string): Promise<MemoryRecord | null> {
+  try {
+    if (!qdrantInstance) {
+      await initMemory();
+    }
+    
+    // Search across all collections to find the memory
+    // Use the keys of the COLLECTIONS object which are the memory types
+    for (const type of Object.keys(COLLECTIONS)) {
+      try {
+        // Use search with filter to find exact ID match
+        const memories = await qdrantInstance?.searchMemories(
+          type as QdrantMemoryType,
+          "", // Empty query for ID search
+          {
+            filter: { id: memoryId },
+            limit: 1
+          }
+        );
+        
+        if (memories && memories.length > 0) {
+          return memories[0];
+        }
+      } catch (error) {
+        // Continue checking other collections if this one fails
+        console.error(`Error searching for memory ID ${memoryId} in collection ${type}:`, error);
+      }
+    }
+    
+    // If we get here, the memory wasn't found in any collection
+    return null;
+  } catch (error) {
+    console.error(`Error getting memory by ID ${memoryId}:`, error);
+    return null;
   }
 }

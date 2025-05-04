@@ -5,91 +5,115 @@ import * as serverQdrant from '../../../../server/qdrant';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
+// Define a type for memory search results
+interface MemorySearchResult {
+  id: string;
+  type: string;
+  content: string;
+  timestamp: string;
+  metadata: Record<string, any>;
+}
+
 /**
- * API endpoint to search for a memory by ID or content
- * @param request NextRequest with search parameters
- * @returns Array of matching memories
+ * API endpoint to search for memory items by ID or query
  */
 export async function GET(request: NextRequest) {
   try {
-    // Get search parameters
-    const searchParams = request.nextUrl.searchParams;
+    console.log('[memory/search] Starting memory search');
+    
+    // Parse query parameters
+    const { searchParams } = new URL(request.url);
     const memoryId = searchParams.get('id');
-    const query = searchParams.get('query') || '';
-    const type = searchParams.get('type') as any;
+    const query = searchParams.get('query');
+    const collectionType = searchParams.get('collection') as any;
     const limit = parseInt(searchParams.get('limit') || '10', 10);
     
-    console.log(`[memory/search] Request params: id=${memoryId}, query=${query}, type=${type}, limit=${limit}`);
+    if (!memoryId && !query) {
+      return NextResponse.json(
+        { error: 'Either memory ID or search query is required' },
+        { status: 400 }
+      );
+    }
     
-    // Initialize memory if needed
+    // Initialize Qdrant memory
     await serverQdrant.initMemory({
       useOpenAI: process.env.USE_OPENAI_EMBEDDINGS === 'true'
     });
     
-    // If a specific ID is provided, try to retrieve that memory directly
+    let results: MemorySearchResult[] = [];
+    
+    // If ID is provided, search by ID directly
     if (memoryId) {
+      console.log(`[memory/search] Searching for memory with ID: ${memoryId}`);
       try {
-        console.log(`[memory/search] Searching for memory by ID: ${memoryId}`);
-        // For ID-based search, use a broader approach
-        const memories = await serverQdrant.searchMemory(null, "", {
-          filter: { id: memoryId },
-          limit: 1
-        });
-        
-        if (!memories || memories.length === 0) {
-          console.warn(`[memory/search] Memory ID ${memoryId} not found`);
-          // Return diagnostic error info in memory format for consistent handling
-          return NextResponse.json([{
-            id: 'memory_not_found',
-            text: `Memory with ID ${memoryId} not found`,
-            timestamp: new Date().toISOString(),
-            type: memoryId.startsWith('memory_') ? 'memory_edits' : 'message',
-            metadata: { 
-              error: true,
-              requested_id: memoryId,
-              explanation: 'The requested memory ID was not found in any collection'
-            }
-          }]);
-        }
-        
-        console.log(`[memory/search] Found memory: ${memories[0].id} (${memories[0].type})`);
-        return NextResponse.json(memories);
-      } catch (idError) {
-        console.error(`[memory/search] Error retrieving memory by ID ${memoryId}:`, idError);
-        // Return error in memory format for consistent handling
-        return NextResponse.json([{
-          id: 'search_error',
-          text: `Error retrieving memory: ${idError instanceof Error ? idError.message : 'Unknown error'}`,
-          timestamp: new Date().toISOString(),
-          type: "error",
-          metadata: { 
-            error: true,
-            requested_id: memoryId,
-            raw_error: idError instanceof Error ? idError.stack : String(idError)
+        // Use searchMemory with a filter to find by exact ID
+        const memories = await serverQdrant.searchMemory(
+          null, // search across all collections
+          "", // empty query for ID-based search
+          {
+            filter: { id: memoryId },
+            limit: 1
           }
+        );
+        
+        if (memories && memories.length > 0) {
+          const memory = memories[0];
+          // Format the memory item
+          const formattedMemory: MemorySearchResult = {
+            id: memory.id,
+            type: memory.type,
+            content: memory.text,
+            timestamp: memory.timestamp,
+            metadata: memory.metadata || {}
+          };
+          
+          results = [formattedMemory];
+        }
+      } catch (idError) {
+        console.error(`Error getting memory by ID ${memoryId}:`, idError);
+        
+        // Return an error result in the expected format
+        return NextResponse.json([{
+          id: memoryId,
+          type: 'error',
+          content: `Error retrieving memory: ${idError instanceof Error ? idError.message : 'Unknown error'}`,
+          timestamp: new Date().toISOString(),
+          metadata: { error: true }
         }]);
       }
+    } 
+    // Otherwise use semantic search
+    else if (query) {
+      console.log(`[memory/search] Semantic search for: "${query}"`);
+      
+      // Create search options
+      const searchOptions = {
+        limit,
+        collection: collectionType // Will search all collections if null
+      };
+      
+      const searchResults = await serverQdrant.searchMemory(collectionType, query, searchOptions);
+      
+      // Format results
+      results = searchResults.map(item => ({
+        id: item.id,
+        type: item.type,
+        content: item.text,
+        timestamp: item.timestamp,
+        metadata: item.metadata || {}
+      }));
     }
     
-    // Otherwise, perform a semantic search based on query
-    const memories = await serverQdrant.searchMemory(type, query, { limit });
-    
-    // Return the search results
-    return NextResponse.json(memories);
+    console.log(`[memory/search] Found ${results.length} results`);
+    return NextResponse.json(results);
   } catch (error) {
     console.error('Error in memory search:', error);
-    
-    // Return error as a memory item
-    return NextResponse.json([{
-      id: 'api_error',
-      text: `API Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
-      timestamp: new Date().toISOString(),
-      type: "error",
-      metadata: { 
-        error: true, 
-        api: 'memory/search',
-        raw_error: error instanceof Error ? error.stack : String(error)
-      }
-    }], { status: 200 }); // Use 200 to avoid frontend error handling issues
+    return NextResponse.json(
+      { 
+        status: 'error',
+        error: error instanceof Error ? error.message : 'Unknown error'
+      },
+      { status: 500 }
+    );
   }
 } 

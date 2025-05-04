@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { AlertCircleIcon, Filter, X, Tag, Info, RefreshCw, ChevronDown } from 'lucide-react';
+import { AlertCircleIcon, Filter, X, Tag, Info, RefreshCw, ChevronDown, Loader2, Search, Hash, Settings, Menu, Bug } from 'lucide-react';
 import MemoryItemComponent from '../memory/MemoryItem';
 import { MemoryItem } from '../../types';
 
@@ -19,16 +19,18 @@ interface DebugResult {
   error?: string;
 }
 
-interface MemoryTabProps {
-  isLoadingMemories: boolean;
-  allMemories: (MemoryItem & { metadata?: Record<string, any>; kind?: string })[];
-  onRefresh?: () => void;
-}
-
 // Extend MemoryItem type to include metadata
 interface ExtendedMemoryItem extends MemoryItem {
   kind?: string;
   metadata?: Record<string, any>;
+  isMemoryEdit?: boolean;
+}
+
+// Interface for MemoryTab component props
+interface MemoryTabProps {
+  isLoadingMemories: boolean;
+  allMemories: ExtendedMemoryItem[];
+  onRefresh?: () => void;
 }
 
 const MemoryTab: React.FC<MemoryTabProps> = ({
@@ -39,13 +41,15 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
   const [isChecking, setIsChecking] = useState(false);
   const [debugResult, setDebugResult] = useState<DebugResult | null>(null);
   const [selectedTagFilter, setSelectedTagFilter] = useState<string>('');
-  const [searchQuery, setSearchQuery] = useState('');
+  const [searchQuery, setSearchQuery] = useState<string>('');
   const [memoryCount, setMemoryCount] = useState<number>(0);
   const [selectedTypes, setSelectedTypes] = useState<string[]>([]);
-  const [typeMenuOpen, setTypeMenuOpen] = useState(false);
+  const [typeMenuOpen, setTypeMenuOpen] = useState<boolean>(false);
   const typeMenuRef = useRef<HTMLDivElement>(null);
+  const [showDebug, setShowDebug] = useState<boolean>(false);
+  const [showRawMemory, setShowRawMemory] = useState<string | null>(null);
 
-  // Predefined memory types
+  // All possible memory types
   const MEMORY_TYPES = [
     "message",
     "thought",
@@ -56,7 +60,13 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
     "task",
     "decision",
     "feedback",
-    "knowledge"
+    "knowledge",
+    "document",
+    "memory_edits",
+    "unknown",
+    "chat",
+    "idea",
+    "summary"
   ];
 
   // Close dropdown when clicking outside
@@ -80,6 +90,8 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
       allMemories.forEach(memory => {
         if (memory.kind) typeSet.add(memory.kind);
         if (memory.metadata?.type) typeSet.add(memory.metadata.type);
+        if (memory.category) typeSet.add(memory.category);
+        if ('type' in memory && memory.type) typeSet.add(memory.type as string);
       });
     }
     return Array.from(typeSet).sort();
@@ -90,7 +102,12 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
     console.log('MemoryTab: allMemories updated', {
       count: allMemories?.length || 0,
       isArray: Array.isArray(allMemories),
-      sample: allMemories && allMemories.length > 0 ? allMemories[0] : null,
+      firstThree: allMemories && allMemories.length > 0 ? allMemories.slice(0, 3).map(m => ({
+        id: m.id,
+        type: m.kind || m.metadata?.type || m.category || 'unknown',
+        contentPreview: m.content ? m.content.substring(0, 30) + '...' : 'No content',
+        timestamp: m.created || m.timestamp
+      })) : [],
     });
     
     setMemoryCount(allMemories?.length || 0);
@@ -115,201 +132,83 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
   const filteredMemories = useMemo(() => {
     if (!allMemories) return [];
     
-    // Filter based on criteria
-    const filtered = allMemories.filter(memory => {
-      // Filter by tag if one is selected
-      const matchesTag = !selectedTagFilter || 
-        (memory.tags && memory.tags.includes(selectedTagFilter));
-      
-      // Filter by search query if provided
-      const matchesSearch = !searchQuery || 
-        (memory.content && memory.content.toLowerCase().includes(searchQuery.toLowerCase()));
-      
-      // Filter by memory types if any are selected
-      const matchesType = selectedTypes.length === 0 || 
-        (memory.kind && selectedTypes.includes(memory.kind)) ||
-        (memory.metadata?.type && selectedTypes.includes(memory.metadata.type)) ||
-        (memory.category && selectedTypes.includes(memory.category));
-      
-      return matchesTag && matchesSearch && matchesType;
+    console.log(`Starting with ${allMemories.length} total memories`);
+    
+    // Count and log each memory type to diagnose the issue
+    const typeCount: Record<string, number> = {};
+    allMemories.forEach(memory => {
+      const type = memory.kind || 
+                  memory.metadata?.type || 
+                  memory.category || 
+                  (memory as any).type || 
+                  'unknown';
+      typeCount[type] = (typeCount[type] || 0) + 1;
     });
-
-    // Helper function to normalize content for comparison
-    const normalizeContent = (content: string | undefined): string => {
-      if (!content) return '';
-      
-      // Step 1: Get the raw content with basic trimming
-      let normalized = content.trim();
-      
-      // Step 2: Handle nested MESSAGE prefixes more aggressively
-      let prevLength;
-      do {
-        prevLength = normalized.length;
-        
-        // First, try to handle the doubly nested prefixes like "MESSAGE: MESSAGE [date]: MESSAGE [date]:"
-        normalized = normalized.replace(/^MESSAGE:?\s+MESSAGE\s+\[\d{4}-\d{2}-\d{2}[^\]]*\]:\s+MESSAGE\s+\[\d{4}-\d{2}-\d{2}[^\]]*\]:\s+/i, '');
-        
-        // Then handle single-level nested prefixes like "MESSAGE: MESSAGE [date]:"
-        normalized = normalized.replace(/^MESSAGE:?\s+MESSAGE\s+\[\d{4}-\d{2}-\d{2}[^\]]*\]:\s+/i, '');
-        
-        // Finally handle any remaining prefix patterns
-        normalized = normalized.replace(/^MESSAGE:?\s*/i, '');
-        normalized = normalized.replace(/^MESSAGE\s+\[\d{4}-\d{2}-\d{2}[^\]]*\]:\s*/i, '');
-        
-      } while (normalized.length !== prevLength); // Continue until no more changes
-      
-      // Step 3: Handle any remaining timestamps
-      normalized = normalized.replace(/\[\d{4}-\d{2}-\d{2}[^\]]*\]/g, '[DATE]');
-      
-      // Step 4: Clean up whitespace 
-      normalized = normalized.replace(/\s+/g, ' ').trim();
-      
-      return normalized;
-    };
+    console.log('Memory types in allMemories:', typeCount);
     
-    // Helper function to check if two content strings are similar
-    const areSimilarContents = (content1: string | undefined, content2: string | undefined): boolean => {
-      if (!content1 || !content2) return false;
-      
-      const normalized1 = normalizeContent(content1);
-      const normalized2 = normalizeContent(content2);
-      
-      // If they're exactly the same after normalization
-      if (normalized1 === normalized2) return true;
-      
-      // If one is a subset of the other (e.g., one has prefix/suffix that the other doesn't)
-      if (normalized1.includes(normalized2) || normalized2.includes(normalized1)) return true;
-      
-      // If either content is very short, require stricter matching
-      const shortTextThreshold = 20;
-      if (normalized1.length < shortTextThreshold || normalized2.length < shortTextThreshold) {
-        // For short texts, require at least 95% similarity
-        const shortTextSimilarity = calculateSimilarityRatio(normalized1, normalized2);
-        return shortTextSimilarity >= 0.95;
-      }
-      
-      // For longer content, use our existing method
-      const commonLength = findLongestCommonSubstring(normalized1, normalized2);
-      
-      // If the common part is at least 90% of the shorter text
-      const similarityRatio = commonLength / Math.min(normalized1.length, normalized2.length);
-      return similarityRatio >= 0.9;
-    };
+    // Optional: Log memory_edit records for debugging
+    const memoryEdits = allMemories.filter(memory => memory.isMemoryEdit || memory.metadata?.isMemoryEdit);
+    if (memoryEdits.length > 0) {
+      console.log(`Found ${memoryEdits.length} memory_edit records`);
+    }
     
-    // Helper to find the longest common substring length
-    const findLongestCommonSubstring = (str1: string, str2: string): number => {
-      let commonLength = 0;
-      for (let i = 0; i < str1.length; i++) {
-        for (let j = 0; j < str2.length; j++) {
-          let k = 0;
-          while (i + k < str1.length && 
-                j + k < str2.length && 
-                str1[i + k] === str2[j + k]) {
-            k++;
-          }
-          commonLength = Math.max(commonLength, k);
-        }
-      }
-      return commonLength;
-    };
+    // First, filter out memory_edit records - we'll display these as versions of their originals
+    // But keep them if explicitly showing memory_edits type
+    let filtered = selectedTypes.includes('memory_edits')
+      ? allMemories 
+      : allMemories.filter(memory => !(memory.isMemoryEdit || memory.metadata?.isMemoryEdit));
     
-    // Calculate a similarity ratio between two strings 
-    const calculateSimilarityRatio = (str1: string, str2: string): number => {
-      // Count matching characters
-      let matches = 0;
-      const maxLen = Math.max(str1.length, str2.length);
-      
-      // Simple approach - match at each position
-      for (let i = 0; i < Math.min(str1.length, str2.length); i++) {
-        if (str1[i] === str2[i]) {
-          matches++;
-        }
-      }
-      
-      return maxLen === 0 ? 1.0 : matches / maxLen;
-    };
-
-    // Group memories with identical or very similar content
-    const contentMap = new Map<string, ExtendedMemoryItem[]>();
+    // Apply text search filter if any
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      filtered = filtered.filter(memory => 
+        memory.content && memory.content.toLowerCase().includes(query)
+      );
+    }
     
+    // Apply tag filter if selected
+    if (selectedTagFilter) {
+      filtered = filtered.filter(memory => {
+        const tags = memory.tags || [];
+        return tags.includes(selectedTagFilter);
+      });
+    }
+    
+    // Apply memory type filter if any are selected
+    if (selectedTypes.length > 0) {
+      filtered = filtered.filter(memory => {
+        const memoryType = memory.kind || 
+                memory.metadata?.type || 
+                memory.category || 
+                (memory as any).type || 
+                'unknown';
+                
+        return selectedTypes.includes(memoryType);
+      });
+    }
+    
+    // Log final filtered memories count by type
+    const filteredTypeCount: Record<string, number> = {};
     filtered.forEach(memory => {
-      if (!memory.content) return;
-      
-      // First check if we have a similar memory already grouped
-      let foundSimilar = false;
-      
-      // Generate a normalized version of the content for the key
-      const normalizedContent = normalizeContent(memory.content);
-      
-      // Check if this content is similar to any existing group
-      for (const [existingKey, memories] of Array.from(contentMap.entries())) {
-        // First check if we have an exact match after normalization
-        if (existingKey === normalizedContent) {
-          contentMap.get(existingKey)!.push(memory);
-          foundSimilar = true;
-          break;
-        }
-        
-        // Otherwise check for similarity with the first memory in the group
-        if (memories.length > 0 && areSimilarContents(memory.content, memories[0].content)) {
-          contentMap.get(existingKey)!.push(memory);
-          foundSimilar = true;
-          break;
-        }
-      }
-      
-      // If no similar content was found, create a new group
-      if (!foundSimilar) {
-        contentMap.set(normalizedContent, [memory]);
-      }
+      const type = memory.kind || 
+                  memory.metadata?.type || 
+                  memory.category || 
+                  (memory as any).type || 
+                  'unknown';
+      filteredTypeCount[type] = (filteredTypeCount[type] || 0) + 1;
     });
+    console.log('Filtered memory types:', filteredTypeCount);
     
-    // For each group, keep only the most recent memory and enhance it with related_versions if duplicates exist
-    const deduplicatedMemories: ExtendedMemoryItem[] = [];
-    
-    contentMap.forEach((memories, content) => {
-      if (memories.length === 1) {
-        // If only one memory with this content, just add it as is
-        deduplicatedMemories.push(memories[0]);
-      } else {
-        // Sort by date (newest first)
-        const sortedMemories = [...memories].sort((a, b) => {
-          const dateA = a.created ? new Date(a.created).getTime() : 
-                      a.timestamp ? new Date(a.timestamp).getTime() : 0;
-          const dateB = b.created ? new Date(b.created).getTime() : 
-                      b.timestamp ? new Date(b.timestamp).getTime() : 0;
-          return dateB - dateA;
-        });
-        
-        // Take the most recent one as the primary version
-        const primaryMemory = sortedMemories[0];
-        
-        // Add the related versions to its metadata
-        const enhancedMemory: ExtendedMemoryItem = {
-          ...primaryMemory,
-          metadata: {
-            ...(primaryMemory.metadata || {}),
-            related_versions: sortedMemories.slice(1).map(mem => ({
-              id: mem.id,
-              type: mem.kind || mem.metadata?.type || 'unknown',
-              timestamp: mem.created || mem.timestamp || new Date().toISOString()
-            }))
-          }
-        };
-        
-        deduplicatedMemories.push(enhancedMemory);
-      }
-    });
+    return filtered;
+  }, [allMemories, searchQuery, selectedTagFilter, selectedTypes]);
 
-    // Sort by date (newest first)
-    return deduplicatedMemories.sort((a, b) => {
-      const dateA = a.created ? new Date(a.created).getTime() : 
-                  a.timestamp ? new Date(a.timestamp).getTime() : 0;
-      const dateB = b.created ? new Date(b.created).getTime() : 
-                  b.timestamp ? new Date(b.timestamp).getTime() : 0;
-      return dateB - dateA; // Descending order (newest first)
+  // Add a new effect to log filtered memories when they change
+  useEffect(() => {
+    console.log('MemoryTab: filteredMemories updated', {
+      count: filteredMemories?.length || 0,
+      sample: filteredMemories && filteredMemories.length > 0 ? filteredMemories[0]?.id : null,
     });
-  }, [allMemories, selectedTagFilter, searchQuery, selectedTypes]);
+  }, [filteredMemories]);
 
   // Toggle memory type selection
   const toggleTypeSelection = (type: string) => {
@@ -349,11 +248,10 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
     setSelectedTypes([]);
   };
 
-  // Handle refresh
+  // Handle refresh button click
   const handleRefresh = () => {
-    if (onRefresh) {
-      onRefresh();
-    }
+    console.log('Manually refreshing memories');
+    onRefresh?.();
   };
 
   // Handle tag update from memory item
@@ -411,27 +309,164 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
     }
   };
 
-  return (
-    <div className="bg-gray-800 p-4 rounded-lg">
-      <div className="flex justify-between items-center mb-4">
-        <h2 className="text-xl font-bold">Memory Explorer</h2>
+  // Add a debug function to show raw memory data
+  const toggleDebug = () => setShowDebug(!showDebug);
+
+  // Add this new function to display type distributions
+  const displayMemoryTypeCounts = (memories: ExtendedMemoryItem[] | null | undefined) => {
+    if (!memories || memories.length === 0) {
+      console.log('No memories to analyze');
+      return {};
+    }
+    
+    // Count each memory type 
+    const typeCount: Record<string, number> = {};
+    memories.forEach(memory => {
+      // Skip null/undefined items
+      if (!memory) {
+        console.warn('Found null or undefined memory item in memories array');
+        return;
+      }
+      
+      // Try to get memory type from all possible locations
+      const type = memory.kind || 
+                  memory.metadata?.type || 
+                  memory.category || 
+                  (memory as any).type || 
+                  'unknown';
+      
+      // Log problematic memory records for debugging
+      if (type === 'unknown') {
+        console.warn('Found memory with unknown type:', memory);
+      }
+      
+      typeCount[type] = (typeCount[type] || 0) + 1;
+    });
+    
+    console.log('Memory Type Distribution:', typeCount);
+    return typeCount;
+  };
+
+  // Add this inside the MemoryTab component
+  const handleDebugClick = () => {
+    console.log('Memory Debug Information:');
+    console.log(`Total allMemories count: ${allMemories?.length || 0}`);
+    console.log(`Filtered memories count: ${filteredMemories?.length || 0}`);
+    
+    // Check if allMemories is an array
+    if (!Array.isArray(allMemories)) {
+      console.error('allMemories is not an array:', typeof allMemories, allMemories);
+    } else if (allMemories.length === 0) {
+      console.warn('allMemories array is empty');
+    } else {
+      // Log sample record structure
+      console.log('Sample memory record format:', allMemories[0]);
+    }
+    
+    const typeCounts = displayMemoryTypeCounts(allMemories);
+    const filteredTypeCounts = displayMemoryTypeCounts(filteredMemories);
+    
+    console.log('All Memories Type Distribution:', typeCounts);
+    console.log('Filtered Memories Type Distribution:', filteredTypeCounts);
+    
+    // Display the first few memories for inspection
+    console.log('Sample of All Memories:', allMemories?.slice(0, 3));
+    
+    // Set debug state to display on UI
+    setShowDebug(!showDebug);
+  };
+
+  // Add new function to diagnose memory types across all collections
+  const checkAllMemoryTypes = async () => {
+    setIsChecking(true);
+    
+    try {
+      console.log('Running detailed memory type analysis...');
+      const response = await fetch('/api/memory/debug-memory-types');
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log('Memory type analysis results:', data);
         
-        <div className="flex gap-2">
+        // Display results in debug panel
+        setDebugResult({
+          status: 'success',
+          message: `Found ${data.totalMemories} total memories across all collections`,
+          totalMessages: data.totalMemories,
+          suspectedReflectionCount: data.allMemories?.count || 0,
+          suspectedMessages: [] // Not using this field
+        });
+        
+        // Show the debug panel
+        setShowDebug(true);
+      } else {
+        console.error('Error checking memory types:', await response.text());
+        setDebugResult({
+          status: 'error',
+          message: 'Failed to analyze memory types',
+          totalMessages: 0,
+          suspectedReflectionCount: 0,
+          suspectedMessages: []
+        });
+      }
+    } catch (error) {
+      console.error('Error in memory type analysis:', error);
+      setDebugResult({
+        status: 'error',
+        message: error instanceof Error ? error.message : 'Unknown error',
+        totalMessages: 0,
+        suspectedReflectionCount: 0,
+        suspectedMessages: []
+      });
+    } finally {
+      setIsChecking(false);
+    }
+  };
+
+  return (
+    <div className="h-full overflow-y-auto">
+      <div className="flex justify-between items-center mb-4">
+        <h2 className="text-xl font-semibold">Memory ({filteredMemories?.length || 0} of {memoryCount})</h2>
+        <div className="flex space-x-2">
+          {/* Memory Type Analysis Button */}
           <button 
-            onClick={handleRefresh}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded-md flex items-center text-sm"
-            disabled={isLoadingMemories}
+            onClick={checkAllMemoryTypes}
+            className="p-1 hover:bg-gray-700 rounded-md"
+            title="Check All Memory Types"
           >
-            <RefreshCw className={`h-4 w-4 mr-1 ${isLoadingMemories ? 'animate-spin' : ''}`} /> 
-            Refresh
+            <AlertCircleIcon className="h-5 w-5 text-gray-300" />
           </button>
           
+          {/* Debug button */}
           <button 
-            onClick={checkIncorrectReflections}
-            className="bg-yellow-600 hover:bg-yellow-700 text-white px-3 py-1 rounded-md flex items-center text-sm"
-            disabled={isChecking}
+            onClick={handleDebugClick}
+            className="p-1 hover:bg-gray-700 rounded-md"
+            title="Debug Memory Information"
           >
-            <AlertCircleIcon className="h-4 w-4 mr-1" /> Check Reflections
+            <Bug className="h-5 w-5 text-gray-300" />
+          </button>
+
+          {/* Refresh button */}
+          <button 
+            onClick={handleRefresh}
+            className="p-1 hover:bg-gray-700 rounded-md flex items-center"
+            title="Refresh memories"
+            disabled={isLoadingMemories}
+          >
+            {isLoadingMemories ? (
+              <Loader2 className="h-5 w-5 text-blue-400 animate-spin" />
+            ) : (
+              <RefreshCw className="h-5 w-5 text-gray-300" />
+            )}
+          </button>
+          
+          {/* Settings/Debug button */}
+          <button 
+            onClick={() => setShowDebug(!showDebug)}
+            className={`p-1 hover:bg-gray-700 rounded-md ${showDebug ? 'bg-gray-700' : ''}`}
+            title={showDebug ? "Hide debug info" : "Show debug info"}
+          >
+            <Settings className={`h-5 w-5 ${showDebug ? 'text-blue-400' : 'text-gray-300'}`} />
           </button>
         </div>
       </div>
@@ -441,6 +476,18 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
         <Info className="h-4 w-4 mr-1" />
         <span>Total memories: {memoryCount}</span>
       </div>
+      
+      {/* Debug output */}
+      {showDebug && (
+        <div className="mb-4 p-3 bg-gray-900 rounded-md text-xs overflow-auto max-h-40">
+          <h3 className="text-sm font-bold mb-2">Raw Memory Data (First 3)</h3>
+          <pre className="text-gray-300">
+            {JSON.stringify(allMemories?.slice(0, 3), null, 2)}
+          </pre>
+          <p className="mt-2 text-gray-400">Total Raw Memory Count: {allMemories?.length || 0}</p>
+          <p className="text-gray-400">Filtered Memory Count: {filteredMemories?.length || 0}</p>
+        </div>
+      )}
       
       {/* Added filter controls */}
       <div className="mb-4 bg-gray-700 p-3 rounded-md">
@@ -619,13 +666,78 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
       ) : (
         <div className="space-y-4">
           {filteredMemories.map((memory, index) => (
-            <MemoryItemComponent
-              key={memory.id || index}
-              memory={memory}
-              onTagUpdate={handleTagUpdate}
-              onTagSuggestionRemove={handleTagRejection}
-            />
+            <div 
+              key={memory.id || index} 
+              className="relative"
+            >
+              <MemoryItemComponent
+                memory={memory}
+                onTagUpdate={handleTagUpdate}
+                onTagSuggestionRemove={handleTagRejection}
+              />
+              
+              {/* Add debug info button when debug mode is on */}
+              {showDebug && (
+                <div className="mt-1 text-xs text-gray-400 flex items-center">
+                  <div className="flex-1">
+                    <span className="mr-2">ID: {memory.id?.substring(0, 8)}</span>
+                    <span className="mr-2">Type: {memory.kind || memory.metadata?.type || memory.category || ('type' in memory ? memory.type as string : 'unknown')}</span>
+                    {memory.timestamp && <span>Date: {new Date(memory.timestamp).toLocaleString()}</span>}
+                  </div>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowRawMemory(JSON.stringify(memory));
+                    }}
+                    className="text-xs text-blue-400 hover:text-blue-300"
+                  >
+                    View Raw Data
+                  </button>
+                </div>
+              )}
+            </div>
           ))}
+        </div>
+      )}
+
+      {/* Display raw memory data in debug mode */}
+      {showDebug && showRawMemory && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-80 p-4">
+          <div className="bg-gray-800 rounded-lg p-4 max-w-4xl max-h-[90vh] overflow-auto w-full">
+            <div className="flex justify-between items-center mb-2">
+              <h3 className="text-lg font-semibold">Raw Memory Data</h3>
+              <button 
+                onClick={() => setShowRawMemory(null)}
+                className="text-gray-300 hover:text-white"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <pre className="text-xs text-gray-300 overflow-auto">
+              {JSON.stringify(JSON.parse(showRawMemory), null, 2)}
+            </pre>
+          </div>
+        </div>
+      )}
+
+      {/* Add debug information display */}
+      {showDebug && (
+        <div className="mt-4 p-4 bg-gray-800 border border-gray-600 rounded-md">
+          <h3 className="text-lg font-medium text-gray-200 mb-2">Debug Information</h3>
+          <p className="text-gray-300">Total Memories: {allMemories?.length || 0}</p>
+          <p className="text-gray-300">Filtered Memories: {filteredMemories?.length || 0}</p>
+          
+          <div className="mt-2">
+            <h4 className="text-md font-medium text-gray-300">Memory Type Distribution:</h4>
+            <div className="grid grid-cols-2 gap-1 mt-1">
+              {Object.entries(displayMemoryTypeCounts(allMemories)).map(([type, count]) => (
+                <div key={type} className="flex justify-between px-2 py-1 bg-gray-700 rounded">
+                  <span className="text-gray-300">{type}:</span>
+                  <span className="text-gray-300 font-mono">{count}</span>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       )}
     </div>

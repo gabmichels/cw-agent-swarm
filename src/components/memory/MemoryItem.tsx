@@ -69,10 +69,20 @@ const MemoryItem: React.FC<MemoryItemProps> = ({
   // Ensure we have a valid ID
   const memoryId = memory.id || `memory-${Date.now()}`;
 
+  // Get the memory type from all possible fields
+  const memoryType = useMemo(() => {
+    // Check all possible type fields in priority order
+    return memory.kind || 
+           memory.metadata?.type || 
+           memory.category || 
+           (memory as any).type || 
+           'unknown';
+  }, [memory]);
+
   // Create a current version object for reference
   const currentVersion: RelatedVersion = {
     id: memoryId,
-    type: memory.kind || memory.metadata?.type || 'unknown',
+    type: memoryType,
     timestamp: memory.created || memory.timestamp || new Date().toISOString(),
     text: memory.content
   };
@@ -97,12 +107,23 @@ const MemoryItem: React.FC<MemoryItemProps> = ({
     
     setIsLoadingHistory(true);
     try {
+      console.log(`Loading memory history for ${memoryId}`);
       const response = await fetch(`/api/memory/history?id=${memoryId}`);
       if (response.ok) {
         const data = await response.json();
-        setMemoryHistory(data);
+        console.log(`Received ${data.length} history items for memory ${memoryId}`);
+        
+        if (data.length > 0) {
+          // Sort by timestamp (oldest first)
+          data.sort((a: MemoryEditRecord, b: MemoryEditRecord) => 
+            new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+          );
+          setMemoryHistory(data);
+        } else {
+          console.log('No history items found');
+        }
       } else {
-        console.error('Failed to load memory history');
+        console.error('Failed to load memory history:', await response.text());
       }
     } catch (error) {
       console.error('Error loading memory history:', error);
@@ -127,9 +148,9 @@ const MemoryItem: React.FC<MemoryItemProps> = ({
         if (data && Array.isArray(data) && data.length > 0) {
           // Check if the response contains an error object
           if (data[0].metadata?.error) {
-            console.error('Server returned error:', data[0].text);
+            console.error('Server returned error:', data[0].content);
             return { 
-              content: `Error loading content: ${data[0].text}`,
+              content: `Error loading content: ${data[0].content}`,
               id: versionId,
               metadata: { error: true }
             };
@@ -163,162 +184,63 @@ const MemoryItem: React.FC<MemoryItemProps> = ({
     }
   };
 
-  // Preload content for all related versions
-  const preloadRelatedVersionsContent = useCallback(async () => {
-    // Only preload if we have versions without content
-    const versionsNeedingContent = relatedVersions.filter(v => !v.text && !v.content);
-    
-    if (versionsNeedingContent.length === 0) return;
-    
-    console.log(`Preloading content for ${versionsNeedingContent.length} related versions`);
-    
-    // Create a new array to avoid modifying the state directly during iteration
-    const updatedVersions = [...relatedVersions];
-    
-    // Load content for each version without showing loading state for better UX
-    for (const version of versionsNeedingContent) {
-      try {
-        const response = await fetch(`/api/memory/search?id=${version.id}`);
-        if (response.ok) {
-          const data = await response.json();
-          if (data && Array.isArray(data) && data.length > 0) {
-            // Find the index in our copy of the array
-            const versionIndex = updatedVersions.findIndex(v => v.id === version.id);
-            
-            if (versionIndex >= 0) {
-              const content = data[0].content || data[0].text || 'No content available';
-              updatedVersions[versionIndex] = {
-                ...updatedVersions[versionIndex],
-                text: content
-              };
-              console.log(`Preloaded content for version ${version.id}`);
-            }
-          } else {
-            console.warn(`No data returned for version ID: ${version.id} during preload`);
-          }
-        }
-      } catch (error) {
-        console.error(`Error preloading content for version ${version.id}:`, error);
-      }
-    }
-    
-    // Update all related versions at once (more React-friendly)
-    // This is a mutable update but only for preloading, not rendering directly
-    for (let i = 0; i < updatedVersions.length; i++) {
-      if (updatedVersions[i].text && !relatedVersions[i].text) {
-        relatedVersions[i].text = updatedVersions[i].text;
-      }
-    }
-  }, [relatedVersions]);
-
-  // The content to display (either current or selected version)
-  const displayContent = useMemo(() => {
-    if (selectedVersion) {
-      // If selected version has an error, display it with an error indicator
-      if (selectedVersion.error) {
-        return {
-          content: selectedVersion.text || selectedVersion.content || 'Error loading content',
-          isError: true
-        };
-      }
-      return {
-        content: selectedVersion.text || selectedVersion.content || 'No content available',
-        isError: false
-      };
-    }
-    // Default to current memory content
-    return {
-      content: memory.content,
-      isError: false
-    };
-  }, [selectedVersion, memory.content]);
-  
-  // Load memory history when expanding history section
-  useEffect(() => {
-    if (historyExpanded) {
-      if (memoryHistory.length === 0) {
-        loadMemoryHistory();
-      }
-      
-      // Pre-load related version content for better user experience
-      if (relatedVersions.length > 0) {
-        preloadRelatedVersionsContent();
-      }
-    }
-  }, [historyExpanded, memoryHistory.length, relatedVersions.length, loadMemoryHistory, preloadRelatedVersionsContent]);
-
-  // Handle selecting a different version to display
+  // Handle selecting a specific version
   const handleSelectVersion = async (version: RelatedVersion) => {
-    // If this is the version we're already showing, don't do anything
-    if (selectedVersion?.id === version.id) {
-      return;
-    }
-    
-    // If we already have the text, just select it
-    if (version.text || version.content) {
-      console.log('Using cached version content:', version);
-      setSelectedVersion(version);
-      return;
-    }
-    
-    console.log('Loading version content for:', version.id);
-    
-    // Otherwise, we need to fetch the content
     try {
-      const versionContent = await loadVersionContent(version.id);
+      // Don't reload if it's the same version
+      if (selectedVersion && selectedVersion.id === version.id) {
+        setSelectedVersion(null);
+        return;
+      }
       
-      if (versionContent) {
-        // Even if there's an error, we'll display it to the user
-        // Update the version with the content - handle both text and content properties
-        const updatedVersion: RelatedVersion = {
-          ...version,
-          text: versionContent.content || versionContent.text || 'No content available',
-          // Add error flag if the content represents an error
-          error: versionContent.metadata?.error || false
+      // Check if content is already loaded
+      if (version.text || version.content) {
+        setSelectedVersion(version);
+        return;
+      }
+      
+      // Load content if needed
+      console.log(`Loading content for version: ${version.id}`);
+      const versionData = await loadVersionContent(version.id);
+      
+      if (versionData) {
+        const formattedVersion: RelatedVersion = {
+          id: version.id,
+          type: version.type || versionData.type,
+          timestamp: version.timestamp || versionData.timestamp,
+          text: versionData.content, // Use the content field from the search result
+          error: versionData.metadata?.error
         };
         
-        console.log('Setting selected version to:', updatedVersion);
-        setSelectedVersion(updatedVersion);
-        
-        // Also update the text in the original relatedVersions array for future use
-        // Make a copy to avoid direct state mutation issues
-        const updatedRelatedVersions = [...relatedVersions];
-        const versionIndex = updatedRelatedVersions.findIndex(v => v.id === version.id);
-        
-        if (versionIndex >= 0) {
-          updatedRelatedVersions[versionIndex] = {
-            ...updatedRelatedVersions[versionIndex],
-            text: updatedVersion.text,
-            error: updatedVersion.error
-          };
-          
-          // Update the mutable array used for caching
-          relatedVersions[versionIndex].text = updatedVersion.text;
-          if (updatedVersion.error) {
-            relatedVersions[versionIndex].error = true;
-          }
-        }
+        setSelectedVersion(formattedVersion);
       } else {
-        // Handle null response - shouldn't happen with our improved loadVersionContent
-        console.error('Failed to load content for version (null response):', version.id);
-        setSelectedVersion({
-          ...version,
-          text: 'Failed to load content - please try again',
+        // Create error version if loading failed
+        const errorVersion: RelatedVersion = {
+          id: version.id,
+          type: version.type,
+          timestamp: version.timestamp,
+          text: 'Failed to load version content',
           error: true
-        });
+        };
+        
+        setSelectedVersion(errorVersion);
       }
     } catch (error) {
-      // Catch any unexpected errors during selection process
       console.error('Error selecting version:', error);
-      setSelectedVersion({
-        ...version,
-        text: `Error loading content: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      // Set error state
+      const errorVersion: RelatedVersion = {
+        id: version.id,
+        type: version.type,
+        timestamp: version.timestamp,
+        text: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
         error: true
-      });
+      };
+      
+      setSelectedVersion(errorVersion);
     }
   };
 
-  // Reset to the current version
+  // Reset to current version
   const resetToCurrentVersion = () => {
     setSelectedVersion(null);
   };
@@ -409,21 +331,66 @@ const MemoryItem: React.FC<MemoryItemProps> = ({
     return result;
   }, [memory.metadata]);
 
+  // Load memory history when expanding history section
+  useEffect(() => {
+    if (historyExpanded) {
+      if (memoryHistory.length === 0) {
+        loadMemoryHistory();
+      }
+    }
+  }, [historyExpanded, memoryHistory.length, loadMemoryHistory]);
+
+  // The content to display (either current or selected version)
+  const displayContent = useMemo(() => {
+    if (selectedVersion) {
+      // If selected version has an error, display it with an error indicator
+      if (selectedVersion.error) {
+        return {
+          content: selectedVersion.text || selectedVersion.content || 'Error loading content',
+          isError: true
+        };
+      }
+      return {
+        content: selectedVersion.text || selectedVersion.content || 'No content available',
+        isError: false
+      };
+    }
+    // Default to current memory content
+    return {
+      content: memory.content,
+      isError: false
+    };
+  }, [selectedVersion, memory.content]);
+
   return (
-    <div className="border border-gray-700 rounded-lg bg-gray-800 p-4 mb-4">
-      {/* Memory header */}
+    <div className={`bg-gray-800 p-4 rounded-lg shadow-md border ${expanded ? 'border-gray-600' : 'border-gray-700'}`}>
       <div className="flex justify-between items-start mb-2">
-        <div className="flex items-center">
-          {memory.category && (
-            <span className="mr-2 px-2 py-1 bg-blue-900 text-blue-100 rounded-md text-xs">
+        <div className="flex items-start gap-2 flex-wrap">
+          {/* Memory type badge */}
+          <span className={`px-2 py-1 text-xs rounded-md font-medium ${
+            memoryType.includes('thought') ? 'bg-purple-900 text-purple-200' :
+            memoryType.includes('message') ? 'bg-blue-900 text-blue-200' :
+            memoryType.includes('system') ? 'bg-green-900 text-green-200' :
+            memoryType.includes('document') ? 'bg-yellow-900 text-yellow-200' :
+            memoryType.includes('task') ? 'bg-red-900 text-red-200' :
+            'bg-gray-700 text-gray-300'
+          }`}>
+            {memoryType}
+          </span>
+          
+          {/* Additional type badges if they exist and are different */}
+          {memory.metadata?.type && memory.metadata.type !== memoryType && (
+            <span className="px-2 py-1 text-xs rounded-md font-medium bg-gray-700 text-gray-300">
+              {memory.metadata.type}
+            </span>
+          )}
+          {memory.category && memory.category !== memoryType && memory.category !== memory.metadata?.type && (
+            <span className="px-2 py-1 text-xs rounded-md font-medium bg-gray-700 text-gray-300">
               {memory.category}
             </span>
           )}
-          {(selectedVersion ? selectedVersion.type : memory.kind) && (
-            <span className="mr-2 px-2 py-1 bg-purple-900 text-purple-100 rounded-md text-xs">
-              {selectedVersion ? selectedVersion.type : memory.kind}
-            </span>
-          )}
+          
+          {/* Date information */}
           <span className="text-gray-400 text-xs flex items-center">
             <Calendar className="h-3 w-3 mr-1" /> 
             {selectedVersion ? formatHistoryDate(selectedVersion.timestamp) : formattedDate}
@@ -662,112 +629,84 @@ const MemoryItem: React.FC<MemoryItemProps> = ({
           
           {/* Memory history section */}
           <div className="mt-4 border-t border-gray-700 pt-3">
-            <button 
-              onClick={() => setHistoryExpanded(!historyExpanded)}
-              className="flex items-center justify-between w-full text-xs text-blue-400 hover:text-blue-300"
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setHistoryExpanded(!historyExpanded);
+              }}
+              className="flex items-center gap-2 text-blue-400 hover:text-blue-300 text-sm"
             >
-              <div className="flex items-center">
-                <Clock className="h-3 w-3 mr-1" /> 
-                <span>View Memory History</span>
-                {memory.metadata?.related_versions && (
-                  <span className="ml-2 px-1.5 py-0.5 bg-blue-900 text-blue-100 rounded-full text-xs">
-                    {(memory.metadata.related_versions as any[]).length + 1}
-                  </span>
-                )}
-              </div>
-              {historyExpanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+              <RotateCcw size={14} />
+              {historyExpanded ? 'Hide Version History' : 'Show Version History'}
             </button>
             
+            {/* Version history content */}
             {historyExpanded && (
-              <div className="mt-2">
-                {/* Check for related versions first */}
-                {relatedVersions.length > 0 && (
-                  <div className="bg-yellow-900/30 border border-yellow-800 rounded p-2 mb-2 text-xs">
-                    <div className="font-medium text-yellow-300 mb-1">Related Versions Found</div>
-                    <p className="text-gray-300 mb-2">
-                      This memory exists in multiple forms. The versions below may represent different instances of the same content:
-                    </p>
-                    <div className="space-y-1.5">
-                      {/* Current version (acts as a button to reset to current) */}
-                      <button 
-                        onClick={() => resetToCurrentVersion()}
-                        className={`w-full text-left bg-${selectedVersion ? 'gray-850 hover:bg-blue-900/20' : 'blue-900/30 border border-blue-800'} rounded p-1.5 flex justify-between transition-colors`}
-                      >
-                        <div className="flex items-center">
-                          <span className={`${selectedVersion ? 'text-gray-300' : 'text-blue-300 font-medium'}`}>
-                            Current ({currentVersion.type})
-                          </span>
-                        </div>
-                        <span className="text-gray-400">{formatHistoryDate(currentVersion.timestamp)}</span>
-                      </button>
-                      
-                      {/* Related versions - clickable */}
-                      {relatedVersions.map((version, idx) => (
-                        <button
-                          key={idx} 
-                          onClick={() => handleSelectVersion(version)}
-                          className={`w-full text-left ${selectedVersion?.id === version.id ? 'bg-blue-900/30 border border-blue-800' : 'bg-gray-850 hover:bg-blue-900/20'} rounded p-1.5 flex justify-between transition-colors`}
-                        >
-                          <div className="flex items-center">
-                            <span className={`${selectedVersion?.id === version.id ? 'text-blue-300 font-medium' : 'text-gray-300'}`}>
-                              {version.type}
-                            </span>
-                          </div>
-                          <span className="text-gray-400">
-                            {version.timestamp ? formatHistoryDate(version.timestamp) : 'Unknown date'}
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              
+              <div className="mt-2 text-sm">
                 {isLoadingHistory ? (
-                  <div className="flex justify-center p-4">
-                    <RefreshCw className="h-5 w-5 animate-spin text-blue-400" />
+                  <div className="flex items-center gap-2 text-gray-400">
+                    <RefreshCw size={14} className="animate-spin" />
+                    Loading history...
                   </div>
-                ) : memoryHistory.length > 0 ? (
-                  <div className="space-y-2 mt-2 max-h-96 overflow-y-auto">
-                    {memoryHistory.map((historyItem, index) => (
-                      <div key={index} className={`p-2 rounded text-xs ${historyItem.current ? 'bg-blue-900/30 border border-blue-800' : 'bg-gray-850'}`}>
-                        <div className="flex justify-between mb-1">
-                          <div className="flex items-center">
-                            <Edit className="h-3 w-3 mr-1 text-gray-400" />
-                            <span className={`font-medium ${historyItem.current ? 'text-blue-400' : 'text-gray-300'}`}>
-                              {historyItem.edit_type.charAt(0).toUpperCase() + historyItem.edit_type.slice(1)}
-                              {historyItem.current && " (Current)"}
-                            </span>
-                          </div>
-                          <div className="text-gray-400">
-                            {formatHistoryDate(historyItem.timestamp)}
-                          </div>
-                        </div>
-                        
-                        <div className="mb-1">
-                          <span className="text-gray-400">By: </span>
-                          <span className="text-gray-200">
-                            {historyItem.editor_type} {historyItem.editor_id ? `(${historyItem.editor_id})` : ''}
+                ) : memoryHistory.length === 0 ? (
+                  <div className="text-gray-400">No version history available</div>
+                ) : (
+                  <div className="space-y-2">
+                    {/* Current version */}
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          resetToCurrentVersion();
+                        }}
+                        className={`px-2 py-1 rounded text-xs ${
+                          selectedVersion === null 
+                            ? 'bg-blue-600 text-white' 
+                            : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                        }`}
+                      >
+                        Current Version
+                      </button>
+                      <span className="text-gray-400 text-xs">
+                        {formatHistoryDate(currentVersion.timestamp)}
+                      </span>
+                    </div>
+                    
+                    {/* Previous versions */}
+                    {memoryHistory.filter(v => !v.current).map((version) => (
+                      <div key={version.id} className="flex items-center gap-2">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleSelectVersion({
+                              id: version.id,
+                              type: version.type,
+                              timestamp: version.timestamp,
+                              text: version.text
+                            });
+                          }}
+                          className={`px-2 py-1 rounded text-xs ${
+                            selectedVersion?.id === version.id
+                              ? 'bg-blue-600 text-white'
+                              : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                          }`}
+                        >
+                          {version.edit_type === 'create' ? 'Original' : 
+                           version.edit_type === 'update' ? 'Edit' : 
+                           version.edit_type === 'delete' ? 'Deleted' : 'Version'}
+                        </button>
+                        <span className="text-gray-400 text-xs">
+                          {formatHistoryDate(version.timestamp)}
+                        </span>
+                        {version.diff_summary && (
+                          <span className="text-gray-500 text-xs italic">
+                            {version.diff_summary}
                           </span>
-                        </div>
-                        
-                        {historyItem.diff_summary && (
-                          <div className="mb-1">
-                            <span className="text-gray-400">Changes: </span>
-                            <span className="text-gray-200">{historyItem.diff_summary}</span>
-                          </div>
                         )}
-                        
-                        <div className="mt-1 pt-1 border-t border-gray-700">
-                          <div className="line-clamp-2 text-gray-300">{historyItem.text}</div>
-                        </div>
                       </div>
                     ))}
                   </div>
-                ) : !memory.metadata?.related_versions ? (
-                  <div className="text-center text-gray-400 text-xs p-3">
-                    No history found for this memory
-                  </div>
-                ) : null}
+                )}
               </div>
             )}
           </div>
