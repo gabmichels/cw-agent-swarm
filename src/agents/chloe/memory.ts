@@ -1,8 +1,11 @@
-// Remove CommonJS require and @ts-ignore
+/**
+ * Chloe Agent Memory System 
+ * 
+ * Integrated with the standardized memory system
+ */
+
+// Import server memory components
 import * as path from 'path';
-import { AgentMemory } from '../../lib/memory';
-// Use server-only Qdrant implementation
-import * as serverQdrant from '../../server/qdrant';
 import { 
   MemoryEntry as BaseMemoryEntry,
   MessageMemory,
@@ -12,7 +15,13 @@ import {
 } from '../../lib/shared/types/agentTypes';
 import { MemoryError } from '../../lib/errors/MemoryError';
 import { handleError } from '../../lib/errors/errorHandler';
-// Import new constants
+// Import memory system
+import { 
+  MemoryType as StandardMemoryType,
+  MemoryErrorCode 
+} from '../../server/memory/config';
+import { getMemoryServices } from '../../server/memory/services';
+// Import local types
 import { 
   MemoryType, 
   ImportanceLevel, 
@@ -27,18 +36,19 @@ import { redactSensitiveData, RedactionResult } from '../../lib/pii/redactor';
 // Define a custom memory type that includes 'insight' for this implementation
 export type ChloeMemoryType = string;
 
-// Define internal type for compatibility with serverQdrant
-type QdrantMemoryType = 'message' | 'thought' | 'document' | 'task';
-
 // Define pattern for detecting brand information
 const BRAND_PATTERN = /\b(brand|company|organization)\s+(mission|vision|values|identity|info|information)\b/i;
 
 export interface MemoryEntry extends Omit<BaseMemoryEntry, 'type'> {
   category: string;
+  source: MemorySource;
+  importance: ImportanceLevel;
+  created: Date;
   expiresAt?: Date;
   tags?: string[];
   type: ChloeMemoryType;
   updated?: Date;
+  timestamp?: Date;
   metadata?: {
     filePath?: string;
     title?: string;
@@ -74,17 +84,8 @@ export interface MemorySearchOptions {
   sortDirection?: 'asc' | 'desc';
 }
 
-// Define AgentMemory interface for external memory interactions
-export interface ExtendedAgentMemory extends AgentMemory {
-  searchSimilar?(query: string, limit: number): Promise<ExternalMemoryRecord[]>;
-  search?(query: string, limit: number): Promise<ExternalMemoryRecord[]>;
-  getStats?(): Promise<{ messageCount: number; [key: string]: any }>;
-}
-
 export interface ChloeMemoryOptions {
   agentId?: string;
-  useExternalMemory?: boolean;
-  externalMemory?: ExtendedAgentMemory;
   useOpenAI?: boolean;
 }
 
@@ -93,32 +94,21 @@ export interface ChloeMemoryOptions {
  */
 export class ChloeMemory {
   private agentId: string;
-  private useExternalMemory: boolean;
-  private externalMemory?: ExtendedAgentMemory;
   private initialized: boolean = false;
   private memoryStore: { entries: MemoryEntry[] } = { entries: [] }; // Add simple local memory store
   private rerankerService: RerankerService | null = null;
+  private memoryService: any;
+  private searchService: any;
 
   constructor(options?: ChloeMemoryOptions) {
     this.agentId = options?.agentId || 'chloe';
-    this.useExternalMemory = options?.useExternalMemory || false;
-    this.externalMemory = options?.externalMemory;
     
     // Initialize reranker service
     if (typeof window === 'undefined') {
       this.rerankerService = new RerankerService();
     }
     
-    // Server-side only initialization
-    if (typeof window === 'undefined') {
-      serverQdrant.initMemory({
-        useOpenAI: options?.useOpenAI || process.env.USE_OPENAI_EMBEDDINGS === 'true'
-      }).catch(error => {
-        console.error('Error initializing server-side Qdrant:', error);
-      });
-    }
-    
-    console.log('ChloeMemory initialized with server-side Qdrant backend');
+    console.log('ChloeMemory initialized with standardized memory system');
   }
 
   /**
@@ -130,13 +120,10 @@ export class ChloeMemory {
       
       // Server-side only initialization
       if (typeof window === 'undefined') {
-        // Initialize Qdrant memory through server module
-        await serverQdrant.initMemory();
-      }
-      
-      // Initialize external memory if needed
-      if (this.useExternalMemory && this.externalMemory) {
-        await this.externalMemory.initialize();
+        // Initialize memory services
+        const services = await getMemoryServices();
+        this.memoryService = services.memoryService;
+        this.searchService = services.searchService;
       }
       
       this.initialized = true;
@@ -156,7 +143,7 @@ export class ChloeMemory {
    */
   async addMemory(
     content: string,
-    type: string = 'MESSAGE',
+    type: string = 'message',
     importance: ImportanceLevel = ImportanceLevel.MEDIUM,
     source: MemorySource = MemorySource.AGENT,
     context?: string,
@@ -167,8 +154,6 @@ export class ChloeMemory {
       await this.initialize();
     }
     
-    const memoryId = `memory_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
-    
     // Apply PII redaction before processing
     const redactionResult = await redactSensitiveData(content);
     
@@ -178,6 +163,9 @@ export class ChloeMemory {
     // Create extended metadata with PII redaction information
     const extendedMetadata = {
       ...metadata || {},
+      importance: importance,
+      source: source,
+      tags: tags || [],
       pii_redacted: redactionResult.piiDetected,
       pii_types_detected: redactionResult.piiDetected ? redactionResult.detectedTypes : [],
       pii_redaction_count: redactionResult.redactionCount
@@ -192,78 +180,66 @@ export class ChloeMemory {
     
     // Only format if it's not already formatted
     if (!hasPrefix) {
-      const typeLabel = type.toString().toUpperCase();
-      formattedContent = `${typeLabel} [${timestamp}]: ${contentToStore}`;
-    } else {
-      console.log(`Memory already has format prefix, skipping formatting: ${contentToStore.substring(0, 50)}...`);
+      switch (type.toLowerCase()) {
+        case MemoryType.MESSAGE:
+          formattedContent = `MESSAGE [${timestamp}]: ${contentToStore}`;
+          break;
+        case MemoryType.THOUGHT:
+          formattedContent = `THOUGHT [${timestamp}]: ${contentToStore}`;
+          break;
+        case MemoryType.DOCUMENT:
+          formattedContent = `DOCUMENT [${timestamp}]: ${contentToStore}`;
+          break;
+        case MemoryType.TASK:
+          formattedContent = `TASK [${timestamp}]: ${contentToStore}`;
+          break;
+        default:
+          formattedContent = `${type.toUpperCase()} [${timestamp}]: ${contentToStore}`;
+      }
     }
     
-    const baseType = this.convertToBaseMemoryType(type);
+    // Normalize type to standard memory type
+    const standardType = this.convertToStandardMemoryType(type);
     
-    // Construct the memory entry
-    const memory: MemoryEntry = {
-      id: memoryId,
+    // Add memory to standardized memory system
+    const result = await this.memoryService.addMemory({
+      type: standardType,
       content: formattedContent,
-      created: new Date(),
-      updated: new Date(),
-      category: type.toString(),
-      type: type as ChloeMemoryType,
-      source,
-      importance,
-      context,
+      metadata: extendedMetadata
+    });
+    
+    if (!result.success) {
+      console.error('Failed to add memory:', result.error);
+      throw new Error(`Failed to add memory: ${result.error?.message}`);
+    }
+    
+    // Get the memory from the service
+    const memory = await this.memoryService.getMemory({
+      id: result.id,
+      type: standardType
+    });
+    
+    // Convert to MemoryEntry format
+    const memoryEntry: MemoryEntry = {
+      id: memory.id,
+      content: memory.payload.text,
+      category: metadata?.category || 'general',
+      type,
       tags: tags || [],
+      timestamp: new Date(timestamp),
+      source: source,
+      importance: importance,
+      created: new Date(timestamp),
       metadata: extendedMetadata
     };
     
-    try {
-      // Store in long-term memory if high importance or it's a persistent memory
-      if (this.externalMemory && (importance === ImportanceLevel.HIGH || source === MemorySource.EXTERNAL)) {
-        await this.storeInExternalMemory(memory);
-      }
-      
-      // Store in all memories for local access
-      this.memoryStore.entries.push(memory);
-      
-      // Add to appropriate category collections
-      this.categorizeMemory(memory);
-      
-      return memory;
-    } catch (error) {
-      handleError(MemoryError.storageFailed(
-        'Failed to store memory',
-        { agentId: this.agentId, memoryId },
-        error instanceof Error ? error : undefined
-      ));
-      
-      // Still return the memory object, even if storage failed
-      return memory;
-    }
-  }
-  
-  /**
-   * Store memory in external memory system
-   * This is a placeholder method that would be implemented to store important memories
-   */
-  private async storeInExternalMemory(memory: MemoryEntry): Promise<void> {
-    // Implementation would depend on the specific external memory system
-    if (this.externalMemory) {
-      try {
-        // Format memory for external storage
-        const formattedMemory = this.formatMemoryForExternal(memory);
-        
-        // Store in external memory
-        if (typeof this.externalMemory.addMemory === 'function') {
-          await this.externalMemory.addMemory(formattedMemory, {
-            importance: memory.importance,
-            tags: memory.tags,
-            metadata: memory.metadata
-          });
-        }
-      } catch (error) {
-        console.error('Error storing memory in external system:', error);
-        // Don't throw - we'll still keep the memory in local storage
-      }
-    }
+    // Also add to local memory store for redundancy
+    this.memoryStore.entries.push(memoryEntry);
+    
+    // Apply memory categorization for rich metadata
+    this.categorizeMemory(memoryEntry);
+    
+    return memoryEntry;
   }
   
   /**
@@ -294,25 +270,31 @@ export class ChloeMemory {
   }
 
   /**
-   * Convert ChloeMemoryType to a base MemoryType
-   * This is a helper method to ensure type compatibility
+   * Convert ChloeMemoryType to StandardMemoryType
    */
-  private convertToBaseMemoryType(type: ChloeMemoryType): string {
-    // If the type is already a base memory type, return it directly
-    if ([MemoryType.MESSAGE, MemoryType.THOUGHT, MemoryType.TASK, MemoryType.DOCUMENT].includes(type as any)) {
-      return type;
-    }
-    // Otherwise map to the closest base type
-    switch (type) {
-      case ChloeMemoryTypeEnum.INSIGHT:
-      case ChloeMemoryTypeEnum.PERFORMANCE_REVIEW:
-      case ChloeMemoryTypeEnum.PLAN:
-        return MemoryType.THOUGHT;
-      case ChloeMemoryTypeEnum.EXECUTION_RESULT:
-      case ChloeMemoryTypeEnum.SEARCH_RESULT:
-        return MemoryType.DOCUMENT;
+  private convertToStandardMemoryType(type: ChloeMemoryType): StandardMemoryType {
+    const lowerType = type.toLowerCase();
+    
+    switch (lowerType) {
+      case 'message':
+        return StandardMemoryType.MESSAGE;
+      case 'thought':
+        return StandardMemoryType.THOUGHT;
+      case 'document':
+        return StandardMemoryType.DOCUMENT;
+      case 'task':
+        return StandardMemoryType.TASK;
+      case 'tool_log':
+      case 'tool':
+        // Use the string type directly if it doesn't exist in enum
+        return "tool" as StandardMemoryType;
+      case 'memory_edit':
+        return "memory_edit" as StandardMemoryType;
+      case 'diagnostic':
+        return "diagnostic" as StandardMemoryType;
       default:
-        return MemoryType.MESSAGE;
+        // Default to document type for anything not directly supported
+        return StandardMemoryType.DOCUMENT;
     }
   }
 
@@ -357,38 +339,28 @@ export class ChloeMemory {
         ]
       };
       
-      // Use external memory if available
-      if (this.externalMemory) {
-        try {
-          // Create a combined search options object
-          const searchOptions: MemorySearchOptions = {
-            limit,
-            filter
-          };
-          
-          // searchMemory expects (type, options) in this implementation
-          const records = await this.externalMemory.searchMemory(
-            type,
-            searchOptions
-          );
-          
-          // Convert to memory entries - use type assertion with unknown to fix type mismatch
-          return this.convertRecordsToMemoryEntries(records as unknown as ExternalMemoryRecord[]);
-        } catch (error) {
-          console.error('Error retrieving memories from external memory:', error);
-        }
-      }
-      
-      // For server-side, use serverQdrant
-      if (typeof window === 'undefined') {
+      // For server-side, use standardized memory service
+      if (typeof window === 'undefined' && this.memoryService) {
         try {
           const typeStr = type.toString();
-          const results = await serverQdrant.getAllMemoriesByType(
-            typeStr as QdrantMemoryType
+          const standardType = this.convertToStandardMemoryType(type);
+          
+          const results = await this.memoryService.getMemories({
+            type: standardType,
+            filter: filter
+          });
+          
+          return this.convertRecordsToMemoryEntries(
+            results.map((mem: any) => ({
+              id: mem.id,
+              text: mem.payload.text,
+              timestamp: mem.payload.timestamp,
+              type: mem.payload.type,
+              metadata: mem.payload.metadata || {}
+            }))
           );
-          return this.convertRecordsToMemoryEntries(results);
         } catch (error) {
-          console.error('Error retrieving memories from serverQdrant:', error);
+          console.error('Error retrieving memories from standardized memory service:', error);
         }
       }
       
@@ -479,10 +451,10 @@ export class ChloeMemory {
       
       console.log('Retrieving high importance memories');
       
-      // Get memories with HIGH importance from Qdrant
+      // Get memories with HIGH importance from standardized memory system
       const highImportanceMemories: MemoryEntry[] = [];
       
-      if (this.useExternalMemory && this.externalMemory) {
+      if (typeof window === 'undefined' && this.memoryService) {
         const filter = {
           must: [
             {
@@ -494,28 +466,27 @@ export class ChloeMemory {
           ]
         };
         
-        if (typeof window === 'undefined') {
-          const results = await serverQdrant.searchMemory(
-            'thought' as QdrantMemoryType,
-            "",
-            { limit, filter }
-          );
-          
-          const memories = this.convertRecordsToMemoryEntries(results);
-          
-          // Double-check importance to ensure correct filtering
-          const filteredMemories = memories.filter(entry => String(entry.importance) === ImportanceLevel.HIGH);
-          
-          highImportanceMemories.push(...filteredMemories);
-        }
-      }
-      
-      // Fallback to external memory if available
-      if (this.useExternalMemory && this.externalMemory) {
-        if (this.externalMemory.search) {
-          const results = await this.externalMemory.search('importance: high', limit);
-          highImportanceMemories.push(...this.convertRecordsToMemoryEntries(results));
-        }
+        const standardType = this.convertToStandardMemoryType('thought');
+        
+        const results = await this.memoryService.getMemories({
+          type: standardType,
+          filter: filter
+        });
+        
+        const memories = this.convertRecordsToMemoryEntries(
+          results.map((mem: { id: any; payload: { text: any; timestamp: any; type: any; metadata: any; }; }) => ({
+            id: mem.id,
+            text: mem.payload.text,
+            timestamp: mem.payload.timestamp,
+            type: mem.payload.type,
+            metadata: mem.payload.metadata || {}
+          }))
+        );
+        
+        // Double-check importance to ensure correct filtering
+        const filteredMemories = memories.filter(entry => String(entry.importance) === ImportanceLevel.HIGH);
+        
+        highImportanceMemories.push(...filteredMemories);
       }
       
       // Fallback to in-memory implementation
@@ -538,155 +509,6 @@ export class ChloeMemory {
   }
 
   /**
-   * Get relevant memories for a query with tag-based prioritization
-   * @param query Search query
-   * @param limit Maximum number of results to return
-   * @param types Optional memory types to search
-   * @param contextTags Optional tags from current context to prioritize matching memories
-   * @param tagBoostFactor Optional factor to boost tag matches (default: 2)
-   */
-  async getRelevantMemories(
-    query: string,
-    limit: number = 5,
-    types?: string[],
-    contextTags?: string[],
-    tagBoostFactor: number = 2
-  ): Promise<MemoryEntry[]> {
-    if (!this.initialized) {
-      await this.initialize();
-    }
-
-    try {
-      // If specific types are requested, use them, otherwise use default types
-      const memoryTypes = types || [
-        MemoryType.MESSAGE, 
-        MemoryType.THOUGHT, 
-        MemoryType.DOCUMENT,
-        ChloeMemoryTypeEnum.STRATEGY,
-        ChloeMemoryTypeEnum.PERSONA,
-        ChloeMemoryTypeEnum.VISION,
-        ChloeMemoryTypeEnum.PROCESS,
-        ChloeMemoryTypeEnum.KNOWLEDGE
-      ];
-      
-      let allRelevantMemories: MemoryEntry[] = [];
-      
-      // Determine if we have context tags to prioritize
-      const hasContextTags = contextTags && contextTags.length > 0;
-        
-      // If we have context tags, increase the limit to ensure we get enough candidates
-      // to filter by tag relevance
-      const searchLimit = hasContextTags 
-        ? Math.max(limit * 2, 10) // Double the limit or at least 10
-        : limit;
-      
-      // Search for each memory type
-      for (const type of memoryTypes) {
-        let baseType: MemoryType;
-        let filter: Record<string, any> = {};
-        
-        // Determine if this is a base type or extended type
-        if (Object.values(MemoryType).includes(type as MemoryType)) {
-          baseType = type as MemoryType;
-        } else {
-          // For extended types, search in the document collection with metadata filter
-          baseType = MemoryType.DOCUMENT;
-          filter = { 
-            must: [
-              {
-                key: "type",
-                match: {
-                  value: type
-                }
-              }
-            ]
-          };
-        }
-        
-        // If we have context tags, we can include them in the filter to get better matches
-        // But we'll do our own post-processing to prioritize them
-        if (hasContextTags) {
-          // Use tags in filter only if tag-based search is specifically requested
-          // We'll do a separate prioritization step later
-          // Uncomment the next lines if you want direct tag filtering:
-          /*
-          // Add tags to filter, but don't require all (any match is good)
-          filter.tags = contextTags;
-          */
-        }
-        
-        // Perform the semantic search
-        if (typeof window === 'undefined') {
-          const records = await serverQdrant.searchMemory(
-            baseType as QdrantMemoryType, 
-            query, 
-            { 
-              limit: Math.ceil(searchLimit / memoryTypes.length),
-              filter
-            }
-          );
-        
-          // Convert to memory entries
-          const entries = this.convertRecordsToMemoryEntries(records);
-          allRelevantMemories = [...allRelevantMemories, ...entries];
-        }
-      }
-      
-      // If we have context tags, prioritize memories that have matching tags
-      if (hasContextTags) {
-        // Calculate a tag-match score for each memory
-        const scoredMemories = allRelevantMemories.map(memory => {
-          const memoryTags = memory.tags || [];
-          const tagMatches = memoryTags.filter(tag => 
-            contextTags!.includes(tag.toLowerCase())
-          ).length;
-          
-          // Calculate score: 1 + (matchCount * boost / max possible matches)
-          // This gives a balanced boost without overwhelming semantic matches
-          const tagBoost = tagMatches > 0 
-            ? 1 + (tagMatches * tagBoostFactor / contextTags!.length) 
-            : 1;
-            
-          return {
-            memory,
-            score: tagBoost,
-            tagMatches
-          };
-        });
-        
-        // Sort by score (highest first) and extract the memories
-        allRelevantMemories = scoredMemories
-          .sort((a, b) => {
-            // First sort by tag matches
-            if (b.tagMatches !== a.tagMatches) {
-              return b.tagMatches - a.tagMatches;
-            }
-            // Then by score for same tag match count
-            return b.score - a.score;
-          })
-          .map(item => item.memory);
-      }
-      
-      // Dynamically adjust limit based on tag matches if contextTags are provided
-      const effectiveLimit = hasContextTags 
-        ? Math.min(
-            // Return more results if we have good tag matches
-            allRelevantMemories.filter(m => 
-              m.tags?.some(tag => contextTags!.includes(tag.toLowerCase()))
-            ).length + Math.ceil(limit / 2),
-            limit * 2 // Don't exceed double the original limit
-          )
-        : limit;
-      
-      // Return the top N memories after tag-based prioritization
-      return allRelevantMemories.slice(0, effectiveLimit);
-    } catch (error) {
-      console.error('Error retrieving relevant memories:', error);
-      return [];
-    }
-  }
-
-  /**
    * Get the total number of messages in memory
    */
   async getMessageCount(): Promise<number> {
@@ -695,14 +517,16 @@ export class ChloeMemory {
         await this.initialize();
       }
       
-      // Use external memory if available
-      if (this.externalMemory && typeof this.externalMemory.getStats === 'function') {
+      // Use the standardized memory service to count messages
+      if (typeof window === 'undefined' && this.memoryService) {
         try {
-          const stats = await this.externalMemory.getStats();
-          return stats.messageCount || 0;
+          const stats = await this.memoryService.getStats({
+            type: StandardMemoryType.MESSAGE
+          });
+          return stats.count || 0;
         } catch (error) {
           handleError(MemoryError.retrievalFailed(
-            'Error getting stats from external memory',
+            'Error getting stats from memory service',
             { agentId: this.agentId },
             error instanceof Error ? error : undefined
           ));
@@ -767,21 +591,22 @@ export class ChloeMemory {
       
       let insights: MemoryEntry[] = [];
       
-      // Use server-side Qdrant
-      if (typeof window === 'undefined') {
-        const results = await serverQdrant.searchMemory(
-          null,
-          "",
-          { limit, filter }
+      // Use server-side memory service
+      if (typeof window === 'undefined' && this.searchService) {
+        const results = await this.searchService.search('', {
+          filter: filter,
+          limit: limit
+        });
+        
+        insights = this.convertRecordsToMemoryEntries(
+          results.map((item: { point: { id: any; payload: { text: any; timestamp: any; type: any; metadata: any; }; }; }) => ({
+            id: item.point.id,
+            text: item.point.payload.text,
+            timestamp: item.point.payload.timestamp,
+            type: item.point.payload.type,
+            metadata: item.point.payload.metadata || {}
+          }))
         );
-        insights = this.convertRecordsToMemoryEntries(results);
-      }
-      // Otherwise use external memory if available
-      else if (this.useExternalMemory && this.externalMemory) {
-        if (this.externalMemory.search) {
-          const results = await this.externalMemory.search('category:insight', limit);
-          insights = this.convertRecordsToMemoryEntries(results);
-        }
       }
       // Otherwise use in-memory store
       else {
@@ -857,10 +682,10 @@ export class ChloeMemory {
       const formattedMemories = relevantMemories.map(memory => {
         try {
           // Use safe property access as the memory shape might vary
-          const content = memory.content ? this.extractContentFromFormattedMemory(memory.content) : '';
-          const importance = memory.importance || 0;
-          const category = memory.category || '';
-          const created = memory.created || new Date();
+          const content = memory?.content ? this.extractContentFromFormattedMemory(memory.content) : '';
+          const importance = memory?.importance || 0;
+          const category = memory?.category || '';
+          const created = memory?.created || new Date();
           
           const importanceStr = importance ? `[Importance: ${importance}/10]` : '';
           const categoryStr = category ? `[${category}]` : '';
@@ -944,99 +769,157 @@ export class ChloeMemory {
   }
 
   /**
-   * Enhanced memory retrieval with reranking - get relevant memories with hybrid approach
-   * @param query User query to find relevant memories for
-   * @param candidateLimit Number of initial candidates to retrieve
-   * @param finalLimit Number of final results to return after reranking
-   * @param options Additional options like debug mode
-   * @returns Reranked relevant memory entries
+   * Get relevant memories for a query with tag-based prioritization
+   * @param query Search query
+   * @param limit Maximum number of results to return
+   * @param types Optional memory types to search
+   * @param contextTags Optional tags from current context to prioritize matching memories
+   * @param tagBoostFactor Optional factor to boost tag matches (default: 2)
    */
-  async getEnhancedRelevantMemories(
+  async getRelevantMemories(
     query: string,
-    candidateLimit: number = 15,
-    finalLimit: number = 5,
-    options: {
-      types?: string[];
-      debug?: boolean;
-      returnScores?: boolean;
-      confidenceThreshold?: number;
-      validateContent?: boolean;
-      requireConfidence?: boolean;
-    } = {}
-  ): Promise<{
-    entries: MemoryEntry[];
-    hasConfidence: boolean;
-    confidenceScore?: number;
-    contentValid?: boolean;
-    invalidReason?: string;
-  }> {
+    limit: number = 5,
+    types?: string[],
+    contextTags?: string[],
+    tagBoostFactor: number = 2
+  ): Promise<MemoryEntry[]> {
     if (!this.initialized) {
       await this.initialize();
     }
-    
+
     try {
-      // Step 1: Get a broader set of candidates using vector search
-      const candidates = await this.getRelevantMemories(
-        query,
-        candidateLimit,
-        options.types
-      );
+      // If specific types are requested, use them, otherwise use default types
+      const memoryTypes = types || [
+        MemoryType.MESSAGE, 
+        MemoryType.THOUGHT, 
+        MemoryType.DOCUMENT,
+        ChloeMemoryTypeEnum.STRATEGY,
+        ChloeMemoryTypeEnum.PERSONA,
+        ChloeMemoryTypeEnum.VISION,
+        ChloeMemoryTypeEnum.PROCESS,
+        ChloeMemoryTypeEnum.KNOWLEDGE
+      ];
       
-      // If we don't have the reranker or we have few candidates, return as is
-      if (!this.rerankerService) {
-        return {
-          entries: candidates.slice(0, finalLimit),
-          hasConfidence: false
-        };
-      }
+      let allRelevantMemories: MemoryEntry[] = [];
       
-      // Step 2: Rerank the candidates with confidence threshold and validation
-      const rerankedResult = await this.rerankerService.rerankWithConfidence(
-        query, 
-        candidates, 
-        {
-          debug: options.debug,
-          returnScores: options.returnScores || true,
-          confidenceThreshold: options.confidenceThreshold || 70,
-          validateContent: options.validateContent || true
+      // Determine if we have context tags to prioritize
+      const hasContextTags = contextTags && contextTags.length > 0;
+        
+      // If we have context tags, increase the limit to ensure we get enough candidates
+      // to filter by tag relevance
+      const searchLimit = hasContextTags 
+        ? Math.max(limit * 2, 10) // Double the limit or at least 10
+        : limit;
+      
+      // Search for each memory type
+      for (const type of memoryTypes) {
+        let baseType: MemoryType;
+        let filter: Record<string, any> = {};
+        
+        // Determine if this is a base type or extended type
+        if (Object.values(MemoryType).includes(type as MemoryType)) {
+          baseType = type as MemoryType;
+        } else {
+          // For extended types, search in the document collection with metadata filter
+          baseType = MemoryType.DOCUMENT;
+          filter = { 
+            must: [
+              {
+                key: "type",
+                match: {
+                  value: type
+                }
+              }
+            ]
+          };
         }
-      );
-      
-      // If caller requires confidence and it wasn't met, return empty results
-      if (options.requireConfidence === true && !rerankedResult.confidenceThresholdMet) {
-        return {
-          entries: [],
-          hasConfidence: false,
-          confidenceScore: rerankedResult.topScore
-        };
+        
+        // If we have context tags, we can include them in the filter to get better matches
+        if (hasContextTags) {
+          // Add a should clause for matching tags
+          filter.should = contextTags!.map(tag => ({
+            key: "metadata.tags",
+            match: {
+              value: tag.toLowerCase()
+            }
+          }));
+        }
+        
+        // Perform the semantic search using the standardized memory system
+        if (typeof window === 'undefined' && this.searchService) {
+          const standardType = this.convertToStandardMemoryType(baseType);
+          
+          const results = await this.searchService.search(query, {
+            types: [standardType],
+            filter: filter,
+            limit: Math.ceil(searchLimit / memoryTypes.length)
+          });
+          
+          // Convert to memory entries
+          const entries = this.convertRecordsToMemoryEntries(
+            results.map((item: { point: { id: any; payload: { text: any; timestamp: any; type: any; metadata: any; }; }; }) => ({
+              id: item.point.id,
+              text: item.point.payload.text,
+              timestamp: item.point.payload.timestamp,
+              type: item.point.payload.type,
+              metadata: item.point.payload.metadata || {}
+            }))
+          );
+          allRelevantMemories = [...allRelevantMemories, ...entries];
+        }
       }
       
-      // Extract validation result if available
-      let contentValid: boolean | undefined;
-      let invalidReason: string | undefined;
-      
-      if (rerankedResult.validationResult) {
-        contentValid = rerankedResult.validationResult.isValid;
-        invalidReason = rerankedResult.validationResult.reason;
+      // If we have context tags, prioritize memories that have matching tags
+      if (hasContextTags) {
+        // Calculate a tag-match score for each memory
+        const scoredMemories = allRelevantMemories.map(memory => {
+          const memoryTags = memory.tags || [];
+          const tagMatches = memoryTags.filter(tag => 
+            contextTags!.includes(tag.toLowerCase())
+          ).length;
+          
+          // Calculate score: 1 + (matchCount * boost / max possible matches)
+          // This gives a balanced boost without overwhelming semantic matches
+          const tagBoost = tagMatches > 0 
+            ? 1 + (tagMatches * tagBoostFactor / contextTags!.length) 
+            : 1;
+            
+          return {
+            memory,
+            score: tagBoost,
+            tagMatches
+          };
+        });
+        
+        // Sort by score (highest first) and extract the memories
+        allRelevantMemories = scoredMemories
+          .sort((a, b) => {
+            // First sort by tag matches
+            if (b.tagMatches !== a.tagMatches) {
+              return b.tagMatches - a.tagMatches;
+            }
+            // Then by score for same tag match count
+            return b.score - a.score;
+          })
+          .map(item => item.memory);
       }
       
-      // Return the top results with confidence information
-      return {
-        entries: rerankedResult.entries.slice(0, finalLimit),
-        hasConfidence: rerankedResult.confidenceThresholdMet,
-        confidenceScore: rerankedResult.topScore,
-        contentValid,
-        invalidReason
-      };
+      // Dynamically adjust limit based on tag matches if contextTags are provided
+      const effectiveLimit = hasContextTags 
+        ? Math.min(
+            // Return more results if we have good tag matches
+            allRelevantMemories.filter(m => 
+              m.tags?.some(tag => contextTags!.includes(tag.toLowerCase()))
+            ).length + Math.ceil(limit / 2),
+            limit * 2 // Don't exceed double the original limit
+          )
+        : limit;
+      
+      // Return the top N memories after tag-based prioritization
+      return allRelevantMemories.slice(0, effectiveLimit);
     } catch (error) {
-      console.error('Error in enhanced memory retrieval:', error);
-      
-      // Fallback to regular retrieval if reranking fails
-      const fallbackResults = await this.getRelevantMemories(query, finalLimit, options.types);
-      return {
-        entries: fallbackResults,
-        hasConfidence: false
-      };
+      console.error('Error retrieving relevant memories:', error);
+      return [];
     }
   }
 
@@ -1259,13 +1142,24 @@ export class ChloeMemory {
           ]
         };
         
-        if (typeof window === 'undefined') {
-          const results = await serverQdrant.searchMemory(
-            MemoryType.MESSAGE as QdrantMemoryType,
-            "",
-            { limit: 10, filter }
+        if (typeof window === 'undefined' && this.searchService) {
+          const standardType = this.convertToStandardMemoryType(MemoryType.MESSAGE);
+          
+          const results = await this.searchService.search('', {
+            types: [standardType],
+            filter: filter,
+            limit: 10
+          });
+          
+          messagesForAnalysis = this.convertRecordsToMemoryEntries(
+            results.map((item: { point: { id: any; payload: { text: any; timestamp: any; type: any; metadata: any; }; }; }) => ({
+              id: item.point.id,
+              text: item.point.payload.text,
+              timestamp: item.point.payload.timestamp,
+              type: item.point.payload.type,
+              metadata: item.point.payload.metadata || {}
+            }))
           );
-          messagesForAnalysis = this.convertRecordsToMemoryEntries(results);
         }
       }
       

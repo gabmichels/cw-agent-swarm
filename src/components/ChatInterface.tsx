@@ -152,9 +152,9 @@ export default function ChatInterface() {
       // Add error message to memory
       const errorMessage: Message = {
         sender: 'Assistant',
-        content: 'Sorry, I encountered an error processing your request. Please try again.',
-        timestamp: new Date(),
-        messageType: MessageType.AGENT,
+          content: 'Sorry, I encountered an error processing your request. Please try again.',
+          timestamp: new Date(),
+          messageType: MessageType.AGENT,
       };
       
       await addChatMessage(errorMessage);

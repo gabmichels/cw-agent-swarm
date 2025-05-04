@@ -1,9 +1,14 @@
 /**
  * Constants related to memory types and categories
+ * 
+ * Note: These enums are meant for backwards compatibility with the agent code.
+ * Most new code should import from server/memory/config directly.
  */
 
+import { MemoryType as StandardMemoryType } from '../server/memory/config';
+
 /**
- * Base memory types
+ * Base memory types - aligned with standard memory types
  */
 export enum MemoryType {
   MESSAGE = 'message',
@@ -17,10 +22,10 @@ export enum MemoryType {
  */
 export enum ChloeMemoryType {
   // Base types
-  MESSAGE = 'message',
-  THOUGHT = 'thought',
-  DOCUMENT = 'document',
-  TASK = 'task',
+  MESSAGE = StandardMemoryType.MESSAGE,
+  THOUGHT = StandardMemoryType.THOUGHT,
+  DOCUMENT = StandardMemoryType.DOCUMENT,
+  TASK = StandardMemoryType.TASK,
   
   // Extended types
   INSIGHT = 'insight',
@@ -40,7 +45,7 @@ export enum ChloeMemoryType {
   
   // System types
   SYSTEM = 'system',
-  TOOL_LOG = 'tool_log',
+  TOOL_LOG = 'tool',
   MEMORY_LOG = 'memory_log'
 }
 

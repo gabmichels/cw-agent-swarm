@@ -3,6 +3,7 @@ import { Tag, Info, Calendar, Clock, ChevronDown, ChevronUp, Edit, RefreshCw, Ro
 import SuggestedTagsApproval from '../tags/SuggestedTagsApproval';
 import { MemoryType } from '../../server/memory/config';
 import { BaseMemorySchema, MemoryPoint } from '../../server/memory/models';
+import useMemory from '../../hooks/useMemory';
 
 // Define memory edit record type to match the new standardized schema
 interface MemoryEditSchema extends BaseMemorySchema {
@@ -50,6 +51,9 @@ const MemoryItem: React.FC<MemoryItemProps> = ({
   onTagUpdate,
   onTagSuggestionRemove
 }) => {
+  // Use memory hook for version history
+  const { getMemory } = useMemory();
+  
   const [expanded, setExpanded] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(true);
   const [historyExpanded, setHistoryExpanded] = useState(false);
@@ -142,36 +146,20 @@ const MemoryItem: React.FC<MemoryItemProps> = ({
     
     setIsLoadingVersion(true);
     try {
-      // Use the new direct API endpoint to get the memory by ID
-      const response = await fetch(`/api/memory/${versionId}`);
-      if (response.ok) {
-        const data = await response.json();
-        console.log('Loaded version data:', data);
-        
-        // Check if we got a valid response with data
-        if (data && data.id === versionId) {
-          return data;
-        } else {
-          console.warn(`No data returned for version ID: ${versionId}`);
-          return { 
-            id: versionId,
-            payload: {
-              text: 'Content not available for this version',
-              timestamp: new Date().toISOString(),
-              type: 'unknown',
-              metadata: { notFound: true }
-            }
-          };
-        }
+      // Use the standardized memory hook to get the memory by ID
+      const memoryData = await getMemory(versionId);
+      
+      if (memoryData && memoryData.id === versionId) {
+        return memoryData;
       } else {
-        console.error('Failed to load version content, status:', response.status);
+        console.warn(`No data returned for version ID: ${versionId}`);
         return { 
           id: versionId,
           payload: {
-            text: `Failed to load content (status: ${response.status})`,
+            text: 'Content not available for this version',
             timestamp: new Date().toISOString(),
-            type: 'error',
-            metadata: { error: true, status: response.status }
+            type: 'unknown',
+            metadata: { notFound: true }
           }
         };
       }
@@ -200,518 +188,349 @@ const MemoryItem: React.FC<MemoryItemProps> = ({
         return;
       }
       
-      // Check if content is already loaded
-      if (version.text || version.content) {
-        setSelectedVersion(version);
+      // If it's the current version, just select it
+      if (version.id === memoryId) {
+        setSelectedVersion(currentVersion);
         return;
       }
       
-      // Load content if needed
-      console.log(`Loading content for version: ${version.id}`);
+      // Load the version data from the API
       const versionData = await loadVersionContent(version.id);
       
       if (versionData) {
-        const formattedVersion: RelatedVersion = {
-          id: version.id,
-          type: versionData.payload?.type || version.type,
-          timestamp: versionData.payload?.timestamp || version.timestamp,
-          text: versionData.payload?.text, // Use the text field from the payload
+        // Create a RelatedVersion object from the memory data
+        const loadedVersion: RelatedVersion = {
+          id: versionData.id,
+          type: versionData.payload?.type || 'unknown',
+          timestamp: versionData.payload?.timestamp || new Date().toISOString(),
+          text: versionData.payload?.text,
           error: versionData.payload?.metadata?.error
         };
         
-        setSelectedVersion(formattedVersion);
+        setSelectedVersion(loadedVersion);
       } else {
-        // Create error version if loading failed
-        const errorVersion: RelatedVersion = {
-          id: version.id,
-          type: version.type,
-          timestamp: version.timestamp,
-          text: 'Failed to load version content',
-          error: true
-        };
-        
-        setSelectedVersion(errorVersion);
+        console.error('Failed to load version data');
+        setSelectedVersion({
+          ...version,
+          error: true,
+          text: 'Failed to load version data'
+        });
       }
     } catch (error) {
       console.error('Error selecting version:', error);
-      // Set error state
-      const errorVersion: RelatedVersion = {
-        id: version.id,
-        type: version.type,
-        timestamp: version.timestamp,
-        text: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        error: true
-      };
-      
-      setSelectedVersion(errorVersion);
+      setSelectedVersion({
+        ...version,
+        error: true,
+        text: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`
+      });
     }
   };
 
-  // Reset to current version
   const resetToCurrentVersion = () => {
     setSelectedVersion(null);
   };
 
-  // Handle tag approval
   const handleTagApproval = (memoryId: string, approvedTags: string[]) => {
-    // Combine manually added tags with approved tags
-    const updatedTags = [...manualTags, ...approvedTags];
+    // Call the parent's onTagUpdate function
+    onTagUpdate(memoryId, approvedTags);
     
-    // Update tags via parent component
-    onTagUpdate(memoryId, updatedTags);
-    
-    // Hide the suggestions UI
+    // Hide the suggestions after approval
     setShowSuggestions(false);
   };
-  
-  // Handle tag suggestion rejection
+
   const handleTagRejection = (memoryId: string) => {
+    // Call the parent's onTagSuggestionRemove function
     onTagSuggestionRemove(memoryId);
+    
+    // Hide the suggestions after rejection
     setShowSuggestions(false);
   };
-  
-  // Format the created date
-  const formattedDate = memory.payload?.timestamp 
-    ? new Date(memory.payload.timestamp).toLocaleString()
-    : 'Unknown date';
 
-  // Group metadata by categories for better organization
-  const groupedMetadata = React.useMemo(() => {
-    if (!memory.payload?.metadata) return {};
-
-    // Define metadata categories
-    const groups = {
-      importance: ['importance', 'importance_score'],
-      tags: ['tagsApproved', 'tagConfidence', 'extractedTags'],
-      timestamps: ['timestamp', 'created_at', 'updated_at', 'last_updated'],
-      content: ['type', 'source', 'role', 'messageType'],
-      usage: ['usage_count', 'last_used', 'reinforced', 'last_reinforced_at'],
-      status: ['is_deleted', 'current', 'deletion_timestamp'],
-      relations: ['previous_version_id', 'led_to', 'caused_by', 'related_versions'],
-      editor: ['editor_type', 'editor_id'],
-      other: [] as string[]
-    };
-
-    // Map for categorizing metadata keys
-    const keyToGroup: Record<string, keyof typeof groups> = {};
+  // Format timestamp to a friendly format
+  const formattedTimestamp = useMemo(() => {
+    if (!memory.payload?.timestamp) return 'Unknown date';
     
-    // Initialize keyToGroup mapping
-    Object.entries(groups).forEach(([groupName, keys]) => {
-      keys.forEach(key => {
-        keyToGroup[key] = groupName as keyof typeof groups;
-      });
-    });
+    try {
+      const date = new Date(memory.payload.timestamp);
+      return date.toLocaleString();
+    } catch (e) {
+      return 'Invalid date';
+    }
+  }, [memory.payload?.timestamp]);
 
-    // Group metadata by category
-    const result: Record<string, Record<string, any>> = {
-      importance: {},
-      tags: {},
-      timestamps: {},
-      content: {},
-      usage: {},
-      status: {},
-      relations: {},
-      editor: {},
-      other: {}
-    };
+  // Format memory type for display
+  const formattedType = useMemo(() => {
+    return memoryType.replace(/_/g, ' ').toLowerCase();
+  }, [memoryType]);
 
-    // Skip these keys from display
-    const skippedKeys = ['autoGeneratedTags', 'suggestedTags', '_skip_logging'];
+  // Toggle expanded state
+  const toggleExpanded = () => setExpanded(!expanded);
 
-    Object.entries(memory.payload?.metadata).forEach(([key, value]) => {
-      if (skippedKeys.includes(key)) return;
-      
-      // Determine which group this key belongs to
-      const group = keyToGroup[key] || 'other';
-      
-      // Add to the appropriate group
-      result[group][key] = value;
-      
-      // If we didn't have a predefined group, remember this key for 'other' category
-      if (group === 'other' && !groups.other.includes(key)) {
-        groups.other.push(key);
-      }
-    });
-
-    return result;
-  }, [memory.payload?.metadata]);
-
-  // Load memory history when expanding history section
+  // Load history when history is expanded
   useEffect(() => {
-    if (historyExpanded) {
-      if (memoryHistory.length === 0) {
-        loadMemoryHistory();
-      }
+    if (historyExpanded && memoryHistory.length === 0) {
+      loadMemoryHistory();
     }
   }, [historyExpanded, memoryHistory.length, loadMemoryHistory]);
 
-  // The content to display (either current or selected version)
-  const displayContent = useMemo(() => {
-    if (selectedVersion) {
-      // If selected version has an error, display it with an error indicator
-      if (selectedVersion.error) {
-        return {
-          content: selectedVersion.text || selectedVersion.content || 'Error loading content',
-          isError: true
-        };
-      }
-      return {
-        content: selectedVersion.text || selectedVersion.content || 'No content available',
-        isError: false
-      };
-    }
-    // Default to current memory content
-    return {
-      content: memory.payload?.text,
-      isError: false
+  // Determine CSS classes based on memory type
+  const getTypeClasses = (type: string): string => {
+    const baseClasses = "text-xs font-medium px-2 py-0.5 rounded-full";
+    
+    // Create a mapping of memory types to CSS classes
+    const typeMap: Record<string, string> = {
+      // Use enum values safely with indexing
+      [MemoryType.MESSAGE as string]: "bg-blue-100 text-blue-800",
+      // Map standard and legacy memory types to CSS classes
+      "message": "bg-blue-100 text-blue-800",
+      "reflection": "bg-purple-100 text-purple-800",
+      "task": "bg-green-100 text-green-800",
+      "insight": "bg-amber-100 text-amber-800",
+      "plan": "bg-indigo-100 text-indigo-800",
+      "memory_edit": "bg-gray-100 text-gray-800",
+      "fact": "bg-red-100 text-red-800",
+      "knowledge": "bg-teal-100 text-teal-800",
+      "system_learning": "bg-cyan-100 text-cyan-800",
+      "decision": "bg-orange-100 text-orange-800",
+      "feedback": "bg-rose-100 text-rose-800",
+      "unknown": "bg-gray-100 text-gray-800",
+      "chat": "bg-blue-100 text-blue-800",
+      "idea": "bg-green-100 text-green-800",
+      "summary": "bg-yellow-100 text-yellow-800"
     };
-  }, [selectedVersion, memory.payload?.text]);
+
+    return `${baseClasses} ${typeMap[type] || "bg-gray-100 text-gray-800"}`;
+  };
 
   return (
-    <div className={`bg-gray-800 p-4 rounded-lg shadow-md border ${expanded ? 'border-gray-600' : 'border-gray-700'}`}>
-      <div className="flex justify-between items-start mb-2">
-        <div className="flex items-start gap-2 flex-wrap">
-          {/* Memory type badge */}
-          <span className={`px-2 py-1 text-xs rounded-md font-medium ${
-            memoryType.includes('thought') ? 'bg-purple-900 text-purple-200' :
-            memoryType.includes('message') ? 'bg-blue-900 text-blue-200' :
-            memoryType.includes('system') ? 'bg-green-900 text-green-200' :
-            memoryType.includes('document') ? 'bg-yellow-900 text-yellow-200' :
-            memoryType.includes('task') ? 'bg-red-900 text-red-200' :
-            'bg-gray-700 text-gray-300'
-          }`}>
-            {memoryType}
-          </span>
+    <div className="rounded-lg shadow bg-white">
+      {/* Memory Header */}
+      <div 
+        className="p-3 flex justify-between items-start cursor-pointer"
+        onClick={toggleExpanded}
+      >
+        <div className="space-y-1 flex-1">
+          {/* Memory Type Badge */}
+          <div className="flex items-center space-x-2">
+            <div className={getTypeClasses(memoryType)}>
+              {formattedType}
+            </div>
+            
+            {/* Memory ID */}
+            <div className="text-xs text-gray-500">
+              ID: {memoryId.substring(0, 8)}...
+            </div>
+            
+            {/* Memory Timestamp */}
+            <div className="text-xs text-gray-500 flex items-center space-x-1">
+              <Clock className="h-3 w-3" />
+              <span>{formattedTimestamp}</span>
+            </div>
+          </div>
           
-          {/* Additional type badges if they exist and are different */}
-          {memory.payload?.metadata?.type && memory.payload.metadata.type !== memoryType && (
-            <span className="px-2 py-1 text-xs rounded-md font-medium bg-gray-700 text-gray-300">
-              {memory.payload.metadata.type}
-            </span>
-          )}
-          {memory.payload?.metadata?.category && 
-            memory.payload.metadata.category !== memoryType && 
-            memory.payload.metadata.category !== memory.payload?.metadata?.type && (
-            <span className="px-2 py-1 text-xs rounded-md font-medium bg-gray-700 text-gray-300">
-              {memory.payload.metadata.category}
-            </span>
-          )}
-          
-          {/* Date information */}
-          <span className="text-gray-400 text-xs flex items-center">
-            <Calendar className="h-3 w-3 mr-1" /> 
-            {selectedVersion ? formatHistoryDate(selectedVersion.timestamp) : formattedDate}
-          </span>
-          
-          {/* Show older version indicator if a non-current version is selected */}
-          {selectedVersion && (
-            <span className="ml-2 px-2 py-0.5 bg-orange-800 text-orange-100 rounded text-xs font-medium">
-              OLDER VERSION
-            </span>
-          )}
+          {/* Memory Content Preview (truncated) */}
+          <p className="text-sm text-gray-700 line-clamp-3">
+            {memory.payload?.text || 'No content'}
+          </p>
         </div>
         
-        <div className="flex items-center gap-2">
-          {/* Reset button when viewing an older version */}
-          {selectedVersion && (
-            <button
-              onClick={resetToCurrentVersion}
-              className="text-blue-400 text-xs hover:text-blue-300 flex items-center"
-            >
-              <RotateCcw className="h-3 w-3 mr-1" /> Current
-            </button>
+        {/* Expand/Collapse Button */}
+        <div className="ml-2">
+          {expanded ? (
+            <ChevronUp className="h-5 w-5 text-gray-400" />
+          ) : (
+            <ChevronDown className="h-5 w-5 text-gray-400" />
+          )}
+        </div>
+      </div>
+      
+      {/* Memory Expanded Content */}
+      {expanded && (
+        <div className="p-3 border-t border-gray-100">
+          {/* Full Memory Content */}
+          <div className="whitespace-pre-wrap text-gray-800 mb-4">
+            {memory.payload?.text || 'No content'}
+          </div>
+          
+          {/* Tags Section */}
+          <div className="mb-4">
+            <div className="flex items-center mb-1">
+              <Tag className="h-4 w-4 text-gray-500 mr-1" />
+              <span className="text-sm font-medium text-gray-700">Tags</span>
+            </div>
+            
+            {/* Display manual tags */}
+            <div className="flex flex-wrap gap-1 mb-2">
+              {manualTags.length > 0 ? (
+                manualTags.map((tag, index) => (
+                  <span key={index} className="bg-gray-100 text-gray-800 text-xs px-2.5 py-0.5 rounded-full">
+                    {tag}
+                  </span>
+                ))
+              ) : (
+                <span className="text-xs text-gray-500 italic">No tags</span>
+              )}
+            </div>
+            
+            {/* Show suggested tags approval if there are suggested tags and suggestions are visible */}
+            {hasAutoGeneratedTags && suggestedTags.length > 0 && showSuggestions && (
+              <SuggestedTagsApproval
+                memoryId={memoryId}
+                suggestedTags={suggestedTags}
+                existingTags={manualTags}
+                onApprove={handleTagApproval}
+                onReject={() => handleTagRejection(memoryId)}
+              />
+            )}
+          </div>
+          
+          {/* Memory Metadata */}
+          {memory.payload?.metadata && Object.keys(memory.payload.metadata).length > 0 && (
+            <div className="mb-4">
+              <div className="flex items-center mb-1">
+                <Info className="h-4 w-4 text-gray-500 mr-1" />
+                <span className="text-sm font-medium text-gray-700">Metadata</span>
+              </div>
+              
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                {Object.entries(memory.payload.metadata)
+                  .filter(([key]) => !['suggestedTags', 'tags', 'related_versions'].includes(key))
+                  .map(([key, value]) => (
+                    <div key={key} className="flex">
+                      <div className="font-medium text-gray-600 mr-1">{key}:</div>
+                      <div className="text-gray-800">
+                        {typeof value === 'object' 
+                          ? JSON.stringify(value).substring(0, 50) 
+                          : String(value).substring(0, 50)}
+                      </div>
+                    </div>
+                  ))
+                }
+              </div>
+            </div>
           )}
           
-          <button
-            onClick={() => setExpanded(!expanded)}
-            className="text-blue-400 text-sm hover:underline flex items-center"
-          >
-            {expanded ? 'Show Less' : 'Show More'}
-            {expanded ? <ChevronUp className="h-3 w-3 ml-1" /> : <ChevronDown className="h-3 w-3 ml-1" />}
-          </button>
-        </div>
-      </div>
-      
-      {/* Memory content */}
-      <div className={`mb-3 ${expanded ? '' : 'line-clamp-3'}`}>
-        {isLoadingVersion ? (
-          <div className="flex justify-center items-center p-4">
-            <RefreshCw className="h-4 w-4 animate-spin text-blue-400 mr-2" />
-            <span className="text-sm text-gray-400">Loading version...</span>
-          </div>
-        ) : displayContent.isError ? (
-          <div className="p-2 bg-red-950/30 border border-red-900 rounded">
-            <p className="text-sm text-red-300">{displayContent.content}</p>
-          </div>
-        ) : (
-          <p className="text-sm">{displayContent.content}</p>
-        )}
-      </div>
-      
-      {/* Display existing tags */}
-      {manualTags.length > 0 && !selectedVersion && (
-        <div className="mb-3">
-          <div className="flex items-center text-xs text-gray-400 mb-1">
-            <Tag className="h-3 w-3 mr-1" /> Tags:
-          </div>
-          <div className="flex flex-wrap gap-1">
-            {manualTags.map((tag, index) => (
-              <span
-                key={`${tag}-${index}`}
-                className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-700 text-gray-200"
-              >
-                {tag}
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
-      
-      {/* Display suggested tags for approval if they exist */}
-      {hasAutoGeneratedTags && suggestedTags.length > 0 && showSuggestions && !selectedVersion && (
-        <SuggestedTagsApproval
-          memoryId={memoryId}
-          suggestedTags={suggestedTags}
-          existingTags={manualTags}
-          onApprove={handleTagApproval}
-          onReject={handleTagRejection}
-        />
-      )}
-      
-      {/* Metadata section (only when expanded) */}
-      {expanded && memory.payload?.metadata && Object.keys(memory.payload?.metadata).length > 0 && (
-        <div className="mt-3 border-t border-gray-700 pt-2">
-          <div className="flex items-center text-xs text-gray-400 mb-2">
-            <Info className="h-3 w-3 mr-1" /> Metadata:
-          </div>
-          
-          <div className="space-y-3">
-            {/* Importance info */}
-            {Object.keys(groupedMetadata.importance).length > 0 && (
-              <div className="bg-gray-850 rounded p-2">
-                <h4 className="text-xs font-semibold text-gray-300 mb-1">Importance</h4>
-                <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-                  {Object.entries(groupedMetadata.importance).map(([key, value]) => (
-                    <div key={key} className="text-xs">
-                      <span className="text-gray-400">{key}: </span>
-                      <span className="text-gray-200">
-                        {typeof value === 'number' ? value.toFixed(2) : String(value)}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-            
-            {/* Content info */}
-            {Object.keys(groupedMetadata.content).length > 0 && (
-              <div className="bg-gray-850 rounded p-2">
-                <h4 className="text-xs font-semibold text-gray-300 mb-1">Content</h4>
-                <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-                  {Object.entries(groupedMetadata.content).map(([key, value]) => (
-                    <div key={key} className="text-xs">
-                      <span className="text-gray-400">{key}: </span>
-                      <span className="text-gray-200">{String(value)}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-            
-            {/* Status info */}
-            {Object.keys(groupedMetadata.status).length > 0 && (
-              <div className="bg-gray-850 rounded p-2">
-                <h4 className="text-xs font-semibold text-gray-300 mb-1">Status</h4>
-                <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-                  {Object.entries(groupedMetadata.status).map(([key, value]) => (
-                    <div key={key} className="text-xs">
-                      <span className="text-gray-400">{key}: </span>
-                      <span className="text-gray-200">{typeof value === 'boolean' ? (value ? 'Yes' : 'No') : String(value)}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-            
-            {/* Tags info */}
-            {Object.keys(groupedMetadata.tags).length > 0 && (
-              <div className="bg-gray-850 rounded p-2">
-                <h4 className="text-xs font-semibold text-gray-300 mb-1">Tag Information</h4>
-                <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-                  {Object.entries(groupedMetadata.tags).map(([key, value]) => (
-                    <div key={key} className="text-xs">
-                      <span className="text-gray-400">{key}: </span>
-                      <span className="text-gray-200">
-                        {key === 'tagConfidence' && typeof value === 'number' 
-                          ? value.toFixed(2) 
-                          : typeof value === 'boolean' 
-                            ? (value ? 'Yes' : 'No')
-                            : String(value)}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-            
-            {/* Usage info */}
-            {Object.keys(groupedMetadata.usage).length > 0 && (
-              <div className="bg-gray-850 rounded p-2">
-                <h4 className="text-xs font-semibold text-gray-300 mb-1">Usage</h4>
-                <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-                  {Object.entries(groupedMetadata.usage).map(([key, value]) => (
-                    <div key={key} className="text-xs">
-                      <span className="text-gray-400">{key}: </span>
-                      <span className="text-gray-200">{String(value)}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-            
-            {/* Timestamps */}
-            {Object.keys(groupedMetadata.timestamps).length > 0 && (
-              <div className="bg-gray-850 rounded p-2">
-                <h4 className="text-xs font-semibold text-gray-300 mb-1">Timestamps</h4>
-                <div className="grid grid-cols-1 gap-y-1">
-                  {Object.entries(groupedMetadata.timestamps).map(([key, value]) => (
-                    <div key={key} className="text-xs">
-                      <span className="text-gray-400">{key}: </span>
-                      <span className="text-gray-200">{String(value)}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-            
-            {/* Relations */}
-            {Object.keys(groupedMetadata.relations).length > 0 && (
-              <div className="bg-gray-850 rounded p-2">
-                <h4 className="text-xs font-semibold text-gray-300 mb-1">Memory Relations</h4>
-                <div className="grid grid-cols-1 gap-y-1">
-                  {Object.entries(groupedMetadata.relations).map(([key, value]) => (
-                    <div key={key} className="text-xs">
-                      <span className="text-gray-400">{key}: </span>
-                      <span className="text-gray-200">
-                        {typeof value === 'object' ? JSON.stringify(value) : String(value)}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-            
-            {/* Editor */}
-            {Object.keys(groupedMetadata.editor).length > 0 && (
-              <div className="bg-gray-850 rounded p-2">
-                <h4 className="text-xs font-semibold text-gray-300 mb-1">Edited By</h4>
-                <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-                  {Object.entries(groupedMetadata.editor).map(([key, value]) => (
-                    <div key={key} className="text-xs">
-                      <span className="text-gray-400">{key}: </span>
-                      <span className="text-gray-200">{String(value)}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-            
-            {/* Other fields */}
-            {Object.keys(groupedMetadata.other).length > 0 && (
-              <div className="bg-gray-850 rounded p-2">
-                <h4 className="text-xs font-semibold text-gray-300 mb-1">Other Metadata</h4>
-                <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-                  {Object.entries(groupedMetadata.other).map(([key, value]) => (
-                    <div key={key} className="text-xs">
-                      <span className="text-gray-400">{key}: </span>
-                      <span className="text-gray-200">
-                        {typeof value === 'object' ? JSON.stringify(value) : String(value)}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-          
-          {/* Memory history section */}
-          <div className="mt-4 border-t border-gray-700 pt-3">
-            <button
+          {/* Memory History Toggle */}
+          <div className="mt-3">
+            <button 
               onClick={(e) => {
                 e.stopPropagation();
                 setHistoryExpanded(!historyExpanded);
               }}
-              className="flex items-center gap-2 text-blue-400 hover:text-blue-300 text-sm"
+              className="flex items-center text-xs text-blue-600 hover:text-blue-800 transition-colors"
             >
-              <RotateCcw size={14} />
-              {historyExpanded ? 'Hide Version History' : 'Show Version History'}
+              {historyExpanded ? (
+                <>
+                  <ChevronUp className="h-3 w-3 mr-1" />
+                  Hide Version History
+                </>
+              ) : (
+                <>
+                  <ChevronDown className="h-3 w-3 mr-1" />
+                  Show Version History
+                </>
+              )}
             </button>
             
-            {/* Version history content */}
+            {/* Memory History Content */}
             {historyExpanded && (
-              <div className="mt-2 text-sm">
+              <div className="mt-2 border-t border-gray-100 pt-2">
                 {isLoadingHistory ? (
-                  <div className="flex items-center gap-2 text-gray-400">
-                    <RefreshCw size={14} className="animate-spin" />
-                    Loading history...
+                  <div className="text-center py-2">
+                    <RefreshCw className="h-4 w-4 animate-spin inline mr-1" />
+                    <span className="text-xs text-gray-500">Loading history...</span>
                   </div>
                 ) : memoryHistory.length === 0 ? (
-                  <div className="text-gray-400">No version history available</div>
+                  <div className="text-xs text-gray-500 italic">No version history available</div>
                 ) : (
                   <div className="space-y-2">
-                    {/* Current version */}
-                    <div className="flex items-center gap-2">
-                      <button
+                    <div className="text-xs font-medium">Version History:</div>
+                    
+                    {/* Current Version */}
+                    <div className="flex justify-between items-center p-1.5 rounded bg-blue-50 text-xs">
+                      <div className="flex items-center">
+                        <div className="font-medium text-blue-800">Current Version</div>
+                        <div className="text-gray-500 ml-2">{formatHistoryDate(currentVersion.timestamp)}</div>
+                      </div>
+                      <button 
+                        className="text-blue-600 hover:text-blue-800"
                         onClick={(e) => {
                           e.stopPropagation();
-                          resetToCurrentVersion();
+                          handleSelectVersion(currentVersion);
                         }}
-                        className={`px-2 py-1 rounded text-xs ${
-                          selectedVersion === null 
-                            ? 'bg-blue-600 text-white' 
-                            : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                        }`}
                       >
-                        Current Version
+                        {selectedVersion?.id === currentVersion.id ? 'Hide' : 'View'}
                       </button>
-                      <span className="text-gray-400 text-xs">
-                        {formatHistoryDate(currentVersion.timestamp)}
-                      </span>
                     </div>
                     
-                    {/* Previous versions */}
-                    {memoryHistory.filter(v => !v.payload.metadata.current).map((version) => (
-                      <div key={version.id} className="flex items-center gap-2">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleSelectVersion({
-                              id: version.id,
-                              type: version.payload.type,
-                              timestamp: version.payload.timestamp,
-                              text: version.payload.text
-                            });
-                          }}
-                          className={`px-2 py-1 rounded text-xs ${
-                            selectedVersion?.id === version.id
-                              ? 'bg-blue-600 text-white'
-                              : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                          }`}
-                        >
-                          {version.payload.metadata.edit_type === 'create' ? 'Original' : 
-                           version.payload.metadata.edit_type === 'update' ? 'Edit' : 
-                           version.payload.metadata.edit_type === 'delete' ? 'Deleted' : 'Version'}
-                        </button>
-                        <span className="text-gray-400 text-xs">
-                          {formatHistoryDate(version.payload.timestamp)}
-                        </span>
-                        {version.payload.metadata.diff_summary && (
-                          <span className="text-gray-500 text-xs italic">
-                            {version.payload.metadata.diff_summary}
-                          </span>
+                    {/* Version History List */}
+                    {memoryHistory.map((historyItem, index) => (
+                      <div key={historyItem.id} className="flex justify-between items-center p-1.5 rounded bg-gray-50 text-xs">
+                        <div className="flex-1">
+                          <div className="font-medium text-gray-800">
+                            {historyItem.payload.metadata.edit_type === 'create' ? 'Created' : 
+                             historyItem.payload.metadata.edit_type === 'update' ? 'Updated' : 
+                             'Deleted'} by {historyItem.payload.metadata.editor_type || 'unknown'}
+                          </div>
+                          <div className="text-gray-500">{formatHistoryDate(historyItem.payload.timestamp)}</div>
+                          {historyItem.payload.metadata.diff_summary && (
+                            <div className="text-gray-600">{historyItem.payload.metadata.diff_summary}</div>
+                          )}
+                        </div>
+                        {historyItem.payload.metadata.previous_version_id && (
+                          <button 
+                            className="text-blue-600 hover:text-blue-800"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const version = {
+                                id: historyItem.payload.metadata.previous_version_id as string,
+                                type: historyItem.payload.type,
+                                timestamp: historyItem.payload.timestamp
+                              };
+                              handleSelectVersion(version);
+                            }}
+                          >
+                            {selectedVersion?.id === historyItem.payload.metadata.previous_version_id ? 'Hide' : 'View'}
+                          </button>
                         )}
                       </div>
                     ))}
+                    
+                    {/* Selected Version Content */}
+                    {selectedVersion && (
+                      <div className="mt-4 p-3 border border-gray-200 rounded-md bg-gray-50">
+                        <div className="flex justify-between items-center mb-2">
+                          <div className="font-medium text-sm">
+                            Version from {formatHistoryDate(selectedVersion.timestamp)}
+                          </div>
+                          <button 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              resetToCurrentVersion();
+                            }}
+                            className="text-xs flex items-center text-blue-600 hover:text-blue-800"
+                          >
+                            <RotateCcw className="h-3 w-3 mr-1" />
+                            Return to Current
+                          </button>
+                        </div>
+                        
+                        {isLoadingVersion ? (
+                          <div className="flex items-center justify-center py-4">
+                            <RefreshCw className="h-4 w-4 animate-spin mr-2" />
+                            <span>Loading version content...</span>
+                          </div>
+                        ) : selectedVersion.error ? (
+                          <div className="text-sm text-red-500">
+                            {selectedVersion.text || 'Error loading version'}
+                          </div>
+                        ) : (
+                          <div className="whitespace-pre-wrap text-sm">
+                            {selectedVersion.text || 'No content available for this version'}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

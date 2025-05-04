@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import * as serverQdrant from '../../../../server/qdrant';
-import { flagAsUnreliable } from '../../../utils/memory';
+import { flagAsUnreliable } from '../../../../server/memory/services/memory/helpers';
 import { generateResponse } from '../../../utils/chatHandler';
 
 export const runtime = 'nodejs';

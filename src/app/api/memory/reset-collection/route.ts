@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import * as serverQdrant from '../../../../server/qdrant';
-import { QdrantMemoryType } from '../../../../server/qdrant';
+import { getMemoryServices } from '../../../../server/memory/services';
+import { MemoryType } from '../../../../server/memory/config';
+import { getCollectionName } from '../../../../server/memory/config/collections';
+import { QdrantClient } from '@qdrant/js-client-rest';
 
 export const runtime = 'nodejs';
 
@@ -11,7 +13,7 @@ export async function POST(request: NextRequest) {
   try {
     // Get collection type from request body
     const body = await request.json();
-    const collection = body.collection as QdrantMemoryType | 'all';
+    const collection = body.collection as MemoryType | 'all';
     const verify = body.verify === true;
     
     if (!collection) {
@@ -26,9 +28,13 @@ export async function POST(request: NextRequest) {
     
     console.log(`[memory/reset-collection] Request to reset collection: ${collection}`);
     
-    // Initialize Qdrant memory
-    await serverQdrant.initMemory({
-      useOpenAI: process.env.USE_OPENAI_EMBEDDINGS === 'true'
+    // Initialize memory services
+    const { memoryService, client } = await getMemoryServices();
+    
+    // Create direct Qdrant client for collection deletion
+    const qdrantClient = new QdrantClient({
+      url: process.env.QDRANT_URL || 'http://localhost:6333',
+      apiKey: process.env.QDRANT_API_KEY
     });
     
     // Verify the collections before resetting if requested
@@ -38,9 +44,12 @@ export async function POST(request: NextRequest) {
       // Verify collections based on the request
       if (collection === 'all') {
         // Verify all collections
-        for (const type of ['message', 'thought', 'document', 'task', 'memory_edits'] as QdrantMemoryType[]) {
+        for (const type of Object.values(MemoryType)) {
           try {
-            const memories = await serverQdrant.searchMemory(type, '', { limit: 5 });
+            const memories = await memoryService.searchMemories({
+              type,
+              query: ''
+            });
             verificationResults[type] = {
               exists: true,
               count: memories.length,
@@ -56,7 +65,10 @@ export async function POST(request: NextRequest) {
       } else {
         // Verify specific collection
         try {
-          const memories = await serverQdrant.searchMemory(collection, '', { limit: 5 });
+          const memories = await memoryService.searchMemories({
+            type: collection,
+            query: ''
+          });
           verificationResults[collection] = {
             exists: true,
             count: memories.length,
@@ -71,15 +83,79 @@ export async function POST(request: NextRequest) {
       }
     }
     
-    let result: boolean = false;
+    let result: boolean = true;
     
     // Reset the collection(s)
     if (collection === 'all') {
       console.log('[memory/reset-collection] Resetting all collections');
-      result = await serverQdrant.resetAllCollections();
+      // Reset each collection individually
+      const results = await Promise.all(
+        Object.values(MemoryType).map(async (type) => {
+          try {
+            // Get collection name from config
+            const collectionName = getCollectionName(type);
+            
+            // Check if collection exists first
+            const collections = await qdrantClient.getCollections();
+            const exists = collections.collections.some(c => c.name === collectionName);
+            
+            if (exists) {
+              // Delete the collection
+              await qdrantClient.deleteCollection(collectionName);
+              
+              // Recreate the collection
+              await qdrantClient.createCollection(collectionName, {
+                vectors: {
+                  size: 1536, // Default OpenAI embedding size
+                  distance: "Cosine"
+                }
+              });
+              
+              return { type, success: true };
+            } else {
+              // Collection doesn't exist, nothing to reset
+              return { type, success: true };
+            }
+          } catch (error) {
+            console.error(`Error resetting collection ${type}:`, error);
+            return { type, success: false, error };
+          }
+        })
+      );
+      
+      // All succeeded if every reset succeeded
+      result = results.every(r => r.success);
     } else {
       console.log(`[memory/reset-collection] Resetting collection: ${collection}`);
-      result = await serverQdrant.resetCollection(collection);
+      try {
+        // Get collection name from config
+        const collectionName = getCollectionName(collection);
+        
+        // Check if collection exists first
+        const collections = await qdrantClient.getCollections();
+        const exists = collections.collections.some(c => c.name === collectionName);
+        
+        if (exists) {
+          // Delete the collection
+          await qdrantClient.deleteCollection(collectionName);
+          
+          // Recreate the collection
+          await qdrantClient.createCollection(collectionName, {
+            vectors: {
+              size: 1536, // Default OpenAI embedding size
+              distance: "Cosine"
+            }
+          });
+          
+          result = true;
+        } else {
+          // Collection doesn't exist, nothing to reset
+          result = true;
+        }
+      } catch (error) {
+        console.error(`Error resetting collection ${collection}:`, error);
+        result = false;
+      }
     }
     
     console.log(`[memory/reset-collection] Reset result: ${result}`);
@@ -90,9 +166,12 @@ export async function POST(request: NextRequest) {
     // Check the affected collections after reset
     if (collection === 'all') {
       // Verify all collections after reset
-      for (const type of ['message', 'thought', 'document', 'task', 'memory_edits'] as QdrantMemoryType[]) {
+      for (const type of Object.values(MemoryType)) {
         try {
-          const memories = await serverQdrant.searchMemory(type, '', { limit: 5 });
+          const memories = await memoryService.searchMemories({
+            type,
+            query: ''
+          });
           postResetResults[type] = {
             exists: true,
             count: memories.length
@@ -107,7 +186,10 @@ export async function POST(request: NextRequest) {
     } else {
       // Verify specific collection after reset
       try {
-        const memories = await serverQdrant.searchMemory(collection, '', { limit: 5 });
+        const memories = await memoryService.searchMemories({
+          type: collection,
+          query: ''
+        });
         postResetResults[collection] = {
           exists: true,
           count: memories.length

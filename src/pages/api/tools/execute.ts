@@ -1,9 +1,8 @@
 import { NextApiRequest, NextApiResponse } from 'next';
-import { MemoryService } from '../../../server/memory/services/memory/memory-service';
-import { EmbeddingService } from '../../../server/memory/services/client/embedding-service';
-import { QdrantMemoryClient } from '../../../server/memory/services/client/qdrant-client';
+import { getMemoryServices } from '../../../server/memory/services';
+import { MemoryType } from '../../../server/memory/config';
 
-// Define the tools memory type directly since it's not exported from the hook
+// Define the tools memory type
 const TOOLS_MEMORY_TYPE = 'tool';
 
 /**
@@ -49,10 +48,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // If a memoryId was provided, update the memory with the result
     if (memoryId) {
       try {
-        // Create the memory service with necessary dependencies
-        const qdrantClient = new QdrantMemoryClient();
-        const embeddingService = new EmbeddingService();
-        const memoryService = new MemoryService(qdrantClient, embeddingService);
+        // Get the memory services
+        const { memoryService } = await getMemoryServices();
         
         await memoryService.updateMemory({
           id: memoryId,
@@ -90,12 +87,13 @@ async function clearChatHistory(params: any) {
       console.log('Confirmation acknowledged for chat history deletion');
     }
 
-    const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || ''}/api/debug/reset-chat`, {
+    // Use the new memory/reset-collection endpoint
+    const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || ''}/api/memory/reset-collection`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ userId: 'gab' }),
+      body: JSON.stringify({ collection: MemoryType.MESSAGE }),
     });
     
     if (!response.ok) {
@@ -104,9 +102,9 @@ async function clearChatHistory(params: any) {
     
     const data = await response.json();
     return {
-      success: data.success,
-      deletedMessageCount: data.deletedMessageCount,
-      message: `Successfully deleted ${data.deletedMessageCount} messages`
+      success: data.status === 'success',
+      deletedMessageCount: data.post_reset?.[MemoryType.MESSAGE]?.count || 0,
+      message: `Successfully reset message collection`
     };
   } catch (error) {
     console.error('Error clearing chat history:', error);
@@ -128,23 +126,27 @@ async function clearImages(params: any) {
       console.log('Confirmation acknowledged for images deletion');
     }
 
-    // 1. Clear server-side image data
-    const serverResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL || ''}/api/debug/clear-images`, {
+    // Use the standardized memory system to clear images
+    // First, get the memory services
+    const { memoryService } = await getMemoryServices();
+    
+    // Delete all message memories with image attachments
+    // Since this is a complex operation, we'll use a specialized endpoint
+    const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || ''}/api/memory/clear-attachments`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ userId: 'gab' }),
+      }
     });
     
-    if (!serverResponse.ok) {
-      throw new Error(`Failed to clear server images: ${serverResponse.statusText}`);
+    if (!response.ok) {
+      throw new Error(`Failed to clear attachments: ${response.statusText}`);
     }
     
-    const serverData = await serverResponse.json();
+    const data = await response.json();
     
-    // 2. Clear local storage data related to images
-    const localStorageResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL || ''}/api/debug/clear-local-storage`);
+    // Also clear local storage data related to images
+    const localStorageResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL || ''}/api/memory/clear-local-storage`);
     
     if (!localStorageResponse.ok) {
       throw new Error(`Failed to get local storage clear instructions: ${localStorageResponse.statusText}`);
@@ -153,8 +155,8 @@ async function clearImages(params: any) {
     const localStorageData = await localStorageResponse.json();
     
     return {
-      success: serverData.success && localStorageData.success,
-      server: serverData,
+      success: data.success && localStorageData.success,
+      attachmentsCleared: data.attachmentsCleared || 0,
       localStorage: localStorageData,
       message: 'Successfully cleared images and attachments'
     };
@@ -178,13 +180,13 @@ async function resetAllData(params: any) {
       console.log('Confirmation acknowledged for complete data reset');
     }
 
-    // Reset all Qdrant collections completely
-    const resetResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL || ''}/api/debug/reset-chat`, {
+    // Reset all collections using the standardized endpoint
+    const resetResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL || ''}/api/memory/reset-collection`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ resetAll: true }),
+      body: JSON.stringify({ collection: 'all' }),
     });
     
     if (!resetResponse.ok) {
@@ -193,22 +195,13 @@ async function resetAllData(params: any) {
     
     const resetData = await resetResponse.json();
     
-    // Clear server-side image data
-    await fetch(`${process.env.NEXT_PUBLIC_API_URL || ''}/api/debug/clear-images`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ userId: 'gab' }),
-    });
-    
     // Clear local storage
-    const localStorageResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL || ''}/api/debug/clear-local-storage`);
+    const localStorageResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL || ''}/api/memory/clear-local-storage`);
     const localStorageData = await localStorageResponse.json();
     
     return {
-      success: resetData.success,
-      resetDatabase: resetData,
+      success: resetData.status === 'success',
+      resetData,
       localStorageCleared: localStorageData.success,
       message: 'Successfully reset all data'
     };
@@ -249,13 +242,14 @@ async function testAgent(params: any) {
     // In a real app, this would test various agent capabilities
     return {
       success: true,
+      agentStatus: 'operational',
       tests: {
-        connection: true,
-        memory: true,
-        tools: true,
-        reasoning: true
+        initialization: 'passed',
+        memory: 'passed',
+        reasoning: 'passed',
+        responses: 'passed'
       },
-      message: 'Agent tests completed successfully'
+      message: 'Agent functionality tests passed'
     };
   } catch (error) {
     console.error('Error testing agent:', error);
@@ -271,11 +265,29 @@ async function testAgent(params: any) {
  */
 async function clearMarkdownCache(params: any) {
   try {
-    // In a real app, this would clear markdown rendering caches
+    // Check if confirmation is required
+    if (params?.confirmationRequired) {
+      // Confirmation would have happened in the UI
+      console.log('Confirmation acknowledged for markdown cache clearing');
+    }
+
+    const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || ''}/api/memory/clear-markdown-cache`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      }
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Failed to clear markdown cache: ${response.statusText}`);
+    }
+    
+    const data = await response.json();
+    
     return {
-      success: true,
-      clearedAt: new Date().toISOString(),
-      message: 'Markdown cache cleared successfully'
+      success: data.success,
+      clearedCount: data.clearedCount || 0,
+      message: `Successfully cleared ${data.clearedCount || 0} markdown cache entries`
     };
   } catch (error) {
     console.error('Error clearing markdown cache:', error);

@@ -1,4 +1,3 @@
-import { AgentMemory } from '../../../lib/memory';
 import { ChloeMemory } from '../memory';
 import { MemoryTagger } from '../memory-tagger';
 import { EnhancedMemory } from '../../../lib/memory/src/enhanced-memory';
@@ -7,7 +6,6 @@ import { KnowledgeGraph } from '../../../lib/knowledge/KnowledgeGraph';
 import { FeedbackLoopSystem } from '../../../lib/memory/src/feedback-loop';
 import { IntegrationLayer } from '../../../lib/memory/src/integration-layer';
 import { SelfImprovementMechanism } from '../../../lib/memory/src/self-improvement';
-import * as serverQdrant from '../../../server/qdrant';
 import { StrategicInsight, IManager, BaseManagerOptions, MemoryManagerOptions } from '../../../lib/shared/types/agentTypes';
 import { KnowledgeFlaggingService } from '../../../lib/knowledge/flagging/KnowledgeFlaggingService';
 import { logger } from '../../../lib/logging';
@@ -18,13 +16,14 @@ import {
   ImportanceLevel, 
   MemorySource 
 } from '../../../constants/memory';
+// Import standardized memory services
+import { getMemoryServices } from '../../../server/memory/services';
 
 /**
  * Manages all memory systems for the Chloe agent
  */
 export class MemoryManager implements IManager {
   private agentId: string;
-  private memory: AgentMemory | null = null;
   private chloeMemory: ChloeMemory | null = null;
   private memoryTagger: MemoryTagger | null = null;
   private enhancedMemory: EnhancedMemory;
@@ -60,46 +59,18 @@ export class MemoryManager implements IManager {
   }
 
   /**
-   * Get the agent ID this manager belongs to
-   */
-  getAgentId(): string {
-    return this.agentId;
-  }
-
-  /**
-   * Log an action performed by this manager
-   */
-  logAction(action: string, metadata?: Record<string, unknown>): void {
-    if (this.taskLogger) {
-      this.taskLogger.logAction(`MemoryManager: ${action}`, metadata);
-    } else {
-      logger.info(`MemoryManager: ${action}`, metadata);
-    }
-  }
-
-  /**
    * Initialize all memory systems
    */
   async initialize(useOpenAI: boolean = false): Promise<void> {
     try {
       this.logAction('Initializing memory systems');
 
-      // Initialize base memory system with OpenAI embeddings if configured
-      this.memory = new AgentMemory({
-        namespace: this.agentId,
-        config: {
-          defaultNamespace: this.agentId,
-          embeddingModel: 'text-embedding-3-small'
-        }
-      });
+      // Get standardized memory services
+      const memoryServices = await getMemoryServices();
       
-      await this.memory.initialize();
-      
-      // Initialize Chloe-specific memory system
+      // Initialize Chloe-specific memory system with the standardized memory system
       this.chloeMemory = new ChloeMemory({
         agentId: this.agentId,
-        useExternalMemory: true,
-        externalMemory: this.memory,
         useOpenAI: useOpenAI
       });
       await this.chloeMemory.initialize();
@@ -108,7 +79,7 @@ export class MemoryManager implements IManager {
       this.memoryTagger = new MemoryTagger({
         memory: this.chloeMemory
       });
-
+      
       // Initialize enhanced memory systems
       try {
         await this.enhancedMemory.initialize();
@@ -148,6 +119,35 @@ export class MemoryManager implements IManager {
       this.logAction('Error initializing memory systems', { error: String(error) });
       throw error;
     }
+  }
+
+  /**
+   * Log action for tracing, implementing IManager interface
+   */
+  logAction(action: string, metadata?: Record<string, unknown>): void {
+    if (this.taskLogger) {
+      this.taskLogger.logAction(action, metadata);
+    } else {
+      if (metadata?.error) {
+        logger.error(`MemoryManager: ${action}`, metadata);
+      } else {
+        logger.debug(`MemoryManager: ${action}`, metadata);
+      }
+    }
+  }
+
+  /**
+   * Get the memory instance
+   */
+  getMemory() {
+    return null; // MemoryManager no longer uses AgentMemory
+  }
+
+  /**
+   * Get the agent ID this manager belongs to
+   */
+  getAgentId(): string {
+    return this.agentId;
   }
 
   /**
@@ -316,28 +316,16 @@ export class MemoryManager implements IManager {
         await this.initialize();
       }
       
-      // Get embeddings for the insight
-      const embeddingResponse = await serverQdrant.getEmbedding(insight);
-      if (!embeddingResponse || !embeddingResponse.embedding) {
-        console.error('Failed to get embedding for strategic insight');
-        return false;
-      }
-      
-      const embedding = embeddingResponse.embedding;
-      
       // Create metadata payload
-      const payload = {
-        insight,
+      const metadata = {
         category,
         tags,
         source: source || MemorySource.SYSTEM,
+        importance: ImportanceLevel.HIGH,
         timestamp: new Date().toISOString()
       };
       
-      // Add to Qdrant collection
-      await serverQdrant.addToCollection(this.strategicInsightsCollection, embedding, payload);
-      
-      // Also add to normal memory with high importance
+      // Add to memory system using standardized memory services
       if (this.chloeMemory) {
         await this.chloeMemory.addMemory(
           insight,
@@ -345,7 +333,8 @@ export class MemoryManager implements IManager {
           ImportanceLevel.HIGH,
           source as MemorySource,
           `Strategic insight in category: ${category}`,
-          tags
+          tags,
+          metadata
         );
       }
       
@@ -368,38 +357,30 @@ export class MemoryManager implements IManager {
         await this.initialize();
       }
 
-      // Get embeddings for the query
-      const embeddingResponse = await serverQdrant.getEmbedding(query);
-      if (!embeddingResponse || !embeddingResponse.embedding) {
-        console.error('Failed to get embedding for strategic insight query');
-        return [];
-      }
-
-      const embedding = embeddingResponse.embedding;
-      
       // Get limit from options or use default
       const limit = options?.limit || 5;
       
-      // Search for insights
-      const results = await serverQdrant.search(
-        this.strategicInsightsCollection,
-        embedding,
-        limit
-      );
-      
-      if (!results || results.length === 0) {
-        return [];
+      // Use ChloeMemory to search with specific type filter
+      if (this.chloeMemory) {
+        const filter = options?.tags ? { tags: options.tags } : undefined;
+        const memories = await this.chloeMemory.getRelevantMemories(
+          query,
+          limit,
+          [ChloeMemoryType.STRATEGIC_INSIGHT]
+        );
+        
+        // Convert to proper format
+        return memories.map(memory => ({
+          id: memory.id,
+          insight: memory.content || '',
+          category: memory.category || 'general',
+          tags: memory.tags || [],
+          source: memory.source || 'system',
+          timestamp: memory.created?.toISOString() || new Date().toISOString()
+        }));
       }
       
-      // Convert to proper format
-      return results.map(result => ({
-        id: result.id.toString(),
-        insight: result.payload.insight || '',
-        category: result.payload.category || 'general',
-        tags: result.payload.tags || [],
-        source: result.payload.source || 'system',
-        timestamp: result.payload.timestamp || new Date().toISOString()
-      }));
+      return [];
     } catch (error) {
       console.error('Error searching strategic insights:', error);
       return [];
@@ -415,22 +396,31 @@ export class MemoryManager implements IManager {
         await this.initialize();
       }
 
-      // Use search with no specific query to get recent items
-      const results = await serverQdrant.getRecentPoints(this.strategicInsightsCollection, limit);
-      
-      if (!results || results.length === 0) {
-        return [];
+      if (this.chloeMemory) {
+        // Get memories of type STRATEGIC_INSIGHT sorted by recency
+        const memoryResults = await this.chloeMemory.getRelevantMemoriesByType(
+          '', // Empty query to get all memories of this type
+          [ChloeMemoryType.STRATEGIC_INSIGHT],
+          limit
+        );
+        
+        // Sort by creation date (most recent first)
+        const sortedMemories = memoryResults.entries.sort((a, b) => 
+          (b.created?.getTime() || 0) - (a.created?.getTime() || 0)
+        ).slice(0, limit);
+        
+        // Convert to proper format
+        return sortedMemories.map(memory => ({
+          id: memory.id,
+          insight: memory.content || '',
+          category: memory.category || 'general',
+          tags: memory.tags || [],
+          source: memory.source || 'system',
+          timestamp: memory.created?.toISOString() || new Date().toISOString()
+        }));
       }
       
-      // Convert to proper format
-      return results.map(result => ({
-        id: result.id.toString(),
-        insight: result.payload.insight || '',
-        category: result.payload.category || 'general',
-        tags: result.payload.tags || [],
-        source: result.payload.source || 'system',
-        timestamp: result.payload.timestamp || new Date().toISOString()
-      }));
+      return [];
     } catch (error) {
       console.error('Error getting recent strategic insights:', error);
       return [];
@@ -445,10 +435,6 @@ export class MemoryManager implements IManager {
     // The actual implementation would fetch from the memory provider
     // This is a stub that returns an empty array
     return Promise.resolve([]);
-  }
-
-  getMemory(): AgentMemory | null {
-    return this.memory;
   }
 
   getChloeMemory(): ChloeMemory | null {

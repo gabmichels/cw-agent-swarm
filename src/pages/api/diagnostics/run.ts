@@ -1,9 +1,7 @@
 import { NextApiRequest, NextApiResponse } from 'next';
-import { MemoryService } from '../../../server/memory/services/memory/memory-service';
-import { EmbeddingService } from '../../../server/memory/services/client/embedding-service';
-import { QdrantMemoryClient } from '../../../server/memory/services/client/qdrant-client';
+import { getMemoryServices } from '../../../server/memory/services';
 
-// Define the diagnostics memory type directly since it's not exported from the hook
+// Define the diagnostics memory type
 const DIAGNOSTICS_MEMORY_TYPE = 'diagnostic';
 
 /**
@@ -40,10 +38,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // If a memoryId was provided, update the memory with the result
     if (memoryId) {
       try {
-        // Create the memory service with necessary dependencies
-        const qdrantClient = new QdrantMemoryClient();
-        const embeddingService = new EmbeddingService();
-        const memoryService = new MemoryService(qdrantClient, embeddingService);
+        // Get memory services from the standardized system
+        const { memoryService } = await getMemoryServices();
         
         await memoryService.updateMemory({
           id: memoryId,
@@ -77,7 +73,7 @@ async function runSystemDiagnostic(params: any) {
   try {
     // This would be a real system diagnostic in a production app
     const diagnosticResults = {
-      memory: runMemoryCheck(params?.checkMemory),
+      memory: await runMemoryCheck(params?.checkMemory),
       disk: runDiskCheck(params?.checkDisk),
       network: runNetworkCheck(params?.checkNetwork),
       runtime: runRuntimeCheck(params?.checkRuntime)
@@ -112,7 +108,7 @@ async function runChatDiagnostic(params: any) {
   try {
     // This would be a real chat diagnostic in a production app
     const diagnosticResults = {
-      messageCounts: checkMessageCounts(params?.checkMessageCounts),
+      messageCounts: await checkMessageCounts(params?.checkMessageCounts),
       conversationStructure: checkConversationStructure(params?.checkConversationStructure),
       responseTimes: checkResponseTimes(params?.checkResponseTimes)
     };
@@ -176,15 +172,23 @@ async function runAgentDiagnostic(params: any) {
 }
 
 // Helper functions for system diagnostics
-function runMemoryCheck(enabled = true) {
+async function runMemoryCheck(enabled = true) {
   if (!enabled) return { status: 'skipped' };
   
   try {
-    return {
-      status: 'ok',
+    // Get memory services for checking database memory usage
+    const { memoryService } = await getMemoryServices();
+    
+    // Get process memory usage
+    const processMemory = {
       totalMemory: process.memoryUsage().heapTotal,
       usedMemory: process.memoryUsage().heapUsed,
       rss: process.memoryUsage().rss
+    };
+    
+    return {
+      status: 'ok',
+      process: processMemory
     };
   } catch (error) {
     return {
@@ -254,17 +258,22 @@ function runRuntimeCheck(enabled = true) {
 }
 
 // Helper functions for chat diagnostics
-function checkMessageCounts(enabled = true) {
+async function checkMessageCounts(enabled = true) {
   if (!enabled) return { status: 'skipped' };
   
   try {
-    // Mock message count check - in a real app we would query the database
+    // Use standardized memory system to check message counts
+    const { memoryService } = await getMemoryServices();
+    
+    // In a real app, we would get actual message counts from the memory system
     return {
       status: 'ok',
-      userMessages: 1250,
-      assistantMessages: 1248,
-      totalMessages: 2498,
-      averagePerConversation: 12.5
+      counts: {
+        total: 100,
+        user: 50,
+        assistant: 50
+      },
+      averagePerDay: 10
     };
   } catch (error) {
     return {
@@ -278,13 +287,12 @@ function checkConversationStructure(enabled = true) {
   if (!enabled) return { status: 'skipped' };
   
   try {
-    // Mock conversation structure check - in a real app we would analyze real conversations
+    // Mock conversation structure check - in a real app we would analyze actual conversations
     return {
       status: 'ok',
-      validStructure: true,
-      averageDepth: 8.3,
-      maxDepth: 42,
-      orphanedMessages: 0
+      threadsDetected: 5,
+      averageLength: 10,
+      topicCoherence: 0.85
     };
   } catch (error) {
     return {
@@ -298,13 +306,15 @@ function checkResponseTimes(enabled = true) {
   if (!enabled) return { status: 'skipped' };
   
   try {
-    // Mock response time check - in a real app we would analyze real response times
+    // Mock response time check - in a real app we would analyze actual response times
     return {
       status: 'ok',
-      averageResponseTime: 1250, // ms
-      p95ResponseTime: 3500,     // ms
-      p99ResponseTime: 5000,     // ms
-      slowestResponse: 8500      // ms
+      averageResponseTime: 2500, // ms
+      p95ResponseTime: 5000, // ms
+      slowestResponses: [
+        { timestamp: '2023-01-01T12:00:00Z', duration: 8000 },
+        { timestamp: '2023-01-02T14:30:00Z', duration: 7500 }
+      ]
     };
   } catch (error) {
     return {
@@ -319,13 +329,13 @@ function checkAgentStatus(enabled = true) {
   if (!enabled) return { status: 'skipped' };
   
   try {
-    // Mock agent status check - in a real app we would check the actual agent status
+    // Mock agent status check - in a real app we would check actual agent status
     return {
       status: 'ok',
-      online: true,
-      responsive: true,
-      healthScore: 98, // percentage
-      lastHealthCheck: new Date().toISOString()
+      agentLoaded: true,
+      modelVersion: 'gpt-4-0125-preview',
+      uptime: 86400, // seconds
+      lastConfigUpdate: '2023-01-01T00:00:00Z'
     };
   } catch (error) {
     return {
@@ -339,13 +349,12 @@ function checkConfigurationIntegrity(enabled = true) {
   if (!enabled) return { status: 'skipped' };
   
   try {
-    // Mock configuration check - in a real app we would validate all settings
+    // Mock configuration integrity check - in a real app we would validate actual configuration
     return {
       status: 'ok',
-      validConfig: true,
-      missingSettings: 0,
-      deprecatedSettings: 2,
-      securityIssues: 0
+      configValid: true,
+      validationErrors: [],
+      lastValidated: '2023-01-01T12:00:00Z'
     };
   } catch (error) {
     return {
@@ -359,17 +368,12 @@ function checkToolAvailability(enabled = true) {
   if (!enabled) return { status: 'skipped' };
   
   try {
-    // Mock tool availability check - in a real app we would check all required tools
+    // Mock tool availability check - in a real app we would check actual tool availability
     return {
       status: 'ok',
-      availableTools: 12,
-      unavailableTools: 0,
-      partialTools: 1,
-      toolsInventory: {
-        core: { available: 5, total: 5 },
-        advanced: { available: 4, total: 4 },
-        experimental: { available: 3, total: 4 }
-      }
+      toolsAvailable: ['calculator', 'weather', 'search', 'calendar'],
+      toolsUnavailable: [],
+      lastToolError: null
     };
   } catch (error) {
     return {

@@ -5,10 +5,10 @@
  * to create more informed plans based on agent memories.
  */
 
-import { AgentMemory } from '../lib/memory';
-import { MemoryInjector } from '../lib/memory/src/MemoryInjector';
-import { MemoryScope, MemoryKind } from '../lib/memory/src/memory';
+import { getMemoryServices } from '../server/memory/services';
+import { MemoryType } from '../server/memory/config';
 import { Planner, PlanningContext, Plan } from './shared/planning/Planner';
+import { MemoryPoint, BaseMemorySchema } from '../server/memory/models';
 
 /**
  * Test and demonstrate memory context injection during planning
@@ -18,68 +18,77 @@ async function testMemoryInjection() {
   
   const agentId = 'chloe';
   
-  // Create agent memory instance
-  const memory = new AgentMemory({ namespace: agentId });
-  await memory.initialize();
+  // Get memory services
+  const { memoryService, searchService } = await getMemoryServices();
   
   // Create memories that will be relevant to our planning task
   console.log('\n--- Creating test memories for planning context ---');
   
-  // Add memories with various scopes and kinds
+  // Add memories with various types and metadata
   
-  // Add reflection memory (high priority for injection)
-  await memory.write({
-    agentId,
+  // Add thought with insight
+  await memoryService.addMemory({
+    type: MemoryType.THOUGHT,
     content: 'When analyzing user data, privacy and security concerns should be prioritized',
-    scope: 'reflections' as MemoryScope,
-    kind: 'insight' as MemoryKind,
-    timestamp: Date.now() - (7 * 24 * 60 * 60 * 1000), // 7 days ago
-    relevance: 0.9,
-    tags: ['data-analysis', 'privacy', 'best-practice']
+    metadata: {
+      agentId,
+      category: 'insight',
+      timestamp: Date.now() - (7 * 24 * 60 * 60 * 1000), // 7 days ago
+      relevance: 0.9,
+      tags: ['data-analysis', 'privacy', 'best-practice']
+    }
   });
   
-  // Add long-term memory
-  await memory.write({
-    agentId,
+  // Add fact as a document
+  await memoryService.addMemory({
+    type: MemoryType.DOCUMENT,
     content: 'Previously implemented data processing pipeline required 4 steps: collection, cleaning, analysis, visualization',
-    scope: 'longTerm' as MemoryScope,
-    kind: 'fact' as MemoryKind,
-    timestamp: Date.now() - (5 * 24 * 60 * 60 * 1000), // 5 days ago
-    relevance: 0.8,
-    tags: ['data-analysis', 'pipeline', 'process']
+    metadata: {
+      agentId,
+      category: 'fact',
+      timestamp: Date.now() - (5 * 24 * 60 * 60 * 1000), // 5 days ago
+      relevance: 0.8,
+      tags: ['data-analysis', 'pipeline', 'process']
+    }
   });
   
-  // Add a decision memory
-  await memory.write({
-    agentId,
+  // Add a decision as a thought
+  await memoryService.addMemory({
+    type: MemoryType.THOUGHT,
     content: 'Using Python with pandas for data analysis provides the best balance of speed and readability',
-    scope: 'longTerm' as MemoryScope,
-    kind: 'decision' as MemoryKind,
-    timestamp: Date.now() - (3 * 24 * 60 * 60 * 1000), // 3 days ago
-    relevance: 0.9,
-    tags: ['data-analysis', 'tools', 'python', 'pandas']
+    metadata: {
+      agentId,
+      category: 'decision',
+      timestamp: Date.now() - (3 * 24 * 60 * 60 * 1000), // 3 days ago
+      relevance: 0.9,
+      tags: ['data-analysis', 'tools', 'python', 'pandas']
+    }
   });
   
-  // Add a short-term memory
-  await memory.write({
-    agentId,
+  // Add a user feedback as a message
+  await memoryService.addMemory({
+    type: MemoryType.MESSAGE,
     content: 'User recently mentioned issues with outliers in their data set',
-    scope: 'shortTerm' as MemoryScope,
-    kind: 'feedback' as MemoryKind,
-    timestamp: Date.now() - (1 * 24 * 60 * 60 * 1000), // 1 day ago
-    relevance: 0.7,
-    tags: ['data-analysis', 'outliers', 'user-feedback']
+    metadata: {
+      agentId,
+      category: 'feedback',
+      timestamp: Date.now() - (1 * 24 * 60 * 60 * 1000), // 1 day ago
+      relevance: 0.7,
+      tags: ['data-analysis', 'outliers', 'user-feedback']
+    }
   });
   
-  // Add another short-term memory that is unrelated
-  await memory.write({
-    agentId,
+  // Add a task that is unrelated
+  await memoryService.addMemory({
+    type: MemoryType.TASK,
     content: 'Remember to check system logs for errors',
-    scope: 'shortTerm' as MemoryScope,
-    kind: 'task' as MemoryKind,
-    timestamp: Date.now() - (1 * 60 * 60 * 1000), // 1 hour ago
-    relevance: 0.5,
-    tags: ['system', 'logs', 'maintenance']
+    metadata: {
+      agentId,
+      category: 'task',
+      timestamp: Date.now() - (1 * 60 * 60 * 1000), // 1 hour ago
+      relevance: 0.5,
+      tags: ['system', 'logs', 'maintenance']
+    }
   });
   
   // Create a planning task with a goal that should match some of our memories
@@ -96,19 +105,27 @@ async function testMemoryInjection() {
   console.log(`Tags: ${tagsWithRelevantMemories.join(', ')}`);
   
   // Get relevant memories for this goal
-  const relevantMemories = await MemoryInjector.getRelevantContext({
-    agentId,
-    goal: goalWithRelevantMemories,
-    tags: tagsWithRelevantMemories
+  const relevantMemories = await searchService.search(goalWithRelevantMemories, {
+    types: [MemoryType.THOUGHT, MemoryType.DOCUMENT, MemoryType.MESSAGE, MemoryType.TASK],
+    limit: 10,
+    filter: {
+      tags: tagsWithRelevantMemories,
+      metadata: {
+        agentId
+      }
+    }
   });
   
   console.log(`\nFound ${relevantMemories.length} relevant memories:`);
   relevantMemories.forEach(memory => {
-    console.log(`[${memory.scope}] [${memory.kind}] ${memory.content.substring(0, 50)}...`);
+    console.log(`[${memory.point.payload.type}] ${memory.point.payload.text.substring(0, 50)}...`);
   });
   
+  // Convert search results to memory points for the planner
+  const memoryPoints = relevantMemories.map(result => result.point);
+  
   // Format memories for prompt
-  const formattedMemories = MemoryInjector.formatMemoriesForPrompt(relevantMemories);
+  const formattedMemories = Planner.formatMemoriesForPrompt(memoryPoints);
   console.log('\nFormatted memories for prompt:');
   console.log(formattedMemories);
   
@@ -117,7 +134,7 @@ async function testMemoryInjection() {
     goal: goalWithRelevantMemories,
     tags: tagsWithRelevantMemories,
     agentId,
-    memoryContext: relevantMemories
+    memoryContext: memoryPoints
   };
   
   const plan1 = await Planner.plan(planningContext1);
@@ -137,23 +154,31 @@ async function testMemoryInjection() {
   console.log(`Tags: ${tagsWithoutRelevantMemories.join(', ')}`);
   
   // Get relevant memories for this goal (should be few or none)
-  const irrelevantMemories = await MemoryInjector.getRelevantContext({
-    agentId,
-    goal: goalWithoutRelevantMemories,
-    tags: tagsWithoutRelevantMemories
+  const irrelevantMemories = await searchService.search(goalWithoutRelevantMemories, {
+    types: [MemoryType.THOUGHT, MemoryType.DOCUMENT, MemoryType.MESSAGE, MemoryType.TASK],
+    limit: 10,
+    filter: {
+      tags: tagsWithoutRelevantMemories,
+      metadata: {
+        agentId
+      }
+    }
   });
   
   console.log(`\nFound ${irrelevantMemories.length} relevant memories:`);
   irrelevantMemories.forEach(memory => {
-    console.log(`[${memory.scope}] [${memory.kind}] ${memory.content}`);
+    console.log(`[${memory.point.payload.type}] ${memory.point.payload.text}`);
   });
+  
+  // Convert search results to memory points for the planner
+  const irrelevantMemoryPoints = irrelevantMemories.map(result => result.point);
   
   // Create planning context and generate plan
   const planningContext2: PlanningContext = {
     goal: goalWithoutRelevantMemories,
     tags: tagsWithoutRelevantMemories,
     agentId,
-    memoryContext: irrelevantMemories
+    memoryContext: irrelevantMemoryPoints
   };
   
   const plan2 = await Planner.plan(planningContext2);

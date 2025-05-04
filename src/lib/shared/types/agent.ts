@@ -3,7 +3,7 @@ import { type StateGraph } from '@langchain/langgraph';
 import { type Message, type Task } from '../types';
 import { PlanAndExecuteOptions, PlanAndExecuteResult } from './agentTypes';
 import { ImportanceLevel } from '../../../constants/memory';
-import { ExtendedMemorySource } from '../../../agents/chloe/types/memory';
+import { ExtendedMemorySource } from '../../../server/memory/config';
 
 /**
  * Agent configuration with all required properties

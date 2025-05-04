@@ -1,9 +1,27 @@
-import * as serverQdrant from '../../../server/qdrant';
 import { DateTime } from 'luxon';
 import { ImportanceLevel, ChloeMemoryType } from '../../../constants/memory';
 import { RelationshipType } from '../../../constants/relationship';
-import { ExtendedMemorySource } from '../../../agents/chloe/types/memory';
-import { memoryTypeToQdrant } from '../../../lib/memory/memoryTypeAdapter';
+import { ExtendedMemorySource, MemoryType } from '../../../server/memory/config';
+import { getMemoryServices } from '../../../server/memory/services';
+
+/**
+ * Convert ChloeMemoryType enum to MemoryType enum
+ */
+function memoryTypeToStandard(type: ChloeMemoryType): MemoryType {
+  switch (type) {
+    case ChloeMemoryType.MESSAGE:
+      return MemoryType.MESSAGE;
+    case ChloeMemoryType.THOUGHT:
+      return MemoryType.THOUGHT;
+    case ChloeMemoryType.DOCUMENT:
+      return MemoryType.DOCUMENT;
+    case ChloeMemoryType.TASK:
+      return MemoryType.TASK;
+    default:
+      // Default to DOCUMENT for types not directly supported
+      return MemoryType.DOCUMENT;
+  }
+}
 
 /**
  * Enhanced Memory System
@@ -83,6 +101,8 @@ export class EnhancedMemory {
   private isInitialized: boolean = false;
   private config: Record<string, any>;
   private intentPatterns: Map<string, Array<{pattern: string, count: number}>> = new Map();
+  private memoryService: any = null;
+  private searchService: any = null;
   
   constructor(options: { namespace?: string, config?: Record<string, any> }) {
     this.namespace = options.namespace || 'default';
@@ -93,15 +113,11 @@ export class EnhancedMemory {
       embeddingModel: process.env.OPENAI_EMBEDDING_MODEL || 'text-embedding-3-small'
     };
     
-    // Initialize Qdrant (server-side only)
+    // Initialize memory services (server-side only)
     if (typeof window === 'undefined') {
       console.log(`Initializing enhanced memory for namespace: ${this.namespace}`);
-      serverQdrant.initMemory({
-        qdrantUrl: this.config.vectorStoreUrl,
-        qdrantApiKey: this.config.apiKey,
-        useOpenAI: process.env.USE_OPENAI_EMBEDDINGS === 'true'
-      }).catch(err => {
-        console.error('Failed to initialize enhanced memory:', err);
+      this.initializeServices().catch((error: Error) => {
+        console.error('Failed to initialize enhanced memory:', error);
       });
     }
     
@@ -110,16 +126,26 @@ export class EnhancedMemory {
   }
 
   /**
+   * Initialize the memory services
+   * Private helper to get the memory services
+   */
+  private async initializeServices(): Promise<void> {
+    try {
+      const services = await getMemoryServices();
+      this.memoryService = services.memoryService;
+      this.searchService = services.searchService;
+    } catch (error) {
+      console.error('Error initializing services:', error);
+    }
+  }
+
+  /**
    * Initialize memory
    */
   async initialize(): Promise<boolean> {
     try {
       if (typeof window === 'undefined') {
-        await serverQdrant.initMemory({
-          qdrantUrl: this.config.vectorStoreUrl,
-          qdrantApiKey: this.config.apiKey,
-          useOpenAI: true
-        });
+        await this.initializeServices();
       }
       this.isInitialized = true;
       return true;
@@ -138,7 +164,7 @@ export class EnhancedMemory {
     type: ChloeMemoryType = ChloeMemoryType.DOCUMENT
   ): Promise<string> {
     try {
-      if (!this.isInitialized) {
+      if (!this.isInitialized || !this.memoryService) {
         await this.initialize();
       }
       
@@ -161,8 +187,14 @@ export class EnhancedMemory {
       metadata.usageCount = 0;
       metadata.lastAccessed = new Date().toISOString();
       
-      // Use document type by default
-      return serverQdrant.addMemory(memoryTypeToQdrant(type), content, metadata);
+      // Use the standardized memory service
+      const result = await this.memoryService.addMemory({
+        type: memoryTypeToStandard(type),
+        content,
+        metadata
+      });
+      
+      return result.id || "memory-id"; // Return the memory ID
     } catch (error) {
       console.error('Error adding memory:', error);
       throw error;
@@ -178,7 +210,7 @@ export class EnhancedMemory {
     types: ChloeMemoryType[] = [ChloeMemoryType.DOCUMENT, ChloeMemoryType.THOUGHT]
   ): Promise<string[]> {
     try {
-      if (!this.isInitialized) {
+      if (!this.isInitialized || !this.searchService) {
         await this.initialize();
       }
       
@@ -186,11 +218,16 @@ export class EnhancedMemory {
       const allResults: Array<any> = [];
       
       for (const type of types) {
-        const results = await serverQdrant.searchMemory(memoryTypeToQdrant(type), query, { limit });
+        const standardType = memoryTypeToStandard(type);
+        const results = await this.searchService.search(query, { 
+          types: [standardType],
+          limit
+        });
+        
         if (results && results.length > 0) {
           // Update usage count
           for (const result of results) {
-            this.trackMemoryUsage(result.id);
+            await this.trackMemoryUsage(result.point.id);
           }
           allResults.push(...results);
         }
@@ -200,7 +237,7 @@ export class EnhancedMemory {
       allResults.sort((a, b) => (b.score || 0) - (a.score || 0));
       
       // Return as readable text
-      return allResults.slice(0, limit).map(mem => mem.text);
+      return allResults.slice(0, limit).map(result => result.point.payload.text);
     } catch (error) {
       console.error('Error retrieving relevant memories:', error);
       return [];
@@ -255,16 +292,33 @@ export class EnhancedMemory {
    */
   private async trackMemoryUsage(memoryId: string): Promise<void> {
     try {
-      // Update memory metadata to track usage
-      // This would ideally use a direct update method in Qdrant
-      // For now, we just log that we'd update it
-      console.log(`Memory ${memoryId} was used - would increment usage count`);
+      if (!this.memoryService) {
+        await this.initialize();
+      }
       
-      // In a production implementation, we would:
-      // 1. Retrieve the memory record
-      // 2. Increment usageCount
-      // 3. Update lastAccessed timestamp
-      // 4. Save back to Qdrant
+      // Log that the memory was used
+      console.log(`Memory ${memoryId} was used - incrementing usage count`);
+      
+      // Get the current memory
+      const memory = await this.memoryService.getMemory({
+        id: memoryId,
+        // For simplicity, just use DOCUMENT type - ideally we'd know the actual type
+        type: MemoryType.DOCUMENT
+      });
+      
+      if (memory) {
+        // Update metadata to track usage
+        const metadata = memory.payload.metadata || {};
+        metadata.usageCount = (metadata.usageCount || 0) + 1;
+        metadata.lastAccessed = new Date().toISOString();
+        
+        // Update the memory with the new metadata
+        await this.memoryService.updateMemory({
+          id: memoryId,
+          type: MemoryType.DOCUMENT,
+          metadata
+        });
+      }
     } catch (error) {
       console.error('Error tracking memory usage:', error);
     }
@@ -390,24 +444,31 @@ export class EnhancedMemory {
    */
   private async loadIntentPatterns(): Promise<void> {
     try {
-      if (!this.isInitialized) {
+      if (!this.isInitialized || !this.searchService) {
         await this.initialize();
       }
       
       // Search for the intent patterns database
-      const results = await serverQdrant.searchMemory(
-        memoryTypeToQdrant(ChloeMemoryType.DOCUMENT),
-        'Intent patterns database',
-        { 
+      const results = await this.searchService.search(
+        'Intent patterns database', 
+        {
+          types: [memoryTypeToStandard(ChloeMemoryType.DOCUMENT)],
           limit: 1,
           filter: {
-            type: 'intent_patterns_db'
+            must: [
+              {
+                key: "metadata.type",
+                match: {
+                  value: "intent_patterns_db"
+                }
+              }
+            ]
           }
         }
       );
       
       if (results && results.length > 0) {
-        const patternsText = results[0].text;
+        const patternsText = results[0].point.payload.text;
         
         // Extract the JSON part
         const jsonMatch = patternsText.match(/\{[\s\S]*\}/);

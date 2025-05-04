@@ -21,6 +21,9 @@ import { filterChatVisibleMessages } from '../utils/messageFilters';
 import { MessageType } from '../constants/message';
 import { analyzeMessageTypes, exportDebugMessages, toggleMessageDebugging } from '../utils/messageDebug';
 import { FileAttachmentType } from '../constants/file';
+import useMemory from '../hooks/useMemory';
+import { BaseMemorySchema, MemoryPoint } from '../server/memory/models';
+import { MemoryType } from '../server/memory/config';
 
 // Add constants for storage
 const SAVED_ATTACHMENTS_KEY = 'crowd-wisdom-saved-attachments';
@@ -47,7 +50,7 @@ export default function Home() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const [memoryViewMode, setMemoryViewMode] = useState('context');
-  const [allMemories, setAllMemories] = useState<any[]>([]);
+  const [allMemories, setAllMemories] = useState<MemoryPoint<BaseMemorySchema>[]>([]);
   const [isLoadingMemories, setIsLoadingMemories] = useState(false);
   const [scheduledTasks, setScheduledTasks] = useState<any[]>([]);
   const [isLoadingTasks, setIsLoadingTasks] = useState<boolean>(false);
@@ -63,6 +66,9 @@ export default function Home() {
   const [selectedMessageId, setSelectedMessageId] = useState('');
   const [prevMessageCount, setPrevMessageCount] = useState(0);
   
+  // Use the standardized memory hook
+  const { memories, isLoading: isMemoryLoading, error: memoryError, getMemories } = useMemory();
+
   // Initialize showInternalMessages from localStorage
   useEffect(() => {
     // First check if there's a localStorage setting
@@ -864,85 +870,37 @@ For detailed instructions, see the Debug panel.`,
     }
   };
 
-  // Fetch all memories
+  // Fetch all memories using the standardized memory hook
   const fetchAllMemories = async () => {
     setIsLoadingMemories(true);
     try {
-      console.log("Fetching all memories from API...");
+      console.log("Fetching all memories using standardized memory hook...");
       
-      // Add timestamp to prevent caching and include debug flag
-      const response = await fetch(`/api/memory/all?limit=200&debug=true&_=${Date.now()}`, {
-        headers: {
-          'Cache-Control': 'no-cache, no-store, must-revalidate',
-          'Pragma': 'no-cache'
-        }
-      });
+      // Call the getMemories function from the useMemory hook
+      // Set a higher limit to get more memories
+      await getMemories({ limit: 200 });
       
-      if (!response.ok) {
-        console.error("Memory API returned an error:", response.status, response.statusText);
-        
-        // If rate limited, try again after a delay
-        if (response.status === 429) {
-          console.log("Rate limited, retrying after 2s...");
-          setTimeout(() => fetchAllMemories(), 2000);
-          return;
-        }
-        
-        setAllMemories([]);
-        return;
-      }
+      // The memories are now available in the memories state from the hook
+      console.log(`Fetched ${memories.length} memories using the standardized hook`);
       
-      // Log response headers for debugging
-      const headers: Record<string, string> = {};
-      response.headers.forEach((value, key) => {
-        headers[key] = value;
-      });
-      console.log("Memory API response headers:", headers);
-      
-      const data = await response.json();
-      
-      console.log("Memory API raw response type:", typeof data);
-      
-      // If response is null/undefined, return empty array
-      if (!data) {
-        console.error("Memory API returned null or undefined");
-        setAllMemories([]);
-        return;
-      }
-      
-      // Determine if we have a valid data structure
-      if (Array.isArray(data)) {
-        console.log(`Fetched ${data.length} memories (array format)`);
-        
-        // Filter out any null or invalid entries
-        const validMemories = data.filter((item: any) => item && typeof item === 'object');
-        console.log(`Valid memories: ${validMemories.length} out of ${data.length}`);
-        
-        // Log the first few memories for debugging
-        if (validMemories.length > 0) {
-          console.log('First 3 memories:', validMemories.slice(0, 3));
-        }
-        
-        setAllMemories(validMemories);
-      } else if (data && typeof data === 'object' && Array.isArray(data.data)) {
-        // Handle response format with items in data property (old format)
-        console.log(`Fetched ${data.data.length} memories (object.data format)`);
-        setAllMemories(data.data);
-      } else if (data && typeof data === 'object' && Array.isArray(data.items)) {
-        // Handle response format with items array
-        console.log(`Fetched ${data.items.length} memories (object.items format)`);
-        setAllMemories(data.items);
-      } else {
-        console.error('Memory API did not return a recognized format:', typeof data, data);
-        setAllMemories([]);
-      }
+      // Update our local state with the memories from the hook
+      setAllMemories(memories);
     } catch (error) {
-      console.error("Error fetching all memories:", error);
+      console.error("Error fetching memories:", error);
       setAllMemories([]);
     } finally {
       setIsLoadingMemories(false);
     }
   };
+
+  // Use effect to update allMemories whenever the memories from the hook change
+  useEffect(() => {
+    if (memories.length > 0) {
+      console.log(`Updating local memory state with ${memories.length} memories from hook`);
+      setAllMemories(memories);
+      setIsLoadingMemories(false);
+    }
+  }, [memories]);
 
   // Add an automatic fetch when the app loads
   useEffect(() => {

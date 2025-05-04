@@ -104,4 +104,16 @@ export class MemoryError extends Error {
     super(message);
     this.name = 'MemoryError';
   }
+}
+
+// Extended memory source enum that includes additional sources
+export enum ExtendedMemorySource {
+  USER = 'user',
+  ASSISTANT = 'assistant',
+  CHLOE = 'chloe',
+  SYSTEM = 'system',
+  TOOL = 'tool',
+  WEB = 'web',
+  EXTERNAL = 'external',
+  FILE = 'file'
 } 

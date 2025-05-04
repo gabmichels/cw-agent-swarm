@@ -5,8 +5,9 @@
  * to create more informed and context-aware plans.
  */
 
-import { MemoryEntry } from '../../../lib/memory/src/memory';
-import { MemoryInjector } from '../../../lib/memory/src/MemoryInjector';
+import { getMemoryServices } from '../../../server/memory/services';
+import { MemoryType } from '../../../server/memory/config';
+import { BaseMemorySchema, MemoryPoint } from '../../../server/memory/models';
 import { enforceEthics } from '../ethics/EthicsMiddleware';
 
 export interface PlanningContext {
@@ -23,7 +24,7 @@ export interface PlanningContext {
   delegationContextId?: string;
   
   // Injected memory context
-  memoryContext?: MemoryEntry[];
+  memoryContext?: MemoryPoint<BaseMemorySchema>[];
   
   // Additional task-specific context
   additionalContext?: Record<string, any>;
@@ -86,12 +87,50 @@ export class Planner {
     // If memory context is not provided, fetch it
     if (!context.memoryContext || context.memoryContext.length === 0) {
       try {
-        context.memoryContext = await MemoryInjector.getRelevantContext({
-          agentId: context.agentId,
-          goal: context.goal,
-          tags: context.tags || [],
-          delegationContextId: context.delegationContextId
+        // Get memory services
+        const { searchService } = await getMemoryServices();
+        
+        // Build filter for the agent's memories
+        const filter: any = {
+          must: [
+            {
+              key: "metadata.agentId",
+              match: {
+                value: context.agentId
+              }
+            }
+          ]
+        };
+        
+        // Add delegation context to filter if provided
+        if (context.delegationContextId) {
+          filter.must.push({
+            key: "metadata.delegationContextId", 
+            match: {
+              value: context.delegationContextId
+            }
+          });
+        }
+        
+        // Add tags to filter if provided
+        if (context.tags && context.tags.length > 0) {
+          filter.must.push({
+            key: "metadata.tags",
+            match: {
+              any: context.tags
+            }
+          });
+        }
+        
+        // Search for relevant memories using the standardized search service
+        const searchResults = await searchService.search(context.goal, {
+          types: [MemoryType.THOUGHT, MemoryType.TASK],
+          filter: filter,
+          limit: 10
         });
+        
+        // Extract memory points from search results
+        context.memoryContext = searchResults.map(result => result.point);
       } catch (error) {
         console.error('Error fetching memory context:', error);
         // Continue with empty context
@@ -99,11 +138,8 @@ export class Planner {
       }
     }
     
-    // Here we would use an LLM to generate the plan
-    // This is a placeholder implementation
-    
     // Format memory context for the LLM prompt
-    const memoryContextForPrompt = MemoryInjector.formatMemoriesForPrompt(
+    const memoryContextForPrompt = this.formatMemoriesForPrompt(
       context.memoryContext || []
     );
     
@@ -170,6 +206,47 @@ export class Planner {
     }
     
     return mockPlan;
+  }
+  
+  /**
+   * Format memories for inclusion in prompts
+   */
+  static formatMemoriesForPrompt(memories: MemoryPoint<BaseMemorySchema>[]): string {
+    if (!memories || memories.length === 0) {
+      return "No relevant memories available.";
+    }
+    
+    // Group memories by type
+    const byType: Record<string, MemoryPoint<BaseMemorySchema>[]> = {};
+    
+    for (const memory of memories) {
+      const type = memory.payload.type || 'unknown';
+      if (!byType[type]) {
+        byType[type] = [];
+      }
+      byType[type].push(memory);
+    }
+    
+    // Format each type section
+    const sections: string[] = [];
+    
+    // Order of types in the output
+    const typeOrder: string[] = [MemoryType.THOUGHT, MemoryType.TASK, MemoryType.DOCUMENT, MemoryType.MESSAGE];
+    
+    for (const type of typeOrder) {
+      const entriesOfType = byType[type];
+      if (entriesOfType && entriesOfType.length > 0) {
+        sections.push(`RELEVANT ${type.toUpperCase()} MEMORIES:`);
+        
+        for (const entry of entriesOfType) {
+          sections.push(`- ${entry.payload.text}`);
+        }
+        
+        sections.push('');
+      }
+    }
+    
+    return sections.join('\n');
   }
   
   /**
@@ -240,4 +317,4 @@ export class Planner {
     
     return { success, results };
   }
-} 
+}
