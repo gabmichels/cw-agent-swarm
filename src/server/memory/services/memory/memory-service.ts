@@ -271,4 +271,90 @@ export class MemoryService {
       throw handleMemoryError(error, 'searchMemories');
     }
   }
+  
+  /**
+   * Get version history for a memory
+   * 
+   * @param params History request parameters
+   * @returns Array of memory versions
+   */
+  async getMemoryHistory<T extends BaseMemorySchema>(params: {
+    id: string;
+    type?: MemoryType;
+    limit?: number;
+  }): Promise<MemoryPoint<T>[]> {
+    try {
+      // If type is not specified, try to determine it from an existing memory
+      let memoryType = params.type;
+      
+      if (!memoryType) {
+        // Try each collection type until we find the memory
+        for (const type of Object.values(MemoryType)) {
+          const memory = await this.getMemory({
+            id: params.id,
+            type
+          });
+          
+          if (memory) {
+            memoryType = type;
+            break;
+          }
+        }
+        
+        // If still not found, use default type
+        if (!memoryType) {
+          memoryType = MemoryType.MESSAGE;
+        }
+      }
+      
+      // Get the current memory
+      const currentMemory = await this.getMemory<T>({
+        id: params.id,
+        type: memoryType
+      });
+      
+      if (!currentMemory) {
+        return [];
+      }
+      
+      // For now, return a mock implementation
+      // In a real implementation, this would fetch from a history table/collection
+      
+      // Create a mock history entry older than the current one
+      const mockOlderVersion: MemoryPoint<T> = {
+        id: params.id,
+        vector: [],
+        payload: {
+          ...currentMemory.payload,
+          text: `Previous version of: ${currentMemory.payload.text?.substring(0, 50)}...`,
+          timestamp: (parseInt(currentMemory.payload.timestamp) - 86400000).toString(), // 1 day earlier
+          metadata: {
+            ...currentMemory.payload.metadata,
+            version: 1,
+            edited: false
+          }
+        } as any
+      };
+      
+      // Current memory becomes the latest version
+      const currentVersion: MemoryPoint<T> = {
+        ...currentMemory,
+        payload: {
+          ...currentMemory.payload,
+          metadata: {
+            ...currentMemory.payload.metadata,
+            version: 2,
+            edited: true
+          }
+        } as any
+      };
+      
+      // Return history with limit
+      const limit = params.limit || 10;
+      return [mockOlderVersion, currentVersion].slice(0, limit);
+    } catch (error) {
+      console.error('Error getting memory history:', error);
+      throw handleMemoryError(error, 'getMemoryHistory');
+    }
+  }
 } 

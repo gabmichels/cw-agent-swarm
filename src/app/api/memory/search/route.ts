@@ -1,119 +1,164 @@
+/**
+ * API route for memory vector search
+ */
 import { NextRequest, NextResponse } from 'next/server';
-import * as serverQdrant from '../../../../server/qdrant';
+import { MemoryType, MemoryErrorCode } from '../../../../server/memory/config';
+import { getMemoryServices } from '../../../../server/memory/services';
+import { parseQueryParams } from '../../../../utils/api';
 
 // Mark as server-side only
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-// Define a type for memory search results
-interface MemorySearchResult {
-  id: string;
-  type: string;
-  content: string;
-  timestamp: string;
-  metadata: Record<string, any>;
+/**
+ * POST handler for semantic vector search
+ */
+export async function POST(request: NextRequest) {
+  try {
+    // Initialize services
+    const { searchService } = await getMemoryServices();
+    
+    // Parse query parameters
+    const url = new URL(request.url);
+    const params = parseQueryParams(url, {
+      query: { type: 'string', defaultValue: '' },
+      limit: { type: 'number', defaultValue: 10 },
+      offset: { type: 'number', defaultValue: 0 }
+    });
+    
+    // Parse request body for filter
+    let filter = {};
+    try {
+      const body = await request.json();
+      filter = body.filter || {};
+    } catch (e) {
+      // Ignore JSON parsing errors
+    }
+    
+    // Validate query parameter is provided
+    if (!params.query) {
+      return NextResponse.json({
+        error: 'Search query is required',
+        results: [],
+        total: 0
+      }, { status: 400 });
+    }
+    
+    // Perform search
+    const results = await searchService.search(params.query, {
+      filter,
+      limit: params.limit,
+      offset: params.offset
+    });
+    
+    return NextResponse.json({
+      results,
+      total: results.length,
+      searchInfo: {
+        query: params.query,
+        filter,
+        limit: params.limit,
+        offset: params.offset
+      }
+    });
+  } catch (error) {
+    console.error('Error searching memories:', error);
+    
+    // Handle specific memory error types
+    if (error && typeof error === 'object' && 'code' in error) {
+      const memoryError = error as { code: string; message: string };
+      
+      if (memoryError.code === MemoryErrorCode.EMBEDDING_ERROR) {
+        return NextResponse.json({
+          error: memoryError.message || 'Error generating embeddings for search',
+          results: [],
+          total: 0
+        }, { status: 500 });
+      }
+      
+      if (memoryError.code === MemoryErrorCode.VALIDATION_ERROR) {
+        return NextResponse.json({
+          error: memoryError.message || 'Invalid search parameters',
+          results: [],
+          total: 0
+        }, { status: 400 });
+      }
+    }
+    
+    return NextResponse.json({
+      error: error instanceof Error ? error.message : 'Unknown error',
+      results: [],
+      total: 0
+    }, { status: 500 });
+  }
 }
 
 /**
- * API endpoint to search for memory items by ID or query
+ * GET handler for backward compatibility
  */
 export async function GET(request: NextRequest) {
   try {
-    console.log('[memory/search] Starting memory search');
+    // Initialize services
+    const { searchService } = await getMemoryServices();
     
     // Parse query parameters
-    const { searchParams } = new URL(request.url);
-    const memoryId = searchParams.get('id');
-    const query = searchParams.get('query');
-    const collectionType = searchParams.get('collection') as any;
-    const limit = parseInt(searchParams.get('limit') || '10', 10);
+    const url = new URL(request.url);
+    const query = url.searchParams.get('query') || '';
+    const limit = parseInt(url.searchParams.get('limit') || '10', 10);
+    const offset = parseInt(url.searchParams.get('offset') || '0', 10);
     
-    if (!memoryId && !query) {
-      return NextResponse.json(
-        { error: 'Either memory ID or search query is required' },
-        { status: 400 }
-      );
+    // Validate query parameter is provided
+    if (!query) {
+      return NextResponse.json({
+        error: 'Search query is required',
+        results: [],
+        total: 0
+      }, { status: 400 });
     }
     
-    // Initialize Qdrant memory
-    await serverQdrant.initMemory({
-      useOpenAI: process.env.USE_OPENAI_EMBEDDINGS === 'true'
+    // Perform search
+    const results = await searchService.search(query, {
+      limit,
+      offset
     });
     
-    let results: MemorySearchResult[] = [];
-    
-    // If ID is provided, search by ID directly
-    if (memoryId) {
-      console.log(`[memory/search] Searching for memory with ID: ${memoryId}`);
-      try {
-        // Use searchMemory with a filter to find by exact ID
-        const memories = await serverQdrant.searchMemory(
-          null, // search across all collections
-          "", // empty query for ID-based search
-          {
-            filter: { id: memoryId },
-            limit: 1
-          }
-        );
-        
-        if (memories && memories.length > 0) {
-          const memory = memories[0];
-          // Format the memory item
-          const formattedMemory: MemorySearchResult = {
-            id: memory.id,
-            type: memory.type,
-            content: memory.text,
-            timestamp: memory.timestamp,
-            metadata: memory.metadata || {}
-          };
-          
-          results = [formattedMemory];
-        }
-      } catch (idError) {
-        console.error(`Error getting memory by ID ${memoryId}:`, idError);
-        
-        // Return an error result in the expected format
-        return NextResponse.json([{
-          id: memoryId,
-          type: 'error',
-          content: `Error retrieving memory: ${idError instanceof Error ? idError.message : 'Unknown error'}`,
-          timestamp: new Date().toISOString(),
-          metadata: { error: true }
-        }]);
-      }
-    } 
-    // Otherwise use semantic search
-    else if (query) {
-      console.log(`[memory/search] Semantic search for: "${query}"`);
-      
-      // Create search options
-      const searchOptions = {
+    return NextResponse.json({
+      results,
+      total: results.length,
+      searchInfo: {
+        query,
         limit,
-        collection: collectionType // Will search all collections if null
-      };
+        offset
+      }
+    });
+  } catch (error) {
+    console.error('Error searching memories:', error);
+    
+    // Handle specific memory error types
+    if (error && typeof error === 'object' && 'code' in error) {
+      const memoryError = error as { code: string; message: string };
       
-      const searchResults = await serverQdrant.searchMemory(collectionType, query, searchOptions);
+      if (memoryError.code === MemoryErrorCode.EMBEDDING_ERROR) {
+        return NextResponse.json({
+          error: memoryError.message || 'Error generating embeddings for search',
+          results: [],
+          total: 0
+        }, { status: 500 });
+      }
       
-      // Format results
-      results = searchResults.map(item => ({
-        id: item.id,
-        type: item.type,
-        content: item.text,
-        timestamp: item.timestamp,
-        metadata: item.metadata || {}
-      }));
+      if (memoryError.code === MemoryErrorCode.VALIDATION_ERROR) {
+        return NextResponse.json({
+          error: memoryError.message || 'Invalid search parameters',
+          results: [],
+          total: 0
+        }, { status: 400 });
+      }
     }
     
-    console.log(`[memory/search] Found ${results.length} results`);
-    return NextResponse.json(results);
-  } catch (error) {
-    console.error('Error in memory search:', error);
-    return NextResponse.json(
-      { 
-        status: 'error',
-        error: error instanceof Error ? error.message : 'Unknown error'
-      },
-      { status: 500 }
-    );
+    return NextResponse.json({
+      error: error instanceof Error ? error.message : 'Unknown error',
+      results: [],
+      total: 0
+    }, { status: 500 });
   }
 } 
