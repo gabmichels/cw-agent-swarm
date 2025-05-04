@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { formatDistanceToNow } from 'date-fns';
+import { MemoryType } from '../server/memory/config';
+import useMemory from '../hooks/useMemory';
 
 /**
  * File metadata interface matching backend
@@ -17,6 +19,7 @@ interface FileMetadata {
   summary?: string;
   processingModel?: string;
   tags?: string[];
+  memoryId?: string; // Optional link to memory system
 }
 
 /**
@@ -25,21 +28,62 @@ interface FileMetadata {
 interface FilesTableProps {
   onRefresh?: () => void;
   onImageClick?: (imageId: string, filename: string) => void;
+  useMemorySystem?: boolean; // New prop to use memory system
 }
 
 /**
  * Files table component that displays a list of uploaded files
+ * Can use either the standard file system or the memory system
  */
-export default function FilesTable({ onRefresh, onImageClick }: FilesTableProps) {
+export default function FilesTable({ onRefresh, onImageClick, useMemorySystem = false }: FilesTableProps) {
   const [files, setFiles] = useState<FileMetadata[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedSummaries, setExpandedSummaries] = useState<Record<string, boolean>>({});
   
+  // Use memory system hook when enabled
+  const {
+    memories: memoryFiles,
+    isLoading: isMemoryLoading,
+    error: memoryError,
+    getMemories,
+    deleteMemory,
+  } = useMemory([MemoryType.DOCUMENT]);
+  
+  // Map memory items to file metadata format when using memory system
+  useEffect(() => {
+    if (!useMemorySystem) return;
+    
+    const fileMemories: FileMetadata[] = memoryFiles.map(memory => ({
+      fileId: memory.payload?.metadata?.fileId || memory.id,
+      filename: memory.payload?.metadata?.filename || 'Unknown File',
+      mimeType: memory.payload?.metadata?.mimeType || 'application/octet-stream',
+      size: memory.payload?.metadata?.size || 0,
+      uploadDate: memory.payload?.timestamp || new Date().toISOString(),
+      processingStatus: memory.payload?.metadata?.processingStatus || 'completed',
+      processingError: memory.payload?.metadata?.processingError,
+      summary: memory.payload?.metadata?.summary,
+      processingModel: memory.payload?.metadata?.processingModel,
+      tags: memory.payload?.metadata?.tags || [],
+      memoryId: memory.id
+    }));
+    
+    setFiles(fileMemories);
+    setIsLoading(isMemoryLoading);
+    setError(memoryError ? memoryError.message : null);
+  }, [useMemorySystem, memoryFiles, isMemoryLoading, memoryError]);
+  
   /**
    * Fetch files from the API
    */
   const fetchFiles = async () => {
+    if (useMemorySystem) {
+      // Use memory system
+      getMemories({ types: [MemoryType.DOCUMENT] });
+      return;
+    }
+    
+    // Standard API approach
     try {
       setIsLoading(true);
       setError(null);
@@ -74,32 +118,40 @@ export default function FilesTable({ onRefresh, onImageClick }: FilesTableProps)
   /**
    * Delete a file
    */
-  const deleteFile = async (fileId: string) => {
+  const deleteFile = async (fileId: string, memoryId?: string) => {
     if (!confirm('Are you sure you want to delete this file?')) {
       return;
     }
     
     try {
-      const response = await fetch('/api/files/delete', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ fileId }),
-      });
-      
-      if (!response.ok) {
-        throw new Error(`Failed to delete file: ${response.statusText}`);
+      if (useMemorySystem && memoryId) {
+        // Delete using memory system
+        await deleteMemory({ id: memoryId, type: MemoryType.DOCUMENT });
+        // Refresh the list
+        getMemories({ types: [MemoryType.DOCUMENT] });
+      } else {
+        // Delete using standard API
+        const response = await fetch('/api/files/delete', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ fileId }),
+        });
+        
+        if (!response.ok) {
+          throw new Error(`Failed to delete file: ${response.statusText}`);
+        }
+        
+        const data = await response.json();
+        
+        if (!data.success) {
+          throw new Error(data.error || 'Unknown error deleting file');
+        }
+        
+        // Remove the file from the list
+        setFiles(files.filter(file => file.fileId !== fileId));
       }
-      
-      const data = await response.json();
-      
-      if (!data.success) {
-        throw new Error(data.error || 'Unknown error deleting file');
-      }
-      
-      // Remove the file from the list
-      setFiles(files.filter(file => file.fileId !== fileId));
       
       // Call onRefresh if provided
       if (onRefresh) {
@@ -215,12 +267,12 @@ export default function FilesTable({ onRefresh, onImageClick }: FilesTableProps)
   // Fetch files on component mount
   useEffect(() => {
     fetchFiles();
-  }, []);
+  }, [useMemorySystem]); // Re-fetch when the source changes
   
   return (
     <div className="bg-gray-800 rounded-lg p-4">
       <div className="flex justify-between items-center mb-4">
-        <h2 className="text-xl font-bold">Files</h2>
+        <h2 className="text-xl font-bold">Files {useMemorySystem ? "(Memory System)" : ""}</h2>
         <button
           onClick={fetchFiles}
           className="px-3 py-1 bg-blue-600 hover:bg-blue-700 rounded text-white text-sm"
@@ -331,7 +383,7 @@ export default function FilesTable({ onRefresh, onImageClick }: FilesTableProps)
                         🔄
                       </button>
                       <button 
-                        onClick={() => deleteFile(file.fileId)}
+                        onClick={() => deleteFile(file.fileId, file.memoryId)}
                         className="text-red-400 hover:text-red-300"
                         title="Delete file"
                       >

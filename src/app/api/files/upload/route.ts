@@ -1,34 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { fileProcessor } from '../../../../lib/file-processing';
-import * as qdrantMemory from '../../../../server/qdrant';
 import path from 'path';
 import fs from 'fs';
-import { createEnhancedMemory } from '@/lib/memory/src/enhanced-memory';
-import { ImportanceLevel, MemorySource, MemoryType } from '@/constants/memory';
+import { MemoryType } from '../../../../server/memory/config';
+import { MemoryService } from '../../../../server/memory/services/memory/memory-service';
+import { getMemoryServices } from '../../../../server/memory/services';
 
-// Define types based on the qdrant memory module
-// type MemoryType = 'message' | 'thought' | 'document' | 'task';
-// type MemoryImportance = 'low' | 'medium' | 'high';
-// type MemorySource = 'user' | 'system' | 'agent';
+// Import the FileMetadata interface from file-processing to extend it
+import { FileMetadata, ProcessedFile } from '../../../../lib/file-processing';
 
-// Create an instance of the EnhancedMemory class
-function createEnhancedMemoryAdapter() {
-  // Use the factory function from the memory module
-  return createEnhancedMemory('file-processor');
-}
-
-// Prepare memory for file storage
-async function prepareMemory() {
-  try {
-    // Initialize Qdrant memory if needed
-    if (!qdrantMemory.isInitialized()) {
-      await qdrantMemory.initMemory();
-    }
-    return true;
-  } catch (error) {
-    console.error('Error initializing memory:', error);
-    return false;
-  }
+// Create a function to get memory service
+async function getMemoryService(): Promise<MemoryService> {
+  const services = await getMemoryServices();
+  return services.memoryService;
 }
 
 // Send notification to Discord
@@ -51,6 +35,20 @@ async function sendDiscordNotification(filename: string, fileId: string) {
 }
 
 /**
+ * Extended FileMetadata interface with memory-specific fields
+ */
+interface ExtendedFileMetadata extends FileMetadata {
+  memoryId?: string;
+}
+
+/**
+ * Extended ProcessedFile interface with the extended metadata
+ */
+interface ExtendedProcessedFile extends Omit<ProcessedFile, 'metadata'> {
+  metadata: ExtendedFileMetadata;
+}
+
+/**
  * POST handler for file uploads
  */
 export async function POST(request: NextRequest) {
@@ -60,15 +58,10 @@ export async function POST(request: NextRequest) {
       await fileProcessor.initialize();
     }
     
-    // Prepare Qdrant memory
-    const memoryReady = await prepareMemory();
-    if (memoryReady) {
-      console.log('Memory system initialized for file processing');
-      // Create an enhanced memory adapter that wraps the qdrantMemory module
-      const enhancedMemory = createEnhancedMemoryAdapter();
-      fileProcessor.setEnhancedMemory(enhancedMemory);
-    } else {
-      console.warn('Memory system initialization failed, proceeding without memory integration');
+    // Get memory service instance
+    const memoryService = await getMemoryService();
+    if (!memoryService) {
+      console.warn('Memory service unavailable, proceeding without standardized memory integration');
     }
     
     // Parse form data
@@ -133,7 +126,7 @@ export async function POST(request: NextRequest) {
     };
     
     // Process the file
-    const result = await fileProcessor.processFile(fileBuffer, fileMetadata);
+    const result = await fileProcessor.processFile(fileBuffer, fileMetadata) as ExtendedProcessedFile;
     
     // Save files to the filesystem for image files
     if (result.metadata.mimeType.startsWith('image/')) {
@@ -157,6 +150,31 @@ export async function POST(request: NextRequest) {
       fs.writeFileSync(storagePath, fileBuffer);
       
       console.log(`Image file saved to: ${uploadPath} and ${storagePath}`);
+    }
+    
+    // Store the processed file in the standardized memory system
+    if (memoryService) {
+      try {
+        const contentToStore = result.fullText || `File: ${result.metadata.filename}`;
+        
+        // Create the memory item
+        const memoryResult = await memoryService.addMemory({
+          type: MemoryType.DOCUMENT,
+          content: contentToStore,
+          metadata: {
+            ...result.metadata,
+            processingDate: new Date().toISOString(),
+            isStandardizedMemory: true
+          }
+        });
+        
+        console.log(`File stored in standardized memory system with ID: ${memoryResult.id}`);
+        
+        // Update result with memory ID for reference
+        result.metadata.memoryId = memoryResult.id;
+      } catch (memoryError) {
+        console.error('Error storing file in standardized memory system:', memoryError);
+      }
     }
     
     // If successful, send notification to Discord
@@ -196,7 +214,8 @@ export async function POST(request: NextRequest) {
       filename: result.metadata.filename,
       status: result.metadata.processingStatus,
       error: result.metadata.processingError,
-      summary: result.metadata.summary
+      summary: result.metadata.summary,
+      memoryId: result.metadata.memoryId
     });
   } catch (error: any) {
     console.error('Error processing file upload:', error);
