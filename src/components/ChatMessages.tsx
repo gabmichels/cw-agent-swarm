@@ -19,6 +19,7 @@ interface ChatMessagesProps {
   initialMessageId?: string; // Allow jumping to a specific message ID
   pageSize?: number; // Number of messages to load at once
   preloadCount?: number; // Number of messages to preload
+  onDeleteMessage?: (messageId: string) => Promise<boolean>; // Add callback for deleting messages
 }
 
 /**
@@ -45,7 +46,8 @@ const ChatMessages: React.FC<ChatMessagesProps> = ({
   searchQuery = '',
   initialMessageId = '',
   pageSize = 20,
-  preloadCount = 10
+  preloadCount = 10,
+  onDeleteMessage
 }) => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -396,103 +398,44 @@ const ChatMessages: React.FC<ChatMessagesProps> = ({
     }
   }, [initialMessageId, processedMessages, pageSize, preloadCount]);
 
-  // Update the handleDeleteMessage function to ensure it never fails
+  // Handle deleting a message
   const handleDeleteMessage = async (timestamp: Date): Promise<boolean> => {
     try {
-      const isoTimestamp = timestamp.toISOString();
-      console.log(`Deleting message with timestamp: ${isoTimestamp}`);
+      // Find the message by timestamp
+      const targetMessage = processedMessages.find(
+        msg => msg.timestamp && msg.timestamp.getTime() === timestamp.getTime()
+      );
       
-      // Try different API routes in sequence until one works
-      const apiRoutes = [
-        `/api/chat/delete-message?timestamp=${encodeURIComponent(isoTimestamp)}&userId=gab`,
-        `/api/chat/messages/delete?timestamp=${encodeURIComponent(isoTimestamp)}&userId=gab`,
-        `/api/chat/test-route?timestamp=${encodeURIComponent(isoTimestamp)}&userId=gab`, // Fallback handler
-      ];
-      
-      // Try each route in sequence
-      for (let i = 0; i < apiRoutes.length; i++) {
-        const currentRoute = apiRoutes[i];
-        console.log(`Trying API route ${i+1}/${apiRoutes.length}: ${currentRoute}`);
-        
-        try {
-          const response = await fetch(currentRoute, {
-            method: 'DELETE',
-            headers: {
-              'Accept': 'application/json',
-              'Content-Type': 'application/json',
-              'Cache-Control': 'no-cache, no-store, must-revalidate',
-              'Pragma': 'no-cache'
-            }
-          });
-          
-          console.log(`Route ${i+1} response status: ${response.status}`);
-          
-          // Check if the route exists (not a 404)
-          if (response.status !== 404) {
-            // For any non-404 response, attempt to read the JSON
-            let data;
-            try {
-              data = await response.json();
-            } catch (jsonError) {
-              console.error(`Failed to parse JSON from route ${i+1}:`, jsonError);
-              
-              // Continue to next route if possible
-              if (i < apiRoutes.length - 1) {
-                continue;
-              } else {
-                // We're on the last route, use a synthetic success
-                data = { 
-                  success: true, 
-                  message: 'Synthetic success after JSON parse error', 
-                  synthetic: true 
-                };
-              }
-            }
-            
-            // Check for success
-            if (data && data.success === true) {
-              console.log(`Message deleted successfully via route ${i+1}`, data);
-              
-              // Dispatch the event regardless of which route succeeded
-              const deleteEvent = new CustomEvent('messageDeleted', {
-                detail: { timestamp: isoTimestamp }
-              });
-              document.dispatchEvent(deleteEvent);
-              
-              return true;
-            } else if (!response.ok) {
-              console.error(`Non-success response from route ${i+1}:`, data?.error || 'Unknown error');
-              // Only continue if we're not at the last route
-              if (i < apiRoutes.length - 1) {
-                continue;
-              }
-            }
-          }
-          
-          // If we get a 404 or non-success response, continue to next route
-          if (i < apiRoutes.length - 1) {
-            console.log(`Route ${i+1} failed or returned 404, trying next route...`);
-          }
-        } catch (routeError) {
-          console.error(`Error trying route ${i+1}:`, routeError);
-          // Continue to next route if possible
-          if (i < apiRoutes.length - 1) {
-            continue;
-          }
-        }
+      if (!targetMessage) {
+        console.error('No message found with timestamp:', timestamp);
+        return false;
       }
       
-      // If we're here and it's the test-route (final fallback), create a synthetic success
-      // This ensures the UI always shows success even if all actual routes failed
-      console.log('All API routes failed, using synthetic success for UI');
+      // If we have an onDeleteMessage prop and message ID, use that (standardized memory)
+      if (onDeleteMessage && targetMessage.id) {
+        return await onDeleteMessage(targetMessage.id);
+      }
       
-      // Still dispatch the event so the UI updates
+      // Legacy deletion approach for backward compatibility
+      const timestampStr = timestamp.toISOString();
+      
+      // Call the API to delete the message
+      const response = await fetch(`/api/chat/message?timestamp=${timestampStr}`, {
+        method: 'DELETE',
+      });
+      
+      if (!response.ok) {
+        const data = await response.json();
+        console.error('Error deleting message:', data);
+        return false;
+      }
+      
+      // Create a synthetic event to trigger UI update
       const deleteEvent = new CustomEvent('messageDeleted', {
-        detail: { timestamp: isoTimestamp }
+        detail: { timestamp: timestampStr }
       });
       document.dispatchEvent(deleteEvent);
       
-      // Return true to prevent UI errors
       return true;
     } catch (error) {
       console.error('Error in handleDeleteMessage:', error);

@@ -20,225 +20,330 @@ interface UseMemoryOptions {
 }
 
 /**
- * Hook for managing a single memory item
- * 
- * @param memoryId ID of the memory to fetch and manage
- * @param options Hook options
+ * Types for the hook params and returns
  */
-export function useMemory<T extends BaseMemorySchema = BaseMemorySchema>(
-  memoryId: string | null,
-  options: UseMemoryOptions = {}
-) {
-  const [memory, setMemory] = useState<T | null>(null);
-  const [loading, setLoading] = useState<boolean>(false);
-  const [error, setError] = useState<Error | null>(null);
-  const [history, setHistory] = useState<T[]>([]);
-  const [historyLoading, setHistoryLoading] = useState<boolean>(false);
-  const [historyError, setHistoryError] = useState<Error | null>(null);
-  
-  const { 
-    includeVector = false,
-    loadHistory = false,
-    historyLimit = 10
-  } = options;
-  
-  // Fetch memory function
-  const fetchMemory = useCallback(async () => {
-    if (!memoryId) {
-      setMemory(null);
-      return;
-    }
-    
-    setLoading(true);
-    setError(null);
+export interface MemorySearchParams {
+  query: string;
+  types?: MemoryType[];
+  tags?: string[];
+  limit?: number;
+  offset?: number;
+  hybridRatio?: number; // For hybrid search (0-1): 0 = text only, 1 = vector only
+}
+
+export interface MemoryHookState {
+  memories: any[];
+  isLoading: boolean;
+  error: Error | null;
+  totalCount: number;
+}
+
+/**
+ * React hook for accessing the standardized memory system
+ * Provides functions for CRUD operations on memories
+ */
+export default function useMemory(initialTypes?: MemoryType[]) {
+  const [state, setState] = useState<MemoryHookState>({
+    memories: [],
+    isLoading: false,
+    error: null,
+    totalCount: 0
+  });
+
+  /**
+   * Get memories with optional type filtering
+   */
+  const getMemories = useCallback(async (
+    params: { 
+      types?: MemoryType[], 
+      limit?: number, 
+      offset?: number 
+    } = {}
+  ) => {
+    setState(prev => ({ ...prev, isLoading: true, error: null }));
     
     try {
-      const response = await fetch(`/api/memory/${memoryId}?includeVector=${includeVector}`);
+      // Build query parameters
+      const queryParams = new URLSearchParams();
+      
+      if (params.types?.[0]) {
+        queryParams.append('type', params.types[0]);
+      }
+      
+      if (params.limit) {
+        queryParams.append('limit', params.limit.toString());
+      }
+      
+      if (params.offset) {
+        queryParams.append('offset', params.offset.toString());
+      }
+      
+      // Make API request
+      const response = await fetch(`/api/memory?${queryParams.toString()}`);
       
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Failed to fetch memory');
+        throw new Error(`Failed to fetch memories: ${response.statusText}`);
       }
       
       const data = await response.json();
-      setMemory(data.memory);
-    } catch (err) {
-      console.error('Error fetching memory:', err);
-      setError(err instanceof Error ? err : new Error(String(err)));
-      setMemory(null);
-    } finally {
-      setLoading(false);
+      
+      setState(prev => ({
+        ...prev,
+        memories: data.memories || [],
+        totalCount: data.total || 0,
+        isLoading: false
+      }));
+      
+      return data.memories;
+    } catch (error) {
+      console.error('Error fetching memories:', error);
+      setState(prev => ({
+        ...prev,
+        error: error instanceof Error ? error : new Error(String(error)),
+        isLoading: false
+      }));
+      return [];
     }
-  }, [memoryId, includeVector]);
-  
-  // Fetch history function
-  const fetchHistory = useCallback(async () => {
-    if (!memoryId) {
-      setHistory([]);
-      return;
-    }
-    
-    setHistoryLoading(true);
-    setHistoryError(null);
+  }, []);
+
+  /**
+   * Search memories using the hybrid search API
+   */
+  const searchMemories = useCallback(async (
+    params: MemorySearchParams
+  ) => {
+    setState(prev => ({ ...prev, isLoading: true, error: null }));
     
     try {
-      const response = await fetch(`/api/memory/history/${memoryId}?limit=${historyLimit}`);
+      // Prepare filter object
+      const filter: Record<string, any> = {};
+      
+      if (params.types && params.types.length > 0) {
+        filter.must = filter.must || [];
+        filter.must.push({
+          key: 'type',
+          match: {
+            in: params.types
+          }
+        });
+      }
+      
+      if (params.tags && params.tags.length > 0) {
+        filter.must = filter.must || [];
+        filter.must.push({
+          key: 'metadata.tags',
+          match: {
+            in: params.tags
+          }
+        });
+      }
+      
+      // Prepare request body
+      const body: {
+        query: string;
+        limit: number;
+        filter?: Record<string, any>;
+        hybridRatio?: number;
+      } = {
+        query: params.query,
+        limit: params.limit || 10,
+        filter: Object.keys(filter).length > 0 ? filter : undefined
+      };
+      
+      // Add hybridRatio if specified
+      if (params.hybridRatio !== undefined) {
+        body.hybridRatio = params.hybridRatio;
+      }
+      
+      // Make API request to hybrid search endpoint
+      const response = await fetch('/api/memory/hybrid-search', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(body)
+      });
       
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Failed to fetch memory history');
+        throw new Error(`Search failed: ${response.statusText}`);
       }
       
       const data = await response.json();
-      setHistory(data.history);
-    } catch (err) {
-      console.error('Error fetching memory history:', err);
-      setHistoryError(err instanceof Error ? err : new Error(String(err)));
-      setHistory([]);
-    } finally {
-      setHistoryLoading(false);
+      
+      // Extract memory points from search results
+      const searchResults = data.results || [];
+      const memories = searchResults.map((result: any) => ({
+        ...result.point,
+        score: result.score,
+      }));
+      
+      setState(prev => ({
+        ...prev,
+        memories,
+        totalCount: memories.length,
+        isLoading: false
+      }));
+      
+      return memories;
+    } catch (error) {
+      console.error('Error searching memories:', error);
+      setState(prev => ({
+        ...prev,
+        error: error instanceof Error ? error : new Error(String(error)),
+        isLoading: false
+      }));
+      return [];
     }
-  }, [memoryId, historyLimit]);
-  
-  // Update memory function
-  const updateMemory = useCallback(async (updates: Partial<T>) => {
-    if (!memoryId) {
-      return null;
-    }
-    
-    setLoading(true);
-    setError(null);
-    
+  }, []);
+
+  /**
+   * Get a single memory by ID
+   */
+  const getMemory = useCallback(async (id: string) => {
     try {
-      const response = await fetch(`/api/memory/${memoryId}`, {
+      const response = await fetch(`/api/memory/${id}`);
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch memory: ${response.statusText}`);
+      }
+      
+      return await response.json();
+    } catch (error) {
+      console.error(`Error fetching memory ${id}:`, error);
+      throw error;
+    }
+  }, []);
+
+  /**
+   * Add a new memory
+   */
+  const addMemory = useCallback(async (
+    params: {
+      type: MemoryType;
+      content: string;
+      metadata?: Record<string, any>;
+    }
+  ) => {
+    try {
+      const response = await fetch('/api/memory', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(params)
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Failed to add memory: ${response.statusText}`);
+      }
+      
+      const result = await response.json();
+      return result;
+    } catch (error) {
+      console.error('Error adding memory:', error);
+      throw error;
+    }
+  }, []);
+
+  /**
+   * Update an existing memory
+   */
+  const updateMemory = useCallback(async (
+    params: {
+      id: string;
+      type: MemoryType;
+      content?: string;
+      metadata?: Record<string, any>;
+    }
+  ) => {
+    try {
+      const { id, ...updateData } = params;
+      
+      const response = await fetch(`/api/memory/${id}`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(updates)
+        body: JSON.stringify(updateData)
       });
       
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Failed to update memory');
+        throw new Error(`Failed to update memory: ${response.statusText}`);
+      }
+      
+      return await response.json();
+    } catch (error) {
+      console.error(`Error updating memory ${params.id}:`, error);
+      throw error;
+    }
+  }, []);
+
+  /**
+   * Delete a memory
+   */
+  const deleteMemory = useCallback(async (
+    params: {
+      id: string;
+      type: MemoryType;
+    }
+  ) => {
+    try {
+      const { id, type } = params;
+      
+      const response = await fetch(`/api/memory/${id}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ type })
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Failed to delete memory: ${response.statusText}`);
+      }
+      
+      return await response.json();
+    } catch (error) {
+      console.error(`Error deleting memory ${params.id}:`, error);
+      throw error;
+    }
+  }, []);
+
+  /**
+   * Get memory history/versions
+   */
+  const getMemoryHistory = useCallback(async (id: string) => {
+    try {
+      const response = await fetch(`/api/memory/history/${id}`);
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch memory history: ${response.statusText}`);
       }
       
       const data = await response.json();
-      setMemory(data.memory);
-      
-      // Refresh history if it was loaded and we've made a change
-      if (loadHistory) {
-        fetchHistory();
-      }
-      
-      return data.memory;
-    } catch (err) {
-      console.error('Error updating memory:', err);
-      setError(err instanceof Error ? err : new Error(String(err)));
-      return null;
-    } finally {
-      setLoading(false);
+      return data.history || [];
+    } catch (error) {
+      console.error(`Error fetching memory history for ${id}:`, error);
+      throw error;
     }
-  }, [memoryId, fetchHistory, loadHistory]);
-  
-  // Delete memory function
-  const deleteMemory = useCallback(async (options: { soft?: boolean } = {}) => {
-    if (!memoryId) {
-      return false;
-    }
-    
-    setLoading(true);
-    setError(null);
-    
-    try {
-      const { soft = false } = options;
-      const response = await fetch(`/api/memory/${memoryId}?soft=${soft}`, {
-        method: 'DELETE'
-      });
-      
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Failed to delete memory');
-      }
-      
-      setMemory(null);
-      setHistory([]);
-      return true;
-    } catch (err) {
-      console.error('Error deleting memory:', err);
-      setError(err instanceof Error ? err : new Error(String(err)));
-      return false;
-    } finally {
-      setLoading(false);
-    }
-  }, [memoryId]);
-  
-  // Flag memory importance
-  const flagImportance = useCallback(async (importance: string) => {
-    return updateMemory({ 
-      metadata: { 
-        ...memory?.metadata, 
-        importance 
-      }
-    } as Partial<T>);
-  }, [memory, updateMemory]);
-  
-  // Add tag to memory
-  const addTag = useCallback(async (tag: string) => {
-    const currentTags = memory?.metadata?.tags || [];
-    
-    // Don't add duplicate tags
-    if (currentTags.includes(tag)) {
-      return memory;
-    }
-    
-    return updateMemory({
-      metadata: {
-        ...memory?.metadata,
-        tags: [...currentTags, tag]
-      }
-    } as Partial<T>);
-  }, [memory, updateMemory]);
-  
-  // Remove tag from memory
-  const removeTag = useCallback(async (tag: string) => {
-    const currentTags = memory?.metadata?.tags || [];
-    
-    return updateMemory({
-      metadata: {
-        ...memory?.metadata,
-        tags: currentTags.filter(t => t !== tag)
-      }
-    } as Partial<T>);
-  }, [memory, updateMemory]);
-  
-  // Initial memory fetch
+  }, []);
+
+  // Load initial memories if types are provided
   useEffect(() => {
-    fetchMemory();
-  }, [fetchMemory]);
-  
-  // Fetch history if requested
-  useEffect(() => {
-    if (loadHistory && memoryId) {
-      fetchHistory();
+    if (initialTypes && initialTypes.length > 0) {
+      getMemories({ types: initialTypes });
     }
-  }, [loadHistory, memoryId, fetchHistory]);
-  
+  }, [initialTypes, getMemories]);
+
   return {
-    memory,
-    loading,
-    error,
-    history,
-    historyLoading,
-    historyError,
-    fetchMemory,
-    fetchHistory,
+    ...state,
+    getMemories,
+    searchMemories,
+    getMemory,
+    addMemory,
     updateMemory,
     deleteMemory,
-    flagImportance,
-    addTag,
-    removeTag
+    getMemoryHistory,
+    refresh: () => getMemories({ types: initialTypes })
   };
-}
-
-export default useMemory; 
+} 

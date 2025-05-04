@@ -9,6 +9,7 @@ import { Message, FileAttachment } from '../types';
 import { MessageType } from '../constants/message';
 import SearchResults from './SearchResults';
 import { smartSearchMessages } from '../utils/smartSearch';
+import useChatMemory from '../hooks/useChatMemory';
 
 interface HistoryMessage {
   role: string;
@@ -33,11 +34,9 @@ function ClientTime({ timestamp }: { timestamp: Date }) {
 }
 
 export default function ChatInterface() {
-  const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [userId] = useState('gab'); // Hardcoded for now, could come from auth context later
-  const [isLoadingHistory, setIsLoadingHistory] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTab, setSelectedTab] = useState('chat');
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -53,80 +52,19 @@ export default function ChatInterface() {
   const [showSearchResults, setShowSearchResults] = useState(false);
   const [selectedMessageId, setSelectedMessageId] = useState<string>('');
   
+  // Use our new chat memory hook
+  const {
+    chatHistory: messages,
+    isLoadingHistory,
+    historyError,
+    addChatMessage,
+    deleteChatMessage
+  } = useChatMemory({
+    userId,
+    includeInternalMessages: showInternalMessages
+  });
+  
   const messagesEndRef = useRef<HTMLDivElement>(null);
-
-  // Load chat history when component mounts
-  useEffect(() => {
-    async function loadChatHistory() {
-      try {
-        setIsLoadingHistory(true);
-        const response = await fetch(`/api/chat?userId=${userId}`);
-        
-        if (response.ok) {
-          const data = await response.json();
-          
-          if (data.history && data.history.length > 0) {
-            // Convert history to Message objects
-            const historyMessages: Message[] = data.history.map((msg: HistoryMessage) => ({
-              sender: msg.role === 'user' ? 'You' : 'Chloe',
-              content: msg.content,
-              timestamp: new Date(msg.timestamp),
-              messageType: msg.role === 'user' ? MessageType.USER : MessageType.AGENT,
-            }));
-            
-            setMessages(historyMessages);
-          } else {
-            // Add mock messages for testing
-            setMessages([
-              {
-                sender: 'Chloe',
-                content: "Hello! I'm Chloe, and I'm now connected to the API.",
-                timestamp: new Date(),
-                messageType: MessageType.AGENT,
-              },
-              {
-                sender: 'You',
-                content: "I need help with search functionality.",
-                timestamp: new Date(Date.now() - 5000),
-                messageType: MessageType.USER,
-              },
-              {
-                sender: 'Chloe',
-                content: "I can help you implement a smart search with fuzzy matching and highlighting capabilities.",
-                timestamp: new Date(Date.now() - 4000),
-                messageType: MessageType.AGENT,
-              },
-              {
-                sender: 'You',
-                content: "How do we handle misspellings?",
-                timestamp: new Date(Date.now() - 3000),
-                messageType: MessageType.USER,
-              },
-              {
-                sender: 'Chloe',
-                content: "We can use Levenshtein distance algorithm to detect and match misspelled words.",
-                timestamp: new Date(Date.now() - 2000),
-                messageType: MessageType.AGENT,
-              }
-            ]);
-          }
-        }
-      } catch (error) {
-        console.error('Error loading chat history:', error);
-        // Show error state with a message that clearly isn't hardcoded
-        setMessages([{
-          sender: 'Chloe',
-          content: "Error loading chat history. But this message is coming from the client.",
-          timestamp: new Date(),
-          messageType: MessageType.AGENT,
-        }]);
-      } finally {
-        setIsLoadingHistory(false);
-      }
-    }
-    
-    loadChatHistory();
-  }, [userId]);
 
   // Auto-scroll to bottom when messages change
   useEffect(() => {
@@ -149,11 +87,13 @@ export default function ChatInterface() {
       messageType: MessageType.USER,
     };
     
-    setMessages((prev) => [...prev, userMessage]);
+    // Add message to memory
+    await addChatMessage(userMessage);
+    
     setInput('');
     setIsLoading(true);
 
-    console.log('Sending message to Chloe:', userMessage.content);
+    console.log('Sending message to Assistant:', userMessage.content);
 
     try {
       // Call the API with the user's message
@@ -170,7 +110,7 @@ export default function ChatInterface() {
       
       if (!response.ok) {
         console.error('API response not OK:', response.status, response.statusText);
-        throw new Error('Failed to get response from Chloe');
+        throw new Error('Failed to get response from Assistant');
       }
       
       const data = await response.json();
@@ -196,7 +136,7 @@ export default function ChatInterface() {
       }
       
       const botResponse: Message = {
-        sender: 'Chloe',
+        sender: 'Assistant',
         content: replyText,
         timestamp: new Date(),
         memory: messageMemory,
@@ -204,20 +144,20 @@ export default function ChatInterface() {
         messageType: MessageType.AGENT,
       };
       
-      setMessages((prev) => [...prev, botResponse]);
+      // Add bot response to memory
+      await addChatMessage(botResponse);
     } catch (error) {
       console.error('Error sending message:', error);
       
-      // Add error message
-      setMessages((prev) => [
-        ...prev,
-        {
-          sender: 'Chloe',
-          content: 'Sorry, I encountered an error processing your request. Please try again.',
-          timestamp: new Date(),
-          messageType: MessageType.AGENT,
-        },
-      ]);
+      // Add error message to memory
+      const errorMessage: Message = {
+        sender: 'Assistant',
+        content: 'Sorry, I encountered an error processing your request. Please try again.',
+        timestamp: new Date(),
+        messageType: MessageType.AGENT,
+      };
+      
+      await addChatMessage(errorMessage);
     } finally {
       setIsLoading(false);
     }
@@ -418,6 +358,7 @@ export default function ChatInterface() {
               showInternalMessages={showInternalMessages}
               searchQuery={searchQuery}
               initialMessageId={selectedMessageId}
+              onDeleteMessage={deleteChatMessage}
             />
           </>
         )}
