@@ -3,6 +3,7 @@
  */
 import { ValidationResult, MemoryType } from '../config';
 import { createValidationError } from './error-handler';
+import { AddMemoryParams, DeleteMemoryParams, GetMemoryParams, UpdateMemoryParams } from '../services/memory/types';
 
 /**
  * Validates that a value is not null or undefined
@@ -199,4 +200,121 @@ export function validateSchema<T>(
   );
   
   throwIfInvalid(result);
+}
+
+/**
+ * Validate parameters for adding a memory
+ */
+export function validateAddMemoryParams(params: AddMemoryParams<any>): ValidationResult {
+  const errors = [];
+  
+  // Required fields
+  if (!params.type) {
+    errors.push({ field: 'type', message: 'Memory type is required' });
+  }
+  
+  if (!params.content) {
+    errors.push({ field: 'content', message: 'Content is required' });
+  }
+  
+  // Type validation
+  if (params.type && !Object.values(MemoryType).includes(params.type)) {
+    errors.push({ field: 'type', message: `Invalid memory type: ${params.type}` });
+  }
+  
+  // Embedding validation
+  if (params.embedding && (!Array.isArray(params.embedding) || params.embedding.length === 0)) {
+    errors.push({ field: 'embedding', message: 'Embedding must be a non-empty array' });
+  }
+  
+  return {
+    valid: errors.length === 0,
+    errors: errors.length > 0 ? errors : undefined
+  };
+}
+
+/**
+ * Validate parameters for getting a memory
+ */
+export function validateGetMemoryParams(params: GetMemoryParams): ValidationResult {
+  const errors = [];
+  
+  // Required fields
+  if (!params.type) {
+    errors.push({ field: 'type', message: 'Memory type is required' });
+  }
+  
+  if (!params.id) {
+    errors.push({ field: 'id', message: 'Memory ID is required' });
+  }
+  
+  // Type validation
+  if (params.type && !Object.values(MemoryType).includes(params.type)) {
+    errors.push({ field: 'type', message: `Invalid memory type: ${params.type}` });
+  }
+  
+  return {
+    valid: errors.length === 0,
+    errors: errors.length > 0 ? errors : undefined
+  };
+}
+
+/**
+ * Validate parameters for updating a memory
+ */
+export function validateUpdateMemoryParams(params: UpdateMemoryParams<any>): ValidationResult {
+  const errors = [];
+  
+  // Required fields
+  if (!params.type) {
+    errors.push({ field: 'type', message: 'Memory type is required' });
+  }
+  
+  if (!params.id) {
+    errors.push({ field: 'id', message: 'Memory ID is required' });
+  }
+  
+  // At least one update field should be provided
+  if (!params.content && !params.payload && !params.metadata) {
+    errors.push({ 
+      field: 'updates', 
+      message: 'At least one update field (content, payload, or metadata) is required' 
+    });
+  }
+  
+  // Type validation
+  if (params.type && !Object.values(MemoryType).includes(params.type)) {
+    errors.push({ field: 'type', message: `Invalid memory type: ${params.type}` });
+  }
+  
+  return {
+    valid: errors.length === 0,
+    errors: errors.length > 0 ? errors : undefined
+  };
+}
+
+/**
+ * Validate parameters for deleting a memory
+ */
+export function validateDeleteMemoryParams(params: DeleteMemoryParams): ValidationResult {
+  const errors = [];
+  
+  // Required fields
+  if (!params.type) {
+    errors.push({ field: 'type', message: 'Memory type is required' });
+  }
+  
+  if (!params.id) {
+    errors.push({ field: 'id', message: 'Memory ID is required' });
+  }
+  
+  // Type validation
+  if (params.type && !Object.values(MemoryType).includes(params.type)) {
+    errors.push({ field: 'type', message: `Invalid memory type: ${params.type}` });
+  }
+  
+  return {
+    valid: errors.length === 0,
+    errors: errors.length > 0 ? errors : undefined
+  };
 } 
