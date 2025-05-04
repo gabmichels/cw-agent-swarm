@@ -343,6 +343,54 @@ const ToolsTab: React.FC<ToolsTabProps> = ({
     }
   };
 
+  // Function to clear markdown cache
+  const handleClearMarkdownCache = async () => {
+    if (!confirm('Are you sure you want to clear the markdown cache? Files will be re-ingested on next server restart.')) {
+      return;
+    }
+    
+    setIsDebugLoading(true);
+    try {
+      // Make the request with a simple error handling approach
+      const response = await fetch('/api/debug/clear-markdown-cache', {
+        method: 'POST',
+      });
+      
+      // Get the response as text first to safely handle any response format
+      const responseText = await response.text();
+      
+      // Try to parse as JSON if possible
+      let data;
+      try {
+        data = JSON.parse(responseText);
+      } catch (parseError) {
+        // If not JSON, create an error object
+        data = { 
+          success: false, 
+          error: `Server returned non-JSON response: ${responseText.substring(0, 150)}...`,
+          statusCode: response.status
+        };
+      }
+      
+      setDebugResults(data);
+      
+      if (data.success) {
+        alert(`Success: ${data.message || 'Markdown cache cleared successfully'}`);
+      } else {
+        alert(`Error: ${data.error || 'Unknown error occurred'}`);
+      }
+    } catch (error) {
+      console.error('Network error clearing markdown cache:', error);
+      setDebugResults({
+        success: false,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      alert(`Network error: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setIsDebugLoading(false);
+    }
+  };
+
   return (
     <div className="flex flex-col h-full p-4 space-y-4 overflow-y-auto">
       <h2 className="text-xl font-bold mb-4">Tools & Diagnostics</h2>
@@ -435,7 +483,7 @@ const ToolsTab: React.FC<ToolsTabProps> = ({
         <div className="bg-gray-700 p-4 rounded-lg">
           <h3 className="font-semibold mb-2">Memory Management</h3>
           <p className="text-sm text-gray-300 mb-4">Examine and manage Chloe's memory system.</p>
-          <div className="flex space-x-2">
+          <div className="flex flex-col space-y-2">
             <button
               onClick={inspectChloeMemory}
               className="px-3 py-1 bg-blue-600 hover:bg-blue-700 rounded text-white text-sm"
@@ -449,6 +497,13 @@ const ToolsTab: React.FC<ToolsTabProps> = ({
               disabled={isLoading}
             >
               Reset Chat
+            </button>
+            <button
+              onClick={handleClearMarkdownCache}
+              className="px-3 py-1 bg-yellow-600 hover:bg-yellow-700 rounded text-white text-sm"
+              disabled={isDebugLoading}
+            >
+              Clear Markdown Cache
             </button>
           </div>
         </div>
