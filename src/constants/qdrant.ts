@@ -10,6 +10,7 @@ export const COLLECTIONS = {
   thought: 'thoughts',
   document: 'documents',
   task: 'tasks',
+  memory_edits: 'memory_edits',
 };
 
 /**
@@ -20,6 +21,7 @@ export const MEMORY_TYPES = {
   THOUGHT: 'thought',
   DOCUMENT: 'document',
   TASK: 'task',
+  MEMORY_EDITS: 'memory_edits',
 };
 
 /**

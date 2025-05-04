@@ -1,5 +1,5 @@
 // Remove CommonJS require and @ts-ignore
-import path from 'path';
+import * as path from 'path';
 import { AgentMemory } from '../../lib/memory';
 // Use server-only Qdrant implementation
 import * as serverQdrant from '../../server/qdrant';
@@ -15,10 +15,11 @@ import { handleError } from '../../lib/errors/errorHandler';
 // Import new constants
 import { 
   MemoryType, 
-  ChloeMemoryType as ChloeMemoryTypeEnum, 
   ImportanceLevel, 
-  MemorySource 
+  MemorySource
 } from '../../constants/memory';
+// Import ChloeMemoryType as a different name to avoid conflict
+import { ChloeMemoryType as ChloeMemoryTypeEnum } from '../../constants/memory';
 import { RerankerService } from './services/reranker';
 // Import PII redaction functionality
 import { redactSensitiveData, RedactionResult } from '../../lib/pii/redactor';
@@ -37,6 +38,7 @@ export interface MemoryEntry extends Omit<BaseMemoryEntry, 'type'> {
   expiresAt?: Date;
   tags?: string[];
   type: ChloeMemoryType;
+  updated?: Date;
   metadata?: {
     filePath?: string;
     title?: string;
@@ -154,7 +156,7 @@ export class ChloeMemory {
    */
   async addMemory(
     content: string,
-    type: ChloeMemoryType = 'MESSAGE',
+    type: string = 'MESSAGE',
     importance: ImportanceLevel = ImportanceLevel.MEDIUM,
     source: MemorySource = MemorySource.AGENT,
     context?: string,
@@ -181,75 +183,114 @@ export class ChloeMemory {
       pii_redaction_count: redactionResult.redactionCount
     };
     
+    // Check if content already has a MESSAGE or similar prefix to avoid duplication
+    const hasPrefix = this.isFormattedMemory(contentToStore);
+    
     // Apply standardized formatting to memory content if it doesn't already have it
     const timestamp = new Date().toISOString();
     let formattedContent = contentToStore;
     
     // Only format if it's not already formatted
-    if (!this.isFormattedMemory(contentToStore)) {
+    if (!hasPrefix) {
       const typeLabel = type.toString().toUpperCase();
       formattedContent = `${typeLabel} [${timestamp}]: ${contentToStore}`;
+    } else {
+      console.log(`Memory already has format prefix, skipping formatting: ${contentToStore.substring(0, 50)}...`);
     }
     
     const baseType = this.convertToBaseMemoryType(type);
     
-    // Create the memory entry
-    const newMemory: MemoryEntry = {
+    // Construct the memory entry
+    const memory: MemoryEntry = {
       id: memoryId,
       content: formattedContent,
       created: new Date(),
-      category: type.toString(), // Use type as category for backward compatibility
-      importance: importance as any, // Type cast to resolve type mismatch
+      updated: new Date(),
+      category: type.toString(),
+      type: type as ChloeMemoryType,
       source,
+      importance,
       context,
-      tags,
-      type: baseType, // baseType is now a string which matches ChloeMemoryType
-      metadata: extendedMetadata // Use extended metadata with PII redaction info
+      tags: tags || [],
+      metadata: extendedMetadata
     };
     
-    // Add to server-side Qdrant (only when running server-side)
-    if (typeof window === 'undefined') {
-      // Convert baseType to the expected QdrantMemoryType
-      const qdrantType = baseType as QdrantMemoryType;
-      await serverQdrant.addMemory(
-        qdrantType,
-        formattedContent,
-        {
-          category: type.toString(),
-          importance,
-          source,
-          tags,
-          ...extendedMetadata, // Include extended metadata fields
-          // Ensure critical flag is set properly if importance is CRITICAL
-          critical: metadata?.critical || importance === ImportanceLevel.CRITICAL
-        }
-      );
+    try {
+      // Store in long-term memory if high importance or it's a persistent memory
+      if (this.externalMemory && (importance === ImportanceLevel.HIGH || source === MemorySource.EXTERNAL)) {
+        await this.storeInExternalMemory(memory);
+      }
+      
+      // Store in all memories for local access
+      this.memoryStore.entries.push(memory);
+      
+      // Add to appropriate category collections
+      this.categorizeMemory(memory);
+      
+      return memory;
+    } catch (error) {
+      handleError(MemoryError.storageFailed(
+        'Failed to store memory',
+        { agentId: this.agentId, memoryId },
+        error instanceof Error ? error : undefined
+      ));
+      
+      // Still return the memory object, even if storage failed
+      return memory;
     }
-    
-    // Add to external memory if enabled
-    if (this.useExternalMemory && this.externalMemory) {
-      const memoryText = this.formatMemoryForExternal(newMemory);
-      await this.externalMemory.addMemory(memoryText, {
-        tag: type.toString(),
-        importance: importance,
-        source: source,
-        tags: tags,
-        ...extendedMetadata // Include extended metadata in external memory as well
-      });
-    }
-    
-    console.log(`Added new memory: ${memoryId} - ${formattedContent.substring(0, 50)}...${redactionResult.piiDetected ? ' (PII redacted)' : ''}`);
-    return newMemory;
   }
-
+  
   /**
-   * Check if a memory string is already in the standardized format
+   * Store memory in external memory system
+   * This is a placeholder method that would be implemented to store important memories
+   */
+  private async storeInExternalMemory(memory: MemoryEntry): Promise<void> {
+    // Implementation would depend on the specific external memory system
+    if (this.externalMemory) {
+      try {
+        // Format memory for external storage
+        const formattedMemory = this.formatMemoryForExternal(memory);
+        
+        // Store in external memory
+        if (typeof this.externalMemory.addMemory === 'function') {
+          await this.externalMemory.addMemory(formattedMemory, {
+            importance: memory.importance,
+            tags: memory.tags,
+            metadata: memory.metadata
+          });
+        }
+      } catch (error) {
+        console.error('Error storing memory in external system:', error);
+        // Don't throw - we'll still keep the memory in local storage
+      }
+    }
+  }
+  
+  /**
+   * Categorize memory into appropriate collections
+   * This is a placeholder method that would organize memories by type
+   */
+  private categorizeMemory(memory: MemoryEntry): void {
+    // In a full implementation, this would organize memories into categories
+    // For now, we're just using a single array in memoryStore.entries
+  }
+  
+  /**
+   * Check if content is already formatted with a memory type prefix
    */
   private isFormattedMemory(content: string): boolean {
     if (!content) return false;
     
-    const formatRegex = /^(USER MESSAGE|MESSAGE|THOUGHT|REASONING TRAIL) \[([^\]]+)\]: (.+)$/;
-    return formatRegex.test(content);
+    // Check for any of the standard prefixes that match our memory types
+    const memoryTypeList = Object.values(MemoryType).map(type => type.toString().toUpperCase());
+    
+    // Create a regex that matches any memory type followed by timestamp format
+    const formatRegex = new RegExp(`^(${memoryTypeList.join('|')})\\s*\\[\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}.\\d{3}Z\\]:\\s*`, 'i');
+    
+    // Also check for MESSAGE-like prefixes (to handle the duplicate prefix issue)
+    const messageRegex = /^MESSAGE:?\s+/i;
+    
+    return formatRegex.test(content) || messageRegex.test(content);
   }
 
   /**
@@ -401,12 +442,13 @@ export class ChloeMemory {
           id,
           content,
           created,
-          type: memType, // This is a string which matches ChloeMemoryType
+          updated: new Date(),
+          type: memType as ChloeMemoryType, // Cast to ensure correct type
           category,
           source: source as MemorySource, // Cast to ensure correct type
           importance,
           tags
-        };
+        } as MemoryEntry;
       } catch (error) {
         console.error('Error converting memory record:', error);
         // Return a minimal valid memory entry
@@ -414,7 +456,8 @@ export class ChloeMemory {
           id: `error_${Date.now()}`,
           content: 'Error retrieving memory content',
           created: new Date(),
-          type: MemoryType.MESSAGE, // This is a string which matches ChloeMemoryType
+          updated: new Date(),
+          type: MemoryType.MESSAGE as ChloeMemoryType, // Cast to ensure correct type
           category: 'error',
           source: MemorySource.SYSTEM,
           importance: ImportanceLevel.LOW,

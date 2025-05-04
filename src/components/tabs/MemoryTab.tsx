@@ -26,13 +26,8 @@ interface MemoryTabProps {
 }
 
 // Extend MemoryItem type to include metadata
-interface ExtendedMemoryItem {
-  id: string;
-  content: string;
-  category?: string;
+interface ExtendedMemoryItem extends MemoryItem {
   kind?: string;
-  tags?: string[];
-  created?: Date | string;
   metadata?: Record<string, any>;
 }
 
@@ -120,6 +115,7 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
   const filteredMemories = useMemo(() => {
     if (!allMemories) return [];
     
+    // Filter based on criteria
     const filtered = allMemories.filter(memory => {
       // Filter by tag if one is selected
       const matchesTag = !selectedTagFilter || 
@@ -138,8 +134,175 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
       return matchesTag && matchesSearch && matchesType;
     });
 
+    // Helper function to normalize content for comparison
+    const normalizeContent = (content: string | undefined): string => {
+      if (!content) return '';
+      
+      // Step 1: Get the raw content with basic trimming
+      let normalized = content.trim();
+      
+      // Step 2: Handle nested MESSAGE prefixes more aggressively
+      let prevLength;
+      do {
+        prevLength = normalized.length;
+        
+        // First, try to handle the doubly nested prefixes like "MESSAGE: MESSAGE [date]: MESSAGE [date]:"
+        normalized = normalized.replace(/^MESSAGE:?\s+MESSAGE\s+\[\d{4}-\d{2}-\d{2}[^\]]*\]:\s+MESSAGE\s+\[\d{4}-\d{2}-\d{2}[^\]]*\]:\s+/i, '');
+        
+        // Then handle single-level nested prefixes like "MESSAGE: MESSAGE [date]:"
+        normalized = normalized.replace(/^MESSAGE:?\s+MESSAGE\s+\[\d{4}-\d{2}-\d{2}[^\]]*\]:\s+/i, '');
+        
+        // Finally handle any remaining prefix patterns
+        normalized = normalized.replace(/^MESSAGE:?\s*/i, '');
+        normalized = normalized.replace(/^MESSAGE\s+\[\d{4}-\d{2}-\d{2}[^\]]*\]:\s*/i, '');
+        
+      } while (normalized.length !== prevLength); // Continue until no more changes
+      
+      // Step 3: Handle any remaining timestamps
+      normalized = normalized.replace(/\[\d{4}-\d{2}-\d{2}[^\]]*\]/g, '[DATE]');
+      
+      // Step 4: Clean up whitespace 
+      normalized = normalized.replace(/\s+/g, ' ').trim();
+      
+      return normalized;
+    };
+    
+    // Helper function to check if two content strings are similar
+    const areSimilarContents = (content1: string | undefined, content2: string | undefined): boolean => {
+      if (!content1 || !content2) return false;
+      
+      const normalized1 = normalizeContent(content1);
+      const normalized2 = normalizeContent(content2);
+      
+      // If they're exactly the same after normalization
+      if (normalized1 === normalized2) return true;
+      
+      // If one is a subset of the other (e.g., one has prefix/suffix that the other doesn't)
+      if (normalized1.includes(normalized2) || normalized2.includes(normalized1)) return true;
+      
+      // If either content is very short, require stricter matching
+      const shortTextThreshold = 20;
+      if (normalized1.length < shortTextThreshold || normalized2.length < shortTextThreshold) {
+        // For short texts, require at least 95% similarity
+        const shortTextSimilarity = calculateSimilarityRatio(normalized1, normalized2);
+        return shortTextSimilarity >= 0.95;
+      }
+      
+      // For longer content, use our existing method
+      const commonLength = findLongestCommonSubstring(normalized1, normalized2);
+      
+      // If the common part is at least 90% of the shorter text
+      const similarityRatio = commonLength / Math.min(normalized1.length, normalized2.length);
+      return similarityRatio >= 0.9;
+    };
+    
+    // Helper to find the longest common substring length
+    const findLongestCommonSubstring = (str1: string, str2: string): number => {
+      let commonLength = 0;
+      for (let i = 0; i < str1.length; i++) {
+        for (let j = 0; j < str2.length; j++) {
+          let k = 0;
+          while (i + k < str1.length && 
+                j + k < str2.length && 
+                str1[i + k] === str2[j + k]) {
+            k++;
+          }
+          commonLength = Math.max(commonLength, k);
+        }
+      }
+      return commonLength;
+    };
+    
+    // Calculate a similarity ratio between two strings 
+    const calculateSimilarityRatio = (str1: string, str2: string): number => {
+      // Count matching characters
+      let matches = 0;
+      const maxLen = Math.max(str1.length, str2.length);
+      
+      // Simple approach - match at each position
+      for (let i = 0; i < Math.min(str1.length, str2.length); i++) {
+        if (str1[i] === str2[i]) {
+          matches++;
+        }
+      }
+      
+      return maxLen === 0 ? 1.0 : matches / maxLen;
+    };
+
+    // Group memories with identical or very similar content
+    const contentMap = new Map<string, ExtendedMemoryItem[]>();
+    
+    filtered.forEach(memory => {
+      if (!memory.content) return;
+      
+      // First check if we have a similar memory already grouped
+      let foundSimilar = false;
+      
+      // Generate a normalized version of the content for the key
+      const normalizedContent = normalizeContent(memory.content);
+      
+      // Check if this content is similar to any existing group
+      for (const [existingKey, memories] of Array.from(contentMap.entries())) {
+        // First check if we have an exact match after normalization
+        if (existingKey === normalizedContent) {
+          contentMap.get(existingKey)!.push(memory);
+          foundSimilar = true;
+          break;
+        }
+        
+        // Otherwise check for similarity with the first memory in the group
+        if (memories.length > 0 && areSimilarContents(memory.content, memories[0].content)) {
+          contentMap.get(existingKey)!.push(memory);
+          foundSimilar = true;
+          break;
+        }
+      }
+      
+      // If no similar content was found, create a new group
+      if (!foundSimilar) {
+        contentMap.set(normalizedContent, [memory]);
+      }
+    });
+    
+    // For each group, keep only the most recent memory and enhance it with related_versions if duplicates exist
+    const deduplicatedMemories: ExtendedMemoryItem[] = [];
+    
+    contentMap.forEach((memories, content) => {
+      if (memories.length === 1) {
+        // If only one memory with this content, just add it as is
+        deduplicatedMemories.push(memories[0]);
+      } else {
+        // Sort by date (newest first)
+        const sortedMemories = [...memories].sort((a, b) => {
+          const dateA = a.created ? new Date(a.created).getTime() : 
+                      a.timestamp ? new Date(a.timestamp).getTime() : 0;
+          const dateB = b.created ? new Date(b.created).getTime() : 
+                      b.timestamp ? new Date(b.timestamp).getTime() : 0;
+          return dateB - dateA;
+        });
+        
+        // Take the most recent one as the primary version
+        const primaryMemory = sortedMemories[0];
+        
+        // Add the related versions to its metadata
+        const enhancedMemory: ExtendedMemoryItem = {
+          ...primaryMemory,
+          metadata: {
+            ...(primaryMemory.metadata || {}),
+            related_versions: sortedMemories.slice(1).map(mem => ({
+              id: mem.id,
+              type: mem.kind || mem.metadata?.type || 'unknown',
+              timestamp: mem.created || mem.timestamp || new Date().toISOString()
+            }))
+          }
+        };
+        
+        deduplicatedMemories.push(enhancedMemory);
+      }
+    });
+
     // Sort by date (newest first)
-    return filtered.sort((a, b) => {
+    return deduplicatedMemories.sort((a, b) => {
       const dateA = a.created ? new Date(a.created).getTime() : 
                   a.timestamp ? new Date(a.timestamp).getTime() : 0;
       const dateB = b.created ? new Date(b.created).getTime() : 

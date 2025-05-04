@@ -24,7 +24,7 @@ if (typeof window !== 'undefined') {
 }
 
 // Type for Qdrant memory type string literals that match the constants
-export type QdrantMemoryType = 'message' | 'thought' | 'document' | 'task';
+export type QdrantMemoryType = 'message' | 'thought' | 'document' | 'task' | 'memory_edits';
 
 // Helper function to convert from BaseMemoryType enum to QdrantMemoryType
 export function convertToQdrantType(type: QdrantMemoryType): QdrantMemoryType {
@@ -38,6 +38,18 @@ export interface MemoryRecord {
   timestamp: string;
   type: QdrantMemoryType;
   metadata: Record<string, any>;
+  is_deleted?: boolean;
+}
+
+// Memory edit record for tracking changes
+export interface MemoryEditRecord extends MemoryRecord {
+  original_memory_id: string;
+  edit_type: 'create' | 'update' | 'delete';
+  editor_type: 'human' | 'agent' | 'system';
+  editor_id?: string;
+  diff_summary?: string;
+  current: boolean;
+  previous_version_id?: string;
 }
 
 // Memory record with score information for search results
@@ -49,6 +61,11 @@ export interface ScoredMemoryRecord extends MemoryRecord {
 export interface MemorySearchOptions {
   limit?: number;
   filter?: Record<string, any>;
+}
+
+// Add memory_edits collection to COLLECTIONS if it doesn't exist
+if (!COLLECTIONS.memory_edits) {
+  COLLECTIONS.memory_edits = 'memory_edits';
 }
 
 // Fallback in-memory storage when Qdrant is unavailable
@@ -1215,7 +1232,48 @@ export async function addMemory(
     await initMemory();
   }
   
-  return qdrantInstance ? qdrantInstance.addMemory(type, content, metadata) : '';
+  // Skip logging for memory_edits themselves to avoid recursion
+  const skipLogging = type === 'memory_edits' || metadata._skip_logging === true;
+  
+  // Set current = true flag for new memories if not already set
+  if (!skipLogging && !metadata.current) {
+    metadata.current = true;
+  }
+  
+  // Add a flag to avoid recursion when logging memory creation
+  const modifiedMetadata = { ...metadata };
+  if (skipLogging) {
+    delete modifiedMetadata._skip_logging;
+  }
+  
+  const memoryId = qdrantInstance ? await qdrantInstance.addMemory(type, content, modifiedMetadata) : '';
+  
+  // Skip logging for memory_edits themselves to avoid recursion
+  if (memoryId && !skipLogging) {
+    try {
+      // Log the memory creation
+      const memory: MemoryRecord = {
+        id: memoryId,
+        text: content,
+        timestamp: metadata.timestamp || new Date().toISOString(),
+        type,
+        metadata
+      };
+      
+      await logMemoryEdit(
+        memory, 
+        'create',
+        metadata.editor_type || 'system',
+        metadata.editor_id,
+        'Initial creation'
+      );
+    } catch (error) {
+      console.error('Error logging memory creation:', error);
+      // Continue even if logging fails - we don't want to fail the original operation
+    }
+  }
+  
+  return memoryId;
 }
 
 /**
@@ -1967,19 +2025,73 @@ export async function updateMemoryTags(
 
 /**
  * Delete a memory by ID
+ * By default, performs a soft delete (flagging is_deleted = true)
  */
 export async function deleteMemory(
   type: QdrantMemoryType,
-  id: string
+  id: string,
+  options: {
+    hardDelete?: boolean;
+    editor_type?: 'human' | 'agent' | 'system';
+    editor_id?: string;
+  } = {}
 ): Promise<boolean> {
   try {
     await initMemory();
     
-    // Get collection name from type
-    const collectionName = type ? COLLECTIONS[type] : COLLECTIONS.document;
+    const { hardDelete = false, editor_type = 'system', editor_id } = options;
     
-    // Use the singleton instance like other functions do
-    return qdrantInstance ? await qdrantInstance.deletePoint(collectionName, id) : false;
+    // First get the memory to log the deletion and potentially do soft delete
+    const filter = { id };
+    const searchOptions: MemorySearchOptions = {
+      filter,
+      limit: 1
+    };
+    
+    // Search for the memory
+    const memories = await qdrantInstance?.searchMemories(type, "", searchOptions);
+    
+    if (!memories || memories.length === 0) {
+      console.error(`Memory not found for deletion: ${id}`);
+      return false;
+    }
+    
+    const memory = memories[0];
+    
+    // Check if it's already marked as deleted
+    if (memory.is_deleted === true) {
+      console.log(`Memory ${id} is already marked as deleted`);
+      
+      // If hardDelete is requested, proceed with actual deletion
+      if (hardDelete) {
+        const collectionName = type ? COLLECTIONS[type] : COLLECTIONS.document;
+        return qdrantInstance ? await qdrantInstance.deletePoint(collectionName, id) : false;
+      }
+      
+      return true; // Already deleted (soft)
+    }
+    
+    // Log the deletion first
+    await logMemoryEdit(
+      memory,
+      'delete',
+      editor_type,
+      editor_id,
+      hardDelete ? 'Permanent deletion' : 'Soft deletion'
+    );
+    
+    if (hardDelete) {
+      // Perform hard delete if requested
+      const collectionName = type ? COLLECTIONS[type] : COLLECTIONS.document;
+      return qdrantInstance ? await qdrantInstance.deletePoint(collectionName, id) : false;
+    } else {
+      // Perform soft delete - just update metadata
+      return await updateMemoryMetadata(id, {
+        is_deleted: true,
+        deletion_timestamp: new Date().toISOString(),
+        current: false // No longer the current version
+      });
+    }
   } catch (error) {
     console.error('Error deleting memory:', error);
     return false;
@@ -1998,6 +2110,8 @@ export async function updateMemory(
     metadata?: Record<string, any>;
     importance?: ImportanceLevel;
     importance_score?: number;
+    editor_type?: 'human' | 'agent' | 'system';
+    editor_id?: string;
   }
 ): Promise<boolean> {
   try {
@@ -2024,12 +2138,35 @@ export async function updateMemory(
     
     const existingMemory = memories[0];
     
+    // Check if the memory is already marked as deleted
+    if (existingMemory.is_deleted === true) {
+      console.warn(`Cannot update deleted memory: ${id}`);
+      return false;
+    }
+    
+    // Store the previous version before making any changes
+    const previousVersionId = await logMemoryEdit(
+      existingMemory, 
+      'update',
+      updates.editor_type || 'system',
+      updates.editor_id,
+      calculateDiffSummary(existingMemory.text, updates.content || existingMemory.text)
+    );
+    
     // Create updated metadata
     let updatedMetadata = { ...existingMemory.metadata };
     
     // Update metadata if provided
     if (updates.metadata) {
       updatedMetadata = { ...updatedMetadata, ...updates.metadata };
+    }
+    
+    // Mark this version as current
+    updatedMetadata.current = true;
+    
+    // Store reference to previous version if available
+    if (previousVersionId) {
+      updatedMetadata.previous_version_id = previousVersionId;
     }
     
     // Handle importance score and level
@@ -2068,7 +2205,15 @@ export async function updateMemory(
       }
       
       // Delete the old memory
-      const deleted = await deleteMemory(existingMemory.type as QdrantMemoryType, id);
+      const deleted = await deleteMemory(
+        existingMemory.type as QdrantMemoryType, 
+        id,
+        {
+          hardDelete: true, // Need to actually delete since we're replacing it
+          editor_type: updates.editor_type || 'system',
+          editor_id: updates.editor_id
+        }
+      );
       
       if (!deleted) {
         console.error(`Failed to delete old memory during update: ${id}`);
@@ -2093,6 +2238,84 @@ export async function updateMemory(
 }
 
 /**
+ * Helper function to calculate a simple diff summary between two text strings
+ */
+function calculateDiffSummary(oldText: string, newText: string): string {
+  // Simple algorithm to detect changes
+  if (oldText === newText) {
+    return "No changes to content";
+  }
+  
+  const oldLength = oldText.length;
+  const newLength = newText.length;
+  
+  if (Math.abs(oldLength - newLength) > 100) {
+    // Significant length change
+    if (newLength > oldLength) {
+      return `Added ~${newLength - oldLength} characters`;
+    } else {
+      return `Removed ~${oldLength - newLength} characters`;
+    }
+  }
+  
+  // Check for text additions or removals
+  let changeCount = 0;
+  for (let i = 0; i < Math.min(oldLength, newLength); i++) {
+    if (oldText[i] !== newText[i]) {
+      changeCount++;
+    }
+  }
+  
+  return `Modified ~${changeCount + Math.abs(oldLength - newLength)} characters`;
+}
+
+/**
+ * Log a memory edit to the memory_edits collection
+ */
+async function logMemoryEdit(
+  memory: MemoryRecord,
+  editType: 'create' | 'update' | 'delete',
+  editorType: 'human' | 'agent' | 'system',
+  editorId?: string,
+  diffSummary?: string
+): Promise<string> {
+  try {
+    // Create memory edit record
+    const editRecord: Partial<MemoryEditRecord> = {
+      original_memory_id: memory.id,
+      edit_type: editType,
+      editor_type: editorType,
+      editor_id: editorId,
+      text: memory.text,
+      timestamp: new Date().toISOString(),
+      type: 'memory_edits',
+      diff_summary: diffSummary,
+      // Mark previous versions as not current
+      current: false,
+      metadata: {
+        ...memory.metadata,
+        original_type: memory.type,
+        original_timestamp: memory.timestamp,
+        _skip_logging: true // Prevent recursion
+      }
+    };
+    
+    // Add record to memory_edits collection
+    const editId = await addMemory(
+      'memory_edits',
+      memory.text,
+      editRecord as Record<string, any>
+    );
+    
+    console.log(`Logged memory edit: ${editType} on ${memory.id} (edit ID: ${editId})`);
+    return editId;
+  } catch (error) {
+    console.error('Failed to log memory edit:', error);
+    return '';
+  }
+}
+
+/**
  * Store a new memory with calculated importance score
  */
 export async function storeMemory(
@@ -2106,6 +2329,8 @@ export async function storeMemory(
     existingEmbedding?: number[];
     tags?: Array<string | Tag>;
     tagConfidence?: number;
+    editor_type?: 'human' | 'agent' | 'system';
+    editor_id?: string;
   } = {}
 ): Promise<string> {
   try {
@@ -2192,6 +2417,15 @@ export async function storeMemory(
       metadata.importance = importance;
     }
     
+    // Add editor information to metadata for version history
+    metadata.editor_type = options.editor_type || 'system';
+    if (options.editor_id) {
+      metadata.editor_id = options.editor_id;
+    }
+    
+    // Mark this as the current version
+    metadata.current = true;
+    
     // Store the memory
     const point = {
       id: uuidv4(),
@@ -2210,13 +2444,13 @@ export async function storeMemory(
       }
     };
     
-    await addMemory(
+    const memoryId = await addMemory(
       type as QdrantMemoryType,
       content,
       point.metadata
     );
     
-    return point.id;
+    return memoryId;
   } catch (error) {
     console.error('Error storing memory:', error);
     throw error;
@@ -2963,5 +3197,118 @@ export async function addCausalReflection(
   } catch (error) {
     console.error(`Error adding causal reflection for ${causeId} -> ${effectId}:`, error);
     throw error;
+  }
+}
+
+/**
+ * Get the edit history for a memory
+ * Returns all versions of a memory, including the current one if it exists
+ * 
+ * @param memoryId The ID of the memory to get history for
+ * @param options Options for filtering and limiting results
+ * @returns Array of memory edit records in chronological order
+ */
+export async function getMemoryHistory(
+  memoryId: string,
+  options: {
+    includeContent?: boolean;
+    limit?: number;
+    includeSoftDeleted?: boolean;
+  } = {}
+): Promise<MemoryEditRecord[]> {
+  try {
+    if (!qdrantInstance) {
+      await initMemory();
+    }
+    
+    const { includeContent = true, limit = 50, includeSoftDeleted = true } = options;
+    
+    // First get the current memory
+    const currentMemoryFilter = { id: memoryId };
+    if (!includeSoftDeleted) {
+      // @ts-ignore - is_deleted may not be defined in type but works at runtime
+      currentMemoryFilter.is_deleted = { $ne: true };
+    }
+    
+    const currentMemoryOptions: MemorySearchOptions = {
+      filter: currentMemoryFilter,
+      limit: 1
+    };
+    
+    // Try to get the current memory (may be soft-deleted)
+    const currentMemories = await qdrantInstance?.searchMemories(null, "", currentMemoryOptions);
+    const currentMemory = currentMemories && currentMemories.length > 0 ? currentMemories[0] : null;
+    
+    // Search for memory edit records by original_memory_id
+    const editHistoryFilter = {
+      original_memory_id: memoryId
+    };
+    
+    const editHistoryOptions: MemorySearchOptions = {
+      filter: editHistoryFilter,
+      limit: limit - (currentMemory ? 1 : 0) // Leave room for current memory in limit
+    };
+    
+    // Get all edit records for this memory
+    const editRecords = await qdrantInstance?.searchMemories('memory_edits', "", editHistoryOptions) || [];
+    
+    // Convert to proper MemoryEditRecord type
+    const typedEditRecords: MemoryEditRecord[] = editRecords.map(record => {
+      const editRecord: MemoryEditRecord = {
+        ...record,
+        original_memory_id: record.metadata.original_memory_id || memoryId,
+        edit_type: record.metadata.edit_type || 'update',
+        editor_type: record.metadata.editor_type || 'system',
+        editor_id: record.metadata.editor_id,
+        diff_summary: record.metadata.diff_summary,
+        current: record.metadata.current || false,
+        previous_version_id: record.metadata.previous_version_id
+      };
+      
+      // Remove content if not requested
+      if (!includeContent) {
+        editRecord.text = '';
+      }
+      
+      return editRecord;
+    });
+    
+    // Add the current memory at the beginning if it exists and current=true
+    let result: MemoryEditRecord[] = [];
+    
+    if (currentMemory) {
+      // Convert current memory to edit record format for consistency
+      const currentAsEdit: MemoryEditRecord = {
+        ...currentMemory,
+        original_memory_id: memoryId,
+        edit_type: 'update', // Best guess if not specified
+        editor_type: currentMemory.metadata.editor_type || 'system',
+        editor_id: currentMemory.metadata.editor_id,
+        diff_summary: currentMemory.metadata.diff_summary || 'Current version',
+        current: true,
+        previous_version_id: currentMemory.metadata.previous_version_id
+      };
+      
+      if (!includeContent) {
+        currentAsEdit.text = '';
+      }
+      
+      // Only add if we don't already have a record marked as current=true
+      const hasCurrentRecord = typedEditRecords.some(r => r.current === true);
+      if (!hasCurrentRecord) {
+        result.push(currentAsEdit);
+      }
+    }
+    
+    // Add all edit records
+    result = [...result, ...typedEditRecords];
+    
+    // Sort by timestamp (oldest to newest)
+    return result.sort((a, b) => 
+      new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+    );
+  } catch (error) {
+    console.error('Error getting memory history:', error);
+    return [];
   }
 }
