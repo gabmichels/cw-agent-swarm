@@ -247,6 +247,59 @@ export default function MemoryToolsTab() {
     });
   };
   
+  // Reset all data
+  const handleResetAllData = async () => {
+    if (!confirm('Are you sure you want to delete ALL your data? This cannot be undone.')) {
+      return { success: false, cancelled: true };
+    }
+    
+    try {
+      // First try the new memory API endpoint
+      try {
+        const response = await fetch('/api/memory/reset-collection', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ 
+            collection: 'all',
+            verify: true 
+          }),
+        });
+        
+        const result = await response.json();
+        
+        if (result.status === 'success' || result.status === 'partial') {
+          alert('Successfully reset collections. You may need to reload the page to see changes.');
+          
+          // Refresh the tool history
+          const tools = await getRecentToolExecutions(20);
+          setToolExecutions(tools);
+          
+          return { 
+            success: result.status === 'success',
+            result
+          };
+        }
+      } catch (apiError) {
+        console.error('Error using memory reset API:', apiError);
+        // Fall through to tool execution method
+      }
+      
+      // If API method failed, try using the tool
+      return handleRunTool('reset_all', {
+        confirmationRequired: true
+      });
+    } catch (error) {
+      console.error('Error resetting all data:', error);
+      alert(`Error resetting data: ${error instanceof Error ? error.message : String(error)}`);
+      return { 
+        success: false, 
+        error: error instanceof Error ? error.message : String(error) 
+      };
+    }
+  };
+  
   return (
     <div className="p-4">
       <h1 className="text-2xl font-bold mb-6">Tools & Diagnostics</h1>
@@ -277,7 +330,7 @@ export default function MemoryToolsTab() {
                   Clear Image Cache
                 </button>
                 <button
-                  onClick={() => handleRunTool('reset_all', { confirmationRequired: true })}
+                  onClick={handleResetAllData}
                   disabled={isExecuting}
                   className="w-full px-4 py-2 bg-red-600 hover:bg-red-700 rounded text-white"
                 >

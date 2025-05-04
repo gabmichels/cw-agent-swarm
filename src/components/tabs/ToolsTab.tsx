@@ -3,6 +3,9 @@ import { Message } from '../../types';
 import AdvancedSearchTool from '../tools/AdvancedSearchTool';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import MemoryToolsTab from './MemoryToolsTab';
+import useToolsMemory from '../../hooks/useToolsMemory';
+import useMemory from '../../hooks/useMemory';
+import { MemoryType } from '../../server/memory/config';
 
 interface ToolsTabProps {
   isLoading: boolean;
@@ -39,6 +42,31 @@ const ToolsTab: React.FC<ToolsTabProps> = ({
   const [isCodaLoading, setIsCodaLoading] = useState(false);
   const [codaInputValue, setCodaInputValue] = useState('');
   const [activeTab, setActiveTab] = useState<string>('legacy');
+  
+  // Get memory hook for standardized memory system access
+  const { executeTool } = useToolsMemory();
+  const { getMemories, deleteMemory } = useMemory();
+  
+  // Function to check Qdrant connection
+  const checkQdrantConnection = async () => {
+    setIsDebugLoading(true);
+    try {
+      const response = await fetch('/api/debug/qdrant-test');
+      const data = await response.json();
+      setDebugResults(data);
+      
+      if (data.success) {
+        alert(`Qdrant connection test successful. ${data.messageCount} messages found.`);
+      } else {
+        alert(`Qdrant connection test failed: ${data.error}`);
+      }
+    } catch (error) {
+      console.error('Error testing Qdrant connection:', error);
+      alert('Error testing Qdrant connection. See console for details.');
+    } finally {
+      setIsDebugLoading(false);
+    }
+  };
 
   // Function to delete chat history
   const handleDeleteChatHistory = async () => {
@@ -48,23 +76,38 @@ const ToolsTab: React.FC<ToolsTabProps> = ({
     
     setIsDebugLoading(true);
     try {
-      const response = await fetch('/api/debug/reset-chat', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ userId: 'gab' }),
-      });
-      
-      const data = await response.json();
-      setDebugResults(data);
-      
-      if (data.success) {
-        alert(`Successfully deleted chat history. Deleted ${data.deletedMessageCount} messages.`);
-        // Reload the page to refresh the UI
-        window.location.reload();
+      // First, try the new standardized memory system approach
+      if (activeTab === 'memory') {
+        // Execute the tool through the memory system
+        const result = await executeTool('clear_chat', { confirmationRequired: true });
+        setDebugResults(result);
+        
+        if (result.success) {
+          alert('Successfully deleted chat history using the standardized memory system.');
+          window.location.reload();
+        } else {
+          // If new system fails, fall back to legacy approach
+          throw new Error('Memory system clear_chat failed, falling back to legacy API');
+        }
       } else {
-        alert(`Failed to delete chat history: ${data.error}`);
+        // Legacy approach
+        const response = await fetch('/api/debug/reset-chat', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ userId: 'gab' }),
+        });
+        
+        const data = await response.json();
+        setDebugResults(data);
+        
+        if (data.success) {
+          alert(`Successfully deleted chat history. Deleted ${data.deletedMessageCount} messages.`);
+          window.location.reload();
+        } else {
+          alert(`Failed to delete chat history: ${data.error}`);
+        }
       }
     } catch (error) {
       console.error('Error deleting chat history:', error);
@@ -82,38 +125,52 @@ const ToolsTab: React.FC<ToolsTabProps> = ({
     
     setIsDebugLoading(true);
     try {
-      // 1. Clear server-side image data
-      const serverResponse = await fetch('/api/debug/clear-images', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ userId: 'gab' }),
-      });
-      
-      const serverData = await serverResponse.json();
-      
-      // 2. Clear local storage
-      // Get instructions for clearing local storage
-      const localStorageResponse = await fetch('/api/debug/clear-local-storage');
-      const localStorageData = await localStorageResponse.json();
-      
-      if (localStorageData.success) {
-        // Execute the instructions
-        localStorageData.storagesToClear.forEach((key: string) => {
-          localStorage.removeItem(key);
+      // First, try the new standardized memory system approach
+      if (activeTab === 'memory') {
+        // Execute the tool through the memory system
+        const result = await executeTool('clear_images', { confirmationRequired: true });
+        setDebugResults(result);
+        
+        if (result.success) {
+          alert('Successfully cleared image data using the standardized memory system.');
+          window.location.reload();
+        } else {
+          // If new system fails, fall back to legacy approach
+          throw new Error('Memory system clear_images failed, falling back to legacy API');
+        }
+      } else {
+        // Legacy approach
+        // 1. Clear server-side image data
+        const serverResponse = await fetch('/api/debug/clear-images', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ userId: 'gab' }),
         });
+        
+        const serverData = await serverResponse.json();
+        
+        // 2. Clear local storage
+        const localStorageResponse = await fetch('/api/debug/clear-local-storage');
+        const localStorageData = await localStorageResponse.json();
+        
+        if (localStorageData.success) {
+          // Execute the instructions
+          localStorageData.storagesToClear.forEach((key: string) => {
+            localStorage.removeItem(key);
+          });
+        }
+        
+        // Combine the results
+        setDebugResults({
+          server: serverData,
+          localStorage: localStorageData
+        });
+        
+        alert('Successfully cleared image data. Please reload the page to see the changes.');
+        window.location.reload();
       }
-      
-      // Combine the results
-      setDebugResults({
-        server: serverData,
-        localStorage: localStorageData
-      });
-      
-      alert('Successfully cleared image data. Please reload the page to see the changes.');
-      // Reload the page to refresh the UI
-      window.location.reload();
     } catch (error) {
       console.error('Error clearing images:', error);
       alert('An error occurred while clearing images. See console for details.');
@@ -130,6 +187,64 @@ const ToolsTab: React.FC<ToolsTabProps> = ({
     
     setIsDebugLoading(true);
     try {
+      // Try the new standardized memory system approach first
+      if (activeTab === 'memory') {
+        try {
+          // First try to use the API endpoint for all collections
+          const resetCollectionsResponse = await fetch('/api/memory/reset-collection', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ 
+              collection: 'all',
+              verify: true 
+            }),
+          });
+          
+          const resetResult = await resetCollectionsResponse.json();
+          
+          if (resetResult.status === 'success') {
+            // Also clear local storage
+            const localStorageResponse = await fetch('/api/debug/clear-local-storage');
+            const localStorageData = await localStorageResponse.json();
+            
+            if (localStorageData.success) {
+              localStorageData.storagesToClear.forEach((key: string) => {
+                localStorage.removeItem(key);
+              });
+            }
+            
+            setDebugResults({
+              resetResult,
+              localStorageCleared: true
+            });
+            
+            alert('Successfully reset all collections using the standardized memory system.');
+            window.location.reload();
+            return;
+          }
+        } catch (memoryApiError) {
+          console.error('Error using memory reset API:', memoryApiError);
+          // Fall through to alternative methods
+        }
+        
+        // If the API approach failed, try executing a tool
+        try {
+          const result = await executeTool('reset_all', { confirmationRequired: true });
+          
+          if (result.success) {
+            alert('Successfully deleted all data using the standardized memory system.');
+            window.location.reload();
+            return;
+          }
+        } catch (toolError) {
+          console.error('Error using memory tool for reset:', toolError);
+          // Fall through to legacy approach
+        }
+      }
+      
+      // Legacy approach as fallback
       // Reset all Qdrant collections completely
       const resetResponse = await fetch('/api/debug/reset-chat', {
         method: 'POST',
@@ -452,6 +567,13 @@ const ToolsTab: React.FC<ToolsTabProps> = ({
                   className="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded text-white"
                 >
                   Run Direct Market Scan
+                </button>
+                <button
+                  onClick={checkQdrantConnection}
+                  disabled={isDebugLoading}
+                  className="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded text-white"
+                >
+                  Check Qdrant Connection
                 </button>
               </div>
             </div>
