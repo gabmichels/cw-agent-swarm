@@ -5,6 +5,9 @@ import TagSelector from '../knowledge/TagSelector';
 import TaggedItemsList from '../knowledge/TaggedItemsList';
 import FlaggedMessagesApproval from '../knowledge/FlaggedMessagesApproval';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
+import useKnowledgeMemory, { KnowledgeImportance } from '../../hooks/useKnowledgeMemory';
+import { MemoryType } from '../../server/memory/config';
+import { FlaggedKnowledgeItem, KnowledgeSourceType, SuggestedKnowledgeType } from '../../lib/knowledge/flagging/types';
 
 interface KnowledgeTabProps {
   // Props can be expanded as needed
@@ -13,14 +16,27 @@ interface KnowledgeTabProps {
 const KnowledgeTab: React.FC<KnowledgeTabProps> = () => {
   const [isLoadingStats, setIsLoadingStats] = useState(false);
   const [stats, setStats] = useState<any>(null);
-  const [flaggedItems, setFlaggedItems] = useState<any[]>([]);
-  const [isLoadingFlagged, setIsLoadingFlagged] = useState(false);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState<string>('flagged');
   const [filter, setFilter] = useState({
     status: '',
     type: '',
     source: ''
+  });
+
+  // Use the standardized knowledge memory hook
+  const {
+    knowledgeItems: flaggedItems,
+    isLoading: isLoadingFlagged,
+    totalCount,
+    loadKnowledgeItems,
+  } = useKnowledgeMemory({
+    types: [
+      MemoryType.MESSAGE,
+      MemoryType.DOCUMENT,
+      MemoryType.THOUGHT
+    ],
+    onlyFlagged: true
   });
 
   // Load stats
@@ -45,44 +61,46 @@ const KnowledgeTab: React.FC<KnowledgeTabProps> = () => {
     fetchStats();
   }, []);
 
-  // Load flagged items with optional filtering
-  useEffect(() => {
-    const fetchFlaggedItems = async () => {
-      setIsLoadingFlagged(true);
-      try {
-        // Build query string from filter
-        const queryParams = new URLSearchParams();
-        if (filter.status) queryParams.append('status', filter.status);
-        if (filter.type) queryParams.append('type', filter.type);
-        if (filter.source) queryParams.append('source', filter.source);
-        
-        const url = `/api/knowledge/flagged${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
-        const response = await fetch(url);
-        
-        if (response.ok) {
-          const data = await response.json();
-          setFlaggedItems(data.items || []);
-        } else {
-          console.warn('Failed to fetch flagged knowledge items');
-        }
-      } catch (error) {
-        console.warn('Error fetching flagged knowledge items:', error);
-      } finally {
-        setIsLoadingFlagged(false);
-      }
-    };
-
-    fetchFlaggedItems();
-  }, [filter]);
-
   // Handle filter changes
   const handleFilterChange = (key: string, value: string) => {
     setFilter(prev => ({ ...prev, [key]: value }));
+    
+    // Refresh flagged items when filters change
+    loadKnowledgeItems();
   };
 
   // Handle tag selection changes
   const handleTagChange = (tags: string[]) => {
     setSelectedTags(tags);
+  };
+
+  // Refresh items
+  const handleRefresh = () => {
+    loadKnowledgeItems();
+  };
+
+  // Convert memory items to flagged knowledge items format
+  const convertToFlaggedItems = (): FlaggedKnowledgeItem[] => {
+    return flaggedItems.map(item => ({
+      id: item.id,
+      title: item.content.substring(0, 100),
+      content: item.content,
+      status: (item.metadata?.status || 'pending') as 'pending' | 'approved' | 'rejected',
+      suggestedType: (item.metadata?.suggestedType || 'concept') as SuggestedKnowledgeType,
+      sourceType: (item.metadata?.source || 'unknown') as KnowledgeSourceType,
+      sourceReference: item.metadata?.sourceReference || '',
+      suggestedCategory: item.metadata?.category || 'general',
+      confidence: item.metadata?.confidence || 0.8,
+      createdAt: item.timestamp.toISOString(),
+      updatedAt: item.metadata?.updatedAt || new Date().toISOString(),
+      description: item.content,
+      metadata: item.metadata,
+      suggestedProperties: {
+        type: 'concept',
+        name: item.content.split('\n')[0].substring(0, 50),
+        description: item.content
+      }
+    }));
   };
 
   return (
@@ -94,12 +112,18 @@ const KnowledgeTab: React.FC<KnowledgeTabProps> = () => {
       </div>
 
       {/* Knowledge Gaps Link */}
-      <div className="mb-6">
+      <div className="mb-6 grid grid-cols-1 md:grid-cols-2 gap-4">
         <a 
           href="/knowledge-gaps" 
           className="block w-full bg-blue-600 hover:bg-blue-700 text-center py-2 px-4 rounded"
         >
           View Knowledge Gaps Analysis
+        </a>
+        <a 
+          href="/knowledge-graph" 
+          className="block w-full bg-purple-600 hover:bg-purple-700 text-center py-2 px-4 rounded"
+        >
+          Explore Knowledge Graph
         </a>
       </div>
 
@@ -170,8 +194,8 @@ const KnowledgeTab: React.FC<KnowledgeTabProps> = () => {
 
           <FlaggedItemsList 
             isLoading={isLoadingFlagged} 
-            items={flaggedItems}
-            onRefresh={() => setFilter({...filter})} 
+            items={convertToFlaggedItems()}
+            onRefresh={handleRefresh} 
           />
         </TabsContent>
         

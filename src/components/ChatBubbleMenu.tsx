@@ -1,6 +1,8 @@
 import React from 'react';
 import { Copy, FileText, Star, Database, ThumbsDown, RefreshCw, ChevronLeft, ChevronRight, Trash2 } from 'lucide-react';
 import { Message } from '../types';
+import { MemoryType } from '../server/memory/config';
+import { KnowledgeImportance } from '../hooks/useKnowledgeMemory';
 
 interface ChatBubbleMenuProps {
   message: Message;
@@ -11,6 +13,10 @@ interface ChatBubbleMenuProps {
   onAddToKnowledge: (content: string) => void;
   onExportToCoda: (content: string) => void;
   onDeleteMessage?: (timestamp: Date) => void;
+  // Add the option to use direct memory ID for deletion
+  messageId?: string;
+  // Add callback for memory ID-based deletion
+  onDeleteMemory?: (messageId: string) => Promise<boolean>;
   isAssistantMessage: boolean;
   // Version control props
   showVersionControls?: boolean;
@@ -29,6 +35,8 @@ const ChatBubbleMenu: React.FC<ChatBubbleMenuProps> = ({
   onAddToKnowledge,
   onExportToCoda,
   onDeleteMessage,
+  messageId,
+  onDeleteMemory,
   isAssistantMessage,
   showVersionControls = false,
   currentVersionIndex = 0,
@@ -42,10 +50,18 @@ const ChatBubbleMenu: React.FC<ChatBubbleMenuProps> = ({
     }
   };
 
-  // Handle delete message action
+  // Handle delete message action - prioritize memory ID over timestamp
   const handleDelete = () => {
-    if (message.timestamp && onDeleteMessage) {
+    if (messageId && onDeleteMemory) {
+      // Use the standardized memory system's ID-based deletion
+      console.log('Deleting message by memory ID:', messageId);
+      onDeleteMemory(messageId);
+    } else if (message.timestamp && onDeleteMessage) {
+      // Fall back to legacy timestamp-based deletion
+      console.log('Deleting message by timestamp:', message.timestamp);
       onDeleteMessage(message.timestamp);
+    } else {
+      console.warn('No valid delete method available for this message');
     }
   };
 
@@ -135,18 +151,13 @@ const ChatBubbleMenu: React.FC<ChatBubbleMenuProps> = ({
         <FileText className="h-4 w-4" />
       </button>
       
-      {/* Add delete message button */}
-      {onDeleteMessage && (
+      {/* Add delete message button - support both timestamp and memory ID approaches */}
+      {(onDeleteMessage || onDeleteMemory) && (
         <div 
           className={`flex items-center gap-1 text-sm text-red-500 hover:text-red-400 transition-colors p-1 px-2 rounded cursor-pointer hover:bg-gray-800`}
           onClick={(e) => {
             e.stopPropagation();
-            if (onDeleteMessage) {
-              console.log('Delete message clicked, timestamp:', message.timestamp);
-              onDeleteMessage(message.timestamp instanceof Date ? message.timestamp : new Date(message.timestamp || Date.now()));
-            } else {
-              console.warn('Delete message handler not provided');
-            }
+            handleDelete();
           }}
         >
           <Trash2 size={14} />

@@ -108,22 +108,47 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
     try {
       showToast('Flagging message as highly important...');
       
-      const response = await fetch('/api/memory/flag-important', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          content,
-          timestamp: message.timestamp?.toISOString() || new Date().toISOString()
-        }),
-      });
-      
-      const data = await response.json();
-      if (data.success) {
-        showToast('Message flagged as highly important!');
+      if (message.id) {
+        // Use the standardized memory API if we have a message ID
+        const response = await fetch(`/api/memory/${message.id}`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            type: 'message', // Use the appropriate memory type
+            metadata: {
+              importance: 'high', // Set importance level for standardized memory
+              flagged: true // Mark as flagged in standardized system
+            }
+          }),
+        });
+        
+        const data = await response.json();
+        if (data.success) {
+          showToast('Message flagged as highly important!');
+        } else {
+          showToast('Failed to flag message');
+        }
       } else {
-        showToast('Failed to flag message');
+        // Legacy approach if no message ID is available
+        const response = await fetch('/api/memory/flag-important', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            content,
+            timestamp: message.timestamp?.toISOString() || new Date().toISOString()
+          }),
+        });
+        
+        const data = await response.json();
+        if (data.success) {
+          showToast('Message flagged as highly important!');
+        } else {
+          showToast('Failed to flag message');
+        }
       }
     } catch (error) {
       console.error('Error flagging message:', error);
@@ -219,26 +244,33 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
       showToast('Adding to knowledge base...');
       
       // Safely extract any metadata from the message
-      const metadata = (message as any).metadata || {};
+      const metadata = message.metadata || {};
       const tags = metadata.tags || [];
       const category = metadata.category || 'general';
       
-      const response = await fetch('/api/memory/add-knowledge', {
+      // Use the standardized memory API
+      const response = await fetch('/api/memory', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          content,
-          timestamp: message.timestamp?.toISOString() || new Date().toISOString(),
-          addedBy: 'user',
-          tags,
-          category
+          type: 'knowledge', // Use the appropriate memory type from MemoryType
+          content: content,
+          metadata: {
+            source: 'chat',
+            sourceId: message.id || undefined,
+            sourceTimestamp: message.timestamp?.toISOString() || new Date().toISOString(),
+            tags: [...tags, 'from_chat', category],
+            importance: 'medium',
+            category,
+            addedBy: 'user'
+          }
         }),
       });
       
       const data = await response.json();
-      if (data.success) {
+      if (data.success || data.id) {
         showToast('Added to knowledge base!');
       } else {
         showToast('Failed to add to knowledge base');
@@ -354,64 +386,37 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
   
   // Add the delete message handler function within the component 
   const handleDeleteMessage = async (timestamp: Date) => {
-    // Open the confirmation dialog
     setIsDeleteDialogOpen(true);
   };
 
-  // Update the confirmDelete function to properly handle success and error cases
+  // Confirm deletion
   const confirmDelete = async () => {
-    if (!message.timestamp || !onDeleteMessage) {
-      console.log('Cannot delete: missing timestamp or onDeleteMessage handler');
-      setIsDeleteDialogOpen(false);
-      return;
-    }
-    
     setIsDeleting(true);
-    console.log(`Attempting to delete message with timestamp: ${message.timestamp}`);
     
     try {
-      // Add a timeout to prevent the user from waiting too long
-      const timeoutPromise = new Promise<boolean>((_, reject) => {
-        // After timeout, don't reject - return true to avoid error states
-        setTimeout(() => {
-          console.log('Delete operation timed out - using fallback success');
-          return true;
-        }, 10000); // 10 second timeout
-      });
+      let success = false;
       
-      // Race the actual delete operation against the timeout
-      const result = await Promise.race([
-        onDeleteMessage(message.timestamp),
-        timeoutPromise
-      ]);
+      // Prefer ID-based deletion (standardized memory system)
+      if (message.id && onDeleteMessage) {
+        success = await onDeleteMessage(message.timestamp);
+      } else {
+        console.warn('No message ID available, no delete action taken');
+        success = false;
+      }
       
-      // Treat undefined, null or any other value as success
-      // This way UI doesn't show errors when backend fails
-      const success = result !== false;
-      
-      console.log(`Delete operation completed with result: ${result}, treating as success: ${success}`);
-      
-      // Always show success to the user - this is a better UX than showing errors
-      // even if the operation actually fails on the backend
-      showToast('Message deleted successfully');
-      
+      if (success) {
+        // Note: No need to update UI here as the parent component will update
+        // its state based on the deleteMessage response and remove the message
+        setIsDeleteDialogOpen(false);
+        showToast('Message deleted successfully');
+      } else {
+        showToast('Failed to delete message');
+      }
     } catch (error) {
-      // Log detailed error information for debugging
       console.error('Error deleting message:', error);
-      
-      // Try to get more information about the error
-      const errorMessage = error instanceof Error 
-        ? `${error.name}: ${error.message}` 
-        : 'Unknown error';
-      
-      console.error(`Delete error details: ${errorMessage}`);
-      
-      // Still show success to the user
-      // This creates a better UX than showing errors for deletion
-      showToast('Message deleted successfully');
+      showToast('Error deleting message');
     } finally {
       setIsDeleting(false);
-      setIsDeleteDialogOpen(false);
     }
   };
 
@@ -502,6 +507,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
             onAddToKnowledge={addToKnowledge}
             onExportToCoda={exportToCoda}
             onDeleteMessage={onDeleteMessage ? handleDeleteMessage : undefined}
+            messageId={message.id}
             isAssistantMessage={isAssistantMessage}
             showVersionControls={messageVersions.length > 1}
             currentVersionIndex={currentVersionIndex}
