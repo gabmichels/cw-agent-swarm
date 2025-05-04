@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { AlertCircleIcon, Filter, X, Tag, Info, RefreshCw, ChevronDown, Loader2, Search, Hash, Settings, Menu, Bug } from 'lucide-react';
 import MemoryItemComponent from '../memory/MemoryItem';
-import { MemoryItem } from '../../types';
+import { MemoryType } from '../../server/memory/config';
+import { BaseMemorySchema, MemoryPoint } from '../../server/memory/models';
+import { SearchResult } from '../../server/memory/services/search/types';
 
 // Define types for the debug result
 interface SuspectedMessage {
@@ -20,7 +22,7 @@ interface DebugResult {
 }
 
 // Extend MemoryItem type to include metadata
-interface ExtendedMemoryItem extends MemoryItem {
+interface ExtendedMemoryItem extends MemoryPoint<BaseMemorySchema> {
   kind?: string;
   metadata?: Record<string, any>;
   isMemoryEdit?: boolean;
@@ -48,21 +50,20 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
   const typeMenuRef = useRef<HTMLDivElement>(null);
   const [showDebug, setShowDebug] = useState<boolean>(false);
   const [showRawMemory, setShowRawMemory] = useState<string | null>(null);
+  const [searchResults, setSearchResults] = useState<SearchResult<BaseMemorySchema>[] | null>(null);
+  const [isSearching, setIsSearching] = useState<boolean>(false);
 
-  // All possible memory types
-  const MEMORY_TYPES = [
-    "message",
-    "thought",
+  // All possible memory types as strings - use the enum values
+  const MEMORY_TYPES: string[] = [
+    ...Object.values(MemoryType),
+    // Add any legacy or additional types that might still be in the system
     "reflection",
     "fact",
     "insight",
     "system_learning",
-    "task",
     "decision",
     "feedback",
     "knowledge",
-    "document",
-    "memory_edits",
     "unknown",
     "chat",
     "idea",
@@ -88,9 +89,10 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
     const typeSet = new Set<string>();
     if (allMemories && Array.isArray(allMemories)) {
       allMemories.forEach(memory => {
+        if (memory.payload?.type) typeSet.add(memory.payload.type);
         if (memory.kind) typeSet.add(memory.kind);
         if (memory.metadata?.type) typeSet.add(memory.metadata.type);
-        if (memory.category) typeSet.add(memory.category);
+        if (memory.payload?.metadata?.category) typeSet.add(memory.payload.metadata.category);
         if ('type' in memory && memory.type) typeSet.add(memory.type as string);
       });
     }
@@ -104,9 +106,9 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
       isArray: Array.isArray(allMemories),
       firstThree: allMemories && allMemories.length > 0 ? allMemories.slice(0, 3).map(m => ({
         id: m.id,
-        type: m.kind || m.metadata?.type || m.category || 'unknown',
-        contentPreview: m.content ? m.content.substring(0, 30) + '...' : 'No content',
-        timestamp: m.created || m.timestamp
+        type: m.payload?.type || m.kind || m.metadata?.type || m.payload?.metadata?.category || 'unknown',
+        contentPreview: m.payload?.text ? m.payload.text.substring(0, 30) + '...' : 'No content',
+        timestamp: m.payload?.timestamp
       })) : [],
     });
     
@@ -118,8 +120,8 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
     const tagSet = new Set<string>();
     if (allMemories && Array.isArray(allMemories)) {
       allMemories.forEach(memory => {
-        if (memory && memory.tags && Array.isArray(memory.tags)) {
-          memory.tags.forEach(tag => {
+        if (memory && memory.payload?.metadata?.tags && Array.isArray(memory.payload.metadata.tags)) {
+          memory.payload.metadata.tags.forEach((tag: string) => {
             if (tag) tagSet.add(tag);
           });
         }
@@ -130,6 +132,16 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
 
   // Filter memories based on selected tag, search query, and memory types
   const filteredMemories = useMemo(() => {
+    // If we have search results, use those instead of filtering the allMemories array
+    if (searchResults && searchQuery) {
+      console.log(`Using ${searchResults.length} search results instead of filtering`);
+      // Convert search results to ExtendedMemoryItem format
+      return searchResults.map(result => ({
+        ...result.point,
+        kind: result.point.payload.type,
+      }));
+    }
+    
     if (!allMemories) return [];
     
     console.log(`Starting with ${allMemories.length} total memories`);
@@ -137,39 +149,39 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
     // Count and log each memory type to diagnose the issue
     const typeCount: Record<string, number> = {};
     allMemories.forEach(memory => {
-      const type = memory.kind || 
+      const type = memory.payload?.type || 
+                  memory.kind || 
                   memory.metadata?.type || 
-                  memory.category || 
+                  memory.payload?.metadata?.category || 
                   (memory as any).type || 
                   'unknown';
       typeCount[type] = (typeCount[type] || 0) + 1;
     });
     console.log('Memory types in allMemories:', typeCount);
     
-    // Optional: Log memory_edit records for debugging
-    const memoryEdits = allMemories.filter(memory => memory.isMemoryEdit || memory.metadata?.isMemoryEdit);
-    if (memoryEdits.length > 0) {
-      console.log(`Found ${memoryEdits.length} memory_edit records`);
-    }
-    
     // First, filter out memory_edit records - we'll display these as versions of their originals
     // But keep them if explicitly showing memory_edits type
-    let filtered = selectedTypes.includes('memory_edits')
+    const memoryEditType = MemoryType.MEMORY_EDIT as string;
+    let filtered = selectedTypes.includes(memoryEditType) || selectedTypes.includes('memory_edit')
       ? allMemories 
-      : allMemories.filter(memory => !(memory.isMemoryEdit || memory.metadata?.isMemoryEdit));
+      : allMemories.filter(memory => !(
+          memory.isMemoryEdit || 
+          memory.metadata?.isMemoryEdit || 
+          memory.payload?.type === memoryEditType
+      ));
     
     // Apply text search filter if any
-    if (searchQuery) {
+    if (searchQuery && !searchResults) {
       const query = searchQuery.toLowerCase();
       filtered = filtered.filter(memory => 
-        memory.content && memory.content.toLowerCase().includes(query)
+        memory.payload?.text && memory.payload.text.toLowerCase().includes(query)
       );
     }
     
     // Apply tag filter if selected
     if (selectedTagFilter) {
       filtered = filtered.filter(memory => {
-        const tags = memory.tags || [];
+        const tags = memory.payload?.metadata?.tags || [];
         return tags.includes(selectedTagFilter);
       });
     }
@@ -177,11 +189,12 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
     // Apply memory type filter if any are selected
     if (selectedTypes.length > 0) {
       filtered = filtered.filter(memory => {
-        const memoryType = memory.kind || 
-                memory.metadata?.type || 
-                memory.category || 
-                (memory as any).type || 
-                'unknown';
+        const memoryType = memory.payload?.type || 
+                          memory.kind || 
+                          memory.metadata?.type || 
+                          memory.payload?.metadata?.category || 
+                          (memory as any).type || 
+                          'unknown';
                 
         return selectedTypes.includes(memoryType);
       });
@@ -190,9 +203,10 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
     // Log final filtered memories count by type
     const filteredTypeCount: Record<string, number> = {};
     filtered.forEach(memory => {
-      const type = memory.kind || 
+      const type = memory.payload?.type || 
+                  memory.kind || 
                   memory.metadata?.type || 
-                  memory.category || 
+                  memory.payload?.metadata?.category || 
                   (memory as any).type || 
                   'unknown';
       filteredTypeCount[type] = (filteredTypeCount[type] || 0) + 1;
@@ -200,7 +214,7 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
     console.log('Filtered memory types:', filteredTypeCount);
     
     return filtered;
-  }, [allMemories, searchQuery, selectedTagFilter, selectedTypes]);
+  }, [allMemories, searchQuery, selectedTagFilter, selectedTypes, searchResults]);
 
   // Add a new effect to log filtered memories when they change
   useEffect(() => {
@@ -250,62 +264,122 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
 
   // Handle refresh button click
   const handleRefresh = () => {
-    console.log('Manually refreshing memories');
-    onRefresh?.();
+    // Clear search results when refreshing
+    setSearchResults(null);
+    setSearchQuery('');
+    
+    if (onRefresh) {
+      onRefresh();
+    } else {
+      console.log('Refreshing memories directly from MemoryTab');
+      // Use the new memory API endpoint
+      fetch('/api/memory?limit=100')
+        .then(response => response.json())
+        .then(data => {
+          console.log('Refreshed memories:', data);
+          // Handle the response data appropriately
+        })
+        .catch(error => {
+          console.error('Error refreshing memories:', error);
+        });
+    }
   };
 
   // Handle tag update from memory item
   const handleTagUpdate = async (memoryId: string, tags: string[]) => {
     try {
-      const response = await fetch('/api/memory/updateTags', {
-        method: 'POST',
+      console.log(`Updating tags for memory ${memoryId}:`, tags);
+      
+      // First, get the memory to determine its type
+      const memoryResponse = await fetch(`/api/memory/${memoryId}`);
+      if (!memoryResponse.ok) {
+        throw new Error(`Failed to get memory: ${memoryResponse.statusText}`);
+      }
+      
+      const memoryData = await memoryResponse.json();
+      // Get memory type from standardized location
+      const memoryType = memoryData.payload?.type || memoryData.type || MemoryType.MESSAGE;
+      
+      // Update the memory with new tags
+      const response = await fetch(`/api/memory/${memoryId}`, {
+        method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          memoryId,
-          tags,
-          action: 'approve'
-        }),
+          // Use type from payload if available
+          type: memoryType,
+          // Use standardized metadata structure
+          metadata: {
+            tags,
+            autoGeneratedTags: false // Mark as manually edited
+          }
+        })
       });
-
-      if (response.ok) {
-        // Update is handled by refreshing the data
-        if (onRefresh) {
-          onRefresh();
-        }
-      } else {
-        console.error('Failed to update tags');
+      
+      if (!response.ok) {
+        throw new Error(`Failed to update tags: ${response.statusText}`);
+      }
+      
+      console.log('Tags updated successfully');
+      
+      // Optionally refresh memories after updating
+      if (onRefresh) {
+        onRefresh();
       }
     } catch (error) {
       console.error('Error updating tags:', error);
+      // Add error handling UI feedback here if needed
     }
   };
 
   // Handle tag suggestion rejection
   const handleTagRejection = async (memoryId: string) => {
     try {
-      const response = await fetch('/api/memory/updateTags', {
-        method: 'POST',
+      console.log(`Rejecting suggested tags for memory ${memoryId}`);
+      
+      // First, get the memory to determine its type and current tags
+      const memoryResponse = await fetch(`/api/memory/${memoryId}`);
+      if (!memoryResponse.ok) {
+        throw new Error(`Failed to get memory: ${memoryResponse.statusText}`);
+      }
+      
+      const memoryData = await memoryResponse.json();
+      // Get memory type from standardized location
+      const memoryType = memoryData.payload?.type || memoryData.type || MemoryType.MESSAGE;
+      
+      // Get manually added tags (excluding suggested tags)
+      const manualTags = memoryData.payload?.metadata?.tags || [];
+      
+      // Update the memory, removing the suggested tags metadata
+      const response = await fetch(`/api/memory/${memoryId}`, {
+        method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          memoryId,
-          action: 'reject'
-        }),
+          type: memoryType,
+          metadata: {
+            tags: manualTags,
+            autoGeneratedTags: false,
+            suggestedTags: [] // Clear suggested tags
+          }
+        })
       });
-
-      if (response.ok) {
-        // Update is handled by refreshing the data
-        if (onRefresh) {
-          onRefresh();
-        }
-      } else {
-        console.error('Failed to reject tag suggestions');
+      
+      if (!response.ok) {
+        throw new Error(`Failed to reject tags: ${response.statusText}`);
+      }
+      
+      console.log('Tags rejected successfully');
+      
+      // Optionally refresh memories after updating
+      if (onRefresh) {
+        onRefresh();
       }
     } catch (error) {
-      console.error('Error rejecting tag suggestions:', error);
+      console.error('Error rejecting tags:', error);
+      // Add error handling UI feedback here if needed
     }
   };
 
@@ -329,14 +403,15 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
       }
       
       // Try to get memory type from all possible locations
-      const type = memory.kind || 
+      const type = memory.payload?.type || 
+                  memory.kind || 
                   memory.metadata?.type || 
-                  memory.category || 
+                  memory.payload?.metadata?.category || 
                   (memory as any).type || 
                   'unknown';
       
       // Log problematic memory records for debugging
-      if (type === 'unknown') {
+      if (type === 'unknown' as string) {  // Cast to string to avoid type error
         console.warn('Found memory with unknown type:', memory);
       }
       
@@ -423,6 +498,99 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
     }
   };
 
+  // Perform hybrid search
+  const performHybridSearch = async (query: string) => {
+    if (!query || query.length < 3) {
+      setSearchResults(null);
+      return;
+    }
+    
+    setIsSearching(true);
+    
+    try {
+      console.log('Performing hybrid search with query:', query);
+      
+      // Prepare filter for selected types if any
+      const filter: Record<string, any> = {};
+      
+      // Add type filter if selected
+      if (selectedTypes.length > 0) {
+        filter.must = filter.must || [];
+        filter.must.push({
+          key: 'type',
+          match: {
+            in: selectedTypes
+          }
+        });
+      }
+      
+      // Add tag filter if selected
+      if (selectedTagFilter) {
+        if (!filter.must) filter.must = [];
+        filter.must.push({
+          key: 'metadata.tags',
+          match: {
+            in: [selectedTagFilter]
+          }
+        });
+      }
+      
+      // Prepare the request body with explicit type
+      const requestBody: {
+        query: string;
+        limit: number;
+        filter?: Record<string, any>;
+        hybridRatio?: number;
+      } = {
+        query: query,
+        limit: 50,
+        filter: Object.keys(filter).length > 0 ? filter : undefined
+      };
+      
+      const response = await fetch('/api/memory/hybrid-search', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(requestBody)
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Search failed: ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      console.log('Search results:', data);
+      
+      if (data.results && Array.isArray(data.results)) {
+        setSearchResults(data.results);
+      } else {
+        console.warn('Search returned no results or invalid format:', data);
+        setSearchResults([]);
+      }
+    } catch (error) {
+      console.error('Error performing search:', error);
+      setSearchResults([]);
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  // Implement debounced hybrid search when using the search query
+  useEffect(() => {
+    if (searchQuery && searchQuery.length > 2) {
+      // Implement debounced hybrid search
+      const debounceTimeout = setTimeout(() => {
+        performHybridSearch(searchQuery);
+      }, 500); // 500ms debounce
+      
+      return () => clearTimeout(debounceTimeout);
+    } else if (searchQuery.length === 0) {
+      // Clear search results when query is empty
+      setSearchResults(null);
+    }
+  }, [searchQuery, selectedTypes, selectedTagFilter]);
+
   return (
     <div className="h-full overflow-y-auto">
       <div className="flex justify-between items-center mb-4">
@@ -475,6 +643,11 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
       <div className="mb-2 text-sm flex items-center text-gray-400">
         <Info className="h-4 w-4 mr-1" />
         <span>Total memories: {memoryCount}</span>
+        {searchResults && (
+          <span className="ml-2 text-blue-400">
+            Found {searchResults.length} matches for "{searchQuery}"
+          </span>
+        )}
       </div>
       
       {/* Debug output */}
@@ -486,6 +659,9 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
           </pre>
           <p className="mt-2 text-gray-400">Total Raw Memory Count: {allMemories?.length || 0}</p>
           <p className="text-gray-400">Filtered Memory Count: {filteredMemories?.length || 0}</p>
+          {searchResults && (
+            <p className="text-gray-400">Search Results Count: {searchResults.length}</p>
+          )}
         </div>
       )}
       
@@ -499,14 +675,32 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
           
           <div className="flex flex-wrap gap-3 items-center flex-1">
             {/* Search input */}
-            <div className="flex-1">
+            <div className="flex-1 relative">
               <input
                 type="text"
                 placeholder="Search in content..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full px-3 py-1.5 bg-gray-800 border border-gray-600 rounded text-sm"
+                className="w-full px-3 py-1.5 bg-gray-800 border border-gray-600 rounded text-sm pl-8"
               />
+              <div className="absolute inset-y-0 left-0 flex items-center pl-2.5">
+                {isSearching ? (
+                  <Loader2 className="h-4 w-4 text-gray-400 animate-spin" />
+                ) : (
+                  <Search className="h-4 w-4 text-gray-400" />
+                )}
+              </div>
+              {searchQuery && (
+                <button 
+                  className="absolute inset-y-0 right-0 flex items-center pr-2.5"
+                  onClick={() => {
+                    setSearchQuery('');
+                    setSearchResults(null);
+                  }}
+                >
+                  <X className="h-4 w-4 text-gray-400 hover:text-white" />
+                </button>
+              )}
             </div>
             
             {/* Tag filter */}
@@ -585,8 +779,8 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
                 </span>
               )}
               {searchQuery && (
-                <span className="bg-amber-600/30 text-amber-100 text-xs px-2 py-0.5 rounded-full">
-                  "{searchQuery}"
+                <span className="bg-amber-600/30 text-amber-100 text-xs px-2 py-0.5 rounded-full flex items-center">
+                  <Search className="h-3 w-3 mr-1" /> "{searchQuery}"
                 </span>
               )}
               {selectedTypes.map(type => (
@@ -639,17 +833,24 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
         </div>
       )}
       
-      {isLoadingMemories ? (
+      {isLoadingMemories || isSearching ? (
         <div className="flex justify-center py-4">
           <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500"></div>
-          <span className="ml-2">Loading memories...</span>
+          <span className="ml-2">
+            {isSearching ? 'Searching memories...' : 'Loading memories...'}
+          </span>
         </div>
       ) : filteredMemories.length === 0 ? (
         <div className="text-gray-400 text-center py-8">
           <p>No memories found matching your filters.</p>
+          {searchQuery && searchResults && searchResults.length === 0 && (
+            <p className="mt-2 text-sm">
+              No results found for "{searchQuery}". Try a different search term.
+            </p>
+          )}
           {memoryCount > 0 && (
             <p className="mt-2 text-sm">
-              {selectedTagFilter || searchQuery ? 
+              {selectedTagFilter || searchQuery || selectedTypes.length > 0 ? 
                 "Try clearing your filters to see all memories." : 
                 "There are memories in the system, but they aren't being displayed. Try clicking the Refresh button above."}
             </p>
@@ -681,8 +882,15 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
                 <div className="mt-1 text-xs text-gray-400 flex items-center">
                   <div className="flex-1">
                     <span className="mr-2">ID: {memory.id?.substring(0, 8)}</span>
-                    <span className="mr-2">Type: {memory.kind || memory.metadata?.type || memory.category || ('type' in memory ? memory.type as string : 'unknown')}</span>
-                    {memory.timestamp && <span>Date: {new Date(memory.timestamp).toLocaleString()}</span>}
+                    <span className="mr-2">Type: {
+                      // Type-safe way to access properties
+                      memory.payload?.type || 
+                      (memory.kind || '') || 
+                      ('metadata' in memory && memory.metadata?.type ? memory.metadata.type : '') || 
+                      memory.payload?.metadata?.category || 
+                      (('type' in memory) ? String(memory.type) : 'unknown')
+                    }</span>
+                    {memory.payload?.timestamp && <span>Date: {new Date(memory.payload.timestamp).toLocaleString()}</span>}
                   </div>
                   <button
                     onClick={(e) => {

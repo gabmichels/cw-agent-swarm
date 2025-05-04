@@ -1,162 +1,228 @@
 /**
- * Test script for memory hybrid search API
- * 
- * This script tests the hybrid search functionality of the memory system,
- * which combines vector similarity search with keyword matching.
- * 
- * Usage: pnpm tsx scripts/test-hybrid-search.ts
+ * Test script for the standardized memory hybrid search functionality
+ * Run with: npm run memory:test-hybrid-search
  */
+
 import fetch from 'node-fetch';
+import * as chalk from 'chalk';
+import * as readline from 'readline';
 
-// Configuration
+// Set the base URL for the API
 const BASE_URL = 'http://localhost:3000/api/memory';
-const HYBRID_SEARCH_ENDPOINT = `${BASE_URL}/hybrid-search`;
 
-// Test cases with different hybrid ratios
-const TEST_CASES = [
-  { query: 'test memory', hybridRatio: 0.7, description: 'Default ratio (70% vector, 30% text)' },
-  { query: 'test memory', hybridRatio: 1.0, description: 'Pure vector search' },
-  { query: 'test memory', hybridRatio: 0.0, description: 'Pure text search' },
-  { query: 'test memory', hybridRatio: 0.5, description: 'Balanced hybrid search' },
-];
+// Create readline interface for user input
+const rl = readline.createInterface({
+  input: process.stdin as any,
+  output: process.stdout as any
+});
 
-// Define response type for better type safety
-interface SearchResult {
-  payload?: {
-    text?: string;
-    [key: string]: any;
-  };
-  score?: number;
-  [key: string]: any;
-}
-
-interface SearchResponse {
-  results: SearchResult[];
-  total: number;
-  error?: string;
-  searchInfo?: {
-    query: string;
-    filter: Record<string, any>;
-    limit: number;
-    offset: number;
-    hybridRatio: number;
-  };
-}
+// Default search parameters
+const DEFAULT_PARAMS = {
+  limit: 10,
+  hybridRatio: 0.7,
+  minScore: 0.2
+};
 
 /**
- * Run hybrid search test with specific parameters
+ * Perform a hybrid search with the given query and options
  */
-async function runHybridSearchTest(params: {
-  query: string;
-  hybridRatio: number;
-  description: string;
-}) {
+async function performHybridSearch(
+  query: string, 
+  options?: { 
+    types?: string[], 
+    tags?: string[], 
+    limit?: number, 
+    hybridRatio?: number 
+  }
+) {
+  console.log(chalk.blue(`\nPerforming hybrid search for: "${query}"`));
+  
   try {
-    console.log(`\nTesting hybrid search with ${params.description}:`);
-    console.log(`- Query: "${params.query}"`);
-    console.log(`- Hybrid ratio: ${params.hybridRatio} (${params.hybridRatio * 100}% vector, ${(1 - params.hybridRatio) * 100}% text)`);
+    // Build filter if types or tags are specified
+    const filter: any = {};
     
-    // Prepare the request body
-    const requestBody = {
-      query: params.query,
-      limit: 5,
-      hybridRatio: params.hybridRatio,
-      filter: {} // No filter for basic test
+    if (options?.types && options.types.length > 0) {
+      filter.must = filter.must || [];
+      filter.must.push({
+        key: 'type',
+        match: {
+          in: options.types
+        }
+      });
+    }
+    
+    if (options?.tags && options.tags.length > 0) {
+      filter.must = filter.must || [];
+      filter.must.push({
+        key: 'metadata.tags',
+        match: {
+          in: options.tags
+        }
+      });
+    }
+    
+    // Set up request body
+    const body: {
+      query: string;
+      limit: number;
+      filter?: any;
+      hybridRatio?: number;
+    } = {
+      query,
+      limit: options?.limit || DEFAULT_PARAMS.limit,
+      filter: Object.keys(filter).length > 0 ? filter : undefined
     };
     
-    // Make the request
-    const start = Date.now();
-    const response = await fetch(HYBRID_SEARCH_ENDPOINT, {
+    // Add hybridRatio if specified
+    if (options?.hybridRatio !== undefined) {
+      body.hybridRatio = options.hybridRatio;
+    }
+    
+    console.log(chalk.gray(`Request body: ${JSON.stringify(body, null, 2)}`));
+    
+    // Make the API request
+    const response = await fetch(`${BASE_URL}/hybrid-search`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(requestBody)
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(body)
     });
-    const elapsed = Date.now() - start;
     
-    // Parse the response
-    const data = await response.json() as SearchResponse;
-    
-    // Log the results
-    if (response.ok) {
-      console.log(`✅ Success (${elapsed}ms) | Status: ${response.status} | Found: ${data.total} results`);
-      
-      if (data.results && data.results.length > 0) {
-        console.log('\nTop 3 results:');
-        data.results.slice(0, 3).forEach((result, index) => {
-          console.log(`${index + 1}. ${result.payload?.text?.substring(0, 100) || '[No text]'}...`);
-          
-          if (result.score !== undefined) {
-            console.log(`   Score: ${result.score}`);
-          }
-          
-          console.log(''); // Add spacing
-        });
-      } else {
-        console.log('No results found.');
-      }
-    } else {
-      console.log(`❌ Error | Status: ${response.status} | Message: ${data.error || 'Unknown error'}`);
+    if (!response.ok) {
+      throw new Error(`Search failed with status ${response.status}: ${response.statusText}`);
     }
     
-    return {
-      success: response.ok,
-      status: response.status,
-      data
-    };
+    const data = await response.json() as any;
+    
+    if (!data.results || !Array.isArray(data.results)) {
+      console.log(chalk.yellow('No results found or invalid response format.'));
+      return;
+    }
+    
+    // Display results
+    console.log(chalk.green(`\nFound ${data.results.length} results:`));
+    
+    if (data.results.length === 0) {
+      console.log(chalk.yellow('No matches found for this query.'));
+      return;
+    }
+    
+    // Print each result with relevant information
+    data.results.forEach((result: any, index: number) => {
+      const { point, score } = result;
+      const memory = point.payload;
+      
+      console.log(chalk.white(`\n--- Result ${index + 1} (score: ${chalk.cyan(score.toFixed(3))}) ---`));
+      console.log(chalk.white(`ID: ${point.id.substring(0, 12)}...`));
+      console.log(chalk.white(`Type: ${memory.type}`));
+      console.log(chalk.white(`Date: ${new Date(memory.timestamp).toLocaleString()}`));
+      
+      if (memory.metadata?.tags && memory.metadata.tags.length > 0) {
+        console.log(chalk.white(`Tags: ${memory.metadata.tags.join(', ')}`));
+      }
+      
+      // Display text content, highlighting the query terms
+      const text = memory.text || 'No content';
+      const lines = text.split('\n');
+      const snippet = lines.length > 5 ? lines.slice(0, 5).join('\n') + '\n...' : text;
+      
+      console.log(chalk.white('Content:'));
+      console.log(chalk.gray(highlightQuery(snippet, query)));
+    });
+    
+    console.log(chalk.blue('\nSearch completed successfully.'));
+    
   } catch (error) {
-    console.error('Test execution error:', error);
-    return {
-      success: false,
-      status: 500,
-      error: error instanceof Error ? error.message : String(error)
-    };
+    console.error(chalk.red('Error performing search:'), error);
   }
 }
 
 /**
- * Main test function
+ * Highlight query terms in text
  */
-async function main() {
-  console.log('=== Memory Hybrid Search API Test ===');
+function highlightQuery(text: string, query: string): string {
+  // Split query into terms and filter out empty ones
+  const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
   
-  // Check if the server is running by calling the health endpoint
-  try {
-    const healthResponse = await fetch(`${BASE_URL}/health`);
-    if (!healthResponse.ok) {
-      console.error(`❌ Server check failed: ${healthResponse.status} ${healthResponse.statusText}`);
-      console.error('Make sure the server is running at http://localhost:3000');
-      process.exit(1);
+  let result = text;
+  
+  // Highlight each term
+  terms.forEach(term => {
+    if (term.length > 2) {  // Skip very short terms
+      const regex = new RegExp(escapeRegExp(term), 'gi');
+      result = result.replace(regex, chalk.yellow('$&'));
     }
-    
-    console.log('✅ Server is running and health endpoint is responding');
-  } catch (error) {
-    console.error('❌ Server connection error:', error);
-    console.error('Make sure the server is running at http://localhost:3000');
-    process.exit(1);
-  }
+  });
   
-  // Run all test cases
-  let failedTests = 0;
-  
-  for (const testCase of TEST_CASES) {
-    const result = await runHybridSearchTest(testCase);
-    if (!result.success) {
-      failedTests++;
-    }
-  }
-  
-  // Print summary
-  console.log('\n=== Test Summary ===');
-  console.log(`Total tests: ${TEST_CASES.length}`);
-  console.log(`Successful: ${TEST_CASES.length - failedTests}`);
-  console.log(`Failed: ${failedTests}`);
-  
-  // Exit with appropriate code
-  process.exit(failedTests > 0 ? 1 : 0);
+  return result;
 }
 
-// Run the tests
-main().catch(error => {
-  console.error('Fatal error running tests:', error);
+/**
+ * Escape special regex characters for safe use in RegExp
+ */
+function escapeRegExp(string: string): string {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Interactive CLI for testing hybrid search
+ */
+async function interactiveSearch() {
+  console.log(chalk.blue('=== Memory System Hybrid Search Tester ==='));
+  console.log(chalk.gray('Type "exit" to quit the program\n'));
+  
+  // Start the interactive search loop
+  await promptForSearch();
+}
+
+/**
+ * Prompt for search query and options
+ */
+async function promptForSearch() {
+  function ask(question: string): Promise<string> {
+    return new Promise(resolve => {
+      rl.question(question, resolve);
+    });
+  }
+  
+  try {
+    // Get search query
+    const query = await ask(chalk.green('Enter search query: '));
+    
+    if (query.toLowerCase() === 'exit') {
+      console.log(chalk.blue('\nExiting search tester. Goodbye!'));
+      rl.close();
+      return;
+    }
+    
+    // Get optional parameters
+    const typesInput = await ask(chalk.green('Filter by memory types (comma-separated, or leave empty): '));
+    const tagsInput = await ask(chalk.green('Filter by tags (comma-separated, or leave empty): '));
+    const limitInput = await ask(chalk.green(`Result limit (default: ${DEFAULT_PARAMS.limit}): `));
+    const ratioInput = await ask(chalk.green(`Hybrid ratio (0.0-1.0, default: ${DEFAULT_PARAMS.hybridRatio}): `));
+    
+    // Parse inputs
+    const types = typesInput ? typesInput.split(',').map(s => s.trim()).filter(Boolean) : [];
+    const tags = tagsInput ? tagsInput.split(',').map(s => s.trim()).filter(Boolean) : [];
+    const limit = limitInput ? parseInt(limitInput, 10) : DEFAULT_PARAMS.limit;
+    const hybridRatio = ratioInput ? parseFloat(ratioInput) : DEFAULT_PARAMS.hybridRatio;
+    
+    // Perform search
+    await performHybridSearch(query, { types, tags, limit, hybridRatio });
+    
+    // Continue with next search
+    await promptForSearch();
+    
+  } catch (error) {
+    console.error(chalk.red('Error:'), error);
+    await promptForSearch();
+  }
+}
+
+// Start the interactive search
+interactiveSearch().catch(error => {
+  console.error(chalk.red('Fatal error:'), error);
+  rl.close();
   process.exit(1);
 }); 
