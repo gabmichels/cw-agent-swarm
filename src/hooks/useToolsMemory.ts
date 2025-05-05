@@ -3,14 +3,15 @@ import useMemory from './useMemory';
 import { MemoryType } from '../server/memory/config';
 
 // Add missing memory types for tools and diagnostics
-const TOOLS_MEMORY_TYPE = 'tool' as any;
-const DIAGNOSTICS_MEMORY_TYPE = 'diagnostic' as any;
+const TOOLS_MEMORY_TYPE = 'tool' as MemoryType;
+const DIAGNOSTICS_MEMORY_TYPE = 'diagnostic' as MemoryType;
 
 /**
  * Specialized memory hook for tools and diagnostics memory management
  */
 export default function useToolsMemory() {
   // Use the base memory hook for tools and diagnostics memory types
+  // Don't pass initialTypes to avoid auto-loading on mount
   const {
     memories: toolsMemories,
     isLoading,
@@ -20,17 +21,25 @@ export default function useToolsMemory() {
     updateMemory,
     deleteMemory,
     searchMemories,
-  } = useMemory([TOOLS_MEMORY_TYPE, DIAGNOSTICS_MEMORY_TYPE]);
+  } = useMemory();
 
   // Additional state for tracking operation status
-  const [diagnosticResults, setDiagnosticResults] = useState<any>(null);
-  const [toolResults, setToolResults] = useState<any>(null);
+  const [diagnosticResults, setDiagnosticResults] = useState<Record<string, unknown> | null>(null);
+  const [toolResults, setToolResults] = useState<Record<string, unknown> | null>(null);
   const [isExecuting, setIsExecuting] = useState<boolean>(false);
+  const [isInitialized, setIsInitialized] = useState<boolean>(false);
 
-  // Load tools and diagnostics on mount
-  useEffect(() => {
-    getMemories({ types: [TOOLS_MEMORY_TYPE, DIAGNOSTICS_MEMORY_TYPE], limit: 50 });
-  }, []);
+  // Manual initialization function instead of auto-loading on mount
+  const initialize = useCallback(async () => {
+    if (isInitialized) return;
+    
+    try {
+      await getMemories({ types: [TOOLS_MEMORY_TYPE, DIAGNOSTICS_MEMORY_TYPE], limit: 50 });
+      setIsInitialized(true);
+    } catch (error) {
+      console.error('Error initializing tools memory:', error);
+    }
+  }, [getMemories, isInitialized]);
 
   // Implementation of getMemoryById for tools and diagnostics
   const getMemoryById = useCallback(async (id: string, type: typeof TOOLS_MEMORY_TYPE | typeof DIAGNOSTICS_MEMORY_TYPE) => {
@@ -50,7 +59,7 @@ export default function useToolsMemory() {
   /**
    * Run a diagnostic operation and store result in memory
    */
-  const runDiagnostic = useCallback(async (diagnosticType: string, params: Record<string, any> = {}) => {
+  const runDiagnostic = useCallback(async (diagnosticType: string, params: Record<string, unknown> = {}) => {
     setIsExecuting(true);
     
     try {
@@ -104,15 +113,15 @@ export default function useToolsMemory() {
       return { success: false, error: String(error) };
     } finally {
       setIsExecuting(false);
-      // Refresh the list of diagnostics
-      getMemories({ types: [DIAGNOSTICS_MEMORY_TYPE], limit: 50 });
+      // Manually fetch diagnostics only when needed, not automatically
+      await getMemories({ types: [DIAGNOSTICS_MEMORY_TYPE], limit: 50 });
     }
   }, [addMemory, updateMemory, getMemories]);
 
   /**
    * Execute a tool and store its result in memory
    */
-  const executeTool = useCallback(async (toolName: string, params: Record<string, any> = {}) => {
+  const executeTool = useCallback(async (toolName: string, params: Record<string, unknown> = {}) => {
     setIsExecuting(true);
     
     try {
@@ -166,8 +175,8 @@ export default function useToolsMemory() {
       return { success: false, error: String(error) };
     } finally {
       setIsExecuting(false);
-      // Refresh the list of tools
-      getMemories({ types: [TOOLS_MEMORY_TYPE], limit: 50 });
+      // Manually fetch tools only when needed, not automatically
+      await getMemories({ types: [TOOLS_MEMORY_TYPE], limit: 50 });
     }
   }, [addMemory, updateMemory, getMemories]);
 
@@ -188,7 +197,7 @@ export default function useToolsMemory() {
         : allResults;
         
       // Sort by timestamp descending
-      return results.sort((a: { timestamp: any; }, b: { timestamp: any; }) => {
+      return results.sort((a: { timestamp: string; }, b: { timestamp: string; }) => {
         const dateA = new Date(a.timestamp || 0).getTime();
         const dateB = new Date(b.timestamp || 0).getTime();
         return dateB - dateA;
@@ -216,7 +225,7 @@ export default function useToolsMemory() {
         : allResults;
         
       // Sort by timestamp descending
-      return results.sort((a: { timestamp: any; }, b: { timestamp: any; }) => {
+      return results.sort((a: { timestamp: string; }, b: { timestamp: string; }) => {
         const dateA = new Date(a.timestamp || 0).getTime();
         const dateB = new Date(b.timestamp || 0).getTime();
         return dateB - dateA;
@@ -245,7 +254,7 @@ export default function useToolsMemory() {
       }
       
       // Refresh the list
-      getMemories({ types: [DIAGNOSTICS_MEMORY_TYPE], limit: 50 });
+      await getMemories({ types: [DIAGNOSTICS_MEMORY_TYPE], limit: 50 });
       return true;
     } catch (error) {
       console.error('Error clearing diagnostic history:', error);
@@ -271,35 +280,27 @@ export default function useToolsMemory() {
       }
       
       // Refresh the list
-      getMemories({ types: [TOOLS_MEMORY_TYPE], limit: 50 });
+      await getMemories({ types: [TOOLS_MEMORY_TYPE], limit: 50 });
       return true;
     } catch (error) {
-      console.error('Error clearing tool execution history:', error);
+      console.error('Error clearing tool history:', error);
       return false;
     }
   }, [getMemories, deleteMemory]);
 
   return {
-    // Base memory operations
     toolsMemories,
     isLoading,
     error,
     isExecuting,
-
-    // Diagnostic operations
     diagnosticResults,
     runDiagnostic,
     getRecentDiagnostics,
     clearDiagnosticHistory,
-
-    // Tool operations
     toolResults,
     executeTool,
     getRecentToolExecutions,
     clearToolHistory,
-
-    // Search operations
-    searchMemories,
-    getMemoryById
+    initialize
   };
 } 

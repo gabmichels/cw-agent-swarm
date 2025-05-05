@@ -6,13 +6,24 @@ import useToolsMemory from '../../hooks/useToolsMemory';
  * ToolExecution component that displays a single tool execution result
  */
 interface ToolExecutionProps {
-  tool: any;
+  tool: {
+    id: string;
+    metadata?: {
+      toolName?: string;
+      status?: string;
+      startTime?: string;
+      duration?: number;
+      result?: Record<string, unknown>;
+      params?: Record<string, unknown>;
+    };
+    timestamp?: string;
+  };
   expanded: boolean;
   onToggleExpand: () => void;
 }
 
 const ToolExecution: React.FC<ToolExecutionProps> = ({ tool, expanded, onToggleExpand }) => {
-  const timestamp = new Date(tool.metadata?.startTime || tool.timestamp);
+  const timestamp = new Date(tool.metadata?.startTime || tool.timestamp || Date.now());
   const status = tool.metadata?.status || 'unknown';
   const toolName = tool.metadata?.toolName || 'Unknown Tool';
   const duration = tool.metadata?.duration ? `${(tool.metadata.duration / 1000).toFixed(2)}s` : 'N/A';
@@ -64,13 +75,24 @@ const ToolExecution: React.FC<ToolExecutionProps> = ({ tool, expanded, onToggleE
  * DiagnosticExecution component that displays a single diagnostic execution result
  */
 interface DiagnosticExecutionProps {
-  diagnostic: any;
+  diagnostic: {
+    id: string;
+    metadata?: {
+      diagnosticType?: string;
+      status?: string;
+      startTime?: string;
+      duration?: number;
+      result?: Record<string, unknown>;
+      params?: Record<string, unknown>;
+    };
+    timestamp?: string;
+  };
   expanded: boolean;
   onToggleExpand: () => void;
 }
 
 const DiagnosticExecution: React.FC<DiagnosticExecutionProps> = ({ diagnostic, expanded, onToggleExpand }) => {
-  const timestamp = new Date(diagnostic.metadata?.startTime || diagnostic.timestamp);
+  const timestamp = new Date(diagnostic.metadata?.startTime || diagnostic.timestamp || Date.now());
   const status = diagnostic.metadata?.status || 'unknown';
   const diagnosticType = diagnostic.metadata?.diagnosticType || 'Unknown Diagnostic';
   const duration = diagnostic.metadata?.duration ? `${(diagnostic.metadata.duration / 1000).toFixed(2)}s` : 'N/A';
@@ -136,19 +158,23 @@ export default function MemoryToolsTab() {
     executeTool,
     getRecentToolExecutions,
     clearToolHistory,
+    initialize
   } = useToolsMemory();
   
   // State for active tab
   const [activeTab, setActiveTab] = useState('tools');
   
   // State for tool executions
-  const [toolExecutions, setToolExecutions] = useState<any[]>([]);
-  const [diagnosticExecutions, setDiagnosticExecutions] = useState<any[]>([]);
+  const [toolExecutions, setToolExecutions] = useState<Array<{id: string; [key: string]: unknown}>>([]);
+  const [diagnosticExecutions, setDiagnosticExecutions] = useState<Array<{id: string; [key: string]: unknown}>>([]);
   const [expandedItems, setExpandedItems] = useState<Record<string, boolean>>({});
   
-  // Load tool and diagnostic executions
+  // Load tool and diagnostic executions - only when the component is mounted
   useEffect(() => {
     const loadHistory = async () => {
+      // Initialize the memory system first
+      await initialize();
+      
       const tools = await getRecentToolExecutions(20);
       const diagnostics = await getRecentDiagnostics(20);
       
@@ -157,7 +183,7 @@ export default function MemoryToolsTab() {
     };
     
     loadHistory();
-  }, [getRecentToolExecutions, getRecentDiagnostics]);
+  }, [getRecentToolExecutions, getRecentDiagnostics, initialize]); // Add initialize to dependencies
   
   // Toggle expanded state for an item
   const toggleExpand = (id: string) => {
@@ -168,7 +194,7 @@ export default function MemoryToolsTab() {
   };
   
   // Execute a diagnostic
-  const handleRunDiagnostic = async (diagnosticType: string, params: any = {}) => {
+  const handleRunDiagnostic = async (diagnosticType: string, params: Record<string, unknown> = {}) => {
     const result = await runDiagnostic(diagnosticType, params);
     
     // Refresh the list
@@ -179,7 +205,7 @@ export default function MemoryToolsTab() {
   };
   
   // Execute a tool
-  const handleRunTool = async (toolName: string, params: any = {}) => {
+  const handleRunTool = async (toolName: string, params: Record<string, unknown> = {}) => {
     const result = await executeTool(toolName, params);
     
     // Refresh the list
@@ -248,193 +274,146 @@ export default function MemoryToolsTab() {
   };
   
   // Reset all data
-  const handleResetAllData = async () => {
-    if (!confirm('Are you sure you want to delete ALL your data? This cannot be undone.')) {
-      return { success: false, cancelled: true };
+  const handleResetAll = async () => {
+    return handleRunTool('reset_all', {
+      confirmationRequired: true
+    });
+  };
+
+  // Clear markdown cache
+  const handleClearMarkdownCache = async () => {
+    if (!confirm('Are you sure you want to clear the markdown cache? This will force all markdown files to be reprocessed and re-indexed on next load.')) {
+      return;
     }
     
     try {
-      // First try the new memory API endpoint
-      try {
-        const response = await fetch('/api/memory/reset-collection', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ 
-            collection: 'all',
-            verify: true 
-          }),
-        });
-        
-        const result = await response.json();
-        
-        if (result.status === 'success' || result.status === 'partial') {
-          alert('Successfully reset collections. You may need to reload the page to see changes.');
-          
-          // Refresh the tool history
-          const tools = await getRecentToolExecutions(20);
-          setToolExecutions(tools);
-          
-          return { 
-            success: result.status === 'success',
-            result
-          };
+      // Make the API request to clear markdown cache using the App Router endpoint
+      const response = await fetch('/api/debug/clear-markdown-cache', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
         }
-      } catch (apiError) {
-        console.error('Error using memory reset API:', apiError);
-        // Fall through to tool execution method
-      }
-      
-      // If API method failed, try using the tool
-      return handleRunTool('reset_all', {
-        confirmationRequired: true
       });
+      
+      const data = await response.json();
+      
+      if (data.success) {
+        alert('Successfully cleared markdown cache. Files will be re-ingested on next reload.');
+        console.log('Markdown cache cleared successfully:', data);
+      } else {
+        alert(`Failed to clear markdown cache: ${data.error || 'Unknown error'}`);
+        console.error('Error clearing markdown cache:', data);
+      }
     } catch (error) {
-      console.error('Error resetting all data:', error);
-      alert(`Error resetting data: ${error instanceof Error ? error.message : String(error)}`);
-      return { 
-        success: false, 
-        error: error instanceof Error ? error.message : String(error) 
-      };
+      console.error('Error clearing markdown cache:', error);
+      alert('An error occurred while clearing markdown cache. See console for details.');
     }
   };
-  
+
   return (
-    <div className="p-4">
-      <h1 className="text-2xl font-bold mb-6">Tools & Diagnostics</h1>
-      
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="mb-6">
-        <TabsList className="grid grid-cols-2">
+    <div className="grid grid-cols-1 gap-6">
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList className="grid grid-cols-2 w-[400px] mb-4">
           <TabsTrigger value="tools">Tools</TabsTrigger>
           <TabsTrigger value="diagnostics">Diagnostics</TabsTrigger>
         </TabsList>
         
-        <TabsContent value="tools" className="mt-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
-            <div className="bg-gray-800 p-4 rounded-lg">
-              <h2 className="text-lg font-medium mb-4">Data Management</h2>
-              <div className="space-y-2">
-                <button
-                  onClick={handleClearChat}
-                  disabled={isExecuting}
-                  className="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded text-white"
-                >
-                  Clear Chat History
-                </button>
-                <button
-                  onClick={handleClearImages}
-                  disabled={isExecuting}
-                  className="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded text-white"
-                >
-                  Clear Image Cache
-                </button>
-                <button
-                  onClick={handleResetAllData}
-                  disabled={isExecuting}
-                  className="w-full px-4 py-2 bg-red-600 hover:bg-red-700 rounded text-white"
-                >
-                  Reset All Data
-                </button>
-              </div>
-            </div>
-            
-            <div className="bg-gray-800 p-4 rounded-lg">
-              <h2 className="text-lg font-medium mb-4">Advanced Tools</h2>
-              <div className="space-y-2">
-                <button
-                  onClick={() => handleRunTool('refresh_config', {})}
-                  disabled={isExecuting}
-                  className="w-full px-4 py-2 bg-green-600 hover:bg-green-700 rounded text-white"
-                >
-                  Refresh Configuration
-                </button>
-                <button
-                  onClick={() => handleRunTool('test_agent', {})}
-                  disabled={isExecuting}
-                  className="w-full px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded text-white"
-                >
-                  Test Agent
-                </button>
-                <button
-                  onClick={() => handleRunTool('clear_markdown_cache', {})}
-                  disabled={isExecuting}
-                  className="w-full px-4 py-2 bg-yellow-600 hover:bg-yellow-700 rounded text-white"
-                >
-                  Clear Markdown Cache
-                </button>
-              </div>
+        <TabsContent value="tools" className="space-y-4">
+          <div className="bg-gray-800 p-4 rounded-lg">
+            <h2 className="text-lg font-medium mb-4">Available Tools</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+              <button
+                onClick={handleClearChat}
+                disabled={isExecuting}
+                className="px-4 py-2 bg-red-600 hover:bg-red-700 rounded text-white"
+              >
+                Clear Chat History
+              </button>
+              <button
+                onClick={handleClearImages}
+                disabled={isExecuting}
+                className="px-4 py-2 bg-red-600 hover:bg-red-700 rounded text-white"
+              >
+                Clear Images
+              </button>
+              <button
+                onClick={handleResetAll}
+                disabled={isExecuting}
+                className="px-4 py-2 bg-red-600 hover:bg-red-700 rounded text-white"
+              >
+                Reset All Data
+              </button>
+              <button
+                onClick={handleClearToolHistory}
+                disabled={isExecuting}
+                className="px-4 py-2 bg-gray-600 hover:bg-gray-700 rounded text-white"
+              >
+                Clear Tool History
+              </button>
+              <button
+                onClick={handleClearMarkdownCache}
+                disabled={isExecuting}
+                className="px-4 py-2 bg-yellow-600 hover:bg-yellow-700 rounded text-white"
+              >
+                Clear Markdown Cache
+              </button>
             </div>
           </div>
           
-          <div className="bg-gray-800 p-4 rounded-lg mb-4">
+          <div className="bg-gray-800 p-4 rounded-lg">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-lg font-medium">Tool Execution History</h2>
-              <button
-                onClick={handleClearToolHistory}
-                className="px-3 py-1 bg-red-600 hover:bg-red-700 rounded text-white text-sm"
-                disabled={isExecuting || toolExecutions.length === 0}
-              >
-                Clear History
-              </button>
+              {isLoading && <span className="text-sm text-gray-400">Loading...</span>}
             </div>
             
-            {isLoading ? (
-              <div className="flex justify-center py-4">
-                <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500"></div>
-              </div>
-            ) : toolExecutions.length === 0 ? (
-              <div className="text-center py-6 text-gray-400">
-                <p>No tool executions yet.</p>
-                <p className="mt-2 text-sm">Run a tool to see its execution history here.</p>
-              </div>
-            ) : (
-              <div className="space-y-2">
+            {toolExecutions.length > 0 ? (
+              <div className="max-h-96 overflow-y-auto">
                 {toolExecutions.map(tool => (
                   <ToolExecution
                     key={tool.id}
-                    tool={tool}
+                    tool={tool as ToolExecutionProps['tool']}
                     expanded={!!expandedItems[tool.id]}
                     onToggleExpand={() => toggleExpand(tool.id)}
                   />
                 ))}
               </div>
+            ) : (
+              <p className="text-gray-400">No tool executions found.</p>
             )}
           </div>
         </TabsContent>
         
-        <TabsContent value="diagnostics" className="mt-4">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-            <div className="bg-gray-800 p-4 rounded-lg">
-              <h2 className="text-lg font-medium mb-4">System Diagnostics</h2>
+        <TabsContent value="diagnostics" className="space-y-4">
+          <div className="bg-gray-800 p-4 rounded-lg">
+            <h2 className="text-lg font-medium mb-4">Available Diagnostics</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
               <button
                 onClick={handleSystemDiagnostic}
                 disabled={isExecuting}
-                className="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded text-white"
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded text-white"
               >
-                Run System Check
+                System Diagnostic
               </button>
-            </div>
-            
-            <div className="bg-gray-800 p-4 rounded-lg">
-              <h2 className="text-lg font-medium mb-4">Chat Diagnostics</h2>
               <button
                 onClick={handleChatDiagnostic}
                 disabled={isExecuting}
-                className="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded text-white"
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded text-white"
               >
-                Run Chat Check
+                Chat Diagnostic
               </button>
-            </div>
-            
-            <div className="bg-gray-800 p-4 rounded-lg">
-              <h2 className="text-lg font-medium mb-4">Agent Diagnostics</h2>
               <button
                 onClick={handleAgentDiagnostic}
                 disabled={isExecuting}
-                className="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded text-white"
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded text-white"
               >
-                Run Agent Check
+                Agent Diagnostic
+              </button>
+              <button
+                onClick={handleClearDiagnosticHistory}
+                disabled={isExecuting}
+                className="px-4 py-2 bg-gray-600 hover:bg-gray-700 rounded text-white"
+              >
+                Clear Diagnostic History
               </button>
             </div>
           </div>
@@ -442,35 +421,22 @@ export default function MemoryToolsTab() {
           <div className="bg-gray-800 p-4 rounded-lg">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-lg font-medium">Diagnostic History</h2>
-              <button
-                onClick={handleClearDiagnosticHistory}
-                className="px-3 py-1 bg-red-600 hover:bg-red-700 rounded text-white text-sm"
-                disabled={isExecuting || diagnosticExecutions.length === 0}
-              >
-                Clear History
-              </button>
+              {isLoading && <span className="text-sm text-gray-400">Loading...</span>}
             </div>
             
-            {isLoading ? (
-              <div className="flex justify-center py-4">
-                <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500"></div>
-              </div>
-            ) : diagnosticExecutions.length === 0 ? (
-              <div className="text-center py-6 text-gray-400">
-                <p>No diagnostic runs yet.</p>
-                <p className="mt-2 text-sm">Run a diagnostic to see its results here.</p>
-              </div>
-            ) : (
-              <div className="space-y-2">
+            {diagnosticExecutions.length > 0 ? (
+              <div className="max-h-96 overflow-y-auto">
                 {diagnosticExecutions.map(diagnostic => (
                   <DiagnosticExecution
                     key={diagnostic.id}
-                    diagnostic={diagnostic}
+                    diagnostic={diagnostic as DiagnosticExecutionProps['diagnostic']}
                     expanded={!!expandedItems[diagnostic.id]}
                     onToggleExpand={() => toggleExpand(diagnostic.id)}
                   />
                 ))}
               </div>
+            ) : (
+              <p className="text-gray-400">No diagnostics found.</p>
             )}
           </div>
         </TabsContent>

@@ -17,6 +17,12 @@ interface UseMemoryOptions {
    * Number of history items to retrieve
    */
   historyLimit?: number;
+  
+  /**
+   * Whether to automatically load memories on initialization
+   * @default false - Set to false to prevent automatic loading
+   */
+  autoLoad?: boolean;
 }
 
 /**
@@ -32,17 +38,41 @@ export interface MemorySearchParams {
 }
 
 export interface MemoryHookState {
-  memories: any[];
+  memories: Array<Record<string, unknown>>;
   isLoading: boolean;
   error: Error | null;
   totalCount: number;
 }
 
+// Define types for the filter structure
+interface FilterCondition {
+  key: string;
+  match?: {
+    value?: unknown;
+    in?: unknown[];
+  };
+  range?: {
+    gte?: unknown;
+    lte?: unknown;
+  };
+}
+
+interface MemoryFilter {
+  must?: FilterCondition[];
+  should?: FilterCondition[];
+  must_not?: FilterCondition[];
+}
+
 /**
  * React hook for accessing the standardized memory system
  * Provides functions for CRUD operations on memories
+ * @param initialTypes Optional array of memory types to load on initialization
+ * @param options Hook configuration options
  */
-export default function useMemory(initialTypes?: MemoryType[]) {
+export default function useMemory(
+  initialTypes?: MemoryType[], 
+  options: UseMemoryOptions = { autoLoad: false }
+) {
   const [state, setState] = useState<MemoryHookState>({
     memories: [],
     isLoading: false,
@@ -78,57 +108,27 @@ export default function useMemory(initialTypes?: MemoryType[]) {
         queryParams.append('offset', params.offset.toString());
       }
       
-      // Try the main memory API route first
-      console.log(`Attempting to fetch memories from main API with params: ${queryParams.toString()}`);
+      console.log(`Fetching memories from API with params: ${queryParams.toString()}`);
       
-      try {
-        // Make API request - Try the main route first
-        const response = await fetch(`/api/memory?${queryParams.toString()}`);
-        
-        if (response.ok) {
-          const data = await response.json();
-          
-          setState(prev => ({
-            ...prev,
-            memories: data.memories || [],
-            totalCount: data.total || 0,
-            isLoading: false
-          }));
-          
-          return data.memories;
-        } else if (response.status === 404) {
-          console.warn('Main memory API route returned 404, trying fallback route');
-          throw new Error('Memory API not found, trying fallback');
-        } else {
-          throw new Error(`Failed to fetch memories: ${response.statusText}`);
-        }
-      } catch (mainRouteError) {
-        // Try the fallback test route if first attempt failed
-        console.log('First API attempt failed, trying memory-test fallback API...');
-        
-        const fallbackResponse = await fetch(`/api/memory-test?${queryParams.toString()}`);
-        
-        if (!fallbackResponse.ok) {
-          throw new Error(`Fallback API failed: ${fallbackResponse.statusText}`);
-        }
-        
-        const fallbackData = await fallbackResponse.json();
-        
-        if (!fallbackData.success) {
-          throw new Error(`Fallback API error: ${fallbackData.error}`);
-        }
-        
-        setState(prev => ({
-          ...prev,
-          memories: fallbackData.memories || [],
-          totalCount: fallbackData.total || 0,
-          isLoading: false
-        }));
-        
-        return fallbackData.memories;
+      // Make API request using the App Router implementation
+      const response = await fetch(`/api/memory?${queryParams.toString()}`);
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch memories: ${response.statusText}`);
       }
+      
+      const data = await response.json();
+      
+      setState(prev => ({
+        ...prev,
+        memories: data.memories || [],
+        totalCount: data.total || 0,
+        isLoading: false
+      }));
+      
+      return data.memories;
     } catch (error) {
-      console.error('Error fetching memories (all attempts failed):', error);
+      console.error('Error fetching memories:', error);
       setState(prev => ({
         ...prev,
         error: error instanceof Error ? error : new Error(String(error)),
@@ -148,10 +148,10 @@ export default function useMemory(initialTypes?: MemoryType[]) {
     
     try {
       // Prepare filter object
-      const filter: Record<string, any> = {};
+      const filter: MemoryFilter = {};
       
       if (params.types && params.types.length > 0) {
-        filter.must = filter.must || [];
+        if (!filter.must) filter.must = [];
         filter.must.push({
           key: 'type',
           match: {
@@ -161,7 +161,7 @@ export default function useMemory(initialTypes?: MemoryType[]) {
       }
       
       if (params.tags && params.tags.length > 0) {
-        filter.must = filter.must || [];
+        if (!filter.must) filter.must = [];
         filter.must.push({
           key: 'metadata.tags',
           match: {
@@ -174,7 +174,7 @@ export default function useMemory(initialTypes?: MemoryType[]) {
       const body: {
         query: string;
         limit: number;
-        filter?: Record<string, any>;
+        filter?: MemoryFilter;
         hybridRatio?: number;
       } = {
         query: params.query,
@@ -204,7 +204,7 @@ export default function useMemory(initialTypes?: MemoryType[]) {
       
       // Extract memory points from search results
       const searchResults = data.results || [];
-      const memories = searchResults.map((result: any) => ({
+      const memories = searchResults.map((result: { point: Record<string, unknown>; score: number }) => ({
         ...result.point,
         score: result.score,
       }));
@@ -254,7 +254,7 @@ export default function useMemory(initialTypes?: MemoryType[]) {
     params: {
       type: MemoryType;
       content: string;
-      metadata?: Record<string, any>;
+      metadata?: Record<string, unknown>;
     }
   ) => {
     try {
@@ -287,7 +287,7 @@ export default function useMemory(initialTypes?: MemoryType[]) {
       id: string;
       type: MemoryType;
       content?: string;
-      metadata?: Record<string, any>;
+      metadata?: Record<string, unknown>;
     }
   ) => {
     try {
@@ -362,12 +362,12 @@ export default function useMemory(initialTypes?: MemoryType[]) {
     }
   }, []);
 
-  // Load initial memories if types are provided
+  // Load initial memories if types are provided and autoLoad is enabled
   useEffect(() => {
-    if (initialTypes && initialTypes.length > 0) {
+    if (initialTypes && initialTypes.length > 0 && options.autoLoad) {
       getMemories({ types: initialTypes });
     }
-  }, [initialTypes, getMemories]);
+  }, [initialTypes, getMemories, options.autoLoad]);
 
   return {
     ...state,

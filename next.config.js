@@ -4,7 +4,6 @@ const nextConfig = {
   transpilePackages: [],
   serverExternalPackages: [],
   experimental: {
-    serverComponentsExternalPackages: [],
   },
   webpack: (config, { isServer }) => {
     // For both client and server
@@ -17,21 +16,6 @@ const nextConfig = {
     };
 
     return config;
-  },
-  // Add rewrites for memory API routes to ensure they're properly handled
-  async rewrites() {
-    return [
-      {
-        source: '/api/memory',
-        destination: '/api/memory',
-        has: [{ type: 'header', key: 'x-use-app-router', value: 'true' }],
-      },
-      {
-        source: '/api/memory/:path*',
-        destination: '/api/memory/:path*',
-        has: [{ type: 'header', key: 'x-use-app-router', value: 'true' }],
-      }
-    ];
   },
 };
 

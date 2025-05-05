@@ -35,6 +35,11 @@ interface UseKnowledgeMemoryParams {
   tags?: string[];
   limit?: number;
   onlyFlagged?: boolean;
+  /**
+   * Whether to automatically load items on mount
+   * @default false - Set to false to prevent automatic loading
+   */
+  autoLoad?: boolean;
 }
 
 // Define memory item type interface
@@ -61,14 +66,15 @@ export default function useKnowledgeMemory({
   types = [MemoryType.MESSAGE], // Will be replaced with appropriate types
   tags = [],
   limit = 50,
-  onlyFlagged = false
+  onlyFlagged = false,
+  autoLoad = false
 }: UseKnowledgeMemoryParams = {}) {
   const [knowledgeItems, setKnowledgeItems] = useState<KnowledgeItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
   const [totalCount, setTotalCount] = useState(0);
   
-  // Use the base memory hook
+  // Use the base memory hook with autoLoad set to false to prevent automatic loading
   const { 
     getMemories, 
     searchMemories, 
@@ -76,7 +82,7 @@ export default function useKnowledgeMemory({
     addMemory, 
     updateMemory, 
     deleteMemory 
-  } = useMemory(types);
+  } = useMemory(types, { autoLoad: false });
   
   /**
    * Load knowledge items
@@ -139,9 +145,12 @@ export default function useKnowledgeMemory({
       
       setKnowledgeItems(filteredItems);
       setTotalCount(filteredItems.length);
+      
+      return filteredItems;
     } catch (error) {
       console.error('Error loading knowledge items:', error);
       setError(error instanceof Error ? error : new Error(String(error)));
+      return [];
     } finally {
       setIsLoading(false);
     }
@@ -178,15 +187,12 @@ export default function useKnowledgeMemory({
         }
       });
       
-      // Refresh the list
-      await loadKnowledgeItems();
-      
       return result;
     } catch (error) {
       console.error('Error adding knowledge item:', error);
       throw error;
     }
-  }, [addMemory, loadKnowledgeItems]);
+  }, [addMemory]);
   
   /**
    * Update a knowledge item
@@ -228,15 +234,12 @@ export default function useKnowledgeMemory({
       // Update memory
       const result = await updateMemory(updateData);
       
-      // Refresh the list
-      await loadKnowledgeItems();
-      
       return result;
     } catch (error) {
       console.error('Error updating knowledge item:', error);
       throw error;
     }
-  }, [getMemory, updateMemory, loadKnowledgeItems]);
+  }, [getMemory, updateMemory]);
   
   /**
    * Delete a knowledge item
@@ -245,15 +248,12 @@ export default function useKnowledgeMemory({
     try {
       await deleteMemory({ id, type });
       
-      // Refresh the list
-      await loadKnowledgeItems();
-      
       return true;
     } catch (error) {
       console.error('Error deleting knowledge item:', error);
       throw error;
     }
-  }, [deleteMemory, loadKnowledgeItems]);
+  }, [deleteMemory]);
   
   /**
    * Toggle flagged status of a knowledge item
@@ -295,10 +295,12 @@ export default function useKnowledgeMemory({
     }
   }, [updateKnowledgeItem]);
   
-  // Load items on initial render and when dependencies change
+  // Load items on initial mount if autoLoad is enabled
   useEffect(() => {
-    loadKnowledgeItems();
-  }, [loadKnowledgeItems]);
+    if (autoLoad) {
+      loadKnowledgeItems();
+    }
+  }, []); // Only run on initial mount
   
   return {
     knowledgeItems,

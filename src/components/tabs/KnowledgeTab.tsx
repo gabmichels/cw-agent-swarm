@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import KnowledgeStats from '../knowledge/KnowledgeStats';
 import FlaggedItemsList from '../knowledge/FlaggedItemsList';
 import TagSelector from '../knowledge/TagSelector';
@@ -13,9 +13,19 @@ interface KnowledgeTabProps {
   // Props can be expanded as needed
 }
 
+// Define stats interface
+interface KnowledgeStats {
+  totalItems: number;
+  pendingItems: number;
+  approvedItems: number;
+  rejectedItems: number;
+  bySourceType: Record<string, number>;
+  byKnowledgeType: Record<string, number>;
+}
+
 const KnowledgeTab: React.FC<KnowledgeTabProps> = () => {
   const [isLoadingStats, setIsLoadingStats] = useState(false);
-  const [stats, setStats] = useState<any>(null);
+  const [stats, setStats] = useState<KnowledgeStats | null>(null);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState<string>('flagged');
   const [filter, setFilter] = useState({
@@ -23,6 +33,7 @@ const KnowledgeTab: React.FC<KnowledgeTabProps> = () => {
     type: '',
     source: ''
   });
+  const [shouldRefresh, setShouldRefresh] = useState(false);
 
   // Use the standardized knowledge memory hook
   const {
@@ -36,10 +47,11 @@ const KnowledgeTab: React.FC<KnowledgeTabProps> = () => {
       MemoryType.DOCUMENT,
       MemoryType.THOUGHT
     ],
-    onlyFlagged: true
+    onlyFlagged: true,
+    autoLoad: false
   });
 
-  // Load stats
+  // Load stats - only on component mount
   useEffect(() => {
     const fetchStats = async () => {
       setIsLoadingStats(true);
@@ -61,12 +73,26 @@ const KnowledgeTab: React.FC<KnowledgeTabProps> = () => {
     fetchStats();
   }, []);
 
-  // Handle filter changes
+  // Load knowledge items once on mount and when refresh is triggered
+  useEffect(() => {
+    // Initial load or when shouldRefresh is true
+    if (shouldRefresh) {
+      loadKnowledgeItems();
+      setShouldRefresh(false); // Reset the refresh flag
+    }
+  }, [shouldRefresh, loadKnowledgeItems]);
+
+  // Initial load when the component mounts
+  useEffect(() => {
+    loadKnowledgeItems();
+    // The empty dependency array ensures this only runs once on mount
+  }, []);
+
+  // Handle filter changes - do not call loadKnowledgeItems directly
   const handleFilterChange = (key: string, value: string) => {
     setFilter(prev => ({ ...prev, [key]: value }));
-    
-    // Refresh flagged items when filters change
-    loadKnowledgeItems();
+    // Set flag to refresh data instead of directly calling loadKnowledgeItems
+    setShouldRefresh(true);
   };
 
   // Handle tag selection changes
@@ -74,13 +100,13 @@ const KnowledgeTab: React.FC<KnowledgeTabProps> = () => {
     setSelectedTags(tags);
   };
 
-  // Refresh items
+  // Refresh items - triggered by user action only
   const handleRefresh = () => {
-    loadKnowledgeItems();
+    setShouldRefresh(true);
   };
 
   // Convert memory items to flagged knowledge items format
-  const convertToFlaggedItems = (): FlaggedKnowledgeItem[] => {
+  const convertToFlaggedItems = useCallback((): FlaggedKnowledgeItem[] => {
     return flaggedItems.map(item => ({
       id: item.id,
       title: item.content.substring(0, 100),
@@ -101,7 +127,7 @@ const KnowledgeTab: React.FC<KnowledgeTabProps> = () => {
         description: item.content
       }
     }));
-  };
+  }, [flaggedItems]);
 
   return (
     <div className="bg-gray-800 rounded-lg p-4">

@@ -16,9 +16,9 @@ interface ToolsTabProps {
   testChloeAgent: () => void;
   showFixInstructions: () => void;
   runDirectMarketScan: () => void;
-  diagnosticResults: any;
-  chloeCheckResults: any;
-  fixInstructions: any;
+  diagnosticResults: Record<string, unknown>;
+  chloeCheckResults: Record<string, unknown>;
+  fixInstructions: Record<string, unknown>;
   isDebugMode: boolean;
 }
 
@@ -36,15 +36,18 @@ const ToolsTab: React.FC<ToolsTabProps> = ({
   fixInstructions,
   isDebugMode,
 }) => {
-  const [debugResults, setDebugResults] = useState<any>(null);
+  const [debugResults, setDebugResults] = useState<Record<string, unknown> | null>(null);
   const [isDebugLoading, setIsDebugLoading] = useState(false);
-  const [codaResults, setCodaResults] = useState<any>(null);
+  const [codaResults, setCodaResults] = useState<Record<string, unknown> | null>(null);
   const [isCodaLoading, setIsCodaLoading] = useState(false);
   const [codaInputValue, setCodaInputValue] = useState('');
   const [activeTab, setActiveTab] = useState<string>('legacy');
   
   // Get memory hook for standardized memory system access
+  // We're only using the methods, not triggering automatic data loading
   const { executeTool } = useToolsMemory();
+  
+  // Initialize useMemory without initialTypes to prevent auto-loading
   const { getMemories, deleteMemory } = useMemory();
   
   // Function to check Qdrant connection
@@ -112,6 +115,40 @@ const ToolsTab: React.FC<ToolsTabProps> = ({
     } catch (error) {
       console.error('Error deleting chat history:', error);
       alert('An error occurred while deleting chat history. See console for details.');
+    } finally {
+      setIsDebugLoading(false);
+    }
+  };
+
+  // Function to clear markdown cache
+  const handleClearMarkdownCache = async () => {
+    if (!confirm('Are you sure you want to clear the markdown cache? This will force all markdown files to be reprocessed and re-indexed on next load.')) {
+      return;
+    }
+    
+    setIsDebugLoading(true);
+    try {
+      // Make the API request to clear markdown cache using the App Router endpoint
+      const response = await fetch('/api/debug/clear-markdown-cache', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      });
+      
+      const data = await response.json();
+      setDebugResults(data);
+      
+      if (data.success) {
+        alert('Successfully cleared markdown cache. Files will be re-ingested on next reload.');
+        console.log('Markdown cache cleared successfully:', data);
+      } else {
+        alert(`Failed to clear markdown cache: ${data.error || 'Unknown error'}`);
+        console.error('Error clearing markdown cache:', data);
+      }
+    } catch (error) {
+      console.error('Error clearing markdown cache:', error);
+      alert('An error occurred while clearing markdown cache. See console for details.');
     } finally {
       setIsDebugLoading(false);
     }
@@ -461,54 +498,6 @@ const ToolsTab: React.FC<ToolsTabProps> = ({
     }
   };
 
-  // Function to clear markdown cache
-  const handleClearMarkdownCache = async () => {
-    if (!confirm('Are you sure you want to clear the markdown cache? Files will be re-ingested on next server restart.')) {
-      return;
-    }
-    
-    setIsDebugLoading(true);
-    try {
-      // Make the request with a simple error handling approach
-      const response = await fetch('/api/debug/clear-markdown-cache', {
-        method: 'POST',
-      });
-      
-      // Get the response as text first to safely handle any response format
-      const responseText = await response.text();
-      
-      // Try to parse as JSON if possible
-      let data;
-      try {
-        data = JSON.parse(responseText);
-      } catch (parseError) {
-        // If not JSON, create an error object
-        data = { 
-          success: false, 
-          error: `Server returned non-JSON response: ${responseText.substring(0, 150)}...`,
-          statusCode: response.status
-        };
-      }
-      
-      setDebugResults(data);
-      
-      if (data.success) {
-        alert(`Success: ${data.message || 'Markdown cache cleared successfully'}`);
-      } else {
-        alert(`Error: ${data.error || 'Unknown error occurred'}`);
-      }
-    } catch (error) {
-      console.error('Network error clearing markdown cache:', error);
-      setDebugResults({
-        success: false,
-        error: error instanceof Error ? error.message : String(error)
-      });
-      alert(`Network error: ${error instanceof Error ? error.message : String(error)}`);
-    } finally {
-      setIsDebugLoading(false);
-    }
-  };
-
   // Render method with tabs for both legacy and memory-based tools
   return (
     <div className="p-4">
@@ -601,6 +590,13 @@ const ToolsTab: React.FC<ToolsTabProps> = ({
                   className="w-full px-4 py-2 bg-red-600 hover:bg-red-700 rounded text-white"
                 >
                   Delete ALL Data
+                </button>
+                <button
+                  onClick={handleClearMarkdownCache}
+                  disabled={isDebugLoading}
+                  className="w-full px-4 py-2 bg-yellow-600 hover:bg-yellow-700 rounded text-white"
+                >
+                  Clear Markdown Cache
                 </button>
               </div>
             </div>
