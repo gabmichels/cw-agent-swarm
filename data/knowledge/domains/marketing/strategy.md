@@ -1,4 +1,4 @@
-# Marketing Strategy
+# Claro AI - Marketing Strategy
 
 Primary Objectives:
 - Grow Monthly Active Users (MAUs) consistently.

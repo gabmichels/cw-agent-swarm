@@ -28,9 +28,12 @@ export async function POST(request: NextRequest) {
     
     // Parse request body for filter
     let filter = {};
+    let types: MemoryType[] = [];
+    
     try {
       const body = await request.json();
       filter = body.filter || {};
+      types = body.types || [];
     } catch (e) {
       // Ignore JSON parsing errors
     }
@@ -44,23 +47,44 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
     
-    // Perform search
-    const results = await searchService.search(params.query, {
-      filter,
-      limit: params.limit,
-      offset: params.offset
-    });
-    
-    return NextResponse.json({
-      results,
-      total: results.length,
-      searchInfo: {
-        query: params.query,
+    // Perform search with graceful error handling
+    try {
+      const results = await searchService.search(params.query, {
         filter,
         limit: params.limit,
-        offset: params.offset
-      }
-    });
+        offset: params.offset,
+        types
+      });
+      
+      return NextResponse.json({
+        results,
+        total: results.length,
+        searchInfo: {
+          query: params.query,
+          filter,
+          limit: params.limit,
+          offset: params.offset,
+          types
+        }
+      });
+    } catch (searchError) {
+      // For search errors, provide more detailed information but don't fail completely
+      console.error('Error during search operation:', searchError);
+      
+      return NextResponse.json({
+        warning: 'Search completed with issues',
+        error: searchError instanceof Error ? searchError.message : 'Search error occurred',
+        results: [],
+        total: 0,
+        searchInfo: {
+          query: params.query,
+          filter,
+          limit: params.limit,
+          offset: params.offset,
+          types
+        }
+      }, { status: 200 }); // Still return 200 so the client can handle partial results
+    }
   } catch (error) {
     console.error('Error searching memories:', error);
     
@@ -82,6 +106,16 @@ export async function POST(request: NextRequest) {
           results: [],
           total: 0
         }, { status: 400 });
+      }
+      
+      // Add specific handling for collection not found errors
+      if (memoryError.code === MemoryErrorCode.NOT_FOUND) {
+        return NextResponse.json({
+          warning: 'Some collections were not found',
+          error: memoryError.message || 'One or more collections do not exist',
+          results: [],
+          total: 0
+        }, { status: 200 }); // Use 200 status with warning to avoid breaking clients
       }
     }
     

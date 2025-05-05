@@ -4,13 +4,66 @@ import FlaggedItemsList from '../knowledge/FlaggedItemsList';
 import TagSelector from '../knowledge/TagSelector';
 import TaggedItemsList from '../knowledge/TaggedItemsList';
 import FlaggedMessagesApproval from '../knowledge/FlaggedMessagesApproval';
+import MarkdownKnowledgeTab from '../knowledge/MarkdownKnowledgeTab';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import useKnowledgeMemory, { KnowledgeImportance } from '../../hooks/useKnowledgeMemory';
+import useMemory from '../../hooks/useMemory';
 import { MemoryType } from '../../server/memory/config';
 import { FlaggedKnowledgeItem, KnowledgeSourceType, SuggestedKnowledgeType } from '../../lib/knowledge/flagging/types';
 
 interface KnowledgeTabProps {
   // Props can be expanded as needed
+}
+
+// Define markdown memory item interface
+interface MarkdownMemoryItem {
+  id: string;
+  title: string;
+  content: string;
+  type: string;
+  filePath: string;
+  importance: string;
+  tags: string[];
+  lastModified: string;
+}
+
+// Define Memory interface for proper typing
+interface Memory {
+  id: string;
+  content?: string;
+  text?: string;
+  payload?: {
+    text?: string;
+    type?: string;
+    metadata?: {
+      title?: string;
+      type?: string;
+      source?: string;
+      contentType?: string;
+      fileType?: string;
+      filePath?: string;
+      extractedFrom?: string;
+      importance?: string;
+      tags?: string[];
+      lastModified?: string;
+      [key: string]: unknown;
+    };
+  };
+  timestamp?: string;
+  metadata?: {
+    title?: string;
+    type?: string;
+    source?: string;
+    contentType?: string;
+    fileType?: string;
+    filePath?: string;
+    extractedFrom?: string;
+    importance?: string;
+    tags?: string[];
+    lastModified?: string;
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
 }
 
 // Define stats interface
@@ -34,6 +87,14 @@ const KnowledgeTab: React.FC<KnowledgeTabProps> = () => {
     source: ''
   });
   const [shouldRefresh, setShouldRefresh] = useState(false);
+  const [markdownItems, setMarkdownItems] = useState<MarkdownMemoryItem[]>([]);
+  const [isLoadingMarkdown, setIsLoadingMarkdown] = useState(false);
+  const [markdownFilter, setMarkdownFilter] = useState({
+    type: '',
+    tags: [] as string[],
+    searchQuery: ''
+  });
+  const [selectedMarkdownItem, setSelectedMarkdownItem] = useState<MarkdownMemoryItem | null>(null);
 
   // Use the standardized knowledge memory hook
   const {
@@ -48,8 +109,16 @@ const KnowledgeTab: React.FC<KnowledgeTabProps> = () => {
       MemoryType.THOUGHT
     ],
     onlyFlagged: true,
-    autoLoad: false
+    autoLoad: false // Explicitly set to false to prevent auto-loading
   });
+
+  // Use memory hook for markdown documents
+  const {
+    memories: allMemories,
+    isLoading: isLoadingMemories,
+    getMemories,
+    searchMemories
+  } = useMemory([MemoryType.DOCUMENT], { autoLoad: false });
 
   // Load stats - only on component mount
   useEffect(() => {
@@ -88,11 +157,159 @@ const KnowledgeTab: React.FC<KnowledgeTabProps> = () => {
     // The empty dependency array ensures this only runs once on mount
   }, []);
 
+  // Load markdown documents
+  const loadMarkdownDocuments = useCallback(async () => {
+    setIsLoadingMarkdown(true);
+    try {
+      // Fetch documents with source = "markdown" or contentType = "markdown"
+      const memories = await getMemories({ 
+        types: [MemoryType.DOCUMENT],
+        limit: 100
+      });
+      
+      console.log('Total memories fetched:', memories.length);
+      
+      // Helper function to safely access nested metadata
+      const getMetadata = (memory: Memory): Record<string, unknown> => {
+        if (memory.metadata) return memory.metadata;
+        if (memory.payload?.metadata) return memory.payload.metadata as Record<string, unknown>;
+        return {};
+      };
+      
+      // Filter and process markdown documents using multiple criteria
+      const markdownDocs = memories
+        .filter((memory: Memory) => {
+          const metadata = getMetadata(memory);
+          
+          // Check multiple fields that could indicate markdown content
+          const isMarkdownSource = metadata.source === 'markdown' || metadata.source === 'file';
+          const isMarkdownContentType = metadata.contentType === 'markdown' || metadata.contentType === 'md';
+          const isMarkdownFileType = metadata.fileType === 'md' || metadata.fileType === 'markdown';
+          
+          // Check file path for markdown extensions or common markdown directories
+          const filePath = metadata.filePath || metadata.extractedFrom || '';
+          const isMarkdownPath = typeof filePath === 'string' && (
+            filePath.endsWith('.md') || 
+            filePath.includes('/markdown/') || 
+            filePath.includes('/docs/') ||
+            filePath.includes('/knowledge/')
+          );
+          
+          // Check content for markdown indicators
+          const content = typeof memory.content === 'string' ? memory.content : 
+                         typeof memory.text === 'string' ? memory.text :
+                         typeof memory.payload?.text === 'string' ? memory.payload.text : '';
+          
+          const hasMarkdownContent = content.includes('# ') || 
+                                    content.includes('## ') || 
+                                    content.includes('```') ||
+                                    content.includes('**');
+          
+          // Return true if any of the criteria match
+          return isMarkdownSource || isMarkdownContentType || isMarkdownFileType || isMarkdownPath || hasMarkdownContent;
+        })
+        .map((memory: Memory) => {
+          const metadata = getMetadata(memory);
+          
+          // Try different possible locations for content
+          const content = typeof memory.content === 'string' ? memory.content : 
+                         typeof memory.text === 'string' ? memory.text :
+                         typeof memory.payload?.text === 'string' ? memory.payload.text : '';
+          
+          // Extract title from metadata or from content
+          let title = metadata.title ? String(metadata.title) : '';
+          if (!title && content) {
+            const firstLine = content.split('\n')[0] || '';
+            // If first line starts with #, it's likely a markdown title
+            if (firstLine.startsWith('#')) {
+              title = firstLine.replace(/^#+\s*/, '');
+            } else {
+              title = firstLine.slice(0, 40) + (firstLine.length > 40 ? '...' : '');
+            }
+          }
+          
+          if (!title) {
+            title = 'Untitled Document';
+          }
+          
+          // Get importance level
+          let importance = metadata.importance ? String(metadata.importance) : 'medium';
+          if (metadata.critical === true) {
+            importance = 'critical';
+          }
+          
+          // Get tags - could be stored in different locations
+          let tags: string[] = [];
+          if (Array.isArray(metadata.tags)) {
+            tags = metadata.tags.map(tag => String(tag));
+          }
+          
+          return {
+            id: memory.id,
+            title: title,
+            content: content,
+            type: String(metadata.type || 'document'),
+            filePath: String(metadata.filePath || metadata.extractedFrom || ''),
+            importance: importance,
+            tags: tags,
+            lastModified: String(metadata.lastModified || memory.timestamp || new Date().toISOString())
+          };
+        });
+      
+      setMarkdownItems(markdownDocs);
+      console.log(`Found ${markdownDocs.length} markdown documents`);
+    } catch (error) {
+      console.error('Error loading markdown documents:', error);
+    } finally {
+      setIsLoadingMarkdown(false);
+    }
+  }, [getMemories]);
+
+  // Load markdown documents on tab selection
+  useEffect(() => {
+    if (activeTab === 'markdown') {
+      loadMarkdownDocuments();
+    }
+  }, [activeTab, loadMarkdownDocuments]);
+
+  // Filter markdown items based on current filter
+  const filteredMarkdownItems = useCallback(() => {
+    return markdownItems.filter(item => {
+      // Apply type filter
+      if (markdownFilter.type && item.type !== markdownFilter.type) {
+        return false;
+      }
+      
+      // Apply tag filter
+      if (markdownFilter.tags.length > 0) {
+        const hasAnyTag = markdownFilter.tags.some(tag => item.tags.includes(tag));
+        if (!hasAnyTag) return false;
+      }
+      
+      // Apply search query
+      if (markdownFilter.searchQuery) {
+        const query = markdownFilter.searchQuery.toLowerCase();
+        return (
+          item.title.toLowerCase().includes(query) || 
+          item.content.toLowerCase().includes(query) ||
+          item.filePath.toLowerCase().includes(query)
+        );
+      }
+      
+      return true;
+    });
+  }, [markdownItems, markdownFilter]);
+
   // Handle filter changes - do not call loadKnowledgeItems directly
   const handleFilterChange = (key: string, value: string) => {
     setFilter(prev => ({ ...prev, [key]: value }));
     // Set flag to refresh data instead of directly calling loadKnowledgeItems
     setShouldRefresh(true);
+  };
+
+  // Handle markdown filter changes
+  const handleMarkdownFilterChange = (key: string, value: any) => {
+    setMarkdownFilter(prev => ({ ...prev, [key]: value }));
   };
 
   // Handle tag selection changes
@@ -160,10 +377,11 @@ const KnowledgeTab: React.FC<KnowledgeTabProps> = () => {
         onValueChange={setActiveTab}
         className="mb-6"
       >
-        <TabsList className="grid grid-cols-3 mb-4">
+        <TabsList className="grid grid-cols-4 mb-4">
           <TabsTrigger value="flagged">Flagged Items</TabsTrigger>
           <TabsTrigger value="messages">Message Approval</TabsTrigger>
           <TabsTrigger value="tagged">By Tag</TabsTrigger>
+          <TabsTrigger value="markdown">Markdown Files</TabsTrigger>
         </TabsList>
         
         <TabsContent value="flagged">
@@ -247,6 +465,10 @@ const KnowledgeTab: React.FC<KnowledgeTabProps> = () => {
               />
             </div>
           </div>
+        </TabsContent>
+        
+        <TabsContent value="markdown">
+          <MarkdownKnowledgeTab />
         </TabsContent>
       </Tabs>
     </div>

@@ -177,7 +177,7 @@ const STOP_WORDS = new Set([
 ]);
 
 /**
- * Extract significant keywords from text to use as tags
+ * Extract keywords from text to use as tags
  * @param text Text to extract keywords from
  * @returns Array of keywords
  */
@@ -195,8 +195,46 @@ function extractKeywordsFromText(text: string): string[] {
     return word.length > 3 && !STOP_WORDS.has(word);
   });
   
-  // Return unique words
-  return Array.from(new Set(words));
+  // Return unique words, but with consistent formatting
+  return Array.from(new Set(words))
+    .map(word => normalizeTag(word));
+}
+
+/**
+ * Normalize a tag for consistent formatting
+ * @param tagText Tag text to normalize
+ * @returns Normalized tag
+ */
+function normalizeTag(tagText: string): string {
+  if (!tagText || typeof tagText !== 'string') return '';
+  
+  // Convert to lowercase and trim
+  let normalized = tagText.toLowerCase().trim();
+  
+  // Remove special characters (keep alphanumeric, spaces)
+  normalized = normalized.replace(/[^\w\s]/g, '');
+  
+  // Replace underscores with spaces for consistency
+  normalized = normalized.replace(/_+/g, ' ');
+  
+  // Replace multiple spaces with single space
+  normalized = normalized.replace(/\s+/g, ' ');
+  
+  // Truncate if too long (max 30 chars)
+  if (normalized.length > 30) {
+    // Try to truncate at a word boundary
+    const words = normalized.split(' ');
+    normalized = '';
+    for (const word of words) {
+      if ((normalized + ' ' + word).length <= 30) {
+        normalized += (normalized ? ' ' : '') + word;
+      } else {
+        break;
+      }
+    }
+  }
+  
+  return normalized;
 }
 
 // Fix for MAX_CHUNK_SIZE and split function
@@ -334,7 +372,7 @@ function getStandardTagsFromPath(filePath: string): string[] {
     const part = pathParts[i].toLowerCase();
     // Skip common parent directory names
     if (part !== 'docs' && part !== 'knowledge' && part !== 'src' && part.length > 2) {
-      tags.push(part);
+      tags.push(normalizeTag(part));
     }
   }
   
@@ -403,23 +441,57 @@ export async function processMarkdownFile(memoryManager: any, filePath: string):
     const title = extractTitle(content, filePath);
     const headings = extractHeadings(content);
     
-    // Extract tags from title and headings
+    // Extract tags using traditional methods
     const titleTags = extractKeywordsFromText(title);
     const headingTags = headings.flatMap(heading => extractKeywordsFromText(heading));
-    
-    // Also extract explicit hashtags from content
     const explicitTags = extractTags(content);
-    
-    // Get standard tags from path
     const standardTags = getStandardTagsFromPath(filePath);
     
-    // Combine all tags and ensure uniqueness
-    const allTags = Array.from(new Set([
+    // Combine all tags from traditional methods - already normalized by their respective functions
+    const traditionalTags = Array.from(new Set([
       ...titleTags,
       ...headingTags,
       ...explicitTags,
       ...standardTags
     ]));
+    
+    // Use the new OpenAI tag extractor for enhanced extraction
+    let enhancedTags: string[] = [];
+    
+    try {
+      const { extractTags } = await import('../../../utils/tagExtractor');
+      const { TagExtractorMiddleware } = await import('../core/tagExtractorMiddleware');
+      
+      // Create a temporary tag extractor just for this file
+      const tagExtractor = new TagExtractorMiddleware(memoryManager);
+      
+      // Process the markdown content with the extractor
+      enhancedTags = await tagExtractor.processMarkdownFile(content, traditionalTags);
+      
+      logger.debug(`Enhanced tag extraction for ${filePath} found ${enhancedTags.length} tags`);
+    } catch (tagError) {
+      logger.error(`Error using enhanced tag extraction for ${filePath}:`, tagError);
+      // Fall back to traditional tags if enhanced extraction fails
+      enhancedTags = traditionalTags;
+    }
+    
+    // Combine and normalize all tags to ensure consistency
+    // This handles cases where we might have both "open_ai" and "open ai" from different sources
+    const allTagsSet = new Set<string>();
+    
+    // Add traditional tags after normalization
+    traditionalTags.forEach(tag => allTagsSet.add(normalizeTag(tag)));
+    
+    // Add enhanced tags after normalization
+    enhancedTags.forEach(tag => allTagsSet.add(normalizeTag(tag)));
+    
+    // Convert to array and ensure reasonable tag count
+    const allTags = Array.from(allTagsSet);
+    
+    // Sort by length (shortest first) and limit to a reasonable number (max 25)
+    const finalTags = allTags
+      .sort((a, b) => a.length - b.length)
+      .slice(0, 25);
     
     // Log detailed tag extraction info for debugging
     logger.debug(`Tag extraction for ${filePath}:`, {
@@ -427,7 +499,9 @@ export async function processMarkdownFile(memoryManager: any, filePath: string):
       headingTags,
       explicitTags,
       standardTags,
-      combinedTags: allTags
+      traditionalTags,
+      enhancedTags,
+      finalTags
     });
     
     // Determine memory type based on file path
@@ -447,7 +521,7 @@ export async function processMarkdownFile(memoryManager: any, filePath: string):
       ImportanceLevel.CRITICAL,  // Always CRITICAL for markdown files
       ExtendedMemorySource.FILE,
       `Loaded from ${filePath}`,
-      allTags,
+      finalTags,
       {
         filePath,
         source: "markdown",
@@ -457,21 +531,22 @@ export async function processMarkdownFile(memoryManager: any, filePath: string):
         contentType: 'markdown',
         extractedFrom: filePath,
         lastModified: new Date().toISOString(),
-        headings: headings     // Store headings for better retrieval context
+        headings: headings,    // Store headings for better retrieval context
+        tagSource: 'enhanced-extraction' // Mark that we used the enhanced extractor
       }
     );
     
     // Update the file modification cache
     updateFileModCache(filePath, [result.id]);
     
-    logger.info(`Processed markdown file "${title}" with ${allTags.length} tags as ${memoryType}`);
+    logger.info(`Processed markdown file "${title}" with ${finalTags.length} tags as ${memoryType}`);
     
     return {
       success: true,
       memoryId: result.id,
       title,
       type: memoryType,
-      tags: allTags
+      tags: finalTags
     };
   } catch (error) {
     logger.error(`Error processing markdown file ${filePath}:`, error);
@@ -919,7 +994,7 @@ function extractTags(content: string): string[] {
         // Remove # prefix and add to set if at least 3 chars
         const cleanTag = tag.substring(1).toLowerCase();
         if (cleanTag.length >= 3) {
-          tags.add(cleanTag);
+          tags.add(normalizeTag(cleanTag));
         }
       }
     }
@@ -932,26 +1007,85 @@ function extractTags(content: string): string[] {
         // Remove heading markers and extract keywords
         const cleanHeading = heading.replace(/^#+\s+/, '').trim();
         
-        // Split heading into words
+        // Add the entire heading as a tag if it's a short phrase (up to 5 words)
         const words = cleanHeading.split(/\s+/);
-        
-        // Add individual words if 4+ chars (likely significant)
-        for (const word of words) {
-          const cleanWord = word.replace(/[^a-zA-Z0-9_]/g, '').toLowerCase();
-          if (cleanWord.length >= 4 && !isStopWord(cleanWord)) {
-            tags.add(cleanWord);
+        if (words.length <= 5) {
+          const phraseTag = normalizeTag(cleanHeading);
+          
+          if (phraseTag.length >= 3) {
+            tags.add(phraseTag);
           }
         }
         
-        // For multi-word headings (2-3 words), add the whole phrase as a tag
-        if (words.length >= 2 && words.length <= 3) {
-          const phraseTag = cleanHeading.toLowerCase()
-            .replace(/[^a-zA-Z0-9_\s]/g, '')  // Remove special chars except spaces
-            .replace(/\s+/g, '_');            // Replace spaces with underscores
-          
-          if (phraseTag.length >= 5) {
-            tags.add(phraseTag);
+        // Also add individual important words if they're meaningful
+        for (const word of words) {
+          const cleanWord = word.replace(/[^a-zA-Z0-9_]/g, '').toLowerCase();
+          if (cleanWord.length >= 3 && !isStopWord(cleanWord)) {
+            tags.add(normalizeTag(cleanWord));
           }
+        }
+      }
+    }
+    
+    // Extract important key terms from content - look for capitalized phrases
+    // This catches terms like "Marketing KPIs", "Customer Acquisition Cost", etc.
+    const importantTerms = content.match(/\b([A-Z][a-z]+\s?){1,5}\b/g);
+    if (importantTerms) {
+      for (const term of importantTerms) {
+        if (term.length >= 5) {
+          const termTag = normalizeTag(term);
+          tags.add(termTag);
+          
+          // If it contains multiple words, also add the individual words
+          const termWords = term.split(/\s+/);
+          if (termWords.length > 1) {
+            for (const word of termWords) {
+              const cleanWord = word.replace(/[^a-zA-Z0-9_]/g, '').toLowerCase();
+              if (cleanWord.length >= 3 && !isStopWord(cleanWord)) {
+                tags.add(normalizeTag(cleanWord));
+              }
+            }
+          }
+        }
+      }
+    }
+    
+    // Extract terms from list items - often contain important concepts
+    const listItems = content.match(/^[-*]\s+(.+)$/gm);
+    if (listItems) {
+      for (const item of listItems) {
+        // Remove list marker
+        const cleanItem = item.replace(/^[-*]\s+/, '').trim();
+        
+        // If it's a short phrase (up to 5 words), add as tag
+        const itemWords = cleanItem.split(/\s+/);
+        if (itemWords.length <= 5 && cleanItem.length >= 5) {
+          const itemTag = normalizeTag(cleanItem);
+          tags.add(itemTag);
+        }
+        
+        // Also check for technical terms and metrics in list items
+        const techTermMatch = cleanItem.match(/^([A-Z][a-zA-Z0-9]*|[A-Z]{2,})(\s+\([^)]+\))?:/);
+        if (techTermMatch) {
+          const techTerm = techTermMatch[1].toLowerCase();
+          tags.add(normalizeTag(techTerm));
+        }
+      }
+    }
+    
+    // Look for common technical terms and metrics
+    const metricPatterns = [
+      /\b(KPIs?|metrics?|analytics)\b/i,
+      /\b([A-Z]{2,})\b/, // Acronyms like MAU, CAC, ROI, etc.
+      /\b(conversion rate|retention|acquisition cost|lifetime value|churn|growth rate)\b/i
+    ];
+    
+    for (const pattern of metricPatterns) {
+      const matches = content.match(pattern);
+      if (matches) {
+        for (const match of matches) {
+          const tag = normalizeTag(match);
+          tags.add(tag);
         }
       }
     }
@@ -973,7 +1107,10 @@ function isStopWord(word: string): boolean {
     'the', 'and', 'for', 'with', 'this', 'that', 'from', 'have', 'has',
     'should', 'would', 'could', 'about', 'then', 'than', 'what', 'when',
     'where', 'which', 'their', 'they', 'them', 'these', 'those', 'some',
-    'will', 'been', 'were', 'because'
+    'will', 'been', 'were', 'because', 'been', 'being', 'our', 'your',
+    'his', 'her', 'its', 'are', 'was', 'who', 'whom', 'whose', 'how',
+    'why', 'use', 'used', 'using', 'each', 'both', 'all', 'other', 'another',
+    'etc', 'only', 'very', 'just', 'get', 'got', 'getting', 'now', 'new'
   ];
   return stopWords.includes(word.toLowerCase());
 }

@@ -28,7 +28,7 @@ import {
 } from '../../constants/memory';
 import { RerankerService } from './services/reranker';
 // Import PII redaction functionality
-import { redactSensitiveData, RedactionResult } from '../../lib/pii/redactor';
+import { redactSensitiveData, RedactionResult, PIIType } from '../../lib/pii/redactor';
 
 // Define pattern for detecting brand information
 const BRAND_PATTERN = /\b(brand|company|organization)\s+(mission|vision|values|identity|info|information)\b/i;
@@ -148,8 +148,10 @@ export class ChloeMemory {
       await this.initialize();
     }
     
-    // Apply PII redaction before processing
-    const redactionResult = await redactSensitiveData(content);
+    // Apply PII redaction before processing, excluding NAME type
+    // Get all PIITypes except for NAME
+    const typesToRedact = Object.values(PIIType).filter(type => type !== PIIType.NAME) as PIIType[];
+    const redactionResult = await redactSensitiveData(content, { types: typesToRedact });
     
     // Use the redacted content for storage
     let contentToStore = redactionResult.piiDetected ? redactionResult.redactedContent : content;

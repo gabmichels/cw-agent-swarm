@@ -108,34 +108,65 @@ export class SearchService {
       }
       
       const results: SearchResult<T>[] = [];
+      const missingCollections: string[] = [];
       
       // Search each collection
       for (const collectionName of validCollections) {
         if (!collectionName) continue;
         
-        const collectionResults = await this.client.searchPoints<T>(collectionName, {
-          vector,
-          limit,
-          filter: filter ? this.buildQdrantFilter(filter) : undefined
-        });
-        
-        // Add type and collection info to results
-        const type = this.getTypeFromCollectionName(collectionName);
-        
-        if (collectionResults.length > 0 && type) {
-          const mappedResults = collectionResults.map(result => ({
-            point: {
-              id: result.id,
-              vector: [],
-              payload: result.payload
-            } as MemoryPoint<T>,
-            score: result.score,
-            type: type as MemoryType,
-            collection: collectionName
-          }));
+        try {
+          // Check if collection exists before searching
+          const collectionExists = await this.client.collectionExists(collectionName);
           
-          results.push(...mappedResults);
+          if (!collectionExists) {
+            missingCollections.push(collectionName);
+            console.warn(`Collection ${collectionName} does not exist, skipping search`);
+            continue;
+          }
+          
+          const collectionResults = await this.client.searchPoints<T>(collectionName, {
+            vector,
+            limit,
+            filter: filter ? this.buildQdrantFilter(filter) : undefined
+          });
+          
+          // Add type and collection info to results
+          const type = this.getTypeFromCollectionName(collectionName);
+          
+          if (collectionResults.length > 0 && type) {
+            const mappedResults = collectionResults.map(result => ({
+              point: {
+                id: result.id,
+                vector: [],
+                payload: result.payload
+              } as MemoryPoint<T>,
+              score: result.score,
+              type: type as MemoryType,
+              collection: collectionName
+            }));
+            
+            results.push(...mappedResults);
+          }
+        } catch (error) {
+          // Log error but continue with other collections
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          const isNotFoundError = errorMessage.includes('not found') || 
+                                 errorMessage.includes('404') || 
+                                 errorMessage.includes('does not exist');
+          
+          if (isNotFoundError) {
+            missingCollections.push(collectionName);
+            console.warn(`Collection ${collectionName} not found or inaccessible, skipping search`);
+          } else {
+            console.error(`Error searching collection ${collectionName}:`, error);
+          }
+          continue;
         }
+      }
+      
+      // If there were missing collections, log a warning but don't fail the search
+      if (missingCollections.length > 0) {
+        console.warn(`Skipped ${missingCollections.length} missing collections during search: ${missingCollections.join(', ')}`);
       }
       
       // Sort by score descending

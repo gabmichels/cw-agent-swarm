@@ -1,7 +1,7 @@
 # Chloe - Brand Context
 
 ## Brand Identity
-Claro is about **confidence, ease, and real human connection**. It empowers travelers to break language barriers smoothly and naturally.
+Claro AI is about **confidence, ease, and real human connection**. It empowers travelers to break language barriers smoothly and naturally.
 
 Core Feelings to Evoke:
 - Confidence
@@ -22,7 +22,7 @@ Visual Style:
 - Friendly typography (Poppins and Alice fonts)
 
 Brand Positioning:
-- Claro is the easiest and most natural way to have conversations abroad.
+- Claro AI is the easiest and most natural way to have conversations abroad.
 - It’s not just a translator — it’s a bridge between cultures.
 
 What We Are NOT:

@@ -372,6 +372,20 @@ export class ChloeAgent implements IAgent {
       if (!chloeMemory) {
         throw new Error('ChloeMemory not available');
       }
+
+      // NEW: Create a Tag Extractor middleware instance
+      const { TagExtractorMiddleware } = await import('./tagExtractorMiddleware');
+      const tagExtractor = new TagExtractorMiddleware(memoryManager, {
+        taskLogger: this.taskLogger
+      });
+      
+      // Extract tags from the user message
+      const extractedTags = await tagExtractor.processUserMessage(message);
+      const tagTexts = extractedTags.map(tag => tag.text);
+      taskLogger.logAction('Extracted tags from user message', { 
+        tagCount: tagTexts.length,
+        tags: tagTexts
+      });
       
       // NEW: Check if this message is part of an ongoing conversation thread
       const threadAnalysis = await chloeMemory.identifyConversationThread(message);
@@ -406,22 +420,29 @@ export class ChloeAgent implements IAgent {
       } 
       // Otherwise use the dynamic content-based importance determination
       else {
-        const msgTags = (options as any)?.tags || [];
+        // Use extracted tags instead of options.tags
         messageImportance = chloeMemory.determineMemoryImportance(message, {
           category: 'message',
-          tags: msgTags
+          tags: tagTexts
         });
       }
       
-      // Store the user message in memory with the determined importance
-      await memoryManager.addMemory(
+      // Store the user message in memory with the determined importance and extracted tags
+      const userMemoryResult = await memoryManager.addMemory(
         `USER MESSAGE [${new Date().toISOString()}]: ${message}`,
         MemoryType.MESSAGE,
         messageImportance,
         MemorySource.USER,
         `From user: ${options.userId}`,
-        threadAnalysis.isPartOfThread ? ['thread:' + threadAnalysis.threadId, ...(threadAnalysis.threadTopic?.split(',') || [])] : undefined
+        threadAnalysis.isPartOfThread 
+          ? ['thread:' + threadAnalysis.threadId, ...(threadAnalysis.threadTopic?.split(',') || []), ...tagTexts] 
+          : tagTexts // Use extracted tags
       );
+      
+      // Process the user message to extract and update tags if needed
+      if (userMemoryResult && userMemoryResult.id) {
+        await tagExtractor.processMemoryItem(userMemoryResult.id, message, tagTexts);
+      }
       
       // STEP 1: Generate initial thought about what the message is asking
       const initialThought = await this.generateThought(message);
@@ -432,8 +453,8 @@ export class ChloeAgent implements IAgent {
       
       // Store the thought in memory with link to original message and thread info if applicable
       const thoughtTags = threadAnalysis.isPartOfThread 
-        ? ['message_understanding', 'thread:' + threadAnalysis.threadId] 
-        : ['message_understanding'];
+        ? ['message_understanding', 'thread:' + threadAnalysis.threadId, ...tagTexts] 
+        : ['message_understanding', ...tagTexts];
       
       // Use at least medium importance for thoughts in thread context
       const thoughtImportance = threadAnalysis.isPartOfThread && String(threadAnalysis.threadImportance) === ImportanceLevel.HIGH
@@ -460,8 +481,8 @@ export class ChloeAgent implements IAgent {
         
         // Store the reflection in memory with thread connection if applicable
         const reflectionTags = threadAnalysis.isPartOfThread 
-          ? ['strategic_reflection', 'thread:' + threadAnalysis.threadId] 
-          : ['strategic_reflection'];
+          ? ['strategic_reflection', 'thread:' + threadAnalysis.threadId, ...tagTexts] 
+          : ['strategic_reflection', ...tagTexts];
         
         // Add reflection to memory - note: only pass 3 args as expected by the method signature
         await thoughtManager.logThought(
@@ -577,6 +598,11 @@ Please continue with the next section whenever you're ready, and I'll maintain t
         ? threadAnalysis.threadTopic?.split(',').map(tag => tag.trim()) 
         : undefined;
       
+      // Also include extracted tags in the contextTags
+      const enhancedContextTags = contextTags 
+        ? [...contextTags, ...tagTexts]
+        : tagTexts;
+      
       // Get memories with all the options we've configured
       const memories = await chloeMemory.getBestMemories(
         message,  // The query
@@ -681,14 +707,23 @@ Please continue with the next section whenever you're ready, and I'll maintain t
       
       // Store the response in memory with standardized format
       // "MESSAGE [timestamp]: content"
-      await memoryManager.addMemory(
+      const responseMemoryResult = await memoryManager.addMemory(
         `MESSAGE [${new Date().toISOString()}]: ${responseText}`,
         MemoryType.MESSAGE,
         ImportanceLevel.MEDIUM,
         MemorySource.AGENT,
-        `Response to: ${message.substring(0, 50)}...`
+        `Response to: ${message.substring(0, 50)}...`,
+        tagTexts // Include the same tags from the user message for now
       );
-      
+
+      // Process the agent response to extract and update tags
+      if (responseMemoryResult && responseMemoryResult.id) {
+        await tagExtractor.processAgentResponse(responseText, responseMemoryResult.id, tagTexts);
+      }
+
+      // Apply any pending memory tag updates
+      await tagExtractor.applyMemoryUpdates();
+
       // Add ReAct pattern implementation before finalizing the response
       const finalResponse = await this.applyReActPattern(responseText);
       

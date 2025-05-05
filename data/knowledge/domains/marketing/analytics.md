@@ -1,4 +1,4 @@
-# Marketing KPIs
+# Claro AI - Marketing KPIs
 
 Key Metrics:
 - MAU (Monthly Active Users) Growth

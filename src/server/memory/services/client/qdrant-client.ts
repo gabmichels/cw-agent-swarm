@@ -402,6 +402,18 @@ export class QdrantMemoryClient implements IMemoryClient {
       await this.initialize();
     }
     
+    // Check if the collection exists first
+    try {
+      const collectionExists = await this.collectionExists(collectionName);
+      if (!collectionExists) {
+        console.warn(`Collection ${collectionName} does not exist. Returning empty results.`);
+        return [];
+      }
+    } catch (checkError) {
+      console.warn(`Error checking if collection ${collectionName} exists:`, checkError);
+      // Continue with the search attempt, as the collection might still be accessible
+    }
+    
     // Handle empty query for scrolling
     if (!query.query && !query.vector) {
       const points = await this.scrollPoints<T>(
@@ -465,6 +477,18 @@ export class QdrantMemoryClient implements IMemoryClient {
         payload: result.payload as T
       }));
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      
+      // Check if this is a "collection not found" error
+      if (
+        errorMessage.includes('not found') || 
+        errorMessage.includes('404') || 
+        errorMessage.includes('does not exist')
+      ) {
+        console.warn(`Collection ${collectionName} not found during search. Returning empty results.`);
+        return [];
+      }
+      
       console.error(`Error searching in ${collectionName}:`, error);
       
       // Fallback to in-memory search
@@ -493,6 +517,18 @@ export class QdrantMemoryClient implements IMemoryClient {
   ): Promise<MemoryPoint<T>[]> {
     if (!this.initialized) {
       await this.initialize();
+    }
+    
+    // Check if the collection exists first
+    try {
+      const collectionExists = await this.collectionExists(collectionName);
+      if (!collectionExists) {
+        console.warn(`Collection ${collectionName} does not exist. Returning empty results for scroll operation.`);
+        return [];
+      }
+    } catch (checkError) {
+      console.warn(`Error checking if collection ${collectionName} exists:`, checkError);
+      // Continue with the scroll attempt, as the collection might still be accessible
     }
     
     // Use fallback storage if Qdrant is not available
@@ -553,6 +589,18 @@ export class QdrantMemoryClient implements IMemoryClient {
         };
       });
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      
+      // Check if this is a "collection not found" error
+      if (
+        errorMessage.includes('not found') || 
+        errorMessage.includes('404') || 
+        errorMessage.includes('does not exist')
+      ) {
+        console.warn(`Collection ${collectionName} not found during scroll. Returning empty results.`);
+        return [];
+      }
+      
       console.error(`Error scrolling in ${collectionName}:`, error);
       
       // Fallback to in-memory storage

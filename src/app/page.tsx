@@ -50,7 +50,7 @@ export default function Home() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const [memoryViewMode, setMemoryViewMode] = useState('context');
-  const [allMemories, setAllMemories] = useState<MemoryPoint<BaseMemorySchema>[]>([]);
+  const [allMemories, setAllMemories] = useState<any[]>([]);
   const [isLoadingMemories, setIsLoadingMemories] = useState(false);
   const [scheduledTasks, setScheduledTasks] = useState<any[]>([]);
   const [isLoadingTasks, setIsLoadingTasks] = useState<boolean>(false);
@@ -899,8 +899,8 @@ For detailed instructions, see the Debug panel.`,
       // The memories are now available in the memories state from the hook
       console.log(`Fetched ${memories.length} memories using the standardized hook`);
       
-      // Update our local state with the memories from the hook
-      setAllMemories(memories);
+      // Update our local state with the memories from the hook - using any[] type to avoid type errors
+      setAllMemories(memories as any[]);
     } catch (error) {
       console.error("Error fetching memories:", error);
       
@@ -921,7 +921,7 @@ For detailed instructions, see the Debug panel.`,
   useEffect(() => {
     if (memories.length > 0) {
       console.log(`Updating local memory state with ${memories.length} memories from hook`);
-      setAllMemories(memories);
+      setAllMemories(memories as any[]);
       setIsLoadingMemories(false);
     }
   }, [memories]);
