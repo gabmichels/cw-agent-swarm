@@ -190,7 +190,7 @@ export class ChloeAgent implements IAgent {
       // Initialize markdown memory loader
       try {
         console.log('Initializing markdown memory loader...');
-        await initializeMarkdownMemory({ force: false });
+        await initializeMarkdownMemory({ force: false, agentId: this.agentId, department: 'marketing' });
         console.log('Markdown memory loader initialized');
       } catch (error) {
         console.warn('Failed to initialize markdown memory loader:', error);

@@ -8,6 +8,7 @@
 
 import { loadAllMarkdownAsMemory } from '../knowledge/markdownMemoryLoader';
 import { logger } from '../../../lib/logging';
+import { AGENT_CONFIGS } from '../types/agent';
 
 // Track whether initialization has already occurred to prevent multiple loads 
 let initializationComplete = false;
@@ -22,6 +23,8 @@ let initializationComplete = false;
 export async function initializeMarkdownMemory(options: {
   force?: boolean; // Whether to force reload all files, ignoring the loaded list
   directories?: string[]; // Custom directories to load from
+  agentId?: string; // Agent ID to load markdown for
+  department?: string; // Department the agent is associated with
 } = {}): Promise<void> {
   try {
     // Skip if already initialized in this process and not forced
@@ -32,12 +35,27 @@ export async function initializeMarkdownMemory(options: {
 
     logger.info('Starting automatic markdown memory loader initialization...');
     
+    // Get agent ID from options or determine from module path
+    const agentId = options.agentId || getAgentIdFromPath();
+    
+    // Get agent config based on ID
+    const agentConfig = AGENT_CONFIGS[agentId];
+    
+    // Get department directly - either from options, agent config, or default
+    const department = options.department || 
+                      (agentConfig && agentConfig.departments && agentConfig.departments.length > 0 ? 
+                      agentConfig.departments[0] : 'marketing');
+    
     // Set up directories to search - these contain the most important documentation
-    const directoriesToLoad = options.directories || ['docs/', 'knowledge/'];
+    const directoriesToLoad = options.directories || [
+      'data/knowledge/company', 
+      `data/knowledge/agents/${agentId}`,
+      `data/knowledge/domains/${department}`
+    ];
     
     // Load all markdown files into memory
     // Apply duplication checking by default
-    logger.info('Loading markdown documentation into memory with caching enabled...');
+    logger.info(`Loading markdown documentation for agent ${agentId} (department: ${department}) into memory with caching enabled...`);
     
     const stats = await loadAllMarkdownAsMemory(directoriesToLoad, {
       force: options.force || false,
@@ -59,13 +77,27 @@ export async function initializeMarkdownMemory(options: {
 /**
  * Force reload all markdown files, ignoring duplication checks
  */
-export async function forceReloadMarkdownFiles(): Promise<void> {
+export async function forceReloadMarkdownFiles(agentId?: string, department?: string): Promise<void> {
   try {
     logger.info('Forcing reload of all markdown files...');
-    await initializeMarkdownMemory({ force: true });
+    await initializeMarkdownMemory({ force: true, agentId, department });
     logger.info('Forced markdown reload complete');
   } catch (error) {
     logger.error('Error during forced markdown reload:', error);
+  }
+}
+
+/**
+ * Helper function to determine agent ID from the current module path
+ */
+function getAgentIdFromPath(): string {
+  // Default to 'chloe' if we can't determine from path
+  try {
+    const modulePath = __dirname;
+    const match = modulePath.match(/[\/\\]agents[\/\\]([^\/\\]+)[\/\\]/);
+    return match ? match[1] : 'chloe';
+  } catch {
+    return 'chloe';
   }
 }
 
