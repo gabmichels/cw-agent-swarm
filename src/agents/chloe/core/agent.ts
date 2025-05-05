@@ -428,23 +428,6 @@ export class ChloeAgent implements IAgent {
         });
       }
       
-      // Store the user message in memory with the determined importance and extracted tags
-      const userMemoryResult = await memoryManager.addMemory(
-        `USER MESSAGE [${new Date().toISOString()}]: ${message}`,
-        MemoryType.MESSAGE,
-        messageImportance,
-        MemorySource.USER,
-        `From user: ${options.userId}`,
-        threadAnalysis.isPartOfThread 
-          ? ['thread:' + threadAnalysis.threadId, ...(threadAnalysis.threadTopic?.split(',') || []), ...tagTexts] 
-          : tagTexts // Use extracted tags
-      );
-      
-      // Process the user message to extract and update tags if needed
-      if (userMemoryResult && userMemoryResult.id) {
-        await tagExtractor.processMemoryItem(userMemoryResult.id, message, tagTexts);
-      }
-      
       // STEP 1: Generate initial thought about what the message is asking
       const initialThought = await this.generateThought(message);
       taskLogger.logAction('Generated initial thought', { 
@@ -706,20 +689,48 @@ Please continue with the next section whenever you're ready, and I'll maintain t
         'reasoning_trace'
       );
       
-      // Store the response in memory with standardized format
-      // "MESSAGE [timestamp]: content"
-      const responseMemoryResult = await memoryManager.addMemory(
-        `MESSAGE [${new Date().toISOString()}]: ${responseText}`,
-        MemoryType.MESSAGE,
-        ImportanceLevel.MEDIUM,
-        MemorySource.AGENT,
-        `Response to: ${message.substring(0, 50)}...`,
-        tagTexts // Include the same tags from the user message for now
-      );
-
-      // Process the agent response to extract and update tags
-      if (responseMemoryResult && responseMemoryResult.id) {
-        await tagExtractor.processAgentResponse(responseText, responseMemoryResult.id, tagTexts);
+      try {
+        // Store the user message in memory with the determined importance and extracted tags
+        // Don't add the message prefix here - let the ChloeMemory handle formatting to avoid duplication
+        const userMemoryResult = await memoryManager.addMemory(
+          message, // Store the raw message without prefix
+          MemoryType.MESSAGE,
+          messageImportance,
+          MemorySource.USER,
+          'user_message', // Category that clarifies this is from user
+          threadAnalysis.isPartOfThread 
+            ? ['thread:' + threadAnalysis.threadId, ...(threadAnalysis.threadTopic?.split(',') || []), ...tagTexts] 
+            : tagTexts // Use extracted tags
+        );
+        
+        // Process the user message to extract and update tags if needed
+        if (userMemoryResult && userMemoryResult.id) {
+          await tagExtractor.processMemoryItem(userMemoryResult.id, message, tagTexts);
+        }
+        
+        // Store the response in memory
+        // Let the ChloeMemory handle formatting to avoid duplication
+        const responseMemoryResult = await memoryManager.addMemory(
+          responseText, // Store the raw message without prefix
+          MemoryType.MESSAGE,
+          threadAnalysis.threadImportance || ImportanceLevel.MEDIUM,
+          MemorySource.AGENT,
+          'agent_response', // Category that clarifies this is agent's response
+          tagTexts, // Include the same tags from the user message
+          {
+            messageId,
+            threadId: threadAnalysis.threadId || undefined,
+            isPartOfThread: threadAnalysis.isPartOfThread,
+            inResponseTo: message.substring(0, 100)
+          }
+        );
+        
+        // Process the response to extract and update tags
+        if (responseMemoryResult && responseMemoryResult.id) {
+          await tagExtractor.processMemoryItem(responseMemoryResult.id, responseText, tagTexts);
+        }
+      } catch (error) {
+        taskLogger.logAction('Error storing messages in memory', { error: String(error) });
       }
 
       // Apply any pending memory tag updates

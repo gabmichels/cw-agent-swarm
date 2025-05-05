@@ -12,6 +12,38 @@ import { MessageType } from '../constants/message';
  * @returns boolean indicating if the message should be displayed
  */
 export function isMessageVisibleInChat(message: Message): boolean {
+  // Check if we have explicit metadata about visibility
+  if (message.metadata) {
+    // Prioritize isForChat when available - it's the most direct signal
+    if (message.metadata.isForChat === true) {
+      return true;
+    }
+    
+    if (message.metadata.isForChat === false) {
+      return false;
+    }
+    
+    // Check for isInternal flag
+    if (message.metadata.isInternal === true) {
+      return false;
+    }
+    
+    // Handle nested metadata structure
+    if (message.metadata.metadata) {
+      if (message.metadata.metadata.isForChat === true) {
+        return true;
+      }
+      
+      if (message.metadata.metadata.isForChat === false) {
+        return false;
+      }
+      
+      if (message.metadata.metadata.isInternal === true) {
+        return false;
+      }
+    }
+  }
+  
   // If message has explicit internal flag, respect that
   if (message.isInternalMessage === true) {
     return false;
@@ -63,6 +95,29 @@ export function isInternalMessage(message: Message): boolean {
   // Check explicit flag first
   if (message.isInternalMessage === true) {
     return true;
+  }
+  
+  // Check for new metadata properties (added for compatibility with proxy.ts changes)
+  if (message.metadata) {
+    // New format: Check metadata.isInternal flag
+    if (message.metadata.isInternal === true) {
+      return true;
+    }
+    
+    // New format: Check metadata.isForChat flag (inverse logic)
+    if (message.metadata.isForChat === false) {
+      return true;
+    }
+
+    // Check for nested metadata.metadata structure
+    if (message.metadata.metadata) {
+      if (message.metadata.metadata.isInternal === true) {
+        return true;
+      }
+      if (message.metadata.metadata.isForChat === false) {
+        return true;
+      }
+    }
   }
   
   // Check message type

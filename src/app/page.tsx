@@ -1419,110 +1419,285 @@ For detailed instructions, see the Debug panel.`,
     // Define the function inside to have access to state
     async function loadInitialChat() {
       setIsLoading(true);
+      
       try {
-        console.log("Loading chat history from server...");
-        const response = await fetch('/api/chat?userId=gab');
+        console.log(`Loading initial chat for ${selectedAgent}`);
         
-        if (!response.ok) {
-          throw new Error(`Failed to load chat history: ${response.status}`);
-        }
-        
-        const data = await response.json();
-        console.log("Received chat history data:", data);
-        
-        // Load attachments from local storage - now async
-        const savedAttachmentMessages = await loadAttachmentsFromLocalStorage();
-        console.log(`Loaded ${savedAttachmentMessages.length} messages with attachments from localStorage`);
-        
-        // Track vision response messages separately
-        const visionResponses = savedAttachmentMessages.filter(msg => 
-          msg.sender === selectedAgent && 
-          msg.attachments === undefined &&
-          msg.visionResponseFor !== undefined
-        );
-        
-        if (visionResponses.length > 0) {
-          console.log(`Found ${visionResponses.length} vision response messages in localStorage`);
-        }
-        
-        // Create a map of user messages with attachments by timestamp (as string)
-        const userAttachmentMap = new Map();
-        savedAttachmentMessages.forEach(msg => {
-          if (msg.sender === 'You' && msg.attachments && msg.attachments.length > 0) {
-            const key = msg.timestamp.toISOString();
-            userAttachmentMap.set(key, msg);
-          }
-        });
-        
-        // Create a map of vision responses by their reference timestamp
-        const visionResponseMap = new Map();
-        visionResponses.forEach(msg => {
-          if (msg.visionResponseFor) {
-            visionResponseMap.set(msg.visionResponseFor, msg);
-          }
-        });
-        
-        if (data.history && data.history.length > 0) {
-          console.log("Raw history from server:", JSON.stringify(data.history).substring(0, 200) + "...");
+        // Try to load messages directly from the memory system
+        let memoryMessages = [];
+        try {
+          console.log("Fetching messages from memory system...");
           
-          // Convert server messages to our client format
-          const formattedMessages = data.history.map((msg: any) => {
-            return {
-              sender: msg.role === 'user' ? 'You' : selectedAgent,
-              content: msg.content,
-              timestamp: new Date(msg.timestamp),
-              memory: msg.memory || [],
-              thoughts: msg.thoughts || [],
-              attachments: undefined
-            };
+          // Instead of using the search endpoint with an empty query (which is rejected),
+          // use the general memory endpoint which doesn't require a search query
+          const memoryResponse = await fetch('/api/memory', {
+            method: 'GET',
+            headers: {
+              'Accept': 'application/json',
+            }
           });
           
-          // Now let's add saved messages with attachments and their responses
-          savedAttachmentMessages.forEach(savedMsg => {
-            if (savedMsg.sender === 'You' && savedMsg.attachments && savedMsg.attachments.length > 0) {
-              // Check if this message is already in our formatted messages (match by timestamp)
-              const matchingIndex = formattedMessages.findIndex((m: Message) => 
-                m.sender === 'You' && 
-                Math.abs(new Date(m.timestamp).getTime() - new Date(savedMsg.timestamp).getTime()) < 5000 &&
-                m.content === savedMsg.content
-              );
+          if (memoryResponse.ok) {
+            const data = await memoryResponse.json();
+            if (data.memories && Array.isArray(data.memories)) {
+              // Filter for message type memories
+              memoryMessages = data.memories
+                .filter((item: any) => {
+                  const point = item.point || item;
+                  return point.type === 'message' || 
+                         (point.payload && point.payload.type === 'message');
+                })
+                .map((item: any) => item.point || item);
               
-              if (matchingIndex >= 0) {
-                // Add attachments to the existing message
-                formattedMessages[matchingIndex].attachments = savedMsg.attachments;
-                console.log(`Added attachments to existing message at index ${matchingIndex}`);
+              console.log(`Found ${memoryMessages.length} messages in memory system`);
+            }
+          } else {
+            const errorText = await memoryResponse.text();
+            console.error("Failed to fetch from memory system:", memoryResponse.statusText, errorText);
+            
+            // If this fails, try the direct chat history endpoint immediately
+            console.log("Falling back to chat history API after memory fetch failed");
+            const chatResponse = await fetch('/api/chat/history');
+            if (chatResponse.ok) {
+              const historyData = await chatResponse.json();
+              console.log("Chat history API response:", historyData);
+              
+              if (historyData?.history?.length > 0) {
+                console.log(`Retrieved ${historyData.history.length} messages from chat history API`);
+                // Use the history data directly
+                memoryMessages = historyData.history;
               } else {
-                // This is a new message with attachments, add it
-                formattedMessages.push(savedMsg);
-                console.log(`Added new message with attachments: "${savedMsg.content.substring(0, 20)}..."`);
+                console.warn("Chat history API returned no messages");
+              }
+            }
+          }
+        } catch (memoryError) {
+          console.error("Error fetching from memory system:", memoryError);
+        }
+        
+        // Use memory messages if available, otherwise fall back to chat history API
+        let chatResponse;
+        let historyData = null;
+        if (memoryMessages.length > 0) {
+          console.log("Using messages from memory system");
+        } else {
+          // Fall back to chat history API
+          console.log("Falling back to chat history API");
+          try {
+            chatResponse = await fetch('/api/chat/history');
+            if (chatResponse.ok) {
+              historyData = await chatResponse.json();
+              console.log("Chat history API response:", historyData);
+              
+              if (historyData?.history?.length > 0) {
+                console.log(`Retrieved ${historyData.history.length} messages from chat history API`);
+                // Use the history data directly
+                memoryMessages = historyData.history;
+              } else {
+                console.warn("Chat history API returned no messages");
+              }
+            } else {
+              console.error(`Failed to fetch chat history: ${chatResponse.statusText}`);
+            }
+          } catch (historyError) {
+            console.error("Error fetching from chat history API:", historyError);
+          }
+        }
+        
+        // Prepare image tracking map for vision responses
+        const visionResponseMap = new Map();
+        
+        // Process and format messages
+        let formattedMessages: Message[] = [];
+        
+        if (memoryMessages.length > 0) {
+          // Process memory format messages
+          formattedMessages = memoryMessages.map((memory: any) => {
+            try {
+              // Check if this is already in the right format (from chat history API)
+              if (memory.sender && memory.content) {
+                // Convert timestamp to Date object if it's a string or null
+                let timestamp;
+                try {
+                  if (memory.timestamp) {
+                    if (memory.timestamp instanceof Date) {
+                      timestamp = memory.timestamp;
+                    } else if (typeof memory.timestamp === 'string') {
+                      // Check if it's a numeric string (milliseconds since epoch)
+                      if (/^\d+$/.test(memory.timestamp)) {
+                        timestamp = new Date(parseInt(memory.timestamp, 10));
+                      } else {
+                        timestamp = new Date(memory.timestamp);
+                      }
+                    } else if (typeof memory.timestamp === 'number') {
+                      timestamp = new Date(memory.timestamp);
+                    } else {
+                      timestamp = new Date();
+                    }
+                    
+                    // Validate that it's a valid date
+                    if (isNaN(timestamp.getTime())) {
+                      console.warn(`Invalid timestamp detected: ${memory.timestamp}, using current date`);
+                      timestamp = new Date();
+                    }
+                  } else {
+                    timestamp = new Date();
+                  }
+                } catch (dateError) {
+                  console.error("Error parsing date:", dateError, memory.timestamp);
+                  timestamp = new Date();
+                }
+                
+                return {
+                  id: memory.id || `msg-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+                  sender: memory.sender,
+                  content: memory.content,
+                  timestamp: timestamp,
+                  messageType: memory.sender === 'You' ? MessageType.USER : MessageType.AGENT,
+                  attachments: memory.attachments || [],
+                  metadata: memory.metadata || {}
+                };
               }
               
-              // Find corresponding vision response
-              const visionResponse = visionResponseMap.get(savedMsg.timestamp.toISOString());
-              if (visionResponse) {
-                // Check if we already have this response
-                const hasResponse = formattedMessages.some((m: Message) => 
-                  m.sender === selectedAgent && 
-                  m.content === visionResponse.content &&
-                  Math.abs(new Date(m.timestamp).getTime() - new Date(visionResponse.timestamp).getTime()) < 10000
-                );
+              // For consistency with our UI, extract data from memory structure
+              const payload = memory.payload || {};
+              const metadata = payload.metadata || {};
+              const role = metadata.role || 'unknown';
+              
+              // Determine timestamp 
+              let timestamp;
+              try {
+                if (payload.timestamp) {
+                  // Check if it's a numeric string (milliseconds since epoch)
+                  if (typeof payload.timestamp === 'string' && /^\d+$/.test(payload.timestamp)) {
+                    timestamp = new Date(parseInt(payload.timestamp, 10));
+                  } else {
+                    timestamp = new Date(payload.timestamp);
+                  }
+                } else if (memory.timestamp) {
+                  // Check if it's a numeric string (milliseconds since epoch)
+                  if (typeof memory.timestamp === 'string' && /^\d+$/.test(memory.timestamp)) {
+                    timestamp = new Date(parseInt(memory.timestamp, 10));
+                  } else {
+                    timestamp = new Date(memory.timestamp);
+                  }
+                } else {
+                  timestamp = new Date();
+                }
                 
-                if (!hasResponse) {
-                  // Create proper vision response message with correct reference
-                  const responseMsg: Message = {
-                    ...visionResponse,
-                    // Ensure timestamp is a Date object
-                    timestamp: new Date(visionResponse.timestamp),
-                    // Store reference to the originating message
-                    visionResponseFor: savedMsg.timestamp.toISOString()
-                  };
+                // Validate the timestamp
+                if (isNaN(timestamp.getTime())) {
+                  console.warn(`Invalid timestamp detected in memory: ${payload.timestamp || memory.timestamp}, using current date`);
+                  timestamp = new Date();
+                }
+              } catch (dateError) {
+                console.error("Error parsing memory date:", dateError, payload.timestamp || memory.timestamp);
+                timestamp = new Date();
+              }
+              
+              // Debug timestamp conversion
+              console.log(`Message ID ${memory.id}: Timestamp raw=${payload.timestamp || memory.timestamp || 'none'}, converted=${timestamp}`);
+              
+              // Create proper Message format
+              return {
+                id: memory.id,
+                sender: role === 'user' ? 'You' : selectedAgent,
+                content: payload.text || '',
+                timestamp: timestamp,
+                messageType: role === 'user' ? MessageType.USER : MessageType.AGENT,
+                metadata: metadata,
+                attachments: metadata.attachments || []
+              };
+            } catch (error) {
+              console.error("Error processing memory message:", error, memory);
+              return null;
+            }
+          }).filter(Boolean);
+          
+          // Sort by timestamp
+          formattedMessages.sort((a: Message, b: Message) => {
+            // Ensure we have valid timestamps to compare
+            const timeA = a.timestamp && !isNaN(a.timestamp.getTime()) ? a.timestamp.getTime() : 0;
+            const timeB = b.timestamp && !isNaN(b.timestamp.getTime()) ? b.timestamp.getTime() : 0;
+            // Sort in ascending order (oldest first)
+            return timeA - timeB;
+          });
+          
+          // Log message order for debugging
+          console.log("Sorted messages by timestamp:", formattedMessages.map(m => ({ 
+            id: m.id?.substring(0, 8), 
+            time: m.timestamp?.toISOString().substring(0, 19),
+            unix: m.timestamp?.getTime(),
+            sender: m.sender
+          })));
+        } else if (chatResponse) {
+          // Process traditional chat history data
+          const data = await chatResponse.json();
+          const history = data.history || [];
+          
+          // Process each message from history
+          history.forEach((msg: any) => {
+            // Skip invalid messages
+            if (!msg || !msg.timestamp) return;
+            
+            try {
+              // Check if this is a vision response
+              if (msg.visionResponseFor) {
+                // Store this response in our map for efficient lookup later
+                visionResponseMap.set(msg.visionResponseFor, {
+                  content: msg.content,
+                  timestamp: msg.timestamp
+                });
+                return; // Skip for now, we'll add it after the original message
+              }
+              
+              // Create standardized message object
+              const message: Message = {
+                sender: msg.sender === 'You' ? 'You' : selectedAgent,
+                content: msg.content,
+                timestamp: new Date(msg.timestamp)
+              };
+              
+              // Add to formatted messages
+              formattedMessages.push(message);
+              
+              // Check if this message has attachments and look for corresponding vision response
+              if (msg.attachments && msg.attachments.length > 0) {
+                // Find matching index of this message in our formatted array
+                const matchingIndex = formattedMessages.length - 1;
+                
+                // Add the attachments to our formatted message
+                formattedMessages[matchingIndex].attachments = msg.attachments;
+                
+                // Find corresponding vision response
+                const visionResponse = visionResponseMap.get(msg.timestamp.toISOString());
+                if (visionResponse) {
+                  // Check if we already have this response
+                  const hasResponse = formattedMessages.some((m: Message) => 
+                    m.sender === selectedAgent && 
+                    m.content === visionResponse.content &&
+                    Math.abs(new Date(m.timestamp).getTime() - new Date(visionResponse.timestamp).getTime()) < 10000
+                  );
                   
-                  // Insert the vision response right after the message with attachment
-                  const insertIndex = matchingIndex >= 0 ? matchingIndex + 1 : formattedMessages.length;
-                  formattedMessages.splice(insertIndex, 0, responseMsg);
-                  console.log(`Added vision response for message at index ${insertIndex}: "${savedMsg.content.substring(0, 20)}..."`);
+                  if (!hasResponse) {
+                    // Create proper vision response message with correct reference
+                    const responseMsg: Message = {
+                      ...visionResponse,
+                      // Ensure timestamp is a Date object
+                      timestamp: new Date(visionResponse.timestamp),
+                      // Store reference to the originating message
+                      visionResponseFor: msg.timestamp.toISOString()
+                    };
+                    
+                    // Insert the vision response right after the message with attachment
+                    const insertIndex = matchingIndex >= 0 ? matchingIndex + 1 : formattedMessages.length;
+                    formattedMessages.splice(insertIndex, 0, responseMsg);
+                    console.log(`Added vision response for message at index ${insertIndex}: "${msg.content.substring(0, 20)}..."`);
+                  }
                 }
               }
+            } catch (error) {
+              console.error("Error processing message:", error, msg);
             }
           });
           
@@ -1530,7 +1705,9 @@ For detailed instructions, see the Debug panel.`,
           formattedMessages.sort((a: Message, b: Message) => {
             return new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime();
           });
-          
+        }
+        
+        if (formattedMessages.length > 0) {
           console.log(`Setting ${formattedMessages.length} formatted messages`);
           setMessages(formattedMessages);
         } else {
@@ -1976,47 +2153,67 @@ For detailed instructions, see the Debug panel.`,
       try {
         const customEvent = event as CustomEvent;
         const deletedTimestamp = customEvent.detail?.timestamp;
+        const deletedMessageId = customEvent.detail?.messageId;
         
-        if (deletedTimestamp) {
-          console.log(`Message deleted event received for timestamp: ${deletedTimestamp}`);
+        if (deletedMessageId || deletedTimestamp) {
+          console.log(`Message deleted event received:`, {
+            messageId: deletedMessageId,
+            timestamp: deletedTimestamp
+          });
           
           // Update the messages state to remove the deleted message
           setMessages(prevMessages => {
             if (!Array.isArray(prevMessages)) return prevMessages;
             
-            // Find and remove the message with the matching timestamp
+            // Find and remove the message with the matching ID or timestamp
             const updatedMessages = prevMessages.filter(msg => {
               try {
-                // Handle different timestamp formats
-                const msgTimestamp = msg.timestamp instanceof Date 
-                  ? msg.timestamp.toISOString() 
-                  : typeof msg.timestamp === 'string'
-                    ? msg.timestamp
-                    : null;
-                    
-                return msgTimestamp !== deletedTimestamp;
+                // First, check message ID if available (most precise)
+                if (deletedMessageId && msg.id === deletedMessageId) {
+                  return false; // Remove this message
+                }
+                
+                // Fall back to timestamp comparison if no ID match
+                if (deletedTimestamp) {
+                  // Handle different timestamp formats
+                  const msgTimestamp = msg.timestamp instanceof Date 
+                    ? msg.timestamp.toISOString() 
+                    : typeof msg.timestamp === 'string'
+                      ? msg.timestamp
+                      : null;
+                      
+                  return msgTimestamp !== deletedTimestamp;
+                }
+                
+                return true; // Keep all messages that don't match delete criteria
               } catch (err) {
-                console.error('Error comparing message timestamps:', err);
+                console.error('Error comparing message for deletion:', err);
                 return true; // Keep the message if we can't compare
               }
             });
             
-            console.log(`Removed ${prevMessages.length - updatedMessages.length} messages`);
+            console.log(`Removed ${prevMessages.length - updatedMessages.length} messages from UI`);
             
-            // If no messages were removed, log an exception
+            // If no messages were removed, log details for debugging
             if (prevMessages.length === updatedMessages.length) {
-              console.warn(`No messages were removed for timestamp: ${deletedTimestamp}`);
-              console.log('Available message timestamps:', 
-                prevMessages.map(m => m.timestamp instanceof Date 
-                  ? m.timestamp.toISOString() 
-                  : m.timestamp)
+              console.warn(`No messages were removed for deletion event:`, {
+                messageId: deletedMessageId,
+                timestamp: deletedTimestamp
+              });
+              console.log('Available message IDs and timestamps:', 
+                prevMessages.map(m => ({
+                  id: m.id,
+                  timestamp: m.timestamp instanceof Date 
+                    ? m.timestamp.toISOString() 
+                    : m.timestamp
+                }))
               );
             }
             
             return updatedMessages;
           });
         } else {
-          console.error('Delete event received but no timestamp in the event details');
+          console.error('Delete event received but no identification in the event details');
         }
       } catch (error) {
         console.error('Error handling message deletion event:', error);

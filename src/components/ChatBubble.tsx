@@ -396,11 +396,28 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
     try {
       let success = false;
       
-      // Prefer ID-based deletion (standardized memory system)
-      if (message.id && onDeleteMessage) {
+      console.log('Attempting to delete message:', {
+        id: message.id, 
+        timestamp: message.timestamp instanceof Date ? message.timestamp.toISOString() : message.timestamp
+      });
+      
+      // Determine if we have a valid timestamp
+      const hasValidTimestamp = message.timestamp instanceof Date || 
+        (typeof message.timestamp === 'string') || 
+        (message.timestamp !== undefined && message.timestamp !== null);
+      
+      if (onDeleteMessage && hasValidTimestamp) {
+        // Call the delete handler with the message timestamp
         success = await onDeleteMessage(message.timestamp);
+        
+        // Check if the API call was successful
+        if (success) {
+          console.log('Message deletion successful via API');
+        } else {
+          console.warn('Message deletion API call failed');
+        }
       } else {
-        console.warn('No message ID available, no delete action taken');
+        console.warn('Cannot delete message: missing timestamp or delete handler');
         success = false;
       }
       

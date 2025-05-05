@@ -70,7 +70,7 @@ async function initializeMemory(options: any = {}): Promise<void> {
 }
 
 // Load chat history from memory service
-async function loadChatHistoryFromQdrant(specificUserId?: string) {
+export async function loadChatHistoryFromQdrant(specificUserId?: string) {
   console.log(`Loading chat history from memory service${specificUserId ? ` for user: ${specificUserId}` : ''}`);
   try {
     // Check if memory services are initialized

@@ -546,6 +546,16 @@ export class AgentBase {
         ? message.payload 
         : JSON.stringify(message.payload);
       
+      // Generate a content hash to check for duplicates
+      const contentHash = await this.generateContentHash(content);
+      
+      // Check if this message content was recently stored (within last 5 seconds)
+      const isDuplicate = await this.checkRecentDuplicate(contentHash, 5000);
+      if (isDuplicate) {
+        console.log(`[${this.agentId}] Duplicate message detected, skipping storage`);
+        return;
+      }
+      
       // Determine appropriate memory type
       let memoryType = MemoryType.MESSAGE;
       
@@ -564,6 +574,7 @@ export class AgentBase {
         correlationId: message.correlationId,
         delegationContextId: message.delegationContextId,
         timestamp: message.timestamp || Date.now(),
+        contentHash // Store the content hash for future reference
       };
       
       // Add to memory
@@ -574,10 +585,75 @@ export class AgentBase {
         tags: message.metadata?.tags || []
       });
       
+      // Add to recent messages cache for deduplication
+      await this.trackRecentMessage(contentHash);
+      
       console.log(`[${this.agentId}] Stored message in memory (type: ${memoryType})`);
     } catch (error) {
       console.error(`[${this.agentId}] Error storing message in memory:`, error);
     }
+  }
+
+  /**
+   * Generate a simple hash of content for deduplication
+   * @param content The content to hash
+   * @returns A string hash
+   */
+  private async generateContentHash(content: string): Promise<string> {
+    // Simple hash function for quick comparison
+    // For production, consider using a more robust hashing function
+    let hash = 0;
+    for (let i = 0; i < content.length; i++) {
+      const char = content.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash; // Convert to 32bit integer
+    }
+    return String(hash);
+  }
+
+  // Store recent message hashes with timestamps for deduplication
+  private recentMessageHashes: Map<string, number> = new Map();
+
+  /**
+   * Track a recently processed message for deduplication
+   * @param contentHash The hash of the message content
+   */
+  private async trackRecentMessage(contentHash: string): Promise<void> {
+    this.recentMessageHashes.set(contentHash, Date.now());
+    
+    // Periodically clean up old entries (every 100 messages)
+    if (this.recentMessageHashes.size % 100 === 0) {
+      this.cleanupOldHashes();
+    }
+  }
+
+  /**
+   * Check if content was recently processed
+   * @param contentHash The hash to check
+   * @param timeWindowMs Time window in milliseconds
+   * @returns Boolean indicating if this is a duplicate
+   */
+  private async checkRecentDuplicate(contentHash: string, timeWindowMs: number): Promise<boolean> {
+    const lastSeen = this.recentMessageHashes.get(contentHash);
+    if (!lastSeen) return false;
+    
+    const timeSince = Date.now() - lastSeen;
+    return timeSince < timeWindowMs;
+  }
+
+  /**
+   * Clean up old hash entries to prevent memory leaks
+   */
+  private cleanupOldHashes(): void {
+    const now = Date.now();
+    const retentionPeriod = 24 * 60 * 60 * 1000; // 24 hours
+    
+    // Convert Map entries to array to avoid iterator issues
+    Array.from(this.recentMessageHashes.entries()).forEach(([hash, timestamp]) => {
+      if (now - timestamp > retentionPeriod) {
+        this.recentMessageHashes.delete(hash);
+      }
+    });
   }
 
   /**

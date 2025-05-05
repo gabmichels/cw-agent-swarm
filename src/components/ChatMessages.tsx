@@ -8,6 +8,19 @@ import { smartSearchMessages } from '../utils/smartSearch';
 // Extend Message type for internal use with optional id
 interface MessageWithId extends Message {
   id?: string;
+  payload?: {
+    text?: string;
+    type?: string;
+    timestamp?: string;
+    metadata?: {
+      role?: string;
+      isForChat?: boolean;
+      isInternal?: boolean;
+      [key: string]: any;
+    };
+    [key: string]: any;
+  };
+  type?: string;
 }
 
 interface ChatMessagesProps {
@@ -67,96 +80,171 @@ const ChatMessages: React.FC<ChatMessagesProps> = ({
       return [];
     }
     
-    console.log('Processing messages for display');
+    console.log('Processing messages for display:', messages.length);
+    
+    // Debug the message structure to understand what format we're receiving
+    if (process.env.NODE_ENV === 'development' && messages.length > 0) {
+      const sample = messages[0];
+      console.log('Message sample structure:', {
+        id: sample.id,
+        sender: sample.sender,
+        hasContent: !!sample.content,
+        contentPreview: sample.content?.substring(0, 30),
+        timestamp: sample.timestamp,
+        hasMetadata: !!sample.metadata,
+        metadataKeys: sample.metadata ? Object.keys(sample.metadata) : [],
+        fullSample: sample
+      });
+    }
     
     // First, filter for visible messages based on internal/dev mode settings
     let visibleMessages = messages;
     
-    // Only apply visibility filtering if not in dev mode with showInternalMessages
-    if (!showInternalMessages) {
-      visibleMessages = messages.filter(message => {
-        // Check for isInternalMessage flag
-        if (message.isInternalMessage === true) {
-          return false;
-        }
-        
-        // Check if message has a reflection or thought message type
-        if (message.messageType) {
-          // These message types should not be visible in chat UI
-          const internalTypes = [
-            MessageType.THOUGHT,
-            MessageType.REFLECTION,
-            MessageType.SYSTEM,
-            MessageType.TOOL_LOG,
-            MessageType.MEMORY_LOG
-          ];
-          
-          if (internalTypes.includes(message.messageType)) {
-            return false;
-          }
-        }
-        
-        // Check message content for internal message markers
-        const rawContent = message.content || '';
-        const messageText = typeof rawContent === 'string' ? rawContent.toLowerCase() : '';
-        
-        // Filter out based on content patterns
-        if (
-          // Timestamp patterns often indicate internal messages
-          messageText.startsWith('[20') || 
-          // Common thought patterns
-          messageText.startsWith('thought:') ||
-          messageText.startsWith('reflection:') ||
-          messageText.startsWith('thinking:') ||
-          messageText.startsWith('message:') ||
-          messageText.startsWith('processing message:') ||
-          // More reflection patterns
-          messageText.startsWith('reflection on') ||
-          // Filter market scanner insights
-          messageText.startsWith('{"insight":') ||
-          // Important thought patterns
-          messageText.startsWith('!important! thought:') ||
-          messageText.startsWith('!important!') ||
-          // System messages
-          messageText.includes('performance review:') ||
-          messageText.includes('success rate:') ||
-          messageText.includes('task completion:') ||
-          // Filter markdown content
-          messageText.startsWith('# ')
-        ) {
-          return false;
-        }
-        
-        // Check for metadata indicating markdown source
-        if (message.metadata) {
-          if (
-            message.metadata.source === 'file' || 
-            message.metadata.filePath || 
-            message.metadata.isKnowledge
-          ) {
-            return false;
-          }
-        }
-        
-        // Check for sender patterns indicating internal messages
-        if (message.sender) {
-          const senderLower = message.sender.toLowerCase();
-          const internalSenders = ['system', 'internal', 'thought', 'reflection'];
-          
-          if (internalSenders.includes(senderLower)) {
-            return false;
-          }
-        }
-        
-        // Use the existing filter util as a backup
-        return !isInternalMessage(message);
-      });
+    // Handle both standard Message objects and memory-sourced objects
+    visibleMessages = messages.filter(message => {
+      // Skip invalid messages
+      if (!message) return false;
       
-      console.log(`Filtered ${messages.length - visibleMessages.length} internal messages`);
-    }
+      try {
+        // For memory-based messages, check for payload structure
+        if (message.payload) {
+          const payload = message.payload as any;
+          
+          // Skip if explicitly marked as not for chat
+          if (payload.metadata?.isForChat === false) {
+            return false;
+          }
+          
+          // Skip if explicitly marked as internal
+          if (payload.metadata?.isInternal === true) {
+            return false;
+          }
+          
+          // For memory objects, check for type properties
+          const memoryType = payload.type || message.type;
+          if (memoryType && memoryType !== 'message') {
+            return false;
+          }
+        }
+        
+        // Standard message checks
+        if (!showInternalMessages) {
+          // Check for isInternalMessage flag
+          if (message.isInternalMessage === true) {
+            return false;
+          }
+          
+          // Check for metadata
+          if (message.metadata) {
+            // Skip if explicitly marked as not for chat
+            if (message.metadata.isForChat === false) {
+              return false;
+            }
+            
+            // Skip if explicitly marked as internal
+            if (message.metadata.isInternal === true) {
+              return false;
+            }
+          }
+          
+          // Check message type
+          if (message.messageType) {
+            const internalTypes = [
+              MessageType.THOUGHT,
+              MessageType.REFLECTION,
+              MessageType.SYSTEM,
+              MessageType.TOOL_LOG,
+              MessageType.MEMORY_LOG
+            ];
+            
+            if (internalTypes.includes(message.messageType)) {
+              return false;
+            }
+          }
+          
+          // Check content for internal message patterns
+          if (message.content) {
+            const messageText = typeof message.content === 'string' 
+              ? message.content.toLowerCase() 
+              : '';
+            
+            // Internal message content patterns
+            const internalPatterns = [
+              '[20', // timestamp pattern
+              'thought:', 
+              'reflection:', 
+              'thinking:',
+              'message:',
+              'processing message:',
+              'reflection on',
+              '{"insight":',
+              '!important! thought:',
+              '!important!',
+              'performance review:',
+              'success rate:',
+              'task completion:'
+            ];
+            
+            if (internalPatterns.some(pattern => messageText.startsWith(pattern))) {
+              return false;
+            }
+            
+            // Filter markdown headings
+            if (messageText.startsWith('# ')) {
+              return false;
+            }
+          }
+          
+          // Check sender
+          if (message.sender) {
+            const senderLower = message.sender.toLowerCase();
+            const internalSenders = ['system', 'internal', 'thought', 'reflection'];
+            
+            if (internalSenders.includes(senderLower)) {
+              return false;
+            }
+          }
+        }
+        
+        return true;
+      } catch (error) {
+        console.error('Error processing message for display:', error, message);
+        return false;
+      }
+    });
     
-    // We no longer filter messages based on search query
-    // Search is now handled by the dropdown UI
+    // Extract content and sender from memory structure if needed
+    visibleMessages = visibleMessages.map(message => {
+      // Skip processing if not needed
+      if (message.content && message.sender) {
+        return message;
+      }
+      
+      try {
+        // Handle memory payload structure
+        if (message.payload) {
+          const payload = message.payload as any;
+          
+          // Create a normalized message from memory structure
+          return {
+            ...message,
+            id: message.id || payload.id || `msg_${Date.now()}`,
+            content: message.content || payload.text || '',
+            sender: message.sender || 
+                   (payload.metadata?.role === 'user' ? 'You' : 'Assistant'),
+            timestamp: message.timestamp || 
+                      (payload.timestamp ? new Date(payload.timestamp) : new Date())
+          };
+        }
+        
+        return message;
+      } catch (error) {
+        console.error('Error normalizing message:', error, message);
+        return message;
+      }
+    });
+    
+    console.log(`Filtered to ${visibleMessages.length} visible messages`);
     return visibleMessages;
   }, [messages, showInternalMessages]);
 
@@ -183,6 +271,30 @@ const ChatMessages: React.FC<ChatMessagesProps> = ({
       (searchQuery ? `, searchQuery="${searchQuery}"` : '')
     );
     
+    // More detailed logging for debugging message visibility issues
+    if (process.env.NODE_ENV === 'development') {
+      if (messages && Array.isArray(messages) && messages.length > 0) {
+        // Sample the first few messages for detailed logging
+        const sampleSize = Math.min(3, messages.length);
+        console.debug(`Message samples (first ${sampleSize}):`);
+        
+        for (let i = 0; i < sampleSize; i++) {
+          const msg = messages[i];
+          console.debug(`Message ${i}:`, {
+            id: msg.id || 'no-id',
+            sender: msg.sender,
+            contentPreview: msg.content?.substring(0, 30) + '...',
+            isInternalMessage: msg.isInternalMessage,
+            metadata: msg.metadata,
+            messageType: msg.messageType,
+            timestamp: msg.timestamp
+          });
+        }
+        
+        console.debug(`Filtered to ${processedMessages.length} messages after visibility rules`);
+      }
+    }
+    
     // Log container dimensions
     if (messagesContainerRef.current) {
       const { clientHeight, scrollHeight } = messagesContainerRef.current;
@@ -192,7 +304,7 @@ const ChatMessages: React.FC<ChatMessagesProps> = ({
         `messagesVisible=${visibleMessages.length}`
       );
     }
-  }, [messages, showInternalMessages, searchQuery, visibleMessages]);
+  }, [messages, showInternalMessages, searchQuery, visibleMessages, processedMessages]);
 
   // Initialize visible range - start with most recent messages
   useEffect(() => {
@@ -402,63 +514,120 @@ const ChatMessages: React.FC<ChatMessagesProps> = ({
   const handleDeleteMessage = async (timestamp: Date): Promise<boolean> => {
     try {
       // Find the message by timestamp
-      const targetMessage = processedMessages.find(
-        msg => msg.timestamp && msg.timestamp.getTime() === timestamp.getTime()
-      );
+      const targetMessage = processedMessages.find(msg => {
+        if (!msg.timestamp) return false;
+        
+        // Handle different timestamp formats
+        const msgTime = msg.timestamp instanceof Date 
+          ? msg.timestamp.getTime() 
+          : new Date(msg.timestamp).getTime();
+        
+        const targetTime = timestamp instanceof Date
+          ? timestamp.getTime()
+          : new Date(timestamp).getTime();
+        
+        return !isNaN(msgTime) && !isNaN(targetTime) && msgTime === targetTime;
+      });
       
       if (!targetMessage) {
         console.error('No message found with timestamp:', timestamp);
         return false;
       }
       
+      console.log('Deleting message:', { 
+        id: targetMessage.id, 
+        timestamp: timestamp instanceof Date ? timestamp.toISOString() : timestamp
+      });
+      
       // If we have an onDeleteMessage prop and message ID, use that (standardized memory)
       if (onDeleteMessage && targetMessage.id) {
         return await onDeleteMessage(targetMessage.id);
       }
       
-      // Legacy deletion approach for backward compatibility
-      const timestampStr = timestamp.toISOString();
+      // Construct endpoint with parameters
+      let endpoint = '/api/chat/message?';
+      let hasParams = false;
+      
+      // Prioritize ID if available (most reliable)
+      if (targetMessage.id) {
+        endpoint += `messageId=${encodeURIComponent(targetMessage.id)}`;
+        hasParams = true;
+      }
+      
+      // Always include timestamp as a fallback for backward compatibility
+      if (timestamp) {
+        // Format timestamp - handle different formats
+        let timestampStr = '';
+        if (timestamp instanceof Date) {
+          timestampStr = timestamp.toISOString();
+        } else if (typeof timestamp === 'string') {
+          timestampStr = timestamp;
+        } else if (typeof timestamp === 'number') {
+          timestampStr = new Date(timestamp).toISOString();
+        }
+        
+        if (timestampStr) {
+          endpoint += `${hasParams ? '&' : ''}timestamp=${encodeURIComponent(timestampStr)}`;
+        }
+      }
+      
+      console.log(`Calling delete endpoint: ${endpoint}`);
       
       // Call the API to delete the message
-      const response = await fetch(`/api/chat/message?timestamp=${timestampStr}`, {
+      const response = await fetch(endpoint, {
         method: 'DELETE',
       });
       
+      // Parse response as text first to avoid JSON parse errors
+      const responseText = await response.text();
+      let responseData: any = null;
+      
+      try {
+        if (responseText && responseText.trim().startsWith('{')) {
+          responseData = JSON.parse(responseText);
+        }
+      } catch (parseError) {
+        console.error('Error parsing delete response:', parseError, responseText);
+      }
+      
       if (!response.ok) {
-        const data = await response.json();
-        console.error('Error deleting message:', data);
+        console.error('Error deleting message:', responseData || responseText);
         return false;
       }
       
-      // Create a synthetic event to trigger UI update
-      const deleteEvent = new CustomEvent('messageDeleted', {
-        detail: { timestamp: timestampStr }
+      // Log successful deletion
+      console.log('Message deleted successfully:', responseData || 'No response data');
+      
+      // Dispatch a custom event for the parent component to handle UI updates
+      const messageDeletedEvent = new CustomEvent('messageDeleted', { 
+        detail: { 
+          messageId: targetMessage.id,
+          timestamp: timestamp instanceof Date ? timestamp.toISOString() : timestamp
+        }
       });
-      document.dispatchEvent(deleteEvent);
+      document.dispatchEvent(messageDeletedEvent);
       
       return true;
     } catch (error) {
       console.error('Error in handleDeleteMessage:', error);
-      // Even if we hit a critical error, still update the UI
-      // as if the message was deleted - better UX than an error
-      
-      // Create a synthetic event for UI update
-      try {
-        const deleteEvent = new CustomEvent('messageDeleted', {
-          detail: { timestamp: timestamp.toISOString() }
-        });
-        document.dispatchEvent(deleteEvent);
-      } catch (eventError) {
-        console.error('Failed to dispatch synthetic delete event:', eventError);
-      }
-      
-      // Return true to prevent UI errors
-      return true;
+      return false;
     }
   };
 
   // Make sure we have valid messages to display
   if (!processedMessages || !Array.isArray(processedMessages) || processedMessages.length === 0) {
+    // Add more debug info to help diagnose issues
+    if (process.env.NODE_ENV === 'development') {
+      console.warn("No messages to display. Debug info:", {
+        messagesProvided: !!messages,
+        messagesIsArray: Array.isArray(messages),
+        messagesLength: messages?.length || 0,
+        processedLength: processedMessages?.length || 0,
+        isLoadingProp: isLoading,
+        searchQuery: searchQuery || 'none'
+      });
+    }
+    
     return (
       <div className="space-y-12">
         {isLoading ? (
@@ -482,6 +651,19 @@ const ChatMessages: React.FC<ChatMessagesProps> = ({
           <div className="flex justify-start mb-4">
             <div className="min-w-[75%] max-w-[80%] rounded-lg p-3 shadow bg-gray-700">
               <p className="text-gray-300">No messages yet. Start your conversation to see messages appear here.</p>
+              {process.env.NODE_ENV === 'development' && (
+                <div className="mt-2 p-2 border border-gray-600 rounded text-xs text-gray-400">
+                  <p>Debug Info:</p>
+                  <ul className="list-disc pl-4 mt-1">
+                    <li>Raw message count: {messages?.length || 0}</li>
+                    <li>Processed message count: {processedMessages?.length || 0}</li>
+                    <li>isLoading: {isLoading ? 'true' : 'false'}</li>
+                    <li>searchQuery: {searchQuery || 'none'}</li>
+                    <li>showInternalMessages: {showInternalMessages ? 'true' : 'false'}</li>
+                  </ul>
+                  <p className="mt-2">Check console for more details.</p>
+                </div>
+              )}
             </div>
           </div>
         )}

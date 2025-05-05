@@ -133,108 +133,134 @@ export class ChloeMemory {
   }
 
   /**
-   * Add a memory to the appropriate storage
+   * Add a memory using the standardized memory service
    */
   async addMemory(
     content: string,
     type: MemoryType,
     importance: ImportanceLevel = ImportanceLevel.MEDIUM,
     source: MemorySource = MemorySource.AGENT,
-    context?: string,
-    tags?: string[],
-    metadata?: Record<string, any>
-  ): Promise<MemoryEntry> {
-    if (!this.initialized) {
-      await this.initialize();
+    category: string = '',
+    tags: string[] = [],
+    metadata: Record<string, any> = {}
+  ): Promise<MemoryEntry | null> {
+    if (!this.memoryService) return null;
+    
+    try {
+      // First check if this is a duplicate by removing type prefixes and comparing core content
+      const cleanContent = this.extractContentFromFormattedMemory(content);
+      
+      // For message type memories, check for existing messages with same content in last minute
+      if (type === MemoryType.MESSAGE) {
+        // Get recent messages from the last 60 seconds
+        const now = new Date();
+        const oneMinuteAgo = new Date(now.getTime() - 60 * 1000);
+        
+        const recentMessages = await this.getMemoriesByDateRange(
+          MemoryType.MESSAGE,
+          oneMinuteAgo,
+          now,
+          10 // Limit to recent messages
+        );
+        
+        // Check if any recent message has the same clean content
+        for (const msg of recentMessages) {
+          const existingCleanContent = this.extractContentFromFormattedMemory(msg.content);
+          
+          // If contents match closely enough, this is likely a duplicate
+          if (existingCleanContent && cleanContent && 
+              (existingCleanContent === cleanContent || 
+               this.isSimilarContent(existingCleanContent, cleanContent))) {
+            console.log(`Prevented duplicate message storage: "${cleanContent.substring(0, 30)}..."`);
+            return msg; // Return the existing message instead of creating a duplicate
+          }
+        }
+      }
+      
+      // Format the memory content if it's not already formatted
+      const formattedContent = this.isFormattedMemory(content)
+        ? content
+        : this.formatContent(content, type);
+      
+      // Prepare metadata
+      const enhancedMetadata = {
+        ...metadata,
+        importance,
+        source,
+        category,
+        tags,
+        timestamp: new Date().toISOString()
+      };
+
+      // Add the memory using the standardized memory service
+      const result = await this.memoryService.addMemory({
+        type,
+        content: formattedContent,
+        metadata: enhancedMetadata
+      });
+
+      // If successful, create a memory entry from the result
+      if (result.success && result.id) {
+        // Get the memory with full details
+        const memoryPoint = await this.memoryService.getMemory({
+          id: result.id,
+          type
+        });
+
+        if (memoryPoint) {
+          return this.createMemoryEntryFromPoint(memoryPoint);
+        }
+      }
+
+      return null;
+    } catch (error) {
+      console.error(`Error adding memory (${type}):`, error);
+      return null;
+    }
+  }
+  
+  /**
+   * Check if two content strings are similar enough to be considered duplicates
+   * This helps catch slightly different formatted versions of the same message
+   */
+  private isSimilarContent(content1: string, content2: string): boolean {
+    // Normalize both strings by removing extra whitespace and making lowercase
+    const normalize = (str: string) => str.trim().toLowerCase().replace(/\s+/g, ' ');
+    
+    const normalized1 = normalize(content1);
+    const normalized2 = normalize(content2);
+    
+    // If lengths are very different, they're not similar
+    const lengthDiff = Math.abs(normalized1.length - normalized2.length);
+    if (lengthDiff > 20) return false;
+    
+    // For short content, require exact match after normalization
+    if (normalized1.length < 30) {
+      return normalized1 === normalized2;
     }
     
-    // Apply PII redaction before processing, excluding NAME type
-    // Get all PIITypes except for NAME
-    const typesToRedact = Object.values(PIIType).filter(type => type !== PIIType.NAME) as PIIType[];
-    const redactionResult = await redactSensitiveData(content, { types: typesToRedact });
+    // For longer content, compare using a similarity measure
+    // Use longest common substring as a simple similarity measure
+    let longestMatch = 0;
     
-    // Use the redacted content for storage
-    let contentToStore = redactionResult.piiDetected ? redactionResult.redactedContent : content;
-    
-    // Create extended metadata with PII redaction information
-    const extendedMetadata = {
-      ...metadata || {},
-      importance: importance,
-      source: source,
-      tags: tags || [],
-      pii_redacted: redactionResult.piiDetected,
-      pii_types_detected: redactionResult.piiDetected ? redactionResult.detectedTypes : [],
-      pii_redaction_count: redactionResult.redactionCount
-    };
-    
-    // Check if content already has a MESSAGE or similar prefix to avoid duplication
-    const hasPrefix = this.isFormattedMemory(contentToStore);
-    
-    // Apply standardized formatting to memory content if it doesn't already have it
-    const timestamp = new Date().toISOString();
-    let formattedContent = contentToStore;
-    
-    // Only format if it's not already formatted
-    if (!hasPrefix) {
-      switch (type) {
-        case MemoryType.MESSAGE:
-          formattedContent = `MESSAGE [${timestamp}]: ${contentToStore}`;
-          break;
-        case MemoryType.THOUGHT:
-          formattedContent = `THOUGHT [${timestamp}]: ${contentToStore}`;
-          break;
-        case MemoryType.DOCUMENT:
-          formattedContent = `DOCUMENT [${timestamp}]: ${contentToStore}`;
-          break;
-        case MemoryType.TASK:
-          formattedContent = `TASK [${timestamp}]: ${contentToStore}`;
-          break;
-        default:
-          formattedContent = `${type.toString().toUpperCase()} [${timestamp}]: ${contentToStore}`;
+    // Simple n-gram matching (not as efficient as proper LCS algorithm but workable)
+    for (let i = 0; i < normalized1.length; i++) {
+      for (let length = 30; length < 100 && i + length <= normalized1.length; length++) {
+        const substr = normalized1.substring(i, i + length);
+        if (normalized2.includes(substr) && length > longestMatch) {
+          longestMatch = length;
+        }
       }
     }
     
-    // Add memory to standardized memory system with standard type directly
-    const result = await this.memoryService.addMemory({
-      type,
-      content: formattedContent,
-      metadata: extendedMetadata
-    });
+    // Calculate similarity as percentage of the shorter string
+    const minLength = Math.min(normalized1.length, normalized2.length);
+    const similarity = longestMatch / minLength;
     
-    if (!result.success) {
-      console.error('Failed to add memory:', result.error);
-      throw new Error(`Failed to add memory: ${result.error?.message}`);
-    }
-    
-    // Get the memory from the service
-    const memory = await this.memoryService.getMemory({
-      id: result.id,
-      type
-    });
-    
-    // Convert to MemoryEntry format
-    const memoryEntry: MemoryEntry = {
-      id: memory.id,
-      content: memory.payload.text,
-      category: metadata?.category || 'general',
-      type,
-      tags: tags || [],
-      timestamp: new Date(timestamp),
-      source: source,
-      importance: importance,
-      created: new Date(timestamp),
-      metadata: extendedMetadata
-    };
-    
-    // Also add to local memory store for redundancy
-    this.memoryStore.entries.push(memoryEntry);
-    
-    // Apply memory categorization for rich metadata
-    this.categorizeMemory(memoryEntry);
-    
-    return memoryEntry;
+    // Consider similar if we have a substantial matching substring
+    return similarity > 0.7; // 70% similarity threshold
   }
-  
+
   /**
    * Categorize memory into appropriate collections
    * This is a placeholder method that would organize memories by type
@@ -1884,5 +1910,46 @@ export class ChloeMemory {
       console.error('Error retrieving recently modified memories:', error);
       return [];
     }
+  }
+
+  /**
+   * Format memory content with standardized type prefix
+   */
+  private formatContent(content: string, type: MemoryType): string {
+    const timestamp = new Date().toISOString();
+    
+    switch (type) {
+      case MemoryType.MESSAGE:
+        return `MESSAGE [${timestamp}]: ${content}`;
+      case MemoryType.THOUGHT:
+        return `THOUGHT [${timestamp}]: ${content}`;
+      case MemoryType.DOCUMENT:
+        return `DOCUMENT [${timestamp}]: ${content}`;
+      case MemoryType.TASK:
+        return `TASK [${timestamp}]: ${content}`;
+      default:
+        return `${type.toString().toUpperCase()} [${timestamp}]: ${content}`;
+    }
+  }
+  
+  /**
+   * Create a MemoryEntry from a memory point
+   */
+  private createMemoryEntryFromPoint(memoryPoint: any): MemoryEntry {
+    const metadata = memoryPoint.payload.metadata || {};
+    const timestamp = metadata.timestamp ? new Date(metadata.timestamp) : new Date();
+    
+    return {
+      id: memoryPoint.id,
+      content: memoryPoint.payload.text,
+      category: metadata.category || 'general',
+      type: memoryPoint.payload.type,
+      tags: metadata.tags || [],
+      timestamp: timestamp,
+      source: metadata.source || MemorySource.AGENT,
+      importance: metadata.importance || ImportanceLevel.MEDIUM,
+      created: timestamp,
+      metadata: metadata
+    };
   }
 }
