@@ -94,6 +94,34 @@ While the core integration tests are complete, the following actions are still n
 4. **Monitoring Implementation**: Add observability to track memory system health
 5. **CI Integration**: Integrate memory system tests into CI pipeline
 
+## API Key Integration
+
+We've successfully set up API key handling in the integration tests using a utility function in `src/server/memory/testing/load-api-key.ts` that:
+
+1. First checks for the API key in environment variables (`process.env.OPENAI_API_KEY`)
+2. If not found, attempts to load it from the `.env` file in the project root
+3. Ensures the API key is accessible throughout the test process
+
+The tests now successfully initialize with the API key, properly connecting to OpenAI's embedding services.
+
+## Implementation Challenges
+
+During testing with actual API keys, we identified several challenges that need to be addressed:
+
+1. **Qdrant ID Format Requirements**:
+   - Qdrant requires IDs to be either UUIDs or unsigned integers
+   - Our test code uses string IDs which cause validation errors
+
+2. **Memory Type Collection Mapping**:
+   - Only a subset of defined `MemoryType` enum values have corresponding collections
+   - Core collections are: `MESSAGE`, `THOUGHT`, `DOCUMENT`, `TASK`, and `MEMORY_EDIT`
+   - Other types need to be mapped to these core collections with appropriate metadata
+
+3. **Missing Relationship Functionality**:
+   - The tests expect relationship capabilities (`createRelationship`, `searchCausalChain`) that aren't implemented
+
+For detailed information about these issues and proposed solutions, see `docs/memory/INTEGRATION_TEST_ISSUES.md`.
+
 ## Conclusion
 
 The integration tests have successfully verified that the standardized memory system correctly integrates with all critical components. The components that were identified as requiring special attention (StrategyUpdater, ExecutionOutcomeAnalyzer, and Scheduler) all work correctly with the new abstracted memory interfaces.
