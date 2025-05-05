@@ -5,25 +5,27 @@ export class SearchMemoryTool {
   name = 'search_memory';
   description = 'Searches Chloe\'s memory for relevant information';
 
-  constructor(private memoryClient?: any) {}
+  constructor(private memoryService?: any) {}
   
   async call(args: { query: string; type?: string; limit?: number }): Promise<string> {
     try {
-      // Lazy load memory client if needed
-      if (!this.memoryClient) {
-        const serverQdrant = require('../../server/qdrant');
-        this.memoryClient = serverQdrant;
+      // Lazy load memory service if needed
+      if (!this.memoryService) {
+        const { getMemoryServices } = require('../../server/memory/services');
+        const services = await getMemoryServices();
+        this.memoryService = services.searchService;
       }
       
       const type = args.type || null;
       const limit = args.limit || 5;
       
-      // Search memory
-      const results = await this.memoryClient.searchMemory(
-        type, 
-        args.query, 
-        { limit }
-      );
+      // Search memory using the new abstracted memory service
+      const searchOptions = {
+        types: type ? [type] : undefined,
+        limit
+      };
+      
+      const results = await this.memoryService.search(args.query, searchOptions);
       
       if (!results || results.length === 0) {
         return 'No relevant memories found.';
@@ -31,7 +33,8 @@ export class SearchMemoryTool {
       
       // Format results
       const formatted = results.map((memory: any, index: number) => {
-        return `${index + 1}. [${memory.type}] ${memory.text.substring(0, 200)}${memory.text.length > 200 ? '...' : ''}`;
+        const content = memory.content || memory.text || ''; // Support both old and new field names
+        return `${index + 1}. [${memory.type}] ${content.substring(0, 200)}${content.length > 200 ? '...' : ''}`;
       }).join('\n\n');
       
       return `Found ${results.length} relevant memories:\n\n${formatted}`;
@@ -49,14 +52,15 @@ export class SummarizeRecentActivityTool {
   name = 'summarize_recent_activity';
   description = 'Summarizes recent activities and interactions';
   
-  constructor(private memoryClient?: any) {}
+  constructor(private memoryService?: any) {}
   
   async call(args: { hours?: number; type?: string; limit?: number }): Promise<string> {
     try {
-      // Lazy load memory client if needed
-      if (!this.memoryClient) {
-        const serverQdrant = require('../../server/qdrant');
-        this.memoryClient = serverQdrant;
+      // Lazy load memory service if needed
+      if (!this.memoryService) {
+        const { getMemoryServices } = require('../../server/memory/services');
+        const services = await getMemoryServices();
+        this.memoryService = services.memoryService;
       }
       
       const hours = args.hours || 24;
@@ -67,24 +71,52 @@ export class SummarizeRecentActivityTool {
       const since = new Date();
       since.setHours(since.getHours() - hours);
       
-      // Get recent messages
-      const recentEntries = await this.memoryClient.getRecentChatMessages({
-        since,
+      // Get recent messages using the standardized memory service
+      const filter = {
+        must: [
+          {
+            key: 'type',
+            match: { eq: type }
+          },
+          {
+            key: 'timestamp',
+            range: { gte: since.getTime() }
+          }
+        ]
+      };
+      
+      const recentEntries = await this.memoryService.searchMemories({
         limit,
-        roles: ['user', 'assistant']
+        filter,
+        sortBy: { key: 'timestamp', order: 'desc' }
       });
       
       if (!recentEntries || recentEntries.length === 0) {
         return `No activity found in the last ${hours} hours.`;
       }
       
-      // Generate a summary
-      const summary = await this.memoryClient.summarizeChat({
-        since,
-        limit
+      // Use LLM to generate a summary since we need to replace the direct summarizeChat call
+      const { ChatOpenAI } = require('@langchain/openai');
+      const llmClient = new ChatOpenAI({
+        modelName: process.env.OPENAI_CHEAP_MODEL || 'gpt-3.5-turbo',
+        temperature: 0.7,
+        openAIApiKey: process.env.OPENAI_API_KEY,
       });
       
-      return summary;
+      // Format entries for the LLM
+      const entriesText = recentEntries.map((entry: any, index: number) => {
+        const content = entry.content || entry.text || '';
+        const role = entry.role || entry.sender || 'unknown';
+        return `[${index + 1}] ${role}: ${content}`;
+      }).join('\n\n');
+      
+      const messages = [
+        { role: 'system', content: 'You are Chloe, a marketing expert AI assistant. Summarize the recent conversation history provided below.' },
+        { role: 'user', content: `Please summarize the following conversation from the last ${hours} hours:\n\n${entriesText}` }
+      ];
+      
+      const response = await llmClient.invoke(messages);
+      return response.content;
     } catch (error) {
       console.error('Error summarizing recent activity:', error);
       return `Error summarizing activity: ${error instanceof Error ? error.message : String(error)}`;

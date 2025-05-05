@@ -24,9 +24,16 @@ vi.mock('../tools/marketScanner', () => ({
   })
 }));
 
-vi.mock('../../../server/qdrant', () => ({
-  getEmbedding: vi.fn().mockResolvedValue({ embedding: [0.1, 0.2, 0.3] }),
-  addToCollection: vi.fn().mockResolvedValue(true)
+// Mock the new memory services instead of the direct Qdrant implementation
+vi.mock('../../../server/memory/services', () => ({
+  getMemoryServices: vi.fn().mockResolvedValue({
+    embeddingService: {
+      generateEmbedding: vi.fn().mockResolvedValue([0.1, 0.2, 0.3])
+    },
+    memoryService: {
+      addMemory: vi.fn().mockResolvedValue({ success: true, id: 'memory-123' })
+    }
+  })
 }));
 
 describe('MarketScannerManager', () => {
