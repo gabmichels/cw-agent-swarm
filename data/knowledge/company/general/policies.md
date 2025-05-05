@@ -1,4 +1,4 @@
-# Company Policies
+# Crowd Wisdom's Policies
 
 ## General Policies
 

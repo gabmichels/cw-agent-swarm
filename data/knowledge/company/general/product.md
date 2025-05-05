@@ -1,4 +1,4 @@
-# Chloe - Product Context
+# Claro's Product
 
 ## Product
 Claro AI is a mobile-first translation app designed for real-time conversations. It emphasizes natural, human-sounding text-to-speech (TTS) and minimal friction during use. Its primary goal is to make travelers feel confident speaking in unfamiliar language environments.

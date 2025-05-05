@@ -42,11 +42,12 @@ interface UseKnowledgeMemoryParams {
   autoLoad?: boolean;
 }
 
-// Define memory item type interface
+// Define memory item type interface with more flexible structure
 interface MemoryItem {
   id: string;
-  payload: {
-    text: string;
+  payload?: {
+    text?: string;
+    content?: string; // Some items might use content instead of text
     type?: string;
     timestamp?: string;
     metadata?: {
@@ -56,6 +57,18 @@ interface MemoryItem {
       flagged?: boolean;
       [key: string]: any;
     };
+  };
+  // Some items might have these fields at the top level
+  text?: string;
+  content?: string;
+  type?: string;
+  timestamp?: string | number;
+  metadata?: {
+    source?: string;
+    importance?: string;
+    tags?: string[];
+    flagged?: boolean;
+    [key: string]: any;
   };
 }
 
@@ -126,17 +139,47 @@ export default function useKnowledgeMemory({
       }
       
       // Convert to KnowledgeItem format
-      const knowledgeData = items.map((item: MemoryItem) => ({
-        id: item.id,
-        content: item.payload.text,
-        type: item.payload.type || '',
-        timestamp: new Date(item.payload.timestamp || Date.now()),
-        source: item.payload.metadata?.source || '',
-        importance: item.payload.metadata?.importance || KnowledgeImportance.MEDIUM,
-        tags: item.payload.metadata?.tags || [],
-        flagged: item.payload.metadata?.flagged || false,
-        metadata: item.payload.metadata || {}
-      }));
+      const knowledgeData = items.map((item: MemoryItem) => {
+        // Add null checks to prevent TypeError
+        if (!item) {
+          console.warn('Received null or undefined memory item');
+          // Return a minimal default item
+          return {
+            id: 'unknown',
+            content: 'Content unavailable',
+            type: '',
+            timestamp: new Date(),
+            source: '',
+            importance: KnowledgeImportance.MEDIUM,
+            tags: [],
+            flagged: false,
+            metadata: {}
+          };
+        }
+        
+        // Extract content from wherever it might be located
+        const content = 
+          (item.payload?.text) || 
+          (item.payload?.content) || 
+          (item.text) || 
+          (item.content) || 
+          '';
+        
+        // Get metadata from either payload or top level
+        const metadata = item.payload?.metadata || item.metadata || {};
+        
+        return {
+          id: item.id,
+          content,
+          type: item.payload?.type || item.type || '',
+          timestamp: new Date(item.payload?.timestamp || item.timestamp || Date.now()),
+          source: metadata.source || '',
+          importance: metadata.importance || KnowledgeImportance.MEDIUM,
+          tags: Array.isArray(metadata.tags) ? metadata.tags : [],
+          flagged: !!metadata.flagged,
+          metadata
+        };
+      });
       
       // Filter for flagged items if needed
       const filteredItems = onlyFlagged

@@ -1,4 +1,4 @@
-# Chloe - Capabilities
+# Chloe's Capabilities
 
 Chloe specializes in:
 - Early-stage and mid-stage startup growth.

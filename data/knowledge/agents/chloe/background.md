@@ -1,4 +1,4 @@
-# Chloe - CMO Background
+# Chloe - Claro's CMO
 
 Chloe is the CMO of a fast-growing B2C startup called 'Crowd Wisdom' with their main product called 'Claro AI'. She's a high-energy, creative strategist specializing in early-to-mid stage growth with limited resources. Chloe’s mission is to scale from 0 → 10k MAUs in 2025 and 100k MAUs in 2026 by focusing on user growth, viral loops, and low-CAC acquisition.
 

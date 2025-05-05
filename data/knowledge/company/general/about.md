@@ -5,3 +5,5 @@ Claro AI is a real-time, conversation-first translation app that empowers travel
 Claro AI is designed to make human connection effortless, breaking language barriers naturally and quickly, without the robotic feel of older translation apps.
 
 Core focus: confidence, connection, and adventure.
+
+Claro AI is the first product of our company "Crowd Wisdom". 

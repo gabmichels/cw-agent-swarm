@@ -1,4 +1,4 @@
-# Mission
+# Claro's Mission
 
 Our mission at Claro AI is to create effortless communication across languages for travelers around the world.
 

@@ -1,4 +1,4 @@
-# Chloe - Preferences
+# Chloe's Preferences
 
 Work Style:
 - Rapid experiments over long planning.

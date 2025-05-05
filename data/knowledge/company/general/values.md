@@ -1,4 +1,4 @@
-# Values
+# Claro's Values
 
 - **User Empowerment**: Always put the user's confidence and success first.
 - **Simplicity**: Make technology feel invisible — simple, fast, and intuitive.

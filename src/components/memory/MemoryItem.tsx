@@ -4,6 +4,7 @@ import SuggestedTagsApproval from '../tags/SuggestedTagsApproval';
 import { MemoryType } from '../../server/memory/config';
 import { BaseMemorySchema, MemoryPoint } from '../../server/memory/models';
 import useMemory from '../../hooks/useMemory';
+import ReactMarkdown from 'react-markdown';
 
 // Define memory edit record type to match the new standardized schema
 interface MemoryEditSchema extends BaseMemorySchema {
@@ -248,10 +249,23 @@ const MemoryItem: React.FC<MemoryItemProps> = ({
 
   // Format timestamp to a friendly format
   const formattedTimestamp = useMemo(() => {
-    if (!memory.payload?.timestamp) return 'Unknown date';
+    if (!memory.payload?.timestamp || memory.payload.timestamp === '') return 'Unknown date';
     
     try {
-      const date = new Date(memory.payload.timestamp);
+      const timestamp = memory.payload.timestamp;
+      // Check if it's a unix timestamp (number)
+      if (!isNaN(Number(timestamp))) {
+        // If it's a 13-digit timestamp (milliseconds), use as is
+        // If it's a 10-digit timestamp (seconds), multiply by 1000
+        const timeMs = timestamp.length >= 13 ? Number(timestamp) : Number(timestamp) * 1000;
+        return new Date(timeMs).toLocaleString();
+      }
+      
+      // Otherwise try to parse as ISO string
+      const date = new Date(timestamp);
+      if (isNaN(date.getTime())) {
+        return 'Unknown date';
+      }
       return date.toLocaleString();
     } catch (e) {
       return 'Invalid date';
@@ -302,68 +316,111 @@ const MemoryItem: React.FC<MemoryItemProps> = ({
     return `${baseClasses} ${typeMap[type] || "bg-gray-100 text-gray-800"}`;
   };
 
+  // Add this function near the beginning of the component
+  const getTypeColor = (type: string) => {
+    // Normalize the type to lowercase for consistent matching
+    const normalizedType = type.toLowerCase();
+    
+    // Define color schemes for different memory types
+    if (normalizedType.includes('document')) {
+      return { bg: '#134e4a', text: '#5eead4' }; // Teal
+    } else if (normalizedType.includes('thought')) {
+      return { bg: '#1e3a8a', text: '#93c5fd' }; // Blue
+    } else if (normalizedType.includes('message')) {
+      return { bg: '#365314', text: '#bef264' }; // Green
+    } else if (normalizedType.includes('task')) {
+      return { bg: '#713f12', text: '#fcd34d' }; // Yellow
+    } else if (normalizedType.includes('reflection')) {
+      return { bg: '#581c87', text: '#d8b4fe' }; // Purple
+    } else if (normalizedType.includes('edit')) {
+      return { bg: '#881337', text: '#fda4af' }; // Red
+    } else if (normalizedType.includes('fact') || normalizedType.includes('knowledge')) {
+      return { bg: '#1e40af', text: '#93c5fd' }; // Blue
+    } else if (normalizedType.includes('summary')) {
+      return { bg: '#3f3f46', text: '#d4d4d8' }; // Gray
+    }
+    
+    // Default color scheme
+    return { bg: '#1f2937', text: '#9ca3af' };
+  };
+
   return (
-    <div className="rounded-lg shadow bg-white">
-      {/* Memory Header */}
+    <div className="rounded-lg shadow-sm bg-gray-800 border border-gray-700 overflow-hidden">
+      {/* Memory Header - Simplified */}
       <div 
-        className="p-3 flex justify-between items-start cursor-pointer"
+        className="flex flex-col cursor-pointer"
         onClick={toggleExpanded}
       >
-        <div className="space-y-1 flex-1">
-          {/* Memory Type Badge */}
+        {/* Header Row */}
+        <div className="flex items-center justify-between p-2 bg-gray-900">
           <div className="flex items-center space-x-2">
-            <div className={getTypeClasses(memoryType)}>
-              {formattedType}
+            <div className="text-xs font-semibold px-1.5 py-0.5 rounded-sm" 
+                 style={{
+                   backgroundColor: memoryType ? getTypeColor(memoryType).bg : '#1e293b',
+                   color: memoryType ? getTypeColor(memoryType).text : '#94a3b8'
+                 }}>
+              {memoryType || 'unknown'}
             </div>
-            
-            {/* Memory ID */}
-            <div className="text-xs text-gray-500">
-              ID: {memoryId.substring(0, 8)}...
-            </div>
-            
-            {/* Memory Timestamp */}
-            <div className="text-xs text-gray-500 flex items-center space-x-1">
+            <div className="text-xs text-gray-400 flex items-center gap-1">
               <Clock className="h-3 w-3" />
               <span>{formattedTimestamp}</span>
             </div>
           </div>
           
-          {/* Memory Content Preview (truncated) */}
-          <p className="text-sm text-gray-700 line-clamp-3">
-            {memory.payload?.text || 'No content'}
-          </p>
+          {/* Expand/Collapse Button */}
+          <div>
+            {expanded ? (
+              <ChevronUp className="h-4 w-4 text-gray-400" />
+            ) : (
+              <ChevronDown className="h-4 w-4 text-gray-400" />
+            )}
+          </div>
         </div>
         
-        {/* Expand/Collapse Button */}
-        <div className="ml-2">
-          {expanded ? (
-            <ChevronUp className="h-5 w-5 text-gray-400" />
-          ) : (
-            <ChevronDown className="h-5 w-5 text-gray-400" />
+        {/* Message Content - Just the text in a nice format */}
+        <div className={`p-3 text-gray-200 ${!expanded ? 'max-h-60 overflow-hidden relative' : ''}`}>
+          {!expanded && (
+            <div className="absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-gray-800 to-transparent" />
           )}
+          <ReactMarkdown className="prose prose-invert prose-sm max-w-none prose-headings:text-white prose-p:text-gray-200 prose-strong:text-blue-300 prose-a:text-blue-400 prose-code:text-emerald-300 prose-pre:bg-gray-900 prose-pre:text-gray-200">
+            {memory.payload?.text || 'No content available'}
+          </ReactMarkdown>
         </div>
       </div>
       
       {/* Memory Expanded Content */}
       {expanded && (
-        <div className="p-3 border-t border-gray-100">
-          {/* Full Memory Content */}
-          <div className="whitespace-pre-wrap text-gray-800 mb-4">
-            {memory.payload?.text || 'No content'}
+        <div className="p-3 border-t border-gray-700 bg-gray-900">
+          {/* Raw JSON Structure */}
+          <div className="whitespace-pre-wrap text-gray-300 font-mono text-xs mb-4 p-3 bg-gray-950 rounded-md overflow-auto max-h-96">
+            {(() => {
+              try {
+                // Format the entire memory object as JSON
+                return JSON.stringify({
+                  id: memory.id,
+                  type: memoryType,
+                  timestamp: memory.payload?.timestamp,
+                  payload: memory.payload
+                }, null, 2);
+              } catch (e) {
+                // Fallback for any serialization errors
+                return `Error displaying memory structure: ${e instanceof Error ? e.message : 'Unknown error'}`;
+              }
+            })()}
           </div>
           
           {/* Tags Section */}
           <div className="mb-4">
             <div className="flex items-center mb-1">
-              <Tag className="h-4 w-4 text-gray-500 mr-1" />
-              <span className="text-sm font-medium text-gray-700">Tags</span>
+              <Tag className="h-4 w-4 text-gray-400 mr-1" />
+              <span className="text-sm font-medium text-gray-300">Tags</span>
             </div>
             
             {/* Display manual tags */}
             <div className="flex flex-wrap gap-1 mb-2">
               {manualTags.length > 0 ? (
                 manualTags.map((tag, index) => (
-                  <span key={index} className="bg-gray-100 text-gray-800 text-xs px-2.5 py-0.5 rounded-full">
+                  <span key={index} className="bg-gray-700 text-gray-200 text-xs px-2.5 py-0.5 rounded-full">
                     {tag}
                   </span>
                 ))
@@ -388,17 +445,17 @@ const MemoryItem: React.FC<MemoryItemProps> = ({
           {memory.payload?.metadata && Object.keys(memory.payload.metadata).length > 0 && (
             <div className="mb-4">
               <div className="flex items-center mb-1">
-                <Info className="h-4 w-4 text-gray-500 mr-1" />
-                <span className="text-sm font-medium text-gray-700">Metadata</span>
+                <Info className="h-4 w-4 text-gray-400 mr-1" />
+                <span className="text-sm font-medium text-gray-300">Metadata</span>
               </div>
               
-              <div className="grid grid-cols-2 gap-2 text-xs">
+              <div className="grid grid-cols-2 gap-2 text-xs bg-gray-800 p-2 rounded">
                 {Object.entries(memory.payload.metadata)
                   .filter(([key]) => !['suggestedTags', 'tags', 'related_versions'].includes(key))
                   .map(([key, value]) => (
                     <div key={key} className="flex">
-                      <div className="font-medium text-gray-600 mr-1">{key}:</div>
-                      <div className="text-gray-800">
+                      <div className="font-medium text-gray-400 mr-1">{key}:</div>
+                      <div className="text-gray-300">
                         {typeof value === 'object' 
                           ? JSON.stringify(value).substring(0, 50) 
                           : String(value).substring(0, 50)}
@@ -417,7 +474,7 @@ const MemoryItem: React.FC<MemoryItemProps> = ({
                 e.stopPropagation();
                 setHistoryExpanded(!historyExpanded);
               }}
-              className="flex items-center text-xs text-blue-600 hover:text-blue-800 transition-colors"
+              className="flex items-center text-xs text-blue-400 hover:text-blue-300 transition-colors"
             >
               {historyExpanded ? (
                 <>
@@ -434,108 +491,103 @@ const MemoryItem: React.FC<MemoryItemProps> = ({
             
             {/* Memory History Content */}
             {historyExpanded && (
-              <div className="mt-2 border-t border-gray-100 pt-2">
+              <div className="mt-2 border-t border-gray-700 pt-2">
                 {isLoadingHistory ? (
                   <div className="text-center py-2">
                     <RefreshCw className="h-4 w-4 animate-spin inline mr-1" />
-                    <span className="text-xs text-gray-500">Loading history...</span>
+                    <span className="text-xs text-gray-400">Loading history...</span>
                   </div>
                 ) : memoryHistory.length === 0 ? (
                   <div className="text-xs text-gray-500 italic">No version history available</div>
                 ) : (
                   <div className="space-y-2">
-                    <div className="text-xs font-medium">Version History:</div>
+                    <div className="text-xs font-medium text-gray-300">Version History:</div>
                     
                     {/* Current Version */}
-                    <div className="flex justify-between items-center p-1.5 rounded bg-blue-50 text-xs">
-                      <div className="flex items-center">
-                        <div className="font-medium text-blue-800">Current Version</div>
-                        <div className="text-gray-500 ml-2">{formatHistoryDate(currentVersion.timestamp)}</div>
+                    <div 
+                      className={`text-xs p-2 rounded ${selectedVersion?.id === currentVersion.id ? 'bg-blue-900 border border-blue-700' : 'bg-gray-800 hover:bg-gray-700 cursor-pointer border border-gray-700'}`}
+                      onClick={() => handleSelectVersion(currentVersion)}
+                    >
+                      <div className="flex justify-between mb-1">
+                        <span className="font-medium text-gray-300">Current Version</span>
+                        <span className="text-gray-400">{formatHistoryDate(currentVersion.timestamp)}</span>
                       </div>
-                      <button 
-                        className="text-blue-600 hover:text-blue-800"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleSelectVersion(currentVersion);
-                        }}
-                      >
-                        {selectedVersion?.id === currentVersion.id ? 'Hide' : 'View'}
-                      </button>
                     </div>
                     
-                    {/* Version History List */}
-                    {memoryHistory.map((historyItem, index) => (
-                      <div key={historyItem.id} className="flex justify-between items-center p-1.5 rounded bg-gray-50 text-xs">
-                        <div className="flex-1">
-                          <div className="font-medium text-gray-800">
-                            {historyItem.payload.metadata.edit_type === 'create' ? 'Created' : 
-                             historyItem.payload.metadata.edit_type === 'update' ? 'Updated' : 
-                             'Deleted'} by {historyItem.payload.metadata.editor_type || 'unknown'}
-                          </div>
-                          <div className="text-gray-500">{formatHistoryDate(historyItem.payload.timestamp)}</div>
-                          {historyItem.payload.metadata.diff_summary && (
-                            <div className="text-gray-600">{historyItem.payload.metadata.diff_summary}</div>
-                          )}
+                    {/* Previous versions */}
+                    {memoryHistory.map((historyItem) => (
+                      <div
+                        key={historyItem.id}
+                        className={`text-xs p-2 rounded ${selectedVersion?.id === historyItem.id ? 'bg-blue-900 border border-blue-700' : 'bg-gray-800 hover:bg-gray-700 cursor-pointer border border-gray-700'}`}
+                        onClick={() => handleSelectVersion({
+                          id: historyItem.id,
+                          type: historyItem.payload?.type || 'unknown',
+                          timestamp: historyItem.payload?.timestamp || '',
+                        })}
+                      >
+                        <div className="flex justify-between mb-1">
+                          <span className="font-medium text-gray-300">
+                            {historyItem.payload?.metadata?.edit_type === 'create' ? 'Created' : 
+                             historyItem.payload?.metadata?.edit_type === 'update' ? 'Updated' : 
+                             historyItem.payload?.metadata?.edit_type === 'delete' ? 'Deleted' : 
+                             'Edit'}
+                          </span>
+                          <span className="text-gray-400">{formatHistoryDate(historyItem.payload?.timestamp || '')}</span>
                         </div>
-                        {historyItem.payload.metadata.previous_version_id && (
-                          <button 
-                            className="text-blue-600 hover:text-blue-800"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              const version = {
-                                id: historyItem.payload.metadata.previous_version_id as string,
-                                type: historyItem.payload.type,
-                                timestamp: historyItem.payload.timestamp
-                              };
-                              handleSelectVersion(version);
-                            }}
-                          >
-                            {selectedVersion?.id === historyItem.payload.metadata.previous_version_id ? 'Hide' : 'View'}
-                          </button>
+                        
+                        {historyItem.payload?.metadata?.diff_summary && (
+                          <div className="text-gray-400 text-xs mt-1 italic">
+                            {historyItem.payload.metadata.diff_summary}
+                          </div>
+                        )}
+                        
+                        {historyItem.payload?.metadata?.editor_type && (
+                          <div className="text-xs text-gray-500 mt-1">
+                            By: {historyItem.payload.metadata.editor_type} 
+                            {historyItem.payload.metadata.editor_id ? ` (${historyItem.payload.metadata.editor_id})` : ''}
+                          </div>
                         )}
                       </div>
                     ))}
-                    
-                    {/* Selected Version Content */}
-                    {selectedVersion && (
-                      <div className="mt-4 p-3 border border-gray-200 rounded-md bg-gray-50">
-                        <div className="flex justify-between items-center mb-2">
-                          <div className="font-medium text-sm">
-                            Version from {formatHistoryDate(selectedVersion.timestamp)}
-                          </div>
-                          <button 
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              resetToCurrentVersion();
-                            }}
-                            className="text-xs flex items-center text-blue-600 hover:text-blue-800"
-                          >
-                            <RotateCcw className="h-3 w-3 mr-1" />
-                            Return to Current
-                          </button>
-                        </div>
-                        
-                        {isLoadingVersion ? (
-                          <div className="flex items-center justify-center py-4">
-                            <RefreshCw className="h-4 w-4 animate-spin mr-2" />
-                            <span>Loading version content...</span>
-                          </div>
-                        ) : selectedVersion.error ? (
-                          <div className="text-sm text-red-500">
-                            {selectedVersion.text || 'Error loading version'}
-                          </div>
-                        ) : (
-                          <div className="whitespace-pre-wrap text-sm">
-                            {selectedVersion.text || 'No content available for this version'}
-                          </div>
-                        )}
-                      </div>
-                    )}
                   </div>
                 )}
               </div>
             )}
           </div>
+          
+          {/* Selected Version Display */}
+          {selectedVersion && (
+            <div className="mt-4 pt-3 border-t border-gray-700">
+              <div className="flex justify-between items-center mb-2">
+                <div className="text-xs font-medium text-gray-300">
+                  {selectedVersion.id === currentVersion.id ? 'Current Version' : 'Historical Version'}
+                </div>
+                
+                <button 
+                  onClick={resetToCurrentVersion}
+                  className="flex items-center text-xs text-blue-400 hover:text-blue-300 transition-colors"
+                >
+                  <RotateCcw className="h-3 w-3 mr-1" />
+                  Back to Current
+                </button>
+              </div>
+              
+              {isLoadingVersion ? (
+                <div className="text-center py-2">
+                  <RefreshCw className="h-4 w-4 animate-spin inline mr-1" />
+                  <span className="text-xs text-gray-400">Loading version content...</span>
+                </div>
+              ) : (
+                <div className="bg-gray-950 p-3 rounded font-mono text-xs whitespace-pre-wrap text-gray-300">
+                  {selectedVersion.error ? (
+                    <div className="text-red-400">{selectedVersion.text}</div>
+                  ) : (
+                    selectedVersion.text || 'No content available'
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>

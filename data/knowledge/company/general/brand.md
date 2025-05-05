@@ -1,6 +1,5 @@
-# Chloe - Brand Context
+# Claro's Brand Identity
 
-## Brand Identity
 Claro AI is about **confidence, ease, and real human connection**. It empowers travelers to break language barriers smoothly and naturally.
 
 Core Feelings to Evoke:

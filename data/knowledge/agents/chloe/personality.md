@@ -1,4 +1,4 @@
-# Chloe - Personality
+# Chloe's Personality
 
 Chloe is Claro's energetic, fun, and sharp Chief Marketing Officer (CMO).  
 She acts as a trusted growth partner, blending creativity with strategic focus.

@@ -438,18 +438,15 @@ export async function processMarkdownFile(memoryManager: any, filePath: string):
     const content = await fs.readFile(filePath, 'utf8');
     
     // Extract title and headings
-    const title = extractTitle(content, filePath);
     const headings = extractHeadings(content);
     
     // Extract tags using traditional methods
-    const titleTags = extractKeywordsFromText(title);
     const headingTags = headings.flatMap(heading => extractKeywordsFromText(heading));
     const explicitTags = extractTags(content);
     const standardTags = getStandardTagsFromPath(filePath);
     
     // Combine all tags from traditional methods - already normalized by their respective functions
     const traditionalTags = Array.from(new Set([
-      ...titleTags,
       ...headingTags,
       ...explicitTags,
       ...standardTags
@@ -495,7 +492,6 @@ export async function processMarkdownFile(memoryManager: any, filePath: string):
     
     // Log detailed tag extraction info for debugging
     logger.debug(`Tag extraction for ${filePath}:`, {
-      titleTags,
       headingTags,
       explicitTags,
       standardTags,
@@ -527,7 +523,6 @@ export async function processMarkdownFile(memoryManager: any, filePath: string):
         source: "markdown",
         critical: true,
         importance: 1.0,      // Explicit numeric importance
-        title: title,
         contentType: 'markdown',
         extractedFrom: filePath,
         lastModified: new Date().toISOString(),
@@ -539,12 +534,11 @@ export async function processMarkdownFile(memoryManager: any, filePath: string):
     // Update the file modification cache
     updateFileModCache(filePath, [result.id]);
     
-    logger.info(`Processed markdown file "${title}" with ${finalTags.length} tags as ${memoryType}`);
+    logger.info(`Processed markdown file "${filePath}" with ${finalTags.length} tags as ${memoryType}`);
     
     return {
       success: true,
       memoryId: result.id,
-      title,
       type: memoryType,
       tags: finalTags
     };
