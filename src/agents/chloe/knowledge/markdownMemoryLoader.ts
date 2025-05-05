@@ -3,14 +3,19 @@ import fsSync from 'fs';
 import path from 'path';
 import { glob } from 'glob';
 import matter from 'gray-matter';
-import * as memory from '../../../server/qdrant';
-import { ImportanceLevel, MemorySource, ChloeMemoryType } from '../../../constants/memory';
+import { ImportanceLevel, MemorySource } from '../../../constants/memory';
+import { MemoryType as StandardMemoryType } from '../../../server/memory/config';
 import { logger } from '../../../lib/logging';
 import { ImportanceCalculator } from '../../../lib/memory/ImportanceCalculator';
 import { TagExtractor, Tag, TagAlgorithm } from '../../../lib/memory/TagExtractor';
 
-// Import the constants for memory types
-import { MEMORY_TYPES } from '../../../constants/qdrant';
+// Define memory types constants to replace the import from qdrant
+const MEMORY_TYPES = {
+  DOCUMENT: 'document',
+  MESSAGE: 'message',
+  THOUGHT: 'thought',
+  TASK: 'task'
+};
 
 // Cache to store file modification times and memory IDs
 let fileModCache = new Map<string, { lastModified: number, memoryIds: string[] }>();
@@ -336,30 +341,31 @@ function getStandardTagsFromPath(filePath: string): string[] {
 }
 
 /**
- * Determine memory type based on file path
- * @param filePath Path to markdown file
- * @returns Appropriate ChloeMemoryType
+ * Determine the appropriate memory type based on file path
+ * @param filePath Path to the markdown file
+ * @returns Appropriate StandardMemoryType
  */
-function determineMemoryType(filePath: string): ChloeMemoryType {
-  const normalizedPath = filePath.replace(/\\/g, '/').toLowerCase();
+function determineMemoryType(filePath: string): string {
+  const lowerPath = filePath.toLowerCase();
   
-  if (normalizedPath.includes('strategy') || normalizedPath.includes('roadmap')) {
-    return ChloeMemoryType.STRATEGY;
+  // Check for specific directories or patterns
+  if (lowerPath.includes('/strategy/') || lowerPath.includes('strategy_')) {
+    return 'strategy';
   }
   
-  if (normalizedPath.includes('persona') || normalizedPath.includes('brand')) {
-    return ChloeMemoryType.PERSONA;
+  if (lowerPath.includes('/persona/') || lowerPath.includes('persona_')) {
+    return 'persona';
   }
   
-  if (normalizedPath.includes('vision') || normalizedPath.includes('mission')) {
-    return ChloeMemoryType.VISION;
+  if (lowerPath.includes('/vision/') || lowerPath.includes('vision_')) {
+    return 'vision';
   }
   
-  if (normalizedPath.includes('process') || normalizedPath.includes('workflow')) {
-    return ChloeMemoryType.PROCESS;
+  if (lowerPath.includes('/process/') || lowerPath.includes('process_')) {
+    return 'process';
   }
   
-  return ChloeMemoryType.KNOWLEDGE;
+  return StandardMemoryType.DOCUMENT;
 }
 
 /**
@@ -724,7 +730,7 @@ export async function markdownToMemoryEntries(filePath: string, content: string)
   const importanceScore = ImportanceCalculator.calculateImportanceScore({
     content: markdownContent,
     source: MemorySource.FILE,
-    type: ChloeMemoryType.KNOWLEDGE,
+    type: StandardMemoryType.DOCUMENT,
     tags: extractedTags,
     tagConfidence: 0.9, // High confidence for markdown files
     metadata: standardMetadata
@@ -735,7 +741,7 @@ export async function markdownToMemoryEntries(filePath: string, content: string)
     return [{
       title,
       content: markdownContent,
-      type: ChloeMemoryType.KNOWLEDGE,
+      type: StandardMemoryType.DOCUMENT,
       tags: allTagStrings,
       importance: ImportanceLevel.CRITICAL, // Markdown is always critical
       importance_score: importanceScore,
@@ -773,7 +779,7 @@ export async function markdownToMemoryEntries(filePath: string, content: string)
     const chunkImportanceScore = ImportanceCalculator.calculateImportanceScore({
       content: chunk,
       source: MemorySource.FILE,
-      type: ChloeMemoryType.KNOWLEDGE,
+      type: StandardMemoryType.DOCUMENT,
       tags: mergedTagsArray,
       tagConfidence: 0.85,
       metadata: standardMetadata
@@ -782,7 +788,7 @@ export async function markdownToMemoryEntries(filePath: string, content: string)
     return {
       title: `${title} (Part ${index + 1})`,
       content: chunk,
-      type: ChloeMemoryType.KNOWLEDGE,
+      type: StandardMemoryType.DOCUMENT,
       tags: stringTags,
       importance: ImportanceLevel.CRITICAL,
       importance_score: chunkImportanceScore,

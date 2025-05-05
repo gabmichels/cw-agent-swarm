@@ -5,7 +5,8 @@ import type { ChloeMemory } from './memory';
 import type { SimpleTool } from '../../lib/shared/types/agent';
 import { ChatOpenAI } from '@langchain/openai';
 import { TaskLogger } from './task-logger';
-import { ImportanceLevel, MemorySource, ChloeMemoryType } from '../../constants/memory';
+import { ImportanceLevel, MemorySource } from '../../constants/memory';
+import { MemoryType as StandardMemoryType } from '../../server/memory/config';
 
 /**
  * Options for the plan and execute functionality
@@ -118,7 +119,7 @@ export async function planAndExecute(
     // Add plan to memory
     await memory.addMemory(
       `Goal: ${options.goalPrompt}`,
-      ChloeMemoryType.PLAN,
+      StandardMemoryType.DOCUMENT,
       ImportanceLevel.HIGH,
       MemorySource.AGENT,
       'Plan and execute workflow',
@@ -141,7 +142,7 @@ export async function planAndExecute(
     if (result.finalResult) {
       await memory.addMemory(
         result.finalResult,
-        ChloeMemoryType.EXECUTION_RESULT,
+        StandardMemoryType.DOCUMENT,
         ImportanceLevel.HIGH,
         MemorySource.AGENT,
         `Goal: ${options.goalPrompt}`,

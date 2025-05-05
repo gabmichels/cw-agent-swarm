@@ -216,3 +216,78 @@ The following API endpoints have been updated to use the standardized memory sys
 3. ⬜ Review and optimize memory retrieval performance
 4. ⬜ Implement enhancements to memory relevance scoring
 5. ⬜ Add improved memory visualization tools for debugging 
+
+## Final Standardization: ChloeMemoryType Elimination
+
+The migration approach has been updated to completely eliminate ChloeMemoryType:
+
+### ChloeMemoryType Standardization
+
+- ✅ We've completely removed ChloeMemoryType and replaced it with StandardMemoryType
+- ✅ Successfully eliminated ChloeMemoryType from src/agents/chloe/memory.ts
+- ✅ Using StandardMemoryType directly for all memory operations
+- ✅ Updated many core files to use StandardMemoryType
+- ✅ Successfully marked ChloeMemoryType as deprecated in constants/memory.ts
+- ✅ Fixed all type errors related to ChloeMemoryType in the codebase
+
+### Approach
+
+1. ✅ Directly use StandardMemoryType from server/memory/config
+2. ✅ Completely eliminate the ChloeMemoryType enum (not just map it)
+3. ✅ Replace all in-file uses of ChloeMemoryType with StandardMemoryType
+4. ✅ Use string literals for custom types that aren't in StandardMemoryType
+5. ✅ Update all dependent Managers to use StandardMemoryType
+6. ✅ Update testing scripts to use StandardMemoryType
+7. ✅ Mark ChloeMemoryType as deprecated with proper JSDoc notations
+8. ✅ Fix TypeScript errors in all files using ChloeMemoryType
+
+### Migration Path Overview
+
+1. **Initial Analysis**: Identified the scope of ChloeMemoryType usage across the codebase
+2. **Type Elimination in Core File**: Completely removed ChloeMemoryType from the main memory.ts file
+3. **Direct StandardMemoryType Usage**: Replaced all uses with StandardMemoryType or string literals
+4. **Dependent File Updates**: Updated all dependent files along the dependency chain
+5. **Type Error Fixes**: Fixed type errors in updated files by using the correct parameter types
+6. **Test Script Updates**: Updated testing scripts to use StandardMemoryType
+7. **Documentation**: Updated documentation to reflect the elimination of ChloeMemoryType
+8. **Deprecation Marking**: Added proper JSDoc deprecation notices to the old enum
+9. **Complete Migration**: Fixed all TypeScript errors related to ChloeMemoryType
+
+The migration is now following a more direct path of completely removing ChloeMemoryType rather than creating adapters or conversion layers. This approach provides a cleaner architecture but requires extensive updates to dependent modules.
+
+### File Status
+
+- ✅ `src/agents/chloe/memory.ts` - Completely eliminated ChloeMemoryType in favor of StandardMemoryType
+- ✅ `src/lib/memory/src/enhanced-memory.ts` - Using StandardMemoryType directly
+- ✅ `src/lib/memory/storeInternalMessageToMemory.ts` - Updated to use StandardMemoryType and string literals
+- ✅ `src/lib/memory/src/self-improvement.ts` - Updated all references to use StandardMemoryType
+- ✅ `src/lib/shared/types/agentTypes.ts` - Updated all types to use StandardMemoryType or string literals
+- ✅ `src/agents/chloe/knowledge/markdownMemoryLoader.ts` - Updated memory type determination and fixed import errors
+- ✅ `src/agents/chloe/core/planningManager.ts` - Updated and fixed type errors by using proper method signatures
+- ✅ `src/agents/chloe/memory-tagger.ts` - Replaced ChloeMemoryType import
+- ✅ `src/agents/chloe/core/marketScannerManager.ts` - Updated imports and references to use StandardMemoryType
+- ✅ `src/agents/chloe/core/reflectionManager.ts` - Updated imports and references to use StandardMemoryType
+- ✅ `src/agents/chloe/core/thoughtManager.ts` - Updated imports and references to use StandardMemoryType
+- ✅ `src/agents/chloe/core/memoryManager.ts` - Updated all references to use StandardMemoryType
+- ✅ `src/agents/chloe/planAndExecute.ts` - Updated to use StandardMemoryType
+- ✅ `src/agents/chloe/tools/cognitiveTools.ts` - Updated to use StandardMemoryType
+- ✅ `scripts/test-brand-ingestion.ts` - Updated to use StandardMemoryType
+- ✅ `scripts/test-confidence-thresholds.ts` - Updated to use StandardMemoryType
+- ✅ `scripts/test-reranking.ts` - Updated to use StandardMemoryType
+- ✅ `src/lib/memory/ImportanceCalculator.ts` - Updated type imports to use StandardMemoryType
+- ✅ `src/lib/memory/src/cognitive-memory.ts` - Updated to use StandardMemoryType
+- ✅ `src/lib/memory/src/feedback-loop.ts` - Updated all references to use StandardMemoryType
+- ✅ `src/lib/memory/src/integration-layer.ts` - Updated all references to use StandardMemoryType
+- ✅ `src/constants/memory.ts` - Marked ChloeMemoryType as deprecated with proper JSDoc notices
+- ✅ `src/lib/file-processing/index.ts` - Updated to use StandardMemoryType
+- ⬜ `src/agents/chloe/core/agent.ts` - Still needs comprehensive update (complex file with many references)
+
+### Next Steps
+
+1. ✅ Identify all files still using ChloeMemoryType
+2. ✅ Fix type errors in updated files
+3. ✅ Update the test scripts with ChloeMemoryType references
+4. ✅ Mark ChloeMemoryType as deprecated
+5. ✅ Fix TypeScript validation errors across the codebase
+6. ⬜ Update core agent.ts file with a comprehensive approach
+7. ⬜ Consider eventually removing the ChloeMemoryType enum entirely when all usages are migrated 

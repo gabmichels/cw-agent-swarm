@@ -1,7 +1,8 @@
 import { ChatOpenAI } from '@langchain/openai';
 import { ChatPromptTemplate } from '@langchain/core/prompts';
-import { ChloeMemory, ChloeMemoryType } from './memory';
+import { ChloeMemory } from './memory';
 import { ImportanceLevel, MemorySource } from '../../constants/memory';
+import { MemoryType as StandardMemoryType } from '../../server/memory/config';
 
 /**
  * Sentiment values for memory entries

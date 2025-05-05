@@ -5,7 +5,7 @@
 
 import { MessageType } from '../../constants/message';
 import { ImportanceLevel, MemorySource } from '../../constants/memory';
-import { ChloeMemoryType } from '../../constants/memory';
+import { MemoryType as StandardMemoryType } from '../../server/memory/config';
 
 /**
  * Store an internal message to memory with proper tagging
@@ -31,27 +31,27 @@ export async function storeInternalMessageToMemory(
   let source = metadata.source || MemorySource.AGENT;
   
   // Map message type to memory type
-  let memoryType: ChloeMemoryType;
+  let memoryType: string;
   switch (type) {
     case MessageType.THOUGHT:
-      memoryType = ChloeMemoryType.THOUGHT;
+      memoryType = StandardMemoryType.THOUGHT;
       break;
     case MessageType.REFLECTION:
-      memoryType = ChloeMemoryType.REFLECTION;
+      memoryType = 'reflection';
       importance = metadata.importance || ImportanceLevel.HIGH; // Reflections are high importance by default
       break;
     case MessageType.SYSTEM:
-      memoryType = ChloeMemoryType.SYSTEM;
+      memoryType = 'system';
       source = MemorySource.SYSTEM;
       break;
     case MessageType.TOOL_LOG:
-      memoryType = ChloeMemoryType.TOOL_LOG;
+      memoryType = 'tool';
       break;
     case MessageType.MEMORY_LOG:
-      memoryType = ChloeMemoryType.MEMORY_LOG;
+      memoryType = 'memory_log';
       break;
     default:
-      memoryType = ChloeMemoryType.THOUGHT;
+      memoryType = StandardMemoryType.THOUGHT;
   }
 
   // Add additional metadata

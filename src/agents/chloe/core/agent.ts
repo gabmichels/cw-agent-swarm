@@ -21,13 +21,14 @@ import {
 } from '../../../lib/shared/types/agentTypes';
 import { IManager } from '../../../lib/shared/types/manager'; // Assuming IManager exists
 import { createChloeTools } from '../tools';
-import { ImportanceLevel, MemorySource, MemoryType, ChloeMemoryType } from '../../../constants/memory';
+import { ImportanceLevel, MemorySource } from '../../../constants/memory';
+import { MemoryType as StandardMemoryType } from '../../../server/memory/config/types';
 import { PerformanceReviewType } from '../../../constants/reflection';
 
 // Import all the managers
 import { MemoryManager } from './memoryManager';
 import { ToolManager } from './toolManager';
-import { PlanningManager, ExecutionResult, PlanWithSteps } from './planningManager';
+import { PlanningManager } from './planningManager';
 import { ReflectionManager } from './reflectionManager';
 import { ThoughtManager } from './thoughtManager';
 import { MarketScannerManager } from './marketScannerManager';
@@ -415,7 +416,7 @@ export class ChloeAgent implements IAgent {
       // Store the user message in memory with the determined importance
       await memoryManager.addMemory(
         `USER MESSAGE [${new Date().toISOString()}]: ${message}`,
-        ChloeMemoryType.MESSAGE,
+        StandardMemoryType.MESSAGE,
         messageImportance,
         MemorySource.USER,
         `From user: ${options.userId}`,
@@ -526,7 +527,7 @@ Please continue with the next section whenever you're ready, and I'll maintain t
       // STEP 3: Get relevant memory context using enhanced retrieval with reranking
       // If this is part of a thread, include thread-related memories
       const memorySearchOptions: {
-        types?: string[];
+        types?: StandardMemoryType[];
         debug?: boolean;
         returnScores?: boolean;
         requireConfidence?: boolean;
@@ -559,9 +560,9 @@ Please continue with the next section whenever you're ready, and I'll maintain t
       // For company information queries, use specific memory types and require confidence
       if (isCompanyInfoQuery) {
         memorySearchOptions.types = [
-          ChloeMemoryType.STRATEGY, 
-          ChloeMemoryType.PERSONA, 
-          ChloeMemoryType.VISION
+          StandardMemoryType.DOCUMENT, // Strategy content as documents
+          StandardMemoryType.DOCUMENT, // Persona content as documents
+          StandardMemoryType.DOCUMENT  // Vision content as documents
         ];
         memorySearchOptions.requireConfidence = true;
         
@@ -672,7 +673,7 @@ Please continue with the next section whenever you're ready, and I'll maintain t
       // Store the complete reasoning trace for debugging/analytics
       await memoryManager.addMemory(
         `REASONING TRAIL [${new Date().toISOString()}]: ${JSON.stringify(reasoningTrail)}`,
-        ChloeMemoryType.THOUGHT,
+        StandardMemoryType.THOUGHT,
         ImportanceLevel.LOW,
         MemorySource.AGENT,
         'reasoning_trace'
@@ -682,7 +683,7 @@ Please continue with the next section whenever you're ready, and I'll maintain t
       // "MESSAGE [timestamp]: content"
       await memoryManager.addMemory(
         `MESSAGE [${new Date().toISOString()}]: ${responseText}`,
-        ChloeMemoryType.MESSAGE,
+        StandardMemoryType.MESSAGE,
         ImportanceLevel.MEDIUM,
         MemorySource.AGENT,
         `Response to: ${message.substring(0, 50)}...`
@@ -1076,7 +1077,7 @@ I don't have enough information about Claro's brand identity. I should ask for c
         throw new Error('ChloeMemory not available');
       }
       const memories = await chloeMemory.getMemoriesByDateRange(
-        MemoryType.MESSAGE,
+        StandardMemoryType.MESSAGE,
         oneDayAgo,
         new Date()
       );

@@ -9,6 +9,8 @@ import { MemoryType as StandardMemoryType } from '../server/memory/config';
 
 /**
  * Base memory types - aligned with standard memory types
+ * 
+ * @deprecated Use StandardMemoryType directly from server/memory/config
  */
 export enum MemoryType {
   MESSAGE = 'message',
@@ -19,13 +21,18 @@ export enum MemoryType {
 
 /**
  * Extended memory types specific to Chloe
+ * 
+ * @deprecated This enum is being phased out in favor of StandardMemoryType.
+ * Use StandardMemoryType for standard types, and string literals for custom types.
+ * Import from: import { MemoryType } from '../server/memory/config';
  */
 export enum ChloeMemoryType {
-  // Base types
+  // Base types - directly use StandardMemoryType values
   MESSAGE = StandardMemoryType.MESSAGE,
   THOUGHT = StandardMemoryType.THOUGHT,
   DOCUMENT = StandardMemoryType.DOCUMENT,
   TASK = StandardMemoryType.TASK,
+  MEMORY_EDIT = StandardMemoryType.MEMORY_EDIT,
   
   // Extended types
   INSIGHT = 'insight',

@@ -1,7 +1,10 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { v4 as uuidv4 } from 'uuid';
+import axios from 'axios';
+import sharp from 'sharp';
 import { EnhancedMemory } from '../memory/src/enhanced-memory';
-import { ChloeMemoryType } from '@/constants/memory';
+import { MemoryType as StandardMemoryType } from '../../server/memory/config';
 
 // Define types for the libraries
 interface PdfParse {
@@ -109,8 +112,8 @@ export interface FileProcessingOptions {
   summarize?: boolean;
 }
 
-// Store file metadata in a local JSON file
-const FILE_METADATA_DIR = path.join(process.cwd(), 'data', 'files');
+// Path to store file metadata
+const FILE_METADATA_DIR = path.join(process.cwd(), 'data');
 const FILE_METADATA_PATH = path.join(FILE_METADATA_DIR, 'file_metadata.json');
 
 /**
@@ -636,7 +639,7 @@ export class FileProcessor {
           tags: metadata.tags || [],
           page: chunk.metadata.page // Add page number if available
         },
-        ChloeMemoryType.DOCUMENT
+        StandardMemoryType.DOCUMENT
       );
     }
     await this.enhancedMemory.addMemory(
@@ -653,7 +656,7 @@ export class FileProcessor {
         tags: metadata.tags || [],
         extractedMetadata: metadata.extractedMetadata // Include extracted metadata here too
       },
-      ChloeMemoryType.DOCUMENT
+      StandardMemoryType.DOCUMENT
     );
   }
 

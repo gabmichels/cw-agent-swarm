@@ -8,9 +8,9 @@ import { logger } from '../../../lib/logging';
 import { 
   ImportanceLevel, 
   MemoryType, 
-  MemorySource, 
-  ChloeMemoryType 
+  MemorySource
 } from '../../../constants/memory';
+import { MemoryType as StandardMemoryType } from '../../../server/memory/config';
 import { MemoryEntry } from '../memory';
 import { MarketScannerConfig, TrendParsingPatterns, Templates } from './marketScanner.config';
 
@@ -215,8 +215,8 @@ export class MarketScannerManager implements IManager {
       // Process and store the results
       await this.memory.addMemory(
         `Market Scan Results for "${query}": ${scanResults.substring(0, this.config.limits.textPreviewLength)}...`,
-        ChloeMemoryType.DOCUMENT,
-        this.config.importance.marketScan,
+        StandardMemoryType.DOCUMENT,
+        ImportanceLevel.HIGH,
         MemorySource.SYSTEM,
         undefined,
         tags
@@ -283,9 +283,9 @@ export class MarketScannerManager implements IManager {
         const newMemoryEntry: MemoryEntry = {
           id: `scan-${Date.now()}`,
           content: newScanResults,
-          category: ChloeMemoryType.DOCUMENT,
-          importance: this.config.importance.marketScan,
-          source: MemorySource.AGENT,
+          category: StandardMemoryType.DOCUMENT,
+          importance: ImportanceLevel.HIGH,
+          source: MemorySource.SYSTEM,
           created: new Date(),
           type: 'document'
         };
@@ -307,9 +307,9 @@ export class MarketScannerManager implements IManager {
       // Store the trend summary in memory
       await this.memory.addMemory(
         `Trend Summary: ${trendSummary.substring(0, this.config.limits.textPreviewLength)}...`,
-        ChloeMemoryType.DOCUMENT,
-        this.config.importance.trendSummary,
-        MemorySource.AGENT,
+        StandardMemoryType.DOCUMENT,
+        ImportanceLevel.HIGH,
+        MemorySource.SYSTEM,
         undefined,
         this.config.tags.trendSummary
       );
@@ -432,8 +432,8 @@ export class MarketScannerManager implements IManager {
       // Also add to normal memory with high importance
       await this.memory.addMemory(
         `Strategic Insight: ${insight}`,
-        ChloeMemoryType.STRATEGIC_INSIGHT,
-        this.config.importance.strategicInsight,
+        StandardMemoryType.DOCUMENT,
+        ImportanceLevel.CRITICAL,
         MemorySource.SYSTEM,
         `Category: ${category}`,
         tags

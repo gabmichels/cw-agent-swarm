@@ -9,7 +9,7 @@
 
 import { ChloeMemory } from '../src/agents/chloe/memory';
 import * as qdrant from '../src/server/qdrant';
-import { ChloeMemoryType } from '../src/constants/memory';
+import { MemoryType as StandardMemoryType } from '../src/server/memory/config';
 
 async function main() {
   try {
@@ -63,7 +63,7 @@ async function main() {
         15,
         3,
         {
-          types: [ChloeMemoryType.STRATEGY, ChloeMemoryType.PERSONA, ChloeMemoryType.VISION],
+          types: [StandardMemoryType.DOCUMENT, StandardMemoryType.DOCUMENT, StandardMemoryType.DOCUMENT], // Document type for all strategy, persona, vision content
           debug: true,
           confidenceThreshold: test.confidenceThreshold,
           validateContent: true
@@ -93,7 +93,7 @@ async function main() {
       const resultsWithoutConfidence = await memory.getRelevantMemories(
         test.query,
         3,
-        [ChloeMemoryType.STRATEGY, ChloeMemoryType.PERSONA, ChloeMemoryType.VISION]
+        [StandardMemoryType.DOCUMENT, StandardMemoryType.DOCUMENT, StandardMemoryType.DOCUMENT] // Document type for all strategy, persona, vision content
       );
       
       console.log(`Found ${resultsWithoutConfidence.length} results`);
@@ -119,7 +119,7 @@ async function main() {
         15,
         3,
         {
-          types: [ChloeMemoryType.STRATEGY, ChloeMemoryType.PERSONA, ChloeMemoryType.VISION],
+          types: [StandardMemoryType.DOCUMENT, StandardMemoryType.DOCUMENT, StandardMemoryType.DOCUMENT], // Document type for all strategy, persona, vision content
           debug: true,
           confidenceThreshold: threshold,
           validateContent: true

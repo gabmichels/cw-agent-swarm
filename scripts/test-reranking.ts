@@ -9,7 +9,7 @@
 
 import { ChloeMemory } from '../src/agents/chloe/memory';
 import * as qdrant from '../src/server/qdrant';
-import { ChloeMemoryType } from '../src/constants/memory';
+import { MemoryType as StandardMemoryType } from '../src/server/memory/config';
 
 async function main() {
   try {
@@ -53,13 +53,13 @@ async function main() {
       }
       
       // Test with specific types
-      console.log('\n🔹 Regular retrieval with STRATEGY type:');
+      console.log('\n🔹 Regular retrieval with DOCUMENT type:');
       const typedResults = await memory.getRelevantMemories(
         query, 
         5, 
-        [ChloeMemoryType.STRATEGY]
+        [StandardMemoryType.DOCUMENT]
       );
-      console.log(`Found ${typedResults.length} results with STRATEGY type`);
+      console.log(`Found ${typedResults.length} results with DOCUMENT type`);
       
       if (typedResults.length > 0) {
         typedResults.forEach((result, i) => {

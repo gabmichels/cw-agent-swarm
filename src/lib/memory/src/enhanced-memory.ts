@@ -1,27 +1,8 @@
 import { DateTime } from 'luxon';
-import { ImportanceLevel, ChloeMemoryType } from '../../../constants/memory';
+import { ImportanceLevel } from '../../../constants/memory';
 import { RelationshipType } from '../../../constants/relationship';
 import { ExtendedMemorySource, MemoryType } from '../../../server/memory/config';
 import { getMemoryServices } from '../../../server/memory/services';
-
-/**
- * Convert ChloeMemoryType enum to MemoryType enum
- */
-function memoryTypeToStandard(type: ChloeMemoryType): MemoryType {
-  switch (type) {
-    case ChloeMemoryType.MESSAGE:
-      return MemoryType.MESSAGE;
-    case ChloeMemoryType.THOUGHT:
-      return MemoryType.THOUGHT;
-    case ChloeMemoryType.DOCUMENT:
-      return MemoryType.DOCUMENT;
-    case ChloeMemoryType.TASK:
-      return MemoryType.TASK;
-    default:
-      // Default to DOCUMENT for types not directly supported
-      return MemoryType.DOCUMENT;
-  }
-}
 
 /**
  * Enhanced Memory System
@@ -39,7 +20,7 @@ export interface MemoryEntry {
   content: string;
   created: Date;
   timestamp?: string;
-  type?: ChloeMemoryType;
+  type?: MemoryType;
   category: string;
   source: ExtendedMemorySource;
   importance: ImportanceLevel;
@@ -58,7 +39,7 @@ export interface MemoryEntry {
 export interface MemorySearchOptions {
   limit?: number;
   filter?: Record<string, any>;
-  type?: ChloeMemoryType;
+  type?: MemoryType;
   startDate?: Date;
   endDate?: Date;
 }
@@ -161,7 +142,7 @@ export class EnhancedMemory {
   async addMemory(
     content: string,
     metadata: Record<string, any> = {},
-    type: ChloeMemoryType = ChloeMemoryType.DOCUMENT
+    type: MemoryType = MemoryType.DOCUMENT
   ): Promise<string> {
     try {
       if (!this.isInitialized || !this.memoryService) {
@@ -174,7 +155,7 @@ export class EnhancedMemory {
       }
       
       // Extract dates from content if relevant
-      if (type === ChloeMemoryType.TASK && !metadata.deadline) {
+      if (type === MemoryType.TASK && !metadata.deadline) {
         const extractedDate = this.extractDateFromText(content);
         if (extractedDate) {
           metadata.deadline = extractedDate.toISOString();
@@ -187,9 +168,9 @@ export class EnhancedMemory {
       metadata.usageCount = 0;
       metadata.lastAccessed = new Date().toISOString();
       
-      // Use the standardized memory service
+      // Use the standardized memory service directly with the standard type
       const result = await this.memoryService.addMemory({
-        type: memoryTypeToStandard(type),
+        type,
         content,
         metadata
       });
@@ -207,7 +188,7 @@ export class EnhancedMemory {
   async getRelevantMemories(
     query: string,
     limit: number = 5,
-    types: ChloeMemoryType[] = [ChloeMemoryType.DOCUMENT, ChloeMemoryType.THOUGHT]
+    types: MemoryType[] = [MemoryType.DOCUMENT, MemoryType.THOUGHT]
   ): Promise<string[]> {
     try {
       if (!this.isInitialized || !this.searchService) {
@@ -218,9 +199,8 @@ export class EnhancedMemory {
       const allResults: Array<any> = [];
       
       for (const type of types) {
-        const standardType = memoryTypeToStandard(type);
         const results = await this.searchService.search(query, { 
-          types: [standardType],
+          types: [type],
           limit
         });
         
@@ -280,7 +260,7 @@ export class EnhancedMemory {
           importance: 'medium',
           category: 'learning'
         },
-        ChloeMemoryType.DOCUMENT
+        MemoryType.DOCUMENT
       );
     } catch (error) {
       console.error('Error storing intent pattern:', error);
@@ -432,7 +412,7 @@ export class EnhancedMemory {
           category: 'system',
           content_type: 'json'
         },
-        ChloeMemoryType.DOCUMENT
+        MemoryType.DOCUMENT
       );
     } catch (error) {
       console.error('Error saving intent patterns:', error);
@@ -452,7 +432,7 @@ export class EnhancedMemory {
       const results = await this.searchService.search(
         'Intent patterns database', 
         {
-          types: [memoryTypeToStandard(ChloeMemoryType.DOCUMENT)],
+          types: [MemoryType.DOCUMENT],
           limit: 1,
           filter: {
             must: [

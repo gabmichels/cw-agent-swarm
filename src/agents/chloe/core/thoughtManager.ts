@@ -3,7 +3,8 @@ import { ChloeMemory } from '../memory';
 import { TaskLogger } from '../task-logger';
 import { IManager, BaseManagerOptions } from '../../../lib/shared/types/agentTypes';
 import { logger } from '../../../lib/logging';
-import { ImportanceLevel, MemorySource, ChloeMemoryType } from '../../../constants/memory';
+import { ImportanceLevel, MemorySource } from '../../../constants/memory';
+import { MemoryType as StandardMemoryType } from '../../../server/memory/config';
 
 /**
  * Options for initializing the thought manager
@@ -115,7 +116,7 @@ export class ThoughtManager implements IManager {
       // Asynchronously add to memory without waiting
       this.memory.addMemory(
         formattedThought,
-        ChloeMemoryType.THOUGHT,
+        StandardMemoryType.THOUGHT,
         importance,
         MemorySource.AGENT,
         category
@@ -183,7 +184,7 @@ My detailed reasoning:`;
       // Store the reasoning in memory
       await this.memory.addMemory(
         `Reasoning trail for "${question}": ${reasoning.substring(0, 200)}...`,
-        ChloeMemoryType.THOUGHT, // Change from 'reasoning' to valid ChloeMemoryType
+        StandardMemoryType.THOUGHT, // Change from 'reasoning' to valid ChloeMemoryType
         ImportanceLevel.MEDIUM,
         MemorySource.AGENT,
         'reasoning' // Pass 'reasoning' as the context

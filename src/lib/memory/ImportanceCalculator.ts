@@ -1,4 +1,5 @@
-import { ImportanceLevel, MemorySource, ChloeMemoryType } from '../../constants/memory';
+import { ImportanceLevel, MemorySource } from '../../constants/memory';
+import { MemoryType as StandardMemoryType } from '../../server/memory/config';
 import { TagExtractor, Tag } from './TagExtractor';
 
 /**
@@ -7,7 +8,7 @@ import { TagExtractor, Tag } from './TagExtractor';
 export interface ImportanceMetadata {
   content: string;
   source?: MemorySource;
-  type?: string | ChloeMemoryType;
+  type?: string | StandardMemoryType;
   tags?: string[] | Tag[];
   tagConfidence?: number;
   embedding?: number[];

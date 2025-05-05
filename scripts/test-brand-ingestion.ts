@@ -9,7 +9,7 @@
 
 import { ChloeMemory } from '../src/agents/chloe/memory';
 import * as qdrant from '../src/server/qdrant';
-import { ChloeMemoryType } from '../src/constants/memory';
+import { MemoryType as StandardMemoryType } from '../src/server/memory/config';
 
 async function main() {
   try {
@@ -108,12 +108,12 @@ async function main() {
       {
         limit: 30,
         filter: {
-          type: ChloeMemoryType.STRATEGY
+          type: StandardMemoryType.DOCUMENT
         }
       }
     );
     
-    console.log(`Found ${strategyResults.length} entries with STRATEGY type`);
+    console.log(`Found ${strategyResults.length} entries with DOCUMENT type`);
     
     if (strategyResults.length > 0) {
       const filePaths = new Set<string>();
@@ -144,7 +144,7 @@ async function main() {
       const results = await memory.getRelevantMemories(
         query, 
         3, 
-        [ChloeMemoryType.STRATEGY]
+        [StandardMemoryType.DOCUMENT]
       );
       
       console.log(`Found ${results.length} results`);

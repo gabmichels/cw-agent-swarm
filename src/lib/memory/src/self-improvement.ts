@@ -4,7 +4,7 @@ import { FeedbackLoopSystem } from './feedback-loop';
 import { EnhancedMemory } from './enhanced-memory';
 import { IntegrationLayer } from './integration-layer';
 import { ReviewPeriod } from '../../../constants/review';
-import { ChloeMemoryType } from '../../../constants/memory';
+import { MemoryType as StandardMemoryType } from '../../../server/memory/config';
 
 /**
  * Self-Improvement Mechanism
@@ -183,7 +183,7 @@ export class SelfImprovementMechanism {
           category: 'system_learning',
           created: new Date().toISOString()
         },
-        ChloeMemoryType.DOCUMENT
+        StandardMemoryType.DOCUMENT
       );
       
       // If task failed, try to learn from it
@@ -258,7 +258,7 @@ export class SelfImprovementMechanism {
           isInternalReflection: true, // Flag to mark this as not intended for chat display
           notForChat: true // Additional flag to reinforce that this should not appear in chat
         },
-        ChloeMemoryType.THOUGHT // Use ChloeMemoryType.THOUGHT instead of string literal
+        StandardMemoryType.THOUGHT // Use StandardMemoryType.THOUGHT instead of string literal
       );
       
       // Log that this is an internal reflection, not a chat message
@@ -638,7 +638,7 @@ export class SelfImprovementMechanism {
                 category: 'system_learning',
                 created: new Date().toISOString()
               },
-              ChloeMemoryType.DOCUMENT
+              StandardMemoryType.DOCUMENT
             );
           }
         }
@@ -668,7 +668,7 @@ export class SelfImprovementMechanism {
           category: 'system_learning',
           created: new Date().toISOString()
         },
-        ChloeMemoryType.DOCUMENT
+        StandardMemoryType.DOCUMENT
       );
     } catch (error) {
       console.error('Error investigating intent failures:', error);
@@ -743,7 +743,7 @@ export class SelfImprovementMechanism {
               created: new Date().toISOString(),
               taskType
             },
-            ChloeMemoryType.DOCUMENT
+            StandardMemoryType.DOCUMENT
           );
         }
       }
@@ -775,7 +775,7 @@ export class SelfImprovementMechanism {
           taskType: taskLog.taskType,
           errorMessage: taskLog.errorMessage
         },
-        ChloeMemoryType.DOCUMENT
+        StandardMemoryType.DOCUMENT
       );
     } catch (error) {
       console.error('Error learning from failure:', error);

@@ -2,7 +2,8 @@ import { CognitiveMemory } from '../../../lib/memory/src/cognitive-memory';
 import { KnowledgeGraph } from '../../../lib/memory/src/knowledge-graph';
 import { StructuredTool } from '@langchain/core/tools';
 import { z } from 'zod';
-import { ImportanceLevel, ChloeMemoryType } from '../../../constants/memory';
+import { ImportanceLevel, MemorySource } from '../../../constants/memory';
+import { MemoryType as StandardMemoryType } from '../../../server/memory/config';
 
 // Define BaseTool abstract class since it's not exported from intentRouter
 abstract class BaseTool {
@@ -57,7 +58,7 @@ export class MemoryRetrievalToolLC extends StructuredTool {
             memories = await cognitiveMemory.getRelevantMemories(
               query,
               limit,
-              [ChloeMemoryType.DOCUMENT, ChloeMemoryType.THOUGHT, ChloeMemoryType.MESSAGE, ChloeMemoryType.TASK]
+              [StandardMemoryType.DOCUMENT, StandardMemoryType.THOUGHT, StandardMemoryType.MESSAGE, StandardMemoryType.TASK]
             );
           }
           
@@ -377,7 +378,7 @@ export class MemoryRetrievalTool extends BaseTool {
         memories = await this.cognitiveMemory.getRelevantMemories(
           query,
           limit,
-          [ChloeMemoryType.DOCUMENT, ChloeMemoryType.THOUGHT, ChloeMemoryType.MESSAGE, ChloeMemoryType.TASK]
+          [StandardMemoryType.DOCUMENT, StandardMemoryType.THOUGHT, StandardMemoryType.MESSAGE, StandardMemoryType.TASK]
         );
       }
       

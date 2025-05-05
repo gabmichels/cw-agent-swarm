@@ -1,4 +1,4 @@
-import { ChloeMemoryType } from '@/constants/memory';
+import { MemoryType as StandardMemoryType } from '../../../server/memory/config';
 import * as serverQdrant from '../../../server/qdrant';
 import { EnhancedMemory } from './enhanced-memory';
 
@@ -377,7 +377,7 @@ export class FeedbackLoopSystem {
           category: 'system',
           created: new Date().toISOString()
         },
-        ChloeMemoryType.DOCUMENT
+        StandardMemoryType.DOCUMENT
       );
     } catch (error) {
       console.error('Error saving patterns:', error);
@@ -439,7 +439,7 @@ export class FeedbackLoopSystem {
           category: 'system',
           created: new Date().toISOString()
         },
-        ChloeMemoryType.DOCUMENT
+        StandardMemoryType.DOCUMENT
       );
     } catch (error) {
       console.error('Error saving corrections:', error);

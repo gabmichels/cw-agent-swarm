@@ -1,13 +1,13 @@
 import { ChatOpenAI } from '@langchain/openai';
-import { ChloeMemory, ChloeMemoryType } from '../memory';
+import { ChloeMemory } from '../memory';
 import { TaskLogger } from '../task-logger';
 import { IManager, BaseManagerOptions } from '../../../lib/shared/types/agentTypes';
 import { logger } from '../../../lib/logging';
 import { 
-  MemoryType, 
   ImportanceLevel, 
   MemorySource
 } from '../../../constants/memory';
+import { MemoryType as StandardMemoryType } from '../../../server/memory/config';
 import { 
   ReflectionType, 
   PerformanceReviewType,
@@ -147,7 +147,7 @@ Your reflection should be thoughtful, strategic, and provide nuanced marketing p
       // Store the reflection in memory with the correct category
       await this.memory.addMemory(
         `Reflection on "${question}": ${reflection.substring(0, 200)}...`,
-        MemoryType.THOUGHT,
+        StandardMemoryType.THOUGHT,
         ImportanceLevel.MEDIUM,
         MemorySource.AGENT,
         `Reflection task result: ${question}`
@@ -177,9 +177,9 @@ Your reflection should be thoughtful, strategic, and provide nuanced marketing p
       oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
       
       // Get different categories of memories for a comprehensive review
-      const userInteractions = await this.memory.getMemoriesByDateRange(MemoryType.MESSAGE, oneWeekAgo, new Date(), 20);
-      const tasks = await this.memory.getMemoriesByDateRange(MemoryType.TASK, oneWeekAgo, new Date(), 20);
-      const thoughts = await this.memory.getMemoriesByDateRange(MemoryType.THOUGHT, oneWeekAgo, new Date(), 20);
+      const userInteractions = await this.memory.getMemoriesByDateRange(StandardMemoryType.MESSAGE, oneWeekAgo, new Date(), 20);
+      const tasks = await this.memory.getMemoriesByDateRange(StandardMemoryType.TASK, oneWeekAgo, new Date(), 20);
+      const thoughts = await this.memory.getMemoriesByDateRange(StandardMemoryType.THOUGHT, oneWeekAgo, new Date(), 20);
       
       // Format memories for the model
       const formatMemories = (memories: any[], category: string) => {
@@ -218,7 +218,7 @@ Your reflection should be professional, insightful, and focused on continuous im
       // Store the weekly reflection in memory
       await this.memory.addMemory(
         `Weekly Reflection: ${reflection.substring(0, 200)}...`,
-        MemoryType.THOUGHT,
+        StandardMemoryType.THOUGHT,
         ImportanceLevel.HIGH,
         MemorySource.AGENT
       );
@@ -268,8 +268,8 @@ Your reflection should be professional, insightful, and focused on continuous im
       }
       
       // Get relevant memory entries for the period
-      const tasks = await this.memory.getMemoriesByDateRange(MemoryType.TASK, startDate, new Date(), 30);
-      const userInteractions = await this.memory.getMemoriesByDateRange(MemoryType.MESSAGE, startDate, new Date(), 30);
+      const tasks = await this.memory.getMemoriesByDateRange(StandardMemoryType.TASK, startDate, new Date(), 30);
+      const userInteractions = await this.memory.getMemoriesByDateRange(StandardMemoryType.MESSAGE, startDate, new Date(), 30);
       
       // Format memories for the model
       const formatMemories = (memories: any[], category: string) => {
@@ -305,13 +305,13 @@ Be objective, data-driven, and focused on continuous improvement as a CMO.`;
       // Create a well-formatted performance review
       const reviewContent = `${reviewType.charAt(0).toUpperCase() + reviewType.slice(1)} Performance Review: ${review.substring(0, 200)}...`;
       
-      // Store the performance review in memory explicitly as a thought, not a message
+      // Store the performance review in memory
       await this.memory.addMemory(
         reviewContent,
-        MemoryType.THOUGHT,
+        StandardMemoryType.THOUGHT,
         ImportanceLevel.HIGH,
         MemorySource.AGENT,
-        'performance_review'
+        reviewType
       );
       
       // Log that this is an internal reflection, not a chat message
@@ -381,7 +381,7 @@ Be objective, data-driven, and focused on continuous improvement as a CMO.`;
       
       // Get memories from the specified timeframe
       const memories = await this.memory.getMemoriesByDateRange(
-        MemoryType.MESSAGE, 
+        StandardMemoryType.MESSAGE, 
         timeframe.start, 
         timeframe.end, 
         50
@@ -389,7 +389,7 @@ Be objective, data-driven, and focused on continuous improvement as a CMO.`;
       
       // Also get task memories which often represent actions taken
       const taskMemories = await this.memory.getMemoriesByDateRange(
-        MemoryType.TASK,
+        StandardMemoryType.TASK,
         timeframe.start,
         timeframe.end,
         50
@@ -522,7 +522,7 @@ IMPORTANT: Only include relationships where your confidence is at least ${minCon
       const analysisSummary = analysisResult.summary || "Causal relationship analysis completed.";
       await this.memory.addMemory(
         `Causal Analysis: ${analysisSummary}`,
-        MemoryType.THOUGHT,
+        StandardMemoryType.THOUGHT,
         ImportanceLevel.HIGH,
         MemorySource.AGENT,
         'causal_analysis'
@@ -725,7 +725,7 @@ Keep your analysis concise, strategic, and focused on actionable insights.`;
         // Store the analysis as a thought
         await this.memory.addMemory(
           `Causal Chain Analysis: ${analysis.substring(0, 200)}...`,
-          MemoryType.THOUGHT,
+          StandardMemoryType.THOUGHT,
           ImportanceLevel.MEDIUM,
           MemorySource.AGENT,
           'causal_chain_analysis'
@@ -796,7 +796,7 @@ Keep your analysis concise, strategic, and focused on actionable insights.`;
       // Store the enhanced reflection
       await this.memory.addMemory(
         `Enhanced Weekly Reflection with Causal Analysis: ${enhancedReflection.substring(0, 200)}...`,
-        MemoryType.THOUGHT,
+        StandardMemoryType.THOUGHT,
         ImportanceLevel.HIGH,
         MemorySource.AGENT,
         'enhanced_weekly_reflection'

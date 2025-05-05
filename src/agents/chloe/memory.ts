@@ -23,18 +23,12 @@ import {
 import { getMemoryServices } from '../../server/memory/services';
 // Import local types
 import { 
-  MemoryType, 
   ImportanceLevel, 
   MemorySource
 } from '../../constants/memory';
-// Import ChloeMemoryType as a different name to avoid conflict
-import { ChloeMemoryType as ChloeMemoryTypeEnum } from '../../constants/memory';
 import { RerankerService } from './services/reranker';
 // Import PII redaction functionality
 import { redactSensitiveData, RedactionResult } from '../../lib/pii/redactor';
-
-// Define a custom memory type that includes 'insight' for this implementation
-export type ChloeMemoryType = string;
 
 // Define pattern for detecting brand information
 const BRAND_PATTERN = /\b(brand|company|organization)\s+(mission|vision|values|identity|info|information)\b/i;
@@ -46,7 +40,7 @@ export interface MemoryEntry extends Omit<BaseMemoryEntry, 'type'> {
   created: Date;
   expiresAt?: Date;
   tags?: string[];
-  type: ChloeMemoryType;
+  type: StandardMemoryType;
   updated?: Date;
   timestamp?: Date;
   metadata?: {
@@ -143,7 +137,7 @@ export class ChloeMemory {
    */
   async addMemory(
     content: string,
-    type: string = 'message',
+    type: StandardMemoryType = StandardMemoryType.MESSAGE,
     importance: ImportanceLevel = ImportanceLevel.MEDIUM,
     source: MemorySource = MemorySource.AGENT,
     context?: string,
@@ -180,30 +174,27 @@ export class ChloeMemory {
     
     // Only format if it's not already formatted
     if (!hasPrefix) {
-      switch (type.toLowerCase()) {
-        case MemoryType.MESSAGE:
+      switch (type) {
+        case StandardMemoryType.MESSAGE:
           formattedContent = `MESSAGE [${timestamp}]: ${contentToStore}`;
           break;
-        case MemoryType.THOUGHT:
+        case StandardMemoryType.THOUGHT:
           formattedContent = `THOUGHT [${timestamp}]: ${contentToStore}`;
           break;
-        case MemoryType.DOCUMENT:
+        case StandardMemoryType.DOCUMENT:
           formattedContent = `DOCUMENT [${timestamp}]: ${contentToStore}`;
           break;
-        case MemoryType.TASK:
+        case StandardMemoryType.TASK:
           formattedContent = `TASK [${timestamp}]: ${contentToStore}`;
           break;
         default:
-          formattedContent = `${type.toUpperCase()} [${timestamp}]: ${contentToStore}`;
+          formattedContent = `${type.toString().toUpperCase()} [${timestamp}]: ${contentToStore}`;
       }
     }
     
-    // Normalize type to standard memory type
-    const standardType = this.convertToStandardMemoryType(type);
-    
-    // Add memory to standardized memory system
+    // Add memory to standardized memory system with standard type directly
     const result = await this.memoryService.addMemory({
-      type: standardType,
+      type,
       content: formattedContent,
       metadata: extendedMetadata
     });
@@ -216,7 +207,7 @@ export class ChloeMemory {
     // Get the memory from the service
     const memory = await this.memoryService.getMemory({
       id: result.id,
-      type: standardType
+      type
     });
     
     // Convert to MemoryEntry format
@@ -258,7 +249,7 @@ export class ChloeMemory {
     if (!content) return false;
     
     // Check for any of the standard prefixes that match our memory types
-    const memoryTypeList = Object.values(MemoryType).map(type => type.toString().toUpperCase());
+    const memoryTypeList = Object.values(StandardMemoryType).map(type => type.toString().toUpperCase());
     
     // Create a regex that matches any memory type followed by timestamp format
     const formatRegex = new RegExp(`^(${memoryTypeList.join('|')})\\s*\\[\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}.\\d{3}Z\\]:\\s*`, 'i');
@@ -267,35 +258,6 @@ export class ChloeMemory {
     const messageRegex = /^MESSAGE:?\s+/i;
     
     return formatRegex.test(content) || messageRegex.test(content);
-  }
-
-  /**
-   * Convert ChloeMemoryType to StandardMemoryType
-   */
-  private convertToStandardMemoryType(type: ChloeMemoryType): StandardMemoryType {
-    const lowerType = type.toLowerCase();
-    
-    switch (lowerType) {
-      case 'message':
-        return StandardMemoryType.MESSAGE;
-      case 'thought':
-        return StandardMemoryType.THOUGHT;
-      case 'document':
-        return StandardMemoryType.DOCUMENT;
-      case 'task':
-        return StandardMemoryType.TASK;
-      case 'tool_log':
-      case 'tool':
-        // Use the string type directly if it doesn't exist in enum
-        return "tool" as StandardMemoryType;
-      case 'memory_edit':
-        return "memory_edit" as StandardMemoryType;
-      case 'diagnostic':
-        return "diagnostic" as StandardMemoryType;
-      default:
-        // Default to document type for anything not directly supported
-        return StandardMemoryType.DOCUMENT;
-    }
   }
 
   /**
@@ -312,7 +274,7 @@ export class ChloeMemory {
    * Get memories by date range and type
    */
   async getMemoriesByDateRange(
-    type: MemoryType,
+    type: StandardMemoryType,
     startDate: Date,
     endDate: Date,
     limit: number = 50
@@ -342,11 +304,8 @@ export class ChloeMemory {
       // For server-side, use standardized memory service
       if (typeof window === 'undefined' && this.memoryService) {
         try {
-          const typeStr = type.toString();
-          const standardType = this.convertToStandardMemoryType(type);
-          
           const results = await this.memoryService.getMemories({
-            type: standardType,
+            type,
             filter: filter
           });
           
@@ -408,16 +367,16 @@ export class ChloeMemory {
         const tags = Array.isArray(metadata.tags) ? metadata.tags : [];
         
         // Use the record type directly as a string
-        const memType = record.type || MemoryType.MESSAGE;
+        const memType = record.type || StandardMemoryType.MESSAGE;
         
         return {
           id,
           content,
           created,
           updated: new Date(),
-          type: memType as ChloeMemoryType, // Cast to ensure correct type
+          type: memType as StandardMemoryType,
           category,
-          source: source as MemorySource, // Cast to ensure correct type
+          source: source as MemorySource,
           importance,
           tags
         } as MemoryEntry;
@@ -429,7 +388,7 @@ export class ChloeMemory {
           content: 'Error retrieving memory content',
           created: new Date(),
           updated: new Date(),
-          type: MemoryType.MESSAGE as ChloeMemoryType, // Cast to ensure correct type
+          type: StandardMemoryType.MESSAGE,
           category: 'error',
           source: MemorySource.SYSTEM,
           importance: ImportanceLevel.LOW,
@@ -466,10 +425,8 @@ export class ChloeMemory {
           ]
         };
         
-        const standardType = this.convertToStandardMemoryType('thought');
-        
         const results = await this.memoryService.getMemories({
-          type: standardType,
+          type: StandardMemoryType.THOUGHT,
           filter: filter
         });
         
@@ -483,10 +440,7 @@ export class ChloeMemory {
           }))
         );
         
-        // Double-check importance to ensure correct filtering
-        const filteredMemories = memories.filter(entry => String(entry.importance) === ImportanceLevel.HIGH);
-        
-        highImportanceMemories.push(...filteredMemories);
+        highImportanceMemories.push(...memories);
       }
       
       // Fallback to in-memory implementation
@@ -583,7 +537,7 @@ export class ChloeMemory {
           {
             key: "metadata.category",
             match: {
-              value: ChloeMemoryTypeEnum.INSIGHT
+              value: "insight"
             }
           }
         ]
@@ -611,7 +565,7 @@ export class ChloeMemory {
       // Otherwise use in-memory store
       else {
         insights = this.memoryStore.entries
-          .filter(entry => entry.category === ChloeMemoryTypeEnum.INSIGHT)
+          .filter(entry => entry.category === "insight")
           .sort((a, b) => b.created.getTime() - a.created.getTime())
           .slice(0, limit);
       }
@@ -716,15 +670,11 @@ export class ChloeMemory {
   }
 
   /**
-   * Get relevant memories for a query, enriched with source file and tags information
-   * @param query The search query
-   * @param types Array of specific memory types to search
-   * @param limit Maximum number of results to return
-   * @returns Array of relevant memory entries with metadata
+   * Get relevant memories by type
    */
   async getRelevantMemoriesByType(
     query: string,
-    types: string[],
+    types: StandardMemoryType[],
     limit: number = 10
   ): Promise<{
     entries: MemoryEntry[];
@@ -779,7 +729,7 @@ export class ChloeMemory {
   async getRelevantMemories(
     query: string,
     limit: number = 5,
-    types?: string[],
+    types?: StandardMemoryType[],
     contextTags?: string[],
     tagBoostFactor: number = 2
   ): Promise<MemoryEntry[]> {
@@ -790,14 +740,10 @@ export class ChloeMemory {
     try {
       // If specific types are requested, use them, otherwise use default types
       const memoryTypes = types || [
-        MemoryType.MESSAGE, 
-        MemoryType.THOUGHT, 
-        MemoryType.DOCUMENT,
-        ChloeMemoryTypeEnum.STRATEGY,
-        ChloeMemoryTypeEnum.PERSONA,
-        ChloeMemoryTypeEnum.VISION,
-        ChloeMemoryTypeEnum.PROCESS,
-        ChloeMemoryTypeEnum.KNOWLEDGE
+        StandardMemoryType.MESSAGE, 
+        StandardMemoryType.THOUGHT, 
+        StandardMemoryType.DOCUMENT,
+        StandardMemoryType.TASK
       ];
       
       let allRelevantMemories: MemoryEntry[] = [];
@@ -813,15 +759,15 @@ export class ChloeMemory {
       
       // Search for each memory type
       for (const type of memoryTypes) {
-        let baseType: MemoryType;
+        let baseType: StandardMemoryType;
         let filter: Record<string, any> = {};
         
         // Determine if this is a base type or extended type
-        if (Object.values(MemoryType).includes(type as MemoryType)) {
-          baseType = type as MemoryType;
+        if (Object.values(StandardMemoryType).includes(type as StandardMemoryType)) {
+          baseType = type as StandardMemoryType;
         } else {
           // For extended types, search in the document collection with metadata filter
-          baseType = MemoryType.DOCUMENT;
+          baseType = StandardMemoryType.DOCUMENT;
           filter = { 
             must: [
               {
@@ -847,11 +793,9 @@ export class ChloeMemory {
         
         // Perform the semantic search using the standardized memory system
         if (typeof window === 'undefined' && this.searchService) {
-          const standardType = this.convertToStandardMemoryType(baseType);
-          
-          const results = await this.searchService.search(query, {
-            types: [standardType],
-            filter: filter,
+          // Use StandardMemoryType directly without conversion
+          const results = await this.searchService.search(query, { 
+            types: [baseType],
             limit: Math.ceil(searchLimit / memoryTypes.length)
           });
           
@@ -924,10 +868,7 @@ export class ChloeMemory {
   }
 
   /**
-   * Get brand identity information with high priority
-   * This is a specialized method specifically for retrieving brand information
-   * 
-   * @returns Object containing structured brand information and raw memories
+   * Get brand identity information from memory
    */
   async getBrandIdentityInformation(): Promise<{
     mission?: string;
@@ -944,36 +885,24 @@ export class ChloeMemory {
         await this.initialize();
       }
       
-      console.log('Retrieving brand identity information...');
+      console.log('Retrieving brand identity information from memory');
       
-      // Get all memories with CRITICAL importance and PERSONA type
+      // Get brand memories from both persona and strategy document types
       const brandMemories = await this.getRelevantMemoriesByType(
         'brand identity mission vision values target audience personality', 
-        [ChloeMemoryTypeEnum.PERSONA],
+        [StandardMemoryType.DOCUMENT],
         20 // Get more entries to ensure we capture all brand components
       );
       
-      // Get all memories tagged with brand-related tags
-      const brandKeywords = [
-        'brand',
-        'identity', 
-        'mission',
-        'vision',
-        'values',
-        'target audience',
-        'personality',
-        'value proposition'
-      ];
-      
-      // Also try a direct query for any memory with brand information
-      const directQueryMemories = await this.getRelevantMemories(
+      // Also try a more targeted search 
+      const moreSpecificBrandMemories = await this.getRelevantMemories(
         'brand identity mission vision values', 
         15,
-        [ChloeMemoryTypeEnum.PERSONA, 'persona']
+        [StandardMemoryType.DOCUMENT] // Use StandardMemoryType values
       );
       
       // Combine and deduplicate memories
-      const allMemories = [...brandMemories.entries, ...directQueryMemories];
+      const allMemories = [...brandMemories.entries, ...moreSpecificBrandMemories];
       const uniqueMemories: MemoryEntry[] = [];
       const seenIds = new Set<string>();
       
@@ -1105,12 +1034,7 @@ export class ChloeMemory {
   }
 
   /**
-   * Identify and categorize conversation threads based on topic and context
-   * This helps group related messages together even if sent separately
-   * 
-   * @param query The current query to find related context
-   * @param recentMessages Array of recent messages to analyze for thread continuity
-   * @returns Object containing thread information and related memories
+   * Identify if a query is part of an existing conversation thread
    */
   async identifyConversationThread(
     query: string,
@@ -1127,146 +1051,125 @@ export class ChloeMemory {
         await this.initialize();
       }
       
-      // If we don't have recent messages, get the last 10 messages
-      let messagesForAnalysis = recentMessages;
-      if (!messagesForAnalysis || messagesForAnalysis.length === 0) {
-        // Get recent messages from memory
-        const filter = {
-          must: [
-            {
-              key: "metadata.category",
-              match: {
-                value: MemoryType.MESSAGE
-              }
-            }
-          ]
-        };
+      // If we have recent messages, try to find a matching thread
+      if (recentMessages.length > 0) {
+        console.log(`Analyzing ${recentMessages.length} recent messages for thread identification`);
         
-        if (typeof window === 'undefined' && this.searchService) {
-          const standardType = this.convertToStandardMemoryType(MemoryType.MESSAGE);
+        // Extract recent message IDs for reference
+        const recentMessageIds = recentMessages.map(msg => msg.id);
+        
+        // Only look at message type memories
+        const filteredMessages = recentMessages.filter(msg => 
+          msg.type === StandardMemoryType.MESSAGE
+        );
+        
+        // Extract key topics from the current query
+        const queryKeywords = this.extractKeyTerms(query);
+        
+        // Analyze recent messages for topical similarity
+        let threadScore = 0;
+        let threadKeywords: string[] = [];
+        let threadMessages: MemoryEntry[] = [];
+        
+        // Find topical connections across recent messages
+        for (const message of filteredMessages) {
+          const messageContent = message.content || '';
+          const messageKeywords = this.extractKeyTerms(messageContent);
           
-          const results = await this.searchService.search('', {
-            types: [standardType],
-            filter: filter,
-            limit: 10
-          });
+          // Calculate overlap between this message and query keywords
+          const overlapWithQuery = this.calculateKeywordOverlap(
+            queryKeywords, 
+            messageKeywords
+          );
           
-          messagesForAnalysis = this.convertRecordsToMemoryEntries(
-            results.map((item: { point: { id: any; payload: { text: any; timestamp: any; type: any; metadata: any; }; }; }) => ({
-              id: item.point.id,
-              text: item.point.payload.text,
-              timestamp: item.point.payload.timestamp,
-              type: item.point.payload.type,
-              metadata: item.point.payload.metadata || {}
-            }))
+          // If there's significant overlap with the query or growing thread keywords,
+          // consider this message part of the thread
+          const overlapWithThread = this.calculateKeywordOverlap(
+            threadKeywords, 
+            messageKeywords
+          );
+          
+          if (overlapWithQuery > 0.3 || overlapWithThread > 0.25) {
+            // This message is part of the thread
+            threadMessages.push(message);
+            
+            // Add unique keywords to thread keywords
+            threadKeywords = Array.from(new Set([...threadKeywords, ...messageKeywords]));
+            
+            // Increase thread score
+            threadScore += 1;
+          }
+        }
+        
+        // Check if we found a significant thread (at least 2 connected messages)
+        const isPartOfThread = threadScore >= 2;
+        
+        // If we found a thread, search for additional related memories
+        let relatedMemories: MemoryEntry[] = [];
+        if (isPartOfThread) {
+          // Use thread keywords to find more related memories
+          const threadKeywordsQuery = threadKeywords.slice(0, 10).join(' ');
+          
+          // Search for any memory related to the thread topic
+          relatedMemories = await this.getRelevantMemories(
+            threadKeywordsQuery,
+            10,
+            undefined,
+            threadKeywords
           );
         }
-      }
-      
-      // Sort messages by timestamp (newest first)
-      messagesForAnalysis.sort((a, b) => 
-        (b.created?.getTime() || 0) - (a.created?.getTime() || 0)
-      );
-      
-      // Extract key topics from the current query
-      const queryKeywords = this.extractKeyTerms(query);
-      
-      // Analyze recent messages for topical similarity
-      let threadScore = 0;
-      let threadKeywords: string[] = [];
-      let threadMessages: MemoryEntry[] = [];
-      
-      // Find topical connections across recent messages
-      for (const message of messagesForAnalysis) {
-        const messageContent = message.content || '';
-        const messageKeywords = this.extractKeyTerms(messageContent);
         
-        // Calculate overlap between this message and query keywords
-        const overlapWithQuery = this.calculateKeywordOverlap(
-          queryKeywords, 
-          messageKeywords
-        );
-        
-        // If there's significant overlap with the query or growing thread keywords,
-        // consider this message part of the thread
-        const overlapWithThread = this.calculateKeywordOverlap(
-          threadKeywords, 
-          messageKeywords
-        );
-        
-        if (overlapWithQuery > 0.3 || overlapWithThread > 0.25) {
-          // This message is part of the thread
-          threadMessages.push(message);
+        // Generate a thread ID and topic if we found a thread
+        let threadId, threadTopic;
+        if (isPartOfThread) {
+          // Generate a stable thread ID based on top keywords
+          const stableKeywords = [...threadKeywords].sort().slice(0, 5);
+          threadId = `thread_${stableKeywords.join('_')}`;
           
-          // Add unique keywords to thread keywords
-          threadKeywords = Array.from(new Set([...threadKeywords, ...messageKeywords]));
-          
-          // Increase thread score
-          threadScore += 1;
+          // Generate a thread topic - top 3-5 keywords
+          threadTopic = threadKeywords.slice(0, Math.min(5, threadKeywords.length)).join(', ');
         }
-      }
-      
-      // Check if we found a significant thread (at least 2 connected messages)
-      const isPartOfThread = threadScore >= 2;
-      
-      // If we found a thread, search for additional related memories
-      let relatedMemories: MemoryEntry[] = [];
-      if (isPartOfThread) {
-        // Use thread keywords to find more related memories
-        const threadKeywordsQuery = threadKeywords.slice(0, 10).join(' ');
         
-        // Search for any memory related to the thread topic
-        relatedMemories = await this.getRelevantMemories(
-          threadKeywordsQuery,
-          10,
-          undefined,
-          threadKeywords
-        );
-      }
-      
-      // Generate a thread ID and topic if we found a thread
-      let threadId, threadTopic;
-      if (isPartOfThread) {
-        // Generate a stable thread ID based on top keywords
-        const stableKeywords = [...threadKeywords].sort().slice(0, 5);
-        threadId = `thread_${stableKeywords.join('_')}`;
-        
-        // Generate a thread topic - top 3-5 keywords
-        threadTopic = threadKeywords.slice(0, Math.min(5, threadKeywords.length)).join(', ');
-      }
-      
-      // Determine thread importance
-      // More messages and higher relevance = higher importance
-      let threadImportance = ImportanceLevel.MEDIUM;
-      if (threadScore >= 5) {
-        threadImportance = ImportanceLevel.HIGH;
-      } else if (threadScore <= 2) {
-        threadImportance = ImportanceLevel.LOW;
-      }
-      
-      // For certain key topics, increase importance
-      const highImportanceTopics = [
-        'onboarding', 'strategy', 'mission', 'vision', 'brand', 'budget',
-        'goal', 'target', 'priority', 'roadmap', 'metrics', 'performance',
-        'analytics', 'resources', 'stakeholders'
-      ];
-      
-      // Check if any high importance topics are in the thread keywords
-      for (const topic of highImportanceTopics) {
-        if (threadKeywords.includes(topic)) {
-          // Elevate importance for critical business topics
+        // Determine thread importance
+        // More messages and higher relevance = higher importance
+        let threadImportance = ImportanceLevel.MEDIUM;
+        if (threadScore >= 5) {
           threadImportance = ImportanceLevel.HIGH;
-          break;
+        } else if (threadScore <= 2) {
+          threadImportance = ImportanceLevel.LOW;
         }
+        
+        // For certain key topics, increase importance
+        const highImportanceTopics = [
+          'onboarding', 'strategy', 'mission', 'vision', 'brand', 'budget',
+          'goal', 'target', 'priority', 'roadmap', 'metrics', 'performance',
+          'analytics', 'resources', 'stakeholders'
+        ];
+        
+        // Check if any high importance topics are in the thread keywords
+        for (const topic of highImportanceTopics) {
+          if (threadKeywords.includes(topic)) {
+            // Elevate importance for critical business topics
+            threadImportance = ImportanceLevel.HIGH;
+            break;
+          }
+        }
+        
+        // Return thread information
+        return {
+          threadId,
+          threadTopic,
+          isPartOfThread,
+          relatedMemories,
+          threadImportance
+        };
       }
       
-      // Return thread information
+      // If no recent messages, return default thread information
       return {
-        threadId,
-        threadTopic,
-        isPartOfThread,
-        relatedMemories,
-        threadImportance
+        isPartOfThread: false,
+        relatedMemories: [],
+        threadImportance: ImportanceLevel.MEDIUM
       };
     } catch (error) {
       console.error('Error identifying conversation thread:', error);
@@ -1510,16 +1413,13 @@ export class ChloeMemory {
   }
 
   /**
-   * Improved memory retrieval using hybrid search (vector + keyword) and query expansion
-   * @param query Search query to find relevant memories
-   * @param limit Maximum number of results to return
-   * @param options Additional search options
+   * Get enhanced memories with hybrid search
    */
   async getEnhancedMemoriesWithHybridSearch(
     query: string,
     limit: number = 10,
     options: {
-      types?: string[];
+      types?: StandardMemoryType[];
       semanticWeight?: number;
       keywordWeight?: number;
       expandQuery?: boolean;
@@ -1769,16 +1669,13 @@ export class ChloeMemory {
   }
   
   /**
-   * Cleaner API: Get most relevant memories using our best retrieval strategy
-   * @param query The query to search for
-   * @param limit Maximum number of results to return
-   * @param options Additional options to customize search
+   * Get best memories considering importance and relevance
    */
   async getBestMemories(
     query: string,
     limit: number = 7,
     options: {
-      types?: string[];
+      types?: StandardMemoryType[];
       expandQuery?: boolean;
       considerImportance?: boolean;
       requireKeywords?: boolean;
@@ -1940,5 +1837,50 @@ export class ChloeMemory {
       },
       extracted: Object.keys(extracted).length > 0 || modified
     };
+  }
+
+  /**
+   * Get recently modified memory records
+   */
+  async getRecentlyModifiedMemories(limit: number = 10): Promise<MemoryEntry[]> {
+    try {
+      if (!this.initialized) {
+        await this.initialize();
+      }
+      
+      console.log(`Retrieving ${limit} recently modified memories`);
+      
+      // Get most recently modified memories from standardized system
+      if (typeof window === 'undefined' && this.memoryService) {
+        // Use StandardMemoryType.DOCUMENT directly
+        const results = await this.memoryService.getMemories({
+          type: StandardMemoryType.DOCUMENT,
+          sort: {
+            field: "last_modified",
+            direction: "desc"
+          },
+          limit
+        });
+        
+        if (results && results.length > 0) {
+          // Convert to memory entries
+          return this.convertRecordsToMemoryEntries(
+            results.map((mem: any) => ({
+              id: mem.id,
+              text: mem.payload.text,
+              timestamp: mem.payload.timestamp,
+              type: mem.payload.type,
+              metadata: mem.payload.metadata || {}
+            }))
+          );
+        }
+      }
+      
+      // Return empty array as fallback
+      return [];
+    } catch (error) {
+      console.error('Error retrieving recently modified memories:', error);
+      return [];
+    }
   }
 }

@@ -1,7 +1,8 @@
 import * as serverQdrant from '../../../server/qdrant';
 import { DateTime } from 'luxon';
 import { EnhancedMemory, MemoryEntry } from './enhanced-memory';
-import { ChloeMemoryType, ImportanceLevel } from '../../../constants/memory';
+import { ImportanceLevel } from '../../../constants/memory';
+import { MemoryType as StandardMemoryType } from '../../../server/memory/config';
 
 /**
  * CognitiveMemory System
@@ -113,7 +114,7 @@ export class CognitiveMemory extends EnhancedMemory {
       };
       
       // Add to memory
-      const memoryId = await super.addMemory(content, episodicMetadata, ChloeMemoryType.DOCUMENT);
+      const memoryId = await super.addMemory(content, episodicMetadata, StandardMemoryType.DOCUMENT);
       
       // Add to working memory if important enough
       if (importance === ImportanceLevel.HIGH || importance === ImportanceLevel.CRITICAL) {

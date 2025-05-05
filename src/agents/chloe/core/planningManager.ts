@@ -1,5 +1,5 @@
 import { ChatOpenAI } from '@langchain/openai';
-import { ChloeMemory, ChloeMemoryType } from '../memory';
+import { ChloeMemory } from '../memory';
 import { TaskLogger } from '../task-logger';
 import { 
   AutonomySystem, 
@@ -11,7 +11,8 @@ import {
 } from '../../../lib/shared/types/agentTypes';
 import { planTask, PlanResult } from '../../../server/agents/planner';
 import { executePlan } from '../../../server/agents/executor';
-import { ImportanceLevel, MemorySource, MemoryType, ChloeMemoryType as ChloeMemoryTypeEnum } from '../../../constants/memory';
+import { ImportanceLevel, MemorySource, MemoryType } from '../../../constants/memory';
+import { MemoryType as StandardMemoryType } from '../../../server/memory/config';
 import { TaskStatus } from '../../../constants/task';
 import { ChloeAgent } from '../core/agent';
 import { ChloeScheduler } from '../scheduler/chloeScheduler';
@@ -167,6 +168,21 @@ Please create a concise, actionable plan to accomplish this task.
         }))
       };
       
+      // Store task in memory
+      await this.memory.addMemory(
+        JSON.stringify({
+          type: 'task',
+          goalPrompt: task,
+          planDescription: formattedPlan.description,
+          steps: formattedPlan.steps.map(step => step.description)
+        }),
+        StandardMemoryType.DOCUMENT,
+        ImportanceLevel.HIGH,
+        MemorySource.AGENT,
+        JSON.stringify({ taskId: new Date().getTime().toString() }),
+        ['task', 'plan']
+      );
+      
       return formattedPlan;
     } catch (error) {
       this.logAction('Error planning task', { error: String(error) });
@@ -280,7 +296,7 @@ Please create a concise, actionable plan to accomplish this task.
       // Store results in memory
       await this.memory.addMemory(
         `Daily tasks execution: ${executionResult.message}`,
-        'task' as ChloeMemoryType,
+        'task' as StandardMemoryType,
         executionResult.success ? ImportanceLevel.MEDIUM : ImportanceLevel.HIGH,
         MemorySource.SYSTEM
       );
@@ -358,25 +374,25 @@ Please create a concise, actionable plan to accomplish this task.
     const strategicMemories = await this.memory.getRelevantMemories(
       goal, 
       5, 
-      [ChloeMemoryTypeEnum.STRATEGY, ChloeMemoryTypeEnum.VISION]
+      [StandardMemoryType.DOCUMENT]
     );
 
     const domainMemories = await this.memory.getRelevantMemories(
       goal, 
       5, 
-      [ChloeMemoryTypeEnum.KNOWLEDGE, ChloeMemoryTypeEnum.PROCESS]
+      [StandardMemoryType.DOCUMENT]
     );
 
     const personalMemories = await this.memory.getRelevantMemories(
       goal, 
       3, 
-      [ChloeMemoryTypeEnum.PERSONA]
+      [StandardMemoryType.DOCUMENT]
     );
 
     const relevantThoughts = await this.memory.getRelevantMemories(
       goal, 
       3, 
-      [MemoryType.THOUGHT]
+      [StandardMemoryType.THOUGHT]
     );
 
     // Format memories for inclusion in the planning context
@@ -478,25 +494,25 @@ Please create a concise, actionable plan to accomplish this task.
     // Get relevant memories with enhanced metadata
     const strategicInfo = await this.memory.getRelevantMemoriesByType(
       goal,
-      [ChloeMemoryTypeEnum.STRATEGY, ChloeMemoryTypeEnum.VISION],
+      [StandardMemoryType.DOCUMENT],
       5
     );
 
     const domainInfo = await this.memory.getRelevantMemoriesByType(
       goal,
-      [ChloeMemoryTypeEnum.KNOWLEDGE, ChloeMemoryTypeEnum.PROCESS],
+      [StandardMemoryType.DOCUMENT],
       5
     );
 
     const personalInfo = await this.memory.getRelevantMemoriesByType(
       goal,
-      [ChloeMemoryTypeEnum.PERSONA],
+      [StandardMemoryType.DOCUMENT],
       3
     );
 
     const thoughtInfo = await this.memory.getRelevantMemoriesByType(
       goal,
-      [MemoryType.THOUGHT],
+      [StandardMemoryType.THOUGHT],
       3
     );
 
@@ -612,11 +628,12 @@ Your task is to create an optimal plan to achieve the above goal. The plan will 
       
       // Store the plan in memory
       await this.memory.addMemory(
-        planResult.plan.join('\n'),
-        ChloeMemoryTypeEnum.PLAN,
+        JSON.stringify(parsedPlan),
+        StandardMemoryType.DOCUMENT,
         ImportanceLevel.HIGH,
-        MemorySource.AGENT, 
-        `Goal: ${goal}`
+        MemorySource.AGENT,
+        JSON.stringify({ taskId: new Date().getTime().toString() }),
+        ['plan', 'task']
       );
       
       // Log the created plan
@@ -698,11 +715,12 @@ Your task is to create an optimal plan to achieve the above goal. The plan will 
       
       // Store the plan in memory
       await this.memory.addMemory(
-        planResult.plan.join('\n'),
-        ChloeMemoryTypeEnum.PLAN,
+        JSON.stringify(parsedPlan),
+        StandardMemoryType.DOCUMENT,
         ImportanceLevel.HIGH,
-        MemorySource.AGENT, 
-        `Goal: ${goal}`
+        MemorySource.AGENT,
+        JSON.stringify({ taskId: new Date().getTime().toString() }),
+        ['plan', 'task']
       );
       
       // Log the created plan
