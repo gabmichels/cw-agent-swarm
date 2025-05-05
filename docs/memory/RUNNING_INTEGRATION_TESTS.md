@@ -55,12 +55,14 @@ npx tsx src/server/memory/testing/setup-test-collections.ts
 
 #### Step 2: Run the tests
 ```bash
-# Run all memory integration tests
-npx vitest --run src/server/memory/testing/integration
+# Run all memory integration tests with extended timeout
+npx vitest --run src/server/memory/testing/integration --testTimeout=15000
 
-# Run a specific test file
-npx vitest --run src/server/memory/testing/integration/memory-integration.test.ts
+# Run a specific test file with extended timeout
+npx vitest --run src/server/memory/testing/integration/memory-integration.test.ts --testTimeout=15000
 ```
+
+> **Note:** The extended timeout (15 seconds) is necessary because some of the memory operations, especially those involving embedding calculation and Qdrant operations, can take longer than the default 5-second timeout.
 
 ## Troubleshooting
 

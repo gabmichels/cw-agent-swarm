@@ -73,7 +73,7 @@ async function runMemoryTests() {
     
     // Step 2: Run the tests
     console.log(`\n${colors.yellow}Running memory integration tests...${colors.reset}`);
-    const result = await runCommand('npx', ['vitest', '--run', 'src/server/memory/testing/integration']);
+    const result = await runCommand('npx', ['vitest', '--run', 'src/server/memory/testing/integration', '--testTimeout=15000']);
     
     // Parse test results to count skipped tests
     const skippedMatch = result.stdout.match(/(\d+) skipped/);

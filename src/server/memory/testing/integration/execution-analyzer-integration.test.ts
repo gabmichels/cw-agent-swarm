@@ -13,8 +13,10 @@ import { randomUUID } from 'crypto';
 
 // Import the ExecutionOutcomeAnalyzer
 import { ExecutionOutcomeAnalyzer, ExecutionOutcome } from '../../../../agents/chloe/self-improvement/executionOutcomeAnalyzer';
-import { TaskTraceEntry } from '../../../../agents/chloe/task-trace';
 import { ChloeMemory } from '../../../../agents/chloe/memory';
+
+// Import types needed from Chloe's graph
+import type { ExecutionTraceEntry, PlanningTask } from '../../../../agents/chloe/graph/nodes/types';
 
 // Use environment variables or defaults
 const QDRANT_URL = process.env.TEST_QDRANT_URL || 'http://localhost:6333';
@@ -29,14 +31,17 @@ class MockSearchService extends SearchService {
     return { success: true };
   }
 
-  // Note: This is only used for our tests and doesn't need to match the exact interface
+  // @ts-ignore - we're intentionally mocking with a simplified interface for testing
   async searchCausalChain(memoryId: string) {
     console.log(`Mock searching causal chain from ${memoryId}`);
     // Return simplified mock data that's sufficient for our tests
     return {
-      origin: memoryId,
-      causes: [{ id: this.mockIds.subtaskId, type: MemoryType.TASK }],
-      effects: [{ id: this.mockIds.executionId, type: MemoryType.THOUGHT }]
+      origin: {
+        id: memoryId,
+        text: 'Parent task'
+      },
+      causes: [{ id: this.mockIds.subtaskId, text: 'Subtask' }],
+      effects: [{ id: this.mockIds.executionId, text: 'Execution outcome' }]
     };
   }
 }
@@ -53,36 +58,54 @@ describe('ExecutionOutcomeAnalyzer Integration with Memory System', () => {
   const createdMemoryIds: {id: string, type: MemoryType}[] = [];
   
   // Mock task and trace entries for testing
-  const mockTask = {
+  const mockTask: PlanningTask = {
     id: randomUUID(),
-    name: 'Research the latest advancements in AI ethics',
-    description: 'Compile a summary of recent developments in AI ethics frameworks',
-    type: 'research',
-    subtasks: []
+    goal: 'Research the latest advancements in AI ethics',
+    subGoals: [
+      {
+        id: randomUUID(),
+        description: 'Find recent papers on AI ethics',
+        priority: 1,
+        status: 'complete'
+      },
+      {
+        id: randomUUID(),
+        description: 'Summarize key findings',
+        priority: 2,
+        status: 'complete'
+      }
+    ],
+    reasoning: 'Required for project safety compliance',
+    status: 'complete',
+    metadata: {
+      taskType: 'research'
+    }
   };
   
-  const mockTraceEntries: TaskTraceEntry[] = [
+  const mockTraceEntries: ExecutionTraceEntry[] = [
     {
-      timestamp: new Date(),
-      type: 'tool_use',
-      tool: 'web_search',
-      input: { query: 'latest AI ethics frameworks 2023' },
-      output: { success: true, result: 'Found several relevant articles...' },
-      duration: 2500
+      step: 'Starting research on AI safety',
+      startTime: new Date(Date.now() - 60000),
+      endTime: new Date(Date.now() - 55000),
+      status: 'success'
     },
     {
-      timestamp: new Date(),
-      type: 'tool_use',
-      tool: 'document_analyzer',
-      input: { text: 'Article content about AI ethics...' },
-      output: { success: true, summary: 'The article discusses...' },
-      duration: 1800
+      step: 'Using tool: web_search to find papers',
+      startTime: new Date(Date.now() - 55000),
+      endTime: new Date(Date.now() - 45000),
+      status: 'success',
+      details: {
+        toolName: 'web_search',
+        toolResults: [
+          { toolName: 'web_search', status: 'success', data: { results: ['paper1', 'paper2'] } }
+        ]
+      }
     },
     {
-      timestamp: new Date(),
-      type: 'completion',
-      result: 'Task completed successfully. Found 5 major AI ethics frameworks...',
-      duration: 700
+      step: 'Summarizing findings',
+      startTime: new Date(Date.now() - 45000),
+      endTime: new Date(Date.now() - 35000),
+      status: 'success'
     }
   ];
   
@@ -145,7 +168,7 @@ describe('ExecutionOutcomeAnalyzer Integration with Memory System', () => {
     const originalStoreOutcome = ExecutionOutcomeAnalyzer.storeOutcome;
     
     // Override for testing only
-    ExecutionOutcomeAnalyzer.storeOutcome = async function(outcome, memory) {
+    ExecutionOutcomeAnalyzer.storeOutcome = async function(outcome: ExecutionOutcome, memory: ChloeMemory): Promise<void> {
       try {
         // Format the outcome for storage
         const formattedContent = `EXECUTION_OUTCOME
@@ -174,8 +197,6 @@ describe('ExecutionOutcomeAnalyzer Integration with Memory System', () => {
         if (result.success) {
           createdMemoryIds.push({id: memoryId, type: MemoryType.THOUGHT});
         }
-        
-        return; // Void return to match interface
       } catch (error) {
         console.error('Error storing outcome:', error);
       }
@@ -187,7 +208,7 @@ describe('ExecutionOutcomeAnalyzer Integration with Memory System', () => {
     });
   });
   
-  test.skip('Should analyze execution results and store in standardized memory system', async () => {
+  test('Should analyze execution results and store in standardized memory system', async () => {
     if (!OPENAI_API_KEY) {
       return;
     }
@@ -313,7 +334,7 @@ describe('ExecutionOutcomeAnalyzer Integration with Memory System', () => {
       
       // Very basic check that we got a response from our mock
       expect(causalChain).toBeDefined();
-      expect(causalChain.origin).toBe(parentTaskId);
+      expect(causalChain.origin.id).toBe(parentTaskId);
     }
   });
 }); 
