@@ -8,10 +8,21 @@ import { SearchService } from '../../services/search/search-service';
 import { QdrantMemoryClient } from '../../services/client/qdrant-client';
 import { EmbeddingService } from '../../services/client/embedding-service';
 import { MemoryType } from '../../config';
+import { loadApiKey } from '../load-api-key';
+
+// Define interface for relationship test results
+interface RelationshipResult {
+  sourceId: string;
+  targetId: string;
+  relationship: {
+    type: string;
+    metadata: Record<string, any>;
+  };
+}
 
 // Use environment variables or defaults
 const QDRANT_URL = process.env.TEST_QDRANT_URL || 'http://localhost:6333';
-const OPENAI_API_KEY = process.env.TEST_OPENAI_API_KEY;
+const OPENAI_API_KEY = loadApiKey();
 
 describe('Scheduler Persistence with Memory System', () => {
   // Setup clients and services
@@ -106,7 +117,7 @@ describe('Scheduler Persistence with Memory System', () => {
         }
       });
       
-      if (result.success) {
+      if (result.success && result.id) {
         createdMemoryIds.push(result.id);
       }
       
@@ -169,13 +180,13 @@ describe('Scheduler Persistence with Memory System', () => {
       }
     });
     
-    if (taskResult.success) {
+    if (taskResult.success && taskResult.id) {
       createdMemoryIds.push(taskResult.id);
     }
     
     // Now update the task status to "in_progress"
     const updateResult = await memoryService.updateMemory({
-      id: taskResult.id,
+      id: taskResult.id || "",
       type: MemoryType.TASK,
       metadata: {
         status: 'in_progress',
@@ -183,11 +194,11 @@ describe('Scheduler Persistence with Memory System', () => {
       }
     });
     
-    expect(updateResult.success).toBe(true);
+    expect(updateResult).toBe(true);
     
     // Retrieve the updated task
     const retrievedTask = await memoryService.getMemory({
-      id: taskResult.id,
+      id: taskResult.id || "",
       type: MemoryType.TASK
     });
     
@@ -217,7 +228,7 @@ describe('Scheduler Persistence with Memory System', () => {
       }
     });
     
-    if (recurringTaskResult.success) {
+    if (recurringTaskResult.success && recurringTaskResult.id) {
       createdMemoryIds.push(recurringTaskResult.id);
     }
     
@@ -237,14 +248,14 @@ describe('Scheduler Persistence with Memory System', () => {
       }
     });
     
-    if (nextOccurrenceResult.success) {
+    if (nextOccurrenceResult.success && nextOccurrenceResult.id) {
       createdMemoryIds.push(nextOccurrenceResult.id);
     }
     
     // Create a relationship between the task executions
-    const relationshipResult = await searchService.createRelationship(
-      recurringTaskResult.id,
-      nextOccurrenceResult.id,
+    const relationshipResult = await (searchService as any).createRelationship(
+      recurringTaskResult.id || "",
+      nextOccurrenceResult.id || "",
       { 
         type: 'recurring_task_sequence', 
         metadata: { 
@@ -257,13 +268,13 @@ describe('Scheduler Persistence with Memory System', () => {
     expect(relationshipResult.success).toBe(true);
     
     // Search for the task execution history
-    const relationships = await searchService.getRelationships(
-      recurringTaskResult.id,
+    const relationships = await (searchService as any).getRelationships(
+      recurringTaskResult.id || "",
       { 
         types: ['recurring_task_sequence'],
         direction: 'outgoing'
       }
-    );
+    ) as RelationshipResult[];
     
     // Verify the relationship
     expect(relationships.length).toBe(1);

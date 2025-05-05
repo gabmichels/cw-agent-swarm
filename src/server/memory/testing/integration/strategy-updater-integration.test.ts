@@ -8,6 +8,7 @@ import { SearchService } from '../../services/search/search-service';
 import { QdrantMemoryClient } from '../../services/client/qdrant-client';
 import { EmbeddingService } from '../../services/client/embedding-service';
 import { MemoryType } from '../../config';
+import { loadApiKey } from '../load-api-key';
 
 // Import the StrategyUpdater and dependencies
 import { StrategyUpdater, StrategyInsight } from '../../../../agents/chloe/self-improvement/strategyUpdater';
@@ -16,7 +17,7 @@ import { ChloeMemory } from '../../../../agents/chloe/memory';
 
 // Use environment variables or defaults
 const QDRANT_URL = process.env.TEST_QDRANT_URL || 'http://localhost:6333';
-const OPENAI_API_KEY = process.env.TEST_OPENAI_API_KEY;
+const OPENAI_API_KEY = loadApiKey();
 
 describe('StrategyUpdater Integration with Memory System', () => {
   // Setup clients and services
@@ -118,7 +119,7 @@ ${outcome.resultSummary || ''}`;
         }
       });
       
-      if (result.success) {
+      if (result.success && result.id) {
         createdMemoryIds.push(result.id);
       }
     }
@@ -151,7 +152,7 @@ ${outcome.resultSummary || ''}`;
       // @ts-ignore - accessing private function for testing
       global as any, 
       'retrieveRecentOutcomes'
-    ).mockImplementation(async (memory: ChloeMemory) => {
+    ).mockImplementation(async (memory: any) => {
       // Verify that memory is of the expected type
       expect(memory).toBe(chloeMemory);
       

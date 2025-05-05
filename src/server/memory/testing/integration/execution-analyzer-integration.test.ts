@@ -8,16 +8,31 @@ import { SearchService } from '../../services/search/search-service';
 import { QdrantMemoryClient } from '../../services/client/qdrant-client';
 import { EmbeddingService } from '../../services/client/embedding-service';
 import { MemoryType } from '../../config';
+import { loadApiKey } from '../load-api-key';
 
 // Import the ExecutionOutcomeAnalyzer
 import { ExecutionOutcomeAnalyzer, ExecutionOutcome } from '../../../../agents/chloe/self-improvement/executionOutcomeAnalyzer';
 import { ChloeMemory } from '../../../../agents/chloe/memory';
-import { ExecutionTraceEntry } from '../../../../agents/chloe/graph/nodes/types';
+import { ExecutionTraceEntry, SubGoal } from '../../../../agents/chloe/graph/nodes/types';
 import { PlannedTask } from '../../../../agents/chloe/human-collaboration';
+
+// Extend CausalChainResult for testing
+interface TestCausalChainResult {
+  nodes: Array<{
+    id: string;
+    type: MemoryType;
+    content: string;
+  }>;
+  links: Array<{
+    source: string;
+    target: string;
+    type: string;
+  }>;
+}
 
 // Use environment variables or defaults
 const QDRANT_URL = process.env.TEST_QDRANT_URL || 'http://localhost:6333';
-const OPENAI_API_KEY = process.env.TEST_OPENAI_API_KEY;
+const OPENAI_API_KEY = loadApiKey();
 
 describe('ExecutionOutcomeAnalyzer Integration with Memory System', () => {
   // Setup clients and services
@@ -35,9 +50,10 @@ describe('ExecutionOutcomeAnalyzer Integration with Memory System', () => {
     id: 'task_test_123',
     goal: 'Research AI safety protocols',
     status: 'complete',
+    reasoning: 'Required for project safety compliance',
     subGoals: [
-      { id: 'sub_1', description: 'Find recent papers on AI safety' },
-      { id: 'sub_2', description: 'Summarize key findings' }
+      { id: 'sub_1', description: 'Find recent papers on AI safety', priority: 1, status: 'complete' },
+      { id: 'sub_2', description: 'Summarize key findings', priority: 2, status: 'complete' }
     ],
     metadata: {
       priority: 'high',
@@ -47,14 +63,12 @@ describe('ExecutionOutcomeAnalyzer Integration with Memory System', () => {
   
   const mockTraceEntries: ExecutionTraceEntry[] = [
     {
-      id: 'trace_1',
       step: 'Starting research on AI safety',
       startTime: new Date(Date.now() - 60000),
       endTime: new Date(Date.now() - 55000),
       status: 'success'
     },
     {
-      id: 'trace_2',
       step: 'Using tool: web_search to find papers',
       startTime: new Date(Date.now() - 55000),
       endTime: new Date(Date.now() - 45000),
@@ -67,7 +81,6 @@ describe('ExecutionOutcomeAnalyzer Integration with Memory System', () => {
       }
     },
     {
-      id: 'trace_3',
       step: 'Summarizing findings',
       startTime: new Date(Date.now() - 45000),
       endTime: new Date(Date.now() - 35000),
@@ -145,7 +158,7 @@ describe('ExecutionOutcomeAnalyzer Integration with Memory System', () => {
     await ExecutionOutcomeAnalyzer.storeOutcome(outcome, chloeMemory);
     
     // Search for the outcome in memory
-    const searchResults = await searchService.search(mockTask.id, {
+    const searchResults = await searchService.search(mockTask.id || "", {
       types: [MemoryType.EXECUTION_OUTCOME],
       limit: 5
     });
@@ -175,7 +188,7 @@ describe('ExecutionOutcomeAnalyzer Integration with Memory System', () => {
       }
     });
     
-    if (parentTaskResult.success) {
+    if (parentTaskResult.success && parentTaskResult.id) {
       createdMemoryIds.push(parentTaskResult.id);
     }
     
@@ -191,14 +204,14 @@ describe('ExecutionOutcomeAnalyzer Integration with Memory System', () => {
       }
     });
     
-    if (subtaskResult.success) {
+    if (subtaskResult.success && subtaskResult.id) {
       createdMemoryIds.push(subtaskResult.id);
     }
     
-    // Create relationship between tasks
-    await searchService.createRelationship(
-      parentTaskResult.id,
-      subtaskResult.id,
+    // Create relationship between tasks - assuming SearchService has createRelationship method
+    await (searchService as any).createRelationship(
+      parentTaskResult.id || "",
+      subtaskResult.id || "",
       { type: 'parent_child', metadata: { created: new Date().toISOString() } }
     );
     
@@ -229,25 +242,25 @@ describe('ExecutionOutcomeAnalyzer Integration with Memory System', () => {
       createdMemoryIds.push(searchResults[0].point.id);
       
       // Create relationship between subtask and execution outcome
-      await searchService.createRelationship(
-        subtaskResult.id,
+      await (searchService as any).createRelationship(
+        subtaskResult.id || "",
         searchResults[0].point.id,
         { type: 'task_execution', metadata: { timestamp: new Date().toISOString() } }
       );
       
       // Now search the causal chain from parent task
-      const causalChain = await searchService.searchCausalChain(parentTaskResult.id, {
+      const causalChain = await (searchService as any).searchCausalChain(parentTaskResult.id || "", {
         maxDepth: 3,
         includeRelationships: true
-      });
+      }) as TestCausalChainResult;
       
       // Verify causal chain results
       expect(causalChain.nodes.length).toBeGreaterThan(1);
       expect(causalChain.links.length).toBeGreaterThan(0);
       
       // Verify that both the subtask and execution outcome are in the chain
-      const subtaskInChain = causalChain.nodes.some(node => node.id === subtaskResult.id);
-      const executionInChain = causalChain.nodes.some(node => 
+      const subtaskInChain = causalChain.nodes.some((node) => node.id === subtaskResult.id);
+      const executionInChain = causalChain.nodes.some((node) => 
         node.type === MemoryType.EXECUTION_OUTCOME && 
         node.content.includes(mockSubtaskOutcome.taskId)
       );

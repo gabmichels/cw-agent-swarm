@@ -8,10 +8,11 @@ import { SearchService } from '../../services/search/search-service';
 import { QdrantMemoryClient } from '../../services/client/qdrant-client';
 import { EmbeddingService } from '../../services/client/embedding-service';
 import { MemoryType } from '../../config';
+import { loadApiKey } from '../load-api-key';
 
 // Use environment variables or defaults
 const QDRANT_URL = process.env.TEST_QDRANT_URL || 'http://localhost:6333';
-const OPENAI_API_KEY = process.env.TEST_OPENAI_API_KEY;
+const OPENAI_API_KEY = loadApiKey();
 
 describe('Memory System Integration', () => {
   // Setup clients and services
@@ -27,6 +28,8 @@ describe('Memory System Integration', () => {
       console.warn('Skipping integration tests: No OpenAI API key provided');
       return;
     }
+    
+    console.log('Running integration tests with OpenAI API key');
     
     // Initialize services
     client = new QdrantMemoryClient({
