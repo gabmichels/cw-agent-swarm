@@ -1,5 +1,5 @@
-import { MemoryType as StandardMemoryType } from '../../../server/memory/config';
-import * as serverQdrant from '../../../server/qdrant';
+import { MemoryType as StandardMemoryType } from '../../../server/memory/config/types';
+import { getMemoryServices } from '../../../server/memory/services';
 import { EnhancedMemory } from './enhanced-memory';
 import { FeedbackLoopSystem } from './feedback-loop';
 import * as fs from 'fs';
@@ -371,49 +371,60 @@ export class IntegrationLayer {
   }
   
   /**
-   * Load user preferences from memory
+   * Load user preferences from memory storage
    */
   private async loadUserPreferencesFromMemory(): Promise<void> {
     try {
-      const results = await serverQdrant.searchMemory(
-        'document',
-        'user_preferences_database',
-        {
-          limit: 1,
-          filter: {
-            type: 'user_preferences'
-          }
-        }
-      );
+      const { searchService } = await getMemoryServices();
       
-      if (results && results.length > 0) {
-        try {
-          const preferencesData = JSON.parse(results[0].text);
-          
-          this.userPreferences = new Map();
-          
-          // Convert to our Map structure
-          for (const [id, prefData] of Object.entries(preferencesData)) {
-            const preference = prefData as any;
-            
-            // Ensure dates are properly parsed
-            preference.lastUpdated = new Date(preference.lastUpdated);
-            
-            this.userPreferences.set(id, preference as UserPreference);
-          }
-          
-          console.log(`Loaded ${this.userPreferences.size} user preferences from memory store`);
-        } catch (error) {
-          console.error('Error parsing user preferences from memory:', error);
-          this.userPreferences = new Map();
-        }
-      } else {
-        console.log('No existing user preferences found in memory store');
-        this.userPreferences = new Map();
+      // Search for user preference records
+      const results = await searchService.search('user preferences', {
+        types: [StandardMemoryType.DOCUMENT],
+        filter: {
+          must: [
+            {
+              key: "metadata.type", 
+              match: { 
+                value: "user_preference"
+              }
+            }
+          ]
+        },
+        limit: 100
+      });
+      
+      if (results.length === 0) {
+        console.log('No user preferences found in memory storage');
+        return;
       }
+      
+      // Process each preference record
+      for (const result of results) {
+        const point = result.point;
+        try {
+          const payload = point.payload;
+          const preferenceData = JSON.parse(payload.text);
+          
+          // Process preferences array or single preference
+          if (Array.isArray(preferenceData)) {
+            for (const pref of preferenceData) {
+              // Ensure lastUpdated is a Date object
+              pref.lastUpdated = new Date(pref.lastUpdated);
+              this.userPreferences.set(pref.id, pref);
+            }
+          } else if (preferenceData.id) {
+            // Single preference object
+            preferenceData.lastUpdated = new Date(preferenceData.lastUpdated);
+            this.userPreferences.set(preferenceData.id, preferenceData);
+          }
+        } catch (parseError) {
+          console.error('Error parsing user preference data:', parseError);
+        }
+      }
+      
+      console.log(`Loaded ${this.userPreferences.size} user preferences from memory`);
     } catch (error) {
       console.error('Error loading user preferences from memory:', error);
-      this.userPreferences = new Map();
     }
   }
   
@@ -450,38 +461,51 @@ export class IntegrationLayer {
   }
   
   /**
-   * Save user preferences to memory and file
+   * Save user preferences to memory
    */
   private async saveUserPreferences(): Promise<void> {
     try {
-      // Convert Map to object for storage
-      const preferencesObject: Record<string, UserPreference> = {};
+      // First, save to local filesystem
+      try {
+        const preferencesArray = Array.from(this.userPreferences.values());
+        const dataDir = path.dirname(this.preferencesFilePath);
+        
+        if (!fs.existsSync(dataDir)) {
+          fs.mkdirSync(dataDir, { recursive: true });
+        }
+        
+        fs.writeFileSync(
+          this.preferencesFilePath,
+          JSON.stringify(preferencesArray, null, 2),
+          'utf8'
+        );
+      } catch (fileError) {
+        console.error('Error writing preferences to file:', fileError);
+      }
       
-      // Use Array.from to avoid iteration issues with Map
-      Array.from(this.userPreferences.entries()).forEach(([id, preference]) => {
-        preferencesObject[id] = preference;
+      // Then save to memory storage as backup
+      const { memoryService } = await getMemoryServices();
+      
+      // Create content with all preferences
+      const preferencesArray = Array.from(this.userPreferences.values());
+      const content = JSON.stringify(preferencesArray);
+      
+      // Store with fixed ID
+      const preferenceId = 'user_preferences';
+      
+      // Add to memory
+      await memoryService.addMemory({
+        id: preferenceId,
+        type: StandardMemoryType.DOCUMENT,
+        content: content,
+        metadata: {
+          type: "user_preference",
+          count: preferencesArray.length,
+          lastUpdated: new Date().toISOString()
+        }
       });
       
-      // Store in memory
-      await this.enhancedMemory.addMemory(
-        JSON.stringify(preferencesObject),
-        {
-          type: 'user_preferences',
-          importance: 'high',
-          category: 'system',
-          created: new Date().toISOString()
-        },
-        StandardMemoryType.DOCUMENT
-      );
-      
-      // Store in file system for persistence
-      fs.writeFileSync(
-        this.preferencesFilePath,
-        JSON.stringify(preferencesObject, null, 2),
-        'utf8'
-      );
-      
-      console.log(`Saved ${this.userPreferences.size} user preferences`);
+      console.log(`Saved ${preferencesArray.length} user preferences`);
     } catch (error) {
       console.error('Error saving user preferences:', error);
     }

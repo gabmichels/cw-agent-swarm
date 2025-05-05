@@ -1,6 +1,7 @@
 import { ChloeState } from '../types/state';
 import { TaskLogger } from '../task-logger';
-import * as serverQdrant from '../../../server/qdrant';
+import { getMemoryServices } from '../../../server/memory/services';
+import { MemoryType as StandardMemoryType } from '../../../server/memory/config/types';
 
 interface StateCheckpoint {
   id: string;
@@ -40,16 +41,24 @@ export class StateManager {
         this.checkpoints = this.checkpoints.slice(-this.maxCheckpoints);
       }
 
-      // Persist to Qdrant if available
+      // Persist to memory service if available
       if (typeof window === 'undefined') {
         try {
-          const embedding = await serverQdrant.getEmbedding(JSON.stringify(state));
-          await serverQdrant.addToCollection(this.stateCollection, embedding.embedding, {
-            checkpoint,
-            type: 'state_checkpoint'
+          const { memoryService } = await getMemoryServices();
+          
+          // Store the state as a document
+          await memoryService.addMemory({
+            id: checkpoint.id,
+            type: StandardMemoryType.DOCUMENT,
+            content: JSON.stringify(state),
+            metadata: {
+              type: 'state_checkpoint',
+              timestamp: checkpoint.timestamp.toISOString(),
+              ...metadata
+            }
           });
         } catch (error) {
-          console.error('Error persisting checkpoint to Qdrant:', error);
+          console.error('Error persisting checkpoint to memory service:', error);
         }
       }
 
@@ -77,18 +86,25 @@ export class StateManager {
         return checkpoint.state;
       }
 
-      // If not in memory, try to load from Qdrant
+      // If not in memory, try to load from memory service
       if (typeof window === 'undefined') {
         try {
-          const embedding = await serverQdrant.getEmbedding(checkpointId);
-          const results = await serverQdrant.search(this.stateCollection, embedding.embedding, 1);
-          if (results.length > 0) {
-            const checkpoint = results[0].payload.checkpoint as StateCheckpoint;
-            this.currentState = checkpoint.state;
-            return checkpoint.state;
+          const { memoryService } = await getMemoryServices();
+          
+          // Get the checkpoint by ID
+          const memory = await memoryService.getMemory({
+            id: checkpointId,
+            type: StandardMemoryType.DOCUMENT
+          });
+          
+          if (memory) {
+            // Parse the state from the content
+            const state = JSON.parse(memory.payload.text) as ChloeState;
+            this.currentState = state;
+            return state;
           }
         } catch (error) {
-          console.error('Error loading checkpoint from Qdrant:', error);
+          console.error('Error loading checkpoint from memory service:', error);
         }
       }
 
@@ -156,9 +172,12 @@ export class StateManager {
     
     if (typeof window === 'undefined') {
       try {
-        await serverQdrant.resetCollection('document');
+        // For now, we'll just remove the in-memory checkpoints
+        // In a future implementation, we could add a method to delete
+        // checkpoints from the memory service
+        console.log('Cleared checkpoints from memory');
       } catch (error) {
-        console.error('Error clearing checkpoints from Qdrant:', error);
+        console.error('Error clearing checkpoints:', error);
       }
     }
   }

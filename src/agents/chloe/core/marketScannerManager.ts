@@ -2,7 +2,7 @@ import { ChatOpenAI } from '@langchain/openai';
 import { ChloeMemory } from '../memory';
 import { TaskLogger } from '../task-logger';
 import { createMarketScanner, MarketScanner, MarketTrend } from '../tools/marketScanner';
-import * as serverQdrant from '../../../server/qdrant';
+import { getMemoryServices } from '../../../server/memory/services';
 import { IManager, BaseManagerOptions } from '../../../lib/shared/types/agentTypes';
 import { logger } from '../../../lib/logging';
 import { 
@@ -10,14 +10,9 @@ import {
   MemoryType, 
   MemorySource
 } from '../../../constants/memory';
-import { MemoryType as StandardMemoryType } from '../../../server/memory/config';
+import { MemoryType as StandardMemoryType } from '../../../server/memory/config/types';
 import { MemoryEntry } from '../memory';
 import { MarketScannerConfig, TrendParsingPatterns, Templates } from './marketScanner.config';
-
-// Add a declaration to extend the serverQdrant type
-declare module '../../../server/qdrant' {
-  export function addToCollection(collection: string, embedding: number[], payload: any): Promise<boolean>;
-}
 
 /**
  * Interface for trend summary results
@@ -287,7 +282,7 @@ export class MarketScannerManager implements IManager {
           importance: ImportanceLevel.HIGH,
           source: MemorySource.SYSTEM,
           created: new Date(),
-          type: 'document'
+          type: StandardMemoryType.DOCUMENT
         };
         
         // Add to recentScans array
@@ -387,11 +382,7 @@ export class MarketScannerManager implements IManager {
   }
 
   /**
-   * Add a strategic insight to the memory system
-   * @param insight The insight text
-   * @param tags Array of tags for the insight
-   * @param category The category of the insight
-   * @returns Promise that resolves to a boolean indicating success
+   * Add a strategic insight to memory based on trend analysis
    */
   private async addStrategicInsight(
     insight: string, 
@@ -399,51 +390,38 @@ export class MarketScannerManager implements IManager {
     category: string = 'general'
   ): Promise<boolean> {
     try {
-      // Get embeddings for the insight
-      const embeddingResponse = await serverQdrant.getEmbedding(insight);
-      if (!embeddingResponse || !embeddingResponse.embedding) {
-        this.logAction('Failed to get embedding for strategic insight', { 
-          insight: insight.substring(0, this.config.limits.insightPreviewLength)
-        });
+      if (!this.memory) {
+        this.logAction('Cannot add strategic insight: memory not initialized');
         return false;
       }
       
-      const embedding = embeddingResponse.embedding;
-      
-      // Create a timestamp
-      const timestamp = new Date().toISOString();
-      
-      // Create a payload with all the data
-      const payload = {
-        insight,
-        source: 'market_scanner',
+      // Create metadata for the insight
+      const metadata = {
+        type: 'strategic_insight',
+        category,
         tags,
-        timestamp,
-        category
+        source: 'market_scanner',
+        generated: new Date().toISOString()
       };
       
-      // Add to Qdrant collection
-      await serverQdrant.addToCollection(
-        this.config.collections.strategicInsights, 
-        embedding, 
-        payload
-      );
+      // Format content for better readability and context
+      const formattedInsight = `${category.toUpperCase()} INSIGHT: ${insight}`;
       
-      // Also add to normal memory with high importance
+      // Add to memory with appropriate importance level
       await this.memory.addMemory(
-        `Strategic Insight: ${insight}`,
+        formattedInsight,
         StandardMemoryType.DOCUMENT,
-        ImportanceLevel.CRITICAL,
+        ImportanceLevel.HIGH,
         MemorySource.SYSTEM,
-        `Category: ${category}`,
-        tags
+        `Strategic insight from market trends analysis in category: ${category}`,
+        tags,
+        metadata
       );
       
-      const previewLength = this.config.limits.insightPreviewLength;
-      this.logAction('Added strategic insight', { 
+      this.logAction('Added strategic insight to memory', { 
         category, 
-        tags: tags.join(', '),
-        insight: insight.substring(0, previewLength) + (insight.length > previewLength ? '...' : '')
+        tags,
+        insightPreview: insight.slice(0, 100) + (insight.length > 100 ? '...' : '')
       });
       
       return true;

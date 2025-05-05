@@ -1,8 +1,10 @@
-import * as serverQdrant from '../../../server/qdrant';
+import { getMemoryServices } from '../../../server/memory/services';
 import { DateTime } from 'luxon';
 import { EnhancedMemory, MemoryEntry } from './enhanced-memory';
 import { ImportanceLevel } from '../../../constants/memory';
-import { MemoryType as StandardMemoryType } from '../../../server/memory/config';
+import { MemoryType as StandardMemoryType } from '../../../server/memory/config/types';
+import { SearchResult } from '../../../server/memory/services/search/types';
+import { BaseMemorySchema } from '../../../server/memory/models';
 
 /**
  * CognitiveMemory System
@@ -189,71 +191,68 @@ export class CognitiveMemory extends EnhancedMemory {
       // Get all memories from the past consolidation interval
       const cutoffDate = DateTime.now().minus({ hours: this.consolidationInterval }).toJSDate();
       
-      // Search for memories to consolidate
-      const recentMemories = await serverQdrant.searchMemory(
-        'document',
-        '',
-        {
-          filter: {
-            created: { $gte: cutoffDate.toISOString() }
-          },
-          limit: 100
-        }
-      );
+      // Search for memories to consolidate using the new memory services API
+      const { searchService, memoryService } = await getMemoryServices();
       
-      if (!recentMemories || recentMemories.length === 0) {
-        console.log('No memories to consolidate');
+      // Use the filter to find memories created after cutoff date
+      const recentMemoriesResults = await searchService.search('', {
+        types: [StandardMemoryType.DOCUMENT],
+        filter: {
+          must: [
+            {
+              key: "timestamp",
+              range: {
+                gte: cutoffDate.toISOString()
+              }
+            }
+          ]
+        },
+        limit: 100
+      });
+      
+      if (!recentMemoriesResults || recentMemoriesResults.length === 0) {
+        console.log('No memories found for consolidation');
         return 0;
       }
       
-      console.log(`Found ${recentMemories.length} memories to consider for consolidation`);
-      
       let consolidatedCount = 0;
       
-      // Process each memory record
-      for (const memory of recentMemories) {
-        if (!memory.id) continue;
+      // Process each memory
+      for (const result of recentMemoriesResults) {
+        const memory = result.point;
+        const memoryId = memory.id;
         
-        // Get importance from metadata with fallback to medium
-        const importanceValue = memory.metadata?.importance || ImportanceLevel.MEDIUM;
+        // Get current decay factor
+        const metadata = memory.payload.metadata || {};
+        const decayFactor = metadata.decayFactor || 1.0;
+        const retrievalCount = metadata.retrievalCount || 0;
         
-        // Calculate decay factor (0-1) where 0 is full decay (forget)
-        let decayFactor = 
-          String(importanceValue) === ImportanceLevel.HIGH ? 0.3 :
-          String(importanceValue) === ImportanceLevel.MEDIUM ? 0.6 :
-          0.8; // LOW importance
+        // Calculate new decay factor based on retrieval and time
+        const adjustedDecayRate = this.decayRate * (retrievalCount === 0 ? 1.2 : 0.8);
+        const currentDecayFactor = Math.max(0, decayFactor - adjustedDecayRate);
         
-        // Reduce decay for frequently accessed memories
-        const retrievalCount = memory.metadata?.retrievalCount || 0;
-        if (retrievalCount > 5) {
-          decayFactor *= 0.7; // 30% less decay for frequently accessed
-        }
+        // Get importance level
+        const importanceValue = metadata.importance || ImportanceLevel.MEDIUM;
         
-        // Highly emotional memories decay slower
-        const emotions = memory.metadata?.emotions || [];
-        if (Array.isArray(emotions) && emotions.length > 1) {
-          decayFactor *= 0.8; // 20% less decay for emotional memories
-        }
-        
-        // Apply the decay factor
-        let currentDecayFactor = memory.metadata?.decayFactor || 1.0;
-        currentDecayFactor *= decayFactor;
-        
-        // For very low importance memories with high decay, remove them
+        // Apply forgetting curve - delete low importance memories that have decayed significantly
         if (String(importanceValue) === ImportanceLevel.LOW && currentDecayFactor > 0.85) {
           // Delete the memory
-          await serverQdrant.deleteMemory('document', memory.id);
-          console.log(`Removed decayed memory: ${memory.id}`);
+          await memoryService.deleteMemory({
+            id: memoryId,
+            type: StandardMemoryType.DOCUMENT
+          });
+          console.log(`Removed decayed memory: ${memoryId}`);
         } else {
           // Update the memory with new decay factor
-          await serverQdrant.updateMemory(memory.id, { 
+          await memoryService.updateMemory({
+            id: memoryId,
+            type: StandardMemoryType.DOCUMENT,
             metadata: {
               decayFactor: currentDecayFactor 
             }
           });
+          consolidatedCount++;
         }
-        
-        consolidatedCount++;
       }
       
       console.log(`Consolidated ${consolidatedCount} memories`);
@@ -369,18 +368,23 @@ export class CognitiveMemory extends EnhancedMemory {
   ): Promise<any[]> {
     try {
       // Search for memories with specific emotion
-      const memories = await serverQdrant.searchMemory(
-        'document',
-        '',
-        {
-          filter: {
-            emotions: emotion
-          },
-          limit
-        }
-      );
+      const { searchService } = await getMemoryServices();
+      const emotionResults = await searchService.search('', {
+        types: [StandardMemoryType.DOCUMENT],
+        filter: {
+          must: [
+            {
+              key: "metadata.emotions",
+              match: {
+                value: emotion
+              }
+            }
+          ]
+        },
+        limit
+      });
       
-      return memories || [];
+      return emotionResults.map(result => result.point) || [];
     } catch (error) {
       console.error(`Error retrieving memories by emotion ${emotion}:`, error);
       return [];

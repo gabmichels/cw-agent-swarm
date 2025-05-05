@@ -1,4 +1,5 @@
-import * as serverQdrant from '../../../server/qdrant';
+import { getMemoryServices } from '../../../server/memory/services';
+import { MemoryType as StandardMemoryType } from '../../../server/memory/config/types';
 import { DateTime } from 'luxon';
 
 /**
@@ -113,16 +114,9 @@ export class KnowledgeGraph {
   async initialize(): Promise<boolean> {
     try {
       if (typeof window === 'undefined') {
-        // Initialize storage for graph on server-side
-        // In this implementation, we'll use Qdrant collections for nodes and edges
-        await serverQdrant.initMemory({
-          qdrantUrl: process.env.QDRANT_URL,
-          qdrantApiKey: process.env.QDRANT_API_KEY,
-          useOpenAI: true
-        });
-        
-        // Ensure collections exist for nodes and edges
-        // In a real implementation, we would create these collections if they don't exist
+        // Initialize storage for graph on server-side using new memory services
+        // The memory service initialization is handled by getMemoryServices
+        await getMemoryServices();
       }
       
       this.isInitialized = true;
@@ -163,18 +157,20 @@ export class KnowledgeGraph {
         }
       };
       
-      // Store node in knowledge_graph_nodes collection
-      // In this implementation, we'll use the document collection
-      await serverQdrant.addMemory(
-        'document',
-        `${type}:${label}`,
-        {
+      // Store node using memory service instead of directly with qdrant
+      const { memoryService } = await getMemoryServices();
+      
+      await memoryService.addMemory({
+        id: nodeId,
+        type: StandardMemoryType.DOCUMENT,
+        content: `${type}:${label}`,
+        metadata: {
           ...node,
           type: 'knowledge_graph_node',
           nodeType: type,
           importance
         }
-      );
+      });
       
       return nodeId;
     } catch (error) {
@@ -209,26 +205,29 @@ export class KnowledgeGraph {
         strength,
         created: now,
         lastUpdated: now,
+        bidirectional: false,
         metadata: {
           ...metadata,
           namespace: this.namespace
-        },
-        bidirectional: false,
-        properties: {}
+        }
       };
       
-      // Store edge in knowledge_graph_edges collection
-      // In this implementation, we'll use the document collection
-      await serverQdrant.addMemory(
-        'document',
-        `${type}:${sourceId}->${targetId}`,
-        {
+      // Store edge using memory service
+      const { memoryService } = await getMemoryServices();
+      
+      await memoryService.addMemory({
+        id: edgeId,
+        type: StandardMemoryType.DOCUMENT,
+        content: `${sourceId}-[${type}]->${targetId}`,
+        metadata: {
           ...edge,
           type: 'knowledge_graph_edge',
           edgeType: type,
-          strength
+          strength,
+          sourceNode: sourceId,
+          targetNode: targetId
         }
-      );
+      });
       
       return edgeId;
     } catch (error) {
@@ -238,7 +237,7 @@ export class KnowledgeGraph {
   }
   
   /**
-   * Find nodes matching a label pattern
+   * Find nodes by label pattern
    */
   async findNodes(
     labelPattern: string,
@@ -250,40 +249,74 @@ export class KnowledgeGraph {
         await this.initialize();
       }
       
-      // Create filter
-      const filter: Record<string, any> = {
-        type: 'knowledge_graph_node',
-        namespace: this.namespace
+      // Search for nodes using memory service
+      const { searchService } = await getMemoryServices();
+      
+      // Build filter
+      const filter: any = {
+        must: [
+          {
+            key: "metadata.type",
+            match: {
+              value: "knowledge_graph_node"
+            }
+          },
+          {
+            key: "metadata.namespace",
+            match: {
+              value: this.namespace
+            }
+          }
+        ]
       };
       
+      // Add node type filter if specified
       if (nodeTypes && nodeTypes.length > 0) {
-        filter.nodeType = { $in: nodeTypes };
+        filter.must.push({
+          key: "metadata.nodeType",
+          match: {
+            value: nodeTypes
+          }
+        });
       }
       
-      // Search for nodes
-      const results = await serverQdrant.searchMemory(
-        'document',
-        labelPattern,
-        {
-          filter,
-          limit
+      // Search with filter
+      const results = await searchService.search(labelPattern, {
+        types: [StandardMemoryType.DOCUMENT],
+        filter,
+        limit
+      });
+      
+      // Convert to GraphNode array
+      const nodes: GraphNode[] = [];
+      
+      for (const result of results) {
+        const point = result.point;
+        const metadata = point.payload.metadata || {};
+        
+        if (metadata.id) {
+          try {
+            const node: GraphNode = {
+              id: metadata.id,
+              type: metadata.nodeType || NodeType.CONCEPT,
+              label: metadata.label || point.payload.text,
+              created: new Date(metadata.created),
+              lastUpdated: new Date(metadata.lastUpdated),
+              importance: typeof metadata.importance === 'number' ? metadata.importance : 
+                (metadata.importance ? Number(metadata.importance.toString()) : 0.5),
+              metadata: metadata,
+              source: metadata.source,
+              confidence: metadata.confidence
+            };
+            
+            nodes.push(node);
+          } catch (error) {
+            console.error('Error parsing node data:', error);
+          }
         }
-      );
-      
-      if (!results || results.length === 0) {
-        return [];
       }
       
-      // Convert to GraphNode objects
-      return results.map(result => ({
-        id: result.metadata.id,
-        type: result.metadata.nodeType,
-        label: result.metadata.label || result.text.split(':')[1],
-        created: new Date(result.metadata.created),
-        lastUpdated: new Date(result.metadata.lastUpdated),
-        importance: result.metadata.importance || 0.5,
-        metadata: result.metadata
-      }));
+      return nodes;
     } catch (error) {
       console.error('Error finding nodes in knowledge graph:', error);
       return [];
@@ -347,28 +380,24 @@ export class KnowledgeGraph {
       const edges: GraphEdge[] = [];
       
       for (const filter of filters) {
-        const results = await serverQdrant.searchMemory(
-          'document',
-          '',
-          {
-            filter,
-            limit: 100
-          }
-        );
+        const results = await getMemoryServices().then(services => services.searchService.search('', {
+          filter,
+          limit: 100
+        }));
         
         if (results && results.length > 0) {
           // Convert to GraphEdge objects
           const convertedEdges = results.map(result => ({
-            id: result.metadata.id,
-            source: result.metadata.source,
-            target: result.metadata.target,
-            type: result.metadata.edgeType as RelationType,
-            strength: result.metadata.strength || 0.5,
-            created: new Date(result.metadata.created),
-            lastUpdated: new Date(result.metadata.lastUpdated),
-            metadata: result.metadata,
-            bidirectional: result.metadata.bidirectional || false,
-            properties: result.metadata.properties || {}
+            id: result.point.payload.metadata.id,
+            source: result.point.payload.metadata.source,
+            target: result.point.payload.metadata.target,
+            type: result.point.payload.metadata.edgeType as RelationType,
+            strength: result.point.payload.metadata.strength || 0.5,
+            created: new Date(result.point.payload.metadata.created),
+            lastUpdated: new Date(result.point.payload.metadata.lastUpdated),
+            metadata: result.point.payload.metadata,
+            bidirectional: result.point.payload.metadata.bidirectional || false,
+            properties: result.point.payload.metadata.properties || {}
           }));
           
           edges.push(...convertedEdges);

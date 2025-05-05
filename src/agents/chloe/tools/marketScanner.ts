@@ -2,7 +2,8 @@ import fs from 'fs';
 import path from 'path';
 import Parser from 'rss-parser';
 import { logger } from '../../../lib/logging';
-import { addMemory as qdrantAddMemory } from '../../../server/qdrant';
+import { getMemoryServices } from '../../../server/memory/services';
+import { MemoryType as StandardMemoryType } from '../../../server/memory/config/types';
 import { ChatOpenAI } from '@langchain/openai';
 import axios from 'axios';
 import { z } from 'zod';
@@ -646,27 +647,43 @@ export class MarketScanner {
   }
 
   /**
-   * Save a market signal to memory
+   * Save market signal to memory
    */
   private async saveSignalToMemory(signal: MarketSignal, summary: string) {
     try {
-      const content = `${signal.title}\n\n${signal.content}\n\nSource: ${signal.source} (${signal.sourceType})`;
-      const metadata = {
-        type: 'market_signal',
-        category: signal.category,
-        theme: signal.theme,
-        source: signal.source,
-        sourceType: signal.sourceType,
-        url: signal.url,
-        published: signal.published.toISOString(),
-        retrieved: signal.retrieved.toISOString(),
-        summary
-      };
+      const { memoryService } = await getMemoryServices();
       
-      // Add to memory with high importance
-      await qdrantAddMemory('document', content, metadata);
+      // Format content for storage
+      const content = `
+Market Signal: ${signal.title}
+Category: ${signal.category}
+Theme: ${signal.theme}
+Source: ${signal.source} (${signal.sourceType})
+Published: ${signal.published.toISOString()}
+URL: ${signal.url}
+
+${summary || signal.content}
+      `.trim();
       
-      logger.info(`Saved market signal "${signal.title}" to memory`);
+      // Add to memory using memory service
+      await memoryService.addMemory({
+        id: `market_signal_${Date.now()}`,
+        type: StandardMemoryType.DOCUMENT,
+        content: content,
+        metadata: {
+          type: 'market_signal',
+          title: signal.title,
+          category: signal.category,
+          theme: signal.theme,
+          source: signal.source,
+          sourceType: signal.sourceType,
+          published: signal.published.toISOString(),
+          url: signal.url,
+          importance: 'medium'
+        }
+      });
+      
+      logger.info(`Saved market signal to memory: ${signal.title}`);
     } catch (error) {
       logger.error('Error saving market signal to memory:', error);
     }

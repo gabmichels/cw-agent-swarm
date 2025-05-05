@@ -1,5 +1,5 @@
-import { MemoryType as StandardMemoryType } from '../../../server/memory/config';
-import * as serverQdrant from '../../../server/qdrant';
+import { MemoryType as StandardMemoryType } from '../../../server/memory/config/types';
+import { getMemoryServices } from '../../../server/memory/services';
 import { EnhancedMemory } from './enhanced-memory';
 
 /**
@@ -301,146 +301,184 @@ export class FeedbackLoopSystem {
   }
   
   /**
-   * Load patterns from memory
+   * Load patterns from memory storage
    */
   private async loadPatterns(): Promise<void> {
     try {
-      const results = await serverQdrant.searchMemory(
-        'document',
-        'intent_patterns_database',
-        {
-          limit: 1,
-          filter: {
-            type: 'intent_patterns'
-          }
-        }
-      );
+      const { searchService } = await getMemoryServices();
       
-      if (results && results.length > 0) {
+      // Search for pattern records
+      const results = await searchService.search('feedback loop patterns', {
+        types: [StandardMemoryType.DOCUMENT],
+        filter: {
+          must: [
+            {
+              key: "metadata.type", 
+              match: { 
+                value: "feedback_pattern"
+              }
+            }
+          ]
+        },
+        limit: 100
+      });
+      
+      if (results.length === 0) {
+        console.log('No existing patterns found');
+        return;
+      }
+      
+      // Process each pattern record
+      for (const result of results) {
+        const point = result.point;
         try {
-          const patternData = JSON.parse(results[0].text);
+          const payload = point.payload;
+          const patternData = JSON.parse(payload.text);
           
-          // Convert to our Map structure
-          for (const [intent, intentPatterns] of Object.entries(patternData)) {
-            const patternsMap = new Map<string, IntentPattern>();
+          if (patternData && patternData.intent && patternData.patterns) {
+            const intent = patternData.intent;
             
-            for (const [patternKey, patternValue] of Object.entries(intentPatterns as any)) {
-              const pattern = patternValue as any;
-              
-              // Ensure dates are properly parsed
-              pattern.lastUsed = new Date(pattern.lastUsed);
-              
-              patternsMap.set(patternKey, pattern as IntentPattern);
+            if (!this.patterns.has(intent)) {
+              this.patterns.set(intent, new Map());
             }
             
-            this.patterns.set(intent, patternsMap);
+            // Add each pattern
+            for (const pattern of patternData.patterns) {
+              this.patterns.get(intent)!.set(pattern.pattern, pattern);
+            }
           }
-          
-          console.log(`Loaded patterns for ${this.patterns.size} intents`);
-        } catch (error) {
-          console.error('Error parsing intent patterns:', error);
-          this.patterns = new Map();
+        } catch (parseError) {
+          console.error('Error parsing pattern data:', parseError);
         }
-      } else {
-        console.log('No existing intent patterns found');
-        this.patterns = new Map();
       }
+      
+      console.log(`Loaded patterns for ${this.patterns.size} intents`);
     } catch (error) {
       console.error('Error loading patterns:', error);
-      this.patterns = new Map();
     }
   }
   
   /**
-   * Save patterns to memory
+   * Save patterns to memory storage
    */
   private async savePatterns(): Promise<void> {
     try {
-      // Convert Map to object for storage
-      const patternsObject: Record<string, Record<string, IntentPattern>> = {};
+      const { memoryService } = await getMemoryServices();
       
-      // Use Array.from to avoid linter errors with Map iteration
-      Array.from(this.patterns.entries()).forEach(([intent, intentPatterns]) => {
-        patternsObject[intent] = {};
+      // For each intent, create a record with all its patterns
+      for (const intentEntry of Array.from(this.patterns.entries())) {
+        const intent = intentEntry[0];
+        const patternMap = intentEntry[1];
         
-        Array.from(intentPatterns.entries()).forEach(([patternKey, pattern]) => {
-          patternsObject[intent][patternKey] = pattern;
+        // Convert pattern map to array
+        const patternsArray = Array.from(patternMap.values());
+        
+        // Skip if no patterns
+        if (patternsArray.length === 0) continue;
+        
+        // Create content with intent and patterns
+        const content = JSON.stringify({
+          intent,
+          patterns: patternsArray,
+          lastUpdated: new Date().toISOString()
         });
-      });
-      
-      // Store in memory
-      await this.enhancedMemory.addMemory(
-        JSON.stringify(patternsObject),
-        {
-          type: 'intent_patterns',
-          importance: 'high',
-          category: 'system',
-          created: new Date().toISOString()
-        },
-        StandardMemoryType.DOCUMENT
-      );
+        
+        // Check if a record already exists for this intent
+        const patternId = `feedback_pattern_${intent.toLowerCase().replace(/\s+/g, '_')}`;
+        
+        // Add to memory with standard memory service
+        await memoryService.addMemory({
+          id: patternId,
+          type: StandardMemoryType.DOCUMENT,
+          content: content,
+          metadata: {
+            type: "feedback_pattern",
+            intent: intent
+          }
+        });
+      }
     } catch (error) {
       console.error('Error saving patterns:', error);
     }
   }
   
   /**
-   * Load corrections from memory
+   * Load correction history from memory storage
    */
   private async loadCorrections(): Promise<void> {
     try {
-      const results = await serverQdrant.searchMemory(
-        'document',
-        'intent_corrections_database',
-        {
-          limit: 1,
-          filter: {
-            type: 'intent_corrections'
-          }
-        }
-      );
+      const { searchService } = await getMemoryServices();
       
-      if (results && results.length > 0) {
-        try {
-          const correctionsData = JSON.parse(results[0].text);
-          
-          // Ensure dates are properly parsed
-          this.corrections = correctionsData.map((correction: any) => ({
-            ...correction,
-            timestamp: new Date(correction.timestamp)
-          }));
-          
-          console.log(`Loaded ${this.corrections.length} intent corrections`);
-        } catch (error) {
-          console.error('Error parsing intent corrections:', error);
-          this.corrections = [];
-        }
-      } else {
-        console.log('No existing intent corrections found');
-        this.corrections = [];
+      // Search for correction records
+      const results = await searchService.search('feedback loop corrections', {
+        types: [StandardMemoryType.DOCUMENT],
+        filter: {
+          must: [
+            {
+              key: "metadata.type", 
+              match: { 
+                value: "feedback_correction"
+              }
+            }
+          ]
+        },
+        limit: 100
+      });
+      
+      if (results.length === 0) {
+        console.log('No existing corrections found');
+        return;
       }
+      
+      // Process each correction record
+      for (const result of results) {
+        const point = result.point;
+        try {
+          const payload = point.payload;
+          const correctionData = JSON.parse(payload.text);
+          
+          if (Array.isArray(correctionData)) {
+            // Add each correction to our array
+            for (const correction of correctionData) {
+              // Ensure timestamp is a Date object
+              correction.timestamp = new Date(correction.timestamp);
+              this.corrections.push(correction);
+            }
+          }
+        } catch (parseError) {
+          console.error('Error parsing correction data:', parseError);
+        }
+      }
+      
+      console.log(`Loaded ${this.corrections.length} corrections`);
     } catch (error) {
       console.error('Error loading corrections:', error);
-      this.corrections = [];
     }
   }
   
   /**
-   * Save corrections to memory
+   * Save correction history to memory storage
    */
   private async saveCorrections(): Promise<void> {
     try {
-      // Store in memory
-      await this.enhancedMemory.addMemory(
-        JSON.stringify(this.corrections),
-        {
-          type: 'intent_corrections',
-          importance: 'high',
-          category: 'system',
-          created: new Date().toISOString()
-        },
-        StandardMemoryType.DOCUMENT
-      );
+      const { memoryService } = await getMemoryServices();
+      
+      // Create content with all corrections
+      const content = JSON.stringify(this.corrections);
+      
+      // Store with fixed ID
+      const correctionId = 'feedback_corrections';
+      
+      // Add to memory
+      await memoryService.addMemory({
+        id: correctionId,
+        type: StandardMemoryType.DOCUMENT,
+        content: content,
+        metadata: {
+          type: "feedback_correction",
+          count: this.corrections.length
+        }
+      });
     } catch (error) {
       console.error('Error saving corrections:', error);
     }
