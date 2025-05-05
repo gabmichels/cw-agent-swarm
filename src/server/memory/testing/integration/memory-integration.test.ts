@@ -9,6 +9,7 @@ import { QdrantMemoryClient } from '../../services/client/qdrant-client';
 import { EmbeddingService } from '../../services/client/embedding-service';
 import { MemoryType } from '../../config';
 import { loadApiKey } from '../load-api-key';
+import { randomUUID } from 'crypto';
 
 // Use environment variables or defaults
 const QDRANT_URL = process.env.TEST_QDRANT_URL || 'http://localhost:6333';
@@ -20,7 +21,9 @@ describe('Memory System Integration', () => {
   let embeddingService: EmbeddingService;
   let memoryService: MemoryService;
   let searchService: SearchService;
-  const testPrefix = `test_${Date.now()}`;
+  
+  // Store IDs for cleanup
+  const createdMemoryIds: {id: string, type: MemoryType}[] = [];
   
   beforeAll(async () => {
     // Skip tests if OpenAI API key is not available
@@ -50,8 +53,19 @@ describe('Memory System Integration', () => {
   });
   
   afterAll(async () => {
-    // Cleanup any test data if needed
-    // This would delete collections or records created during testing
+    // Cleanup test data
+    if (OPENAI_API_KEY) {
+      for (const item of createdMemoryIds) {
+        try {
+          await memoryService.deleteMemory({
+            id: item.id,
+            type: item.type
+          });
+        } catch (err) {
+          console.warn(`Failed to delete test memory ${item.id}:`, err);
+        }
+      }
+    }
   });
   
   // Conditional tests based on API key availability
@@ -78,10 +92,14 @@ describe('Memory System Integration', () => {
         return;
       }
       
-      // 1. Add memories
-      const message1Id = `${testPrefix}_message_1`;
-      const message2Id = `${testPrefix}_message_2`;
-      const documentId = `${testPrefix}_document_1`;
+      // 1. Add memories with UUID IDs
+      const message1Id = randomUUID();
+      const message2Id = randomUUID();
+      const documentId = randomUUID();
+      
+      console.log(`Created UUID for message1: ${message1Id}`);
+      console.log(`Created UUID for message2: ${message2Id}`);
+      console.log(`Created UUID for document: ${documentId}`);
       
       const addMessage1Result = await memoryService.addMemory({
         id: message1Id,
@@ -103,6 +121,19 @@ describe('Memory System Integration', () => {
         type: MemoryType.DOCUMENT,
         metadata: { source: 'integration-test', filetype: 'text' }
       });
+      
+      // Store IDs for cleanup
+      if (addMessage1Result.success) {
+        createdMemoryIds.push({id: message1Id, type: MemoryType.MESSAGE});
+      }
+      
+      if (addMessage2Result.success) {
+        createdMemoryIds.push({id: message2Id, type: MemoryType.MESSAGE});
+      }
+      
+      if (addDocumentResult.success) {
+        createdMemoryIds.push({id: documentId, type: MemoryType.DOCUMENT});
+      }
       
       // Check add results
       expect(addMessage1Result.success).toBe(true);
