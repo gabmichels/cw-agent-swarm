@@ -24,6 +24,7 @@ export interface ReflectionManagerOptions extends BaseManagerOptions {
   model: ChatOpenAI;
   logger?: TaskLogger;
   notifyFunction?: (message: string) => Promise<void>;
+  skipInitialReviews?: boolean;
 }
 
 /**
@@ -39,6 +40,7 @@ export class ReflectionManager implements IManager {
   private memory: ChloeMemory;
   private model: ChatOpenAI;
   private notifyFunction?: (message: string) => Promise<void>;
+  private skipInitialReviews: boolean = false;
 
   constructor(options: ReflectionManagerOptions) {
     this.agentId = options.agentId;
@@ -46,6 +48,7 @@ export class ReflectionManager implements IManager {
     this.model = options.model;
     this.taskLogger = options.logger || null;
     this.notifyFunction = options.notifyFunction;
+    this.skipInitialReviews = options.skipInitialReviews || false;
   }
 
   /**
@@ -76,6 +79,15 @@ export class ReflectionManager implements IManager {
     try {
       this.logAction('Initializing reflection system');
       this.initialized = true;
+      
+      // Skip automatic performance reviews at startup if specified
+      if (this.skipInitialReviews) {
+        this.logAction('Skipping initial performance reviews');
+      } else {
+        // If needed, you could schedule reviews here
+        // But since we don't want automatic reviews at startup, we'll leave this empty
+      }
+      
       this.logAction('Reflection system initialized successfully');
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);

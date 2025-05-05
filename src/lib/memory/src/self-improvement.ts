@@ -67,6 +67,7 @@ export class SelfImprovementMechanism {
   private taskLogs: TaskExecutionLog[] = [];
   private patternAdjustments: PatternAdjustment[] = [];
   private lastReviewDate: Date | null = null;
+  private skipInitialReviews: boolean = false;
   private reviewSchedule: {
     daily: boolean;
     weekly: boolean;
@@ -89,6 +90,7 @@ export class SelfImprovementMechanism {
     integrationLayer: IntegrationLayer,
     options: {
       dataDir?: string;
+      skipInitialReviews?: boolean;
       reviewSchedule?: {
         daily?: boolean;
         weekly?: boolean;
@@ -99,6 +101,7 @@ export class SelfImprovementMechanism {
     this.feedbackLoop = feedbackLoop;
     this.enhancedMemory = enhancedMemory;
     this.integrationLayer = integrationLayer;
+    this.skipInitialReviews = options.skipInitialReviews || false;
     
     // Set up data directories and file paths
     this.dataDir = options.dataDir || path.join(process.cwd(), 'data', 'self-improvement');
@@ -138,8 +141,12 @@ export class SelfImprovementMechanism {
       this.isInitialized = true;
       console.log('Self-improvement mechanism initialized successfully');
       
-      // Check if we need to perform reviews
-      this.checkScheduledReviews();
+      // Check if we need to perform reviews, but only if not skipping initial reviews
+      if (!this.skipInitialReviews) {
+        this.checkScheduledReviews();
+      } else {
+        console.log('Skipping initial performance reviews at startup');
+      }
       
       return true;
     } catch (error) {
@@ -812,6 +819,7 @@ export const createSelfImprovementMechanism = (
   integrationLayer: IntegrationLayer,
   options: {
     dataDir?: string;
+    skipInitialReviews?: boolean;
     reviewSchedule?: {
       daily?: boolean;
       weekly?: boolean;

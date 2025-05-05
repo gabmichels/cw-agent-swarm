@@ -115,7 +115,10 @@ export class MemoryManager implements IManager {
         this.selfImprovement = new SelfImprovementMechanism(
           this.feedbackLoop,
           this.enhancedMemory,
-          this.integrationLayer
+          this.integrationLayer,
+          {
+            skipInitialReviews: true
+          }
         );
         await this.selfImprovement.initialize();
         

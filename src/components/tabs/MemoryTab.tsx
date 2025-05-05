@@ -7,6 +7,75 @@ import { SearchResult } from '../../server/memory/services/search/types';
 import useMemory from '../../hooks/useMemory';
 import useMemorySearch from '../../hooks/useMemorySearch';
 
+// Memory property path constants
+const PROPERTY_PATHS = {
+  // Common type paths
+  TYPE_PATHS: {
+    PAYLOAD_TYPE: 'payload.type',
+    KIND: 'kind',
+    METADATA_TYPE: 'metadata.type',
+    ROOT_TYPE: 'type',
+    METADATA_CATEGORY: 'payload.metadata.category',
+  },
+  // Common timestamp paths
+  TIMESTAMP_PATHS: {
+    PAYLOAD_TIMESTAMP: 'payload.timestamp',
+    ROOT_TIMESTAMP: 'timestamp',
+    POINT_PAYLOAD_TIMESTAMP: 'point.payload.timestamp',
+    CREATED_AT: 'created_at',
+    PAYLOAD_CREATED_AT: 'payload.created_at',
+  },
+  // Common content paths
+  CONTENT_PATHS: {
+    PAYLOAD_TEXT: 'payload.text',
+    POINT_PAYLOAD_TEXT: 'point.payload.text',
+    CONTENT: 'content',
+    TEXT: 'text',
+    PAYLOAD_CONTENT: 'payload.content',
+    VALUE: 'value',
+    SUMMARY: 'summary',
+    MESSAGE: 'message',
+    PAYLOAD_MESSAGE: 'payload.message',
+    THOUGHT: 'thought',
+    PAYLOAD_THOUGHT: 'payload.thought',
+  },
+  // Memory types
+  MEMORY_TYPES: {
+    MESSAGE: 'message',
+    THOUGHT: 'thought',
+    DOCUMENT: 'document',
+    UNKNOWN: 'unknown',
+    MEMORY_EDIT: 'memory_edit',
+  }
+};
+
+// API endpoints
+const API_ENDPOINTS = {
+  MEMORY_STATUS: {
+    DIAGNOSTICS: '/api/diagnostics/memory-status',
+    MEMORY: '/api/memory/status',
+  },
+  MEMORY_CHECK: '/api/diagnostics/memory-check',
+  TAG_UPDATE: (memoryId: string) => `/api/memory/${memoryId}/tags`,
+  TAG_REJECT: (memoryId: string) => `/api/memory/${memoryId}/reject-tags`,
+  MEMORY_HISTORY: (memoryId: string) => `/api/memory/history/${memoryId}`,
+};
+
+// Legacy memory types to include in dropdowns
+const LEGACY_MEMORY_TYPES = [
+  "reflection",
+  "fact",
+  "insight",
+  "system_learning",
+  "decision",
+  "feedback",
+  "knowledge",
+  "unknown",
+  "chat",
+  "idea",
+  "summary"
+];
+
 // Define types for the debug result
 interface SuspectedMessage {
   id: string;
@@ -86,21 +155,17 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
   }, [memories, externalMemories]);
 
   // All possible memory types as strings - use the enum values
-  const MEMORY_TYPES: string[] = [
-    ...Object.values(MemoryType),
-    // Add any legacy or additional types that might still be in the system
-    "reflection",
-    "fact",
-    "insight",
-    "system_learning",
-    "decision",
-    "feedback",
-    "knowledge",
-    "unknown",
-    "chat",
-    "idea",
-    "summary"
-  ];
+  const MEMORY_TYPES: string[] = useMemo(() => {
+    // Use a Set to eliminate duplicates
+    const typeSet = new Set<string>([
+      ...Object.values(MemoryType),
+      // Add legacy or additional types that might still be in the system
+      ...LEGACY_MEMORY_TYPES
+    ]);
+    
+    // Convert to array and sort
+    return Array.from(typeSet).sort();
+  }, []);
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -133,7 +198,7 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
         // Cast to any to avoid TypeScript errors during property access
         const memoryObj = memory as any;
         
-        // Check each property safely
+        // Check each property safely using our constants
         if (memoryObj.payload?.type && typeof memoryObj.payload.type === 'string') {
           typeSet.add(memoryObj.payload.type);
         }
@@ -356,7 +421,7 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
         
         // If no type found, default to unknown
         if (types.length === 0) {
-          types.push('unknown');
+          types.push(PROPERTY_PATHS.MEMORY_TYPES.UNKNOWN);
         }
         
         // Check if any of the memory's types match any selected type
@@ -452,7 +517,7 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
     
     try {
       // Use standardized API endpoint
-      const response = await fetch('/api/diagnostics/memory-check');
+      const response = await fetch(API_ENDPOINTS.MEMORY_CHECK);
       if (!response.ok) {
         throw new Error(`Failed to run diagnostic: ${response.statusText}`);
       }
@@ -496,7 +561,7 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
     
     try {
       // Use standardized API endpoint for updating memory tags
-      const response = await fetch(`/api/memory/${memoryId}/tags`, {
+      const response = await fetch(API_ENDPOINTS.TAG_UPDATE(memoryId), {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json'
@@ -526,7 +591,7 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
     
     try {
       // Use standardized API endpoint for memory tag rejection
-      const response = await fetch(`/api/memory/${memoryId}/reject-tags`, {
+      const response = await fetch(API_ENDPOINTS.TAG_REJECT(memoryId), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -565,28 +630,94 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
     setIsChecking(true);
     
     try {
-      // Use standardized API endpoint for memory check
-      const response = await fetch('/api/diagnostics/memory-status');
+      // Array of possible endpoints to try
+      const possibleEndpoints = [
+        API_ENDPOINTS.MEMORY_STATUS.DIAGNOSTICS,
+        API_ENDPOINTS.MEMORY_STATUS.MEMORY,
+        '/api/memory/diagnostics',
+        '/api/memory-status',
+        '/api/diagnostics'
+      ];
       
-      if (!response.ok) {
-        throw new Error(`Failed to check memory status: ${response.statusText}`);
+      let response = null;
+      let result = null;
+      let apiSuccess = false;
+      
+      // Try each endpoint until one works
+      for (const endpoint of possibleEndpoints) {
+        try {
+          console.log(`Trying endpoint: ${endpoint}`);
+          response = await fetch(endpoint);
+          
+          if (response.ok) {
+            result = await response.json();
+            console.log('Memory status result:', result);
+            apiSuccess = true;
+            break;
+          }
+        } catch (err: unknown) {
+          console.log(`Failed with endpoint ${endpoint}: ${err instanceof Error ? err.message : String(err)}`);
+          // Continue to next endpoint
+        }
       }
       
-      const result = await response.json();
-      console.log('Memory status result:', result);
+      // If no API endpoint worked, generate stats from loaded memories
+      if (!apiSuccess) {
+        console.log('All API endpoints failed, using loaded memories for stats');
+        
+        // Generate stats from currently loaded memories
+        const typeCounts: Record<string, number> = {};
+        
+        // Count by types
+        if (allMemories && Array.isArray(allMemories)) {
+          allMemories.forEach(memory => {
+            if (!memory) return;
+            
+            // Get the memory type
+            let type = PROPERTY_PATHS.MEMORY_TYPES.UNKNOWN;
+            const memoryObj = memory as any;
+            
+            if (memoryObj.payload?.type && typeof memoryObj.payload.type === 'string') {
+              type = memoryObj.payload.type;
+            } else if (typeof memoryObj.kind === 'string') {
+              type = memoryObj.kind;
+            } else if (memoryObj.type && typeof memoryObj.type === 'string') {
+              type = memoryObj.type;
+            }
+            
+            typeCounts[type] = (typeCounts[type] || 0) + 1;
+          });
+        }
+        
+        result = {
+          counts: {
+            total: allMemories?.length || 0,
+            byType: typeCounts
+          },
+          collections: ['local-memory-only'],
+          vectorSize: 'unknown'
+        };
+      }
+      
+      // Process the result (either from API or generated)
+      const totalCount = result?.counts?.total || result?.total || 0;
+      const typeCounts = result?.counts?.byType || result?.byType || result?.types || {};
+      const collections = result?.collections || [];
+      const vectorSize = result?.vectorSize || result?.dimensions || 'unknown';
       
       alert(
         `Memory Database Status:\n\n` +
-        `Total Memories: ${result.counts.total}\n` +
-        `By Type:\n${Object.entries(result.counts.byType)
+        `Total Memories: ${totalCount}\n` +
+        `By Type:\n${Object.entries(typeCounts)
           .map(([type, count]) => `- ${type}: ${count}`)
           .join('\n')}\n\n` +
-        `Collections: ${result.collections.join(', ')}\n` +
-        `Vector Size: ${result.vectorSize}`
+        (collections.length ? `Collections: ${collections.join(', ')}\n` : '') +
+        (vectorSize !== 'unknown' ? `Vector Size: ${vectorSize}` : '') +
+        (apiSuccess ? '' : '\n\nNote: API endpoints unavailable - showing stats from loaded memories only.')
       );
     } catch (error) {
       console.error('Error checking memory status:', error);
-      alert(`Error checking memory status: ${error instanceof Error ? error.message : String(error)}`);
+      alert(`Error checking memory status: ${error instanceof Error ? error.message : String(error)}\n\nPlease check the browser console for more details.`);
     } finally {
       setIsChecking(false);
     }
@@ -725,7 +856,9 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
       }
       
       // Special case for 'message' type memories - don't add prefixes since they should be shown directly
-      if (memory.payload?.type === 'message' || memory.kind === 'message' || memory.type === 'message') {
+      if (memory.payload?.type === PROPERTY_PATHS.MEMORY_TYPES.MESSAGE || 
+          memory.kind === PROPERTY_PATHS.MEMORY_TYPES.MESSAGE || 
+          memory.type === PROPERTY_PATHS.MEMORY_TYPES.MESSAGE) {
         // For message types, look in different locations
         if (memory.payload?.text) return memory.payload.text;
         if (memory.message) {
@@ -740,7 +873,9 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
       }
       
       // Special case for 'thought' type memories
-      if (memory.payload?.type === 'thought' || memory.kind === 'thought' || memory.type === 'thought') {
+      if (memory.payload?.type === PROPERTY_PATHS.MEMORY_TYPES.THOUGHT || 
+          memory.kind === PROPERTY_PATHS.MEMORY_TYPES.THOUGHT || 
+          memory.type === PROPERTY_PATHS.MEMORY_TYPES.THOUGHT) {
         if (memory.payload?.text) return memory.payload.text;
         if (memory.thought) {
           return typeof memory.thought === 'string' ? memory.thought : safeStringify(memory.thought);
@@ -754,7 +889,7 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
       }
       
       // Check for document content - special handling
-      if (memory.payload?.type === 'document' && memory.payload.metadata?.path) {
+      if (memory.payload?.type === PROPERTY_PATHS.MEMORY_TYPES.DOCUMENT && memory.payload.metadata?.path) {
         return `Document: ${memory.payload.metadata.path}\n${memory.payload.text || ''}`;
       }
       
@@ -938,9 +1073,9 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
               {typeMenuOpen && (
               <div className="absolute z-10 mt-1 bg-gray-800 border border-gray-700 rounded-md shadow-lg p-2 max-h-60 overflow-y-auto w-64">
                 <div className="space-y-1">
-                    {MEMORY_TYPES.map(type => (
+                    {MEMORY_TYPES.map((type, index) => (
                       <div 
-                        key={type} 
+                        key={`filter-${type}-${index}`} 
                         className="flex items-center gap-2 px-2 py-1 hover:bg-gray-700 rounded cursor-pointer"
                         onClick={() => toggleTypeSelection(type)}
                       >
@@ -988,9 +1123,9 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
         
         {/* Memory type counts - update styling */}
         <div className="flex flex-wrap gap-2 mb-4">
-          {Object.entries(typeCount).map(([type, count]) => (
+          {Object.entries(typeCount).map(([type, count], index) => (
             <div 
-              key={type} 
+              key={`${type}-${index}`} 
               className={`px-2 py-1 text-xs rounded-md flex items-center gap-1 cursor-pointer ${
                 selectedTypes.includes(type) 
                   ? 'bg-blue-800 border border-blue-700' 

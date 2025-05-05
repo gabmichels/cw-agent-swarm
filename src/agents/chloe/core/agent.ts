@@ -235,7 +235,8 @@ export class ChloeAgent implements IAgent {
         logger: this.taskLogger,
         notifyFunction: async (message: string): Promise<void> => {
           this.notify(message);
-        }
+        },
+        skipInitialReviews: true
       });
       await this.reflectionManager.initialize();
       
@@ -1772,6 +1773,32 @@ I don't have enough information about Claro's brand identity. I should ask for c
       const errorMessage = error instanceof Error ? error.message : String(error);
       console.error("Error running enhanced weekly reflection:", errorMessage);
       return `Error generating enhanced weekly reflection: ${errorMessage}`;
+    }
+  }
+
+  /**
+   * Run a performance review manually
+   * This allows triggering reviews without them happening on startup
+   */
+  async runPerformanceReview(reviewType: string): Promise<any> {
+    try {
+      if (!this.initialized) {
+        await this.initialize();
+      }
+      
+      const reflectionManager = this.getReflectionManager();
+      
+      if (!reflectionManager) {
+        throw new Error('Reflection manager not initialized');
+      }
+      
+      return await reflectionManager.runPerformanceReview(reviewType as any);
+    } catch (error) {
+      console.error('Error running performance review:', error);
+      return {
+        error: `Failed to run performance review: ${error}`,
+        success: false
+      };
     }
   }
 }
