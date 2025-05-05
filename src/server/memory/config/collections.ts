@@ -83,7 +83,8 @@ export const COLLECTION_CONFIGS: Partial<Record<MemoryType, CollectionConfig<any
   [MemoryType.THOUGHT]: THOUGHT_COLLECTION,
   [MemoryType.DOCUMENT]: DOCUMENT_COLLECTION,
   [MemoryType.TASK]: TASK_COLLECTION,
-  [MemoryType.MEMORY_EDIT]: MEMORY_EDIT_COLLECTION
+  [MemoryType.MEMORY_EDIT]: MEMORY_EDIT_COLLECTION,
+  [MemoryType.TOOL_EXECUTION_METRICS]: DOCUMENT_COLLECTION, // Store tool metrics in document collection
 };
 
 /**

@@ -51,6 +51,9 @@ export enum MemoryType {
   CAPACITY_CHECK = 'capacity_check',
   SCHEDULING_ADJUSTMENT = 'scheduling_adjustment',
   
+  // Tool routing and adaptation types
+  TOOL_EXECUTION_METRICS = 'tool_execution_metrics',
+  
   // Additional types from ChloeMemoryType that weren't in AgentMemoryType
   CHAT = 'chat',
   SYSTEM_PROMPT = 'system_prompt',
