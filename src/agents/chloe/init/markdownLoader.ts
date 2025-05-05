@@ -8,8 +8,6 @@
 
 import { loadAllMarkdownAsMemory } from '../knowledge/markdownMemoryLoader';
 import { logger } from '../../../lib/logging';
-import path from 'path';
-import fs from 'fs';
 
 // Track whether initialization has already occurred to prevent multiple loads 
 let initializationComplete = false;
