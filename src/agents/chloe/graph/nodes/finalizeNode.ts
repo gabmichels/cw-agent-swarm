@@ -8,6 +8,7 @@ import { AIMessage, HumanMessage } from "@langchain/core/messages";
 import { TaskLogger } from "../../task-logger";
 import { PlanningTask } from "./types";
 import { ImportanceLevel, MemorySource } from "../../../../constants/memory";
+import { MemoryType } from '../../../../server/memory/config/types';
 
 /**
  * Helper function to count sub-goals by status in a hierarchical structure
@@ -142,7 +143,7 @@ Your summary should be detailed yet concise.
     // Store the completed task in memory for future reference
     await context.memory.addMemory(
       `Completed task: ${state.goal}\n\nSummary: ${summary}`,
-      'task_completion',
+      MemoryType.TASK_COMPLETION,
       ImportanceLevel.HIGH,
       MemorySource.SYSTEM,
       `Task completion: ${state.goal}`,

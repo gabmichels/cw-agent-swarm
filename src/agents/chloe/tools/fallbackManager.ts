@@ -12,6 +12,7 @@ import { ToolManager, ToolResult } from './toolManager';
 import { getToolPerformanceTracker } from './toolPerformanceTracker';
 import { ChloeMemory } from '../memory';
 import { ImportanceLevel, MemorySource } from '../../../constants/memory';
+import { MemoryType } from '../../../server/memory/config/types';
 
 /**
  * Represents a specific type of failure that can occur during tool execution
@@ -455,7 +456,7 @@ export class ToolFallbackManager {
   ): Promise<void> {
     await this.memory.addMemory(
       `Attempted to use fallback tool "${fallbackToolName}" when primary tool "${primaryToolName}" failed with a ${failureType} error.`,
-      'tool_resilience',
+      MemoryType.TOOL_RESILIENCE,
       ImportanceLevel.MEDIUM,
       MemorySource.SYSTEM,
       undefined,
@@ -473,7 +474,7 @@ export class ToolFallbackManager {
   ): Promise<void> {
     await this.memory.addMemory(
       `Successfully recovered from "${primaryToolName}" failure using fallback tool "${fallbackToolName}".`,
-      'tool_resilience',
+      MemoryType.TOOL_RESILIENCE,
       ImportanceLevel.HIGH,
       MemorySource.SYSTEM,
       undefined,

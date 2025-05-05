@@ -15,6 +15,7 @@ import {
   TimePerformanceMetrics
 } from './types';
 import { ImportanceLevel, MemorySource } from '../../../constants/memory';
+import { MemoryType } from '../../../server/memory/config/types';
 
 /**
  * Time series prediction options
@@ -117,7 +118,7 @@ export class TimePredictor {
 
       // Parse and convert to TaskExecutionData
       for (const record of executionRecords) {
-        if (record.category === 'task_execution_data' && record.content) {
+        if (record.category === MemoryType.TASK_EXECUTION_DATA && record.content) {
           try {
             const data = JSON.parse(record.content) as TaskExecutionData;
             this.addExecutionData(data, false); // Don't update models yet
@@ -688,7 +689,7 @@ export class TimePredictor {
     try {
       await this.memory.addMemory(
         JSON.stringify(data),
-        'task_execution_data',
+        MemoryType.TASK_EXECUTION_DATA,
         ImportanceLevel.MEDIUM,
         MemorySource.SYSTEM,
         `Task: ${data.taskTitle}`,
@@ -791,9 +792,20 @@ export class TimePredictor {
     if (!this.memory) return;
     
     try {
+      // Map category string to proper MemoryType
+      let memoryType: MemoryType;
+      
+      switch (category) {
+        case 'system_log':
+          memoryType = MemoryType.MAINTENANCE_LOG;
+          break;
+        default:
+          memoryType = MemoryType.THOUGHT;
+      }
+      
       await this.memory.addMemory(
         message,
-        category,
+        memoryType,
         ImportanceLevel.LOW,
         MemorySource.SYSTEM,
         undefined,

@@ -14,6 +14,7 @@ import { getRelevantLessons } from "../../self-improvement/lessonExtractor";
 import { TaskWithOutcome } from "../../self-improvement/taskOutcomeIntegration";
 import { onTaskStateChange } from "../../hooks/taskCompletionHook";
 import { ExecutionOutcomeAnalyzer } from "../../self-improvement/executionOutcomeAnalyzer";
+import { MemoryType } from '../../../../server/memory/config/types';
 
 /**
  * Helper function to get the full path to a sub-goal in the hierarchy
@@ -134,7 +135,7 @@ export async function executeStepNode(
       if (memory) {
         await memory.addMemory(
           `Task execution blocked: ${currentSubGoal.description} - Awaiting approval`,
-          'task',
+          MemoryType.TASK,
           'high' as any,
           'chloe' as any,
           state.goal,

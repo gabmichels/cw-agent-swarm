@@ -1,5 +1,6 @@
 import { ChloeMemory } from '../memory';
 import { ImportanceLevel, MemorySource } from '../../../constants/memory';
+import { MemoryType } from '../../../server/memory/config/types';
 import { SubGoal, ExecutionTraceEntry } from '../graph/nodes/types';
 import { PlannedTask } from '../human-collaboration';
 
@@ -239,7 +240,7 @@ async function storeTaskOutcome(
   // Store in memory with appropriate tags
   await memory.addMemory(
     formattedOutcome,
-    'task_outcome',
+    MemoryType.TASK_OUTCOME,
     importance,
     MemorySource.SYSTEM,
     `Task ID: ${analysis.taskId}`,

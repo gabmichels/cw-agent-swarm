@@ -4,7 +4,8 @@
  * This file exports all the React hooks for the memory system.
  */
 
-export { useMemory } from './useMemory';
+// Export the hooks
+export { default as useMemory } from './useMemory';
 export { useMemorySearch } from './useMemorySearch';
 export { useMemoryAddition } from './useMemoryAddition';
 

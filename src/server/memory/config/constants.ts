@@ -6,14 +6,21 @@ import { ImportanceLevel, MemoryType } from './types';
 /**
  * Collection names in Qdrant mapped to memory types
  * This standardizes the relationship between memory types and collection names
+ * Note: This is a selective subset of memory types that map to actual collections in storage.
+ * Other memory types are stored in these core collections with appropriate tags/metadata.
  */
-export const COLLECTION_NAMES: Record<MemoryType, string> = {
+export const COLLECTION_NAMES: Partial<Record<MemoryType, string>> = {
   [MemoryType.MESSAGE]: 'messages',
   [MemoryType.THOUGHT]: 'thoughts',
   [MemoryType.DOCUMENT]: 'documents',
   [MemoryType.TASK]: 'tasks',
   [MemoryType.MEMORY_EDIT]: 'memory_edits',
 };
+
+// Function to get a collection name with fallback to message collection
+export function getCollectionNameWithFallback(type: MemoryType): string {
+  return COLLECTION_NAMES[type] || COLLECTION_NAMES[MemoryType.MESSAGE] || 'messages';
+}
 
 /**
  * Filter keys for Qdrant queries - ensures consistent filtering
@@ -120,8 +127,10 @@ export const MESSAGE_TYPES = {
 /**
  * Default indices for collections
  * These fields should be indexed for faster filtering
+ * Note: This is a selective subset of memory types that map to actual collections in storage.
+ * Other memory types are stored in these core collections with appropriate metadata/tags.
  */
-export const DEFAULT_INDICES: Record<MemoryType, string[]> = {
+export const DEFAULT_INDICES: Partial<Record<MemoryType, string[]>> = {
   [MemoryType.MESSAGE]: [
     'timestamp',
     'type',
@@ -155,4 +164,9 @@ export const DEFAULT_INDICES: Record<MemoryType, string[]> = {
     'metadata.edit_type',
     'metadata.editor_type',
   ],
-}; 
+};
+
+// Function to get default indices with fallback to message indices
+export function getDefaultIndicesWithFallback(type: MemoryType): string[] {
+  return DEFAULT_INDICES[type] || DEFAULT_INDICES[MemoryType.MESSAGE] || ['timestamp', 'type'];
+} 

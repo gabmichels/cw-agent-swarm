@@ -1,5 +1,5 @@
 import { ImportanceLevel, MemorySource } from '../../constants/memory';
-import { MemoryType as StandardMemoryType } from '../../server/memory/config';
+import { MemoryType as StandardMemoryType, ExtendedMemorySource } from '../../server/memory/config/types';
 import { TagExtractor, Tag } from './TagExtractor';
 
 /**
@@ -26,7 +26,7 @@ export class ImportanceCalculator {
   private static weights = {
     // Source type weights
     sourceWeights: {
-      [MemorySource.FILE]: 0.9,      // Files (especially markdown) are high importance
+      [ExtendedMemorySource.FILE]: 0.9,      // Files (especially markdown) are high importance
       [MemorySource.USER]: 0.7,      // User input is high importance
       [MemorySource.AGENT]: 0.5,     // Agent-generated content is medium importance
       [MemorySource.SYSTEM]: 0.6,    // System information is medium-high importance
@@ -82,8 +82,8 @@ export class ImportanceCalculator {
     const weights = this.weights;
     
     // 1. Source type weight
-    if (data.source && this.weights.sourceWeights[data.source]) {
-      score += this.weights.sourceWeights[data.source] * 0.2; // 20% influence from source type
+    if (data.source && this.weights.sourceWeights[data.source as keyof typeof this.weights.sourceWeights]) {
+      score += this.weights.sourceWeights[data.source as keyof typeof this.weights.sourceWeights] * 0.2; // 20% influence from source type
     }
     
     // 2. Content length factor - normalize against an expected maximum length

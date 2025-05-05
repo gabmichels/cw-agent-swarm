@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import * as serverQdrant from '../../../../server/qdrant';
+import { getMemoryServices } from '../../../../server/memory/services';
+import { MemoryType } from '../../../../server/memory/config/types';
 
 // Mark as server-side only
 export const runtime = 'nodejs';
@@ -10,60 +11,89 @@ export async function POST(req: NextRequest) {
     const data = await req.json();
     const { userId = 'gab', resetAll = false } = data;
 
-    // Initialize Qdrant if needed
-    if (!serverQdrant.isInitialized()) {
-      await serverQdrant.initMemory();
+    // Get memory services
+    const { client, memoryService, searchService } = await getMemoryServices();
+    
+    // Check if memory system is initialized
+    const status = await client.getStatus();
+    if (!status.initialized) {
+      await client.initialize();
     }
 
     if (resetAll) {
       console.log('Performing complete database reset of all collections');
       
-      // Reset all collections using the built-in function
-      const resetResult = await serverQdrant.resetAllCollections();
+      // Reset all collections by iterating through all memory types
+      let resetSuccessful = true;
+      for (const type in MemoryType) {
+        // Skip numeric enum values
+        if (!isNaN(Number(type))) continue;
+        
+        try {
+          // Get the collection name for this type
+          const memoryTypeValue = MemoryType[type as keyof typeof MemoryType];
+          // Create a fresh collection for each type (effectively resetting it)
+          await client.createCollection(memoryTypeValue.toString(), 1536);
+          console.log(`Reset collection for type: ${memoryTypeValue}`);
+        } catch (error) {
+          console.error(`Error resetting collection for type ${type}:`, error);
+          resetSuccessful = false;
+        }
+      }
       
       return NextResponse.json({
-        success: resetResult,
-        message: 'Successfully reset all Qdrant collections',
+        success: resetSuccessful,
+        message: 'Successfully reset all memory collections',
         completeDatabaseReset: true
       });
     }
     
     console.log(`Attempting to reset chat history for user: ${userId}`);
 
-    // First get all messages for this user
-    const allMessages = await serverQdrant.getRecentMemories('message', 1000);
+    // Get all messages from the memory service
+    const messageResults = await searchService.search('', {
+      types: [MemoryType.MESSAGE],
+      limit: 1000
+    });
+    
+    // Convert search results to a more usable format
+    const allMessages = messageResults.map(result => ({
+      id: result.point.id,
+      text: result.point.payload?.text || '',
+      timestamp: result.point.payload?.timestamp,
+      metadata: result.point.payload?.metadata || {}
+    }));
+    
+    // Filter for this user's messages
     const userMessages = allMessages.filter(msg => 
       msg.metadata && msg.metadata.userId === userId
     );
 
     console.log(`Found ${userMessages.length} messages for user ${userId}`);
 
-    // We don't have a specific function to delete by userId, so we'll reset the whole collection
-    // and then re-add messages for other users if there are any
-    await serverQdrant.resetCollection('message');
-    console.log('Reset message collection');
-
-    // Re-add messages for other users if there are any
-    const otherUserMessages = allMessages.filter(msg => 
-      msg.metadata && msg.metadata.userId !== userId
-    );
-
-    console.log(`Re-adding ${otherUserMessages.length} messages for other users`);
-    
-    // Re-add in batches to avoid timeouts
-    const batchSize = 20;
-    for (let i = 0; i < otherUserMessages.length; i += batchSize) {
-      const batch = otherUserMessages.slice(i, i + batchSize);
-      await Promise.all(batch.map(msg => 
-        serverQdrant.addMemory('message', msg.text, msg.metadata)
-      ));
-      console.log(`Re-added batch ${i/batchSize + 1}/${Math.ceil(otherUserMessages.length/batchSize)}`);
+    // Delete user messages one by one
+    let deletedCount = 0;
+    for (const message of userMessages) {
+      try {
+        const deleteResult = await memoryService.deleteMemory({
+          id: message.id,
+          type: MemoryType.MESSAGE
+        });
+        
+        if (deleteResult) {
+          deletedCount++;
+        }
+      } catch (error) {
+        console.error(`Error deleting message ${message.id}:`, error);
+      }
     }
+
+    console.log(`Successfully deleted ${deletedCount} messages for user ${userId}`);
 
     return NextResponse.json({
       success: true,
       message: `Successfully reset chat history for user ${userId}`,
-      deletedMessageCount: userMessages.length
+      deletedMessageCount: deletedCount
     });
   } catch (error) {
     console.error('Error resetting chat history:', error);

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import * as serverQdrant from '../../../../server/qdrant';
+import { getMemoryServices } from '../../../../server/memory/services';
 import { ImportanceLevel, MemorySource } from '../../../../constants/memory';
+import { MemoryType } from '../../../../server/memory/config/types';
 
 export const runtime = 'nodejs';
 
@@ -19,8 +20,14 @@ export async function POST(request: NextRequest) {
       );
     }
     
-    // Initialize Qdrant memory
-    await serverQdrant.initMemory();
+    // Get memory services
+    const { client, memoryService, searchService } = await getMemoryServices();
+    
+    // Initialize memory services if needed
+    const status = await client.getStatus();
+    if (!status.initialized) {
+      await client.initialize();
+    }
     
     const successfulItems: any[] = [];
     const failedItems: any[] = [];
@@ -29,34 +36,33 @@ export async function POST(request: NextRequest) {
     for (const id of ids) {
       try {
         // Fetch the message by searching for its ID
-        const messages = await serverQdrant.searchMemory(
-          null, // Search all types
-          '',   // Empty query
-          {
-            filter: { id },
-            limit: 1
-          }
-        );
+        const searchResults = await searchService.search('', {
+          filter: { id },
+          limit: 1
+        });
         
-        if (messages.length === 0) {
+        if (searchResults.length === 0) {
           failedItems.push({ id, error: 'Message not found' });
           continue;
         }
         
-        const message = messages[0];
+        const searchResult = searchResults[0];
+        const message = searchResult.point;
+        const messageType = searchResult.type;
         
         // Extract content and metadata
-        const content = message.text;
-        const originalTags = message.metadata?.tags || [];
+        const content = message.payload?.text;
+        const metadata = message.payload?.metadata || {};
+        const originalTags = metadata.tags || [];
         const allTags = Array.from(new Set([...originalTags, ...addTags]));
-        const category = getCategoryFromTags(allTags) || message.type;
+        const category = getCategoryFromTags(allTags) || messageType;
         
         // Store as a knowledge item in memory with enhanced metadata
-        await serverQdrant.addMemory(
-          message.type,
+        const knowledgeMemoryResult = await memoryService.addMemory({
+          type: messageType,
           content,
-          {
-            ...message.metadata,
+          metadata: {
+            ...metadata,
             source: MemorySource.USER,
             importance: ImportanceLevel.HIGH,
             isKnowledge: true,
@@ -65,19 +71,25 @@ export async function POST(request: NextRequest) {
             originalId: id,
             addedToKnowledgeAt: new Date().toISOString()
           }
-        );
+        });
         
         // Mark the original message as added to knowledge
-        await serverQdrant.updateMemoryMetadata(id, {
-          addedToKnowledge: true,
-          addedToKnowledgeAt: new Date().toISOString(),
-          flagged: false // Remove flag once processed
+        await memoryService.updateMemory({
+          id,
+          type: messageType,
+          metadata: {
+            ...metadata,
+            addedToKnowledge: true,
+            addedToKnowledgeAt: new Date().toISOString(),
+            flagged: false // Remove flag once processed
+          }
         });
         
         successfulItems.push({
           id,
           tags: allTags,
-          category
+          category,
+          knowledgeId: knowledgeMemoryResult.id
         });
       } catch (error) {
         console.error(`Error processing message ${id}:`, error);
@@ -105,31 +117,20 @@ export async function POST(request: NextRequest) {
 }
 
 /**
- * Determine a category based on provided tags
+ * Helper function to extract a category from tags
  */
-function getCategoryFromTags(tags: string[]): string | undefined {
-  // Category mapping based on common tags
-  const categoryMap: Record<string, string[]> = {
-    'concept': ['concept', 'idea', 'theory', 'model', 'framework'],
-    'process': ['process', 'procedure', 'workflow', 'method'],
-    'resource': ['tool', 'resource', 'app', 'technology'],
-    'insight': ['insight', 'learning', 'observation', 'reflection'],
-    'strategy': ['strategy', 'approach', 'tactic', 'plan'],
-    'reference': ['reference', 'citation', 'source', 'document'],
-    'principle': ['principle', 'rule', 'guideline', 'standard']
-  };
+function getCategoryFromTags(tags: string[]): string | null {
+  const categoryTags = [
+    'concept', 'principle', 'fact', 'procedure',
+    'personal', 'professional', 'academic', 'technical',
+    'preference', 'opinion', 'background', 'experience'
+  ];
   
-  // Check if any tags match our categories
-  for (const [category, relatedTags] of Object.entries(categoryMap)) {
-    if (tags.some(tag => relatedTags.includes(tag.toLowerCase()))) {
-      return category;
-    }
-    
-    // Also check if the category name itself is in the tags
-    if (tags.some(tag => tag.toLowerCase() === category)) {
-      return category;
+  for (const tag of tags) {
+    if (categoryTags.includes(tag.toLowerCase())) {
+      return tag.toLowerCase();
     }
   }
   
-  return undefined;
+  return null;
 } 

@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getChloeInstance } from '../../../agents/chloe';
-import * as serverQdrant from '../../../server/qdrant';
 import { 
   POST as proxyPost, 
   GET as proxyGet

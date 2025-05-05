@@ -10,6 +10,7 @@ import { ChloeAgent } from '../core/agent';
 import { ImportanceLevel, MemorySource } from '../../../constants/memory';
 import { ChloeMemory } from '../memory';
 import { StrategicToolPlanner } from '../strategy/strategicPlanner';
+import { MemoryType } from '../../../server/memory/config/types';
 
 // Types for the opportunity detection system
 export enum OpportunitySource {
@@ -246,7 +247,7 @@ ${opportunity.metadata.strategicScore ? `Strategic Score: ${opportunity.metadata
 
     await this.memory.addMemory(
       memoryContent,
-      'detected_opportunity',
+      MemoryType.DETECTED_OPPORTUNITY,
       ImportanceLevel.HIGH,
       MemorySource.SYSTEM,
       `Auto-detected opportunity: ${opportunity.title}`,

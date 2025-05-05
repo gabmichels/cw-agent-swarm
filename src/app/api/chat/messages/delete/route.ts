@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import * as serverQdrant from '../../../../../server/qdrant';
-import { QdrantMemoryType } from '../../../../../server/qdrant';
-import { MEMORY_TYPES } from '../../../../../constants/qdrant';
+import { getMemoryServices } from '../../../../../server/memory/services';
+import { MemoryType } from '../../../../../server/memory/config';
 
 // Make sure this is server-side only
 export const runtime = 'nodejs';
@@ -41,21 +40,39 @@ export async function DELETE(request: NextRequest) {
     
     console.log(`Attempting to delete message with timestamp: ${timestamp} for user: ${userId}`);
     
-    // Check if Qdrant is initialized
-    const isQdrantInitialized = serverQdrant.isInitialized();
-    console.log(`Qdrant initialized: ${isQdrantInitialized}`);
+    // Get memory services
+    const { client, searchService, memoryService } = await getMemoryServices();
     
-    // Make sure Qdrant is initialized
-    if (!isQdrantInitialized) {
-      console.log('Initializing Qdrant for message deletion');
-      await serverQdrant.initMemory();
-      console.log('Qdrant initialization completed');
+    // Check if memory service is initialized
+    const status = await client.getStatus();
+    console.log(`Memory system initialized: ${status.initialized}`);
+    
+    // Make sure memory system is initialized
+    if (!status.initialized) {
+      console.log('Initializing memory system for message deletion');
+      await client.initialize();
+      console.log('Memory system initialization completed');
     }
     
     // Find the message by timestamp
-    console.log(`Using memory type: ${MEMORY_TYPES.MESSAGE}`);
-    const memories = await serverQdrant.getRecentMemories(MEMORY_TYPES.MESSAGE as QdrantMemoryType, 100);
-    console.log(`Retrieved ${memories.length} recent messages`);
+    console.log(`Using memory type: ${MemoryType.MESSAGE}`);
+    
+    // Search for the message with the specified timestamp
+    const searchResults = await searchService.search('', {
+      types: [MemoryType.MESSAGE],
+      limit: 100,
+      filter: {
+        timestamp: timestamp
+      }
+    });
+    
+    const memories = searchResults.map(result => ({
+      id: result.point.id,
+      timestamp: result.point.payload?.timestamp,
+      metadata: result.point.payload?.metadata || {}
+    }));
+    
+    console.log(`Retrieved ${memories.length} messages matching timestamp`);
     
     // Debug log to inspect message timestamps
     console.log('Available message timestamps:', 
@@ -86,8 +103,12 @@ export async function DELETE(request: NextRequest) {
     
     console.log(`Found target message with ID: ${targetMessage.id}`);
     
-    // Delete the message from Qdrant
-    const deleteResult = await serverQdrant.deleteMemory(MEMORY_TYPES.MESSAGE as QdrantMemoryType, targetMessage.id);
+    // Delete the message using memory service
+    const deleteResult = await memoryService.deleteMemory({
+      id: targetMessage.id,
+      type: MemoryType.MESSAGE
+    });
+    
     console.log(`Delete operation result: ${deleteResult || false}`);
     
     if (!deleteResult) {

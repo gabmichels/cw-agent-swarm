@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
-import * as serverQdrant from '../../../../server/qdrant';
+import { getMemoryServices } from '../../../../server/memory/services';
+import { MemoryType } from '../../../../server/memory/config';
 
 // Mark as server-side only
 export const runtime = 'nodejs';
@@ -7,39 +8,44 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request) {
   try {
-    console.log('Resetting Qdrant collections...');
+    console.log('Resetting memory collections...');
     
-    // Force reinitialization of Qdrant
-    await serverQdrant.initMemory({
-      forceReinit: true
-    });
+    // Get memory services
+    const { client, memoryService } = await getMemoryServices();
     
-    // Reset all collections
-    const resetResult = await serverQdrant.resetAllCollections();
+    // Force reinitialization of memory system
+    await client.initialize();
     
-    // Check initialization status
-    const isInitialized = serverQdrant.isInitialized();
+    // Get client status
+    const status = await client.getStatus();
     
     // Add a test record
     let testRecordId = null;
     try {
-      testRecordId = await serverQdrant.addMemory('message', 'Test message after reset', {
-        userId: 'test-user',
-        role: 'system',
-        source: 'system'
+      const result = await memoryService.addMemory({
+        type: MemoryType.MESSAGE,
+        content: 'Test message after reset',
+        metadata: {
+          userId: 'test-user',
+          role: 'system',
+          source: 'system'
+        }
       });
+      
+      testRecordId = result.success ? result.id : null;
       console.log(`Test record added with ID: ${testRecordId}`);
     } catch (error) {
       console.error('Error adding test record:', error);
     }
     
     return NextResponse.json({
-      success: isInitialized && resetResult,
-      message: 'Qdrant memory system reset successfully',
-      testRecordId
+      success: status.initialized,
+      message: 'Memory system reset successfully',
+      testRecordId,
+      status
     });
   } catch (error) {
-    console.error('Error resetting Qdrant collections:', error);
+    console.error('Error resetting memory collections:', error);
     return NextResponse.json({
       success: false,
       message: error instanceof Error ? error.message : 'Unknown error during schema reset',

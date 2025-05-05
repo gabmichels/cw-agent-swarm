@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import * as serverQdrant from '../../../../server/qdrant';
-import { QdrantMemoryType, MemoryRecord } from '../../../../server/qdrant';
+import { getMemoryServices } from '../../../../server/memory/services';
+import { MemoryType } from '../../../../server/memory/config';
 
 export const runtime = 'nodejs';
 
@@ -11,8 +11,8 @@ export async function POST(request: NextRequest) {
   try {
     // Get request parameters
     const body = await request.json();
-    const sourceType = body.sourceType as QdrantMemoryType;
-    const targetType = body.targetType as QdrantMemoryType;
+    const sourceType = body.sourceType as MemoryType;
+    const targetType = body.targetType as MemoryType;
     const limit = body.limit ? parseInt(body.limit, 10) : 100;
     const filter = body.filter || {};
     const dryRun = body.dryRun === true;
@@ -30,21 +30,30 @@ export async function POST(request: NextRequest) {
     
     console.log(`[memory/transfer] Request to transfer memories from ${sourceType} to ${targetType} (limit: ${limit}, dryRun: ${dryRun})`);
     
-    // Initialize Qdrant memory
-    await serverQdrant.initMemory({
-      useOpenAI: process.env.USE_OPENAI_EMBEDDINGS === 'true'
-    });
+    // Get memory services
+    const { client, memoryService, searchService } = await getMemoryServices();
+    
+    // Ensure memory service is initialized
+    const status = await client.getStatus();
+    if (!status.initialized) {
+      await client.initialize();
+    }
     
     // Get memories from source collection
     console.log(`[memory/transfer] Fetching memories from source collection: ${sourceType}`);
-    const sourceMemories = await serverQdrant.searchMemory(
-      sourceType,
-      '',  // empty query to get all memories
-      {
-        limit,
-        filter
-      }
-    );
+    const searchResults = await searchService.search('', {
+      types: [sourceType],
+      limit,
+      filter
+    });
+    
+    const sourceMemories = searchResults.map(result => ({
+      id: result.point.id,
+      text: result.point.payload.text,
+      type: result.type,
+      timestamp: result.point.payload.timestamp,
+      metadata: result.point.payload.metadata || {}
+    }));
     
     console.log(`[memory/transfer] Found ${sourceMemories.length} memories in source collection`);
     
@@ -70,24 +79,28 @@ export async function POST(request: NextRequest) {
       for (const memory of sourceMemories) {
         try {
           // Create new memory in target collection
-          const newMemoryId = await serverQdrant.addMemory(
-            targetType,
-            memory.text,
-            {
+          const result = await memoryService.addMemory({
+            type: targetType,
+            content: memory.text,
+            metadata: {
               ...memory.metadata,
               original_id: memory.id,
               original_type: memory.type,
               transferred_at: new Date().toISOString()
             }
-          );
-          
-          results.push({
-            originalId: memory.id,
-            newId: newMemoryId,
-            text: memory.text.substring(0, 100) + (memory.text.length > 100 ? '...' : '')
           });
           
-          console.log(`[memory/transfer] Transferred memory ${memory.id} to ${newMemoryId}`);
+          if (result.success) {
+            results.push({
+              originalId: memory.id,
+              newId: result.id,
+              text: memory.text.substring(0, 100) + (memory.text.length > 100 ? '...' : '')
+            });
+            
+            console.log(`[memory/transfer] Transferred memory ${memory.id} to ${result.id}`);
+          } else {
+            throw new Error(result.error?.message || 'Unknown error adding memory');
+          }
         } catch (error) {
           console.error(`[memory/transfer] Error transferring memory ${memory.id}:`, error);
           errors.push({

@@ -7,19 +7,14 @@ import {
   ImportanceLevel, 
   MemorySource
 } from '../../../constants/memory';
-import { MemoryType as StandardMemoryType } from '../../../server/memory/config';
+import { MemoryType } from '../../../server/memory/config';
 import { 
   ReflectionType, 
   PerformanceReviewType,
   CausalRelationshipType
 } from '../../../constants/reflection';
 import { MessageSender } from '../../../constants/message';
-import { 
-  establishCausalLink, 
-  traceCausalChain, 
-  getCausallyRelatedMemories,
-  addCausalReflection 
-} from '../../../server/qdrant';
+import { getMemoryServices } from '../../../server/memory/services';
 
 /**
  * Options for initializing the reflection manager
@@ -147,7 +142,7 @@ Your reflection should be thoughtful, strategic, and provide nuanced marketing p
       // Store the reflection in memory with the correct category
       await this.memory.addMemory(
         `Reflection on "${question}": ${reflection.substring(0, 200)}...`,
-        StandardMemoryType.THOUGHT,
+        MemoryType.THOUGHT,
         ImportanceLevel.MEDIUM,
         MemorySource.AGENT,
         `Reflection task result: ${question}`
@@ -177,9 +172,9 @@ Your reflection should be thoughtful, strategic, and provide nuanced marketing p
       oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
       
       // Get different categories of memories for a comprehensive review
-      const userInteractions = await this.memory.getMemoriesByDateRange(StandardMemoryType.MESSAGE, oneWeekAgo, new Date(), 20);
-      const tasks = await this.memory.getMemoriesByDateRange(StandardMemoryType.TASK, oneWeekAgo, new Date(), 20);
-      const thoughts = await this.memory.getMemoriesByDateRange(StandardMemoryType.THOUGHT, oneWeekAgo, new Date(), 20);
+      const userInteractions = await this.memory.getMemoriesByDateRange(MemoryType.MESSAGE, oneWeekAgo, new Date(), 20);
+      const tasks = await this.memory.getMemoriesByDateRange(MemoryType.TASK, oneWeekAgo, new Date(), 20);
+      const thoughts = await this.memory.getMemoriesByDateRange(MemoryType.THOUGHT, oneWeekAgo, new Date(), 20);
       
       // Format memories for the model
       const formatMemories = (memories: any[], category: string) => {
@@ -218,7 +213,7 @@ Your reflection should be professional, insightful, and focused on continuous im
       // Store the weekly reflection in memory
       await this.memory.addMemory(
         `Weekly Reflection: ${reflection.substring(0, 200)}...`,
-        StandardMemoryType.THOUGHT,
+        MemoryType.THOUGHT,
         ImportanceLevel.HIGH,
         MemorySource.AGENT
       );
@@ -268,8 +263,8 @@ Your reflection should be professional, insightful, and focused on continuous im
       }
       
       // Get relevant memory entries for the period
-      const tasks = await this.memory.getMemoriesByDateRange(StandardMemoryType.TASK, startDate, new Date(), 30);
-      const userInteractions = await this.memory.getMemoriesByDateRange(StandardMemoryType.MESSAGE, startDate, new Date(), 30);
+      const tasks = await this.memory.getMemoriesByDateRange(MemoryType.TASK, startDate, new Date(), 30);
+      const userInteractions = await this.memory.getMemoriesByDateRange(MemoryType.MESSAGE, startDate, new Date(), 30);
       
       // Format memories for the model
       const formatMemories = (memories: any[], category: string) => {
@@ -308,7 +303,7 @@ Be objective, data-driven, and focused on continuous improvement as a CMO.`;
       // Store the performance review in memory
       await this.memory.addMemory(
         reviewContent,
-        StandardMemoryType.THOUGHT,
+        MemoryType.THOUGHT,
         ImportanceLevel.HIGH,
         MemorySource.AGENT,
         reviewType
@@ -381,7 +376,7 @@ Be objective, data-driven, and focused on continuous improvement as a CMO.`;
       
       // Get memories from the specified timeframe
       const memories = await this.memory.getMemoriesByDateRange(
-        StandardMemoryType.MESSAGE, 
+        MemoryType.MESSAGE, 
         timeframe.start, 
         timeframe.end, 
         50
@@ -389,7 +384,7 @@ Be objective, data-driven, and focused on continuous improvement as a CMO.`;
       
       // Also get task memories which often represent actions taken
       const taskMemories = await this.memory.getMemoriesByDateRange(
-        StandardMemoryType.TASK,
+        MemoryType.TASK,
         timeframe.start,
         timeframe.end,
         50
@@ -522,7 +517,7 @@ IMPORTANT: Only include relationships where your confidence is at least ${minCon
       const analysisSummary = analysisResult.summary || "Causal relationship analysis completed.";
       await this.memory.addMemory(
         `Causal Analysis: ${analysisSummary}`,
-        StandardMemoryType.THOUGHT,
+        MemoryType.THOUGHT,
         ImportanceLevel.HIGH,
         MemorySource.AGENT,
         'causal_analysis'
@@ -551,7 +546,7 @@ IMPORTANT: Only include relationships where your confidence is at least ${minCon
    * @param relationshipType Type of causal relationship (direct, contributing, etc.)
    * @param confidence Confidence score (0-1) in this relationship
    * @param evidence Supporting evidence for this causal relationship
-   * @returns ID of the created reflection
+   * @returns ID of the created reflection or undefined if error occurs
    */
   private async createCausalReflection(
     causeId: string,
@@ -577,20 +572,30 @@ This causal relationship has been established in the memory system, linking the 
       `.trim();
       
       // Create the causal link and reflection in the memory system
-      const reflectionId = await addCausalReflection(
-        causeId,
-        effectId,
-        reflectionContent
-      );
+      const { memoryService } = await getMemoryServices();
+      const result = await memoryService.addMemory({
+        type: MemoryType.THOUGHT,
+        content: reflectionContent,
+        metadata: {
+          importance: ImportanceLevel.HIGH,
+          source: MemorySource.AGENT,
+          reflectionType: ReflectionType.CAUSAL,
+          causeId,
+          effectId,
+          relationshipType,
+          confidence,
+          evidence
+        }
+      });
       
       this.logAction('Created causal reflection', {
         causeId,
         effectId,
-        reflectionId,
+        reflectionId: result.id,
         confidence
       });
       
-      return reflectionId;
+      return result.id;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       this.logAction('Error creating causal reflection', { error: errorMessage });
@@ -626,13 +631,15 @@ This causal relationship has been established in the memory system, linking the 
       const direction = options.direction || 'both';
       const analyze = options.analyze !== false;
       
-      // Get the causal chain from the memory system
-      const chainResult = await traceCausalChain(memoryId, {
+      // Get the causal chain from the memory system using the new searchCausalChain method
+      const { searchService } = await getMemoryServices();
+      const chainResult = await searchService.searchCausalChain(memoryId, {
         maxDepth,
         direction,
-        includeContent: true
+        analyze
       });
       
+      // If memory not found or error occurred
       if (!chainResult.origin) {
         return {
           origin: null,
@@ -723,13 +730,19 @@ Keep your analysis concise, strategic, and focused on actionable insights.`;
         analysis = response.content.toString();
         
         // Store the analysis as a thought
-        await this.memory.addMemory(
-          `Causal Chain Analysis: ${analysis.substring(0, 200)}...`,
-          StandardMemoryType.THOUGHT,
-          ImportanceLevel.MEDIUM,
-          MemorySource.AGENT,
-          'causal_chain_analysis'
-        );
+        const { memoryService } = await getMemoryServices();
+        await memoryService.addMemory({
+          type: MemoryType.THOUGHT,
+          content: `Causal Chain Analysis: ${analysis.substring(0, 200)}...`,
+          metadata: {
+            importance: ImportanceLevel.MEDIUM,
+            source: MemorySource.AGENT,
+            reflectionType: ReflectionType.CAUSAL_CHAIN,
+            sourceMemoryId: memoryId,
+            direction,
+            depth: maxDepth
+          }
+        });
       }
       
       return {
@@ -794,13 +807,18 @@ Keep your analysis concise, strategic, and focused on actionable insights.`;
       const enhancedReflection = standardReflection + causalInsights;
       
       // Store the enhanced reflection
-      await this.memory.addMemory(
-        `Enhanced Weekly Reflection with Causal Analysis: ${enhancedReflection.substring(0, 200)}...`,
-        StandardMemoryType.THOUGHT,
-        ImportanceLevel.HIGH,
-        MemorySource.AGENT,
-        'enhanced_weekly_reflection'
-      );
+      const { memoryService } = await getMemoryServices();
+      await memoryService.addMemory({
+        type: MemoryType.THOUGHT,
+        content: `Enhanced Weekly Reflection with Causal Analysis: ${enhancedReflection.substring(0, 200)}...`,
+        metadata: {
+          importance: ImportanceLevel.HIGH,
+          source: MemorySource.AGENT,
+          reflectionType: ReflectionType.WEEKLY,
+          enhanced: true,
+          date: new Date().toISOString()
+        }
+      });
       
       return enhancedReflection;
     } catch (error) {

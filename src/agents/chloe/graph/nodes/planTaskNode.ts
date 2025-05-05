@@ -18,6 +18,7 @@ import { getLessonsForTask } from "../../self-improvement/taskOutcomeIntegration
 import { estimateTaskDuration } from "../../planning/timeEstimator";
 // Import StrategyUpdater functionality
 import { ChloeMemory } from "../../memory";
+import { MemoryType } from "../../../../server/memory/config/types";
 
 // Extend the PlannedTask interface to include new properties
 declare module "../../human-collaboration" {
@@ -133,7 +134,13 @@ export async function planTaskNode(
     }
     
     // ENHANCED: Retrieve structured knowledge from markdown memory
-    const structuredKnowledgeTypes = ['STRATEGY', 'VISION', 'PROCESS', 'KNOWLEDGE', 'PERSONA'];
+    const structuredKnowledgeTypes = [
+      MemoryType.STRATEGY, 
+      MemoryType.VISION, 
+      MemoryType.DOCUMENT,
+      MemoryType.FILE,
+      MemoryType.PERSONA
+    ];
     let structuredKnowledge = '';
     let structuredKnowledgeMetadata = {
       types: [] as string[],

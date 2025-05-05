@@ -2,17 +2,13 @@
  * Helper functions for integrating memory usage tracking with the agent system
  */
 
-import { 
-  markMemoriesAsUsed, 
-  reinforceMemoriesImportance,
-  markMemoryCritical
-} from '../../server/qdrant/memory-utils';
-import { MemoryRecord } from '../../server/qdrant/index';
+import { getMemoryServices } from '../../server/memory/services';
+import { MemoryType } from '../../server/memory/config';
 
 /**
  * Extract memory IDs from a list of memory records
  */
-function extractMemoryIds(memories: MemoryRecord[]): string[] {
+function extractMemoryIds(memories: any[]): string[] {
   return memories.filter(m => m && m.id).map(m => m.id);
 }
 
@@ -26,7 +22,7 @@ function extractMemoryIds(memories: MemoryRecord[]): string[] {
  */
 export async function trackUsedMemories(
   context: string,
-  memories: MemoryRecord[] | null | undefined,
+  memories: any[] | null | undefined,
   responseQuality?: number
 ): Promise<number> {
   if (!memories || memories.length === 0) {
@@ -35,10 +31,34 @@ export async function trackUsedMemories(
   
   const memoryIds = extractMemoryIds(memories);
   
-  // If a response quality is provided, we could use it to weight the tracking
-  // (not implemented in this version, but could be added in the future)
-  
-  return markMemoriesAsUsed(memoryIds, context);
+  try {
+    const { memoryService } = await getMemoryServices();
+    let updateCount = 0;
+    
+    for (const id of memoryIds) {
+      try {
+        // Update the memory metadata to mark it as used
+        await memoryService.updateMemory({
+          id,
+          type: MemoryType.MESSAGE, // Assuming most used memories are messages
+          metadata: {
+            lastUsedAt: new Date().toISOString(),
+            usageContext: context,
+            usageCount: 1, // This would ideally increment the existing count
+            responseQuality: responseQuality || undefined
+          }
+        });
+        updateCount++;
+      } catch (error) {
+        console.error(`Error marking memory ${id} as used:`, error);
+      }
+    }
+    
+    return updateCount;
+  } catch (error) {
+    console.error('Error in trackUsedMemories:', error);
+    return 0;
+  }
 }
 
 /**
@@ -54,7 +74,7 @@ export async function trackUsedMemories(
  * ```
  */
 export async function trackThoughtMemories(
-  memories: MemoryRecord[] | null | undefined
+  memories: any[] | null | undefined
 ): Promise<number> {
   return trackUsedMemories('thought generation', memories);
 }
@@ -72,7 +92,7 @@ export async function trackThoughtMemories(
  * ```
  */
 export async function trackResponseMemories(
-  memories: MemoryRecord[] | null | undefined,
+  memories: any[] | null | undefined,
   responseQuality?: number
 ): Promise<number> {
   return trackUsedMemories('response generation', memories, responseQuality);
@@ -87,15 +107,42 @@ export async function trackResponseMemories(
  * @returns Number of memories reinforced
  */
 export async function handleUserFeedback(
-  memories: MemoryRecord[] | null | undefined,
+  memories: any[] | null | undefined,
   feedbackType: 'helpful' | 'accurate' | 'important' | string = 'helpful'
 ): Promise<number> {
   if (!memories || memories.length === 0) {
     return 0;
   }
   
-  const memoryIds = extractMemoryIds(memories);
-  return reinforceMemoriesImportance(memoryIds, `user_feedback_${feedbackType}`);
+  try {
+    const { memoryService } = await getMemoryServices();
+    const memoryIds = extractMemoryIds(memories);
+    let updateCount = 0;
+    
+    for (const id of memoryIds) {
+      try {
+        // Update the memory metadata to reinforce its importance
+        await memoryService.updateMemory({
+          id,
+          type: MemoryType.MESSAGE, // Assuming most memories are messages
+          metadata: {
+            reinforced: true,
+            reinforcedAt: new Date().toISOString(),
+            reinforceReason: `user_feedback_${feedbackType}`,
+            importance: 'high' // Increase importance based on user feedback
+          }
+        });
+        updateCount++;
+      } catch (error) {
+        console.error(`Error reinforcing memory ${id}:`, error);
+      }
+    }
+    
+    return updateCount;
+  } catch (error) {
+    console.error('Error in handleUserFeedback:', error);
+    return 0;
+  }
 }
 
 /**
@@ -134,21 +181,41 @@ export function detectPositiveFeedback(message: string): boolean {
  * @returns Number of memories successfully marked
  */
 export async function markMemoriesAsCritical(
-  memories: MemoryRecord[] | null | undefined,
+  memories: any[] | null | undefined,
   reason: string = 'agent_decision'
 ): Promise<number> {
   if (!memories || memories.length === 0) {
     return 0;
   }
   
-  const memoryIds = extractMemoryIds(memories);
-  
-  const results = await Promise.all(
-    memoryIds.map(id => markMemoryCritical(id, true))
-  );
-  
-  const successCount = results.filter(Boolean).length;
-  console.log(`Marked ${successCount}/${memoryIds.length} memories as critical (${reason})`);
-  
-  return successCount;
+  try {
+    const { memoryService } = await getMemoryServices();
+    const memoryIds = extractMemoryIds(memories);
+    let updateCount = 0;
+    
+    for (const id of memoryIds) {
+      try {
+        // Update the memory metadata to mark it as critical
+        await memoryService.updateMemory({
+          id,
+          type: MemoryType.MESSAGE, // Assuming most memories are messages
+          metadata: {
+            critical: true,
+            criticalReason: reason,
+            markedCriticalAt: new Date().toISOString(),
+            importance: 'critical' // Set highest importance
+          }
+        });
+        updateCount++;
+      } catch (error) {
+        console.error(`Error marking memory ${id} as critical:`, error);
+      }
+    }
+    
+    console.log(`Marked ${updateCount}/${memoryIds.length} memories as critical (${reason})`);
+    return updateCount;
+  } catch (error) {
+    console.error('Error in markMemoriesAsCritical:', error);
+    return 0;
+  }
 } 

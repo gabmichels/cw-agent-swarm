@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import * as serverQdrant from '../../../server/qdrant';
-import { MemoryRecord } from '../../../server/qdrant';
-import { ChloeMemory } from '../../../agents/chloe/memory';
+import { getMemoryServices } from '../../../server/memory/services';
+import { MemoryType } from '../../../server/memory/config';
 import { ImportanceLevel } from '../../../constants/memory';
 import { KnowledgeGraph } from '../../../lib/knowledge/KnowledgeGraph';
 import { KnowledgeFlaggingService } from '../../../lib/knowledge/flagging/KnowledgeFlaggingService';
@@ -27,10 +26,8 @@ export async function POST(req: NextRequest) {
       }, { status: 400 });
     }
 
-    // Initialize memory systems
-    await serverQdrant.initMemory();
-    const memory = new ChloeMemory();
-    await memory.initialize();
+    // Initialize memory services
+    const { memoryService, searchService } = await getMemoryServices();
     
     // Initialize the knowledge systems
     const knowledgeGraph = new KnowledgeGraph('default');
@@ -47,29 +44,29 @@ export async function POST(req: NextRequest) {
 
     // If messageId is provided, fetch the memory
     if (messageId) {
-      // Search for the message in Qdrant
-      const records = await serverQdrant.searchMemory(null, '', {
+      // Search for the message using the search service
+      const searchResults = await searchService.search('', {
         filter: { id: messageId },
         limit: 1
       });
 
-      if (records.length === 0) {
+      if (searchResults.length === 0) {
         return NextResponse.json({ 
           success: false, 
           error: 'Memory not found with the provided ID' 
         }, { status: 404 });
       }
 
-      const record = records[0];
-      memoryContent = record.text;
-      memoryType = record.type;
+      const record = searchResults[0].point;
+      memoryContent = record.payload?.text || '';
+      memoryType = record.payload?.metadata?.type || 'message';
       
       // Merge tags from record if available
-      if (record.metadata?.tags && Array.isArray(record.metadata.tags)) {
-        memoryTags = [...memoryTags, ...record.metadata.tags];
+      if (record.payload?.metadata?.tags && Array.isArray(record.payload.metadata.tags)) {
+        memoryTags = [...memoryTags, ...record.payload.metadata.tags];
       }
       
-      timestamp = record.timestamp;
+      timestamp = record.payload?.metadata?.timestamp || new Date().toISOString();
     }
 
     // Generate a title from the content (first line or first 50 chars)
@@ -144,12 +141,12 @@ export async function POST(req: NextRequest) {
       // Save changes to the flagging service
       await flaggingService.save();
       
-      // Also add a reference to Qdrant memory with high importance
-      await serverQdrant.addMemory(
-        'document',
-        memoryContent,
-        {
-          id: result.itemId,
+      // Also add a reference to memory system with high importance
+      await memoryService.addMemory({
+        id: result.itemId,
+        type: MemoryType.DOCUMENT,
+        content: memoryContent,
+        metadata: {
           kind: 'knowledge',
           category: inferredCategory,
           tags: memoryTags,
@@ -161,7 +158,7 @@ export async function POST(req: NextRequest) {
           sourceMemoryId: knowledgeItem.sourceMemoryId,
           flaggedAt: new Date().toISOString()
         }
-      );
+      });
 
       return NextResponse.json({ 
         success: true, 

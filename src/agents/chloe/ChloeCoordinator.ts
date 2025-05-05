@@ -41,8 +41,7 @@ export class ChloeCoordinator extends AgentBase {
     super({
       config: options.config,
       capabilityLevel: AgentCapabilityLevel.COORDINATOR,
-      toolPermissions: ['*'], // Chloe has access to all tools as coordinator
-      memoryScopes: ['shortTerm', 'longTerm', 'inbox', 'reflections'] // These are valid memory scopes
+      toolPermissions: ['*'] // Chloe has access to all tools as coordinator
     });
     
     // Set Chloe-specific properties
@@ -54,10 +53,15 @@ export class ChloeCoordinator extends AgentBase {
   /**
    * Initialize Chloe with all required systems
    */
-  async initialize(): Promise<void> {
+  async initialize(): Promise<boolean> {
     try {
       // Call parent initialization
-      await super.initialize();
+      const parentInitSuccess = await super.initialize();
+      
+      if (!parentInitSuccess) {
+        console.error(`Parent initialization failed for ChloeCoordinator ${this.getAgentId()}`);
+        return false;
+      }
       
       console.log(`Initializing ChloeCoordinator with ID: ${this.getAgentId()}...`);
       
@@ -106,9 +110,10 @@ export class ChloeCoordinator extends AgentBase {
       await this.coordinator.initialize();
       
       console.log(`ChloeCoordinator ${this.getAgentId()} initialized successfully`);
+      return true;
     } catch (error) {
       console.error(`Error initializing ChloeCoordinator:`, error);
-      throw error;
+      return false;
     }
   }
   

@@ -3,6 +3,7 @@
  */
 import { ChloeMemory } from '../memory';
 import { ImportanceLevel, MemorySource } from '../../../constants/memory';
+import { MemoryType } from '../../../server/memory/config/types';
 import { 
   getTaskBehavioralModifiers, 
   recordBehaviorAdjustment,
@@ -26,7 +27,7 @@ Description: Chloe frequently misused the email sending tool by not properly val
 Affected Tasks: email_campaign_123, newsletter_setup
 Severity: high
 Recommendation: Always validate email addresses before sending`,
-    "feedback_insight",
+    MemoryType.FEEDBACK_INSIGHT,
     ImportanceLevel.HIGH,
     MemorySource.SYSTEM,
     "Performance analysis",
@@ -40,7 +41,7 @@ Description: Chloe missed important context about audience demographics in previ
 Affected Tasks: audience_targeting, ad_campaign_456
 Severity: medium
 Recommendation: Review all demographic data before planning ad targeting strategies`,
-    "feedback_insight",
+    MemoryType.FEEDBACK_INSIGHT,
     ImportanceLevel.MEDIUM,
     MemorySource.SYSTEM,
     "Performance analysis",
@@ -52,7 +53,7 @@ Recommendation: Review all demographic data before planning ad targeting strateg
 Task: ad_campaign_456
 The campaign targeting was too broad and missed key demographics that were mentioned in the brief.
 Please ensure all contextual information is incorporated in planning stages.`,
-    "correction",
+    MemoryType.CORRECTION,
     ImportanceLevel.MEDIUM,
     MemorySource.USER,
     "Marketing campaign feedback",

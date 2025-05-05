@@ -10,6 +10,7 @@ import { TaskLogger } from '../task-logger';
 import { IManager, BaseManagerOptions } from '../../../lib/shared/types/agentTypes';
 import { logger } from '../../../lib/logging';
 import { ImportanceLevel, MemorySource } from '../../../constants/memory';
+import { MemoryType } from '../../../server/memory/config/types';
 
 /**
  * Options for initializing the knowledge gaps manager
@@ -28,6 +29,20 @@ export interface KnowledgeGapResult {
   gaps: string[];
   confidence: number;
   timestamp: string;
+}
+
+/**
+ * Interface for a detected knowledge gap
+ */
+export interface KnowledgeGap {
+  id: string;
+  gap: string;
+  category: string;
+  priority: 'low' | 'medium' | 'high';
+  created: Date;
+  status: 'open' | 'in_progress' | 'resolved';
+  resolution?: string;
+  resolvedDate?: Date;
 }
 
 /**
@@ -164,7 +179,7 @@ Format each gap as a separate item with these sections.`;
       // Store the gaps in memory
       await this.memory.addMemory(
         `Knowledge Gaps Analysis: ${analysis.substring(0, 200)}...`,
-        'knowledge_gaps',
+        MemoryType.KNOWLEDGE_GAP,
         ImportanceLevel.HIGH,
         MemorySource.SYSTEM,
         undefined,
@@ -254,7 +269,7 @@ Format each gap as a separate item with these sections.`;
       // Add to memory with high importance
       await this.memory.addMemory(
         `Knowledge Gap: ${gap}`,
-        'knowledge_gap',
+        MemoryType.KNOWLEDGE_GAP,
         ImportanceLevel.HIGH,
         MemorySource.SYSTEM,
         'Identified Knowledge Gap',
@@ -405,41 +420,37 @@ Please provide a concise summary that:
   /**
    * Resolve a knowledge gap
    */
-  async resolveKnowledgeGap(id: string, resolution: string): Promise<boolean> {
+  async resolveKnowledgeGap(gapId: string, resolution: string): Promise<boolean> {
     try {
       if (!this.isInitialized()) {
         await this.initialize();
       }
       
-      this.logAction('Resolving knowledge gap', { id, resolution });
+      this.logAction('Resolving knowledge gap', { gapId, resolution });
       
-      // Get the gap from memory
-      const gaps = await this.memory.getRelevantMemories('knowledge_gap', 50);
-      const gap = gaps.find(g => {
-        const content = typeof g === 'string' ? g : g.content || '';
-        return content.includes(id);
-      });
+      // Get the gap content
+      const gaps = await this.memory.getRelevantMemories(`knowledge_gap ${gapId}`, 1);
       
-      if (!gap) {
+      if (gaps.length === 0) {
+        this.logAction('Knowledge gap not found', { gapId });
         return false;
       }
       
-      // Get the gap content
-      const gapContent = typeof gap === 'string' ? gap : gap.content || '';
+      const gapContent = typeof gaps[0] === 'string' ? gaps[0] : gaps[0].content || '';
       
-      // Mark the gap as resolved in memory
+      // Add resolution to memory
       await this.memory.addMemory(
         `Knowledge Gap: ${gapContent} | RESOLVED: ${resolution}`,
-        'knowledge_gap_resolution',
+        MemoryType.KNOWLEDGE_GAP_RESOLUTION,
         ImportanceLevel.HIGH,
         MemorySource.SYSTEM,
         'Resolved Knowledge Gap',
-        ['knowledge_gap', 'resolved', 'learning']
+        ['knowledge_gap_resolution', 'learning_completion', gapId]
       );
       
       // Notify about the resolution if notification function is available
       if (this.notifyFunction) {
-        await this.notifyFunction(`Knowledge gap resolved: ${gapContent}`);
+        await this.notifyFunction(`Knowledge gap resolved: ${gapId}`);
       }
       
       return true;

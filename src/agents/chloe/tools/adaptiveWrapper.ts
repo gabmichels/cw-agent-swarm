@@ -11,6 +11,7 @@ import { ToolRegistry } from './registry';
 import { ToolManager, ToolResult } from './toolManager';
 import { ChloeMemory } from '../memory';
 import { ImportanceLevel, MemorySource } from '../../../constants/memory';
+import { MemoryType } from '../../../server/memory/config/types';
 
 /**
  * Represents a parameter adjustment strategy
@@ -488,7 +489,7 @@ export class AdaptiveToolWrapper {
     
     await this.memory.addMemory(
       `Successfully adapted parameters ${changedParams.join(', ')} for tool "${toolName}" resulting in quality score of ${quality.toFixed(2)}.`,
-      'parameter_adaptation',
+      MemoryType.PARAMETER_ADAPTATION,
       ImportanceLevel.MEDIUM,
       MemorySource.SYSTEM,
       undefined,
@@ -518,7 +519,7 @@ export class AdaptiveToolWrapper {
     
     await this.memory.addMemory(
       `Attempted to adapt parameters ${changedParams.join(', ')} for tool "${toolName}" with ${attemptCount} adjustment attempts but without success.`,
-      'parameter_adaptation_attempt',
+      MemoryType.PARAMETER_ADAPTATION_ATTEMPT,
       ImportanceLevel.LOW,
       MemorySource.SYSTEM,
       undefined,

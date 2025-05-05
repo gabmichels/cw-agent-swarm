@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import * as serverQdrant from '../../../../server/qdrant';
+import { getMemoryServices } from '../../../../server/memory/services';
+import { MemoryType } from '../../../../server/memory/config/types';
 import { KnowledgeGraph } from '../../../../lib/knowledge/KnowledgeGraph';
 import { KnowledgeFlaggingService } from '../../../../lib/knowledge/flagging/KnowledgeFlaggingService';
 
@@ -28,11 +29,26 @@ export async function GET(request: NextRequest) {
     // Get tags from memory if requested
     if (includeMemory) {
       try {
-        // Initialize Qdrant
-        await serverQdrant.initMemory();
+        // Get memory services
+        const { client, searchService } = await getMemoryServices();
         
-        // Get all memory entries from Qdrant
-        const memoryEntries = await serverQdrant.getAllMemories(null, 1000);
+        // Check if memory service is initialized
+        const status = await client.getStatus();
+        if (!status.initialized) {
+          await client.initialize();
+        }
+        
+        // Get all memory entries by searching with empty query
+        const searchResults = await searchService.search('', {
+          limit: 1000
+        });
+        
+        // Process tags from memory entries
+        const memoryEntries = searchResults.map(result => ({
+          id: result.point.id,
+          text: result.point.payload?.text || '',
+          metadata: result.point.payload?.metadata || {}
+        }));
         
         // Process tags from memory entries
         memoryEntries.forEach(entry => {

@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import * as serverQdrant from '../../../../server/qdrant';
-import { QdrantMemoryType } from '../../../../server/qdrant';
-import { MEMORY_TYPES } from '../../../../constants/qdrant';
+import { getMemoryServices } from '../../../../server/memory/services';
+import { MemoryType } from '../../../../server/memory/config';
 
 // Make sure this is server-side only
 export const runtime = 'nodejs';
@@ -23,10 +22,8 @@ export async function GET(request: NextRequest) {
  * DELETE handler to remove a message from the chat history
  */
 export async function DELETE(request: NextRequest) {
-  // Add comprehensive debug logging
-  console.log('DELETE request received for delete-message API');
+  console.log('DELETE request received');
   console.log('Request URL:', request.url);
-  console.log('Request method:', request.method);
   
   try {
     // Get the timestamp from the URL or query params
@@ -34,7 +31,7 @@ export async function DELETE(request: NextRequest) {
     const timestamp = url.searchParams.get('timestamp') || '';
     const userId = url.searchParams.get('userId') || 'gab';
     
-    console.log('Route parameters:', { timestamp, userId });
+    console.log('Request parameters:', { timestamp, userId });
     
     if (!timestamp) {
       console.error('Missing required timestamp parameter');
@@ -46,21 +43,39 @@ export async function DELETE(request: NextRequest) {
     
     console.log(`Attempting to delete message with timestamp: ${timestamp} for user: ${userId}`);
     
-    // Check if Qdrant is initialized
-    const isQdrantInitialized = serverQdrant.isInitialized();
-    console.log(`Qdrant initialized: ${isQdrantInitialized}`);
+    // Get memory services
+    const { client, searchService, memoryService } = await getMemoryServices();
     
-    // Make sure Qdrant is initialized
-    if (!isQdrantInitialized) {
-      console.log('Initializing Qdrant for message deletion');
-      await serverQdrant.initMemory();
-      console.log('Qdrant initialization completed');
+    // Check if memory service is initialized
+    const status = await client.getStatus();
+    console.log(`Memory system initialized: ${status.initialized}`);
+    
+    // Make sure memory system is initialized
+    if (!status.initialized) {
+      console.log('Initializing memory system for message deletion');
+      await client.initialize();
+      console.log('Memory system initialization completed');
     }
     
     // Find the message by timestamp
-    console.log(`Using memory type: ${MEMORY_TYPES.MESSAGE}`);
-    const memories = await serverQdrant.getRecentMemories(MEMORY_TYPES.MESSAGE as QdrantMemoryType, 100);
-    console.log(`Retrieved ${memories.length} recent messages`);
+    console.log(`Using memory type: ${MemoryType.MESSAGE}`);
+    
+    // Search for the message with the specified timestamp
+    const searchResults = await searchService.search('', {
+      types: [MemoryType.MESSAGE],
+      limit: 100,
+      filter: {
+        timestamp: timestamp
+      }
+    });
+    
+    const memories = searchResults.map(result => ({
+      id: result.point.id,
+      timestamp: result.point.payload?.timestamp,
+      metadata: result.point.payload?.metadata || {}
+    }));
+    
+    console.log(`Retrieved ${memories.length} messages matching timestamp`);
     
     // Debug log to inspect message timestamps
     console.log('Available message timestamps:', 
@@ -80,8 +95,7 @@ export async function DELETE(request: NextRequest) {
     if (!targetMessage) {
       console.error(`Message with timestamp ${timestamp} not found in ${memories.length} messages`);
       
-      // CHANGE: Instead of a 404, return a synthetic success
-      // This matches our client-side approach of always showing success
+      // Instead of a 404, return a synthetic success
       return NextResponse.json({
         success: true,
         message: 'Message deleted successfully (synthetic)',
@@ -92,21 +106,20 @@ export async function DELETE(request: NextRequest) {
     
     console.log(`Found target message with ID: ${targetMessage.id}`);
     
-    // Delete the message from Qdrant
-    const deleteResult = await serverQdrant.deleteMemory(MEMORY_TYPES.MESSAGE as QdrantMemoryType, targetMessage.id);
-    console.log(`Delete operation result: ${deleteResult}`);
+    // Delete the message using memory service
+    const deleteResult = await memoryService.deleteMemory({
+      id: targetMessage.id,
+      type: MemoryType.MESSAGE
+    });
+    
+    console.log(`Delete operation result: ${deleteResult || false}`);
     
     if (!deleteResult) {
       console.error(`Failed to delete message with ID: ${targetMessage.id}`);
-      
-      // CHANGE: Still return success even if the operation failed
-      // This matches our client-side approach
-      return NextResponse.json({
-        success: true,
-        message: 'Message marked as deleted (failure handled gracefully)',
-        deletedId: targetMessage.id,
-        actualSuccess: false
-      });
+      return NextResponse.json(
+        { success: false, error: 'Failed to delete message' },
+        { status: 500 }
+      );
     }
     
     console.log(`Successfully deleted message with id: ${targetMessage.id}, timestamp: ${timestamp}`);
@@ -119,15 +132,13 @@ export async function DELETE(request: NextRequest) {
     
   } catch (error: any) {
     console.error('Error in delete-message API:', error);
-    
-    // CHANGE: Return success even on error, for consistent UI behavior
     return NextResponse.json(
       { 
-        success: true, 
-        message: 'Message deletion processed (with internal error)',
-        error: process.env.NODE_ENV === 'development' ? error.message : undefined,
-        stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
-      }
+        success: false, 
+        error: 'An error occurred while processing your request',
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      },
+      { status: 500 }
     );
   }
 } 

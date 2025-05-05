@@ -1,17 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { MemoryType } from '../../../../server/memory/config';
-import { MemoryService } from '../../../../server/memory/services/memory/memory-service';
-import { QdrantMemoryClient } from '../../../../server/memory/services/client/qdrant-client';
-import { EmbeddingService } from '../../../../server/memory/services/client/embedding-service';
-import { SearchService } from '../../../../server/memory/services/search/search-service';
-import * as serverQdrant from '../../../../server/qdrant';
+import { getMemoryServices } from '../../../../server/memory/services';
 
 // Mark as server-side only
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 /**
- * API endpoint to reset memory collections using both the standardized and legacy systems
+ * API endpoint to reset memory collections using the standardized memory system
  */
 export async function POST(request: NextRequest) {
   try {
@@ -33,21 +29,7 @@ export async function POST(request: NextRequest) {
     console.log(`[memory/reset-collection] Request to reset collection: ${collection}`);
     
     // Initialize services
-    const qdrantClient = new QdrantMemoryClient();
-    const embeddingService = new EmbeddingService();
-    const memoryService = new MemoryService(qdrantClient, embeddingService);
-    
-    // Create search service with all required dependencies
-    const searchService = new SearchService(
-      qdrantClient, 
-      embeddingService,
-      memoryService
-    );
-    
-    // Initialize legacy Qdrant memory as well
-    await serverQdrant.initMemory({
-      useOpenAI: process.env.USE_OPENAI_EMBEDDINGS === 'true'
-    });
+    const { client, searchService, memoryService } = await getMemoryServices();
     
     // Determine which collections to reset
     let collectionsToReset: MemoryType[] = [];
@@ -92,13 +74,11 @@ export async function POST(request: NextRequest) {
       }
     }
     
-    // Reset collections in both systems
+    // Reset collections in the memory system
     const results: Record<string, any> = {};
     let overallSuccess = true;
     
-    // Reset collections in standardized system
-    // Note: The client doesn't have a direct resetCollection method,
-    // so we need to delete and re-create for each collection
+    // Reset collections by deleting all points for each type
     for (const type of collectionsToReset) {
       try {
         // Delete all points for this type using search and delete
@@ -124,38 +104,19 @@ export async function POST(request: NextRequest) {
           }
         }
         
-        results[`standardized_${type}`] = { 
+        results[`${type}`] = { 
           success: deletionSuccess,
           deletedCount
         };
         if (!deletionSuccess) overallSuccess = false;
       } catch (error) {
-        console.error(`Error resetting collection ${type} in standardized system:`, error);
-        results[`standardized_${type}`] = { 
+        console.error(`Error resetting collection ${type}:`, error);
+        results[`${type}`] = { 
           success: false, 
           error: error instanceof Error ? error.message : String(error) 
         };
         overallSuccess = false;
       }
-    }
-    
-    // Reset collections in legacy system
-    try {
-      if (collection === 'all') {
-        const success = await serverQdrant.resetAllCollections();
-        results.legacy_all = { success };
-        if (!success) overallSuccess = false;
-      } else {
-        // Convert to legacy type
-        const legacyType = collection as any; // Legacy system uses same type strings
-        const success = await serverQdrant.resetCollection(legacyType);
-        results[`legacy_${collection}`] = { success };
-        if (!success) overallSuccess = false;
-      }
-    } catch (error) {
-      console.error('Error resetting collections in legacy system:', error);
-      results.legacy_error = error instanceof Error ? error.message : String(error);
-      overallSuccess = false;
     }
     
     // Verify the collections after resetting

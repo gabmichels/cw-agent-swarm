@@ -2,7 +2,7 @@ import { OpenAI } from 'openai';
 import { KnowledgeGraph } from './KnowledgeGraph';
 import { KnowledgeConcept, KnowledgePrinciple, ResearchEntry, DomainFramework } from './types';
 import { logger } from '../logging';
-import * as serverQdrant from '../../server/qdrant';
+import { getMemoryServices } from '../../server/memory/services';
 
 // Initialize OpenAI client
 const openai = new OpenAI({
@@ -201,16 +201,14 @@ export class SemanticSearchService {
    */
   private async getEmbeddingForText(text: string): Promise<number[] | null> {
     try {
-      const embeddingResponse = await serverQdrant.getEmbedding(text);
+      const response = await openai.embeddings.create({
+        model: 'text-embedding-ada-002',
+        input: text
+      });
       
-      if (!embeddingResponse || !embeddingResponse.embedding) {
-        logger.error('Failed to get embedding from server');
-        return null;
-      }
-      
-      return embeddingResponse.embedding;
+      return response.data[0].embedding;
     } catch (error) {
-      logger.error(`Error getting embedding: ${error}`);
+      logger.error(`Error generating embedding: ${error}`);
       return null;
     }
   }
@@ -220,40 +218,52 @@ export class SemanticSearchService {
    */
   private async getEmbeddingsForItems(items: any[]): Promise<(number[] | null)[]> {
     try {
-      // Prepare text representations for each item
-      const texts = items.map(item => {
+      // Get embeddings from memory services
+      const { embeddingService } = await getMemoryServices();
+      
+      // Extract text to embed from each item
+      const textsToEmbed = items.map(item => {
         switch (item._type) {
           case 'concept':
-            return `${item.name}. ${item.description}`;
+            return `${item.name}: ${item.description}`;
           case 'principle':
-            return `${item.name}. ${item.description}. ${item.examples?.join('. ')}`;
+            return `${item.name}: ${item.description}`;
           case 'framework':
-            return `${item.name}. ${item.description}. ${item.steps?.map((s: any) => s.description).join('. ')}`;
+            return `${item.name}: ${item.description}`;
           case 'research':
-            return `${item.title}. ${item.content}`;
+            return `${item.title}: ${item.summary || item.content.substring(0, 500)}`;
           default:
-            return JSON.stringify(item);
+            return '';
         }
       });
       
-      // Get embeddings in batches to avoid rate limits
-      const batchSize = 10;
-      const embeddings: (number[] | null)[] = new Array(texts.length).fill(null);
+      // Generate embeddings in batches to avoid rate limits
+      const embeddings: (number[] | null)[] = [];
+      const batchSize = 5;
       
-      for (let i = 0; i < texts.length; i += batchSize) {
-        const batch = texts.slice(i, i + batchSize);
-        const batchPromises = batch.map(text => this.getEmbeddingForText(text));
-        const batchResults = await Promise.all(batchPromises);
+      for (let i = 0; i < textsToEmbed.length; i += batchSize) {
+        const batch = textsToEmbed.slice(i, i + batchSize);
         
-        for (let j = 0; j < batchResults.length; j++) {
-          embeddings[i + j] = batchResults[j];
-        }
+        const batchEmbeddings = await Promise.all(
+          batch.map(async text => {
+            if (!text) return null;
+            try {
+              const embeddingResult = await embeddingService.getEmbedding(text);
+              return embeddingResult.embedding;
+            } catch (error) {
+              logger.error(`Error generating embedding for batch item: ${error}`);
+              return null;
+            }
+          })
+        );
+        
+        embeddings.push(...batchEmbeddings);
       }
       
       return embeddings;
     } catch (error) {
-      logger.error(`Error getting batch embeddings: ${error}`);
-      return new Array(items.length).fill(null);
+      logger.error(`Error generating embeddings for items: ${error}`);
+      return items.map(() => null);
     }
   }
   
@@ -261,10 +271,7 @@ export class SemanticSearchService {
    * Calculate cosine similarity between two vectors
    */
   private calculateCosineSimilarity(a: number[], b: number[]): number {
-    if (a.length !== b.length) {
-      logger.warn(`Vector dimensions don't match: ${a.length} vs ${b.length}`);
-      return 0;
-    }
+    if (!a || !b || a.length !== b.length) return 0;
     
     let dotProduct = 0;
     let normA = 0;
@@ -276,105 +283,125 @@ export class SemanticSearchService {
       normB += b[i] * b[i];
     }
     
-    normA = Math.sqrt(normA);
-    normB = Math.sqrt(normB);
+    if (normA === 0 || normB === 0) return 0;
     
-    if (normA === 0 || normB === 0) {
-      return 0;
-    }
-    
-    return dotProduct / (normA * normB);
+    return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
   }
   
   /**
-   * Extract text highlights that match the query
+   * Extract relevant highlights from an item based on the query
    */
   private extractHighlights(query: string, item: any): string[] {
     const highlights: string[] = [];
-    const keywords = query.toLowerCase().split(/\s+/).filter(word => word.length > 3);
+    const keywords = query.toLowerCase().split(/\s+/).filter(k => k.length > 3);
     
-    if (keywords.length === 0) {
-      return highlights;
-    }
+    if (keywords.length === 0) return highlights;
     
-    // Function to check if text contains any keywords
+    // Define a helper to check if text contains keywords
     const containsKeywords = (text: string): boolean => {
       if (!text) return false;
-      const lowerText = text.toLowerCase();
-      return keywords.some(keyword => lowerText.includes(keyword));
+      text = text.toLowerCase();
+      return keywords.some(keyword => text.includes(keyword));
     };
     
-    // Extract highlights from different fields based on item type
     switch (item._type) {
-      case 'concept':
-        if (containsKeywords(item.description)) {
-          highlights.push(this.extractSentence(item.description, keywords));
-        }
-        break;
-        
-      case 'principle':
+      case 'concept': {
+        // Get description highlight
         if (containsKeywords(item.description)) {
           highlights.push(this.extractSentence(item.description, keywords));
         }
         
-        // Check examples
+        // Get example highlights
         if (item.examples && Array.isArray(item.examples)) {
-          item.examples.forEach((example: string) => {
+          for (const example of item.examples) {
             if (containsKeywords(example)) {
               highlights.push(example);
+              if (highlights.length >= 3) break;
             }
-          });
+          }
         }
         break;
-        
-      case 'framework':
+      }
+      
+      case 'principle': {
+        // Get description highlight
         if (containsKeywords(item.description)) {
           highlights.push(this.extractSentence(item.description, keywords));
         }
         
-        // Check steps
-        if (item.steps && Array.isArray(item.steps)) {
-          item.steps.forEach((step: any) => {
-            if (containsKeywords(step.description)) {
-              highlights.push(`${step.name}: ${step.description}`);
+        // Get example highlights
+        if (item.examples && Array.isArray(item.examples)) {
+          for (const example of item.examples) {
+            if (containsKeywords(example)) {
+              highlights.push(example);
+              if (highlights.length >= 3) break;
             }
-          });
+          }
         }
         break;
+      }
+      
+      case 'framework': {
+        // Get description highlight
+        if (containsKeywords(item.description)) {
+          highlights.push(this.extractSentence(item.description, keywords));
+        }
         
-      case 'research':
+        // Get step highlights
+        if (item.steps && Array.isArray(item.steps)) {
+          for (const step of item.steps) {
+            if (containsKeywords(step.description)) {
+              highlights.push(`${step.name}: ${step.description}`);
+              if (highlights.length >= 3) break;
+            }
+          }
+        }
+        break;
+      }
+      
+      case 'research': {
+        // Get content highlight
         if (containsKeywords(item.content)) {
           highlights.push(this.extractSentence(item.content, keywords));
         }
         break;
+      }
     }
     
     return highlights.slice(0, 3); // Limit to 3 highlights
   }
   
   /**
-   * Extract a sentence containing keywords
+   * Extract the most relevant sentence from text based on keywords
    */
   private extractSentence(text: string, keywords: string[]): string {
     if (!text) return '';
     
     // Split text into sentences
-    const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 0);
+    const sentences = text.split(/(?<=[.!?])\s+/);
     
-    // Find sentences containing keywords
-    for (const sentence of sentences) {
-      const lowerSentence = sentence.toLowerCase();
-      if (keywords.some(keyword => lowerSentence.includes(keyword))) {
-        return sentence.trim();
-      }
-    }
+    // Score each sentence based on keyword occurrences
+    const scoredSentences = sentences.map(sentence => {
+      const sentenceLower = sentence.toLowerCase();
+      let score = 0;
+      
+      keywords.forEach(keyword => {
+        if (sentenceLower.includes(keyword.toLowerCase())) {
+          score++;
+        }
+      });
+      
+      return { sentence, score };
+    });
     
-    // If no sentence contains keywords, return the first sentence
-    return sentences.length > 0 ? sentences[0].trim() : '';
+    // Sort by score and get the highest scoring sentence
+    scoredSentences.sort((a, b) => b.score - a.score);
+    
+    return scoredSentences[0]?.sentence || text.substring(0, 100);
   }
   
   /**
-   * Fallback to keyword-based search when embedding search fails
+   * Fallback search method using keyword matching
    */
   private fallbackKeywordSearch(
     query: string, 
@@ -383,13 +410,11 @@ export class SemanticSearchService {
     logger.info(`Falling back to keyword search for: "${query}"`);
     
     const limit = options.limit || 10;
-    const keywords = query.toLowerCase().split(/\s+/).filter(word => word.length > 3);
+    const keywords = query.toLowerCase().split(/\s+/).filter(k => k.length > 3);
     
-    if (keywords.length === 0) {
-      return [];
-    }
+    if (keywords.length === 0) return [];
     
-    // Collect all items
+    // Collect all knowledge items to search through
     let allItems: any[] = [];
     
     // Collect items based on requested types
@@ -601,22 +626,21 @@ export class SemanticSearchService {
   }
   
   /**
-   * Get all relevance feedback for an item
+   * Get all feedback for a specific item
    */
   public getFeedbackForItem(itemId: string): RelevanceFeedback[] {
     return this.feedbackLog.get(itemId) || [];
   }
   
   /**
-   * Create a knowledge retrieval augmentation
-   * This uses knowledge graph items to enhance a user query
+   * Augment a search query with relevant knowledge
    */
   public async augmentQuery(query: string, options?: any): Promise<{
     augmentedQuery: string;
     usedItems: any[];
   }> {
     try {
-      // Search for relevant knowledge items
+      // First, search for relevant items
       const searchResults = await this.searchKnowledge(query, {
         limit: 3,
         threshold: 0.7,
@@ -624,52 +648,59 @@ export class SemanticSearchService {
       });
       
       if (searchResults.length === 0) {
-        return { augmentedQuery: query, usedItems: [] };
+        return {
+          augmentedQuery: query,
+          usedItems: []
+        };
       }
       
-      // Extract relevant information from search results
-      const knowledgeContext = searchResults.map(result => {
+      // Extract relevant information from top results
+      const relevantInfo = searchResults.map(result => {
         const item = result.item;
         
         switch (item._type) {
           case 'concept':
-            return `Concept "${item.name}": ${item.description}`;
+            return `Concept: ${item.name} - ${item.description}`;
           case 'principle':
-            return `Principle "${item.name}": ${item.description}`;
+            return `Principle: ${item.name} - ${item.description}`;
           case 'framework':
-            return `Framework "${item.name}": ${item.description}`;
+            return `Framework: ${item.name} - ${item.description}`;
           case 'research':
-            return `Research "${item.title}": ${item.content.substring(0, 200)}...`;
+            return `Research: ${item.title} - ${item.summary || item.content.substring(0, 200)}`;
           default:
-            return JSON.stringify(item);
+            return '';
         }
-      }).join('\n\n');
+      }).filter(info => info !== '');
       
-      // Use OpenAI to create an enhanced query
+      // Use OpenAI to augment the query with the relevant information
       const response = await openai.chat.completions.create({
-        model: "gpt-4.1-2025-04-14",
+        model: 'gpt-3.5-turbo',
         messages: [
-          { 
-            role: "system", 
-            content: "You are a query enhancement system. Your task is to improve search queries by incorporating domain knowledge. Create an enhanced version of the user's query that includes specific terminology and concepts from the provided knowledge context. Keep the enhanced query concise (under 50 words)."
+          {
+            role: 'system',
+            content: 'You are an assistant that helps augment search queries with relevant context. Use the provided information to enhance the query without changing its intent.'
           },
-          { 
-            role: "user", 
-            content: `Original query: "${query}"\n\nKnowledge context:\n${knowledgeContext}\n\nProvide an enhanced version of the query that incorporates relevant terminology and concepts from the knowledge context.`
+          {
+            role: 'user',
+            content: `I want to search for: "${query}"\n\nHere's some relevant information:\n${relevantInfo.join('\n\n')}`
           }
         ],
-        temperature: 0.3
+        temperature: 0.3,
+        max_tokens: 150
       });
       
-      const enhancedQuery = response.choices[0]?.message?.content?.trim() || query;
+      const augmentedQuery = response.choices[0]?.message?.content || query;
       
       return {
-        augmentedQuery: enhancedQuery,
+        augmentedQuery,
         usedItems: searchResults.map(r => r.item)
       };
     } catch (error) {
       logger.error(`Error augmenting query: ${error}`);
-      return { augmentedQuery: query, usedItems: [] };
+      return {
+        augmentedQuery: query,
+        usedItems: []
+      };
     }
   }
 } 

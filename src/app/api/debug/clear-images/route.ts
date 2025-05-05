@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import * as serverQdrant from '../../../../server/qdrant';
+import { getMemoryServices } from '../../../../server/memory/services';
+import { MemoryType } from '../../../../server/memory/config';
 import fs from 'fs';
 import path from 'path';
 
@@ -70,15 +71,31 @@ export async function POST(req: NextRequest) {
       errorCount++;
     }
 
-    // 2. Update message records in Qdrant to remove attachment references
+    // 2. Update message records to remove attachment references
     try {
-      // Initialize Qdrant if needed
-      if (!serverQdrant.isInitialized()) {
-        await serverQdrant.initMemory();
+      // Get memory services
+      const { client, memoryService, searchService } = await getMemoryServices();
+      
+      // Check if memory system is initialized
+      const status = await client.getStatus();
+      if (!status.initialized) {
+        await client.initialize();
       }
 
       // Get all messages for this user
-      const allMessages = await serverQdrant.getRecentMemories('message', 1000);
+      const messageResults = await searchService.search('', {
+        types: [MemoryType.MESSAGE],
+        limit: 1000
+      });
+      
+      // Convert search results to a more usable format
+      const allMessages = messageResults.map(result => ({
+        id: result.point.id,
+        text: result.point.payload?.text || '',
+        timestamp: result.point.payload?.timestamp,
+        metadata: result.point.payload?.metadata || {}
+      }));
+      
       const userMessages = allMessages.filter(msg => 
         msg.metadata && msg.metadata.userId === userId
       );
@@ -95,33 +112,35 @@ export async function POST(req: NextRequest) {
 
       console.log(`${messagesWithAttachments.length} messages have attachments`);
 
-      // We can't easily update messages in Qdrant, so we'll delete and re-add them
-      // First, get all messages (including from other users)
-      const allMessagesAgain = await serverQdrant.getRecentMemories('message', 1000);
-      
-      // Reset the collection
-      await serverQdrant.resetCollection('message');
-      
-      // Re-add all messages, but remove attachments from the user's messages
-      for (const msg of allMessagesAgain) {
-        if (msg.metadata && msg.metadata.userId === userId) {
-          // Remove attachments from this user's messages
-          if (msg.metadata.attachments) {
-            delete msg.metadata.attachments;
-          }
+      // Update all messages with attachments
+      for (const msg of messagesWithAttachments) {
+        try {
+          // Create updated metadata without attachments
+          const updatedMetadata = { ...msg.metadata };
+          delete updatedMetadata.attachments;
+          
           // Remove vision response references
-          if (msg.metadata.visionResponseFor) {
-            delete msg.metadata.visionResponseFor;
+          if (updatedMetadata.visionResponseFor) {
+            delete updatedMetadata.visionResponseFor;
           }
+          
+          // Update the memory with the new metadata
+          await memoryService.updateMemory({
+            id: msg.id,
+            type: MemoryType.MESSAGE,
+            metadata: updatedMetadata
+          });
+          
+          successCount++;
+        } catch (updateErr) {
+          console.error(`Error updating message ${msg.id}:`, updateErr);
+          errorCount++;
         }
-        
-        // Re-add the message
-        await serverQdrant.addMemory('message', msg.text, msg.metadata);
       }
       
-      console.log('Updated message records in Qdrant');
+      console.log('Updated message records in memory system');
     } catch (err) {
-      console.error('Error updating Qdrant records:', err);
+      console.error('Error updating memory records:', err);
       errorCount++;
     }
 

@@ -7,7 +7,8 @@ import { ChloeAgent } from '../core/agent';
 import { ChatOpenAI } from '@langchain/openai';
 import { ChloeMemory } from '../memory';
 import { TaskLogger } from '../task-logger';
-import { MemoryType, ImportanceLevel, MemorySource } from '../../../constants/memory';
+import { MemoryType as MemType, ImportanceLevel, MemorySource } from '../../../constants/memory';
+import { MemoryType } from '../../../server/memory/config/types';
 import { runWeeklySelfImprovement } from '../self-improvement/weeklySelfImprovement';
 import { PlanAndExecuteOptions } from '../planAndExecute';
 
@@ -151,7 +152,7 @@ export class ChloeScheduler {
       
       await this.memory.addMemory(
         `Daily Cycle Summary: ${resultSummary}`,
-        "daily_cycle_log",
+        MemType.DAILY_CYCLE_LOG,
         ImportanceLevel.MEDIUM,
         MemorySource.SYSTEM,
         `Daily planning for ${new Date().toISOString().split('T')[0]}`,
@@ -186,7 +187,7 @@ export class ChloeScheduler {
       // Store error in memory
       await this.memory.addMemory(
         `Error in daily cycle: ${errorMessage}`,
-        "error_log",
+        MemType.ERROR_LOG,
         ImportanceLevel.HIGH,
         MemorySource.SYSTEM,
         `Daily cycle failure on ${new Date().toISOString().split('T')[0]}`,
@@ -254,7 +255,7 @@ Insights Generated: ${selfImprovementResult.insightsGenerated}
 Adjustments Proposed: ${selfImprovementResult.adjustmentsProposed}
 Errors: ${selfImprovementResult.errors.length ? selfImprovementResult.errors.join(", ") : "None"}
 \n${weeklyReflection ? `Weekly Reflection:\n${weeklyReflection.substring(0, 500)}...` : ""}`,
-        "weekly_cycle_log",
+        MemType.WEEKLY_CYCLE_LOG,
         ImportanceLevel.HIGH,
         MemorySource.SYSTEM,
         `Weekly cycle for week ending ${new Date().toISOString().split('T')[0]}`,
@@ -293,7 +294,7 @@ Errors: ${selfImprovementResult.errors.length ? selfImprovementResult.errors.joi
       // Store error in memory
       await this.memory.addMemory(
         `Error in weekly cycle: ${errorMessage}`,
-        "error_log",
+        MemType.ERROR_LOG,
         ImportanceLevel.HIGH,
         MemorySource.SYSTEM,
         `Weekly cycle failure on ${new Date().toISOString().split('T')[0]}`,
@@ -327,7 +328,7 @@ Errors: ${selfImprovementResult.errors.length ? selfImprovementResult.errors.joi
       // Store maintenance start log
       await this.memory.addMemory(
         "Started maintenance cycle",
-        "maintenance_log",
+        MemType.MAINTENANCE_LOG,
         ImportanceLevel.LOW,
         MemorySource.SYSTEM,
         `Maintenance cycle on ${new Date().toISOString().split('T')[0]}`,
@@ -376,7 +377,7 @@ Errors: ${selfImprovementResult.errors.length ? selfImprovementResult.errors.joi
       // Store maintenance summary
       await this.memory.addMemory(
         `Maintenance Cycle Summary: ${JSON.stringify(maintenanceReport, null, 2)}`,
-        "maintenance_log",
+        MemType.MAINTENANCE_LOG,
         ImportanceLevel.MEDIUM,
         MemorySource.SYSTEM,
         `Maintenance cycle completed on ${new Date().toISOString().split('T')[0]}`,
@@ -405,7 +406,7 @@ Errors: ${selfImprovementResult.errors.length ? selfImprovementResult.errors.joi
       // Store error in memory
       await this.memory.addMemory(
         `Error in maintenance cycle: ${errorMessage}`,
-        "error_log",
+        MemType.ERROR_LOG,
         ImportanceLevel.HIGH,
         MemorySource.SYSTEM,
         `Maintenance cycle failure on ${new Date().toISOString().split('T')[0]}`,

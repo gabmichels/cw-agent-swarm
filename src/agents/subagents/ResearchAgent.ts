@@ -37,8 +37,7 @@ export class ResearchAgent extends AgentBase {
     super({
       config: options.config,
       capabilityLevel: AgentCapabilityLevel.ADVANCED,
-      toolPermissions: ['web_search', 'file_search', 'memory_search'],
-      memoryScopes: ['shortTerm', 'longTerm', 'inbox', 'reflections']
+      toolPermissions: ['web_search', 'file_search', 'memory_search']
     });
     
     // Set research-specific properties
@@ -50,10 +49,15 @@ export class ResearchAgent extends AgentBase {
   /**
    * Initialize the research agent
    */
-  async initialize(): Promise<void> {
+  async initialize(): Promise<boolean> {
     try {
       // Call parent initialization
-      await super.initialize();
+      const parentInitSuccess = await super.initialize();
+      
+      if (!parentInitSuccess) {
+        console.error(`Parent initialization failed for ResearchAgent ${this.getAgentId()}`);
+        return false;
+      }
       
       console.log(`Initializing ResearchAgent with ID: ${this.getAgentId()}...`);
       
@@ -97,9 +101,10 @@ export class ResearchAgent extends AgentBase {
       this.registerResearchTool();
       
       console.log(`ResearchAgent ${this.getAgentId()} initialized successfully`);
+      return true;
     } catch (error) {
       console.error(`Error initializing ResearchAgent:`, error);
-      throw error;
+      return false;
     }
   }
   

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import * as serverQdrant from '../../../server/qdrant';
-import { MemoryRecord } from '../../../server/qdrant';
-import { ImportanceLevel } from '../../../constants/memory';
+import { getMemoryServices } from '../../../server/memory/services';
+import { ImportanceLevel } from '../../../server/memory/config';
+import { MemoryType } from '../../../server/memory/config';
 
 export const runtime = 'nodejs';
 
@@ -14,55 +14,55 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: 'Content is required' }, { status: 400 });
     }
 
-    // Initialize Qdrant if necessary
-    if (!serverQdrant.isInitialized()) {
-      await serverQdrant.initMemory({
-        connectionTimeout: 10000 // 10 seconds
-      });
+    // Initialize memory services
+    const { client, memoryService, searchService } = await getMemoryServices();
+    
+    // Ensure memory system is initialized
+    const status = await client.getStatus();
+    if (!status.initialized) {
+      await client.initialize();
     }
 
     // First search for the message to check if it exists
     // This is a simplified approach - in production you might want more precise matching
-    const existingMessages = await serverQdrant.searchMemory('message', content.substring(0, 100), {
-      limit: 5
+    const searchResults = await searchService.search(content.substring(0, 100), {
+      limit: 5,
+      types: [MemoryType.MESSAGE]
     });
 
-    let targetMessage: MemoryRecord | null = null;
+    let targetMemory = null;
     
     // Try to find the message that matches our criteria
-    if (existingMessages.length > 0) {
+    if (searchResults.length > 0) {
       // If timestamp was provided, try to match it
       if (timestamp) {
-        targetMessage = existingMessages.find(m => 
-          m.timestamp === timestamp || 
-          (new Date(m.timestamp).getTime() - new Date(timestamp).getTime() < 1000)
-        ) || null;
+        targetMemory = searchResults.find(result => {
+          const messageTimestamp = result.point.payload?.timestamp || 
+                                result.point.payload?.metadata?.timestamp;
+          return messageTimestamp === timestamp || 
+                (messageTimestamp && new Date(messageTimestamp).getTime() - new Date(timestamp).getTime() < 1000);
+        });
       }
       
       // If no match by timestamp or timestamp wasn't provided, use the first result
-      if (!targetMessage) {
-        targetMessage = existingMessages[0];
+      if (!targetMemory) {
+        targetMemory = searchResults[0];
       }
     }
 
-    if (targetMessage) {
-      console.log(`Found existing message to flag as important: ${targetMessage.id}`);
+    if (targetMemory) {
+      console.log(`Found existing message to flag as important: ${targetMemory.point.id}`);
       
-      // Update the message importance in Qdrant
-      // Since direct update isn't easily available, we'll copy all metadata and add the message again
-      const metadata = {
-        ...(targetMessage.metadata || {}),
-        importance: ImportanceLevel.HIGH, // Ensure it's marked as high importance
-        flaggedImportant: true,
-        flaggedAt: new Date().toISOString()
-      };
-      
-      // Add the flagged message to memory
-      await serverQdrant.addMemory(
-        'message',
-        targetMessage.text,
-        metadata
-      );
+      // Update the message importance using the memory service
+      await memoryService.updateMemory({
+        id: targetMemory.point.id,
+        type: MemoryType.MESSAGE,
+        metadata: {
+          importance: ImportanceLevel.HIGH, // Ensure it's marked as high importance
+          flaggedImportant: true,
+          flaggedAt: new Date().toISOString()
+        }
+      });
       
       return NextResponse.json({ 
         success: true, 
@@ -73,10 +73,10 @@ export async function POST(req: NextRequest) {
       console.log('Creating new high importance memory from content');
       
       // Add as a new memory with high importance
-      await serverQdrant.addMemory(
-        'message',
-        content,
-        {
+      await memoryService.addMemory({
+        type: MemoryType.MESSAGE,
+        content: content,
+        metadata: {
           importance: ImportanceLevel.HIGH,
           flaggedImportant: true,
           flaggedAt: new Date().toISOString(),
@@ -84,7 +84,7 @@ export async function POST(req: NextRequest) {
           role: 'system', // Mark as system to distinguish from user messages
           type: 'flagged_content'
         }
-      );
+      });
       
       return NextResponse.json({ 
         success: true, 

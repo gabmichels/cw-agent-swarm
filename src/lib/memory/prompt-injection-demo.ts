@@ -8,40 +8,142 @@
  * 4. Injecting memory summaries into the system prompt
  */
 
-import { initMemory, storeMemory, searchMemory, resetAllCollections, updateMemoryMetadata } from '../../server/qdrant';
-import { 
-  getMemoriesForPromptInjection,
-  injectMemoriesIntoPrompt,
-  markMemoryAsCritical
-} from './MemoryUtils';
+import { getMemoryServices } from '../../server/memory/services';
+import { MemoryType } from '../../server/memory/config';
+import { ImportanceLevel } from '../../constants/memory';
 import { ChatOpenAI } from '@langchain/openai';
 import { SystemMessage, HumanMessage } from '@langchain/core/messages';
 import { SYSTEM_PROMPTS } from '../../lib/shared/constants';
-import { ImportanceLevel } from '../../constants/memory';
 
 // Sample knowledge to store in memory
 const sampleKnowledge = [
   {
     content: "Our Q1 performance showed 15% increase in customer engagement with a focus on Instagram and TikTok.",
     tags: ["performance", "Q1", "customer", "engagement", "instagram", "tiktok"],
-    importance: 0.8
+    importance: ImportanceLevel.HIGH
   },
   {
     content: "Brand guidelines specify using blue (#1E3A8A) and green (#10B981) as primary colors with sans-serif typography.",
     tags: ["brand", "guidelines", "colors", "typography", "design"],
-    importance: 0.9
+    importance: ImportanceLevel.HIGH
   },
   {
     content: "Customer demographic analysis shows our target audience is primarily 25-34 year old urban professionals.",
     tags: ["demographic", "analysis", "audience", "target", "professionals"],
-    importance: 0.7
+    importance: ImportanceLevel.MEDIUM
   },
   {
     content: "The new marketing strategy focuses on sustainability and eco-friendly messaging across all channels.",
     tags: ["strategy", "sustainability", "eco-friendly", "messaging"],
-    importance: 0.85
+    importance: ImportanceLevel.HIGH
   }
 ];
+
+/**
+ * Get memories for prompt injection
+ */
+async function getMemoriesForPromptInjection(
+  query: string,
+  options: {
+    limit?: number;
+    minConfidence?: number;
+    trackUsage?: boolean;
+  } = {}
+) {
+  // Default options
+  const limit = options.limit || 3;
+  const minConfidence = options.minConfidence || 0.75;
+  const trackUsage = options.trackUsage !== false;
+  
+  // Get memory services
+  const { searchService, memoryService } = await getMemoryServices();
+  
+  // Search for relevant memories
+  const searchResults = await searchService.search(query, {
+    limit: limit * 2, // Get more results to filter by confidence
+    types: [MemoryType.DOCUMENT]
+  });
+  
+  // Filter and format results
+  const relevantMemories = searchResults
+    .filter(result => result.score >= minConfidence)
+    .slice(0, limit)
+    .map(result => ({
+      id: result.point.id,
+      text: result.point.payload?.text || '',
+      score: result.score,
+      tags: result.point.payload?.metadata?.tags || []
+    }));
+  
+  // Track memory usage if enabled
+  if (trackUsage && relevantMemories.length > 0) {
+    for (const memory of relevantMemories) {
+      try {
+        await memoryService.updateMemory({
+          id: memory.id,
+          type: MemoryType.DOCUMENT,
+          metadata: {
+            usageCount: 1, // Increment by 1 (this is additive in the service)
+            lastUsed: new Date().toISOString()
+          }
+        });
+      } catch (error) {
+        console.error(`Error tracking memory usage for ${memory.id}:`, error);
+      }
+    }
+  }
+  
+  return relevantMemories;
+}
+
+/**
+ * Inject memories into prompt
+ */
+async function injectMemoriesIntoPrompt(
+  basePrompt: string,
+  userQuery: string
+): Promise<string> {
+  // Get relevant memories
+  const memories = await getMemoriesForPromptInjection(userQuery);
+  
+  if (memories.length === 0) {
+    return basePrompt;
+  }
+  
+  // Format memories for injection
+  const memoryText = memories
+    .map((mem, i) => {
+      const tags = mem.tags.length > 0 ? `[${mem.tags.join(', ')}]` : '';
+      return `${i+1}. ${mem.text} ${tags}`;
+    })
+    .join('\n');
+  
+  // Inject memories into prompt
+  const memoryInjection = `
+RELEVANT INFORMATION FROM YOUR MEMORY:
+${memoryText}
+
+Please use the above information where relevant to answer the user's question.
+`;
+
+  return `${basePrompt}\n${memoryInjection}`;
+}
+
+/**
+ * Mark a memory as critical
+ */
+async function markMemoryAsCritical(memoryId: string, isCritical: boolean = true) {
+  const { memoryService } = await getMemoryServices();
+  
+  await memoryService.updateMemory({
+    id: memoryId,
+    type: MemoryType.DOCUMENT,
+    metadata: {
+      isCritical: isCritical,
+      importance: ImportanceLevel.HIGH
+    }
+  });
+}
 
 /**
  * Generate a response with memory-augmented prompting
@@ -78,7 +180,7 @@ async function generateMemoryAugmentedResponse(
     // @ts-ignore - Using invoke directly with message format
     const response = await model.invoke(messages);
     
-    return response.content;
+    return response.content || "No response content was generated.";
   } catch (error) {
     console.error("Error generating response:", error);
     return "Sorry, I encountered an error while processing your request.";
@@ -91,31 +193,33 @@ async function generateMemoryAugmentedResponse(
 async function main() {
   console.log("=== MEMORY PROMPT INJECTION DEMO ===");
   
-  // Initialize memory
+  // Initialize memory services
   console.log("\nInitializing memory system...");
-  await initMemory();
-  await resetAllCollections();
+  const { client, memoryService } = await getMemoryServices();
+  
+  // Ensure memory system is initialized
+  const status = await client.getStatus();
+  if (!status.initialized) {
+    await client.initialize();
+  }
   
   // Store sample knowledge
   console.log("\nStoring sample knowledge in memory...");
   for (const item of sampleKnowledge) {
-    await storeMemory(
-      item.content,
-      "document",
-      "knowledge",
-      { tags: item.tags },
-      { 
-        importance_score: item.importance,
-        importance: ImportanceLevel.HIGH
+    const result = await memoryService.addMemory({
+      type: MemoryType.DOCUMENT,
+      content: item.content,
+      metadata: {
+        category: "knowledge",
+        tags: item.tags,
+        importance: item.importance,
+        confidence: 0.9
       }
-    );
+    });
     
     // After storing, mark the memory as critical to protect from decay
-    // This is done separately to work around the metadata type restrictions
-    const searchResults = await searchMemory("document", item.content, { limit: 1 });
-    if (searchResults.length > 0) {
-      const memoryId = searchResults[0].id;
-      await markMemoryAsCritical(memoryId, true);
+    if (result.success && result.id) {
+      await markMemoryAsCritical(result.id);
       console.log(`Stored and marked as critical: ${item.content.substring(0, 40)}...`);
     }
   }

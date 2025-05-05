@@ -6,6 +6,7 @@ import { AIMessage, HumanMessage } from "@langchain/core/messages";
 import { ChatPromptTemplate } from "@langchain/core/prompts";
 import { NodeContext, PlanningState, SubGoal, ExecutionTraceEntry } from "./types";
 import { ImportanceLevel, MemorySource } from "../../../../constants/memory";
+import { MemoryType } from '../../../../server/memory/config/types';
 
 interface ReflectionResult {
   assessment: string;
@@ -197,7 +198,7 @@ If no adjustments are needed, you can omit the "adjustments" field.
       // Save the reflection to memory
       await memory.addMemory(
         reflectionText,
-        'reflection',
+        MemoryType.REFLECTION,
         ImportanceLevel.MEDIUM,
         MemorySource.SYSTEM,
         `Reflection on task: ${state.goal}`,

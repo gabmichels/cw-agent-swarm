@@ -6,7 +6,8 @@
  * Supports priority-based memory surfacing
  */
 
-import { ChloeMemoryType, ImportanceLevel, MemorySource } from '../../constants/memory';
+import { ImportanceLevel, MemorySource } from '../../constants/memory';
+import { MemoryType } from '../../server/memory/config/types';
 import { MessageType } from '../../constants/message';
 import { storeInternalMessageToMemory } from './storeInternalMessageToMemory';
 import { ImportanceCalculator } from './ImportanceCalculator';
@@ -59,7 +60,7 @@ export class FeedbackMemoryManager {
     try {
       // Get feedback-related memories
       const feedbackMemories = await this.memoryManager.getMemoriesByType(
-        ChloeMemoryType.THOUGHT, 
+        MemoryType.THOUGHT, 
         10, 
         { tags: ['feedback', 'improvement'] }
       );
@@ -271,21 +272,21 @@ Related Task: ${item.relatedTaskId || 'N/A'}
    * Get high priority feedback for planning
    */
   async getHighPriorityFeedback(limit: number = 3): Promise<FeedbackItem[]> {
-    // Convert map to array and sort by importance and occurrence count
-    const allFeedback = Array.from(this.feedbackItems.values());
-    
-    return allFeedback
+    return Array.from(this.feedbackItems.values())
       .sort((a, b) => {
-        // Sort by importance first
+        // First sort by importance
         const importanceOrder = {
-          [ImportanceLevel.CRITICAL]: 3,
-          [ImportanceLevel.HIGH]: 2,
-          [ImportanceLevel.MEDIUM]: 1,
-          [ImportanceLevel.LOW]: 0
+          [ImportanceLevel.CRITICAL]: 5,
+          [ImportanceLevel.VERY_HIGH]: 4,
+          [ImportanceLevel.HIGH]: 3, 
+          [ImportanceLevel.MEDIUM]: 2,
+          [ImportanceLevel.LOW]: 1,
+          [ImportanceLevel.VERY_LOW]: 0
         };
         
         const importanceDiff = 
-          importanceOrder[b.importance] - importanceOrder[a.importance];
+          importanceOrder[b.importance as keyof typeof importanceOrder] - 
+          importanceOrder[a.importance as keyof typeof importanceOrder];
         
         if (importanceDiff !== 0) return importanceDiff;
         

@@ -1,6 +1,7 @@
 import { ChloeMemory } from '../memory';
 import { ImportanceLevel, MemorySource } from '../../../constants/memory';
 import { FeedbackInsight } from './feedbackIngestor';
+import { MemoryType } from '../../../server/memory/config/types';
 
 /**
  * Interface for strategy adjustments based on feedback insights
@@ -285,7 +286,7 @@ async function storeAdjustmentsInMemory(
     // Store in memory with high importance
     await memory.addMemory(
       formattedAdjustments,
-      'strategy_adjustment',
+      MemoryType.STRATEGY_ADJUSTMENT,
       ImportanceLevel.HIGH,
       MemorySource.SYSTEM,
       `Generated ${adjustments.length} strategy adjustments`,

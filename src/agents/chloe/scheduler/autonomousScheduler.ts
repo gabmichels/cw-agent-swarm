@@ -7,6 +7,7 @@ import { ChloeScheduler } from './chloeScheduler';
 import { ChloeAgent } from '../core/agent';
 import { ImportanceLevel, MemorySource } from '../../../constants/memory';
 import { KnowledgeGraphManager } from '../knowledge/graphManager';
+import { MemoryType } from '../../../server/memory/config/types';
 
 // Interfaces to handle memory types safely
 interface BaseMemoryItem {
@@ -126,7 +127,7 @@ export async function runAutonomousMaintenance(): Promise<void> {
     // Store maintenance summary in memory
     await memory.addMemory(
       maintenanceSummary,
-      "maintenance_log",
+      MemoryType.MAINTENANCE_LOG,
       ImportanceLevel.MEDIUM,
       MemorySource.SYSTEM,
       `Autonomous maintenance for ${new Date().toISOString().split('T')[0]}`,
@@ -137,7 +138,7 @@ export async function runAutonomousMaintenance(): Promise<void> {
     if (insights.length > 0) {
       await memory.addMemory(
         `Knowledge Graph Insights:\n${insights.join('\n')}`,
-        "knowledge_insight",
+        MemoryType.KNOWLEDGE_INSIGHT,
         ImportanceLevel.HIGH,
         MemorySource.SYSTEM,
         `Knowledge insights from ${new Date().toISOString().split('T')[0]}`,
@@ -170,7 +171,7 @@ export async function runAutonomousMaintenance(): Promise<void> {
     if (memory) {
       await memory.addMemory(
         `Error in autonomous maintenance: ${errorMessage}`,
-        "error_log",
+        MemoryType.ERROR_LOG,
         ImportanceLevel.HIGH,
         MemorySource.SYSTEM,
         `Maintenance failure on ${new Date().toISOString().split('T')[0]}`,
@@ -337,7 +338,7 @@ export async function checkForSelfTriggeredTasks(): Promise<PlannedTask[]> {
     if (memory) {
       await memory.addMemory(
         `Error checking for self-triggered tasks: ${errorMessage}`,
-        "error_log",
+        MemoryType.ERROR_LOG,
         ImportanceLevel.MEDIUM,
         MemorySource.SYSTEM,
         `Self-triggered task check failure on ${new Date().toISOString().split('T')[0]}`,

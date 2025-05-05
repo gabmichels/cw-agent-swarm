@@ -1,6 +1,6 @@
 // Define all the necessary types
-import { ImportanceLevel, ChloeMemoryType } from '../../../constants/memory';
-import { ExtendedMemorySource } from './memory';
+import { ImportanceLevel } from '../../../constants/memory';
+import { MemoryType, ExtendedMemorySource } from '../../../server/memory/config/types';
 
 // Define role enum for Message
 export enum MessageRole {
@@ -55,7 +55,7 @@ export interface Message {
 export interface Memory {
   id: string;
   content: string;
-  type: ChloeMemoryType;
+  type: MemoryType;
   importance: ImportanceLevel;
   source: ExtendedMemorySource;
   context?: string;

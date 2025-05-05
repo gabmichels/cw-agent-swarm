@@ -11,6 +11,7 @@ import { logger } from '../../../lib/logging';
 import { wrapToolsWithSmartCapabilities, findBestToolForTask, createToolCombination } from './toolWrapper';
 import { getToolLearner } from './toolLearning';
 import { getToolPerformanceTracker } from './toolPerformanceTracker';
+import { MemoryType } from '../../../server/memory/config/types';
 
 /**
  * Standard tool execution result structure
@@ -486,7 +487,7 @@ ${taskId ? `Task ID: ${taskId}` : ''}
       
       await this.memory.addMemory(
         content,
-        'tool_failure',
+        MemoryType.TOOL_FAILURE,
         ImportanceLevel.HIGH,
         MemorySource.SYSTEM,
         `Tool execution failure: ${result.toolName}`,
@@ -517,7 +518,7 @@ ${taskId ? `Task ID: ${taskId}` : ''}
       
       await this.memory.addMemory(
         content,
-        'tool_fallback',
+        MemoryType.TOOL_FALLBACK,
         ImportanceLevel.MEDIUM,
         MemorySource.SYSTEM,
         `Tool fallback success: ${result.toolName} → ${result.fallbackToolName}`,

@@ -1,6 +1,7 @@
 import { ChloeMemory } from '../memory';
 import { ImportanceLevel, MemorySource } from '../../../constants/memory';
 import { findCommonExecutionPatterns } from './taskOutcomeAnalyzer';
+import { MemoryType } from '../../../server/memory/config/types';
 
 /**
  * Interface for extracted lessons
@@ -261,7 +262,7 @@ async function storeLesson(
   // Store in memory with appropriate tags
   await memory.addMemory(
     formattedLesson,
-    'lesson',
+    MemoryType.LESSON,
     ImportanceLevel.MEDIUM,
     MemorySource.SYSTEM,
     `Pattern: ${lesson.relatedPatterns.join(', ')}`,

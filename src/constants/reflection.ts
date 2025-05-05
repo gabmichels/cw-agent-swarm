@@ -13,6 +13,8 @@ export enum ReflectionType {
   TASK = 'task',
   ERROR = 'error',
   ALL = 'all', // For when all data is needed regardless of time period
+  CAUSAL = 'causal', // For causal relationship reflections
+  CAUSAL_CHAIN = 'causal_chain', // For causal chain analysis
 }
 
 /**

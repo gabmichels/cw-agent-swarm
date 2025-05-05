@@ -28,6 +28,15 @@ export interface SearchOptions {
   
   // Whether to include vectors in results
   includeVectors?: boolean;
+  
+  // Maximum depth for causal chain traversal
+  maxDepth?: number;
+  
+  // Direction for causal chain traversal
+  direction?: 'forward' | 'backward' | 'both';
+  
+  // Whether to analyze the results
+  analyze?: boolean;
 }
 
 /**

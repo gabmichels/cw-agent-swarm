@@ -12,6 +12,7 @@ import { ImportanceLevel, MemorySource } from '../../../constants/memory';
 import { OpportunityDetector, DetectedOpportunity, TimeSensitivity } from './opportunityDetector';
 import { StrategicToolPlanner } from '../strategy/strategicPlanner';
 import { calculateChloeCapacity } from '../scheduler/capacityManager';
+import { MemoryType } from '../../../server/memory/config/types';
 
 // Types for the autonomous scheduler
 export interface ScheduledAutonomousTask {
@@ -363,7 +364,7 @@ Status: ${task.status}
 
     await this.memory.addMemory(
       memoryContent,
-      'autonomous_task',
+      MemoryType.AUTONOMOUS_TASK,
       ImportanceLevel.MEDIUM,
       MemorySource.SYSTEM,
       `Autonomously scheduled task: ${task.title}`,
@@ -379,7 +380,7 @@ Status: ${task.status}
     
     await this.memory.addMemory(
       activity,
-      'autonomous_log',
+      MemoryType.AUTONOMOUS_LOG,
       ImportanceLevel.LOW,
       MemorySource.SYSTEM,
       `Autonomous scheduler activity: ${activity.substring(0, 30)}...`,
@@ -583,7 +584,7 @@ Status: ${task.status}
       
       await this.memory.addMemory(
         `Pending autonomous tasks awaiting approval:\n${taskSummary}`,
-        'approval_request',
+        MemoryType.APPROVAL_REQUEST,
         ImportanceLevel.HIGH,
         MemorySource.SYSTEM,
         `${pendingTasks.length} tasks awaiting approval`,

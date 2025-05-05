@@ -1,38 +1,52 @@
 import { NextResponse } from 'next/server';
-import * as serverQdrant from '../../../../server/qdrant';
-import { MemoryRecord } from '../../../../server/qdrant';
+import { getMemoryServices } from '../../../../server/memory/services';
+import { MemoryType, ImportanceLevel } from '../../../../server/memory/config';
+import { BaseMemorySchema, MemoryPoint } from '../../../../server/memory/models';
 
 export const runtime = 'nodejs'; // Mark as server-side only
 export const dynamic = 'force-dynamic'; // Prevent caching
 
 export async function GET() {
-  console.log("Testing Qdrant connection...");
+  console.log("Testing memory service connection...");
   
   // Variable to store test results
   let connectionSuccess = false;
   let testRecordId: string | null = null;
-  let searchResults: MemoryRecord[] = [];
+  let searchResults: any[] = [];
   
   try {
-    // Initialize Qdrant
-    await serverQdrant.initMemory({
-      useOpenAI: process.env.USE_OPENAI_EMBEDDINGS === 'true',
-      forceReinit: true
-    });
+    // Get memory services
+    const { client, memoryService, searchService } = await getMemoryServices();
     
-    connectionSuccess = serverQdrant.isInitialized();
-    console.log(`Qdrant initialization ${connectionSuccess ? 'successful' : 'failed'}`);
+    // Initialize memory services if needed
+    const status = await client.getStatus();
+    if (!status.initialized) {
+      await client.initialize();
+    }
+    
+    connectionSuccess = (await client.getStatus()).initialized;
+    console.log(`Memory service initialization ${connectionSuccess ? 'successful' : 'failed'}`);
     
     // Try to store a dummy message
     if (connectionSuccess) {
       try {
         // Test adding a record
         console.log("Storing test message...");
-        testRecordId = await serverQdrant.addMemory('message', 'This is a test message for Qdrant debugging', {
-          source: 'debug',
-          importance: 'low'
+        const result = await memoryService.addMemory({
+          type: MemoryType.MESSAGE,
+          content: 'This is a test message for memory service debugging',
+          metadata: {
+            source: 'debug',
+            importance: ImportanceLevel.LOW
+          }
         });
-        console.log(`Test record stored with ID: ${testRecordId}`);
+        
+        if (result && result.id) {
+          testRecordId = result.id;
+          console.log(`Test record stored with ID: ${testRecordId}`);
+        } else {
+          console.log('Test record creation did not return a valid ID');
+        }
       } catch (storeError) {
         console.error("Error storing test message:", storeError);
       }
@@ -40,7 +54,18 @@ export async function GET() {
       // Test search
       try {
         console.log("Searching for test message...");
-        searchResults = await serverQdrant.searchMemory('message', 'test message', { limit: 3 });
+        const results = await searchService.search('test message', { 
+          types: [MemoryType.MESSAGE],
+          limit: 3 
+        });
+        
+        searchResults = results.map(result => ({
+          id: result.point.id,
+          text: result.point.payload.text,
+          score: result.score,
+          type: result.type
+        }));
+        
         console.log(`Search returned ${searchResults.length} results`);
       } catch (searchError) {
         console.error("Error searching messages:", searchError);
@@ -50,18 +75,18 @@ export async function GET() {
     return NextResponse.json({
       success: connectionSuccess,
       message: connectionSuccess ?
-        'Qdrant connection successful' :
-        'Failed to connect to Qdrant',
+        'Memory service connection successful' :
+        'Failed to connect to memory service',
       testRecordId,
       searchResults,
       timestamp: new Date().toISOString()
     });
   } catch (error) {
-    console.error("Qdrant test error:", error);
+    console.error("Memory service test error:", error);
     
     return NextResponse.json({
       success: false,
-      message: "Server-side Qdrant connection test failed",
+      message: "Server-side memory service connection test failed",
       error: error instanceof Error ? error.message : String(error),
       timestamp: new Date().toISOString()
     }, {

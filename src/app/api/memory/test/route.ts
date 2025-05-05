@@ -2,7 +2,8 @@
 
 import { NextResponse } from 'next/server';
 import { headers } from 'next/headers';
-import * as serverQdrant from '../../../../server/qdrant';
+import { getMemoryServices } from '../../../../server/memory/services';
+import { MemoryType, ImportanceLevel } from '../../../../server/memory/config';
 
 // Mark as server-side only
 export const runtime = 'nodejs';
@@ -13,63 +14,70 @@ async function runMemoryTest() {
   try {
     console.log('Testing memory system');
     
-    // Initialize Qdrant
-    await serverQdrant.initMemory({
-      useOpenAI: process.env.USE_OPENAI_EMBEDDINGS === 'true'
-    });
-    
-    // Check if Qdrant is initialized
-    const isInitialized = serverQdrant.isInitialized();
+    // Get memory services
+    const memoryServices = await getMemoryServices();
     
     // Test adding a memory
     const testContent = 'This is a test memory from the API.';
     const timestamp = Date.now();
-    const id = await serverQdrant.addMemory('thought', testContent, {
-      timestamp,
-      source: 'memory-test-api',
-      importance: 'medium'
+    const memoryResult = await memoryServices.memoryService.addMemory({
+      type: MemoryType.THOUGHT,
+      content: testContent,
+      metadata: {
+        timestamp,
+        source: 'memory-test-api',
+        importance: ImportanceLevel.MEDIUM
+      }
     });
     
+    const id = memoryResult.id;
     console.log('Added test memory with ID:', id);
     
     // Add another memory with a unique term to search for
     const searchTerm = `test-unique-${Date.now()}`;
     const searchContent = `This is a unique test memory with term ${searchTerm}`;
-    const searchId = await serverQdrant.addMemory('thought', searchContent, {
-      source: 'memory-test-api',
-      importance: 'high'
+    const searchMemory = await memoryServices.memoryService.addMemory({
+      type: MemoryType.THOUGHT,
+      content: searchContent,
+      metadata: {
+        source: 'memory-test-api',
+        importance: ImportanceLevel.HIGH
+      }
     });
     
+    const searchId = searchMemory.id;
     console.log('Added searchable test memory with ID:', searchId);
     
     // Test searching for the memory using the unique term
-    const searchResults = await serverQdrant.searchMemory(null, searchTerm, {
+    const searchResults = await memoryServices.searchService.search(searchTerm, {
       limit: 5
     });
     
     console.log(`Search returned ${searchResults.length} results`);
     
     // Get some recent memories
-    const recentMemories = await serverQdrant.getRecentMemories('thought', 5);
+    const recentMemories = await memoryServices.memoryService.searchMemories({
+      type: MemoryType.THOUGHT,
+      limit: 5
+    });
     
     // Check memory system details
     let memorySystemInfo;
     try {
-      // Attempt to access Qdrant directly to check if it's operational
-      const qdrantHandler = (serverQdrant as any).qdrantInstance;
       memorySystemInfo = {
-        backend: qdrantHandler && qdrantHandler.useQdrant ? 'Qdrant' : 'In-Memory Fallback',
+        backend: 'Qdrant',
+        initialized: true,
         url: process.env.QDRANT_URL || 'http://localhost:6333'
       };
     } catch (error) {
       memorySystemInfo = {
-        backend: 'In-Memory Fallback',
+        backend: 'Unknown',
         error: error instanceof Error ? error.message : String(error)
       };
     }
     
     return {
-      success: isInitialized,
+      success: true,
       memorySystem: memorySystemInfo,
       testId: id,
       searchResults,

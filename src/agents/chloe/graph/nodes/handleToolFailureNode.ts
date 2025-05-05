@@ -6,6 +6,7 @@ import { AIMessage, HumanMessage } from "@langchain/core/messages";
 import { NodeContext, PlanningState, SubGoal, ExecutionTraceEntry } from "./types";
 import { PlannedTask } from "../../human-collaboration";
 import { MemorySource, ImportanceLevel } from "../../../../constants/memory";
+import { MemoryType } from "../../../../server/memory/config/types";
 
 /**
  * Updates a sub-goal by ID in a hierarchical structure
@@ -77,7 +78,7 @@ export async function handleToolFailureNode(
     if (memory) {
       await memory.addMemory(
         `Tool failure: ${task.failedTool}\nError: ${task.failureDetails.error}\nSub-goal: ${subGoalId}`,
-        'tool_failure',
+        MemoryType.TOOL_FAILURE,
         ImportanceLevel.HIGH,
         MemorySource.SYSTEM,
         `Tool failure in task: ${task.goal}`,

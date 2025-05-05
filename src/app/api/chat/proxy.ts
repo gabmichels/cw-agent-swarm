@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
-import * as serverQdrant from '../../../server/qdrant';
-import { MemoryRecord } from '../../../server/qdrant';
+import { getMemoryServices } from '../../../server/memory/services';
+import { MemoryType, ImportanceLevel } from '../../../server/memory/config';
 import { 
   INTERNAL_MESSAGE_PATTERNS, 
   METADATA_KEYS, 
@@ -10,7 +10,6 @@ import {
 } from '../../../constants/proxy';
 import { STORAGE_KEYS, DEFAULTS } from '../../../constants/qdrant';
 import { MemorySource } from '../../../constants/memory';
-import { ImportanceLevel } from '../../../constants/memory';
 
 // In-memory cache and in-flight request tracking
 const responseCache = new Map<string, {
@@ -54,75 +53,67 @@ function createCacheKey(message: string, userId: string = 'gab'): string {
   return `${userId}:${normalizeMessage(message)}`;
 }
 
-// Dynamically import the Chloe agent to avoid import errors
-async function getChloeAgent() {
-  try {
-    console.log('Attempting to import Chloe agent...');
-    
-    // Try to dynamically import the agent
-    const agentModule = await import('../../../agents/chloe');
-    
-    console.log('Import successful. Available exports:', Object.keys(agentModule));
-    
-    if (!agentModule.ChloeAgent) {
-      console.error('ChloeAgent not found in the imported module. Available exports:', Object.keys(agentModule));
-      return null;
-    }
-    
-    return agentModule.ChloeAgent;
-  } catch (error) {
-    console.error('Detailed error importing Chloe agent:', error);
-    
-    // Try to get more specific error information
-    if (error instanceof Error) {
-      console.error(`Error name: ${error.name}`);
-      console.error(`Error message: ${error.message}`);
-      console.error(`Error stack: ${error.stack}`);
-    }
-    
-    // Check if the package is installed
-    try {
-      require.resolve('../../../agents/chloe');
-      console.log('Package is installed but failed to import');
-    } catch (e) {
-      console.error('ChloeAgent module is not installed or not resolvable');
-    }
-    
-    return null;
-  }
+// Memory service status check
+async function isMemoryInitialized(): Promise<boolean> {
+  const { client } = await getMemoryServices();
+  const status = await client.getStatus();
+  return status.initialized;
 }
 
-// Load chat history from Qdrant on startup
+// Initialize memory service
+async function initializeMemory(options: any = {}): Promise<void> {
+  const { client } = await getMemoryServices();
+  if (!client) {
+    throw new Error('Memory client not available');
+  }
+  await client.initialize();
+}
+
+// Load chat history from memory service
 async function loadChatHistoryFromQdrant(specificUserId?: string) {
-  console.log(`Loading chat history from Qdrant${specificUserId ? ` for user: ${specificUserId}` : ''}`);
+  console.log(`Loading chat history from memory service${specificUserId ? ` for user: ${specificUserId}` : ''}`);
   try {
-    // Initialize Qdrant if needed with a longer timeout for initial load
-    if (!serverQdrant.isInitialized()) {
-      await serverQdrant.initMemory({
-        connectionTimeout: 10000 // 10 seconds
-      });
+    // Check if memory services are initialized
+    const { client, memoryService, searchService } = await getMemoryServices();
+    const status = await client.getStatus();
+    
+    if (!status.initialized) {
+      console.log('Initializing memory services...');
+      await client.initialize();
     }
     
     // Set up a timeout to prevent hanging
     const fetchTimeout = 30000; // 30 seconds total timeout for this operation
-    const timeoutPromise = new Promise<MemoryRecord[]>((_, reject) => {
-      setTimeout(() => reject(new Error('Qdrant fetch operation timed out')), fetchTimeout);
+    const timeoutPromise = new Promise<any[]>((_, reject) => {
+      setTimeout(() => reject(new Error('Memory fetch operation timed out')), fetchTimeout);
     });
     
-    // Try to get recent messages with timeout protection - increase limit to ensure we get all messages
-    console.log('Fetching messages from Qdrant...');
-    const fetchPromise = serverQdrant.getRecentMemories('message', 2000); // Increased from 1000
-    const recentMessages = await Promise.race([fetchPromise, timeoutPromise]);
-    console.log(`Retrieved ${recentMessages.length} total messages from Qdrant`);
+    // Get recent messages with timeout protection
+    console.log('Fetching messages from memory service...');
+    
+    // Search for recent messages
+    const fetchPromise = searchService.search("", {
+      limit: 2000,
+      types: [MemoryType.MESSAGE]
+    });
+    
+    const searchResults = await Promise.race([fetchPromise, timeoutPromise]);
+    const recentMessages = searchResults.map(result => result.point);
+    console.log(`Retrieved ${recentMessages.length} total messages from memory service`);
     
     // Also fetch specifically high importance messages
     console.log('Fetching high importance memories...');
-    const importantMemories = await serverQdrant.getMemoriesByImportance(ImportanceLevel.HIGH, 500);
+    const highImportanceResults = await searchService.search("", {
+      types: [MemoryType.MESSAGE],
+      filter: { importance: ImportanceLevel.HIGH },
+      limit: 500
+    });
+    const importantMemories = highImportanceResults.map(result => result.point);
     console.log(`Retrieved ${importantMemories.length} high importance memories`);
     
     // Combine and deduplicate messages
     const allMessages = [...recentMessages];
-    const seenIds = new Set(recentMessages.map(m => m.id));
+    const seenIds = new Set(recentMessages.map((m: any) => m.id));
     
     // Add important memories that weren't already in recent messages
     for (const memory of importantMemories) {
@@ -136,577 +127,120 @@ async function loadChatHistoryFromQdrant(specificUserId?: string) {
     
     // Filter out internal reflections and messages not meant for chat
     const filteredMessages = allMessages.filter(message => {
-      // Check if message has metadata and should be excluded from chat
-      if (message.metadata) {
-        // Skip messages explicitly marked as not for chat
-        if (message.metadata[METADATA_KEYS.NOT_FOR_CHAT] === true) {
-          console.log(`Filtering out message ${message.id} marked as notForChat`);
-          return false;
-        }
-        
-        // Skip messages marked as internal reflections
-        if (message.metadata[METADATA_KEYS.IS_INTERNAL_REFLECTION] === true || 
-            message.metadata[METADATA_KEYS.IS_INTERNAL_MESSAGE] === true) {
-          console.log(`Filtering out message ${message.id} marked as internal`);
-          return false;
-        }
-        
-        // Skip messages with 'performance_review' subtype
-        if (message.metadata[METADATA_KEYS.SUBTYPE] === 'performance_review') {
-          console.log(`Filtering out message ${message.id} with performance_review subtype`);
-          return false;
-        }
-
-        // Skip messages from internal sources
-        if (message.metadata[METADATA_KEYS.SOURCE] === MESSAGE_SOURCES.INTERNAL || 
-            message.metadata[METADATA_KEYS.SOURCE] === MESSAGE_SOURCES.SYSTEM ||
-            message.metadata[METADATA_KEYS.SOURCE] === MemorySource.FILE) {
-          console.log(`Filtering out message ${message.id} from internal/system/file source`);
-          return false;
-        }
-
-        // Skip messages with file paths (indicating markdown file source)
-        if (message.metadata.filePath) {
-          console.log(`Filtering out message ${message.id} with filePath: ${message.metadata.filePath}`);
-          return false;
-        }
-
-        // Skip messages with internal message types
-        if (message.metadata[METADATA_KEYS.MESSAGE_TYPE]) {
-          if (INTERNAL_MESSAGE_TYPES.includes(
-            message.metadata[METADATA_KEYS.MESSAGE_TYPE].toLowerCase())
-          ) {
-            console.log(`Filtering out message ${message.id} with internal messageType: ${message.metadata[METADATA_KEYS.MESSAGE_TYPE]}`);
-            return false;
-          }
-        }
+      // Skip if no payload
+      if (!message.payload) return false;
+      
+      // Extract contents
+      const payload = message.payload as any;
+      const content = payload.text || '';
+      const metadata = payload.metadata || {};
+      
+      // Skip internal messages - new memory structure checks
+      if (metadata.isInternal === true) return false;
+      if (metadata.isForChat === false) return false;
+      
+      // Filter by user if specified
+      if (specificUserId && metadata.userId && metadata.userId !== specificUserId) {
+        return false;
       }
       
-      // Also filter based on content patterns for backward compatibility
-      if (message.text.includes(INTERNAL_MESSAGE_PATTERNS.PERFORMANCE_REVIEW) || 
-          message.text.includes(INTERNAL_MESSAGE_PATTERNS.SUCCESS_RATE) ||
-          message.text.includes(INTERNAL_MESSAGE_PATTERNS.TASK_COMPLETION) ||
-          message.text.includes(INTERNAL_MESSAGE_PATTERNS.USER_SATISFACTION) ||
-          message.text.startsWith(INTERNAL_MESSAGE_PATTERNS.REFLECTION_PREFIX) ||
-          message.text.startsWith(INTERNAL_MESSAGE_PATTERNS.THOUGHT_PREFIX) ||
-          message.text.startsWith(INTERNAL_MESSAGE_PATTERNS.THOUGHT_PREFIX_LC) ||
-          message.text.startsWith(INTERNAL_MESSAGE_PATTERNS.REFLECTION_PREFIX_UC) ||
-          message.text.startsWith(INTERNAL_MESSAGE_PATTERNS.REFLECTION_PREFIX_LC) ||
-          message.text.startsWith(INTERNAL_MESSAGE_PATTERNS.MESSAGE_PREFIX) ||
-          message.text.startsWith(INTERNAL_MESSAGE_PATTERNS.TIMESTAMP_PREFIX) ||
-          message.text.startsWith(INTERNAL_MESSAGE_PATTERNS.IMPORTANT_THOUGHT_PREFIX) ||
-          message.text.startsWith(INTERNAL_MESSAGE_PATTERNS.IMPORTANT_THOUGHT_PREFIX_LC) ||
-          message.text.includes(INTERNAL_MESSAGE_PATTERNS.IMPORTANT_THOUGHT) ||
-          // Markdown content patterns
-          message.text.startsWith(INTERNAL_MESSAGE_PATTERNS.MARKDOWN_HEADER_PREFIX) ||
-          message.text.startsWith(INTERNAL_MESSAGE_PATTERNS.MARKDOWN_SUBHEADER_PREFIX) ||
-          message.text.startsWith(INTERNAL_MESSAGE_PATTERNS.YAML_FRONTMATTER_START) ||
-          // Filter out market scanner insights
-          message.text.startsWith('{"insight":') ||
-          // Filter out message format patterns that indicate duplicates
-          message.text.match(/^USER MESSAGE \[\d{4}-\d{2}-\d{2}/) ||
-          message.text.match(/^MESSAGE \[\d{4}-\d{2}-\d{2}/) ||
-          (message.text.indexOf('[') === 0 && message.text.indexOf(']:') > 0)) {
-        console.log(`Filtering out internal message ${message.id} based on content pattern`);
-        return false;
+      // Skip auto-generated system messages
+      const isSystemMessage = metadata.role === 'system' && metadata.source !== 'user';
+      if (isSystemMessage) return false;
+      
+      // Check content patterns for internal messages
+      const internalPatternValues = Object.values(INTERNAL_MESSAGE_PATTERNS);
+      for (const pattern of internalPatternValues) {
+        if (typeof pattern === 'string' && content.includes(pattern)) return false;
       }
       
       return true;
     });
     
-    console.log(`Filtered down to ${filteredMessages.length} chat-appropriate messages`);
+    console.log(`Filtered to ${filteredMessages.length} chat-relevant messages`);
     
-    // Log IDs to help debug
-    console.log('Message IDs sample:', filteredMessages.slice(0, 5).map(m => m.id).join(', '));
+    // Group by user id
+    const messagesByUser = new Map<string, any[]>();
     
-    // Show the full metadata of the last few messages
-    if (filteredMessages.length > 0) {
-      console.log('Last 3 messages full details:');
-      filteredMessages.slice(-3).forEach((msg, i) => {
-        const hasAttachments = msg.metadata && 
-                           msg.metadata.attachments && 
-                           Array.isArray(msg.metadata.attachments) && 
-                           msg.metadata.attachments.length > 0;
-        
-        console.log(`Message ${i + 1}:`, {
-          id: msg.id,
-          text: msg.text.substring(0, 50) + '...',
-          timestamp: msg.timestamp,
-          metadata: {
-            userId: msg.metadata?.userId,
-            role: msg.metadata?.role,
-            source: msg.metadata?.source,
-            importance: msg.metadata?.importance || 'medium',
-            hasAttachments: hasAttachments,
-            attachmentsCount: hasAttachments ? msg.metadata.attachments.length : 0
-          }
-        });
-        
-        if (hasAttachments) {
-          console.log('Attachments sample:', JSON.stringify(msg.metadata.attachments[0]).substring(0, 200) + '...');
-        }
-      });
-    }
-    
-    // Clear existing history if loading for a specific user
-    if (specificUserId) {
-      chatHistory.delete(specificUserId);
-    }
-    
-    // Group messages by userId
-    const userCounts: Record<string, number> = {};
-    let messagesWithAttachments = 0;
-    
-    // Process all messages, handling missing userId metadata
     for (const message of filteredMessages) {
-      // Determine the userId for this message
-      let userId: string;
+      const payload = message.payload as any;
+      const metadata = payload.metadata || {};
+      const userId = metadata.userId || 'default';
       
-      if (message.metadata && message.metadata.userId) {
-        // Use the userId from metadata if it exists
-        userId = message.metadata.userId;
-      } else {
-        if (specificUserId) {
-          // If we're loading for a specific user, assume orphaned messages belong to them
-          userId = specificUserId;
-          console.log(`Adopting message ${message.id} with missing userId metadata for user ${specificUserId}`);
-        } else {
-          // Default to 'gab' if no userId is specified
-          userId = 'gab';
-          console.log(`Assigning message ${message.id} with missing userId metadata to default user 'gab'`);
-        }
+      if (!messagesByUser.has(userId)) {
+        messagesByUser.set(userId, []);
       }
       
-      // Track message count per user
-      userCounts[userId] = (userCounts[userId] || 0) + 1;
-      
-      // Skip if we're loading for a specific user and this message isn't for that user
-      if (specificUserId && userId !== specificUserId) {
-        continue;
-      }
-      
-      // Determine role from metadata or default to a reasonable value
-      const role = message.metadata?.role || 
-                  (message.metadata?.source === 'user' ? 'user' : 'assistant');
-      
-      // Handle attachments - ensure it's an array and properly structured
-      let attachments = [];
-      if (message.metadata && message.metadata.attachments && Array.isArray(message.metadata.attachments)) {
-        attachments = message.metadata.attachments;
-        messagesWithAttachments++;
-      }
-      
-      const hasAttachments = attachments.length > 0;
-      console.log(`Processing message for user ${userId}, has attachments: ${hasAttachments}`);
-      if (hasAttachments) {
-        console.log(`Message has ${attachments.length} attachments:`, 
-          JSON.stringify(attachments).substring(0, 200) + '...');
-      }
-      
-      if (!chatHistory.has(userId)) {
-        chatHistory.set(userId, []);
-      }
-      
-      // Check for duplicate content before adding to chat history
-      // This prevents the same message from appearing twice in the UI
-      const existingMessages = chatHistory.get(userId)!;
-      const isDuplicate = existingMessages.some(existingMsg => 
-        existingMsg.content === message.text && 
-        existingMsg.role === role &&
-        (existingMsg.timestamp === message.timestamp ||
-         (new Date(existingMsg.timestamp).getTime() - new Date(message.timestamp).getTime() < 1000))
-      );
-      
-      if (!isDuplicate) {
-        chatHistory.get(userId)!.push({
-          role,
-          content: message.text,
-          timestamp: message.timestamp,
-          attachments: attachments.length > 0 ? attachments : undefined
-        });
-      } else {
-        console.log(`Skipping duplicate message: ${message.text.substring(0, 30)}...`);
-      }
+      messagesByUser.get(userId)?.push(message);
     }
     
-    // Log user counts
-    Object.entries(userCounts).forEach(([userId, count]) => {
-      console.log(`Found ${count} messages for user ${userId}`);
-    });
-    console.log(`Found ${messagesWithAttachments} messages with attachments across all users`);
-    
-    // Sort messages for each user by timestamp
-    const usersToSort = specificUserId ? [specificUserId] : Array.from(chatHistory.keys());
-    
-    usersToSort.forEach(userId => {
-      if (!chatHistory.has(userId)) return;
+    // Sort each user's messages by timestamp
+    Array.from(messagesByUser.entries()).forEach(([userId, messages]) => {
+      // Sort by timestamp
+      messages.sort((a: any, b: any) => {
+        const aTime = (a.payload as any).timestamp || '0';
+        const bTime = (b.payload as any).timestamp || '0';
+        return aTime.localeCompare(bTime);
+      });
       
-      const messages = chatHistory.get(userId) || [];
-      console.log(`Sorting ${messages.length} messages for user ${userId}`);
+      // Update the cache
+      chatHistoryCache.set(userId, {
+        history: messages,
+        timestamp: Date.now(),
+        expiry: Date.now() + CHAT_HISTORY_CACHE_TTL
+      });
       
-      // Log messages with attachments
-      const messagesWithAttachments = messages.filter(m => m.attachments && m.attachments.length > 0);
-      if (messagesWithAttachments.length > 0) {
-        console.log(`Found ${messagesWithAttachments.length} messages with attachments for user ${userId}`);
-        messagesWithAttachments.forEach((msg, i) => {
-          console.log(`Attachment message ${i + 1}:`, {
-            role: msg.role,
-            content: msg.content.substring(0, 50) + '...',
-            timestamp: msg.timestamp,
-            attachmentsCount: msg.attachments?.length
-          });
-        });
-      }
-      
-      chatHistory.set(userId, messages.sort((a: { timestamp: string }, b: { timestamp: string }) => 
-        new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
-      ));
+      console.log(`Cached ${messages.length} messages for user: ${userId}`);
     });
     
-    if (specificUserId) {
-      console.log(`Loaded ${chatHistory.get(specificUserId)?.length || 0} messages for user ${specificUserId}`);
-    } else {
-      console.log(`Loaded chat history for ${chatHistory.size} users from Qdrant`);
-    }
-    
-    return true;
+    return {
+      messagesByUser,
+      totalMessagesLoaded: filteredMessages.length,
+      userCount: messagesByUser.size
+    };
   } catch (error) {
-    console.error('Error loading chat history from Qdrant:', error instanceof Error ? error.message : String(error));
-    console.error('Full error details:', error);
-    
-    // If this is for a specific user who doesn't have history yet, just create an empty array
-    if (specificUserId && !chatHistory.has(specificUserId)) {
-      chatHistory.set(specificUserId, []);
-    }
-    
-    return false;
+    console.error('Error loading chat history:', error);
+    return {
+      messagesByUser: new Map(),
+      totalMessagesLoaded: 0,
+      userCount: 0,
+      error: String(error)
+    };
   }
 }
 
-// Call this when the module is loaded
-loadChatHistoryFromQdrant();
+// Function to extract cleaned messages
+function extractCleanedMessages(messages: any[]): string[] {
+  return messages.map(message => {
+    const payload = message.payload as any;
+    const role = (payload.metadata || {}).role || 'unknown';
+    return `${role}: ${payload.text || ''}`;
+  });
+}
 
-// Agent singleton
-let chloeInstance: any = null;
-
-// In-memory chat history storage (userId -> messages)
-const chatHistory: Map<string, Array<{ role: string; content: string; timestamp: string; attachments?: any[] }>> = new Map();
-
-// Capture Chloe's thoughts from logs
-const captureThoughts = () => {
-  const thoughts: string[] = [];
-  
-  // Store original console.log
-  const originalConsoleLog = console.log;
-  
-  // Override console.log to capture thoughts
-  console.log = function(...args) {
-    // Call original console.log
-    originalConsoleLog.apply(console, args);
-    
-    // Check if this might be a thought
-    const logStr = args.map(arg => {
-      if (typeof arg === 'object') {
-        try {
-          return JSON.stringify(arg);
-        } catch (e) {
-          return String(arg);
-        }
-      } else {
-        return String(arg);
-      }
-    }).join(' ');
-
-    // Mark messages that are explicitly internal reflections
-    if (logStr.includes('INTERNAL REFLECTION (NOT CHAT)')) {
-      const timestamp = new Date().toISOString();
-      thoughts.push(`[${timestamp.split('T')[1].split('.')[0]}] ${logStr.replace('INTERNAL REFLECTION (NOT CHAT): ', '')}`);
-      return; // Don't process further since we know exactly what this is
-    }
-    
-    // Filter for thought-like patterns
-    if (
-      (logStr.includes('Chloe thinking:') || 
-       logStr.includes('Agent thought:') || 
-       logStr.includes('Reasoning:') ||
-       logStr.includes('Planning:') ||
-       logStr.includes('agent state:') ||
-       logStr.includes('thinking about:') ||
-       logStr.includes('analyzing:') ||
-       logStr.includes('considering:') ||
-       (logStr.includes('LangGraph') && logStr.includes('state')) ||
-       (logStr.includes('thought:') && !logStr.includes('API')) ||
-       (logStr.includes('LLM response') && logStr.length < 500)) && 
-      !logStr.includes('API') && 
-      !logStr.includes('initialize') &&
-      !logStr.includes('socket') &&
-      !logStr.includes('connection')
-    ) {
-      // Add timestamp to the thought
-      const timestamp = new Date().toISOString();
-      thoughts.push(`[${timestamp.split('T')[1].split('.')[0]}] ${logStr}`);
-    }
-  };
-  
-  // Function to get collected thoughts
-  return {
-    getThoughts: () => [...thoughts],
-    reset: () => { thoughts.length = 0; },
-    restore: () => { console.log = originalConsoleLog; }
-  };
-};
-
-// Process a message through the real Chloe agent
-async function generateRealResponse(message: string, userId: string = 'gab'): Promise<{reply: string, memory?: string[], thoughts?: string[]}> {
-  console.log('Processing message through Chloe agent:', message);
-  
-  // Create a cache key for this request
-  const cacheKey = createCacheKey(message, userId);
-  
-  // Check if this is already being processed (in-flight request)
-  if (inFlightRequests.has(cacheKey)) {
-    console.log(`Request already in progress for key: ${cacheKey}, reusing promise`);
-    return inFlightRequests.get(cacheKey)!;
-  }
-  
-  // Check if we have a recent cached response
-  const cachedResponse = responseCache.get(cacheKey);
-  if (cachedResponse && cachedResponse.expiry > Date.now()) {
-    console.log(`Found cached response for key: ${cacheKey}, reusing`);
-    return {
-      reply: cachedResponse.reply,
-      memory: cachedResponse.memory,
-      thoughts: cachedResponse.thoughts
-    };
-  }
-  
-  // If not cached or cache expired, process normally but track this request
-  // Create a promise for this request and store it in the in-flight map
-  const resultPromise = (async () => {
-    try {
-      // Start capturing thoughts
-      const thoughtCapture = captureThoughts();
-      
-      // Try to get the real agent
-      if (!chloeInstance) {
-        console.log('No existing Chloe instance, attempting to create one...');
-        const ChloeAgent = await getChloeAgent();
-        
-        if (ChloeAgent) {
-          console.log('Initializing real Chloe agent...');
-          try {
-            chloeInstance = new ChloeAgent();
-            await chloeInstance.initialize();
-            console.log('Chloe agent initialized successfully');
-          } catch (initError) {
-            console.error('Error initializing Chloe agent instance:', initError);
-            if (initError instanceof Error) {
-              console.error(`Init error stack: ${initError.stack}`);
-            }
-            chloeInstance = null;
-          }
-        } else {
-          console.error('Failed to get ChloeAgent class');
-        }
-      }
-      
-      // If we have a real agent, use it
-      let result;
-      try {
-        if (chloeInstance) {
-          console.log('Using real Chloe agent to process message');
-          try {
-            // Capture agent thoughts about the message
-            console.log(`Chloe thinking: Analyzing user query: "${message}"`);
-            
-            const reply = await chloeInstance.processMessage(message, { userId });
-            
-            // Get memory context
-            let memoryContext = [];
-            try {
-              if (chloeInstance.getMemory && typeof chloeInstance.getMemory === 'function') {
-                const memory = chloeInstance.getMemory();
-                if (memory && memory.getContext && typeof memory.getContext === 'function') {
-                  console.log('Retrieving relevant memory context for:', message);
-                  memoryContext = await memory.getContext(message) || [];
-                  console.log(`Found ${memoryContext.length} memory items that may be relevant`);
-                } else {
-                  console.error('Memory object does not have getContext method');
-                }
-              } else {
-                console.error('Chloe instance does not have getMemory method');
-              }
-            } catch (memoryError) {
-              console.error('Error getting memory context:', memoryError);
-            }
-            
-            // Get captured thoughts
-            const thoughts = thoughtCapture.getThoughts();
-            console.log(`Captured ${thoughts.length} thought steps during processing`);
-            
-            // Add final thought about the response if there are no thoughts yet
-            if (thoughts.length === 0) {
-              const timestamp = new Date().toISOString();
-              thoughts.push(`[${timestamp.split('T')[1].split('.')[0]}] Chloe thinking: Generated response based on the user query without detailed thought steps.`);
-            }
-            
-            result = {
-              reply,
-              memory: Array.isArray(memoryContext) ? memoryContext : memoryContext ? [memoryContext] : [],
-              thoughts: thoughts
-            };
-          } catch (processError) {
-            console.error('Error processing message with Chloe:', processError);
-            if (processError instanceof Error) {
-              console.error(`Process error stack: ${processError.stack}`);
-            }
-            
-            // Fall through to OpenAI fallback
-            throw processError;
-          }
-        } else {
-          // Fall through to OpenAI fallback
-          throw new Error('Chloe instance not available');
-        }
-      } catch (error) {
-        // OpenAI Direct Fallback
-        console.log('Using OpenAI direct fallback due to error:', error);
-        try {
-          // Import OpenAI (from a package that's already in use)
-          const { OpenAI } = await import("openai");
-          
-          // Create client with OpenAI configuration
-          const openAI = new OpenAI({
-            apiKey: process.env.OPENAI_API_KEY || 'your-key-here', // You should replace this with your actual key or make sure env var is set
-            dangerouslyAllowBrowser: true,
-          });
-          
-          // Construct system message for Chloe's persona
-          const systemMessage = `You are Chloe, a helpful, friendly AI marketing assistant for the Crowd Wisdom agency.
-Your goal is to help with marketing tasks, strategy, and content creation.
-Always be professional but conversational. You have expertise in digital marketing trends, content strategy, and social media.
-When you don't know something, admit it and offer to help find the information.
-If the user asks about "Claro" specifically, it's a travel app we're developing that focuses on simplicity, clarity, and social sharing for travelers.`;
-          
-          // Call OpenAI directly
-          const completion = await openAI.chat.completions.create({
-            model: "gpt-3.5-turbo", // Use a cheaper model for fallback
-            messages: [
-              { role: "system", content: systemMessage },
-              { role: "user", content: message }
-            ],
-            temperature: 0.7,
-          });
-          
-          // Extract the response
-          const reply = completion.choices[0]?.message?.content || "I'm sorry, I couldn't generate a response. Please try again.";
-          
-          // Create a thought explaining we used the fallback
-          const timestamp = new Date().toISOString();
-          const fallbackThought = `[${timestamp.split('T')[1].split('.')[0]}] Chloe thinking: Using cheap OpenAI model fallback due to agent processing error.`;
-          
-          result = {
-            reply,
-            memory: [],
-            thoughts: [fallbackThought]
-          };
-        } catch (fallbackError) {
-          console.error('Error using OpenAI fallback:', fallbackError);
-          
-          // Ultimate fallback response
-          result = {
-            reply: "I apologize, but I'm having trouble processing your request right now. This seems to be a technical issue on my end. Could you try again with a different question, or come back a bit later?",
-            memory: [],
-            thoughts: ["Error in both primary and fallback response generation."]
-          };
-        }
-      }
-      
-      // Restore original console.log
-      thoughtCapture.restore();
-      
-      // Cache the response for future requests
-      responseCache.set(cacheKey, {
-        ...result,
-        timestamp: new Date().toISOString(),
-        expiry: Date.now() + CACHE_TTL
-      });
-      
-      return result;
-    } catch (error) {
-      console.error('Error generating real response:', error);
-      return {
-        reply: `I'm sorry, I'm having trouble processing your request right now. Please try a different question or check back later.`,
-        memory: [],
-        thoughts: []
-      };
-    } finally {
-      // Remove this request from in-flight tracking when done
-      inFlightRequests.delete(cacheKey);
-    }
-  })();
-  
-  // Store the promise in the in-flight map
-  inFlightRequests.set(cacheKey, resultPromise);
-  
-  // Return the promise
-  return resultPromise;
+// Helper function to check if a message contains image data
+function containsImageData(message: string): boolean {
+  // Check for data URLs which are usually images
+  return message.includes('data:image/') || 
+         message.includes('<img src=') || 
+         message.includes('![](data:image');
 }
 
 // Modify the saveToHistory function to be more efficient
 async function saveToHistory(userId: string, role: 'user' | 'assistant', content: string, attachments?: any[], visionResponseFor?: string) {
-  // Ensure we have a user ID
-  if (!userId) {
-    userId = 'gab';
-  }
+  if (!content || content.trim() === '') return null;
   
-  // Create a timestamp
-  const timestamp = new Date().toISOString();
-  
-  // Initialize chat history for this user if it doesn't exist
-  if (!chatHistory.has(userId)) {
-    chatHistory.set(userId, []);
-  }
-  
-  // Skip saving if this is an internal reflection/thought that shouldn't be in chat
-  if (role === 'assistant' && (
-    content.includes('Performance Review:') || 
-    content.includes('Success Rate:') || 
-    content.includes('Task Completion:') || 
-    content.includes('User Satisfaction:') ||
-    (content.match(/Daily Performance Review:[\s\S]*Success Rate:[\s\S]*Task Completion:[\s\S]*User Satisfaction:/) !== null) ||
-    (content.match(/Weekly Performance Review:[\s\S]*Success Rate:[\s\S]*Task Completion:[\s\S]*User Satisfaction:/) !== null) ||
-    (content.match(/Monthly Performance Review:[\s\S]*Success Rate:[\s\S]*Task Completion:[\s\S]*User Satisfaction:/) !== null) ||
-    content.includes('Investigated intent failures') ||
-    content.includes('Analyzed user feedback') ||
-    content.includes('Monitored system performance') ||
-    content.includes('Evaluated response quality') ||
-    content.includes('Detected patterns in') ||
-    content.includes('Optimized response generation')
-  )) {
-    console.log(`Skipping saving internal reflection to chat history: ${content.substring(0, 50)}...`);
-    return;
-  }
-  
-  // First add message to in-memory history (this is guaranteed to work)
+  // Create a message object
   const message = {
     role,
     content,
-    timestamp,
-    attachments
+    timestamp: new Date().toISOString(),
   };
   
-  console.log(`Saving ${role} message with ${attachments ? attachments.length : 0} attachments:`, 
-    attachments ? JSON.stringify(attachments).substring(0, 200) + '...' : 'none');
+  // Create an operation key to track this specific save operation
+  const operationKey = `save:${userId}:${role}:${content.substring(0, 20)}`;
   
-  chatHistory.get(userId)!.push(message);
-  console.log(`Added ${role} message to in-memory history for user ${userId}`);
-  
-  // Then try to persist to Qdrant (only when running server-side)
-  if (typeof window === 'undefined') {
-    // Create a unique key for this operation to avoid duplicates
-    const operationKey = `${userId}:${role}:${timestamp}`;
-    
+  try {
     // Check if we're already processing this message
     if (pendingMemoryOperations.has(operationKey)) {
       console.log(`Memory operation for ${operationKey} is already in progress, reusing promise`);
@@ -715,31 +249,33 @@ async function saveToHistory(userId: string, role: 'user' | 'assistant', content
     
     // Create a promise for this operation
     const operationPromise = (async () => {
-      let qdrantSuccess = false;
+      let memorySuccess = false;
       
       try {
-        // Ensure Qdrant is initialized before adding memory
-        if (!serverQdrant.isInitialized()) {
-          console.log('Initializing Qdrant before saving message');
-          await serverQdrant.initMemory({
-            connectionTimeout: 10000 // Increase timeout to 10 seconds
-          });
+        // Ensure memory services are initialized before adding memory
+        const { client, memoryService } = await getMemoryServices();
+        const status = await client.getStatus();
+        
+        if (!status.initialized) {
+          console.log('Initializing memory services before saving message');
+          await client.initialize();
         }
         
         // Set up a timeout to prevent long-running operations
         const timeout = 15000; // 15 seconds
-        const timeoutPromise = new Promise<string>((_, reject) => {
-          setTimeout(() => reject(new Error('Qdrant operation timed out')), timeout);
+        const timeoutPromise = new Promise<any>((_, reject) => {
+          setTimeout(() => reject(new Error('Memory operation timed out')), timeout);
         });
         
         // Try to add memory with timeout protection
-        console.log(`Saving ${role} message to Qdrant for user ${userId}: "${content.substring(0, 50)}..."`);
+        console.log(`Saving ${role} message to memory service for user ${userId}: "${content.substring(0, 50)}..."`);
         
+        let processedAttachments = attachments;
         if (attachments && attachments.length > 0) {
           console.log(`Message has ${attachments.length} attachments`);
           
-          // For each attachment, ensure preview URLs aren't too long for Qdrant
-          const processedAttachments = attachments.map(attachment => {
+          // For each attachment, ensure preview URLs aren't too long
+          processedAttachments = attachments.map(attachment => {
             // If it has a data URL preview that's too long, truncate it or remove it
             if (attachment.preview && attachment.preview.length > 1000 && attachment.preview.startsWith('data:')) {
               // For image attachments, keep a token part of the data URL to indicate it exists
@@ -763,7 +299,7 @@ async function saveToHistory(userId: string, role: 'user' | 'assistant', content
           userId: safeUserId, // Ensure userId is explicitly set and not undefined
           role,
           source: role === 'user' ? 'user' : 'chloe',
-          attachments: attachments || [],
+          attachments: processedAttachments || [],
           isForChat: true // Explicitly mark regular messages as intended for chat display
         };
         
@@ -775,14 +311,23 @@ async function saveToHistory(userId: string, role: 'user' | 'assistant', content
         
         // Debug - log the full metadata we're about to save
         console.log(`Saving message with metadata: userId=${metadata.userId}, role=${metadata.role}, source=${metadata.source}`);
-        console.log(`Full metadata to Qdrant:`, JSON.stringify(metadata).substring(0, 200) + '...');
+        console.log(`Full metadata to memory service:`, JSON.stringify(metadata).substring(0, 200) + '...');
         
-        const addMemoryPromise = serverQdrant.addMemory('message', content, metadata);
+        // Add the memory using the memory service directly
+        const addMemoryPromise = memoryService.addMemory({
+          type: MemoryType.MESSAGE,
+          content,
+          metadata,
+          payload: {
+            text: content
+          }
+        });
         
         // Race the promises to handle timeouts
-        const messageId = await Promise.race([addMemoryPromise, timeoutPromise]);
-        console.log(`Saved ${role} message to Qdrant for user ${safeUserId}, ID: ${messageId}`);
-        qdrantSuccess = true;
+        const result = await Promise.race([addMemoryPromise, timeoutPromise]);
+        const messageId = result.id;
+        console.log(`Saved ${role} message to memory service for user ${safeUserId}, ID: ${messageId}`);
+        memorySuccess = true;
         
         // Skip the verification step if we've successfully added the memory
         // This reduces unnecessary database operations
@@ -790,11 +335,11 @@ async function saveToHistory(userId: string, role: 'user' | 'assistant', content
         return {
           ...message,
           visionResponseFor,
-          qdrantId: messageId
+          memoryId: messageId
         };
       } catch (error) {
         // Log the error but continue - this is non-critical
-        console.error('Error saving message to Qdrant:', error instanceof Error ? error.message : String(error));
+        console.error('Error saving message to memory service:', error instanceof Error ? error.message : String(error));
         console.error('Full error details:', error);
         
         // Continue with in-memory storage only
@@ -807,180 +352,212 @@ async function saveToHistory(userId: string, role: 'user' | 'assistant', content
       }
     })();
     
-    // Store the promise in our map
+    // Store the promise in the pending operations map
     pendingMemoryOperations.set(operationKey, operationPromise);
     
-    // Set a timeout to remove the promise from the map after it completes
-    operationPromise.finally(() => {
-      // Use a short timeout to ensure any dependent operations have time to reuse the promise
-      setTimeout(() => {
-        pendingMemoryOperations.delete(operationKey);
-      }, 5000);
-    });
+    // Execute the operation
+    const result = await operationPromise;
     
-    return operationPromise;
+    // Clean up after operation completes
+    setTimeout(() => {
+      pendingMemoryOperations.delete(operationKey);
+    }, 30000); // Keep in map for 30 seconds to prevent duplicates
+    
+    return result;
+  } catch (error) {
+    console.error('Error in saveToHistory:', error);
+    return null;
   }
-  
-  return {
-    ...message,
-    visionResponseFor
-  };
 }
 
-// Get chat history for a user
-function getUserHistory(userId: string) {
-  // Get history from in-memory cache
-  const history = chatHistory.get(userId) || [];
-  
-  // Only return messages that are meant for the chat interface
-  return history;
-}
+// Agent singleton
+let agent = null;
 
-export async function POST(request: Request) {
+// POST handler
+export async function POST(req: Request) {
   try {
-    const body = await request.json();
-    const { message, userId = 'gab', attachments, visionResponseFor } = body;
+    const body = await req.json();
     
-    if (!message || typeof message !== 'string') {
+    // Check for required fields
+    if (!body.message) {
       return NextResponse.json(
-        { error: 'Message is required and must be a string' },
+        { error: 'Missing required field: message' },
         { status: 400 }
       );
     }
     
-    console.log(`Processing request from ${userId}: "${message}"`);
+    // Normalize the message to reduce duplicates
+    const message = body.message.trim();
+    const visionResponseFor = body.visionResponseFor;
+    const attachments = body.attachments || [];
     
-    // Check if this is a vision response
-    if (visionResponseFor) {
-      console.log(`This is a vision response for message with timestamp: ${visionResponseFor}`);
+    // Use a consistent user ID
+    const userId = body.userId || 'gab';
+    
+    // Skip empty messages
+    if (!message) {
+      return NextResponse.json(
+        { error: 'Empty message' },
+        { status: 400 }
+      );
     }
     
-    // Save user message to history - use await since we modified to be async
-    const userMsg = await saveToHistory(userId, 'user', message, attachments, visionResponseFor);
-    console.log(`User message saved to history with timestamp: ${userMsg?.timestamp}`);
+    // Check the cache for recent responses to the same message
+    const cacheKey = createCacheKey(message, userId);
     
-    // Try to process with real agent, but ensure we have a valid response even if errors occur
-    let reply, memory, thoughts;
-    try {
-      // Process the message with the real agent - pass userId
-      const response = await generateRealResponse(message, userId);
-      reply = response.reply;
-      memory = response.memory;
-      thoughts = response.thoughts;
-    } catch (processingError) {
-      console.error('Critical error processing message:', processingError);
-      // Provide a friendly fallback response
-      reply = "I apologize, but I encountered an issue while processing your request. Could you try asking in a different way?";
-      memory = [];
-      thoughts = [`Error processing message: ${processingError}`];
+    if (responseCache.has(cacheKey) && !body.bypassCache) {
+      const cached = responseCache.get(cacheKey)!;
+      
+      // Check if cache is valid
+      if (cached.expiry > Date.now()) {
+        console.log(`Cache hit for message: ${message.substring(0, 30)}...`);
+        
+        return NextResponse.json({
+          reply: cached.reply,
+          memory: cached.memory,
+          timestamp: cached.timestamp,
+          thoughts: cached.thoughts,
+          cached: true
+        });
+      } else {
+        // Cache expired
+        responseCache.delete(cacheKey);
+      }
     }
     
-    // Wait a moment before saving the assistant's response
-    // This helps ensure the messages have different timestamps for proper ordering
-    await new Promise(resolve => setTimeout(resolve, 100));
+    // Check if this exact request is already in flight
+    if (inFlightRequests.has(cacheKey) && !body.bypassCache) {
+      console.log(`Reusing in-flight request for: ${message.substring(0, 30)}...`);
+      
+      try {
+        const response = await inFlightRequests.get(cacheKey)!;
+        return NextResponse.json({
+          ...response,
+          inFlight: true
+        });
+      } catch (error) {
+        // If the in-flight request fails, continue with a new request
+        console.error('In-flight request failed, starting new request:', error);
+        inFlightRequests.delete(cacheKey);
+      }
+    }
     
-    // Save assistant response to history, including visionResponseFor if present
-    const assistantMsg = await saveToHistory(
-      userId, 
-      'assistant', 
-      reply, 
-      undefined, 
-      visionResponseFor
+    // Save user message to history
+    await saveToHistory(userId, 'user', message, attachments);
+    
+    // Process with the Chloe agent
+    const resultPromise = (async () => {
+      try {
+        // Import the Chloe agent dynamically in this request context
+        const { getChloeInstance } = await import('../../../agents/chloe');
+        const chloeInstance = await getChloeInstance();
+        
+        if (!chloeInstance) {
+          throw new Error('Failed to load Chloe agent');
+        }
+        
+        // Process the message with Chloe
+        const chatResponse = await chloeInstance.processMessage(message, {
+          attachments,
+          userId,
+          // TypeScript error fix: Cast to any to allow the visionResponseFor property
+          ...(visionResponseFor ? { visionResponseFor } : {})
+        } as any);
+        
+        // TypeScript error fix: Properly extract data with type handling
+        // Extract essential information with proper type handling
+        const reply = typeof chatResponse === 'string' 
+          ? chatResponse 
+          : (chatResponse as any).content?.trim() || "I'm sorry, I couldn't generate a response.";
+          
+        const memories = typeof chatResponse === 'string' 
+          ? [] 
+          : (chatResponse as any).memories || [];
+          
+        const thoughts = typeof chatResponse === 'string' 
+          ? [] 
+          : (chatResponse as any).thoughts || [];
+        
+        // Save assistant response to history
+        await saveToHistory(userId, 'assistant', reply);
+        
+        // Update cache
+        const timestamp = new Date().toISOString();
+        responseCache.set(cacheKey, {
+          reply,
+          memory: memories,
+          thoughts,
+          timestamp,
+          expiry: Date.now() + CACHE_TTL
+        });
+        
+        return {
+          reply,
+          memory: memories,
+          thoughts,
+          timestamp
+        };
+      } catch (error) {
+        console.error('Error processing message:', error);
+        
+        // Generate a fallback response
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        const fallbackReply = 'I encountered an error while processing your message. Please try again later.';
+        
+        return {
+          reply: fallbackReply,
+          error: errorMessage,
+          timestamp: new Date().toISOString()
+        };
+      } finally {
+        // Clean up the in-flight request tracking
+        setTimeout(() => {
+          inFlightRequests.delete(cacheKey);
+        }, 5000);
+      }
+    })();
+    
+    // Store the promise
+    inFlightRequests.set(cacheKey, resultPromise);
+    
+    // Wait for the result
+    const result = await resultPromise;
+    
+    // Return the response
+    return NextResponse.json(result);
+  } catch (error) {
+    console.error('Unexpected error in /api/chat/proxy POST handler:', error);
+    
+    return NextResponse.json(
+      {
+        reply: 'Sorry, I encountered an unexpected error processing your request.',
+        error: error instanceof Error ? error.message : String(error)
+      },
+      { status: 500 }
     );
-    console.log(`Assistant message saved to history with timestamp: ${assistantMsg?.timestamp}`);
-    
-    // Verify the history after saving
-    const updatedHistory = getUserHistory(userId);
-    console.log(`After response, history has ${updatedHistory.length} messages for user ${userId}`);
-    
-    // Log thoughts for debugging
-    if (thoughts && thoughts.length > 0) {
-      console.log('Chloe thoughts:', thoughts);
-    }
-    
-    return NextResponse.json({
-      reply,
-      memory,
-      thoughts,
-      timestamp: new Date().toISOString(),
-      history: getUserHistory(userId)
-    });
-  } catch (error: any) {
-    console.error('Error handling chat request:', error);
-    // Always return a valid response even if an error occurs
-    return NextResponse.json({
-      reply: "I apologize, but I'm having trouble processing your request right now. Let's try a different approach.",
-      memory: [],
-      thoughts: [],
-      timestamp: new Date().toISOString(),
-      error: error.message || 'Failed to generate response'
-    });
   }
 }
 
-// Modify the GET function to use caching
-export async function GET(request: Request) {
+// GET handler
+export async function GET(req: Request) {
   try {
-    const { searchParams } = new URL(request.url);
-    const userId = searchParams.get('userId') || 'gab';
+    // Get memory service status
+    const isInitialized = await isMemoryInitialized();
     
-    console.log(`Retrieving chat history for user: ${userId}`);
-    
-    // Check if we have cached history for this user
-    const cachedHistory = chatHistoryCache.get(userId);
-    if (cachedHistory && cachedHistory.expiry > Date.now()) {
-      console.log(`Using cached chat history for user ${userId}, age: ${Math.round((Date.now() - cachedHistory.timestamp) / 1000)}s`);
-      return NextResponse.json({
-        history: cachedHistory.history,
-        cached: true
-      });
-    }
-    
-    // First check if we already have history for this user in memory
-    // This avoids unnecessary Qdrant calls which could fail
-    const existingHistory = getUserHistory(userId);
-    if (existingHistory.length > 0) {
-      console.log(`Found ${existingHistory.length} messages in memory for user ${userId}`);
-      
-      // Cache the history before returning
-      chatHistoryCache.set(userId, {
-        history: existingHistory,
-        timestamp: Date.now(),
-        expiry: Date.now() + CHAT_HISTORY_CACHE_TTL
-      });
-      
-      return NextResponse.json({
-        history: existingHistory
-      });
-    }
-    
-    // If not in memory, try to load from Qdrant
-    const success = await loadChatHistoryFromQdrant(userId);
-    if (success) {
-      const loadedHistory = getUserHistory(userId);
-      console.log(`Loaded ${loadedHistory.length} messages from Qdrant for user ${userId}`);
-      
-      // Cache the history before returning
-      chatHistoryCache.set(userId, {
-        history: loadedHistory,
-        timestamp: Date.now(),
-        expiry: Date.now() + CHAT_HISTORY_CACHE_TTL
-      });
-      
-      return NextResponse.json({
-        history: loadedHistory
-      });
-    } else {
-      console.log(`Failed to load chat history from Qdrant for user ${userId}`);
-      return NextResponse.json({
-        history: []
-      });
-    }
-  } catch (error: any) {
-    console.error('Error retrieving chat history:', error);
     return NextResponse.json({
-      history: [],
-      error: error.message || 'Failed to retrieve chat history'
+      status: 'ok',
+      initialized: isInitialized,
+      timestamp: new Date().toISOString()
     });
+  } catch (error) {
+    console.error('Error in GET handler:', error);
+    
+    return NextResponse.json(
+      {
+        status: 'error',
+        error: error instanceof Error ? error.message : String(error)
+      },
+      { status: 500 }
+    );
   }
 }

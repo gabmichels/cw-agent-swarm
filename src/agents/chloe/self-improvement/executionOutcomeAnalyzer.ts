@@ -4,6 +4,7 @@ import { ExecutionResult } from '../../../lib/shared/types/agentTypes';
 import { ToolResult } from '../tools/toolManager';
 import { ExecutionTraceEntry } from '../graph/nodes/types';
 import { PlannedTask } from '../human-collaboration';
+import { MemoryType } from '../../../server/memory/config/types';
 
 /**
  * Interface for execution outcome data
@@ -108,7 +109,7 @@ export class ExecutionOutcomeAnalyzer {
     try {
       await memory.addMemory(
         content,
-        'execution_outcome',
+        MemoryType.EXECUTION_OUTCOME,
         ImportanceLevel.HIGH,
         MemorySource.SYSTEM,
         `Task execution outcome: ${outcome.taskId}`,
@@ -121,7 +122,7 @@ export class ExecutionOutcomeAnalyzer {
       try {
         await memory.addMemory(
           content,
-          'execution_outcome',
+          MemoryType.EXECUTION_OUTCOME,
           outcome.success ? ImportanceLevel.MEDIUM : ImportanceLevel.HIGH,
           MemorySource.SYSTEM,
           `Task execution outcome: ${outcome.taskId}`,

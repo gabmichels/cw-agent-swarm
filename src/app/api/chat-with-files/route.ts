@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { fileProcessor } from '../../../lib/file-processing/index';
 import { POST as chatPost } from '../chat/route';
-import * as serverQdrant from '../../../server/qdrant';
+import { getMemoryServices } from '../../../server/memory/services';
+import { MemoryType } from '../../../server/memory/config';
+import { ImportanceLevel, MemorySource } from '../../../constants/memory';
 import process from 'process';
 // Import necessary services for flagging
 import { KnowledgeGraph } from '../../../lib/knowledge/KnowledgeGraph';
@@ -18,6 +20,14 @@ interface ProcessedFile {
   fileId?: string;
   summary?: string;
   error?: string;
+}
+
+// Define types for memory records
+interface MemoryRecord {
+  id: string;
+  content: string;
+  timestamp: string;
+  metadata?: Record<string, any>;
 }
 
 // File processing cache to prevent duplicate operations
@@ -98,28 +108,33 @@ const saveFileToFS = (fileId: string, fileBuffer: Buffer, subdir: string = 'uplo
  */
 async function getConversationHistory(userId: string) {
   try {
-    // Try to load recent messages from Qdrant
-    if (!serverQdrant.isInitialized()) {
-      await serverQdrant.initMemory({
-        connectionTimeout: 10000 // 10 seconds
-      });
-    }
+    // Get services
+    const { memoryService, searchService } = await getMemoryServices();
     
-    // Get recent messages, filter by userId
-    const recentMessages = await serverQdrant.getRecentMemories('message', 20); // Increased from 10
+    // Search for messages related to this user with limit of 20
+    const recentMessages = await searchService.search("", {
+      limit: 20,
+      types: [MemoryType.MESSAGE],
+      filter: { userId }
+    });
+    
+    // Convert to a more usable format
     const userMessages = recentMessages
-      .filter(m => m.metadata && m.metadata.userId === userId)
-      .map(m => ({
-        role: m.metadata.role || 'user',
-        content: m.text,
-        timestamp: m.timestamp,
-        importance: m.metadata?.importance || 'medium'
-      }))
+      .map(result => {
+        // Cast payload to any to access its properties
+        const payload = result.point.payload as any;
+        return {
+          role: payload.role || 'user',
+          content: payload.content || '',
+          timestamp: payload.timestamp || new Date().toISOString(),
+          importance: payload.importance || ImportanceLevel.MEDIUM
+        };
+      })
       .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
     
     // Prioritize important messages and keep more context
     // Get all high importance messages regardless of recency
-    const highImportanceMessages = userMessages.filter(m => m.importance === 'high');
+    const highImportanceMessages = userMessages.filter(m => m.importance === ImportanceLevel.HIGH);
     
     // Get the most recent messages (up to 10)
     const recentContextMessages = userMessages.slice(-10);
@@ -254,37 +269,46 @@ async function processWithVisionModel(message: string, images: Array<{fileId: st
     
     const responseData = await response.json();
     
-    // Store this message in Qdrant with proper metadata
-    // First, save the user's message with attached images
+    // Store this message in memory with proper metadata
     try {
-      if (serverQdrant.isInitialized()) {
-        // Add the user message with attachments
-        await serverQdrant.addMemory('message', message, {
+      const { memoryService } = await getMemoryServices();
+      
+      // Add the user message with attachments
+      await memoryService.addMemory({
+        type: MemoryType.MESSAGE,
+        content: message,
+        payload: {
           userId,
           role: 'user',
-          source: 'user',
+          source: MemorySource.USER,
           attachments: images.map(img => ({
             filename: img.filename,
             type: 'image',
             fileId: img.fileId
           })),
-          timestamp: requestTimestamp
-        });
-        
-        console.log(`Saved user message with images to Qdrant with timestamp: ${requestTimestamp}`);
-        
-        // Add the assistant's response with reference to the user's message
-        await serverQdrant.addMemory('message', responseData.reply, {
+          timestamp: requestTimestamp,
+          importance: ImportanceLevel.MEDIUM
+        }
+      });
+      
+      console.log(`Saved user message with images to memory with timestamp: ${requestTimestamp}`);
+      
+      // Add the assistant's response with reference to the user's message
+      await memoryService.addMemory({
+        type: MemoryType.MESSAGE,
+        content: responseData.reply,
+        payload: {
           userId,
           role: 'assistant',
-          source: 'chloe',
-          visionResponseFor: requestTimestamp
-        });
-        
-        console.log(`Saved assistant vision response to Qdrant with reference to: ${requestTimestamp}`);
-      }
+          source: MemorySource.AGENT,
+          visionResponseFor: requestTimestamp,
+          importance: ImportanceLevel.MEDIUM
+        }
+      });
+      
+      console.log(`Saved assistant vision response to memory with reference to: ${requestTimestamp}`);
     } catch (error) {
-      console.error('Error saving vision conversation to Qdrant:', error);
+      console.error('Error saving vision conversation to memory:', error);
       // Continue anyway, non-critical error
     }
     

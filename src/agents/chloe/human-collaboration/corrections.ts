@@ -8,6 +8,7 @@
 import { PlannedTask } from './index';
 import { ChloeMemory, MemoryEntry } from '../memory';
 import { ImportanceLevel, MemorySource } from '../../../constants/memory';
+import { MemoryType } from '../../../server/memory/config/types';
 
 /**
  * Interface for a human correction to Chloe's work
@@ -37,7 +38,7 @@ export async function handleCorrection(
   // 1. Store correction in memory with high importance
   await memory.addMemory(
     `Task correction: ${correction.correctionText}`,
-    'correction',
+    MemoryType.CORRECTION,
     ImportanceLevel.HIGH,
     correction.correctedBy === 'human' ? MemorySource.USER : MemorySource.SYSTEM,
     task.goal,
@@ -47,7 +48,7 @@ export async function handleCorrection(
   // 2. Add a more detailed entry with the full correction context
   await memory.addMemory(
     `Original plan: ${correction.originalPlan}\nCorrection: ${correction.correctionText}`,
-    'correction_detail',
+    MemoryType.CORRECTION_DETAIL,
     ImportanceLevel.MEDIUM,
     correction.correctedBy === 'human' ? MemorySource.USER : MemorySource.SYSTEM,
     task.goal,
@@ -59,7 +60,7 @@ export async function handleCorrection(
   if (insight) {
     await memory.addMemory(
       insight,
-      'insight',
+      MemoryType.INSIGHT,
       ImportanceLevel.HIGH,
       MemorySource.AGENT,
       task.goal,
@@ -162,7 +163,7 @@ export async function checkPastCorrections(
   relevantCorrections: string[];
 }> {
   // Retrieve relevant past corrections
-  const relevantMemories = await getMemoriesByType(memory, 'correction', 5);
+  const relevantMemories = await getMemoriesByType(memory, MemoryType.CORRECTION, 5);
   const relevantCorrections = relevantMemories
     .filter((mem: MemoryEntry) => isRelevantToCurrentTask(mem.content, task.goal))
     .map((mem: MemoryEntry) => mem.content);
@@ -189,7 +190,7 @@ export async function checkPastCorrections(
 /**
  * Helper function to get memories by type, since it's not directly available in ChloeMemory
  */
-async function getMemoriesByType(memory: ChloeMemory, type: string, limit: number): Promise<MemoryEntry[]> {
+async function getMemoriesByType(memory: ChloeMemory, type: MemoryType, limit: number): Promise<MemoryEntry[]> {
   try {
     // Use getRelevantMemories with a type-specific query as a workaround
     const memories = await memory.getRelevantMemories(`type:${type}`, limit);

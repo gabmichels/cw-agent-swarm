@@ -1,6 +1,7 @@
 import { ChloeMemory } from '../memory';
 import { ImportanceLevel, MemorySource } from '../../../constants/memory';
 import { TaskPerformanceScore } from './performanceScorer';
+import { MemoryType } from '../../../server/memory/config/types';
 
 /**
  * Interface for feedback insights generated from performance data
@@ -401,7 +402,7 @@ async function storeInsightsInMemory(
     // Store in memory with high importance
     await memory.addMemory(
       formattedInsights,
-      'feedback_insight',
+      MemoryType.FEEDBACK_INSIGHT,
       ImportanceLevel.HIGH,
       MemorySource.SYSTEM,
       `Generated from ${insights.length} feedback patterns`,
@@ -619,7 +620,7 @@ export async function getTopBehavioralPatterns(
   try {
     // Get all feedback insights from memory
     const insights = await memory.getRelevantMemories(
-      "feedback_insight",
+      MemoryType.FEEDBACK_INSIGHT,
       50
     );
     

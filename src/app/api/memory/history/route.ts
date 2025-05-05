@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import * as serverQdrant from '../../../../server/qdrant';
+import { getMemoryServices } from '../../../../server/memory/services';
 
 // Mark as server-side only
 export const runtime = 'nodejs';
@@ -23,21 +23,28 @@ export async function GET(request: NextRequest) {
       );
     }
     
-    // Initialize Qdrant memory
-    await serverQdrant.initMemory({
-      useOpenAI: process.env.USE_OPENAI_EMBEDDINGS === 'true'
-    });
+    // Get memory services
+    const { client, memoryService } = await getMemoryServices();
+    
+    // Initialize memory services if needed
+    const status = await client.getStatus();
+    if (!status.initialized) {
+      console.log('[memory/history] Initializing memory services');
+      await client.initialize();
+    }
     
     // Get memory history
     const historyOptions = {
-      includeContent: true,
-      limit: 20,
-      includeSoftDeleted: true
+      limit: 20
     };
     
     console.log(`[memory/history] Fetching history for memory ID: ${memoryId}`);
     
-    const history = await serverQdrant.getMemoryHistory(memoryId, historyOptions);
+    // Use the memory service to get memory history
+    const history = await memoryService.getMemoryHistory({
+      id: memoryId,
+      limit: historyOptions.limit
+    });
     
     if (!history || history.length === 0) {
       console.log(`[memory/history] No history found for memory ID: ${memoryId}`);

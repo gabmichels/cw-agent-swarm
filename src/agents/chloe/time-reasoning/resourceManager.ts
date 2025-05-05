@@ -15,6 +15,7 @@ import {
   ResourceAdjustmentStrategy
 } from './types';
 import { ImportanceLevel, MemorySource } from '../../../constants/memory';
+import { MemoryType } from '../../../server/memory/config/types';
 
 /**
  * Resource management options
@@ -316,16 +317,17 @@ export class ResourceManager {
     requiredResources: ResourceRequirements, 
     newTaskPriority: ImportanceLevel
   ): void {
-    // Get all current allocations
     const currentAllocations = Array.from(this.allocations.values())
       .filter(a => a.status === 'in_progress');
     
     // Define priority weights
     const priorityWeights: Record<ImportanceLevel, number> = {
       [ImportanceLevel.CRITICAL]: 100,
+      [ImportanceLevel.VERY_HIGH]: 90,
       [ImportanceLevel.HIGH]: 80,
       [ImportanceLevel.MEDIUM]: 50,
-      [ImportanceLevel.LOW]: 20
+      [ImportanceLevel.LOW]: 20,
+      [ImportanceLevel.VERY_LOW]: 10
     };
     
     // Sort by priority (lower priority first)
@@ -901,9 +903,26 @@ export class ResourceManager {
     if (!this.memory) return;
     
     try {
+      // Map category string to proper MemoryType
+      let memoryType: MemoryType;
+      
+      switch (category) {
+        case 'resource_preemption':
+          memoryType = MemoryType.CAPACITY_CHECK;
+          break;
+        case 'resource_release':
+          memoryType = MemoryType.CAPACITY_CHECK;
+          break;
+        case 'system_log':
+          memoryType = MemoryType.MAINTENANCE_LOG;
+          break;
+        default:
+          memoryType = MemoryType.THOUGHT;
+      }
+      
       await this.memory.addMemory(
         message,
-        category,
+        memoryType,
         ImportanceLevel.LOW,
         MemorySource.SYSTEM,
         undefined,

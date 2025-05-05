@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { searchMemory, getAllMemories } from '../../../server/qdrant';
+import { getMemoryServices } from '../../../server/memory/services';
+import { MemoryType } from '../../../server/memory/config';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,19 +28,28 @@ export async function GET(req: NextRequest) {
     
     console.log('Social media data request:', { query, limit, timeframe, source, topic });
     
+    // Initialize memory services
+    const { client, searchService } = await getMemoryServices();
+    
+    // Ensure memory system is initialized
+    const status = await client.getStatus();
+    if (!status.initialized) {
+      await client.initialize();
+    }
+    
     // Build filter based on parameters
     const filter: Record<string, any> = {
-      memoryType: 'social_media'
+      'metadata.memoryType': 'social_media'
     };
     
     // Add source filter if provided
     if (source) {
-      filter.source = source;
+      filter['metadata.source'] = source;
     }
     
     // Add topic filter if provided
     if (topic) {
-      filter.topic = topic;
+      filter['metadata.topic'] = topic;
     }
     
     // Add timeframe filter
@@ -63,81 +73,37 @@ export async function GET(req: NextRequest) {
       }
       
       if (timeframe !== 'all') {
-        filter.timestamp = { $gte: since.toISOString() };
+        filter['metadata.timestamp'] = { $gte: since.toISOString() };
       }
     }
     
-    // Get all document memories (social media data is stored as document type)
-    let memories;
-    if (query) {
-      // If there's a search query, use searchMemory with the filter
-      memories = await searchMemory('document', query, { 
-        limit, 
-        filter 
-      });
-    } else {
-      // Otherwise get all memories of document type
-      memories = await getAllMemories('document', limit);
-      
-      // Filter manually since getAllMemories doesn't support filters directly
-      memories = memories.filter(memory => {
-        // Check if it's social media data
-        if (memory.metadata.memoryType !== 'social_media') {
-          return false;
-        }
-        
-        // Apply source filter
-        if (source && memory.metadata.source !== source) {
-          return false;
-        }
-        
-        // Apply topic filter
-        if (topic && memory.metadata.topic !== topic) {
-          return false;
-        }
-        
-        // Apply timeframe filter
-        if (timeframe !== 'all') {
-          const memoryDate = new Date(memory.timestamp);
-          const now = new Date();
-          let since = new Date();
-          
-          switch (timeframe) {
-            case 'day':
-              since.setDate(now.getDate() - 1);
-              break;
-            case 'week':
-              since.setDate(now.getDate() - 7);
-              break;
-            case 'month':
-              since.setMonth(now.getMonth() - 1);
-              break;
-          }
-          
-          if (memoryDate < since) {
-            return false;
-          }
-        }
-        
-        return true;
-      });
-    }
+    // Get social media data using the search service
+    const searchResults = await searchService.search(query, { 
+      limit,
+      filter,
+      types: [MemoryType.DOCUMENT]
+    });
     
     // Process and format the results
-    const socialMediaData = memories
-      .filter(memory => memory.metadata.memoryType === 'social_media')
-      .map(memory => ({
-        id: memory.id,
-        text: memory.text,
-        timestamp: memory.timestamp,
-        type: memory.type,
-        source: memory.metadata.source || 'unknown',
-        topic: memory.metadata.topic || 'general',
-        url: memory.metadata.url || null,
-        author: memory.metadata.author || 'anonymous',
-        engagement: memory.metadata.engagement || {},
-        sentiment: memory.metadata.sentiment || null
-      }));
+    const socialMediaData = searchResults
+      .filter(result => result.point.payload?.metadata?.memoryType === 'social_media')
+      .map(result => {
+        const memory = result.point;
+        const metadata = memory.payload?.metadata || {};
+        
+        return {
+          id: memory.id,
+          text: memory.payload?.text || '',
+          timestamp: metadata.timestamp || memory.payload?.timestamp,
+          type: result.type,
+          source: metadata.source || 'unknown',
+          topic: metadata.topic || 'general',
+          url: metadata.url || null,
+          author: metadata.author || 'anonymous',
+          engagement: metadata.engagement || {},
+          sentiment: metadata.sentiment || null
+        };
+      });
     
     // Sort by timestamp (newest first)
     socialMediaData.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());

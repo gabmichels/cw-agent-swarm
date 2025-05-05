@@ -2,7 +2,7 @@ import { ChatOpenAI } from '@langchain/openai';
 import { ChatPromptTemplate } from '@langchain/core/prompts';
 import { ChloeMemory } from './memory';
 import { ImportanceLevel, MemorySource } from '../../constants/memory';
-import { MemoryType as StandardMemoryType } from '../../server/memory/config';
+import { MemoryType } from '../../server/memory/config/types';
 
 /**
  * Sentiment values for memory entries
@@ -319,12 +319,16 @@ export class MemoryTagger {
   }
 
   /**
-   * Store important memories in the agent's long-term memory
+   * Store important memory in the agent's memory system
    */
   private async storeImportantMemory(memory: TaggedMemory): Promise<void> {
+    if (!this.memory) return;
+    
     try {
-      // Create a formatted memory entry with metadata
+      // Format memory for storage
       const formattedMemory = `
+TAGGED MEMORY:
+ID: ${memory.id}
 IMPORTANCE: ${memory.importance}
 TAGS: ${memory.tags.join(', ')}
 SOURCE: ${memory.source}
@@ -335,8 +339,60 @@ ${memory.entities ? `ENTITIES: ${memory.entities.join(', ')}` : ''}
 ${memory.content}
       `.trim();
       
-      // Add the memory to the agent's memory system
-      await this.memory?.addMemory(formattedMemory);
+      // Determine the appropriate MemoryType based on the memory category
+      let memoryType: MemoryType;
+      
+      switch (memory.category.toLowerCase()) {
+        case 'thought':
+        case 'reflection':
+        case 'reasoning':
+          memoryType = MemoryType.THOUGHT;
+          break;
+        case 'correction':
+        case 'feedback':
+          memoryType = MemoryType.CORRECTION;
+          break;
+        case 'insight':
+        case 'realization':
+          memoryType = MemoryType.INSIGHT;
+          break;
+        case 'plan':
+        case 'goal':
+        case 'task':
+          memoryType = MemoryType.TASK;
+          break;
+        case 'strategy':
+          memoryType = MemoryType.STRATEGY;
+          break;
+        case 'file':
+        case 'document':
+          memoryType = MemoryType.DOCUMENT;
+          break;
+        case 'persona':
+        case 'user':
+          memoryType = MemoryType.PERSONA;
+          break;
+        case 'error':
+        case 'warning':
+          memoryType = MemoryType.ERROR_LOG;
+          break;
+        case 'maintenance':
+        case 'system':
+          memoryType = MemoryType.MAINTENANCE_LOG;
+          break;
+        default:
+          memoryType = MemoryType.THOUGHT; // Default fallback
+      }
+      
+      // Add the memory to the agent's memory system with all required parameters
+      await this.memory?.addMemory(
+        formattedMemory,
+        memoryType,               // Use determined memory type
+        memory.importance,        // Pass through the importance level
+        memory.source,            // Pass through the memory source
+        `Tagged memory: ${memory.category}`, // Add context
+        memory.tags               // Pass through the tags
+      );
       
       console.log(`Added important memory to long-term storage: "${memory.content.substring(0, 50)}..."`);
     } catch (error) {

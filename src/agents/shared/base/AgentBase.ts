@@ -889,4 +889,51 @@ export class AgentBase {
   hasToolPermission(toolName: string): boolean {
     return this.toolPermissions.includes(toolName);
   }
+
+  /**
+   * Plan and execute a task with proper planning and execution management
+   * This is a standard interface method that can be implemented by subclasses or used directly
+   */
+  async planAndExecute(goal: string, options: any = {}): Promise<any> {
+    if (!this.initialized) {
+      const initSuccess = await this.initialize();
+      if (!initSuccess) {
+        return {
+          success: false,
+          error: `Failed to initialize agent ${this.agentId} for task execution`
+        };
+      }
+    }
+    
+    try {
+      console.log(`[${this.agentId}] Planning and executing task: ${goal.substring(0, 50)}...`);
+      
+      // Create a plan for the task
+      const plan = await this.planTask({
+        goal,
+        tags: options.tags || [],
+        delegationContextId: options.delegationContextId,
+        additionalContext: options.additionalContext || {}
+      });
+      
+      // Execute the plan
+      const executionResult = await this.executePlan(plan);
+      
+      return {
+        success: true,
+        plan,
+        results: executionResult.results,
+        metadata: {
+          agentId: this.agentId,
+          executionTime: new Date().toISOString()
+        }
+      };
+    } catch (error) {
+      console.error(`[${this.agentId}] Error in planAndExecute:`, error);
+      return {
+        success: false,
+        error: `Execution error: ${error instanceof Error ? error.message : String(error)}`
+      };
+    }
+  }
 }

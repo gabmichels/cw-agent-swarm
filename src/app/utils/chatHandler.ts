@@ -2,7 +2,8 @@
  * Utility functions for handling chat operations
  */
 
-import * as serverQdrant from '../../server/qdrant';
+import { getMemoryServices } from '../../server/memory/services';
+import { MemoryType } from '../../server/memory/config';
 
 /**
  * Generate a new response for the chat
@@ -35,13 +36,27 @@ export async function getConversationHistory(
   limit: number = 10
 ): Promise<string[]> {
   try {
-    // Get recent messages from memory
-    const recentMessages = await serverQdrant.getRecentMemories('message', limit);
+    // Get memory services
+    const { searchService } = await getMemoryServices();
+    
+    // Get recent messages from memory using the search service
+    const searchResults = await searchService.search("", {
+      types: [MemoryType.MESSAGE],
+      limit
+    });
+    
+    // Sort by timestamp if available (most recent first)
+    const sorted = searchResults.sort((a, b) => {
+      const timeA = a.point.payload?.metadata?.timestamp || '';
+      const timeB = b.point.payload?.metadata?.timestamp || '';
+      return timeB.localeCompare(timeA); // Descending order
+    });
     
     // Format messages as strings
-    return recentMessages.map(msg => {
-      const role = msg.metadata?.role || 'unknown';
-      return `${role}: ${msg.text}`;
+    return sorted.map(result => {
+      const msg = result.point;
+      const role = msg.payload?.metadata?.role || 'unknown';
+      return `${role}: ${msg.payload?.text || ''}`;
     });
   } catch (error) {
     console.error('Error getting conversation history:', error);

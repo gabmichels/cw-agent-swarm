@@ -15,6 +15,7 @@ import { calculateChloeCapacity, deferOverflowTasks } from './scheduler/capacity
 import { enableAutonomousMode as _enableAutonomousMode, runAutonomousMaintenance } from './scheduler/autonomousScheduler';
 import { ChloeScheduler as AutonomousScheduler } from './scheduler/chloeScheduler';
 import { ImportanceLevel, MemorySource } from '../../constants/memory';
+import { MemoryType } from '../../server/memory/config/types';
 
 // Types for scheduler
 export type TaskId = string;
@@ -388,7 +389,7 @@ export class ChloeScheduler {
           
           memory.addMemory(
             `Scheduled Task Result (${id}): ${resultSummary}`,
-            "scheduled_task_result",
+            MemoryType.SCHEDULED_TASK_RESULT,
             ImportanceLevel.MEDIUM,
             MemorySource.SYSTEM,
             `Completed execution of scheduled task ${id}`,

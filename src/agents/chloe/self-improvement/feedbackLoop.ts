@@ -1,6 +1,7 @@
 import { ChloeMemory } from '../memory';
 import { ImportanceLevel, MemorySource } from '../../../constants/memory';
 import { getBehavioralModifiersFromFeedback, getTopBehavioralPatterns } from './feedbackIngestor';
+import { MemoryType } from '../../../server/memory/config/types';
 
 export interface FeedbackLoopData {
   modifiers: string[];
@@ -102,7 +103,7 @@ ${feedbackInsightIds.length > 0 ? `\nBased on insights: ${feedbackInsightIds.joi
   // Store in memory with appropriate tags
   await memory.addMemory(
     content,
-    "behavior_adjustment",
+    MemoryType.BEHAVIOR_ADJUSTMENT,
     ImportanceLevel.MEDIUM,
     MemorySource.SYSTEM,
     `Task planning for ${taskGoal}`,
@@ -123,7 +124,7 @@ export async function generateBehavioralAdjustmentReport(
   
   // Get all behavioral adjustments
   const adjustments = await memory.getRelevantMemories(
-    "behavior_adjustment",
+    MemoryType.BEHAVIOR_ADJUSTMENT,
     50
   );
   

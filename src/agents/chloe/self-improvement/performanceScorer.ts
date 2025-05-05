@@ -2,7 +2,8 @@ import fs from 'fs';
 import path from 'path';
 import { PlannedTask } from '../human-collaboration';
 import { ChloeMemory } from '../memory';
-import { ImportanceLevel, MemorySource, ChloeMemoryType } from '../../../constants/memory';
+import { ImportanceLevel, MemorySource } from '../../../constants/memory';
+import { MemoryType } from '../../../server/memory/config/types';
 
 /**
  * Interface for task performance score
@@ -118,7 +119,7 @@ async function storePerformanceScore(
   // Store in memory with medium importance
   await memory.addMemory(
     formattedScore,
-    'performance_score', // Custom memory type
+    MemoryType.PERFORMANCE_SCORE, // Custom memory type
     ImportanceLevel.MEDIUM,
     MemorySource.SYSTEM, // Use enum value instead of string
     `Task ID: ${score.taskId}`, // Context
@@ -135,7 +136,6 @@ Score: ${score.finalScore}/100
 Penalties: ${score.penalties.join(', ')}
 Insights: ${score.insights.join(' | ')}`;
 }
-
 /**
  * Get a task's performance score from memory if available
  */
@@ -214,3 +214,4 @@ const exampleTask: PlannedTask = {
 const score = await scoreTaskPerformance(exampleTask);
 console.log(JSON.stringify(score, null, 2));
 */ 
+

@@ -17,7 +17,7 @@ import { MemoryError } from '../../lib/errors/MemoryError';
 import { handleError } from '../../lib/errors/errorHandler';
 // Import memory system
 import { 
-  MemoryType as StandardMemoryType,
+  MemoryType,
   MemoryErrorCode 
 } from '../../server/memory/config';
 import { getMemoryServices } from '../../server/memory/services';
@@ -40,7 +40,7 @@ export interface MemoryEntry extends Omit<BaseMemoryEntry, 'type'> {
   created: Date;
   expiresAt?: Date;
   tags?: string[];
-  type: StandardMemoryType;
+  type: MemoryType;
   updated?: Date;
   timestamp?: Date;
   metadata?: {
@@ -137,7 +137,7 @@ export class ChloeMemory {
    */
   async addMemory(
     content: string,
-    type: StandardMemoryType = StandardMemoryType.MESSAGE,
+    type: MemoryType,
     importance: ImportanceLevel = ImportanceLevel.MEDIUM,
     source: MemorySource = MemorySource.AGENT,
     context?: string,
@@ -175,16 +175,16 @@ export class ChloeMemory {
     // Only format if it's not already formatted
     if (!hasPrefix) {
       switch (type) {
-        case StandardMemoryType.MESSAGE:
+        case MemoryType.MESSAGE:
           formattedContent = `MESSAGE [${timestamp}]: ${contentToStore}`;
           break;
-        case StandardMemoryType.THOUGHT:
+        case MemoryType.THOUGHT:
           formattedContent = `THOUGHT [${timestamp}]: ${contentToStore}`;
           break;
-        case StandardMemoryType.DOCUMENT:
+        case MemoryType.DOCUMENT:
           formattedContent = `DOCUMENT [${timestamp}]: ${contentToStore}`;
           break;
-        case StandardMemoryType.TASK:
+        case MemoryType.TASK:
           formattedContent = `TASK [${timestamp}]: ${contentToStore}`;
           break;
         default:
@@ -249,7 +249,7 @@ export class ChloeMemory {
     if (!content) return false;
     
     // Check for any of the standard prefixes that match our memory types
-    const memoryTypeList = Object.values(StandardMemoryType).map(type => type.toString().toUpperCase());
+    const memoryTypeList = Object.values(MemoryType).map(type => type.toString().toUpperCase());
     
     // Create a regex that matches any memory type followed by timestamp format
     const formatRegex = new RegExp(`^(${memoryTypeList.join('|')})\\s*\\[\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}.\\d{3}Z\\]:\\s*`, 'i');
@@ -274,7 +274,7 @@ export class ChloeMemory {
    * Get memories by date range and type
    */
   async getMemoriesByDateRange(
-    type: StandardMemoryType,
+    type: MemoryType,
     startDate: Date,
     endDate: Date,
     limit: number = 50
@@ -367,14 +367,14 @@ export class ChloeMemory {
         const tags = Array.isArray(metadata.tags) ? metadata.tags : [];
         
         // Use the record type directly as a string
-        const memType = record.type || StandardMemoryType.MESSAGE;
+        const memType = record.type || MemoryType.MESSAGE;
         
         return {
           id,
           content,
           created,
           updated: new Date(),
-          type: memType as StandardMemoryType,
+          type: memType as MemoryType,
           category,
           source: source as MemorySource,
           importance,
@@ -388,7 +388,7 @@ export class ChloeMemory {
           content: 'Error retrieving memory content',
           created: new Date(),
           updated: new Date(),
-          type: StandardMemoryType.MESSAGE,
+          type: MemoryType.MESSAGE,
           category: 'error',
           source: MemorySource.SYSTEM,
           importance: ImportanceLevel.LOW,
@@ -426,7 +426,7 @@ export class ChloeMemory {
         };
         
         const results = await this.memoryService.getMemories({
-          type: StandardMemoryType.THOUGHT,
+          type: MemoryType.THOUGHT,
           filter: filter
         });
         
@@ -475,7 +475,7 @@ export class ChloeMemory {
       if (typeof window === 'undefined' && this.memoryService) {
         try {
           const stats = await this.memoryService.getStats({
-            type: StandardMemoryType.MESSAGE
+            type: MemoryType.MESSAGE
           });
           return stats.count || 0;
         } catch (error) {
@@ -674,7 +674,7 @@ export class ChloeMemory {
    */
   async getRelevantMemoriesByType(
     query: string,
-    types: StandardMemoryType[],
+    types: MemoryType[],
     limit: number = 10
   ): Promise<{
     entries: MemoryEntry[];
@@ -729,7 +729,7 @@ export class ChloeMemory {
   async getRelevantMemories(
     query: string,
     limit: number = 5,
-    types?: StandardMemoryType[],
+    types?: MemoryType[],
     contextTags?: string[],
     tagBoostFactor: number = 2
   ): Promise<MemoryEntry[]> {
@@ -740,10 +740,10 @@ export class ChloeMemory {
     try {
       // If specific types are requested, use them, otherwise use default types
       const memoryTypes = types || [
-        StandardMemoryType.MESSAGE, 
-        StandardMemoryType.THOUGHT, 
-        StandardMemoryType.DOCUMENT,
-        StandardMemoryType.TASK
+        MemoryType.MESSAGE, 
+        MemoryType.THOUGHT, 
+        MemoryType.DOCUMENT,
+        MemoryType.TASK
       ];
       
       let allRelevantMemories: MemoryEntry[] = [];
@@ -759,15 +759,15 @@ export class ChloeMemory {
       
       // Search for each memory type
       for (const type of memoryTypes) {
-        let baseType: StandardMemoryType;
+        let baseType: MemoryType;
         let filter: Record<string, any> = {};
         
         // Determine if this is a base type or extended type
-        if (Object.values(StandardMemoryType).includes(type as StandardMemoryType)) {
-          baseType = type as StandardMemoryType;
+        if (Object.values(MemoryType).includes(type as MemoryType)) {
+          baseType = type as MemoryType;
         } else {
           // For extended types, search in the document collection with metadata filter
-          baseType = StandardMemoryType.DOCUMENT;
+          baseType = MemoryType.DOCUMENT as MemoryType;
           filter = { 
             must: [
               {
@@ -890,7 +890,7 @@ export class ChloeMemory {
       // Get brand memories from both persona and strategy document types
       const brandMemories = await this.getRelevantMemoriesByType(
         'brand identity mission vision values target audience personality', 
-        [StandardMemoryType.DOCUMENT],
+        [MemoryType.DOCUMENT],
         20 // Get more entries to ensure we capture all brand components
       );
       
@@ -898,7 +898,7 @@ export class ChloeMemory {
       const moreSpecificBrandMemories = await this.getRelevantMemories(
         'brand identity mission vision values', 
         15,
-        [StandardMemoryType.DOCUMENT] // Use StandardMemoryType values
+        [MemoryType.DOCUMENT] // Use StandardMemoryType values
       );
       
       // Combine and deduplicate memories
@@ -1060,7 +1060,7 @@ export class ChloeMemory {
         
         // Only look at message type memories
         const filteredMessages = recentMessages.filter(msg => 
-          msg.type === StandardMemoryType.MESSAGE
+          msg.type === MemoryType.MESSAGE
         );
         
         // Extract key topics from the current query
@@ -1419,7 +1419,7 @@ export class ChloeMemory {
     query: string,
     limit: number = 10,
     options: {
-      types?: StandardMemoryType[];
+      types?: MemoryType[];
       semanticWeight?: number;
       keywordWeight?: number;
       expandQuery?: boolean;
@@ -1675,7 +1675,7 @@ export class ChloeMemory {
     query: string,
     limit: number = 7,
     options: {
-      types?: StandardMemoryType[];
+      types?: MemoryType[];
       expandQuery?: boolean;
       considerImportance?: boolean;
       requireKeywords?: boolean;
@@ -1854,7 +1854,7 @@ export class ChloeMemory {
       if (typeof window === 'undefined' && this.memoryService) {
         // Use StandardMemoryType.DOCUMENT directly
         const results = await this.memoryService.getMemories({
-          type: StandardMemoryType.DOCUMENT,
+          type: MemoryType.DOCUMENT,
           sort: {
             field: "last_modified",
             direction: "desc"

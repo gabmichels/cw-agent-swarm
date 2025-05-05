@@ -77,6 +77,13 @@ export async function setupCollections(options: SetupOptions = {}): Promise<Coll
   // Process each collection defined in our configuration
   for (const type of Object.values(MemoryType)) {
     const config = COLLECTION_CONFIGS[type];
+    
+    // Skip undefined configurations
+    if (!config) {
+      if (verbose) console.log(`No configuration found for type: ${type}, skipping`);
+      continue;
+    }
+    
     const collectionName = config.name;
     
     if (verbose) console.log(`Processing collection: ${collectionName}`);
@@ -85,19 +92,22 @@ export async function setupCollections(options: SetupOptions = {}): Promise<Coll
       // Check if collection exists
       const exists = await client.collectionExists(collectionName);
       
+      // Ensure indices is defined in config or use empty array as fallback
+      const configIndices = config.indices || [];
+      
       let status: CollectionStatus = {
         name: collectionName,
         exists,
         matchesSchema: false,
         indices: [],
-        missingIndices: [...config.indices]
+        missingIndices: [...configIndices]
       };
       
       if (exists) {
         if (verbose) console.log(`Collection ${collectionName} exists, checking schema...`);
         
         // In a real implementation, you would check collection info properly
-        status.indices = config.indices;
+        status.indices = configIndices;
         status.missingIndices = [];
         status.matchesSchema = true;
         
@@ -116,7 +126,7 @@ export async function setupCollections(options: SetupOptions = {}): Promise<Coll
         status.exists = true;
         status.matchesSchema = true;
         status.missingIndices = [];
-        status.indices = config.indices;
+        status.indices = configIndices;
         
         if (verbose) console.log(`Collection ${collectionName} created successfully`);
       }
@@ -128,7 +138,7 @@ export async function setupCollections(options: SetupOptions = {}): Promise<Coll
         exists: false,
         matchesSchema: false,
         indices: [],
-        missingIndices: config.indices,
+        missingIndices: config.indices || [],
         error: String(error)
       });
       

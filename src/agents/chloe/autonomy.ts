@@ -2,8 +2,9 @@
 
 import { ChloeAgent } from './core/agent';
 import { initializeAutonomy } from './scheduler';
-import * as serverQdrant from '../../server/qdrant';
+import { getMemoryServices } from '../../server/memory/services';
 import { AutonomySystem } from '../../lib/shared/types/agentTypes';
+import { MemoryType, ImportanceLevel } from '../../server/memory/config';
 
 /**
  * Initialize Chloe's full autonomy system with:
@@ -21,10 +22,12 @@ export async function initializeChloeAutonomy(agent: ChloeAgent): Promise<{
     
     // Step 1: Ensure memory system is initialized
     try {
-      await serverQdrant.initMemory({ 
-        useOpenAI: true,
-        forceReinit: false
-      });
+      const { client, memoryService } = await getMemoryServices();
+      // Check if services are initialized
+      const status = await client.getStatus();
+      if (!status.initialized) {
+        throw new Error('Memory services not properly initialized');
+      }
       console.log('Memory system initialized successfully');
     } catch (memoryError) {
       console.error('Error initializing memory system:', memoryError);
@@ -73,16 +76,23 @@ export async function diagnoseAutonomySystem(): Promise<{
   planning: { status: string; };
 }> {
   try {
-    // Check memory system
-    const memoryStatus = await serverQdrant.diagnoseDatabaseHealth();
+    // Check memory system using new services
+    const { client, searchService } = await getMemoryServices();
+    const status = await client.getStatus();
+    
+    // Get message count
+    const messageCount = await client.getPointCount(
+      'memory_message', // Collection name for messages
+      { type: MemoryType.MESSAGE }
+    );
     
     // Placeholder for scheduler and planning checks
     // In a real implementation, this would check the actual systems
     
     return {
       memory: {
-        status: memoryStatus.status,
-        messageCount: memoryStatus.messageCount
+        status: status.initialized ? 'operational' : 'error',
+        messageCount
       },
       scheduler: {
         status: 'operational',
@@ -103,10 +113,98 @@ export async function diagnoseAutonomySystem(): Promise<{
 }
 
 /**
- * Export functions for external use
+ * Get recent chat messages for a user
  */
-export {
-  // Re-export memory functions
-  getRecentChatMessages,
-  summarizeChat
-} from '../../server/qdrant';
+export async function getRecentChatMessages(options: {
+  userId?: string;
+  limit?: number;
+  since?: Date;
+  roles?: string[];
+} = {}): Promise<Array<{ role: string; content: string; timestamp: string }>> {
+  try {
+    const { searchService } = await getMemoryServices();
+    
+    // Build filter based on options
+    const filter: Record<string, any> = {
+      type: MemoryType.MESSAGE
+    };
+    
+    // Add user filter if specified
+    if (options.userId) {
+      filter.userId = options.userId;
+    }
+    
+    // Add timestamp filter if specified
+    if (options.since) {
+      filter.timestamp = { $gte: options.since.toISOString() };
+    }
+    
+    // Add role filter if specified
+    if (options.roles && options.roles.length > 0) {
+      filter.role = { $in: options.roles };
+    }
+    
+    // Search for messages
+    const results = await searchService.search("", {
+      types: [MemoryType.MESSAGE],
+      limit: options.limit || 20,
+      filter
+    });
+    
+    // Convert to expected format
+    return results.map(result => {
+      const payload = result.point.payload as any;
+      return {
+        role: payload.role || 'user',
+        content: payload.content || payload.text || '',
+        timestamp: payload.timestamp || new Date().toISOString()
+      };
+    }).sort((a, b) => {
+      // Sort by timestamp (oldest first)
+      return new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime();
+    });
+  } catch (error) {
+    console.error('Error getting recent chat messages:', error);
+    return [];
+  }
+}
+
+/**
+ * Summarize recent chat history
+ */
+export async function summarizeChat(options: {
+  userId?: string;
+  limit?: number;
+  since?: Date;
+} = {}): Promise<string> {
+  try {
+    // Get recent messages
+    const messages = await getRecentChatMessages({
+      userId: options.userId,
+      limit: options.limit || 30,
+      since: options.since,
+      roles: ['user', 'assistant']
+    });
+    
+    if (messages.length === 0) {
+      return "No recent conversation history found.";
+    }
+    
+    // Build conversation text
+    const conversationText = messages
+      .map(msg => `${msg.role}: ${msg.content}`)
+      .join('\n\n');
+    
+    // For a real implementation, you might want to use an LLM to generate a summary
+    // This is a placeholder that returns formatted recent messages
+    const messageCount = messages.length;
+    const timeRange = messages.length > 0 ? 
+      `from ${new Date(messages[0].timestamp).toLocaleString()} to ${new Date(messages[messages.length-1].timestamp).toLocaleString()}` : 
+      '';
+    
+    return `Recent conversation history (${messageCount} messages) ${timeRange}:\n\n${conversationText}`;
+  } catch (error) {
+    console.error('Error summarizing chat:', error);
+    return "Error generating conversation summary.";
+  }
+}

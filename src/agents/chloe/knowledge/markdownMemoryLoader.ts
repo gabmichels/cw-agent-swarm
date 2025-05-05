@@ -4,10 +4,11 @@ import path from 'path';
 import { glob } from 'glob';
 import matter from 'gray-matter';
 import { ImportanceLevel, MemorySource } from '../../../constants/memory';
-import { MemoryType as StandardMemoryType } from '../../../server/memory/config';
+import { MemoryType, ExtendedMemorySource } from '../../../server/memory/config/types';
 import { logger } from '../../../lib/logging';
 import { ImportanceCalculator } from '../../../lib/memory/ImportanceCalculator';
 import { TagExtractor, Tag, TagAlgorithm } from '../../../lib/memory/TagExtractor';
+import { ChloeMemory } from '../memory';
 
 // Define memory types constants to replace the import from qdrant
 const MEMORY_TYPES = {
@@ -365,7 +366,7 @@ function determineMemoryType(filePath: string): string {
     return 'process';
   }
   
-  return StandardMemoryType.DOCUMENT;
+  return MemoryType.DOCUMENT;
 }
 
 /**
@@ -444,7 +445,7 @@ export async function processMarkdownFile(memoryManager: any, filePath: string):
       content,
       memoryType,
       ImportanceLevel.CRITICAL,  // Always CRITICAL for markdown files
-      MemorySource.FILE,
+      ExtendedMemorySource.FILE,
       `Loaded from ${filePath}`,
       allTags,
       {
@@ -702,7 +703,7 @@ export async function markdownToMemoryEntries(filePath: string, content: string)
   
   // Generate standardized metadata for the file
   const standardMetadata = {
-    source: MemorySource.FILE,
+    source: ExtendedMemorySource.FILE,
     contentType: 'markdown',
     fileType: 'md',
     filePath,
@@ -730,7 +731,7 @@ export async function markdownToMemoryEntries(filePath: string, content: string)
   const importanceScore = ImportanceCalculator.calculateImportanceScore({
     content: markdownContent,
     source: MemorySource.FILE,
-    type: StandardMemoryType.DOCUMENT,
+    type: MemoryType.DOCUMENT,
     tags: extractedTags,
     tagConfidence: 0.9, // High confidence for markdown files
     metadata: standardMetadata
@@ -741,11 +742,11 @@ export async function markdownToMemoryEntries(filePath: string, content: string)
     return [{
       title,
       content: markdownContent,
-      type: StandardMemoryType.DOCUMENT,
+      type: MemoryType.DOCUMENT,
       tags: allTagStrings,
       importance: ImportanceLevel.CRITICAL, // Markdown is always critical
       importance_score: importanceScore,
-      source: MemorySource.FILE,
+      source: ExtendedMemorySource.FILE,
       filePath,
       metadata: {
         ...standardMetadata,
@@ -779,7 +780,7 @@ export async function markdownToMemoryEntries(filePath: string, content: string)
     const chunkImportanceScore = ImportanceCalculator.calculateImportanceScore({
       content: chunk,
       source: MemorySource.FILE,
-      type: StandardMemoryType.DOCUMENT,
+      type: MemoryType.DOCUMENT,
       tags: mergedTagsArray,
       tagConfidence: 0.85,
       metadata: standardMetadata
@@ -788,11 +789,11 @@ export async function markdownToMemoryEntries(filePath: string, content: string)
     return {
       title: `${title} (Part ${index + 1})`,
       content: chunk,
-      type: StandardMemoryType.DOCUMENT,
+      type: MemoryType.DOCUMENT,
       tags: stringTags,
       importance: ImportanceLevel.CRITICAL,
       importance_score: chunkImportanceScore,
-      source: MemorySource.FILE,
+      source: ExtendedMemorySource.FILE,
       filePath,
       metadata: {
         ...standardMetadata,

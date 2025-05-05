@@ -3,6 +3,7 @@ import { ImportanceLevel, MemorySource } from '../../../constants/memory';
 import { ExecutionOutcome } from './executionOutcomeAnalyzer';
 import { ChatOpenAI } from '@langchain/openai';
 import { ChatPromptTemplate } from '@langchain/core/prompts';
+import { MemoryType } from '../../../server/memory/config/types';
 
 /**
  * Interface for strategy insights based on execution outcomes
@@ -352,7 +353,7 @@ async function storeInsights(
   
   await memory.addMemory(
     content,
-    'strategic_insights',
+    MemoryType.STRATEGIC_INSIGHTS,
     ImportanceLevel.HIGH,
     MemorySource.SYSTEM,
     `Strategic insights: ${new Date().toISOString().split('T')[0]}`,
@@ -374,7 +375,7 @@ async function storeModifiers(
   
   await memory.addMemory(
     content,
-    'behavior_modifiers',
+    MemoryType.BEHAVIOR_MODIFIERS,
     ImportanceLevel.HIGH,
     MemorySource.SYSTEM,
     `Strategy behavior modifiers: ${new Date().toISOString().split('T')[0]}`,

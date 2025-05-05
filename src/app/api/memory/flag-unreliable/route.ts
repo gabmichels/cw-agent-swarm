@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import * as serverQdrant from '../../../../server/qdrant';
-import { MemoryRecord } from '../../../../server/qdrant';
+import { getMemoryServices } from '../../../../server/memory/services';
+import { MemoryType } from '../../../../server/memory/config';
 
 export const runtime = 'nodejs';
 
@@ -17,65 +17,66 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: 'Content is required' }, { status: 400 });
     }
 
-    // Initialize Qdrant if necessary
-    if (!serverQdrant.isInitialized()) {
-      await serverQdrant.initMemory({
-        connectionTimeout: 10000 // 10 seconds
-      });
+    // Initialize memory services
+    const { client, memoryService, searchService } = await getMemoryServices();
+    
+    // Ensure memory system is initialized
+    const status = await client.getStatus();
+    if (!status.initialized) {
+      await client.initialize();
     }
 
     // Search for the message to check if it exists
-    const existingMessages = await serverQdrant.searchMemory('message', content.substring(0, 100), {
-      limit: 5
+    const searchResults = await searchService.search(content.substring(0, 100), {
+      limit: 5,
+      types: [MemoryType.MESSAGE]
     });
 
-    let targetMessage: MemoryRecord | null = null;
+    let targetMemory = null;
     
     // Try to find the message that matches our criteria
-    if (existingMessages.length > 0) {
+    if (searchResults.length > 0) {
       // If messageId was provided, try to match by ID first
       if (messageId) {
-        targetMessage = existingMessages.find(m => 
-          m.id === messageId || 
-          (m.metadata && m.metadata.messageId === messageId)
-        ) || null;
+        targetMemory = searchResults.find(result => 
+          result.point.id === messageId || 
+          (result.point.payload?.metadata && result.point.payload.metadata.messageId === messageId)
+        );
       }
       
       // If no match by ID or ID wasn't provided, try to match by timestamp
-      if (!targetMessage && timestamp) {
-        targetMessage = existingMessages.find(m => 
-          m.timestamp === timestamp || 
-          (new Date(m.timestamp).getTime() - new Date(timestamp).getTime() < 1000)
-        ) || null;
+      if (!targetMemory && timestamp) {
+        targetMemory = searchResults.find(result => {
+          const messageTimestamp = result.point.payload?.timestamp || 
+                                result.point.payload?.metadata?.timestamp;
+          return messageTimestamp === timestamp || 
+                (messageTimestamp && new Date(messageTimestamp).getTime() - new Date(timestamp).getTime() < 1000);
+        });
       }
       
       // If still no match, use content similarity as fallback
-      if (!targetMessage) {
+      if (!targetMemory) {
         // Get the first result as it should be the most similar
-        targetMessage = existingMessages[0];
+        targetMemory = searchResults[0];
       }
     }
 
     // If we found the message, update its metadata to mark it as unreliable
-    if (targetMessage) {
-      console.log(`Found existing message to flag as unreliable: ${targetMessage.id}`);
+    if (targetMemory) {
+      console.log(`Found existing message to flag as unreliable: ${targetMemory.point.id}`);
       
       // Update the message metadata to mark it as unreliable
-      const metadata = {
-        ...(targetMessage.metadata || {}),
-        flaggedUnreliable: true,
-        flaggedUnreliableAt: new Date().toISOString(),
-        unreliabilityReason: 'user_flagged',
-        excludeFromRetrieval: true, // This is the key flag to exclude from future retrievals
-        confidence: 0 // Set confidence to 0 to ensure it's not reranked highly
-      };
-      
-      // Re-add the message with updated metadata (since direct update isn't easily available)
-      await serverQdrant.addMemory(
-        'message',
-        targetMessage.text,
-        metadata
-      );
+      await memoryService.updateMemory({
+        id: targetMemory.point.id,
+        type: MemoryType.MESSAGE,
+        metadata: {
+          flaggedUnreliable: true,
+          flaggedUnreliableAt: new Date().toISOString(),
+          unreliabilityReason: 'user_flagged',
+          excludeFromRetrieval: true, // This is the key flag to exclude from future retrievals
+          confidence: 0 // Set confidence to 0 to ensure it's not reranked highly
+        }
+      });
       
       return NextResponse.json({ 
         success: true, 
@@ -86,10 +87,10 @@ export async function POST(req: NextRequest) {
       console.log('Creating new memory entry with unreliable flag');
       
       // Add as a new memory with unreliable flag
-      await serverQdrant.addMemory(
-        'message',
-        content,
-        {
+      await memoryService.addMemory({
+        type: MemoryType.MESSAGE,
+        content: content,
+        metadata: {
           flaggedUnreliable: true,
           flaggedUnreliableAt: new Date().toISOString(),
           unreliabilityReason: 'user_flagged',
@@ -99,7 +100,7 @@ export async function POST(req: NextRequest) {
           role: 'system',
           messageId: messageId
         }
-      );
+      });
       
       return NextResponse.json({ 
         success: true, 

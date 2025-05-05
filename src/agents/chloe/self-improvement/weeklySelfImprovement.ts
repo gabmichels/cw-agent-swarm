@@ -1,5 +1,6 @@
 import { ChloeMemory } from '../memory';
 import { ImportanceLevel, MemorySource } from '../../../constants/memory';
+import { MemoryType } from '../../../server/memory/config/types';
 import { scoreTaskPerformance, TaskPerformanceScore } from './performanceScorer';
 import { generateFeedbackInsights, FeedbackInsight } from './feedbackIngestor';
 import { generateStrategyAdjustments, StrategyAdjustment } from './strategyAdjuster';
@@ -183,7 +184,7 @@ export async function runWeeklySelfImprovement(
       if (graphInsights.length > 0) {
         await memory.addMemory(
           `Knowledge Graph Insights:\n${graphInsights.join('\n')}`,
-          'graph_insights',
+          MemoryType.GRAPH_INSIGHTS,
           ImportanceLevel.HIGH,
           MemorySource.SYSTEM,
           `Weekly graph insights: ${result.date}`,
@@ -380,7 +381,7 @@ async function storeSelfImprovementLog(
     
     await memory.addMemory(
       formattedLog,
-      'self_improvement_log',
+      MemoryType.SELF_IMPROVEMENT_LOG,
       ImportanceLevel.HIGH,
       MemorySource.SYSTEM,
       `Weekly self-improvement cycle: ${result.date}`,

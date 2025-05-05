@@ -4,6 +4,7 @@ import { TaskLogger } from "../task-logger";
 import { PlanningTask } from "../graph/nodes/types";
 import { TimeEstimate } from "../planning/timeEstimator";
 import { ImportanceLevel, MemorySource } from "../../../constants/memory";
+import { MemoryType } from "../../../server/memory/config/types";
 
 /**
  * Represents Chloe's daily capacity and workload status
@@ -104,7 +105,7 @@ export async function calculateChloeCapacity(
   if (memory) {
     await memory.addMemory(
       `Daily capacity for ${today.toISOString().split('T')[0]}: ${allocatedHours}/${DEFAULT_DAILY_HOURS} hours allocated. ${overload ? 'OVERLOADED' : 'Within capacity'}.`,
-      "capacity_check",
+      MemoryType.CAPACITY_CHECK,
       ImportanceLevel.MEDIUM,
       MemorySource.SYSTEM,
       undefined,
@@ -234,7 +235,7 @@ export async function deferOverflowTasks(
   if (memory && deferredTaskIds.length > 0) {
     await memory.addMemory(
       `Deferred ${deferredTaskIds.length} tasks (${deferredHours.toFixed(1)} hours) due to capacity overload on ${today.toISOString().split('T')[0]}.`,
-      "scheduling_adjustment",
+      MemoryType.SCHEDULING_ADJUSTMENT,
       ImportanceLevel.MEDIUM,
       MemorySource.SYSTEM,
       undefined,

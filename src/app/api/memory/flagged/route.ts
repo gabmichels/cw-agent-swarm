@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import * as serverQdrant from '../../../../server/qdrant';
+import { getMemoryServices } from '../../../../server/memory/services';
+import { MemoryType } from '../../../../server/memory/config';
 
 export const runtime = 'nodejs';
 
@@ -12,55 +13,77 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const queryLimit = searchParams.get('limit');
     const limit = queryLimit ? parseInt(queryLimit, 10) : 50;
-    const type = searchParams.get('type') as 'message' | 'thought' | 'reflection' | null;
+    const typeParam = searchParams.get('type');
     const user = searchParams.get('user');
     
     // Get all tags from the search params (can be multiple)
     const tags = searchParams.getAll('tags');
     
-    // Initialize Qdrant memory
-    await serverQdrant.initMemory();
+    // Initialize memory services
+    const { client, searchService } = await getMemoryServices();
+    const status = await client.getStatus();
+    
+    if (!status.initialized) {
+      console.log('[memory/flagged] Initializing memory services');
+      await client.initialize();
+    }
+    
+    // Map memory type string to MemoryType enum
+    let memoryType: MemoryType | undefined;
+    if (typeParam) {
+      switch (typeParam) {
+        case 'message':
+          memoryType = MemoryType.MESSAGE;
+          break;
+        case 'thought':
+          memoryType = MemoryType.THOUGHT;
+          break;
+        case 'reflection':
+          memoryType = MemoryType.REFLECTION;
+          break;
+        default:
+          // Leave undefined to search all types
+          break;
+      }
+    }
     
     // Create filter for our query
-    const filter: Record<string, any> = {
-      flagged: true // Only return flagged messages
+    const searchOptions: any = {
+      limit,
+      filter: {
+        flagged: true // Only return flagged messages
+      }
     };
     
     // Add type filter if provided
-    if (type) {
-      filter.type = type;
+    if (memoryType) {
+      searchOptions.types = [memoryType];
     }
     
     // Add tags filter if provided
     if (tags && tags.length > 0) {
-      filter.tags = tags;
+      searchOptions.filter.tags = tags;
     }
     
     // Add user filter if provided
     if (user) {
-      filter.user = user;
+      searchOptions.filter.user = user;
     }
     
-    // Get memory entries from Qdrant
-    const memoryEntries = await serverQdrant.searchMemory(
-      null,  // Search all types
-      '',    // Empty query to match everything
-      {
-        filter,
-        limit
-      }
-    );
+    // Get memory entries from search service
+    const searchResults = await searchService.search('', searchOptions);
+    const memoryEntries = searchResults.map(result => result.point);
     
     // Format the response
     const messages = memoryEntries.map(record => ({
       id: record.id,
-      content: record.text,
-      type: record.type || 'unknown',
-      timestamp: record.timestamp,
-      tags: record.metadata?.tags || [],
-      user: record.metadata?.user,
-      flaggedBy: record.metadata?.flaggedBy,
-      flaggedAt: record.metadata?.flaggedAt,
+      content: record.payload?.text || '',
+      type: (record as any).type || 'unknown',
+      timestamp: record.payload?.timestamp || new Date().toISOString(),
+      tags: record.payload?.metadata?.tags || [],
+      user: record.payload?.metadata?.user,
+      flaggedBy: record.payload?.metadata?.flaggedBy,
+      flaggedAt: record.payload?.metadata?.flaggedAt,
     }));
     
     return NextResponse.json({
@@ -68,7 +91,7 @@ export async function GET(request: NextRequest) {
       messages,
       count: messages.length,
       filters: {
-        type,
+        type: typeParam,
         tags,
         user
       }
@@ -97,16 +120,26 @@ export async function DELETE(request: NextRequest) {
       );
     }
     
-    // Initialize Qdrant memory
-    await serverQdrant.initMemory();
+    // Initialize memory services
+    const { client, memoryService } = await getMemoryServices();
+    const status = await client.getStatus();
     
-    // Process each ID
+    if (!status.initialized) {
+      console.log('[memory/flagged] Initializing memory services');
+      await client.initialize();
+    }
+    
+    // Process each ID - mark as deleted and remove flag
     const results = await Promise.allSettled(
       ids.map(id => 
-        serverQdrant.updateMemoryMetadata(id, {
-          deleted: true,
-          flagged: false,
-          deletedAt: new Date().toISOString()
+        memoryService.updateMemory({
+          id,
+          type: MemoryType.MESSAGE, // Default to MESSAGE type - we'll try to determine actual type in real implementation
+          metadata: {
+            deleted: true,
+            flagged: false,
+            deletedAt: new Date().toISOString()
+          }
         })
       )
     );

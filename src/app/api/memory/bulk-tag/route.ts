@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import * as serverQdrant from '../../../../server/qdrant';
+import { getMemoryServices } from '../../../../server/memory/services';
 
 export const runtime = 'nodejs';
 
@@ -25,8 +25,14 @@ export async function POST(request: NextRequest) {
       );
     }
     
-    // Initialize Qdrant memory
-    await serverQdrant.initMemory();
+    // Get memory services
+    const { client, memoryService, searchService } = await getMemoryServices();
+    
+    // Initialize memory services if needed
+    const status = await client.getStatus();
+    if (!status.initialized) {
+      await client.initialize();
+    }
     
     const updatedItems = [];
     const failedItems = [];
@@ -34,31 +40,36 @@ export async function POST(request: NextRequest) {
     // Process each memory item
     for (const id of ids) {
       try {
-        // Get the memory item using searchMemory instead of getMemoryById
-        const memoryItems = await serverQdrant.searchMemory(
-          null, // Search all types
-          '',   // Empty query
-          {
-            filter: { id }, // Filter by ID
-            limit: 1
-          }
-        );
+        // Find the memory item by id
+        const searchResults = await searchService.search('', {
+          filter: { id },
+          limit: 1
+        });
         
-        if (memoryItems && memoryItems.length > 0) {
-          const memoryItem = memoryItems[0];
+        if (searchResults && searchResults.length > 0) {
+          const searchResult = searchResults[0];
+          const memoryItem = searchResult.point;
+          const memoryType = searchResult.type;
           
-          // Prepare the updated tags (merging existing tags with new ones)
-          const existingTags = memoryItem.metadata?.tags || [];
+          // Extract existing metadata and tags
+          const existingMetadata = memoryItem.payload?.metadata || {};
+          const existingTags = existingMetadata.tags || [];
+          
+          // Merge existing tags with new ones (removing duplicates)
           const updatedTags = Array.from(new Set([...existingTags, ...tags]));
           
-          // Update the memory item's metadata
+          // Create updated metadata
           const updatedMetadata = {
-            ...memoryItem.metadata || {},
+            ...existingMetadata,
             tags: updatedTags
           };
           
           // Update the memory item
-          await serverQdrant.updateMemoryMetadata(id, updatedMetadata);
+          await memoryService.updateMemory({
+            id,
+            type: memoryType,
+            metadata: updatedMetadata
+          });
           
           updatedItems.push({
             id,

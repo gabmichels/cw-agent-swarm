@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import * as serverQdrant from '../../../../server/qdrant';
+import { getMemoryServices } from '../../../../server/memory/services';
 
 export const runtime = 'nodejs';
 
@@ -10,53 +10,63 @@ export async function GET(request: NextRequest) {
   try {
     console.log('[memory/check-format] Starting memory format check');
     
-    // Initialize Qdrant memory
-    await serverQdrant.initMemory({
-      useOpenAI: process.env.USE_OPENAI_EMBEDDINGS === 'true'
-    });
+    // Initialize memory services
+    const { client, searchService } = await getMemoryServices();
     
-    // Get a sample of memories using getAllMemories
-    const memories = await serverQdrant.getAllMemories(null, 10);
+    // Initialize memory services if needed
+    const status = await client.getStatus();
+    if (!status.initialized) {
+      await client.initialize();
+    }
+    
+    // Get a sample of memories using search service
+    const searchResults = await searchService.search('', { limit: 10 });
     
     // Check format of each memory
-    const formatResults = memories.map(memory => {
+    const formatResults = searchResults.map(searchResult => {
+      const memory = searchResult.point;
+      const memoryType = searchResult.type;
+      
       // Check required fields
       const missingFields = [];
       if (!memory.id) missingFields.push('id');
-      if (!memory.text) missingFields.push('text');
-      if (!memory.timestamp) missingFields.push('timestamp');
+      if (!memory.payload?.text) missingFields.push('text');
+      
+      const metadata = memory.payload?.metadata || {};
+      const timestamp = metadata.timestamp || memory.payload?.timestamp;
+      if (!timestamp) missingFields.push('timestamp');
       
       // Check type field
-      const type = memory.type || 
-                 memory.metadata?.type || 
-                 memory.metadata?.messageType ||
+      const type = memoryType || 
+                 metadata.type || 
+                 metadata.messageType ||
                  'unknown';
       
       // Generate sample formatted memory
       const formatted = {
         id: memory.id || `id-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
-        content: memory.text || '',
-        created: memory.timestamp || new Date().toISOString(),
-        timestamp: memory.timestamp || new Date().toISOString(),
+        content: memory.payload?.text || '',
+        created: timestamp || new Date().toISOString(),
+        timestamp: timestamp || new Date().toISOString(),
         type: type,
-        category: memory.metadata?.category || memory.metadata?.tag || memory.type || 'unknown',
-        source: memory.metadata?.source || 'system',
-        importance: memory.metadata?.importance || 'medium',
-        tags: Array.isArray(memory.metadata?.tags) ? memory.metadata.tags : []
+        category: metadata.category || metadata.tag || type || 'unknown',
+        source: metadata.source || 'system',
+        importance: metadata.importance || 'medium',
+        tags: Array.isArray(metadata.tags) ? metadata.tags : []
       };
       
       return {
         originalId: memory.id,
-        originalType: memory.type,
-        hasMetadata: !!memory.metadata,
+        originalType: memoryType,
+        hasMetadata: !!metadata && Object.keys(metadata).length > 0,
         detectedType: type,
         missingFields,
         hasMissingFields: missingFields.length > 0,
         originalSample: {
           id: memory.id,
-          type: memory.type,
-          text: memory.text ? memory.text.substring(0, 50) + '...' : 'NO TEXT',
-          metadata: memory.metadata ? Object.keys(memory.metadata) : []
+          type: memoryType,
+          text: memory.payload?.text ? memory.payload.text.substring(0, 50) + '...' : 'NO TEXT',
+          metadata: metadata ? Object.keys(metadata) : []
         },
         formattedSample: formatted
       };
@@ -64,14 +74,14 @@ export async function GET(request: NextRequest) {
     
     // Count memory type distribution
     const typeCount: Record<string, number> = {};
-    memories.forEach(memory => {
-      const type = memory.type || 'unknown';
+    searchResults.forEach(searchResult => {
+      const type = searchResult.type || 'unknown';
       typeCount[type] = (typeCount[type] || 0) + 1;
     });
     
     // Return format check results
     return NextResponse.json({
-      totalMemories: memories.length,
+      totalMemories: searchResults.length,
       typeDistribution: typeCount,
       formatResults,
       hasFormatIssues: formatResults.some(r => r.hasMissingFields)

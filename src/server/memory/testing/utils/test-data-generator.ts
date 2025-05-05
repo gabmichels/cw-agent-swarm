@@ -157,7 +157,7 @@ export function generateTestMemoryDataset(): Record<MemoryType, MemoryPoint<any>
  * Generate query text for testing search
  */
 export function generateQueryText(type: MemoryType): string {
-  const queries: Record<MemoryType, string> = {
+  const queries: Partial<Record<MemoryType, string>> = {
     [MemoryType.MESSAGE]: 'Message memory 1',
     [MemoryType.DOCUMENT]: 'Document memory 2',
     [MemoryType.THOUGHT]: 'Thought memory 3',
