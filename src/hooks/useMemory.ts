@@ -78,25 +78,57 @@ export default function useMemory(initialTypes?: MemoryType[]) {
         queryParams.append('offset', params.offset.toString());
       }
       
-      // Make API request
-      const response = await fetch(`/api/memory?${queryParams.toString()}`);
+      // Try the main memory API route first
+      console.log(`Attempting to fetch memories from main API with params: ${queryParams.toString()}`);
       
-      if (!response.ok) {
-        throw new Error(`Failed to fetch memories: ${response.statusText}`);
+      try {
+        // Make API request - Try the main route first
+        const response = await fetch(`/api/memory?${queryParams.toString()}`);
+        
+        if (response.ok) {
+          const data = await response.json();
+          
+          setState(prev => ({
+            ...prev,
+            memories: data.memories || [],
+            totalCount: data.total || 0,
+            isLoading: false
+          }));
+          
+          return data.memories;
+        } else if (response.status === 404) {
+          console.warn('Main memory API route returned 404, trying fallback route');
+          throw new Error('Memory API not found, trying fallback');
+        } else {
+          throw new Error(`Failed to fetch memories: ${response.statusText}`);
+        }
+      } catch (mainRouteError) {
+        // Try the fallback test route if first attempt failed
+        console.log('First API attempt failed, trying memory-test fallback API...');
+        
+        const fallbackResponse = await fetch(`/api/memory-test?${queryParams.toString()}`);
+        
+        if (!fallbackResponse.ok) {
+          throw new Error(`Fallback API failed: ${fallbackResponse.statusText}`);
+        }
+        
+        const fallbackData = await fallbackResponse.json();
+        
+        if (!fallbackData.success) {
+          throw new Error(`Fallback API error: ${fallbackData.error}`);
+        }
+        
+        setState(prev => ({
+          ...prev,
+          memories: fallbackData.memories || [],
+          totalCount: fallbackData.total || 0,
+          isLoading: false
+        }));
+        
+        return fallbackData.memories;
       }
-      
-      const data = await response.json();
-      
-      setState(prev => ({
-        ...prev,
-        memories: data.memories || [],
-        totalCount: data.total || 0,
-        isLoading: false
-      }));
-      
-      return data.memories;
     } catch (error) {
-      console.error('Error fetching memories:', error);
+      console.error('Error fetching memories (all attempts failed):', error);
       setState(prev => ({
         ...prev,
         error: error instanceof Error ? error : new Error(String(error)),
@@ -155,7 +187,7 @@ export default function useMemory(initialTypes?: MemoryType[]) {
         body.hybridRatio = params.hybridRatio;
       }
       
-      // Make API request to hybrid search endpoint
+      // Make API request to hybrid search endpoint - Updated for App Router route
       const response = await fetch('/api/memory/hybrid-search', {
         method: 'POST',
         headers: {
@@ -201,6 +233,7 @@ export default function useMemory(initialTypes?: MemoryType[]) {
    */
   const getMemory = useCallback(async (id: string) => {
     try {
+      // Updated API route for App Router
       const response = await fetch(`/api/memory/${id}`);
       
       if (!response.ok) {
@@ -225,6 +258,7 @@ export default function useMemory(initialTypes?: MemoryType[]) {
     }
   ) => {
     try {
+      // API route remains the same as we're using the base route
       const response = await fetch('/api/memory', {
         method: 'POST',
         headers: {

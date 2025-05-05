@@ -876,6 +876,22 @@ For detailed instructions, see the Debug panel.`,
     try {
       console.log("Fetching all memories using standardized memory hook...");
       
+      // First check if the memory API is available
+      try {
+        const healthCheck = await fetch('/api/memory-check');
+        if (!healthCheck.ok) {
+          const errorData = await healthCheck.json();
+          console.warn('Memory system health check failed:', errorData);
+          console.warn(`Memory system health check failed: ${errorData.message || healthCheck.statusText}`);
+          // Continue anyway - the getMemories call will provide more specific error
+        } else {
+          console.log('Memory system health check passed');
+        }
+      } catch (healthCheckError) {
+        console.warn('Memory system health check error:', healthCheckError);
+        // Continue anyway - the getMemories call will provide more specific error
+      }
+      
       // Call the getMemories function from the useMemory hook
       // Set a higher limit to get more memories
       await getMemories({ limit: 200 });
@@ -887,6 +903,14 @@ For detailed instructions, see the Debug panel.`,
       setAllMemories(memories);
     } catch (error) {
       console.error("Error fetching memories:", error);
+      
+      // Check if it's a "Not Found" error, which might indicate API route issues
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      if (errorMessage.includes('Not Found')) {
+        console.warn('Memory API endpoint not found. This might be due to the memory system refactoring.');
+        console.warn('Memory API endpoint not found. The app will continue with limited functionality.');
+      }
+      
       setAllMemories([]);
     } finally {
       setIsLoadingMemories(false);

@@ -1,133 +1,66 @@
 import { NextApiRequest, NextApiResponse } from 'next';
-import { MemoryService } from '../../../src/server/memory/services/memory/memory-service';
-import { SearchService } from '../../../src/server/memory/services/search/search-service';
-import { QdrantMemoryClient } from '../../../src/server/memory/services/client/qdrant-client';
-import { EmbeddingService } from '../../../src/server/memory/services/client/embedding-service';
-import { MemoryError, MemoryErrorCode, MemoryType } from '../../../src/server/memory/config';
 
-// Initialize services
-let memoryService: MemoryService;
-let searchService: SearchService;
-
-async function initializeServices() {
-  if (memoryService && searchService) return;
-  
-  try {
-    const client = new QdrantMemoryClient({
-      qdrantUrl: process.env.QDRANT_URL || 'http://localhost:6333',
-      qdrantApiKey: process.env.QDRANT_API_KEY
-    });
-    
-    const embeddingService = new EmbeddingService({
-      embeddingModel: 'text-embedding-3-small'
-    });
-    
-    // Initialize services
-    await client.initialize();
-    
-   // Create memory service
-   memoryService = new MemoryService(client, embeddingService, {
-    getTimestamp: () => Date.now()
-  });
-    
-    // Create search service
-    searchService = new SearchService(
-      client, 
-      embeddingService,
-      memoryService,
-      { getTimestamp: () => Date.now() }
-    );
-  } catch (error) {
-    console.error('Failed to initialize memory services:', error);
-    throw error;
-  }
-}
-
+/**
+ * Backward compatibility handler for memory hybrid-search API
+ * Redirects requests to the new App Router API endpoint
+ */
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  console.log('Legacy hybrid-search API endpoint called - redirecting to new App Router endpoint');
+  
   // Only allow POST method
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
   
-  // Initialize services if needed
   try {
-    await initializeServices();
-  } catch (error) {
-    return res.status(500).json({
-      error: 'Failed to initialize memory services',
-      message: error instanceof Error ? error.message : String(error)
-    });
-  }
-  
-  try {
-    // Extract search parameters
-    const { query, limit, offset, hybridRatio } = req.query;
-    const { filter } = req.body || {};
+    // Determine the internal URL to forward to
+    const protocol = process.env.NODE_ENV === 'development' ? 'http' : 'https';
+    const host = req.headers.host || 'localhost:3000';
+    const url = `${protocol}://${host}/api/memory/hybrid-search`;
     
-    // Validate query parameter
-    if (!query || typeof query !== 'string') {
-      return res.status(400).json({
-        error: 'Search query is required',
-        results: [],
-        total: 0
+    // Forward the request to the new App Router endpoint
+    const options: RequestInit = {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        // Add special header to indicate this should be handled by App Router
+        'x-use-app-router': 'true',
+        // Forward client IP and other relevant headers
+        'X-Forwarded-For': req.headers['x-forwarded-for'] as string || req.socket.remoteAddress || '',
+        'X-Original-URL': `${url}`,
+      },
+      body: JSON.stringify(req.body)
+    };
+    
+    console.log(`Forwarding request to App Router at: ${url}`);
+    
+    // Make the request to the App Router API
+    const response = await fetch(url, options);
+    
+    // Log the response status for debugging
+    console.log(`Response from App Router: ${response.status} ${response.statusText}`);
+    
+    // Check for successful response
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`Error response from App Router: ${response.status} ${response.statusText}`, errorText);
+      return res.status(response.status).json({ 
+        error: `Search failed: ${response.statusText}`,
+        details: errorText
       });
     }
     
-    // Parse numeric parameters
-    const parsedLimit = limit ? parseInt(limit as string, 10) : 10;
-    const parsedOffset = offset ? parseInt(offset as string, 10) : 0;
-    const parsedHybridRatio = hybridRatio 
-      ? parseFloat(hybridRatio as string) 
-      : 0.7; // Default 70% vector search, 30% keyword search
+    // Process successful response
+    const data = await response.json();
     
-    // Create hybrid search options 
-    const hybridSearchOptions = {
-      filter: filter || {},
-      limit: parsedLimit,
-      offset: parsedOffset,
-      types: filter?.types as MemoryType[] || [],
-      vectorWeight: parsedHybridRatio,
-      textWeight: 1 - parsedHybridRatio
-    };
-    
-    // Use hybrid search with proper parameters
-    const results = await searchService.hybridSearch(query as string, hybridSearchOptions);
-    
-    // Return search results
-    return res.status(200).json({
-      results,
-      total: results.length,
-      searchInfo: {
-        query,
-        filter,
-        limit: parsedLimit,
-        offset: parsedOffset,
-        hybridRatio: parsedHybridRatio
-      }
-    });
+    // Forward the response status and data
+    res.status(response.status).json(data);
   } catch (error) {
-    console.error('Error performing hybrid search:', error);
-    
-    if (error instanceof MemoryError) {
-      // Handle specific error types
-      switch (error.code) {
-        case MemoryErrorCode.VALIDATION_ERROR:
-          return res.status(400).json({ error: 'Validation error', message: error.message });
-        
-        case MemoryErrorCode.DATABASE_ERROR:
-          return res.status(500).json({ error: 'Database error', message: error.message });
-        
-        case MemoryErrorCode.EMBEDDING_ERROR:
-          return res.status(500).json({ error: 'Embedding error', message: error.message });
-        
-        default:
-          return res.status(500).json({ error: 'Memory system error', message: error.message });
-      }
-    }
-    
-    return res.status(500).json({
-      error: 'An unexpected error occurred',
-      message: error instanceof Error ? error.message : String(error)
+    console.error('Error forwarding to new hybrid-search API:', error);
+    res.status(500).json({ 
+      error: 'Failed to process search request',
+      message: 'The application is being upgraded to a new memory system. Please try again later.',
+      details: error instanceof Error ? error.message : String(error)
     });
   }
 } 
