@@ -19,6 +19,7 @@
     "memory:health-check": "curl http://localhost:3000/api/memory/health",
     "memory:api-test": "tsx scripts/test-memory-api.ts",
     "memory:test-hybrid-search": "tsx scripts/test-hybrid-search.ts",
+    "memory:integration-tests": "tsx src/server/memory/testing/run-memory-tests.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
