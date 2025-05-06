@@ -21,6 +21,29 @@ import { AgentMessage, MessageRouter, MessageType } from '../messaging/MessageRo
 import { Planner, PlanningContext, Plan } from '../planning/Planner';
 import { AgentHealthChecker } from '../coordination/AgentHealthChecker';
 import { CapabilityRegistry, CapabilityLevel, CapabilityType, Capability } from '../coordination/CapabilityRegistry';
+// Imports for memory operations
+import { 
+  addMessageMemory, 
+  addCognitiveProcessMemory, 
+  addTaskMemory,
+  addDocumentMemory
+} from '../../../server/memory/services/memory/memory-service-wrappers';
+import { 
+  createThreadInfo,
+  createMessageMetadata
+} from '../../../server/memory/services/helpers/metadata-helpers';
+import {
+  createAgentId,
+  createUserId,
+  createChatId
+} from '../../../types/structured-id';
+import {
+  CognitiveProcessType,
+  TaskStatus,
+  TaskPriority,
+  DocumentSource
+} from '../../../types/metadata';
+import { MessageRole } from '../../chloe/types/state';
 
 // Extend MessageType to include 'command' type
 type ExtendedMessageType = MessageType | 'command';
@@ -556,39 +579,117 @@ export class AgentBase {
         return;
       }
       
-      // Determine appropriate memory type
-      let memoryType = MemoryType.MESSAGE;
+      // Create structured IDs
+      const agentStructuredId = createAgentId(this.agentId);
       
+      // Default user and chat IDs if not provided
+      const userIdStr = message.metadata?.userId || 'system';
+      const chatIdStr = message.metadata?.chatId || 'default';
+      
+      const userStructuredId = createUserId(userIdStr);
+      const chatStructuredId = createChatId(chatIdStr);
+      
+      // Create thread info
+      const threadId = message.metadata?.threadId || `thread_${Date.now()}`;
+      const threadInfo = createThreadInfo(threadId, 0);
+      
+      // Store based on message kind
       if (message.metadata?.kind === 'thought') {
-        memoryType = MemoryType.THOUGHT;
+        // Add as cognitive process
+        await addCognitiveProcessMemory(
+          this.memoryService,
+          content,
+          CognitiveProcessType.THOUGHT,
+          agentStructuredId,
+          {
+            contextId: message.correlationId || message.delegationContextId,
+            relatedTo: message.metadata?.relatedTo,
+            influencedBy: message.metadata?.influencedBy,
+            importance: message.metadata?.importance,
+            metadata: {
+              source: 'agent',
+              category: message.metadata?.category || 'thought'
+            }
+          }
+        );
+        
+        // Log the contentHash separately
+        console.log(`Content hash for thought: ${contentHash}`);
       } else if (message.metadata?.kind === 'task') {
-        memoryType = MemoryType.TASK;
+        // Add as task
+        await addTaskMemory(
+          this.memoryService,
+          content,
+          message.metadata?.title || 'Untitled Task',
+          message.metadata?.status || TaskStatus.PENDING,
+          message.metadata?.priority || TaskPriority.MEDIUM,
+          agentStructuredId,
+          {
+            description: message.metadata?.description,
+            assignedTo: message.metadata?.assignedTo ? createAgentId(message.metadata.assignedTo) : undefined,
+            dueDate: message.metadata?.dueDate,
+            parentTaskId: message.metadata?.parentTaskId,
+            importance: message.metadata?.importance
+            // Avoid adding custom fields not in TaskMetadata
+          }
+        );
+        
+        // Log correlation info separately
+        console.log(`Task correlation ID: ${message.correlationId}, delegation context: ${message.delegationContextId}`);
       } else if (message.metadata?.kind === 'document') {
-        memoryType = MemoryType.DOCUMENT;
+        // Add as document
+        await addDocumentMemory(
+          this.memoryService,
+          content,
+          message.metadata?.source || DocumentSource.AGENT,
+          {
+            title: message.metadata?.title || 'Agent Document',
+            contentType: message.metadata?.contentType || 'text/plain',
+            agentId: agentStructuredId,
+            importance: message.metadata?.importance
+            // Avoid adding custom fields not in DocumentMetadata
+          }
+        );
+        
+        // Log content hash separately
+        console.log(`Content hash for document: ${contentHash}`);
+      } else {
+        // Default: add as regular message
+        const messageRole = message.fromAgentId === this.agentId 
+          ? MessageRole.ASSISTANT 
+          : MessageRole.USER;
+          
+        // Add as message with proper metadata structure
+        await addMessageMemory(
+          this.memoryService,
+          content,
+          messageRole,
+          userStructuredId,
+          agentStructuredId,
+          chatStructuredId,
+          threadInfo,
+          {
+            importance: message.metadata?.importance,
+            messageType: message.type,
+            // Add only fields that are part of MessageMetadata
+            metadata: {
+              tags: [
+                ...(message.metadata?.tags || []),
+                'correlation:' + (message.correlationId || 'none'),
+                'delegation:' + (message.delegationContextId || 'none')
+              ]
+            }
+          }
+        );
+        
+        // Log additional context separately
+        console.log(`Message from ${message.fromAgentId}, correlation: ${message.correlationId}`);
       }
-      
-      // Prepare metadata
-      const metadata = {
-        ...message.metadata || {},
-        fromAgentId: message.fromAgentId,
-        correlationId: message.correlationId,
-        delegationContextId: message.delegationContextId,
-        timestamp: message.timestamp || Date.now(),
-        contentHash // Store the content hash for future reference
-      };
-      
-      // Add to memory
-      await this.memoryService.addMemory({
-        type: memoryType,
-        content: content,
-        metadata: metadata,
-        tags: message.metadata?.tags || []
-      });
       
       // Add to recent messages cache for deduplication
       await this.trackRecentMessage(contentHash);
       
-      console.log(`[${this.agentId}] Stored message in memory (type: ${memoryType})`);
+      console.log(`[${this.agentId}] Stored message in memory (kind: ${message.metadata?.kind || 'message'})`);
     } catch (error) {
       console.error(`[${this.agentId}] Error storing message in memory:`, error);
     }

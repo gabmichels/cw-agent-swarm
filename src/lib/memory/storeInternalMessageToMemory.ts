@@ -1,80 +1,141 @@
 /**
  * Utility for storing internal messages to memory
- * This ensures proper routing of internal messages to memory instead of chat UI
+ * This ensures proper routing of internal messages with appropriate metadata
  */
 
 import { MessageType } from '../../constants/message';
-import { ImportanceLevel, MemorySource } from '../../constants/memory';
-import { MemoryType as StandardMemoryType } from '../../server/memory/config';
+import { ImportanceLevel } from '../../constants/memory';
+import { MemoryType } from '../../server/memory/config';
+import { 
+  createThoughtMetadata, 
+  createReflectionMetadata,
+  createMessageMetadata,
+  createThreadInfo
+} from '../../server/memory/services/helpers/metadata-helpers';
+import { CognitiveProcessType } from '../../types/metadata';
+import { 
+  addMessageMemory, 
+  addCognitiveProcessMemory 
+} from '../../server/memory/services/memory/memory-service-wrappers';
+import { 
+  createSystemId,
+  createAgentId,
+  createUserId,
+  createChatId,
+  parseStructuredId,
+  EntityType,
+  StructuredId
+} from '../../types/structured-id';
+import { MessageRole } from '../../agents/chloe/types/state';
 
 /**
- * Store an internal message to memory with proper tagging
+ * Store an internal message to memory with proper metadata and typing
+ * 
  * @param message The message content to store
  * @param type The type of internal message (thought, reflection, etc.)
- * @param memoryManager The memory manager instance
+ * @param memoryService The memory service instance
  * @param metadata Optional metadata about the message
  */
 export async function storeInternalMessageToMemory(
   message: string,
   type: MessageType.THOUGHT | MessageType.REFLECTION | MessageType.SYSTEM | MessageType.TOOL_LOG | MessageType.MEMORY_LOG,
-  memoryManager: any,
+  memoryService: any,
   metadata: {
     originTaskId?: string,
     toolUsed?: string,
     importance?: ImportanceLevel,
-    source?: MemorySource,
+    agentId?: string | StructuredId,
+    userId?: string | StructuredId,
+    chatId?: string | StructuredId,
+    threadId?: string,
     [key: string]: any
   } = {}
 ) {
-  // Default importance based on message type
-  let importance = metadata.importance || ImportanceLevel.MEDIUM;
-  let source = metadata.source || MemorySource.AGENT;
+  // Default importance
+  const importance = metadata.importance || ImportanceLevel.MEDIUM;
   
-  // Map message type to memory type
-  let memoryType: string;
+  // Create structured IDs or use system entity ID if not provided
+  const agentId: StructuredId = metadata.agentId 
+    ? (typeof metadata.agentId === 'string' && !metadata.agentId.includes(':') 
+        ? createAgentId(metadata.agentId) 
+        : metadata.agentId as StructuredId)
+    : createSystemId(EntityType.AGENT, 'system');
+    
+  const userId: StructuredId = metadata.userId 
+    ? (typeof metadata.userId === 'string' && !metadata.userId.includes(':') 
+        ? createUserId(metadata.userId) 
+        : metadata.userId as StructuredId)
+    : createSystemId(EntityType.USER, 'system');
+    
+  const chatId: StructuredId = metadata.chatId 
+    ? (typeof metadata.chatId === 'string' && !metadata.chatId.includes(':') 
+        ? createChatId(metadata.chatId) 
+        : metadata.chatId as StructuredId)
+    : createSystemId(EntityType.CHAT, 'system');
+  
+  // Create thread info
+  const threadInfo = createThreadInfo(
+    metadata.threadId || `thread_${Date.now()}`,
+    0
+  );
+
+  // Handle based on message type
   switch (type) {
     case MessageType.THOUGHT:
-      memoryType = StandardMemoryType.THOUGHT;
-      break;
+      // Use cognitive process for thoughts
+      return addCognitiveProcessMemory(
+        memoryService,
+        message,
+        CognitiveProcessType.THOUGHT,
+        agentId,
+        {
+          contextId: metadata.originTaskId,
+          importance: importance,
+          metadata: {
+            source: metadata.toolUsed ? 'tool' : 'agent',
+            category: metadata.toolUsed ? 'tool-output' : 'internal'
+          }
+        }
+      );
+      
     case MessageType.REFLECTION:
-      memoryType = 'reflection';
-      importance = metadata.importance || ImportanceLevel.HIGH; // Reflections are high importance by default
-      break;
+      // Use cognitive process for reflections
+      return addCognitiveProcessMemory(
+        memoryService,
+        message,
+        CognitiveProcessType.REFLECTION,
+        agentId,
+        {
+          contextId: metadata.originTaskId,
+          importance: metadata.importance || ImportanceLevel.HIGH,
+          metadata: {
+            source: metadata.toolUsed ? 'tool' : 'agent',
+            category: 'reflection'
+          }
+        }
+      );
+      
     case MessageType.SYSTEM:
-      memoryType = 'system';
-      source = MemorySource.SYSTEM;
-      break;
     case MessageType.TOOL_LOG:
-      memoryType = 'tool';
-      break;
     case MessageType.MEMORY_LOG:
-      memoryType = 'memory_log';
-      break;
     default:
-      memoryType = StandardMemoryType.THOUGHT;
+      // Use message memory for other types
+      return addMessageMemory(
+        memoryService,
+        message,
+        MessageRole.SYSTEM,
+        userId,
+        agentId,
+        chatId,
+        threadInfo,
+        {
+          messageType: type,
+          importance: importance,
+          metadata: {
+            tags: ['internal', 'not-for-chat'],
+            ...(metadata.toolUsed ? { toolUsed: metadata.toolUsed } : {})
+          }
+        }
+      );
   }
-
-  // Add additional metadata
-  const enhancedMetadata = {
-    ...metadata,
-    timestamp: new Date().toISOString(),
-    isInternalMessage: true,
-    notForChat: true
-  };
-  
-  // Store in memory
-  await memoryManager.addMemory(
-    message,
-    memoryType,
-    importance,
-    source,
-    JSON.stringify(enhancedMetadata)
-  );
-  
-  // Log to console in dev mode
-  if (process.env.DEV_SHOW_INTERNAL_MESSAGES === 'true') {
-    console.log(`INTERNAL MESSAGE [${type}]: ${message.substring(0, 100)}${message.length > 100 ? '...' : ''}`);
-  }
-
-  return true;
 } 

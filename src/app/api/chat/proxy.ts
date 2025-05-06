@@ -10,6 +10,10 @@ import {
 } from '../../../constants/proxy';
 import { STORAGE_KEYS, DEFAULTS } from '../../../constants/qdrant';
 import { MemorySource } from '../../../constants/memory';
+import { addMessageMemory } from '../../../server/memory/services/memory/memory-service-wrappers';
+import { createThreadInfo } from '../../../server/memory/services/helpers/metadata-helpers';
+import { createUserId, createAgentId, createChatId } from '../../../types/structured-id';
+import { MessageRole } from '../../../agents/chloe/types/state';
 
 // In-memory cache and in-flight request tracking
 const responseCache = new Map<string, {
@@ -184,13 +188,6 @@ function containsImageData(message: string): boolean {
 async function saveToHistory(userId: string, role: 'user' | 'assistant', content: string, attachments?: any[], visionResponseFor?: string) {
   if (!content || content.trim() === '') return null;
   
-  // Create a message object
-  const message = {
-    role,
-    content,
-    timestamp: new Date().toISOString(),
-  };
-  
   // Create an operation key to track this specific save operation
   const operationKey = `save:${userId}:${role}:${content.substring(0, 20)}`;
   
@@ -203,8 +200,6 @@ async function saveToHistory(userId: string, role: 'user' | 'assistant', content
     
     // Create a promise for this operation
     const operationPromise = (async () => {
-      let memorySuccess = false;
-      
       try {
         // Ensure memory services are initialized before adding memory
         const { client, memoryService } = await getMemoryServices();
@@ -221,7 +216,6 @@ async function saveToHistory(userId: string, role: 'user' | 'assistant', content
           setTimeout(() => reject(new Error('Memory operation timed out')), timeout);
         });
         
-        // Try to add memory with timeout protection
         console.log(`Saving ${role} message to memory service for user ${userId}: "${content.substring(0, 50)}..."`);
         
         let processedAttachments = attachments;
@@ -246,86 +240,81 @@ async function saveToHistory(userId: string, role: 'user' | 'assistant', content
           console.log(`Processed attachments for storage:`, JSON.stringify(processedAttachments).substring(0, 200) + '...');
         }
         
-        // Ensure userId is always set and is a string
-        const safeUserId = String(userId || 'gab');
+        // Convert role to the right format
+        const messageRole = role === 'user' ? MessageRole.USER : MessageRole.ASSISTANT;
         
-        // Create standardized metadata using the new structure
-        const metadata: Record<string, any> = {
-          // Core fields from BaseMetadata
-          source: role === 'user' ? 'user' : 'agent',
-          timestamp: Date.now(),
-          
-          // Message-specific fields
-          userId: safeUserId,
-          role,
-          messageType: 'chat',
-          
-          // Additional message-specific fields
-          attachments: processedAttachments || [],
-          isForChat: true,
-        };
+        // Create structured IDs
+        const userStructuredId = createUserId(userId || 'default');
+        const agentStructuredId = createAgentId('assistant');
+        const chatStructuredId = createChatId('default-chat');
         
-        // Add visionResponseFor if it exists
-        if (visionResponseFor) {
-          metadata.visionResponseFor = visionResponseFor;
-          console.log(`Including visionResponseFor in metadata: ${visionResponseFor}`);
+        // Create thread info
+        const threadInfo = createThreadInfo(`thread_${Date.now()}`, 0);
+        
+        // Add to memory using new pattern
+        const memoryOperation = addMessageMemory(
+          memoryService,
+          content,
+          messageRole,
+          userStructuredId,
+          agentStructuredId,
+          chatStructuredId,
+          threadInfo,
+          {
+            attachments: processedAttachments,
+            // Use valid MessageMetadata properties like tags for custom data
+            ...(visionResponseFor ? { 
+              messageType: 'vision-response',
+              tags: ['vision', `response-for:${visionResponseFor.substring(0, 20)}`]
+            } : {})
+          }
+        );
+        
+        // Execute with timeout protection
+        const memoryResult = await Promise.race([memoryOperation, timeoutPromise]);
+        
+        // Update cache with new message (if relevant)
+        if (userId && chatHistoryCache.has(userId)) {
+          const cachedData = chatHistoryCache.get(userId);
+          if (cachedData) {
+            // Create a simplified point for the cache
+            const newPoint = {
+              id: memoryResult.id,
+              payload: {
+                text: content,
+                metadata: {
+                  role: messageRole,
+                  userId: userStructuredId,
+                  timestamp: Date.now(),
+                  ...(visionResponseFor ? { visionResponseFor } : {}) // Keep this for the cache only
+                }
+              }
+            };
+            
+            // Add to cache
+            cachedData.history.push(newPoint);
+            cachedData.timestamp = Date.now();
+            
+            console.log(`Added message to in-memory cache for user ${userId}`);
+          }
         }
         
-        // Debug - log the full metadata we're about to save
-        console.log(`Saving message with metadata: userId=${metadata.userId}, role=${metadata.role}, source=${metadata.source}`);
-        console.log(`Full metadata to memory service:`, JSON.stringify(metadata).substring(0, 200) + '...');
-        
-        // Add the memory using the memory service directly
-        const addMemoryPromise = memoryService.addMemory({
-          type: MemoryType.MESSAGE,
-          content,
-          metadata,
-          payload: {
-            text: content
-          }
-        });
-        
-        // Race the promises to handle timeouts
-        const result = await Promise.race([addMemoryPromise, timeoutPromise]);
-        const messageId = result.id;
-        console.log(`Saved ${role} message to memory service for user ${safeUserId}, ID: ${messageId}`);
-        memorySuccess = true;
-        
-        // Skip the verification step if we've successfully added the memory
-        // This reduces unnecessary database operations
-        
-        return {
-          ...message,
-          visionResponseFor,
-          memoryId: messageId
-        };
+        return memoryResult;
       } catch (error) {
-        // Log the error but continue - this is non-critical
-        console.error('Error saving message to memory service:', error instanceof Error ? error.message : String(error));
-        console.error('Full error details:', error);
-        
-        // Continue with in-memory storage only
-        console.log(`Falling back to in-memory storage only for user ${userId}`);
-        
-        return {
-          ...message,
-          visionResponseFor
-        };
+        console.error('Error saving message to history:', error);
+        throw error; // Re-throw to let the caller handle it
       }
     })();
     
     // Store the promise in the pending operations map
     pendingMemoryOperations.set(operationKey, operationPromise);
     
-    // Execute the operation
-    const result = await operationPromise;
-    
-    // Clean up after operation completes
-    setTimeout(() => {
+    // Clean up after operation is complete
+    operationPromise.finally(() => {
       pendingMemoryOperations.delete(operationKey);
-    }, 30000); // Keep in map for 30 seconds to prevent duplicates
+    });
     
-    return result;
+    return await operationPromise;
   } catch (error) {
     console.error('Error in saveToHistory:', error);
     return null;
