@@ -2,16 +2,43 @@
 
 This folder contains comprehensive documentation about the memory system, its current state, and proposed improvements.
 
-## Quick Navigation
+## Directory Structure
 
-1. [Memory Architecture](./MEMORY_ARCHITECTURE.md) - Overview of the memory system architecture
-2. [Memory Schemas](./MEMORY_SCHEMAS.md) - Documentation of memory data structures
-3. [Memory Operations](./MEMORY_OPERATIONS.md) - API documentation for memory operations
-4. [Memory Entity Relationships](./MEMORY_ERD.md) - Entity relationship diagram and relationship details
-5. [Access Patterns](./ACCESS_PATTERNS.md) - How memory is accessed throughout the application
-6. [Proposed Solution](./PROPOSED_SOLUTION.md) - Plan for standardizing and improving the memory system
-7. [Implementation Tracker](./IMPLEMENTATION_TRACKER.md) - Tracks progress of implementation phases
-8. [Implementation Prompt](./IMPLEMENTATION_PROMPT.md) - Guide for maintainers implementing the system
+- **[architecture/](./architecture/)** - Memory system architecture documentation
+  - [MEMORY_ARCHITECTURE.md](./architecture/MEMORY_ARCHITECTURE.md) - Overview of the memory system architecture
+  - [MEMORY_SCHEMAS.md](./architecture/MEMORY_SCHEMAS.md) - Documentation of memory data structures
+  - [MEMORY_OPERATIONS.md](./architecture/MEMORY_OPERATIONS.md) - API documentation for memory operations
+  - [MEMORY_ERD.md](./architecture/MEMORY_ERD.md) - Entity relationship diagram and relationship details
+  - [ACCESS_PATTERNS.md](./architecture/ACCESS_PATTERNS.md) - How memory is accessed throughout the application
+  - [PROPOSED_SOLUTION.md](./architecture/PROPOSED_SOLUTION.md) - Plan for standardizing and improving the memory system
+
+- **[implementation/](./implementation/)** - Implementation guidelines and tracking
+  - [IMPLEMENTATION_TRACKER.md](./implementation/IMPLEMENTATION_TRACKER.md) - Tracks progress of implementation phases
+  - [IMPLEMENTATION_PROMPT.md](./implementation/IMPLEMENTATION_PROMPT.md) - Guide for maintainers implementing the system
+  - [NEXT_STEPS.md](./implementation/NEXT_STEPS.md) - Upcoming implementation tasks and priorities
+
+- **[api/](./api/)** - API documentation and guidelines
+  - [API_DOCUMENTATION.md](./api/API_DOCUMENTATION.md) - Comprehensive API reference
+  - [NEXT_JS_API_PATTERNS.md](./api/NEXT_JS_API_PATTERNS.md) - Best practices for NextJS API routes
+  - [NEXT_JS_API_ISSUES.md](./api/NEXT_JS_API_ISSUES.md) - Common issues and solutions for NextJS APIs
+  - [TAG_EXTRACTION_GUIDE.md](./api/TAG_EXTRACTION_GUIDE.md) - Guide for tag extraction from memory content
+
+- **[testing/](./testing/)** - Testing documentation and reports
+  - [TESTING.md](./testing/TESTING.md) - Testing strategy and guidelines
+  - [TESTING_RESULTS.md](./testing/TESTING_RESULTS.md) - Results from testing sessions
+  - [RUNNING_INTEGRATION_TESTS.md](./testing/RUNNING_INTEGRATION_TESTS.md) - Guide for running integration tests
+  - [INTEGRATION_TESTING_SUMMARY.md](./testing/INTEGRATION_TESTING_SUMMARY.md) - Summary of integration test results
+  - [INTEGRATION_TEST_ISSUES.md](./testing/INTEGRATION_TEST_ISSUES.md) - Issues found during integration testing
+  - [TOOL_ROUTING_TEST_PLAN.md](./testing/TOOL_ROUTING_TEST_PLAN.md) - Test plan for tool routing functionality
+
+- **[integration/](./integration/)** - Integration guides and plans
+  - [MEMORY_TAB_INTEGRATION.md](./integration/MEMORY_TAB_INTEGRATION.md) - Integration with the memory tab UI
+  - [UI_INTEGRATION_PLAN.md](./integration/UI_INTEGRATION_PLAN.md) - Plan for integrating with the UI
+  - [DEPLOYMENT_GUIDE.md](./integration/DEPLOYMENT_GUIDE.md) - Guide for deploying memory system changes
+
+- **[performance/](./performance/)** - Performance documentation
+  - [PERF_BASELINE.md](./performance/PERF_BASELINE.md) - Performance baseline measurements
+  - [PERFORMANCE_OPTIMIZATION.md](./performance/PERFORMANCE_OPTIMIZATION.md) - Performance optimization strategies
 
 ## Current System Overview
 
@@ -55,7 +82,7 @@ The implementation will proceed in phases:
 
 ## Current Status
 
-See the [Implementation Tracker](./IMPLEMENTATION_TRACKER.md) for current progress.
+See the [Implementation Tracker](./implementation/IMPLEMENTATION_TRACKER.md) for current progress.
 
 ## Contributing
 
