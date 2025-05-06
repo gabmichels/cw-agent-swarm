@@ -154,14 +154,13 @@ const ChatBubbleMenu: React.FC<ChatBubbleMenuProps> = ({
       {/* Add delete message button - support both timestamp and memory ID approaches */}
       {(onDeleteMessage || onDeleteMemory) && (
         <div 
-          className={`flex items-center gap-1 text-sm text-red-500 hover:text-red-400 transition-colors p-1 px-2 rounded cursor-pointer hover:bg-gray-800`}
+          className={`p-1.5 rounded-full hover:bg-gray-800 hover:text-purple-400 transition-colors`}
           onClick={(e) => {
             e.stopPropagation();
             handleDelete();
           }}
         >
-          <Trash2 size={14} />
-          <span>Delete</span>
+          <Trash2 className="h-4 w-4" />
         </div>
       )}
     </div>

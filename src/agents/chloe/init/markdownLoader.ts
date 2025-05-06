@@ -12,6 +12,7 @@ import { AGENT_CONFIGS } from '../types/agent';
 
 // Track whether initialization has already occurred to prevent multiple loads 
 let initializationComplete = false;
+let initializationPromise: Promise<void> | null = null;
 
 /**
  * Initialize the markdown memory loader and load all markdown files
@@ -33,44 +34,62 @@ export async function initializeMarkdownMemory(options: {
       return;
     }
 
-    logger.info('Starting automatic markdown memory loader initialization...');
+    // If initialization is in progress, wait for it to complete
+    if (initializationPromise && !options.force) {
+      logger.info('Markdown memory initialization already in progress, waiting for completion');
+      await initializationPromise;
+      return;
+    }
+
+    // Set initialization promise to avoid concurrent initializations
+    initializationPromise = (async () => {
+      logger.info('Starting automatic markdown memory loader initialization...');
+      
+      // Get agent ID from options or determine from module path
+      const agentId = options.agentId || getAgentIdFromPath();
+      
+      // Get agent config based on ID
+      const agentConfig = AGENT_CONFIGS[agentId];
+      
+      // Get department directly - either from options, agent config, or default
+      const department = options.department || 
+                        (agentConfig && agentConfig.departments && agentConfig.departments.length > 0 ? 
+                        agentConfig.departments[0] : 'marketing');
+      
+      // Set up directories to search - these contain the most important documentation
+      const directoriesToLoad = options.directories || [
+        'data/knowledge/company', 
+        `data/knowledge/agents/${agentId}`,
+        `data/knowledge/domains/${department}`
+      ];
+      
+      // Load all markdown files into memory
+      // Apply duplication checking by default
+      logger.info(`Loading markdown documentation for agent ${agentId} (department: ${department}) into memory with caching enabled...`);
+      
+      const stats = await loadAllMarkdownAsMemory(directoriesToLoad, {
+        force: options.force || false,
+        checkForDuplicates: true
+      });
+      
+      // Record successful initialization details
+      logger.info(`Markdown initialization complete: Processed ${stats.filesProcessed} files, Added ${stats.entriesAdded} memory entries, Skipped ${stats.duplicatesSkipped} duplicates, Unchanged: ${stats.unchangedFiles}`);
+      
+      // Mark as initialized
+      initializationComplete = true;
+    })();
+
+    // Wait for initialization to complete
+    await initializationPromise;
     
-    // Get agent ID from options or determine from module path
-    const agentId = options.agentId || getAgentIdFromPath();
-    
-    // Get agent config based on ID
-    const agentConfig = AGENT_CONFIGS[agentId];
-    
-    // Get department directly - either from options, agent config, or default
-    const department = options.department || 
-                      (agentConfig && agentConfig.departments && agentConfig.departments.length > 0 ? 
-                      agentConfig.departments[0] : 'marketing');
-    
-    // Set up directories to search - these contain the most important documentation
-    const directoriesToLoad = options.directories || [
-      'data/knowledge/company', 
-      `data/knowledge/agents/${agentId}`,
-      `data/knowledge/domains/${department}`
-    ];
-    
-    // Load all markdown files into memory
-    // Apply duplication checking by default
-    logger.info(`Loading markdown documentation for agent ${agentId} (department: ${department}) into memory with caching enabled...`);
-    
-    const stats = await loadAllMarkdownAsMemory(directoriesToLoad, {
-      force: options.force || false,
-      checkForDuplicates: true
-    });
-    
-    // Record successful initialization details
-    logger.info(`Markdown initialization complete: Processed ${stats.filesProcessed} files, Added ${stats.entriesAdded} memory entries, Skipped ${stats.duplicatesSkipped} duplicates, Unchanged: ${stats.unchangedFiles}`);
-    
-    // Mark as initialized
-    initializationComplete = true;
   } catch (error) {
     // Log the error but don't block application startup
     logger.error('Error during markdown memory initialization:', error);
     logger.warn('Application will continue without markdown content loaded. Some knowledge retrieval features may be impaired.');
+    
+    // Reset initialization state so we can try again
+    initializationPromise = null;
+    initializationComplete = false;
   }
 }
 
@@ -79,6 +98,10 @@ export async function initializeMarkdownMemory(options: {
  */
 export async function forceReloadMarkdownFiles(agentId?: string, department?: string): Promise<void> {
   try {
+    // Reset initialization state
+    initializationComplete = false;
+    initializationPromise = null;
+    
     logger.info('Forcing reload of all markdown files...');
     await initializeMarkdownMemory({ force: true, agentId, department });
     logger.info('Forced markdown reload complete');

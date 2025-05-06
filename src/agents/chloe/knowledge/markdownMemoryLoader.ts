@@ -20,6 +20,7 @@ const MEMORY_TYPES = {
 
 // Cache to store file modification times and memory IDs
 let fileModCache = new Map<string, { lastModified: number, memoryIds: string[] }>();
+let cacheLoaded = false;
 
 // Path to the cache file
 const CACHE_FILE_PATH = path.join(process.cwd(), 'data', 'cache', 'markdown-cache.json');
@@ -28,6 +29,12 @@ const CACHE_FILE_PATH = path.join(process.cwd(), 'data', 'cache', 'markdown-cach
  * Load the file modification cache from disk
  */
 async function loadFileModCache(): Promise<void> {
+  // Skip if already loaded
+  if (cacheLoaded) {
+    logger.info('Markdown cache already loaded, skipping reload');
+    return;
+  }
+
   try {
     // Create cache directory if it doesn't exist
     const cacheDir = path.dirname(CACHE_FILE_PATH);
@@ -36,6 +43,14 @@ async function loadFileModCache(): Promise<void> {
     // Check if cache file exists
     try {
       const data = await fs.readFile(CACHE_FILE_PATH, 'utf8');
+      
+      // Ensure we have valid data
+      if (!data || data.trim() === '') {
+        logger.info('Empty markdown cache file found, creating new cache');
+        fileModCache = new Map();
+        return;
+      }
+      
       const parsed = JSON.parse(data);
       
       // Convert from plain object to Map
@@ -44,10 +59,11 @@ async function loadFileModCache(): Promise<void> {
       }));
       
       logger.info(`Loaded markdown cache with ${fileModCache.size} entries`);
+      cacheLoaded = true;
     } catch (err) {
       // File doesn't exist or is invalid, create a new empty cache
       fileModCache = new Map();
-      logger.info('No markdown cache found, creating new cache');
+      logger.info('No markdown cache found or invalid format, creating new cache');
     }
   } catch (err) {
     logger.error('Error loading markdown cache:', err);
@@ -110,7 +126,7 @@ async function shouldReloadFile(filePath: string): Promise<{ needsReload: boolea
  * @param filePath Path to the markdown file
  * @param memoryIds Array of memory IDs associated with this file
  */
-function updateFileModCache(filePath: string, memoryIds: string[]): void {
+async function updateFileModCache(filePath: string, memoryIds: string[]): Promise<void> {
   try {
     const stats = fsSync.statSync(filePath);
     fileModCache.set(filePath, {
@@ -119,7 +135,7 @@ function updateFileModCache(filePath: string, memoryIds: string[]): void {
     });
     
     // Save the cache after each update to ensure persistence
-    void saveFileModCache();
+    await saveFileModCache();
   } catch (error) {
     logger.error(`Error updating file modification cache for ${filePath}:`, error);
   }
@@ -532,7 +548,7 @@ export async function processMarkdownFile(memoryManager: any, filePath: string):
     );
     
     // Update the file modification cache
-    updateFileModCache(filePath, [result.id]);
+    await updateFileModCache(filePath, [result.id]);
     
     logger.info(`Processed markdown file "${filePath}" with ${finalTags.length} tags as ${memoryType}`);
     
@@ -675,6 +691,7 @@ async function processFile(
   } catch (error) {
     stats.filesSkipped++;
     logger.error(`Error processing ${filePath}:`, error);
+    throw error; // Re-throw so it can be caught by the caller
   }
 }
 
@@ -699,7 +716,7 @@ export async function loadAllMarkdownAsMemory(
   unchangedFiles: number;
 }> {
   try {
-    // Load the file modification cache from disk
+    // Load the file modification cache from disk only once
     await loadFileModCache();
     
     // Find all markdown files
@@ -737,9 +754,14 @@ export async function loadAllMarkdownAsMemory(
       throw new Error('ChloeMemory not initialized');
     }
     
-    // Process each file
+    // Process each file sequentially to avoid race conditions
     for (const filePath of markdownFiles) {
-      await processFile(filePath, memoryManager, chloeMemory, options, stats);
+      try {
+        await processFile(filePath, memoryManager, chloeMemory, options, stats);
+      } catch (error) {
+        logger.error(`Error processing file ${filePath}:`, error);
+        stats.filesSkipped++;
+      }
     }
     
     // Save the cache at the end of processing

@@ -93,6 +93,7 @@ export class ChloeMemory {
   private rerankerService: RerankerService | null = null;
   private memoryService: any;
   private searchService: any;
+  private static lastTimestamp: Date | null = null;
 
   constructor(options?: ChloeMemoryOptions) {
     this.agentId = options?.agentId || 'chloe';
@@ -182,14 +183,28 @@ export class ChloeMemory {
         ? content
         : this.formatContent(content, type);
       
-      // Prepare metadata
+      // Ensure unique timestamp - add a few milliseconds if very close to last timestamp
+      // This fixes UI sorting issues by ensuring messages have distinct timestamps
+      const currentTimestamp = new Date();
+      // Check the global lastTimestamp static property
+      if (ChloeMemory.lastTimestamp && 
+          currentTimestamp.getTime() - ChloeMemory.lastTimestamp.getTime() < 10) {
+        // Add a small delay (10-20ms) to ensure unique ordering
+        currentTimestamp.setMilliseconds(
+          currentTimestamp.getMilliseconds() + 20
+        );
+      }
+      // Update the static lastTimestamp property
+      ChloeMemory.lastTimestamp = currentTimestamp;
+      
+      // Prepare metadata with the unique timestamp
       const enhancedMetadata = {
         ...metadata,
         importance,
         source,
         category,
         tags,
-        timestamp: new Date().toISOString()
+        timestamp: currentTimestamp.toISOString()
       };
 
       // Add the memory using the standardized memory service
@@ -1916,6 +1931,7 @@ export class ChloeMemory {
    * Format memory content with standardized type prefix
    */
   private formatContent(content: string, type: MemoryType): string {
+    // Generate unique timestamp for each message
     const timestamp = new Date().toISOString();
     
     switch (type) {
@@ -1937,7 +1953,22 @@ export class ChloeMemory {
    */
   private createMemoryEntryFromPoint(memoryPoint: any): MemoryEntry {
     const metadata = memoryPoint.payload.metadata || {};
-    const timestamp = metadata.timestamp ? new Date(metadata.timestamp) : new Date();
+    
+    // Prioritize the metadata timestamp if available
+    let timestamp: Date;
+    
+    if (metadata.timestamp) {
+      // Use the metadata timestamp
+      timestamp = new Date(metadata.timestamp);
+    } else if (memoryPoint.payload.timestamp) {
+      // Fallback to payload timestamp
+      timestamp = new Date(memoryPoint.payload.timestamp);
+    } else {
+      // Last resort - create a new timestamp
+      timestamp = new Date();
+      // Log the issue to help with debugging
+      console.warn('Memory entry missing timestamp, using current time', memoryPoint.id);
+    }
     
     return {
       id: memoryPoint.id,

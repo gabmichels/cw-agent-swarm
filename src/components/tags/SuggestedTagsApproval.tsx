@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Tag, Check, X, Plus, Edit } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Tag, Check, X, Plus, Edit, RefreshCw } from 'lucide-react';
 
 interface SuggestedTagsApprovalProps {
   memoryId: string;
@@ -7,6 +7,7 @@ interface SuggestedTagsApprovalProps {
   existingTags: string[];
   onApprove: (memoryId: string, approvedTags: string[]) => void;
   onReject: (memoryId: string) => void;
+  onRegenerate?: () => void;
 }
 
 /**
@@ -17,8 +18,23 @@ const SuggestedTagsApproval: React.FC<SuggestedTagsApprovalProps> = ({
   suggestedTags,
   existingTags,
   onApprove,
-  onReject
+  onReject,
+  onRegenerate
 }) => {
+  // Add debug logging to see if onRegenerate is provided
+  console.log("SuggestedTagsApproval render:", {
+    memoryId,
+    suggestedTagsCount: suggestedTags.length,
+    existingTagsCount: existingTags.length,
+    hasRegenerateFunction: !!onRegenerate,
+    onRegenerateType: typeof onRegenerate
+  });
+  
+  // Log whenever onRegenerate changes
+  useEffect(() => {
+    console.log("SuggestedTagsApproval onRegenerate changed:", !!onRegenerate);
+  }, [onRegenerate]);
+
   const [selectedTags, setSelectedTags] = useState<string[]>([...suggestedTags]);
   const [isEditing, setIsEditing] = useState(false);
   const [newTag, setNewTag] = useState('');
@@ -45,6 +61,17 @@ const SuggestedTagsApproval: React.FC<SuggestedTagsApprovalProps> = ({
     onApprove(memoryId, selectedTags);
   };
 
+  // Handle regenerate click with explicit logging
+  const handleRegenerateClick = () => {
+    console.log("Regenerate button clicked in SuggestedTagsApproval");
+    if (onRegenerate) {
+      console.log("Calling onRegenerate function");
+      onRegenerate();
+    } else {
+      console.error("onRegenerate is undefined or not a function");
+    }
+  };
+
   // Render tag pills
   const renderTag = (tag: string, isSelected: boolean) => (
     <div 
@@ -69,6 +96,20 @@ const SuggestedTagsApproval: React.FC<SuggestedTagsApprovalProps> = ({
           <span>AI-Suggested Tags</span>
         </div>
         <div className="flex items-center space-x-2">
+          {typeof onRegenerate === 'function' ? (
+            <button
+              onClick={handleRegenerateClick}
+              className="text-gray-400 hover:text-white mr-2"
+              title="Regenerate tags"
+            >
+              <RefreshCw className="h-4 w-4" />
+              <span className="ml-1 text-xs">Regenerate</span>
+            </button>
+          ) : (
+            <div className="text-xs text-gray-500 mr-2">
+              Regenerate unavailable
+            </div>
+          )}
           <button
             onClick={() => setIsEditing(!isEditing)}
             className="text-gray-400 hover:text-white"
