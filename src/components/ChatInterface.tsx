@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { Send, X, ImagePlus, Maximize2, Minimize2 } from 'lucide-react';
 import MarkdownRenderer from './MarkdownRenderer';
 import TabsNavigation from './TabsNavigation';
@@ -58,11 +58,20 @@ export default function ChatInterface() {
     isLoadingHistory,
     historyError,
     addChatMessage,
-    deleteChatMessage
+    deleteChatMessage,
+    loadChatHistory
   } = useChatMemory({
     userId,
     includeInternalMessages: showInternalMessages
   });
+  
+  // Local messages state for immediate UI updates before memory loads
+  const [localMessages, setLocalMessages] = useState<Message[]>([]);
+  
+  // Combine memory messages with local messages for display
+  const displayMessages = useMemo(() => {
+    return messages.length > 0 ? messages : localMessages;
+  }, [messages, localMessages]);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -71,7 +80,7 @@ export default function ChatInterface() {
     if (!searchQuery) {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [messages, searchQuery]);
+  }, [displayMessages, searchQuery]);
 
   // Function to handle sending a message
   const handleSendMessage = async (e: React.FormEvent) => {
@@ -79,7 +88,8 @@ export default function ChatInterface() {
     
     if (!input.trim() || isLoading) return;
     
-    // Add user message to chat
+    // Add user message to chat - we'll create a temporary message object
+    // but we no longer need to add it to memory since the agent will handle that
     const userMessage: Message = {
       sender: 'You',
       content: input.trim(),
@@ -87,8 +97,8 @@ export default function ChatInterface() {
       messageType: MessageType.USER,
     };
     
-    // Add message to memory
-    await addChatMessage(userMessage);
+    // Display the message in UI immediately (it will be replaced by the stored version on next load)
+    setLocalMessages(prev => [...prev, userMessage]);
     
     setInput('');
     setIsLoading(true);
@@ -135,6 +145,7 @@ export default function ChatInterface() {
         replyText = "I'm sorry, I encountered an issue with my response format. Please try again.";
       }
       
+      // Display the bot's response in the UI immediately
       const botResponse: Message = {
         sender: 'Assistant',
         content: replyText,
@@ -144,20 +155,25 @@ export default function ChatInterface() {
         messageType: MessageType.AGENT,
       };
       
-      // Add bot response to memory
-      await addChatMessage(botResponse);
+      // Add to UI immediately - will be replaced by stored version on next refresh
+      setLocalMessages(prev => [...prev, botResponse]);
+      
+      // Refresh messages from memory after a short delay
+      setTimeout(() => {
+        loadChatHistory();
+      }, 1000);
     } catch (error) {
       console.error('Error sending message:', error);
       
-      // Add error message to memory
+      // Add error message to UI
       const errorMessage: Message = {
         sender: 'Assistant',
-          content: 'Sorry, I encountered an error processing your request. Please try again.',
-          timestamp: new Date(),
-          messageType: MessageType.AGENT,
+        content: 'Sorry, I encountered an error processing your request. Please try again.',
+        timestamp: new Date(),
+        messageType: MessageType.AGENT,
       };
       
-      await addChatMessage(errorMessage);
+      setLocalMessages(prev => [...prev, errorMessage]);
     } finally {
       setIsLoading(false);
     }
@@ -352,12 +368,9 @@ export default function ChatInterface() {
         ) : (
           <>
             <ChatMessages
-              messages={messages}
+              messages={displayMessages}
               isLoading={isLoading}
               onImageClick={handleImageViewerOpen}
-              showInternalMessages={showInternalMessages}
-              searchQuery={searchQuery}
-              initialMessageId={selectedMessageId}
               onDeleteMessage={deleteChatMessage}
             />
           </>

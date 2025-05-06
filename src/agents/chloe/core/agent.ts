@@ -1,13 +1,10 @@
-import { StateGraph, ChloeState, ChannelValue, Task, Memory, Reflection } from '../types/state';
-import { Message as ChloeMessage } from '../types/message';
+import { StateGraph, ChloeState } from '../types/state';
 import { ChatOpenAI } from '@langchain/openai';
 import { AgentConfig } from '../../../lib/shared';
 import { SYSTEM_PROMPTS } from '../../../lib/shared';
-import { AutonomySystem, AutonomyDiagnosis } from '../../../lib/shared/types/agent';
+import { AutonomySystem } from '../../../lib/shared/types/agent';
 import { Notifier } from '../notifiers';
 import { TaskLogger } from './taskLogger';
-import { TaskStatus } from '../../../constants/task';
-import { Message } from '../types/message';
 import { RobustSafeguards } from './robustSafeguards';
 import { 
   IAgent, 
@@ -15,15 +12,13 @@ import {
   StrategicInsight,
   PlanAndExecuteOptions,
   PlanAndExecuteResult,
-  PlanStep,
   ScheduledTask,
-  MemoryEntry as BaseMemoryEntry
 } from '../../../lib/shared/types/agentTypes';
-import { IManager } from '../../../lib/shared/types/manager'; // Assuming IManager exists
 import { createChloeTools } from '../tools';
 import { ImportanceLevel, MemorySource } from '../../../constants/memory';
 import { MemoryType } from '../../../server/memory/config/types';
 import { PerformanceReviewType } from '../../../constants/reflection';
+import { extractTags } from '../../../utils/tagExtractor';
 
 // Import all the managers
 import { MemoryManager } from './memoryManager';
@@ -36,9 +31,6 @@ import { KnowledgeGapsManager } from './knowledgeGapsManager';
 import { StateManager } from './stateManager';
 import { ChloeMemory, MemoryEntry } from '../memory';
 import { MarkdownWatcher } from '../knowledge/markdownWatcher';
-
-// Import the markdown memory loader
-import { loadAllMarkdownAsMemory } from '../knowledge/markdownMemoryLoader';
 
 // Add the import for our markdown memory loader
 import { initializeMarkdownMemory } from '../init/markdownLoader';
@@ -75,7 +67,6 @@ export interface ChloeAgent {
 export class ChloeAgent implements IAgent {
   readonly agentId: string = 'chloe';
   private _initialized: boolean = false;
-  private autonomyMode: boolean = false;
   private scheduledTasks: ScheduledTask[] = [];
   
   get initialized(): boolean {
@@ -320,31 +311,7 @@ export class ChloeAgent implements IAgent {
    * @returns The agent's response
    */
   async processMessage(message: string, options: MessageOptions = { userId: 'gab' }): Promise<string> {
-    // Check if this is a general knowledge question that shouldn't trigger specialized tools
-    if (this.isGeneralKnowledgeQuestion(message)) {
-      this.taskLogger?.logAction('Handling as general knowledge question', { message });
-      
-      try {
-        // Process directly with the model using the config system prompt
-        if (!this.model) {
-          throw new Error('Model not initialized');
-        }
-        
-        const response = await this.model.invoke(
-          `${this.config.systemPrompt}\n\nUser: ${message}`
-        );
-        
-        // Add ReAct pattern implementation before finalizing the response
-        const finalResponse = await this.applyReActPattern(response.content as string);
-        
-        return finalResponse;
-      } catch (error) {
-        console.error('Error processing general knowledge question:', error);
-        return "I'm sorry, I encountered an error while processing your question. Could you please try asking in a different way?";
-      }
-    }
-    
-    // Continue with normal processing for non-general questions
+    // Continue with normal processing for all questions
     try {
       if (!this.initialized) {
         await this.initialize();
@@ -374,21 +341,17 @@ export class ChloeAgent implements IAgent {
         throw new Error('ChloeMemory not available');
       }
 
-      // NEW: Create a Tag Extractor middleware instance
-      const { TagExtractorMiddleware } = await import('./tagExtractorMiddleware');
-      const tagExtractor = new TagExtractorMiddleware(memoryManager, {
-        taskLogger: this.taskLogger
-      });
-      
       // Extract tags from the user message
-      const extractedTags = await tagExtractor.processUserMessage(message);
-      const tagTexts = extractedTags.map(tag => tag.text);
+      const extractionResult = await extractTags(message);
+      const extractedTags = extractionResult.tags || [];
+      const tagTexts = extractedTags.map((tag: { text: string }) => tag.text);
+      
       taskLogger.logAction('Extracted tags from user message', { 
         tagCount: tagTexts.length,
         tags: tagTexts
       });
       
-      // NEW: Check if this message is part of an ongoing conversation thread
+      // Check if this message is part of an ongoing conversation thread
       const threadAnalysis = await chloeMemory.identifyConversationThread(message);
       
       // Log if this is part of a conversation thread
@@ -430,20 +393,21 @@ export class ChloeAgent implements IAgent {
       
       // Store the user message in memory with the determined importance and extracted tags
       const userMemoryResult = await memoryManager.addMemory(
-        `USER MESSAGE [${new Date().toISOString()}]: ${message}`,
+        message, // Store the raw message without prefixes
         MemoryType.MESSAGE,
         messageImportance,
         MemorySource.USER,
         `From user: ${options.userId}`,
         threadAnalysis.isPartOfThread 
           ? ['thread:' + threadAnalysis.threadId, ...(threadAnalysis.threadTopic?.split(',') || []), ...tagTexts] 
-          : tagTexts // Use extracted tags
+          : tagTexts, // Use extracted tags
+        {
+          // Include timestamp in metadata instead
+          timestamp: new Date().toISOString(),
+          messageType: 'user',
+          ...options
+        }
       );
-      
-      // Process the user message to extract and update tags if needed
-      if (userMemoryResult && userMemoryResult.id) {
-        await tagExtractor.processMemoryItem(userMemoryResult.id, message, tagTexts);
-      }
       
       // STEP 1: Generate initial thought about what the message is asking
       const initialThought = await this.generateThought(message);
@@ -572,28 +536,6 @@ Please continue with the next section whenever you're ready, and I'll maintain t
         });
       }
       
-      // Determine if this is a company information query that needs specialized treatment
-      const isCompanyInfoQuery = this.isCompanyInformationQuery(message);
-      const isSpecificBrandQuery = message.toLowerCase().includes('brand') && 
-        (message.toLowerCase().includes('identity') || 
-         message.toLowerCase().includes('value') || 
-         message.toLowerCase().includes('personality'));
-      
-      // For company information queries, use specific memory types and require confidence
-      if (isCompanyInfoQuery) {
-        memorySearchOptions.types = [
-          MemoryType.DOCUMENT, // Strategy content as documents
-          MemoryType.DOCUMENT, // Persona content as documents
-          MemoryType.DOCUMENT  // Vision content as documents
-        ];
-        memorySearchOptions.requireConfidence = true;
-        
-        taskLogger.logAction('Detected company information query', { 
-          messageId,
-          isSpecificBrandQuery
-        });
-      }
-      
       // Enhance memory retrieval by including thread keywords as context tags
       const contextTags = threadAnalysis.isPartOfThread 
         ? threadAnalysis.threadTopic?.split(',').map(tag => tag.trim()) 
@@ -611,8 +553,7 @@ Please continue with the next section whenever you're ready, and I'll maintain t
         {
           types: memorySearchOptions.types,
           expandQuery: true,
-          considerImportance: true,
-          requireKeywords: isCompanyInfoQuery // Require keywords for more precision on company info
+          considerImportance: true
         }
       );
       
@@ -712,10 +653,14 @@ Please continue with the next section whenever you're ready, and I'll maintain t
       // Process agent response to extract tags before storing in memory
       let responseTagTexts = tagTexts; // Default to user message tags
       try {
-        // Extract tags from the agent response
-        const responseExtractedTags = await tagExtractor.processUserMessage(finalResponse, tagTexts);
+        // Extract tags from the agent response using direct call to extractTags
+        const responseExtractionResult = await extractTags(finalResponse, {
+          existingTags: tagTexts
+        });
+        const responseExtractedTags = responseExtractionResult.tags || [];
+        
         // Use Array.from() to convert Set to array for proper iteration
-        responseTagTexts = Array.from(new Set([...tagTexts, ...responseExtractedTags.map(tag => tag.text)]));
+        responseTagTexts = Array.from(new Set([...tagTexts, ...responseExtractedTags.map((tag: { text: string }) => tag.text)]));
         
         this.taskLogger?.logAction('Extracted tags from agent response', {
           tagCount: responseExtractedTags.length,
@@ -730,8 +675,8 @@ Please continue with the next section whenever you're ready, and I'll maintain t
       try {
         // Store the response in memory with standardized format
         // Include the extracted tags directly in metadata to ensure they're stored in Qdrant
-        const responseMemoryResult = await memoryManager.addMemory(
-          `MESSAGE [${new Date().toISOString()}]: ${finalResponse}`,
+        await memoryManager.addMemory(
+          finalResponse, // Store the raw response without prefixes
           MemoryType.MESSAGE,
           ImportanceLevel.MEDIUM,
           MemorySource.AGENT,
@@ -747,14 +692,13 @@ Please continue with the next section whenever you're ready, and I'll maintain t
             isForChat: true,
             tags: responseTagTexts, // Include tags directly in metadata
             tagsManagedBy: 'openai-extractor',
-            tagsUpdatedAt: new Date().toISOString(),
+            tagsUpdatedAt: new Date().toISOString(), // Add timestamp to metadata instead
+            timestamp: new Date().toISOString(), // Add timestamp to metadata instead
             relatedToUserMessage: userMemoryResult?.id // Link to the user message
           }
         );
-
-        // No need to process the response to extract tags again since we already did it
-        // Just apply any pending memory tag updates
-        await tagExtractor.applyMemoryUpdates();
+        
+        // No need to apply memory updates since we're not using the middleware anymore
       } catch (memoryError) {
         console.error('Error storing agent response in memory:', memoryError);
         // Continue even if memory storage fails
@@ -836,11 +780,6 @@ Thought:`;
          message.toLowerCase().startsWith('who') || 
          message.toLowerCase().startsWith('when') || 
          message.toLowerCase().startsWith('where'))) {
-      return false;
-    }
-    
-    // Skip if it's a general knowledge question (already checked earlier)
-    if (this.isGeneralKnowledgeQuestion(message)) {
       return false;
     }
     
@@ -973,54 +912,6 @@ I don't have enough information about Claro's brand identity. I should ask for c
 ` : ''}`;
 
     return contextPrompt;
-  }
-  
-  /**
-   * Determines if a query is a general knowledge question that should bypass tool activation
-   * @param query The user's query to evaluate
-   * @returns True if this is a general knowledge question
-   */
-  private isGeneralKnowledgeQuestion(query: string): boolean {
-    const generalPatterns = [
-      /what (are|is) .*(metrics|tracking|measure|measuring|monitor|monitoring)/i,
-      /which (metrics|measures|indicators|kpis)/i,
-      /(tell me about|describe|explain) .*(metrics|measurements|kpis)/i,
-      /how (do|does|are|is) .*(metrics|measure|track|monitor)/i
-    ];
-    
-    return generalPatterns.some(pattern => pattern.test(query));
-  }
-  
-  /**
-   * Determines if a query is asking about company information
-   * @param query The user's query to evaluate
-   * @returns True if this is a company information query
-   */
-  private isCompanyInformationQuery(query: string): boolean {
-    const companyInfoPatterns = [
-      /what (is|are) .*(our|claro'?s|the company'?s) (mission|vision|values|purpose|brand|identity)/i,
-      /tell me about .*(our|claro'?s|the company'?s) (mission|vision|values|purpose|brand|identity)/i,
-      /describe .*(our|claro'?s|the company'?s) (mission|vision|values|purpose|brand|identity)/i,
-      /(mission|vision) statement/i,
-      /company (mission|vision|values|purpose|brand|identity)/i,
-      /brand (identity|values|personality|tone|voice)/i,
-      /what.+company.+(stand|aim).+for/i,
-      /what.+we.+(stand|aim).+for/i,
-      // Add more patterns to better detect brand identity questions
-      /(already|previously) provided .*(brand|identity|information)/i,
-      /make (information|it|data|brand) (stick|persist|remember)/i,
-      /brand information/i,
-      /target audience/i,
-      /unique value proposition/i,
-      /brand (personality|story|guidelines)/i,
-      /visual (identity|style)/i,
-      /verbal (identity|style)/i,
-      /tone of voice/i,
-      /company (information|details)/i,
-      /claro('s)? (information|details)/i
-    ];
-    
-    return companyInfoPatterns.some(pattern => pattern.test(query));
   }
   
   /**

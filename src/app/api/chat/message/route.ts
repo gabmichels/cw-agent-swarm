@@ -94,14 +94,31 @@ export async function DELETE(request: NextRequest) {
           if (!pointTimestamp) return false;
           
           // Try various timestamp formats for comparison
-          return (
+          try {
             // Direct string comparison
-            pointTimestamp === timestamp ||
-            // Convert both to date objects and compare
-            (new Date(pointTimestamp)).toISOString() === (new Date(timestamp)).toISOString() ||
-            // Convert numeric timestamps
-            parseInt(String(pointTimestamp), 10) === parseInt(String(timestamp), 10)
-          );
+            if (pointTimestamp === timestamp) return true;
+            
+            // Safely convert to date objects and compare - check if valid dates first
+            const pointDate = new Date(pointTimestamp);
+            const searchDate = new Date(timestamp);
+            
+            // Verify both dates are valid before ISO string conversion
+            if (!isNaN(pointDate.getTime()) && !isNaN(searchDate.getTime())) {
+              return pointDate.getTime() === searchDate.getTime();
+            }
+            
+            // Numeric timestamp comparison (fallback)
+            const pointNum = parseInt(String(pointTimestamp), 10);
+            const searchNum = parseInt(String(timestamp), 10);
+            if (!isNaN(pointNum) && !isNaN(searchNum)) {
+              return pointNum === searchNum;
+            }
+            
+            return false;
+          } catch (error) {
+            console.warn('Error comparing timestamps:', error);
+            return false;
+          }
         });
       
       console.log(`Found ${memories.length} messages with matching timestamp`);

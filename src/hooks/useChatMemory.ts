@@ -19,7 +19,7 @@ interface UseChatMemoryParams {
  */
 export default function useChatMemory({
   userId,
-  limit = 50,
+  limit = 100,
   includeInternalMessages = false
 }: UseChatMemoryParams) {
   const [chatHistory, setChatHistory] = useState<Message[]>([]);
@@ -37,41 +37,41 @@ export default function useChatMemory({
     setHistoryError(null);
     
     try {
-      // Fetch message memories with user ID filter
-      const filter: any = {
-        must: [
-          {
-            key: 'metadata.userId',
-            match: { value: userId }
-          }
-        ]
-      };
-      
-      // If we're excluding internal messages, add that filter
-      if (!includeInternalMessages) {
-        filter.must.push({
-          key: 'metadata.isInternalMessage',
-          match: { exists: false }
-        });
-        
-        // Also add check for when the field exists but is false
-        filter.must.push({
-          key: 'metadata.isInternalMessage',
-          match: { value: "false" }
-        });
-      }
+      console.log(`Loading chat history for user ${userId} with limit ${limit}`);
       
       // Search with empty string to get all messages for this user
+      // Don't set any complex filters - just get all messages and filter client-side
       const memories = await searchMemories({
         query: '',
         types: [MemoryType.MESSAGE],
-        limit,
-        // Search options to get chronological order
-        hybridRatio: 0 // Use text search only (no vector similarity)
+        limit: limit,
+        hybridRatio: 0
       });
       
+      console.log(`Retrieved ${memories.length} raw memory items before filtering`);
+      
+      // Filter messages client-side for this user
+      const filteredMemories = memories.filter((memory: any) => {
+        // Get metadata
+        const metadata = memory.payload?.metadata || {};
+        
+        // Match user ID
+        if (metadata.userId && metadata.userId !== userId) {
+          return false;
+        }
+        
+        // If not showing internal messages, filter them out
+        if (!includeInternalMessages && metadata.isInternalMessage === true) {
+          return false;
+        }
+        
+        return true;
+      });
+      
+      console.log(`Filtered to ${filteredMemories.length} messages for user ${userId}`);
+      
       // Convert memories to Message objects
-      const messages: Message[] = memories.map((memory: {
+      const messages: Message[] = filteredMemories.map((memory: {
         id: string;
         payload: {
           text: string;
@@ -96,6 +96,7 @@ export default function useChatMemory({
       // Sort messages by timestamp
       messages.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
       
+      console.log(`Final chat history has ${messages.length} messages`);
       setChatHistory(messages);
     } catch (error) {
       console.error('Error loading chat history:', error);

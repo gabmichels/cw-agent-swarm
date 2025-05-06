@@ -442,9 +442,6 @@ export async function POST(req: Request) {
       }
     }
     
-    // Save user message to history
-    await saveToHistory(userId, 'user', message, attachments);
-    
     // Process with the Chloe agent
     const resultPromise = (async () => {
       try {
@@ -477,9 +474,6 @@ export async function POST(req: Request) {
         const thoughts = typeof chatResponse === 'string' 
           ? [] 
           : (chatResponse as any).thoughts || [];
-        
-        // Save assistant response to history
-        await saveToHistory(userId, 'assistant', reply);
         
         // Update cache
         const timestamp = new Date().toISOString();

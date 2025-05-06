@@ -178,10 +178,8 @@ export class ChloeMemory {
         }
       }
       
-      // Format the memory content if it's not already formatted
-      const formattedContent = this.isFormattedMemory(content)
-        ? content
-        : this.formatContent(content, type);
+      // Store the raw content (no formatting needed)
+      const formattedContent = content;
       
       // Ensure unique timestamp - add a few milliseconds if very close to last timestamp
       // This fixes UI sorting issues by ensuring messages have distinct timestamps
@@ -285,24 +283,6 @@ export class ChloeMemory {
     // For now, we're just using a single array in memoryStore.entries
   }
   
-  /**
-   * Check if content is already formatted with a memory type prefix
-   */
-  private isFormattedMemory(content: string): boolean {
-    if (!content) return false;
-    
-    // Check for any of the standard prefixes that match our memory types
-    const memoryTypeList = Object.values(MemoryType).map(type => type.toString().toUpperCase());
-    
-    // Create a regex that matches any memory type followed by timestamp format
-    const formatRegex = new RegExp(`^(${memoryTypeList.join('|')})\\s*\\[\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}.\\d{3}Z\\]:\\s*`, 'i');
-    
-    // Also check for MESSAGE-like prefixes (to handle the duplicate prefix issue)
-    const messageRegex = /^MESSAGE:?\s+/i;
-    
-    return formatRegex.test(content) || messageRegex.test(content);
-  }
-
   /**
    * Format memory for external storage
    */
@@ -1927,27 +1907,6 @@ export class ChloeMemory {
     }
   }
 
-  /**
-   * Format memory content with standardized type prefix
-   */
-  private formatContent(content: string, type: MemoryType): string {
-    // Generate unique timestamp for each message
-    const timestamp = new Date().toISOString();
-    
-    switch (type) {
-      case MemoryType.MESSAGE:
-        return `MESSAGE [${timestamp}]: ${content}`;
-      case MemoryType.THOUGHT:
-        return `THOUGHT [${timestamp}]: ${content}`;
-      case MemoryType.DOCUMENT:
-        return `DOCUMENT [${timestamp}]: ${content}`;
-      case MemoryType.TASK:
-        return `TASK [${timestamp}]: ${content}`;
-      default:
-        return `${type.toString().toUpperCase()} [${timestamp}]: ${content}`;
-    }
-  }
-  
   /**
    * Create a MemoryEntry from a memory point
    */
