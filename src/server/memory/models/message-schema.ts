@@ -3,41 +3,16 @@
  */
 import { MemoryType } from '../config';
 import { BaseMemorySchema, BaseMetadataSchema } from './base-schema';
+import { MessageMetadata } from '../../../types/metadata';
+import { MessageRole } from '../../../agents/chloe/types/state';
+import { StructuredId } from '../../../types/structured-id';
 
 /**
- * Available message roles
+ * Message-specific metadata schema
+ * Extends the BaseMetadataSchema with message-specific fields from our MessageMetadata type
  */
-export type MessageRole = 'user' | 'assistant' | 'system';
-
-/**
- * Attachment for messages
- */
-export interface MessageAttachment {
-  id: string;
-  type: string;
-  name?: string;
-  url?: string;
-  contentType?: string;
-  size?: number;
-  metadata?: Record<string, any>;
-}
-
-/**
- * Message-specific metadata
- */
-export interface MessageMetadataSchema extends BaseMetadataSchema {
-  // Core message fields
-  role: MessageRole;
-  userId: string;
-  messageType?: string;
-  
-  // UI-specific flags
-  isInternalMessage?: boolean;
-  notForChat?: boolean;
-  
-  // Attachments and vision
-  attachments?: MessageAttachment[];
-  visionResponseFor?: string;
+export interface MessageMetadataSchema extends BaseMetadataSchema, Omit<MessageMetadata, keyof BaseMetadataSchema> {
+  // No additional fields needed as MessageMetadata already contains everything
 }
 
 /**
@@ -54,9 +29,26 @@ export interface MessageSchema extends BaseMemorySchema {
 export const MESSAGE_DEFAULTS: Partial<MessageSchema> = {
   type: MemoryType.MESSAGE,
   metadata: {
-    userId: 'default',
-    role: 'assistant',
-    isInternalMessage: false,
-    notForChat: false
+    schemaVersion: "1.0.0",
+    userId: {
+      namespace: 'default',
+      type: 'user',
+      id: 'default'
+    } as StructuredId,
+    agentId: {
+      namespace: 'default',
+      type: 'agent', 
+      id: 'assistant'
+    } as StructuredId,
+    chatId: {
+      namespace: 'default',
+      type: 'chat',
+      id: 'default'
+    } as StructuredId,
+    role: MessageRole.ASSISTANT,
+    thread: {
+      id: 'default',
+      position: 0
+    }
   }
 }; 

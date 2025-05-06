@@ -1,7 +1,9 @@
 /**
  * Base memory schema definitions
  */
-import { MemoryType, ImportanceLevel } from '../config';
+import { BaseMetadata } from '../../../types/metadata';
+import { ImportanceLevel } from '../../../constants/memory';
+import { MemoryType } from '../config';
 
 /**
  * Base memory schema with required fields
@@ -23,10 +25,10 @@ export interface BaseMemorySchema {
 
 /**
  * Base metadata fields common across all memory types
+ * Extends the core BaseMetadata interface with additional memory-specific fields
  */
-export interface BaseMetadataSchema {
-  // Importance info
-  importance?: ImportanceLevel;
+export interface BaseMetadataSchema extends BaseMetadata {
+  // Importance info (extends the base importance field from BaseMetadata)
   importance_score?: number;
   critical?: boolean;
   
@@ -47,9 +49,6 @@ export interface BaseMetadataSchema {
   previous_version_id?: string;
   editor_type?: 'human' | 'agent' | 'system';
   editor_id?: string;
-  
-  // Additional metadata
-  [key: string]: any;
 }
 
 /**

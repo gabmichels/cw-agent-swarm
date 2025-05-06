@@ -12,9 +12,12 @@ import { ImportanceLevel, MemoryType } from './types';
 export const COLLECTION_NAMES: Partial<Record<MemoryType, string>> = {
   [MemoryType.MESSAGE]: 'messages',
   [MemoryType.THOUGHT]: 'thoughts',
+  [MemoryType.REFLECTION]: 'reflections',
+  [MemoryType.INSIGHT]: 'insights',
   [MemoryType.DOCUMENT]: 'documents',
   [MemoryType.TASK]: 'tasks',
   [MemoryType.MEMORY_EDIT]: 'memory_edits',
+  [MemoryType.ANALYSIS]: 'analysis',
 };
 
 // Function to get a collection name with fallback to message collection
@@ -28,13 +31,21 @@ export function getCollectionNameWithFallback(type: MemoryType): string {
 export const FILTER_KEYS = {
   METADATA: 'metadata',
   USER_ID: 'userId',
+  AGENT_ID: 'agentId',
+  CHAT_ID: 'chatId',
   ROLE: 'role',
   SOURCE: 'source',
   MESSAGE_TYPE: 'messageType',
   IMPORTANCE: 'importance',
+  THREAD_ID: 'thread.id',
+  THREAD_POSITION: 'thread.position',
+  PROCESS_TYPE: 'processType',
+  CONTEXT_ID: 'contextId',
+  TIMESTAMP: 'timestamp',
+  SCHEMA_VERSION: 'schemaVersion',
+  // Legacy fields - will be removed in future versions
   INTERNAL_MESSAGE: 'isInternalMessage',
   NOT_FOR_CHAT: 'notForChat',
-  TIMESTAMP: 'timestamp',
 };
 
 /**
@@ -49,6 +60,7 @@ export const DEFAULTS = {
   MAX_LIMIT: 2000,               // Maximum result limit
   EMBEDDING_MODEL: 'text-embedding-3-small', // Default embedding model
   IMPORTANCE: ImportanceLevel.MEDIUM, // Default importance level
+  SCHEMA_VERSION: '1.0.0',       // Default schema version
 };
 
 /**
@@ -72,6 +84,20 @@ export const METADATA_FIELDS = {
   TIMESTAMP: 'timestamp',
   TYPE: 'type',
   TEXT: 'text',
+  SCHEMA_VERSION: 'schemaVersion',
+  
+  // Structured IDs
+  USER_ID: 'userId',
+  AGENT_ID: 'agentId',
+  CHAT_ID: 'chatId',
+  ASSIGNED_TO: 'assignedTo',
+  CREATED_BY: 'createdBy',
+  
+  // Thread info
+  THREAD: 'thread',
+  THREAD_ID: 'thread.id',
+  THREAD_POSITION: 'thread.position',
+  THREAD_PARENT_ID: 'thread.parentId',
   
   // Importance fields
   IMPORTANCE: 'importance',
@@ -90,6 +116,8 @@ export const METADATA_FIELDS = {
   LED_TO: 'led_to',
   CAUSED_BY: 'caused_by',
   RELATED_TO: 'relatedTo',
+  INFLUENCES: 'influences',
+  INFLUENCED_BY: 'influencedBy',
   
   // Soft deletion
   IS_DELETED: 'is_deleted',
@@ -103,12 +131,21 @@ export const METADATA_FIELDS = {
   
   // Message-specific
   ROLE: 'role',
-  USER_ID: 'userId',
   MESSAGE_TYPE: 'messageType',
-  IS_INTERNAL_MESSAGE: 'isInternalMessage',
-  NOT_FOR_CHAT: 'notForChat',
   ATTACHMENTS: 'attachments',
   VISION_RESPONSE_FOR: 'visionResponseFor',
+  
+  // Cognitive process
+  PROCESS_TYPE: 'processType',
+  CONTEXT_ID: 'contextId',
+  
+  // Authentication and tenant context
+  AUTH_CONTEXT: 'authContext',
+  TENANT_CONTEXT: 'tenantContext',
+  
+  // Legacy fields - will be removed in future versions
+  IS_INTERNAL_MESSAGE: 'isInternalMessage',
+  NOT_FOR_CHAT: 'notForChat',
 };
 
 /**
@@ -122,6 +159,7 @@ export const MESSAGE_TYPES = {
   SYSTEM: 'system',
   TOOL_LOG: 'tool_log',
   MEMORY_LOG: 'memory_log',
+  AGENT_COMMUNICATION: 'agent-communication',
 };
 
 /**
@@ -134,35 +172,79 @@ export const DEFAULT_INDICES: Partial<Record<MemoryType, string[]>> = {
   [MemoryType.MESSAGE]: [
     'timestamp',
     'type',
+    'metadata.schemaVersion',
     'metadata.role',
-    'metadata.userId',
-    'metadata.isInternalMessage',
+    'metadata.userId.id',
+    'metadata.agentId.id',
+    'metadata.chatId.id',
+    'metadata.thread.id',
+    'metadata.thread.position',
+    'metadata.messageType',
+    'metadata.importance',
   ],
   [MemoryType.THOUGHT]: [
     'timestamp',
     'type',
-    'metadata.messageType',
-    'metadata.agentId',
+    'metadata.schemaVersion',
+    'metadata.processType',
+    'metadata.agentId.id',
+    'metadata.contextId',
+    'metadata.importance',
+  ],
+  [MemoryType.REFLECTION]: [
+    'timestamp',
+    'type',
+    'metadata.schemaVersion',
+    'metadata.processType',
+    'metadata.agentId.id',
+    'metadata.contextId',
+    'metadata.importance',
+  ],
+  [MemoryType.INSIGHT]: [
+    'timestamp',
+    'type',
+    'metadata.schemaVersion',
+    'metadata.processType',
+    'metadata.agentId.id',
+    'metadata.contextId',
+    'metadata.importance',
   ],
   [MemoryType.DOCUMENT]: [
     'timestamp',
     'type',
+    'metadata.schemaVersion',
     'metadata.source',
     'metadata.contentType',
+    'metadata.userId.id',
+    'metadata.agentId.id',
+    'metadata.importance',
   ],
   [MemoryType.TASK]: [
     'timestamp',
     'type',
+    'metadata.schemaVersion',
     'metadata.status',
     'metadata.priority',
-    'metadata.assignedTo',
+    'metadata.assignedTo.id',
+    'metadata.createdBy.id',
+    'metadata.importance',
   ],
   [MemoryType.MEMORY_EDIT]: [
     'timestamp',
     'type',
+    'metadata.schemaVersion',
     'metadata.original_memory_id',
     'metadata.edit_type',
     'metadata.editor_type',
+  ],
+  [MemoryType.ANALYSIS]: [
+    'timestamp',
+    'type',
+    'metadata.schemaVersion',
+    'metadata.processType',
+    'metadata.agentId.id',
+    'metadata.contextId',
+    'metadata.importance',
   ],
 };
 
