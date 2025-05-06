@@ -279,6 +279,7 @@ export interface AgentIdentifier {
  * @param trustLevel Trust score (0-1)
  * @param ownerUserId Owner user ID
  * @returns An enhanced agent identifier
+ * @throws Error if trustLevel is outside valid range (0-1)
  */
 export function createAgentIdentifier(
   agentId: string,
@@ -287,6 +288,11 @@ export function createAgentIdentifier(
   trustLevel: number,
   ownerUserId: StructuredId
 ): AgentIdentifier {
+  // Validate trust level is within range
+  if (trustLevel < 0 || trustLevel > 1) {
+    throw new Error(`Trust level must be between 0 and 1, got ${trustLevel}`);
+  }
+  
   return {
     id: createAgentId(agentId),
     capabilities,
