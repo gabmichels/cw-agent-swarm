@@ -13,9 +13,14 @@ import { planTask, PlanResult } from '../../../server/agents/planner';
 import { executePlan } from '../../../server/agents/executor';
 import { ImportanceLevel, MemorySource, MemoryType } from '../../../constants/memory';
 import { MemoryType as StandardMemoryType } from '../../../server/memory/config';
-import { TaskStatus } from '../../../constants/task';
 import { ChloeAgent } from '../core/agent';
 import { ChloeScheduler } from '../scheduler/chloeScheduler';
+import { BaseManagerOptions } from '../../../lib/shared/types/agentTypes';
+import { MemoryEntry } from '../memory';
+import { logger } from '../../../lib/logging';
+import { createDocumentMetadata, createTaskMetadata } from '../../../server/memory/services/helpers/metadata-helpers';
+import { createUserId, createAgentId } from '../../../types/structured-id';
+import { DocumentSource, TaskPriority, TaskStatus } from '../../../types/metadata';
 
 // Define interfaces for plan and execution results
 export interface PlanWithSteps {
@@ -176,11 +181,22 @@ Please create a concise, actionable plan to accomplish this task.
           planDescription: formattedPlan.description,
           steps: formattedPlan.steps.map(step => step.description)
         }),
-        StandardMemoryType.DOCUMENT,
+        MemoryType.TASK,
         ImportanceLevel.HIGH,
         MemorySource.AGENT,
         JSON.stringify({ taskId: new Date().getTime().toString() }),
-        ['task', 'plan']
+        ['task', 'plan'],
+        createTaskMetadata(
+          `Task plan: ${task.substring(0, 50)}...`,
+          TaskStatus.PENDING,
+          TaskPriority.HIGH,
+          createAgentId(this.agentId),
+          {
+            description: formattedPlan.description,
+            importance: ImportanceLevel.HIGH,
+            tags: ['task', 'plan'],
+          }
+        )
       );
       
       return formattedPlan;
@@ -231,6 +247,27 @@ Please create a concise, actionable plan to accomplish this task.
         const successText = result.success ? 'Successfully' : 'Failed to';
         this.notifyFunction(`${successText} executed plan: ${plan.description}. ${result.message.substring(0, 200)}`);
       }
+      
+      // Store task execution result in memory
+      await this.memory.addMemory(
+        `Task execution ${result.success ? 'succeeded' : 'failed'}: ${plan.description.substring(0, 150)}...\n${result.message}`,
+        MemoryType.TASK,
+        ImportanceLevel.HIGH,
+        MemorySource.AGENT,
+        JSON.stringify({ taskId: new Date().getTime().toString() }),
+        ['task', 'execution', result.success ? 'success' : 'failure'],
+        createTaskMetadata(
+          `Task execution: ${plan.description.substring(0, 50)}...`,
+          result.success ? TaskStatus.COMPLETED : TaskStatus.FAILED,
+          TaskPriority.HIGH,
+          createAgentId(this.agentId),
+          {
+            description: `Execution of: ${plan.description}`,
+            importance: ImportanceLevel.HIGH,
+            tags: ['task', 'execution', result.success ? 'success' : 'failure'],
+          }
+        )
+      );
       
       return result;
     } catch (error) {
@@ -296,9 +333,23 @@ Please create a concise, actionable plan to accomplish this task.
       // Store results in memory
       await this.memory.addMemory(
         `Daily tasks execution: ${executionResult.message}`,
-        'task' as StandardMemoryType,
+        MemoryType.TASK,
         executionResult.success ? ImportanceLevel.MEDIUM : ImportanceLevel.HIGH,
-        MemorySource.SYSTEM
+        MemorySource.SYSTEM,
+        undefined,
+        ['daily_tasks', 'execution_result', executionResult.success ? 'success' : 'failure'],
+        createTaskMetadata(
+          'Daily tasks execution',
+          executionResult.success ? TaskStatus.COMPLETED : TaskStatus.FAILED,
+          TaskPriority.MEDIUM,
+          createAgentId(this.agentId),
+          {
+            description: `Execution result: ${executionResult.message.substring(0, 100)}...`,
+            importance: executionResult.success ? ImportanceLevel.MEDIUM : ImportanceLevel.HIGH,
+            tags: ['daily_tasks', 'execution_result', executionResult.success ? 'success' : 'failure'],
+            completedDate: executionResult.success ? new Date().toISOString() : undefined
+          }
+        )
       );
     } catch (error) {
       this.logAction('Error running daily tasks', { error: String(error) });

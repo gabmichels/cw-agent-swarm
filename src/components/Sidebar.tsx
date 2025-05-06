@@ -47,45 +47,6 @@ const Sidebar: React.FC<SidebarProps> = ({
               </div>
             </button>
           </li>
-          <li>
-            <button className="w-full text-left block p-2 rounded text-gray-500 cursor-not-allowed">
-              Emma (HR) - Coming Soon
-            </button>
-          </li>
-          <li>
-            <button className="w-full text-left block p-2 rounded text-gray-500 cursor-not-allowed">
-              Alex (Finance) - Coming Soon
-            </button>
-          </li>
-        </ul>
-        
-        <h3 className="text-sm font-semibold mb-2 text-gray-400">COMMON TASKS</h3>
-        <ul className="space-y-1 mb-6">
-          <li>
-            <button className="w-full text-left block p-2 rounded hover:bg-gray-700">
-              Content Planning
-            </button>
-          </li>
-          <li>
-            <button className="w-full text-left block p-2 rounded hover:bg-gray-700">
-              Social Monitoring
-            </button>
-          </li>
-          <li>
-            <button className="w-full text-left block p-2 rounded hover:bg-gray-700">
-              Create Campaign
-            </button>
-          </li>
-          <li>
-            <button className="w-full text-left block p-2 rounded hover:bg-gray-700">
-              Analyze Metrics
-            </button>
-          </li>
-          <li>
-            <Link href="/knowledge-gaps" className="w-full text-left block p-2 rounded hover:bg-gray-700">
-              Knowledge Gaps
-            </Link>
-          </li>
         </ul>
         
         <h3 className="text-sm font-semibold mb-2 text-gray-400">DEVELOPER</h3>

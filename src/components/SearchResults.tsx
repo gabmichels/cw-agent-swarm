@@ -4,11 +4,11 @@ import { Search, X, ChevronDown } from 'lucide-react';
 import { format } from 'date-fns';
 
 interface SearchResultsProps {
-  searchQuery: string;
   results: Message[];
-  onSelectMessage: (messageId: string) => void;
+  onSelectResult: (messageId: string) => void;
   onClose: () => void;
   initialLimit?: number;
+  searchQuery?: string;
 }
 
 // Extract context around search term
@@ -51,11 +51,11 @@ const highlightTerm = (text: string, searchTerm: string): JSX.Element => {
 };
 
 const SearchResults: React.FC<SearchResultsProps> = ({
-  searchQuery,
   results,
-  onSelectMessage,
+  onSelectResult,
   onClose,
-  initialLimit = 10
+  initialLimit = 10,
+  searchQuery = ""
 }) => {
   const [limit, setLimit] = useState(initialLimit);
   
@@ -103,7 +103,7 @@ const SearchResults: React.FC<SearchResultsProps> = ({
             <button
               key={message.id || index}
               className="w-full text-left px-4 py-3 hover:bg-gray-700 border-b border-gray-700 last:border-b-0 focus:outline-none focus:bg-gray-700"
-              onClick={() => onSelectMessage(message.id || '')}
+              onClick={() => onSelectResult(message.id || '')}
             >
               <div className="flex items-start">
                 <div className="flex-grow">

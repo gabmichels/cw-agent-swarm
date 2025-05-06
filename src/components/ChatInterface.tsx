@@ -33,6 +33,53 @@ function ClientTime({ timestamp }: { timestamp: Date }) {
   return <>{timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</>;
 }
 
+// Add agent-related imports
+interface AgentInitializeResponse {
+  success: boolean;
+  isInitialized: boolean;
+  message?: string;
+}
+
+// Add a function to initialize the selected agent
+async function initializeAgent(agentId: string): Promise<AgentInitializeResponse> {
+  console.log(`[ChatInterface] Initializing agent: ${agentId}`);
+  
+  try {
+    const response = await fetch(`/api/agent/initialize`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ agentId }),
+    });
+    
+    if (!response.ok) {
+      console.error(`[ChatInterface] Failed to initialize agent: ${response.status}`);
+      return { 
+        success: false, 
+        isInitialized: false,
+        message: `Failed to initialize agent: ${response.statusText}`
+      };
+    }
+    
+    const data = await response.json();
+    console.log(`[ChatInterface] Agent initialization response:`, data);
+    
+    return {
+      success: true,
+      isInitialized: data.isInitialized || false,
+      message: data.message
+    };
+  } catch (error) {
+    console.error(`[ChatInterface] Error initializing agent:`, error);
+    return {
+      success: false,
+      isInitialized: false,
+      message: `Error: ${error instanceof Error ? error.message : String(error)}`
+    };
+  }
+}
+
 export default function ChatInterface() {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -41,6 +88,15 @@ export default function ChatInterface() {
   const [selectedTab, setSelectedTab] = useState('chat');
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showInternalMessages, setShowInternalMessages] = useState(false);
+  // Add selected agent state - default to "chloe"
+  const [selectedAgent, setSelectedAgent] = useState('chloe');
+  const [agentInitStatus, setAgentInitStatus] = useState<{
+    initialized: boolean;
+    message: string;
+  }>({
+    initialized: false,
+    message: ''
+  });
   const [imageViewer, setImageViewer] = useState<{
     open: boolean;
     attachment: FileAttachment | null;
@@ -98,6 +154,70 @@ export default function ChatInterface() {
     }
   }, [displayMessages, searchQuery]);
 
+  // Add effect to initialize the selected agent when component mounts
+  useEffect(() => {
+    // Define a function to initialize the agent
+    async function loadSelectedAgent() {
+      // Load agent selection from localStorage or use default
+      const storedAgent = localStorage.getItem('selectedAgent');
+      const agentToLoad = storedAgent || selectedAgent;
+      
+      if (storedAgent && storedAgent !== selectedAgent) {
+        setSelectedAgent(storedAgent);
+      }
+      
+      console.log(`[ChatInterface] Loading agent: ${agentToLoad}`);
+      
+      // Initialize the agent
+      const initResult = await initializeAgent(agentToLoad);
+      
+      // Update status
+      setAgentInitStatus({
+        initialized: initResult.isInitialized,
+        message: initResult.message || ''
+      });
+      
+      if (initResult.success && initResult.isInitialized) {
+        console.log(`[ChatInterface] Agent ${agentToLoad} initialized successfully`);
+      } else {
+        console.warn(`[ChatInterface] Agent initialization issue:`, initResult.message);
+      }
+    }
+    
+    // Call the initialization function
+    loadSelectedAgent();
+    
+    // Create a function to handle agent change events
+    const handleAgentChange = (event: CustomEvent) => {
+      if (event.detail && event.detail.agentId) {
+        const newAgentId = event.detail.agentId;
+        console.log(`[ChatInterface] Agent changed to: ${newAgentId}`);
+        
+        // Update selected agent
+        setSelectedAgent(newAgentId);
+        
+        // Save to local storage
+        localStorage.setItem('selectedAgent', newAgentId);
+        
+        // Initialize the new agent
+        initializeAgent(newAgentId).then(result => {
+          setAgentInitStatus({
+            initialized: result.isInitialized,
+            message: result.message || ''
+          });
+        });
+      }
+    };
+    
+    // Add event listener for agent change
+    document.addEventListener('agentChanged', handleAgentChange as EventListener);
+    
+    // Cleanup
+    return () => {
+      document.removeEventListener('agentChanged', handleAgentChange as EventListener);
+    };
+  }, []);
+
   // Function to handle sending a message
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -119,10 +239,10 @@ export default function ChatInterface() {
     setInput('');
     setIsLoading(true);
 
-    console.log('Sending message to Assistant:', userMessage.content);
+    console.log(`Sending message to ${selectedAgent}:`, userMessage.content);
 
     try {
-      // Call the API with the user's message
+      // Call the API with the user's message and selected agent
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: {
@@ -131,6 +251,7 @@ export default function ChatInterface() {
         body: JSON.stringify({
           message: userMessage.content,
           userId,
+          agentId: selectedAgent // Include the agent ID
         }),
       });
       
@@ -321,6 +442,13 @@ export default function ChatInterface() {
 
   return (
     <div className={`flex flex-col h-screen bg-gray-900 text-white ${isFullscreen ? 'fixed inset-0 z-50' : ''}`}>
+      {/* Agent initialization status indicator - only show if there's an issue */}
+      {!agentInitStatus.initialized && agentInitStatus.message && (
+        <div className="bg-amber-800 text-white text-sm px-4 py-1 text-center">
+          {agentInitStatus.message}
+        </div>
+      )}
+    
       {/* Header with tabs */}
       <TabsNavigation
         selectedTab={selectedTab}

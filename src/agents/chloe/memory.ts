@@ -21,11 +21,33 @@ import {
   MemoryErrorCode 
 } from '../../server/memory/config';
 import { getMemoryServices } from '../../server/memory/services';
+// Import standardized metadata helpers
+import {
+  createMessageMetadata,
+  createDocumentMetadata,
+  createThoughtMetadata,
+  createReflectionMetadata,
+  createInsightMetadata,
+  createTaskMetadata,
+  createThreadInfo
+} from '../../server/memory/services/helpers/metadata-helpers';
+// Import structured ID helpers
+import {
+  StructuredId,
+  createStructuredId,
+  createUserId,
+  createAgentId,
+  createChatId,
+  EntityNamespace,
+  EntityType
+} from '../../types/structured-id';
 // Import local types
 import { 
   ImportanceLevel, 
   MemorySource
 } from '../../constants/memory';
+import { MessageRole } from '../chloe/types/state';
+import { DocumentSource } from '../../types/metadata';
 import { RerankerService } from './services/reranker';
 // Import PII redaction functionality
 import { redactSensitiveData, RedactionResult, PIIType } from '../../lib/pii/redactor';
@@ -181,35 +203,119 @@ export class ChloeMemory {
       // Store the raw content (no formatting needed)
       const formattedContent = content;
       
-      // Ensure unique timestamp - add a few milliseconds if very close to last timestamp
-      // This fixes UI sorting issues by ensuring messages have distinct timestamps
+      // Ensure unique timestamp for proper ordering
       const currentTimestamp = new Date();
-      // Check the global lastTimestamp static property
       if (ChloeMemory.lastTimestamp && 
           currentTimestamp.getTime() - ChloeMemory.lastTimestamp.getTime() < 10) {
-        // Add a small delay (10-20ms) to ensure unique ordering
         currentTimestamp.setMilliseconds(
           currentTimestamp.getMilliseconds() + 20
         );
       }
-      // Update the static lastTimestamp property
       ChloeMemory.lastTimestamp = currentTimestamp;
       
-      // Prepare metadata with the unique timestamp
-      const enhancedMetadata = {
-        ...metadata,
-        importance,
-        source,
-        category,
-        tags,
-        timestamp: currentTimestamp.toISOString()
-      };
+      // Create structured IDs - these will be needed for standardized metadata
+      const userId = createUserId("default");
+      const agentId = createAgentId(this.agentId);
+      const chatId = createChatId("default");
+      
+      // Create standardized metadata based on memory type
+      let standardizedMetadata: Record<string, any>;
+      
+      switch (type) {
+        case MemoryType.MESSAGE:
+          // Create thread info
+          const threadInfo = createThreadInfo();
+          
+          // Create message metadata
+          standardizedMetadata = createMessageMetadata(
+            metadata.role || MessageRole.ASSISTANT, 
+            userId,
+            agentId,
+            chatId,
+            threadInfo,
+            {
+              importance,
+              tags,
+              ...metadata
+            }
+          );
+          break;
+          
+        case MemoryType.THOUGHT:
+          // Create thought metadata
+          standardizedMetadata = createThoughtMetadata(
+            agentId,
+            {
+              importance,
+              tags,
+              ...metadata
+            }
+          );
+          break;
+          
+        case MemoryType.REFLECTION:
+          // Create reflection metadata
+          standardizedMetadata = createReflectionMetadata(
+            agentId,
+            {
+              importance,
+              tags,
+              ...metadata
+            }
+          );
+          break;
+          
+        case MemoryType.DOCUMENT:
+          // Create document metadata
+          standardizedMetadata = createDocumentMetadata(
+            DocumentSource.AGENT,
+            {
+              importance,
+              tags,
+              title: category,
+              agentId,
+              userId,
+              ...metadata
+            }
+          );
+          break;
+          
+        case MemoryType.TASK:
+          // Create task metadata
+          standardizedMetadata = createTaskMetadata(
+            category || "Task",
+            metadata.status || "pending",
+            metadata.priority || "medium",
+            agentId,
+            {
+              importance,
+              tags,
+              description: content,
+              ...metadata
+            }
+          );
+          break;
+          
+        default:
+          // For other types, use basic document metadata
+          standardizedMetadata = createDocumentMetadata(
+            DocumentSource.AGENT,
+            {
+              importance,
+              tags,
+              title: category,
+              agentId,
+              userId,
+              ...metadata
+            }
+          );
+      }
 
       // Add the memory using the standardized memory service
       const result = await this.memoryService.addMemory({
         type,
         content: formattedContent,
-        metadata: enhancedMetadata
+        metadata: standardizedMetadata
       });
 
       // If successful, create a memory entry from the result

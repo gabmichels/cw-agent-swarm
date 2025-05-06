@@ -1629,10 +1629,9 @@ For detailed instructions, see the Debug panel.`,
             unix: m.timestamp?.getTime(),
             sender: m.sender
           })));
-        } else if (chatResponse) {
+        } else if (historyData) {
           // Process traditional chat history data
-          const data = await chatResponse.json();
-          const history = data.history || [];
+          const history = historyData.history || [];
           
           // Process each message from history
           history.forEach((msg: any) => {

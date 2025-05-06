@@ -9,6 +9,8 @@ import { logger } from '../../../lib/logging';
 import { ImportanceCalculator } from '../../../lib/memory/ImportanceCalculator';
 import { Tag, TagAlgorithm } from '../../../lib/memory/TagExtractor';
 import { ChloeMemory } from '../memory';
+import { extractTags } from '../../../utils/tagExtractor';
+import { MemoryManager } from '../core/memoryManager';
 
 // Define memory types constants to replace the import from qdrant
 const MEMORY_TYPES = {
@@ -26,33 +28,63 @@ let cacheLoaded = false;
 const CACHE_FILE_PATH = path.join(process.cwd(), 'data', 'cache', 'markdown-cache.json');
 
 /**
+ * Reset the cache loaded state - call this whenever you need to force a fresh reload
+ */
+export function resetCacheState() {
+  cacheLoaded = false;
+  fileModCache.clear();
+}
+
+/**
  * Load the file modification cache from disk
  */
 async function loadFileModCache(): Promise<void> {
-  // Skip if already loaded
-  if (cacheLoaded) {
-    logger.info('Markdown cache already loaded, skipping reload');
-    return;
-  }
-
+  // Always load the cache on every request
+  // This will let us detect if the cache file has been deleted or modified
+  cacheLoaded = false;
+  
   try {
     // Create cache directory if it doesn't exist
     const cacheDir = path.dirname(CACHE_FILE_PATH);
     await fs.mkdir(cacheDir, { recursive: true });
 
-    // Check if cache file exists
+    // Check if cache file exists and has content
+    let fileExists = false;
     try {
-      const data = await fs.readFile(CACHE_FILE_PATH, 'utf8');
+      const stats = await fs.stat(CACHE_FILE_PATH);
+      fileExists = stats.isFile() && stats.size > 0;
+    } catch (statErr) {
+      fileExists = false;
+    }
+
+    if (!fileExists) {
+      // No cache file or empty file, we'll create a new one and force reload
+      logger.info('No markdown cache file found or file is empty, will reload all files');
+      fileModCache = new Map();
+      cacheLoaded = true; // Mark as loaded with empty cache
+      return;
+    }
+
+    const data = await fs.readFile(CACHE_FILE_PATH, 'utf8');
+    
+    // Ensure we have valid data
+    if (!data || data.trim() === '') {
+      logger.info('Empty markdown cache file found, will reload all files');
+      fileModCache = new Map();
+      cacheLoaded = true; // Mark as loaded with empty cache
+      return;
+    }
+    
+    try {
+      const parsed = JSON.parse(data);
       
-      // Ensure we have valid data
-      if (!data || data.trim() === '') {
-        logger.info('Empty markdown cache file found, creating new cache');
+      // Check if the parsed result is an empty object
+      if (!parsed || Object.keys(parsed).length === 0) {
+        logger.info('Empty markdown cache object found, will reload all files');
         fileModCache = new Map();
-        cacheLoaded = true; // Mark as loaded even if empty
+        cacheLoaded = true;
         return;
       }
-      
-      const parsed = JSON.parse(data);
       
       // Convert from plain object to Map
       fileModCache = new Map(Object.entries(parsed).map(([filePath, info]) => {
@@ -61,11 +93,10 @@ async function loadFileModCache(): Promise<void> {
       
       logger.info(`Loaded markdown cache with ${fileModCache.size} entries`);
       cacheLoaded = true;
-    } catch (err) {
-      // File doesn't exist or is invalid, create a new empty cache
+    } catch (parseErr) {
+      logger.warn('Invalid JSON in markdown cache file, will reload all files');
       fileModCache = new Map();
-      logger.info('No markdown cache found or invalid format, creating new cache');
-      cacheLoaded = true; // Mark as loaded even when creating new
+      cacheLoaded = true;
     }
   } catch (err) {
     logger.error('Error loading markdown cache:', err);
@@ -582,8 +613,15 @@ export async function loadAllMarkdownAsMemory(
   unchangedFiles: number;
 }> {
   try {
-    // Load the file modification cache from disk
-    await loadFileModCache();
+    // If force loading, clear the cache state
+    if (options.force) {
+      fileModCache.clear();
+      cacheLoaded = true; // Mark as loaded with empty cache
+      logger.info('Force reload requested, clearing cache state');
+    } else {
+      // Load the file modification cache from disk
+      await loadFileModCache();
+    }
     
     // If cache isn't loaded for some reason, create a new one
     if (!cacheLoaded) {
@@ -610,9 +648,6 @@ export async function loadAllMarkdownAsMemory(
     // Get memory manager instance
     let memoryManager;
     try {
-      // Import the MemoryManager class directly as a named export
-      const { MemoryManager } = await import('../core/memoryManager');
-      
       memoryManager = new MemoryManager({ agentId: 'chloe' });
       await memoryManager.initialize();
     } catch (error) {

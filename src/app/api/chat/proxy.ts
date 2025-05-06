@@ -327,85 +327,81 @@ let agent = null;
 // POST handler
 export async function POST(req: Request) {
   try {
-    const body = await req.json();
+    // Parse the JSON request
+    const { message, userId = 'gab', memoryDisabled, attachments = [], visionResponseFor, agentId = 'chloe' } = await req.json();
     
-    // Check for required fields
-    if (!body.message) {
+    // Normalize and validate the message
+    const normalizedMessage = normalizeMessage(message);
+    
+    if (!normalizedMessage) {
       return NextResponse.json(
-        { error: 'Missing required field: message' },
+        { error: 'Message is required and cannot be empty' },
         { status: 400 }
       );
     }
     
-    // Normalize the message to reduce duplicates
-    const message = body.message.trim();
-    const visionResponseFor = body.visionResponseFor;
-    const attachments = body.attachments || [];
+    // Create a cache key
+    const cacheKey = createCacheKey(normalizedMessage, userId);
     
-    // Use a consistent user ID
-    const userId = body.userId || 'gab';
-    
-    // Skip empty messages
-    if (!message) {
-      return NextResponse.json(
-        { error: 'Empty message' },
-        { status: 400 }
-      );
+    // Check if we already have this request in flight
+    if (inFlightRequests.has(cacheKey)) {
+      console.log(`Using in-flight request for: ${normalizedMessage.substring(0, 50)}...`);
+      const result = await inFlightRequests.get(cacheKey);
+      return NextResponse.json(result);
     }
     
-    // Check the cache for recent responses to the same message
-    const cacheKey = createCacheKey(message, userId);
-    
-    if (responseCache.has(cacheKey) && !body.bypassCache) {
-      const cached = responseCache.get(cacheKey)!;
+    // Check cache first
+    if (!containsImageData(normalizedMessage) && !visionResponseFor && responseCache.has(cacheKey)) {
+      const cachedResponse = responseCache.get(cacheKey);
       
-      // Check if cache is valid
-      if (cached.expiry > Date.now()) {
-        console.log(`Cache hit for message: ${message.substring(0, 30)}...`);
-        
+      // If not expired, return cached response
+      if (cachedResponse && cachedResponse.expiry > Date.now()) {
+        console.log(`Using cached response for: ${normalizedMessage.substring(0, 50)}...`);
         return NextResponse.json({
-          reply: cached.reply,
-          memory: cached.memory,
-          timestamp: cached.timestamp,
-          thoughts: cached.thoughts,
+          reply: cachedResponse.reply,
+          memory: cachedResponse.memory,
+          thoughts: cachedResponse.thoughts,
+          timestamp: cachedResponse.timestamp,
           cached: true
         });
-      } else {
-        // Cache expired
-        responseCache.delete(cacheKey);
       }
     }
     
-    // Check if this exact request is already in flight
-    if (inFlightRequests.has(cacheKey) && !body.bypassCache) {
-      console.log(`Reusing in-flight request for: ${message.substring(0, 30)}...`);
-      
-      try {
-        const response = await inFlightRequests.get(cacheKey)!;
-        return NextResponse.json({
-          ...response,
-          inFlight: true
-        });
-      } catch (error) {
-        // If the in-flight request fails, continue with a new request
-        console.error('In-flight request failed, starting new request:', error);
-        inFlightRequests.delete(cacheKey);
-      }
-    }
-    
-    // Process with the Chloe agent
+    // Create a new promise for this request
     const resultPromise = (async () => {
       try {
-        // Import the Chloe agent dynamically in this request context
-        const { getChloeInstance } = await import('../../../agents/chloe');
-        const chloeInstance = await getChloeInstance();
-        
-        if (!chloeInstance) {
-          throw new Error('Failed to load Chloe agent');
+        // Initialize memory if not already done
+        if (!memoryDisabled) {
+          await initializeMemory();
         }
         
-        // Process the message with Chloe
-        const chatResponse = await chloeInstance.processMessage(message, {
+        // Track this message in history
+        if (!memoryDisabled) {
+          await saveToHistory(userId, 'user', normalizedMessage, attachments);
+        }
+        
+        // Set up a timeout to ensure we always respond
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('Request timed out after 60 seconds')), 60000);
+        });
+        
+        // Choose agent based on agentId parameter
+        let agent;
+        
+        // Currently we only support Chloe, but this can be expanded
+        if (agentId === 'chloe') {
+          const { getChloeInstance } = await import('../../../agents/chloe');
+          agent = await getChloeInstance();
+          
+          if (!agent) {
+            throw new Error('Failed to load Chloe agent');
+          }
+        } else {
+          throw new Error(`Unsupported agent ID: ${agentId}`);
+        }
+        
+        // Process the message with the selected agent
+        const chatResponse = await agent.processMessage(message, {
           attachments,
           userId,
           // TypeScript error fix: Cast to any to allow the visionResponseFor property

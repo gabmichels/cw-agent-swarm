@@ -12,6 +12,11 @@
 import { loadAllMarkdownAsMemory } from '../knowledge/markdownMemoryLoader';
 import { logger } from '../../../lib/logging';
 import { AGENT_CONFIGS } from '../types/agent';
+import fs from 'fs/promises';
+import path from 'path';
+
+// Path to the cache file
+const CACHE_FILE_PATH = path.join(process.cwd(), 'data', 'cache', 'markdown-cache.json');
 
 // Track whether initialization has already occurred to prevent multiple loads 
 let initializationComplete = false;
@@ -40,16 +45,28 @@ export async function initializeMarkdownMemory(options: {
   directories?: string[]; // Custom directories to load from
   agentId?: string; // Agent ID to load markdown for
   department?: string; // Department the agent is associated with
+  skipCacheCheck?: boolean; // Skip cache checking to force reload
 } = {}): Promise<void> {
   try {
+    // If a force reload is requested, always reset state
+    if (options.force || options.skipCacheCheck) {
+      // Reset the initialization state
+      initializationComplete = false;
+      initializationPromise = null;
+      
+      // Also reset the cache state in the markdown loader
+      const { resetCacheState } = await import('../knowledge/markdownMemoryLoader');
+      resetCacheState();
+    }
+    
     // Skip if already initialized in this process and not forced
-    if (initializationComplete && !options.force) {
+    if (initializationComplete && !options.force && !options.skipCacheCheck) {
       logger.info('Markdown memory already initialized in this process, skipping');
       return;
     }
 
     // If initialization is in progress, wait for it to complete
-    if (initializationPromise && !options.force) {
+    if (initializationPromise && !options.force && !options.skipCacheCheck) {
       logger.info('Markdown memory initialization already in progress, waiting for completion');
       await initializationPromise;
       return;
@@ -83,8 +100,8 @@ export async function initializeMarkdownMemory(options: {
       logger.info(`Loading markdown documentation for agent ${agentId} (department: ${department}) into memory with caching enabled...`);
       
       const stats = await loadAllMarkdownAsMemory(directoriesToLoad, {
-        force: options.force || false,
-        checkForDuplicates: true
+        force: options.force || options.skipCacheCheck || false,
+        checkForDuplicates: !options.skipCacheCheck && true
       });
       
       // Record successful initialization details
@@ -118,12 +135,36 @@ export async function initializeMarkdownMemory(options: {
  */
 export async function forceReloadMarkdownFiles(agentId?: string, department?: string): Promise<void> {
   try {
+    logger.info('Forcing reload of all markdown files...');
+    
     // Reset initialization state
     initializationComplete = false;
     initializationPromise = null;
     
-    logger.info('Forcing reload of all markdown files...');
-    await initializeMarkdownMemory({ force: true, agentId, department });
+    // Reset the cache state in the loader module
+    const { resetCacheState } = await import('../knowledge/markdownMemoryLoader');
+    resetCacheState();
+    
+    // Optionally delete the cache file if it exists
+    try {
+      const exists = await fs.stat(CACHE_FILE_PATH).then(() => true).catch(() => false);
+      if (exists) {
+        logger.info('Deleting markdown cache file to ensure a clean reload');
+        await fs.unlink(CACHE_FILE_PATH);
+      }
+    } catch (fsError) {
+      logger.warn('Error checking/deleting cache file:', fsError);
+      // Continue anyway
+    }
+    
+    // Force a reload with skipCacheCheck to bypass all caching
+    await initializeMarkdownMemory({ 
+      force: true, 
+      agentId, 
+      department,
+      skipCacheCheck: true 
+    });
+    
     logger.info('Forced markdown reload complete');
   } catch (error) {
     logger.error('Error during forced markdown reload:', error);
@@ -145,7 +186,37 @@ export function getAgentDirectories(agentId: string = 'chloe', department: strin
 // Auto-initialize if this file is imported directly in server context
 // This handles the initial load only, ongoing changes are handled by MarkdownWatcher
 if (typeof window === 'undefined') {
-  initializeMarkdownMemory().catch(error => {
-    logger.error('Failed to initialize markdown memory:', error);
-  });
+  const checkCacheAndInitialize = async () => {
+    try {
+      // First, reset the cache state to force a fresh check
+      const { resetCacheState } = await import('../knowledge/markdownMemoryLoader');
+      resetCacheState();
+      
+      // Check if the cache file exists and has content
+      let cacheExists = false;
+      try {
+        const stats = await fs.stat(CACHE_FILE_PATH);
+        cacheExists = stats.isFile() && stats.size > 0;
+      } catch (error) {
+        cacheExists = false;
+      }
+      
+      // Initialize with appropriate options - always reset internal state
+      // on server restart to ensure fresh checking
+      if (!cacheExists) {
+        logger.info('Cache file not found or empty, will perform a full initialization');
+        await initializeMarkdownMemory({ skipCacheCheck: true });
+      } else {
+        // Reset initialization state to force a fresh check
+        initializationComplete = false;
+        initializationPromise = null;
+        
+        await initializeMarkdownMemory();
+      }
+    } catch (error) {
+      logger.error('Failed to initialize markdown memory:', error);
+    }
+  };
+  
+  checkCacheAndInitialize();
 } 

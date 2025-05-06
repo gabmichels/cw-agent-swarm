@@ -18,6 +18,28 @@ import {
 import { MemoryType as StandardMemoryType } from '../../../server/memory/config/types';
 // Import standardized memory services
 import { getMemoryServices } from '../../../server/memory/services';
+// Import metadata helpers
+import {
+  createMessageMetadata,
+  createDocumentMetadata,
+  createThoughtMetadata,
+  createReflectionMetadata,
+  createInsightMetadata,
+  createTaskMetadata,
+  createThreadInfo
+} from '../../../server/memory/services/helpers/metadata-helpers';
+// Import structured ID helpers
+import {
+  StructuredId,
+  createStructuredId,
+  createUserId,
+  createAgentId,
+  createChatId,
+  EntityNamespace,
+  EntityType
+} from '../../../types/structured-id';
+import { DocumentSource } from '../../../types/metadata';
+import { MessageRole } from '../types/state';
 
 // Create a simple stub for the KnowledgeFlaggingService class to fix the missing module issue
 class KnowledgeFlaggingService {
@@ -211,25 +233,35 @@ export class MemoryManager implements IManager {
     }
     
     // Map category string to a valid StandardMemoryType
-    let memoryType: string = StandardMemoryType.DOCUMENT;
+    let memoryType: StandardMemoryType = StandardMemoryType.DOCUMENT;
     
     // Determine the appropriate memory type based on the category
     if (Object.values(StandardMemoryType).includes(category as any)) {
-      memoryType = category;
+      memoryType = category as StandardMemoryType;
     } else {
       // Default mapping for other categories
       memoryType = StandardMemoryType.DOCUMENT;
     }
     
+    // Prepare combined metadata
+    const combinedMetadata = {
+      ...(metadata || {}),
+      category,
+      context,
+      source,
+      importance,
+      tags
+    };
+    
     // Add memory with the determined type and metadata if provided
     return this.chloeMemory.addMemory(
       content,
-      memoryType as any, // Use type assertion to fix incompatibility
+      memoryType,
       importance,
       source,
-      context,
+      category,
       tags,
-      metadata
+      combinedMetadata
     );
   }
 
@@ -332,14 +364,22 @@ export class MemoryManager implements IManager {
         await this.initialize();
       }
       
-      // Create metadata payload
-      const metadata = {
-        category,
-        tags,
-        source: source || MemorySource.SYSTEM,
-        importance: ImportanceLevel.HIGH,
-        timestamp: new Date().toISOString()
-      };
+      // Create structured IDs
+      const agentId = createAgentId(this.agentId);
+      const userId = createUserId("default");
+      
+      // Create standardized metadata for a document
+      const standardizedMetadata = createDocumentMetadata(
+        DocumentSource.AGENT,
+        {
+          title: `Strategic insight: ${category}`,
+          importance: ImportanceLevel.HIGH,
+          tags,
+          agentId,
+          userId,
+          contentType: "strategic_insight"
+        }
+      );
       
       // Add to memory system using standardized memory services
       if (this.chloeMemory) {
@@ -350,7 +390,7 @@ export class MemoryManager implements IManager {
           source as MemorySource,
           `Strategic insight in category: ${category}`,
           tags,
-          metadata
+          standardizedMetadata
         );
       }
       

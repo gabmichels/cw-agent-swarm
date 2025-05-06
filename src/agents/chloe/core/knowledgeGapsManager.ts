@@ -11,6 +11,17 @@ import { IManager, BaseManagerOptions } from '../../../lib/shared/types/agentTyp
 import { logger } from '../../../lib/logging';
 import { ImportanceLevel, MemorySource } from '../../../constants/memory';
 import { MemoryType } from '../../../server/memory/config/types';
+import {
+  createDocumentMetadata,
+  createMessageMetadata,
+  createThreadInfo
+} from '../../../server/memory/services/helpers/metadata-helpers';
+import {
+  createUserId,
+  createAgentId,
+  createChatId
+} from '../../../types/structured-id';
+import { DocumentSource } from '../../../types/metadata';
 
 /**
  * Options for initializing the knowledge gaps manager
@@ -183,7 +194,18 @@ Format each gap as a separate item with these sections.`;
         ImportanceLevel.HIGH,
         MemorySource.SYSTEM,
         undefined,
-        ['knowledge_gaps', 'learning_needs']
+        ['knowledge_gaps', 'learning_needs'],
+        createDocumentMetadata(
+          DocumentSource.AGENT,
+          {
+            title: "Knowledge Gaps Analysis",
+            contentType: 'knowledge_gap_analysis',
+            tags: ['knowledge_gaps', 'learning_needs'],
+            importance: ImportanceLevel.HIGH,
+            agentId: createAgentId(this.agentId),
+            userId: createUserId("default")
+          }
+        )
       );
       
       // Create the result object
@@ -266,6 +288,23 @@ Format each gap as a separate item with these sections.`;
       
       this.logAction('Tracking knowledge gap', { gap, category });
       
+      // Create structured IDs
+      const agentId = createAgentId(this.agentId);
+      const userId = createUserId("default");
+      
+      // Create document metadata for the knowledge gap
+      const metadata = createDocumentMetadata(
+        DocumentSource.AGENT,
+        {
+          title: `Knowledge Gap: ${gap}`,
+          contentType: 'knowledge_gap',
+          tags: ['knowledge_gap', 'learning_opportunity', category.toLowerCase()],
+          importance: ImportanceLevel.HIGH,
+          agentId,
+          userId
+        }
+      );
+      
       // Add to memory with high importance
       await this.memory.addMemory(
         `Knowledge Gap: ${gap}`,
@@ -273,7 +312,8 @@ Format each gap as a separate item with these sections.`;
         ImportanceLevel.HIGH,
         MemorySource.SYSTEM,
         'Identified Knowledge Gap',
-        ['knowledge_gap', 'learning_opportunity', category.toLowerCase()]
+        ['knowledge_gap', 'learning_opportunity', category.toLowerCase()],
+        metadata
       );
       
       // Notify about the gap if notification function is available
