@@ -84,6 +84,7 @@ export async function POST(request: NextRequest) {
             content: memory.text,
             metadata: {
               ...memory.metadata,
+              userId: memory.metadata?.userId || 'gab',
               original_id: memory.id,
               original_type: memory.type,
               transferred_at: new Date().toISOString()

@@ -50,18 +50,28 @@ const ChatBubbleMenu: React.FC<ChatBubbleMenuProps> = ({
     }
   };
 
-  // Handle delete message action - prioritize memory ID over timestamp
+  // Handle delete message action - only use messageId with direct API call
   const handleDelete = () => {
-    if (messageId && onDeleteMemory) {
-      // Use the standardized memory system's ID-based deletion
-      console.log('Deleting message by memory ID:', messageId);
-      onDeleteMemory(messageId);
-    } else if (message.timestamp && onDeleteMessage) {
-      // Fall back to legacy timestamp-based deletion
-      console.log('Deleting message by timestamp:', message.timestamp);
+    if (!messageId) {
+      console.warn('Cannot delete message: no message ID available', {
+        messageContent: message.content?.substring(0, 30)
+      });
+      return;
+    }
+    
+    // We'll just trigger the confirmation dialog in the parent component
+    // which will now use direct API calls rather than callbacks
+    console.log('Initiating deletion process for message ID:', messageId);
+    
+    if (onDeleteMessage && message.timestamp) {
+      console.log('Starting deletion via parent component');
       onDeleteMessage(message.timestamp);
     } else {
-      console.warn('No valid delete method available for this message');
+      console.warn('No delete handler available, cannot delete this message', {
+        hasId: !!messageId,
+        hasTimestamp: !!message.timestamp,
+        hasDeleteMessage: !!onDeleteMessage
+      });
     }
   };
 

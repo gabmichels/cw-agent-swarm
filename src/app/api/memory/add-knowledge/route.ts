@@ -63,6 +63,7 @@ export async function POST(request: NextRequest) {
           content,
           metadata: {
             ...metadata,
+            userId: metadata.userId ? String(metadata.userId) : 'gab',
             source: MemorySource.USER,
             importance: ImportanceLevel.HIGH,
             isKnowledge: true,
@@ -79,6 +80,7 @@ export async function POST(request: NextRequest) {
           type: messageType,
           metadata: {
             ...metadata,
+            userId: metadata.userId ? String(metadata.userId) : 'gab',
             addedToKnowledge: true,
             addedToKnowledgeAt: new Date().toISOString(),
             flagged: false // Remove flag once processed

@@ -77,6 +77,7 @@ export async function POST(req: NextRequest) {
         type: MemoryType.MESSAGE,
         content: content,
         metadata: {
+          userId: 'gab', // Ensure userId is set
           importance: ImportanceLevel.HIGH,
           flaggedImportant: true,
           flaggedAt: new Date().toISOString(),

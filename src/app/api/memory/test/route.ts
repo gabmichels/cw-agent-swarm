@@ -24,6 +24,7 @@ async function runMemoryTest() {
       type: MemoryType.THOUGHT,
       content: testContent,
       metadata: {
+        userId: 'gab',
         timestamp,
         source: 'memory-test-api',
         importance: ImportanceLevel.MEDIUM
@@ -40,6 +41,7 @@ async function runMemoryTest() {
       type: MemoryType.THOUGHT,
       content: searchContent,
       metadata: {
+        userId: 'gab',
         source: 'memory-test-api',
         importance: ImportanceLevel.HIGH
       }

@@ -75,6 +75,22 @@ export default function ChatInterface() {
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // Add event listener for forced refreshes
+  useEffect(() => {
+    const handleRefreshMessages = () => {
+      console.log('Received refreshMessages event, reloading chat history');
+      loadChatHistory();
+    };
+
+    // Add event listener for refreshMessages event
+    document.addEventListener('refreshMessages', handleRefreshMessages);
+
+    // Remove event listener on cleanup
+    return () => {
+      document.removeEventListener('refreshMessages', handleRefreshMessages);
+    };
+  }, [loadChatHistory]);
+
   // Auto-scroll to bottom when messages change
   useEffect(() => {
     if (!searchQuery) {

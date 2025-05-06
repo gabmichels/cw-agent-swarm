@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getMemoryServices } from '../../../../server/memory/services';
-import { MemoryType } from '../../../../server/memory/config';
+import { MemoryType, MemoryErrorCode } from '../../../../server/memory/config';
 
 export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
 /**
  * API endpoint to fetch all memories from Chloe's knowledge base
@@ -380,5 +381,59 @@ function formatMemory(record: any) {
   } catch (err) {
     console.error('Error formatting memory record:', err, record);
     return null;
+  }
+}
+
+/**
+ * API route to retrieve all memories without pagination limits
+ */
+export async function GET_ALL_MESSAGES(request: NextRequest) {
+  console.log('Fetching all memories without pagination');
+  
+  try {
+    // Initialize services
+    const { client, searchService } = await getMemoryServices();
+    
+    // Check if memory service is initialized
+    const status = await client.getStatus();
+    console.log(`Memory system initialized: ${status.initialized}`);
+    
+    if (!status.initialized) {
+      console.log('Initializing memory system');
+      await client.initialize();
+    }
+    
+    // Parse query parameters
+    const url = new URL(request.url);
+    const typeParam = url.searchParams.get('type');
+    
+    // Set search options with a high limit to get all messages
+    const searchOptions = {
+      types: typeParam ? [typeParam as MemoryType] : undefined,
+      limit: 1000,  // Set a very high limit to get all messages
+      offset: 0
+    };
+    
+    console.log('Searching for memories with options:', searchOptions);
+    
+    // Get all memories using search with empty query
+    const results = await searchService.search('', searchOptions);
+    
+    console.log(`Found ${results.length} memories`);
+    
+    // Return the memories with additional metadata
+    return NextResponse.json({
+      memories: results,
+      total: results.length,
+      memorySystemStatus: status
+    });
+  } catch (error) {
+    console.error('Error fetching all memories:', error);
+    
+    // Return an error response
+    return NextResponse.json({
+      error: error instanceof Error ? error.message : 'Unknown error',
+      memories: []
+    }, { status: 500 });
   }
 } 

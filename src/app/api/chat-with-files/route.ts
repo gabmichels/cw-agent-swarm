@@ -277,6 +277,18 @@ async function processWithVisionModel(message: string, images: Array<{fileId: st
       await memoryService.addMemory({
         type: MemoryType.MESSAGE,
         content: message,
+        metadata: {
+          userId: userId || 'gab',
+          role: 'user',
+          source: MemorySource.USER,
+          attachments: images.map(img => ({
+            filename: img.filename,
+            type: 'image',
+            fileId: img.fileId
+          })),
+          timestamp: requestTimestamp,
+          importance: ImportanceLevel.MEDIUM
+        },
         payload: {
           userId,
           role: 'user',
@@ -297,6 +309,13 @@ async function processWithVisionModel(message: string, images: Array<{fileId: st
       await memoryService.addMemory({
         type: MemoryType.MESSAGE,
         content: responseData.reply,
+        metadata: {
+          userId: userId || 'gab',
+          role: 'assistant',
+          source: MemorySource.AGENT,
+          visionResponseFor: requestTimestamp,
+          importance: ImportanceLevel.MEDIUM
+        },
         payload: {
           userId,
           role: 'assistant',

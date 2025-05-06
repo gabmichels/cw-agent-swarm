@@ -14,15 +14,17 @@ export const dynamic = 'force-dynamic';
  */
 export async function GET(
   request: NextRequest, 
-  { params }: { params: { id: string } }
+  context: { params: { id: string } }
 ) {
   try {
     // Initialize services
     const { memoryService } = await getMemoryServices();
     
-    // Get memory ID from path params
-    const memoryId = params.id;
-    if (!memoryId) {
+    // Get memory ID from context params
+    const id = context.params.id;
+    console.log(`Processing GET request for memory ID: ${id}`);
+    
+    if (!id) {
       return NextResponse.json({ 
         error: 'Memory ID is required' 
       }, { status: 400 });
@@ -35,7 +37,7 @@ export async function GET(
     
     // Get memory
     const memory = await memoryService.getMemory({
-      id: memoryId,
+      id,
       type,
       includeVector
     });
@@ -78,15 +80,17 @@ export async function GET(
  */
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: { id: string } }
 ) {
   try {
     // Initialize services
     const { memoryService } = await getMemoryServices();
     
-    // Get memory ID from path params
-    const memoryId = params.id;
-    if (!memoryId) {
+    // Get memory ID from context params
+    const id = context.params.id;
+    console.log(`Processing PATCH request for memory ID: ${id}`);
+    
+    if (!id) {
       return NextResponse.json({ 
         error: 'Memory ID is required' 
       }, { status: 400 });
@@ -105,7 +109,7 @@ export async function PATCH(
 
     // Update memory
     const success = await memoryService.updateMemory({
-      id: memoryId,
+      id,
       type,
       content,
       metadata,
@@ -121,7 +125,7 @@ export async function PATCH(
 
     // Get updated memory
     const updatedMemory = await memoryService.getMemory({
-      id: memoryId,
+      id,
       type
     });
 
@@ -160,16 +164,22 @@ export async function PATCH(
  */
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: { id: string } }
 ) {
+  console.log(`Received DELETE request for memory`);
+  
   try {
     // Initialize services
     const { memoryService } = await getMemoryServices();
     
-    // Get memory ID from path params
-    const memoryId = params.id;
-    if (!memoryId) {
+    // Get memory ID from context params
+    const id = context.params.id;
+    console.log(`Processing memory ID: ${id}`);
+    
+    if (!id) {
+      console.error('Cannot delete: Memory ID is missing');
       return NextResponse.json({ 
+        success: false,
         error: 'Memory ID is required' 
       }, { status: 400 });
     }
@@ -179,22 +189,53 @@ export async function DELETE(
     const hardDelete = url.searchParams.get('hardDelete') === 'true';
     const type = url.searchParams.get('type') as MemoryType || MemoryType.MESSAGE;
     
+    console.log(`Attempting to delete memory: ${id}, type: ${type}, hardDelete: ${hardDelete}`);
+    
+    // Double-check that the memory exists first
+    try {
+      const memory = await memoryService.getMemory({ id, type });
+      if (!memory) {
+        console.log(`Memory not found for ID: ${id}`);
+        return NextResponse.json({ 
+          success: false,
+          error: 'Memory not found' 
+        }, { status: 404 });
+      }
+      console.log(`Found memory to delete: ${memory.id}`);
+    } catch (checkError) {
+      console.error(`Error checking memory existence: ${checkError}`);
+    }
+    
     // Delete memory
-    const success = await memoryService.deleteMemory({
-      id: memoryId,
-      type,
-      hardDelete
-    });
+    try {
+      console.log(`Calling deleteMemory with id: ${id}, type: ${type}`);
+      const success = await memoryService.deleteMemory({
+        id,
+        type,
+        hardDelete
+      });
 
-    if (!success) {
-      return NextResponse.json({ 
-        error: 'Failed to delete memory' 
+      console.log(`Memory deletion result: ${success}`);
+      
+      if (!success) {
+        console.error(`Failed to delete memory: ${id}`);
+        return NextResponse.json({
+          success: false, 
+          error: 'Failed to delete memory' 
+        }, { status: 500 });
+      }
+      
+      console.log(`Successfully deleted memory with ID: ${id}`);
+      return NextResponse.json({ success: true });
+    } catch (deleteError) {
+      console.error(`Error during deletion operation: ${deleteError}`);
+      return NextResponse.json({
+        success: false,
+        error: `Deletion operation failed: ${deleteError instanceof Error ? deleteError.message : String(deleteError)}`
       }, { status: 500 });
     }
-
-    return NextResponse.json({ success });
   } catch (error) {
-    console.error('Error deleting memory:', error);
+    console.error(`Error in DELETE handler: ${error}`);
     
     // Handle specific memory error types
     if (error && typeof error === 'object' && 'code' in error) {
@@ -202,18 +243,21 @@ export async function DELETE(
       
       if (memoryError.code === MemoryErrorCode.NOT_FOUND) {
         return NextResponse.json({ 
+          success: false,
           error: memoryError.message || 'Memory not found' 
         }, { status: 404 });
       }
       
       if (memoryError.code === MemoryErrorCode.VALIDATION_ERROR) {
         return NextResponse.json({ 
+          success: false,
           error: memoryError.message || 'Invalid request parameters' 
         }, { status: 400 });
       }
     }
     
     return NextResponse.json({
+      success: false,
       error: error instanceof Error ? error.message : 'Unknown error'
     }, { status: 500 });
   }

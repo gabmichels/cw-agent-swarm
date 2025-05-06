@@ -91,6 +91,7 @@ export async function POST(req: NextRequest) {
         type: MemoryType.MESSAGE,
         content: content,
         metadata: {
+          userId: 'gab',
           flaggedUnreliable: true,
           flaggedUnreliableAt: new Date().toISOString(),
           unreliabilityReason: 'user_flagged',

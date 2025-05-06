@@ -91,87 +91,41 @@ export async function loadChatHistoryFromQdrant(specificUserId?: string) {
     // Get recent messages with timeout protection
     console.log('Fetching messages from memory service...');
     
-    // Search for recent messages
+    // Search for all messages with high limit - no filtering
     const fetchPromise = searchService.search("", {
       limit: 2000,
       types: [MemoryType.MESSAGE]
     });
     
     const searchResults = await Promise.race([fetchPromise, timeoutPromise]);
-    const recentMessages = searchResults.map(result => result.point);
-    console.log(`Retrieved ${recentMessages.length} total messages from memory service`);
-    
-    // Also fetch specifically high importance messages
-    console.log('Fetching high importance memories...');
-    const highImportanceResults = await searchService.search("", {
-      types: [MemoryType.MESSAGE],
-      filter: { importance: ImportanceLevel.HIGH },
-      limit: 500
-    });
-    const importantMemories = highImportanceResults.map(result => result.point);
-    console.log(`Retrieved ${importantMemories.length} high importance memories`);
-    
-    // Combine and deduplicate messages
-    const allMessages = [...recentMessages];
-    const seenIds = new Set(recentMessages.map((m: any) => m.id));
-    
-    // Add important memories that weren't already in recent messages
-    for (const memory of importantMemories) {
-      if (!seenIds.has(memory.id)) {
-        allMessages.push(memory);
-        seenIds.add(memory.id);
-      }
-    }
-    
-    console.log(`Combined ${allMessages.length} total messages after deduplication`);
-    
-    // Filter out internal reflections and messages not meant for chat
-    const filteredMessages = allMessages.filter(message => {
-      // Skip if no payload
-      if (!message.payload) return false;
-      
-      // Extract contents
-      const payload = message.payload as any;
-      const content = payload.text || '';
-      const metadata = payload.metadata || {};
-      
-      // Skip internal messages - new memory structure checks
-      if (metadata.isInternal === true) return false;
-      if (metadata.isForChat === false) return false;
-      
-      // Filter by user if specified
-      if (specificUserId && metadata.userId && metadata.userId !== specificUserId) {
-        return false;
-      }
-      
-      // Skip auto-generated system messages
-      const isSystemMessage = metadata.role === 'system' && metadata.source !== 'user';
-      if (isSystemMessage) return false;
-      
-      // Check content patterns for internal messages
-      const internalPatternValues = Object.values(INTERNAL_MESSAGE_PATTERNS);
-      for (const pattern of internalPatternValues) {
-        if (typeof pattern === 'string' && content.includes(pattern)) return false;
-      }
-      
-      return true;
-    });
-    
-    console.log(`Filtered to ${filteredMessages.length} chat-relevant messages`);
+    const allMessages = searchResults.map(result => result.point);
+    console.log(`Retrieved ${allMessages.length} total messages from memory service`);
     
     // Group by user id
     const messagesByUser = new Map<string, any[]>();
+    const defaultUserId = 'gab';  // Default user ID for the application
     
-    for (const message of filteredMessages) {
+    for (const message of allMessages) {
       const payload = message.payload as any;
       const metadata = payload.metadata || {};
-      const userId = metadata.userId || 'default';
       
-      if (!messagesByUser.has(userId)) {
-        messagesByUser.set(userId, []);
+      // Normalize the userId - use 'gab' as the default for all messages to ensure they're grouped together
+      // This fixes the issue where some messages have 'default' or undefined userId
+      const userId = metadata.userId || defaultUserId;
+      
+      // Skip messages that don't match the specific user ID if one was provided
+      if (specificUserId && userId !== specificUserId) {
+        continue;
       }
       
-      messagesByUser.get(userId)?.push(message);
+      // Always store under the default userId to ensure all messages are grouped together
+      const userKey = specificUserId || defaultUserId;
+      
+      if (!messagesByUser.has(userKey)) {
+        messagesByUser.set(userKey, []);
+      }
+      
+      messagesByUser.get(userKey)?.push(message);
     }
     
     // Sort each user's messages by timestamp
@@ -195,7 +149,7 @@ export async function loadChatHistoryFromQdrant(specificUserId?: string) {
     
     return {
       messagesByUser,
-      totalMessagesLoaded: filteredMessages.length,
+      totalMessagesLoaded: allMessages.length,
       userCount: messagesByUser.size
     };
   } catch (error) {

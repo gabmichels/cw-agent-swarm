@@ -7,7 +7,7 @@ import { ImportanceLevel, MemorySource } from '../../../constants/memory';
 import { MemoryType, ExtendedMemorySource } from '../../../server/memory/config/types';
 import { logger } from '../../../lib/logging';
 import { ImportanceCalculator } from '../../../lib/memory/ImportanceCalculator';
-import { TagExtractor, Tag, TagAlgorithm } from '../../../lib/memory/TagExtractor';
+import { Tag, TagAlgorithm } from '../../../lib/memory/TagExtractor';
 import { ChloeMemory } from '../memory';
 
 // Define memory types constants to replace the import from qdrant
@@ -48,6 +48,7 @@ async function loadFileModCache(): Promise<void> {
       if (!data || data.trim() === '') {
         logger.info('Empty markdown cache file found, creating new cache');
         fileModCache = new Map();
+        cacheLoaded = true; // Mark as loaded even if empty
         return;
       }
       
@@ -64,10 +65,12 @@ async function loadFileModCache(): Promise<void> {
       // File doesn't exist or is invalid, create a new empty cache
       fileModCache = new Map();
       logger.info('No markdown cache found or invalid format, creating new cache');
+      cacheLoaded = true; // Mark as loaded even when creating new
     }
   } catch (err) {
     logger.error('Error loading markdown cache:', err);
     fileModCache = new Map();
+    cacheLoaded = true; // Mark as loaded even on error to prevent future loads
   }
 }
 
@@ -181,78 +184,6 @@ interface MarkdownParseResult {
   type: string;
 }
 
-// Common stop words to filter out when extracting tags
-const STOP_WORDS = new Set([
-  'a', 'an', 'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'with',
-  'is', 'am', 'are', 'was', 'were', 'be', 'been', 'being', 'by', 'of', 'from',
-  'about', 'as', 'into', 'through', 'during', 'before', 'after', 'above', 'below',
-  'this', 'that', 'these', 'those', 'it', 'its', 'we', 'they', 'you', 'i', 'me',
-  'my', 'mine', 'your', 'yours', 'our', 'ours', 'their', 'theirs', 'his', 'her',
-  'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'shall', 'should',
-  'can', 'could', 'may', 'might', 'must', 'ought'
-]);
-
-/**
- * Extract keywords from text to use as tags
- * @param text Text to extract keywords from
- * @returns Array of keywords
- */
-function extractKeywordsFromText(text: string): string[] {
-  if (!text || typeof text !== 'string') return [];
-  
-  // Convert to lowercase and remove punctuation
-  const cleaned = text.toLowerCase()
-    .replace(/[^\w\s]/g, ' ')  // Replace punctuation with spaces
-    .replace(/\s+/g, ' ')      // Replace multiple spaces with single space
-    .trim();
-  
-  // Split into words and filter out stop words and short words
-  const words = cleaned.split(' ').filter(word => {
-    return word.length > 3 && !STOP_WORDS.has(word);
-  });
-  
-  // Return unique words, but with consistent formatting
-  return Array.from(new Set(words))
-    .map(word => normalizeTag(word));
-}
-
-/**
- * Normalize a tag for consistent formatting
- * @param tagText Tag text to normalize
- * @returns Normalized tag
- */
-function normalizeTag(tagText: string): string {
-  if (!tagText || typeof tagText !== 'string') return '';
-  
-  // Convert to lowercase and trim
-  let normalized = tagText.toLowerCase().trim();
-  
-  // Remove special characters (keep alphanumeric, spaces)
-  normalized = normalized.replace(/[^\w\s]/g, '');
-  
-  // Replace underscores with spaces for consistency
-  normalized = normalized.replace(/_+/g, ' ');
-  
-  // Replace multiple spaces with single space
-  normalized = normalized.replace(/\s+/g, ' ');
-  
-  // Truncate if too long (max 30 chars)
-  if (normalized.length > 30) {
-    // Try to truncate at a word boundary
-    const words = normalized.split(' ');
-    normalized = '';
-    for (const word of words) {
-      if ((normalized + ' ' + word).length <= 30) {
-        normalized += (normalized ? ' ' : '') + word;
-      } else {
-        break;
-      }
-    }
-  }
-  
-  return normalized;
-}
-
 // Fix for MAX_CHUNK_SIZE and split function
 const MAX_CHUNK_SIZE = 4000; // Max size for a chunk in characters
 
@@ -358,41 +289,9 @@ function extractTitle(frontMatter: any, content: string): string {
  * @returns Array of headings
  */
 function extractHeadings(content: string): string[] {
-  // Extract H1, H2, and H3 headings (more comprehensive than before)
+  // Extract H1, H2, and H3 headings
   const headingMatches = Array.from(content.matchAll(/^(#{1,3})\s+(.*?)$/gm));
   return headingMatches.map(match => match[2].trim());
-}
-
-/**
- * Get standard tags based on file path
- * @param filePath Path to markdown file
- * @returns Array of standard tags
- */
-function getStandardTagsFromPath(filePath: string): string[] {
-  const tags: string[] = ['markdown', 'documentation'];
-  
-  // Add tags based on directory structure
-  const normalizedPath = filePath.replace(/\\/g, '/');
-  
-  if (normalizedPath.includes('docs/')) {
-    tags.push('docs');
-  }
-  
-  if (normalizedPath.includes('knowledge/')) {
-    tags.push('knowledge');
-  }
-  
-  // Add specific domain tags based on subdirectories
-  const pathParts = normalizedPath.split('/');
-  for (let i = 0; i < pathParts.length - 1; i++) {
-    const part = pathParts[i].toLowerCase();
-    // Skip common parent directory names
-    if (part !== 'docs' && part !== 'knowledge' && part !== 'src' && part.length > 2) {
-      tags.push(normalizeTag(part));
-    }
-  }
-  
-  return tags;
 }
 
 /**
@@ -456,65 +355,32 @@ export async function processMarkdownFile(memoryManager: any, filePath: string):
     // Extract title and headings
     const headings = extractHeadings(content);
     
-    // Extract tags using traditional methods
-    const headingTags = headings.flatMap(heading => extractKeywordsFromText(heading));
-    const explicitTags = extractTags(content);
-    const standardTags = getStandardTagsFromPath(filePath);
-    
-    // Combine all tags from traditional methods - already normalized by their respective functions
-    const traditionalTags = Array.from(new Set([
-      ...headingTags,
-      ...explicitTags,
-      ...standardTags
-    ]));
-    
-    // Use the new OpenAI tag extractor for enhanced extraction
-    let enhancedTags: string[] = [];
+    // Use the OpenAI tag extractor for enhanced extraction
+    let finalTags: string[] = [];
     
     try {
+      // Import the tagExtractor
       const { extractTags } = await import('../../../utils/tagExtractor');
-      const { TagExtractorMiddleware } = await import('../core/tagExtractorMiddleware');
       
-      // Create a temporary tag extractor just for this file
-      const tagExtractor = new TagExtractorMiddleware(memoryManager);
+      // Extract tags using OpenAI
+      const tagResult = await extractTags(content, {
+        maxTags: 25,
+        minConfidence: 0.3
+      });
       
-      // Process the markdown content with the extractor
-      enhancedTags = await tagExtractor.processMarkdownFile(content, traditionalTags);
-      
-      logger.debug(`Enhanced tag extraction for ${filePath} found ${enhancedTags.length} tags`);
+      if (tagResult.success) {
+        // Convert Tag objects to string tags
+        finalTags = tagResult.tags.map(tag => tag.text);
+        logger.debug(`Tag extraction for ${filePath} found ${finalTags.length} tags`);
+      } else {
+        logger.warn(`Tag extraction for ${filePath} failed: ${tagResult.error}`);
+        finalTags = ['markdown', 'document'];
+      }
     } catch (tagError) {
-      logger.error(`Error using enhanced tag extraction for ${filePath}:`, tagError);
-      // Fall back to traditional tags if enhanced extraction fails
-      enhancedTags = traditionalTags;
+      logger.error(`Error using tag extraction for ${filePath}:`, tagError);
+      // Fall back to basic tags
+      finalTags = ['markdown', 'document'];
     }
-    
-    // Combine and normalize all tags to ensure consistency
-    // This handles cases where we might have both "open_ai" and "open ai" from different sources
-    const allTagsSet = new Set<string>();
-    
-    // Add traditional tags after normalization
-    traditionalTags.forEach(tag => allTagsSet.add(normalizeTag(tag)));
-    
-    // Add enhanced tags after normalization
-    enhancedTags.forEach(tag => allTagsSet.add(normalizeTag(tag)));
-    
-    // Convert to array and ensure reasonable tag count
-    const allTags = Array.from(allTagsSet);
-    
-    // Sort by length (shortest first) and limit to a reasonable number (max 25)
-    const finalTags = allTags
-      .sort((a, b) => a.length - b.length)
-      .slice(0, 25);
-    
-    // Log detailed tag extraction info for debugging
-    logger.debug(`Tag extraction for ${filePath}:`, {
-      headingTags,
-      explicitTags,
-      standardTags,
-      traditionalTags,
-      enhancedTags,
-      finalTags
-    });
     
     // Determine memory type based on file path
     const memoryType = determineMemoryType(filePath);
@@ -543,7 +409,7 @@ export async function processMarkdownFile(memoryManager: any, filePath: string):
         extractedFrom: filePath,
         lastModified: new Date().toISOString(),
         headings: headings,    // Store headings for better retrieval context
-        tagSource: 'enhanced-extraction' // Mark that we used the enhanced extractor
+        tagSource: 'openai-extractor' // Mark that we used the OpenAI extractor
       }
     );
     
@@ -716,8 +582,15 @@ export async function loadAllMarkdownAsMemory(
   unchangedFiles: number;
 }> {
   try {
-    // Load the file modification cache from disk only once
+    // Load the file modification cache from disk
     await loadFileModCache();
+    
+    // If cache isn't loaded for some reason, create a new one
+    if (!cacheLoaded) {
+      logger.warn('Cache loading failed or skipped, creating new cache');
+      fileModCache = new Map();
+      cacheLoaded = true;
+    }
     
     // Find all markdown files
     const markdownFiles = await findMarkdownFiles(directoriesToLoad);
@@ -806,27 +679,21 @@ export async function markdownToMemoryEntries(filePath: string, content: string)
   // Extract the title from frontmatter or first heading
   const title = extractTitle(frontMatter, markdownContent);
   
-  // Get predefined tags from frontmatter
-  const predefinedTags = frontMatter.tags || [];
+  // Get tags using the OpenAI extractor
+  const { extractTags } = await import('../../../utils/tagExtractor');
   
-  // Extract tags from title and content
-  const extractedTags = extractTagsFromMarkdown(title, markdownContent, predefinedTags);
+  let tags: string[] = [];
   
-  // Get all unique tags as strings
-  const allTagStrings = [
-    ...Array.isArray(predefinedTags) ? predefinedTags : [predefinedTags],
-    ...extractedTags.map(tag => tag.text)
-  ].filter((value, index, self) => self.indexOf(value) === index); // Remove duplicates
+  try {
+    const tagResult = await extractTags(markdownContent, { maxTags: 20 });
+    tags = tagResult.tags.map(tag => tag.text);
+  } catch (error) {
+    logger.error(`Error extracting tags from ${filePath}:`, error);
+    tags = ['markdown', 'document']; // Fallback tags
+  }
   
-  // Calculate importance directly for markdown (always high)
-  const importanceScore = ImportanceCalculator.calculateImportanceScore({
-    content: markdownContent,
-    source: MemorySource.FILE,
-    type: MemoryType.DOCUMENT,
-    tags: extractedTags,
-    tagConfidence: 0.9, // High confidence for markdown files
-    metadata: standardMetadata
-  });
+  // Calculate importance (always high for markdown)
+  const importanceScore = 0.9; // High importance for all markdown files
   
   // For small files, return as a single memory entry
   if (markdownContent.length < MAX_CHUNK_SIZE) {
@@ -834,15 +701,14 @@ export async function markdownToMemoryEntries(filePath: string, content: string)
       title,
       content: markdownContent,
       type: MemoryType.DOCUMENT,
-      tags: allTagStrings,
+      tags,
       importance: ImportanceLevel.CRITICAL, // Markdown is always critical
       importance_score: importanceScore,
       source: ExtendedMemorySource.FILE,
       filePath,
       metadata: {
         ...standardMetadata,
-        extractedTags,
-        tagConfidence: 0.9,
+        tagSource: 'openai-extractor'
       }
     }];
   }
@@ -850,316 +716,47 @@ export async function markdownToMemoryEntries(filePath: string, content: string)
   // For larger files, split into chunks
   const chunks = await splitMarkdownIntoChunks(markdownContent);
   
-  // Create a memory entry for each chunk
-  return chunks.map((chunk, index) => {
-    // Extract chunk-specific tags
-    const chunkTags = TagExtractor.extractTags(chunk, {
-      algorithm: TagAlgorithm.TFIDF,
-      maxTags: 10
-    });
+  // Create a memory entry for each chunk with sequential tag extraction
+  const chunkEntries: ChloeMemoryEntry[] = [];
+  
+  for (let index = 0; index < chunks.length; index++) {
+    const chunk = chunks[index];
     
-    // Combine with file-level tags in a way compatible with the Tag interface
-    const mergedTagsArray = TagExtractor.mergeTags(extractedTags, chunkTags);
+    // Extract tags for this specific chunk
+    let chunkTags: string[] = [...tags]; // Start with the document-level tags
     
-    // Map to string tags for storage
-    const stringTags = [
-      ...allTagStrings,
-      ...chunkTags.map(tag => tag.text)
-    ].filter((value, index, self) => self.indexOf(value) === index); // Remove duplicates
+    try {
+      const chunkTagResult = await extractTags(chunk, { maxTags: 15 });
+      // Add any unique tags from this chunk
+      chunkTagResult.tags.forEach(tag => {
+        if (!chunkTags.includes(tag.text)) {
+          chunkTags.push(tag.text);
+        }
+      });
+    } catch (error) {
+      logger.error(`Error extracting tags from chunk ${index} of ${filePath}:`, error);
+      // Just use the document tags if chunk tag extraction fails
+    }
     
-    // Calculate chunk-specific importance
-    const chunkImportanceScore = ImportanceCalculator.calculateImportanceScore({
-      content: chunk,
-      source: MemorySource.FILE,
-      type: MemoryType.DOCUMENT,
-      tags: mergedTagsArray,
-      tagConfidence: 0.85,
-      metadata: standardMetadata
-    });
-    
-    return {
+    chunkEntries.push({
       title: `${title} (Part ${index + 1})`,
       content: chunk,
       type: MemoryType.DOCUMENT,
-      tags: stringTags,
+      tags: chunkTags,
       importance: ImportanceLevel.CRITICAL,
-      importance_score: chunkImportanceScore,
+      importance_score: importanceScore,
       source: ExtendedMemorySource.FILE,
       filePath,
       metadata: {
         ...standardMetadata,
-        extractedTags: mergedTagsArray.map(tag => ({ text: tag.text, confidence: tag.confidence })),
-        tagConfidence: 0.85,
+        tagSource: 'openai-extractor',
         partIndex: index,
         totalParts: chunks.length
       }
-    };
-  });
-}
-
-/**
- * Extract tags from markdown content
- */
-function extractTagsFromMarkdown(
-  title: string,
-  content: string,
-  predefinedTags: string[] = []
-): Tag[] {
-  // Extract tags using title and content with different weights
-  const extractedTags = TagExtractor.extractTagsFromFields([
-    { content: title, weight: 1.5 },     // Title has higher weight
-    { content: content, weight: 1.0 }    // Content has standard weight
-  ], {
-    algorithm: TagAlgorithm.TFIDF,
-    maxTags: 15,
-    minConfidence: 0.2
-  });
-  
-  // Convert predefined tags to Tag objects with maximum confidence
-  const predefinedTagObjects = predefinedTags.map(tag => ({
-    text: tag,
-    confidence: 1.0,
-    approved: true,
-    algorithm: 'manual' as any
-  })) as Tag[];
-  
-  // Merge predefined tags with extracted tags, prioritizing predefined
-  return TagExtractor.mergeTags(predefinedTagObjects, extractedTags);
-}
-
-/**
- * Split markdown content by headers and return sections
- * @param content Markdown content
- * @returns Array of sections with title and content
- */
-function splitMarkdownByHeaders(content: string): Array<{title: string; content: string; tags?: string[]; importance?: ImportanceLevel}> {
-  const headerRegex = /^(#{2,3})\s+(.+)$/gm;
-  const sections: Array<{title: string; content: string; tags?: string[]; importance?: ImportanceLevel}> = [];
-  
-  let lastIndex = 0;
-  let match;
-  let currentTitle = '';
-  
-  // First, find all the headers
-  const matches = Array.from(content.matchAll(headerRegex));
-  
-  if (matches.length === 0) {
-    // No headers found, return the whole content as one section
-    return [{ title: '', content }];
+    });
   }
   
-  // Process each header match
-  for (let i = 0; i < matches.length; i++) {
-    match = matches[i];
-    const headerStart = match.index!;
-    const headerEnd = headerStart + match[0].length;
-    const title = match[2].trim();
-    
-    // If this isn't the first header, add the previous section
-    if (i > 0) {
-      const prevContent = content.substring(lastIndex, headerStart).trim();
-      sections.push({
-        title: currentTitle,
-        content: prevContent,
-        tags: extractTags(prevContent),
-        importance: extractImportance(prevContent)
-      });
-    } else if (headerStart > 0) {
-      // There's content before the first header
-      const introContent = content.substring(0, headerStart).trim();
-      if (introContent) {
-        sections.push({
-          title: 'Introduction',
-          content: introContent,
-          tags: extractTags(introContent),
-          importance: extractImportance(introContent)
-        });
-      }
-    }
-    
-    currentTitle = title;
-    lastIndex = headerEnd;
-    
-    // Handle the last section
-    if (i === matches.length - 1) {
-      sections.push({
-        title: currentTitle,
-        content: content.substring(headerEnd).trim(),
-        tags: extractTags(content.substring(headerEnd)),
-        importance: extractImportance(content.substring(headerEnd))
-      });
-    }
-  }
-  
-  return sections;
-}
-
-/**
- * Extract tags from markdown content
- * @param content Markdown content
- * @returns Array of tags
- */
-function extractTags(content: string): string[] {
-  try {
-    const tags = new Set<string>();
-    
-    // Extract explicit hashtags like #tag
-    const hashtagMatches = content.match(/#([a-zA-Z0-9_]+)/g);
-    if (hashtagMatches) {
-      for (const tag of hashtagMatches) {
-        // Remove # prefix and add to set if at least 3 chars
-        const cleanTag = tag.substring(1).toLowerCase();
-        if (cleanTag.length >= 3) {
-          tags.add(normalizeTag(cleanTag));
-        }
-      }
-    }
-    
-    // Extract heading content as potential tags (more important for knowledge organization)
-    // Look for markdown headers (e.g., ## Heading)
-    const headingMatches = content.match(/^#+\s+(.+)$/gm);
-    if (headingMatches) {
-      for (const heading of headingMatches) {
-        // Remove heading markers and extract keywords
-        const cleanHeading = heading.replace(/^#+\s+/, '').trim();
-        
-        // Add the entire heading as a tag if it's a short phrase (up to 5 words)
-        const words = cleanHeading.split(/\s+/);
-        if (words.length <= 5) {
-          const phraseTag = normalizeTag(cleanHeading);
-          
-          if (phraseTag.length >= 3) {
-            tags.add(phraseTag);
-          }
-        }
-        
-        // Also add individual important words if they're meaningful
-        for (const word of words) {
-          const cleanWord = word.replace(/[^a-zA-Z0-9_]/g, '').toLowerCase();
-          if (cleanWord.length >= 3 && !isStopWord(cleanWord)) {
-            tags.add(normalizeTag(cleanWord));
-          }
-        }
-      }
-    }
-    
-    // Extract important key terms from content - look for capitalized phrases
-    // This catches terms like "Marketing KPIs", "Customer Acquisition Cost", etc.
-    const importantTerms = content.match(/\b([A-Z][a-z]+\s?){1,5}\b/g);
-    if (importantTerms) {
-      for (const term of importantTerms) {
-        if (term.length >= 5) {
-          const termTag = normalizeTag(term);
-          tags.add(termTag);
-          
-          // If it contains multiple words, also add the individual words
-          const termWords = term.split(/\s+/);
-          if (termWords.length > 1) {
-            for (const word of termWords) {
-              const cleanWord = word.replace(/[^a-zA-Z0-9_]/g, '').toLowerCase();
-              if (cleanWord.length >= 3 && !isStopWord(cleanWord)) {
-                tags.add(normalizeTag(cleanWord));
-              }
-            }
-          }
-        }
-      }
-    }
-    
-    // Extract terms from list items - often contain important concepts
-    const listItems = content.match(/^[-*]\s+(.+)$/gm);
-    if (listItems) {
-      for (const item of listItems) {
-        // Remove list marker
-        const cleanItem = item.replace(/^[-*]\s+/, '').trim();
-        
-        // If it's a short phrase (up to 5 words), add as tag
-        const itemWords = cleanItem.split(/\s+/);
-        if (itemWords.length <= 5 && cleanItem.length >= 5) {
-          const itemTag = normalizeTag(cleanItem);
-          tags.add(itemTag);
-        }
-        
-        // Also check for technical terms and metrics in list items
-        const techTermMatch = cleanItem.match(/^([A-Z][a-zA-Z0-9]*|[A-Z]{2,})(\s+\([^)]+\))?:/);
-        if (techTermMatch) {
-          const techTerm = techTermMatch[1].toLowerCase();
-          tags.add(normalizeTag(techTerm));
-        }
-      }
-    }
-    
-    // Look for common technical terms and metrics
-    const metricPatterns = [
-      /\b(KPIs?|metrics?|analytics)\b/i,
-      /\b([A-Z]{2,})\b/, // Acronyms like MAU, CAC, ROI, etc.
-      /\b(conversion rate|retention|acquisition cost|lifetime value|churn|growth rate)\b/i
-    ];
-    
-    for (const pattern of metricPatterns) {
-      const matches = content.match(pattern);
-      if (matches) {
-        for (const match of matches) {
-          const tag = normalizeTag(match);
-          tags.add(tag);
-        }
-      }
-    }
-    
-    return Array.from(tags);
-  } catch (error) {
-    logger.error('Error extracting tags:', error);
-    return [];
-  }
-}
-
-/**
- * Check if a word is a common stop word that shouldn't be used as a tag
- * @param word Word to check
- * @returns True if it's a stop word
- */
-function isStopWord(word: string): boolean {
-  const stopWords = [
-    'the', 'and', 'for', 'with', 'this', 'that', 'from', 'have', 'has',
-    'should', 'would', 'could', 'about', 'then', 'than', 'what', 'when',
-    'where', 'which', 'their', 'they', 'them', 'these', 'those', 'some',
-    'will', 'been', 'were', 'because', 'been', 'being', 'our', 'your',
-    'his', 'her', 'its', 'are', 'was', 'who', 'whom', 'whose', 'how',
-    'why', 'use', 'used', 'using', 'each', 'both', 'all', 'other', 'another',
-    'etc', 'only', 'very', 'just', 'get', 'got', 'getting', 'now', 'new'
-  ];
-  return stopWords.includes(word.toLowerCase());
-}
-
-/**
- * Extract importance level from content based on keywords
- * @param content Text content
- * @returns Importance level
- */
-function extractImportance(content: string): ImportanceLevel {
-  const lowercaseContent = content.toLowerCase();
-  
-  if (
-    lowercaseContent.includes('critical') || 
-    lowercaseContent.includes('urgent') || 
-    lowercaseContent.includes('highest priority')
-  ) {
-    return ImportanceLevel.CRITICAL;
-  } else if (
-    lowercaseContent.includes('important') || 
-    lowercaseContent.includes('high priority') ||
-    lowercaseContent.includes('significant')
-  ) {
-    return ImportanceLevel.HIGH;
-  } else if (
-    lowercaseContent.includes('low priority') || 
-    lowercaseContent.includes('minor') ||
-    lowercaseContent.includes('trivial')
-  ) {
-    return ImportanceLevel.LOW;
-  }
-  
-  return ImportanceLevel.MEDIUM;
+  return chunkEntries;
 }
 
 /**

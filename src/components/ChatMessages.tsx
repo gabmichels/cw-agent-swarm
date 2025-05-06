@@ -12,30 +12,46 @@ interface ChatMessagesProps {
   isLoading?: boolean;
   onImageClick: (attachment: FileAttachment, e: React.MouseEvent) => void;
   onDeleteMessage?: (messageId: string) => Promise<boolean>;
+  showInternalMessages?: boolean;
+  pageSize?: number;
+  preloadCount?: number;
+  searchQuery?: string;
+  initialMessageId?: string;
 }
 
 const ChatMessages: React.FC<ChatMessagesProps> = ({ 
   messages, 
   isLoading = false, 
   onImageClick,
-  onDeleteMessage
+  onDeleteMessage,
+  showInternalMessages = false,
+  pageSize = 20,
+  preloadCount = 10,
+  searchQuery = '',
+  initialMessageId = ''
 }) => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   
+  // Log the raw messages received for debugging
+  useEffect(() => {
+    console.log('ChatMessages received raw messages:', messages.length, messages);
+  }, [messages]);
+  
   // Simplified message processing - just sort by timestamp
   const sortedMessages = useMemo(() => {
     if (!messages || !Array.isArray(messages)) {
+      console.warn('Messages is not an array or is empty:', messages);
       return [];
     }
     
-    console.log('Processing messages for display:', messages.length);
+    console.log('Processing messages for display, count:', messages.length);
     
     // Create a copy of messages to avoid mutating props
     let sortedMessages = [...messages];
     
     // Ensure all messages have valid timestamps
-    sortedMessages = sortedMessages.map(message => {
+    sortedMessages = sortedMessages.map((message, index) => {
       let timestamp = message.timestamp;
       
       // Convert string timestamps to Date objects
@@ -45,6 +61,7 @@ const ChatMessages: React.FC<ChatMessagesProps> = ({
       
       // Handle invalid dates by using current time
       if (!timestamp || !(timestamp instanceof Date) || isNaN(timestamp.getTime())) {
+        console.warn(`Message at index ${index} has invalid timestamp:`, message.timestamp);
         timestamp = new Date();
       }
       
@@ -60,13 +77,22 @@ const ChatMessages: React.FC<ChatMessagesProps> = ({
       const timeA = a.timestamp instanceof Date ? a.timestamp.getTime() : 0;
       const timeB = b.timestamp instanceof Date ? b.timestamp.getTime() : 0;
       
-      // If timestamps are equal, sort by ID if available to ensure consistent order
-      if (timeA === timeB) {
-        return (a.id || '') < (b.id || '') ? -1 : 1;
+      // Primary sort by timestamp
+      if (timeA !== timeB) {
+        return timeA - timeB;
       }
       
-      // Sort by time (ascending)
-      return timeA - timeB;
+      // Secondary sort by ID for consistency when timestamps are equal
+      const idA = a.id || '';
+      const idB = b.id || '';
+      return idA.localeCompare(idB);
+    });
+    
+    console.log('Processed and sorted messages for display:', sortedMessages.length);
+    
+    // Debug: Log all message IDs
+    sortedMessages.forEach((msg, idx) => {
+      console.log(`Message ${idx + 1}/${sortedMessages.length}: ID=${msg.id}, timestamp=${msg.timestamp}, sender=${msg.sender}`);
     });
     
     return sortedMessages;
@@ -92,10 +118,10 @@ const ChatMessages: React.FC<ChatMessagesProps> = ({
     }
   }, [sortedMessages.length, scrollToBottom]);
 
-  // Handle deleting a message
+  // Handle deleting a message - takes timestamp but uses ID for deletion
   const handleDeleteMessage = async (timestamp: Date): Promise<boolean> => {
     try {
-      // Find the message by timestamp
+      // Find the message by timestamp, but we'll use the ID for deletion
       const targetMessage = sortedMessages.find(
         msg => msg.timestamp && msg.timestamp.getTime() === timestamp.getTime()
       );
@@ -105,17 +131,57 @@ const ChatMessages: React.FC<ChatMessagesProps> = ({
         return false;
       }
       
-      // If we have an onDeleteMessage prop and message ID, use that
-      if (onDeleteMessage && targetMessage.id) {
-        return await onDeleteMessage(targetMessage.id);
+      // Only proceed if the message has an ID
+      if (!targetMessage.id) {
+        console.error('Cannot delete message: no message ID available');
+        return false;
       }
       
+      console.log(`Found message with ID: ${targetMessage.id} for timestamp: ${timestamp.toISOString()}`);
+      
+      // Use the onDeleteMessage prop to delete by ID
+      if (onDeleteMessage) {
+        const result = await onDeleteMessage(targetMessage.id);
+        console.log(`Deletion result for message ID ${targetMessage.id}:`, result);
+        return result;
+      }
+      
+      // No deletion handler provided
+      console.error('No deletion handler provided');
       return false;
     } catch (error) {
       console.error('Error in handleDeleteMessage:', error);
       return false;
     }
   };
+
+  // Watch for deletion events to refresh the UI
+  useEffect(() => {
+    const handleMessageDeleted = (event: Event) => {
+      const customEvent = event as CustomEvent;
+      if (customEvent.detail?.id) {
+        console.log('Message deleted event detected for ID:', customEvent.detail.id);
+      }
+    };
+
+    document.addEventListener('messageDeleted', handleMessageDeleted);
+    return () => {
+      document.removeEventListener('messageDeleted', handleMessageDeleted);
+    };
+  }, []);
+
+  // Add effect to check if specific message (by ID) is present
+  useEffect(() => {
+    if (initialMessageId && sortedMessages.length > 0) {
+      const foundMessage = sortedMessages.find(msg => msg.id === initialMessageId);
+      if (foundMessage) {
+        console.log(`Found requested message with ID: ${initialMessageId}`);
+      } else {
+        console.warn(`Message with ID ${initialMessageId} not found in the displayed messages`);
+        console.log('Available message IDs:', sortedMessages.map(msg => msg.id));
+      }
+    }
+  }, [initialMessageId, sortedMessages]);
 
   return (
     <div 
@@ -154,12 +220,25 @@ const ChatMessages: React.FC<ChatMessagesProps> = ({
         }
       `}</style>
       
-      {/* Debug info - only show in development */}
-      {process.env.NODE_ENV === 'development' && (
-        <div className="text-xs text-gray-500 mb-2 p-2 border border-gray-700 rounded">
-          Showing {sortedMessages.length} messages (Dev)
+      {/* Debug info */}
+      <div className="text-xs text-gray-500 mb-4 p-3 border border-gray-700 rounded bg-gray-800">
+        <p className="font-bold mb-1">Debug Information:</p>
+        <p>Displaying {sortedMessages.length} of {messages.length} messages</p>
+        {initialMessageId && (
+          <p>Looking for message ID: {initialMessageId} - 
+            {sortedMessages.some(msg => msg.id === initialMessageId) ? ' Found!' : ' Not found'}
+          </p>
+        )}
+        <p className="mt-1 mb-1">Message IDs:</p>
+        <div className="max-h-20 overflow-y-auto">
+          {sortedMessages.map((msg, idx) => (
+            <div key={idx} className="flex items-center">
+              <span className="mr-1">{idx + 1}.</span>
+              <span className={initialMessageId === msg.id ? 'text-green-400 font-bold' : ''}>{msg.id}</span>
+            </div>
+          ))}
         </div>
-      )}
+      </div>
     
       {sortedMessages.map((message, index) => {
         // Generate a unique ID for this message if it doesn't have one

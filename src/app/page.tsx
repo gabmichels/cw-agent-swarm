@@ -1423,14 +1423,13 @@ For detailed instructions, see the Debug panel.`,
       try {
         console.log(`Loading initial chat for ${selectedAgent}`);
         
-        // Try to load messages directly from the memory system
+        // Instead of using the memory endpoint with a limit, use our new all endpoint
+        // that fetches all messages without pagination
         let memoryMessages = [];
         try {
           console.log("Fetching messages from memory system...");
           
-          // Instead of using the search endpoint with an empty query (which is rejected),
-          // use the general memory endpoint which doesn't require a search query
-          const memoryResponse = await fetch('/api/memory', {
+          const memoryResponse = await fetch('/api/memory/all', {
             method: 'GET',
             headers: {
               'Accept': 'application/json',
@@ -2290,8 +2289,15 @@ For detailed instructions, see the Debug panel.`,
               {selectedTab === 'chat' && (
                 <div className="flex flex-col h-full overflow-hidden">
                   <div className="flex-1 h-full">
+                    {/* Add debugging info about the number of messages */}
+                    {process.env.NODE_ENV !== 'production' && messages.length > 0 && (
+                      <div className="text-xs text-gray-500 mb-2 p-2 border border-gray-700 rounded">
+                        Passing {messages.length} messages to ChatMessages component
+                      </div>
+                    )}
+                    
                     {/* Use the new ChatMessages component */}
-                    {messages.length > 0 && (
+                    {messages.length > 0 ? (
                       <ChatMessages 
                         messages={messages} 
                         isLoading={isLoading}
@@ -2302,6 +2308,10 @@ For detailed instructions, see the Debug panel.`,
                         searchQuery={searchQuery}
                         initialMessageId={selectedMessageId}
                       />
+                    ) : (
+                      <div className="text-center text-gray-500 py-8">
+                        No messages to display. Start a conversation!
+                      </div>
                     )}
                     
                     {/* Scroll anchor div - always place at the end of messages */}

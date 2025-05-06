@@ -106,11 +106,17 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
     
+    // Ensure userId is set in metadata
+    const safeMetadata = {
+      ...metadata,
+      userId: metadata?.userId ? String(metadata.userId) : 'gab' // Ensure userId is always set with default 'gab'
+    };
+    
     // Add memory
     const result = await memoryService.addMemory({
       type,
       content,
-      metadata,
+      metadata: safeMetadata, // Use the updated metadata with guaranteed userId
       embedding,
       id
     });

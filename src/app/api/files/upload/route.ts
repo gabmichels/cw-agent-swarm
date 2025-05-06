@@ -163,6 +163,7 @@ export async function POST(request: NextRequest) {
           content: contentToStore,
           metadata: {
             ...result.metadata,
+            userId: 'gab',
             processingDate: new Date().toISOString(),
             isStandardizedMemory: true
           }

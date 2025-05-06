@@ -4,6 +4,9 @@
  * This module initializes at startup to ensure all critical markdown content
  * from docs/ and knowledge/ directories is loaded into Chloe's memory with
  * CRITICAL importance for quick retrieval.
+ * 
+ * Note: After initial loading, ongoing file changes are automatically detected and
+ * processed by the MarkdownWatcher class, which monitors the file system for changes.
  */
 
 import { loadAllMarkdownAsMemory } from '../knowledge/markdownMemoryLoader';
@@ -15,8 +18,19 @@ let initializationComplete = false;
 let initializationPromise: Promise<void> | null = null;
 
 /**
+ * Get agent ID from path
+ */
+function getAgentIdFromPath(): string {
+  // Default to chloe
+  return 'chloe';
+}
+
+/**
  * Initialize the markdown memory loader and load all markdown files
  * from the standard directories.
+ * 
+ * This function is called once during application startup to perform the initial load.
+ * Subsequent file changes are handled by the MarkdownWatcher, not by this function.
  * 
  * @param options Configuration options for initialization
  * @returns Promise resolving when initialization is complete
@@ -60,6 +74,7 @@ export async function initializeMarkdownMemory(options: {
       const directoriesToLoad = options.directories || [
         'data/knowledge/company', 
         `data/knowledge/agents/${agentId}`,
+        `data/knowledge/agents/shared`,
         `data/knowledge/domains/${department}`
       ];
       
@@ -75,8 +90,11 @@ export async function initializeMarkdownMemory(options: {
       // Record successful initialization details
       logger.info(`Markdown initialization complete: Processed ${stats.filesProcessed} files, Added ${stats.entriesAdded} memory entries, Skipped ${stats.duplicatesSkipped} duplicates, Unchanged: ${stats.unchangedFiles}`);
       
-      // Mark as initialized
+      // Mark as initialized 
       initializationComplete = true;
+      
+      // Log that ongoing file changes will be handled by the watcher
+      logger.info('Initial markdown loading complete. Ongoing file changes will be detected by MarkdownWatcher.');
     })();
 
     // Wait for initialization to complete
@@ -94,7 +112,9 @@ export async function initializeMarkdownMemory(options: {
 }
 
 /**
- * Force reload all markdown files, ignoring duplication checks
+ * Force reload all markdown files, ignoring duplication checks.
+ * This is primarily used by admin tools and should be used with caution
+ * as it may interfere with the MarkdownWatcher's file tracking.
  */
 export async function forceReloadMarkdownFiles(agentId?: string, department?: string): Promise<void> {
   try {
@@ -111,20 +131,19 @@ export async function forceReloadMarkdownFiles(agentId?: string, department?: st
 }
 
 /**
- * Helper function to determine agent ID from the current module path
+ * Get standard directories for the agent
  */
-function getAgentIdFromPath(): string {
-  // Default to 'chloe' if we can't determine from path
-  try {
-    const modulePath = __dirname;
-    const match = modulePath.match(/[\/\\]agents[\/\\]([^\/\\]+)[\/\\]/);
-    return match ? match[1] : 'chloe';
-  } catch {
-    return 'chloe';
-  }
+export function getAgentDirectories(agentId: string = 'chloe', department: string = 'marketing'): string[] {
+  return [
+    'data/knowledge/company', 
+    `data/knowledge/agents/${agentId}`,
+    `data/knowledge/agents/shared`,
+    `data/knowledge/domains/${department}`
+  ];
 }
 
 // Auto-initialize if this file is imported directly in server context
+// This handles the initial load only, ongoing changes are handled by MarkdownWatcher
 if (typeof window === 'undefined') {
   initializeMarkdownMemory().catch(error => {
     logger.error('Failed to initialize markdown memory:', error);

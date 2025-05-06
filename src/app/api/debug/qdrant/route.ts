@@ -36,6 +36,7 @@ export async function GET() {
           type: MemoryType.MESSAGE,
           content: 'This is a test message for memory service debugging',
           metadata: {
+            userId: 'gab',
             source: 'debug',
             importance: ImportanceLevel.LOW
           }

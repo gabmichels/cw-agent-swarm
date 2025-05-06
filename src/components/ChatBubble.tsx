@@ -394,38 +394,135 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
     setIsDeleting(true);
     
     try {
+      console.log('Starting client-side memory deletion process');
+      
+      // Only proceed if we have a message ID
+      if (!message.id) {
+        console.error('Cannot delete message: no message ID available');
+        showToast('Cannot delete message: no ID available');
+        setIsDeleting(false);
+        return;
+      }
+      
+      console.log('Attempting to delete message with ID:', message.id);
+      
+      // Client-side direct approach to memory deletion
+      // Initialize needed variables
       let success = false;
       
-      console.log('Attempting to delete message:', {
-        id: message.id, 
-        timestamp: message.timestamp instanceof Date ? message.timestamp.toISOString() : message.timestamp
-      });
-      
-      // Determine if we have a valid timestamp
-      const hasValidTimestamp = message.timestamp instanceof Date || 
-        (typeof message.timestamp === 'string') || 
-        (message.timestamp !== undefined && message.timestamp !== null);
-      
-      if (onDeleteMessage && hasValidTimestamp) {
-        // Call the delete handler with the message timestamp
-        success = await onDeleteMessage(message.timestamp);
+      try {
+        // First, check if the memory exists using our non-dynamic route
+        const checkResponse = await fetch(`/api/memory/status?id=${encodeURIComponent(message.id)}&type=message`, {
+          method: 'GET',
+        });
         
-        // Check if the API call was successful
-        if (success) {
-          console.log('Message deletion successful via API');
-        } else {
-          console.warn('Message deletion API call failed');
+        const checkData = await checkResponse.json();
+        console.log('Memory check response:', checkData);
+        
+        if (!checkResponse.ok || !checkData.exists) {
+          console.log('Memory does not exist or status check failed');
+          showToast('Cannot delete: message not found');
+          setIsDeleting(false);
+          return;
         }
-      } else {
-        console.warn('Cannot delete message: missing timestamp or delete handler');
+        
+        // Use our non-dynamic POST endpoint instead of the problematic dynamic route
+        // This follows the pattern suggested in NEXT_JS_API_ISSUES.md
+        const deleteResponse = await fetch('/api/memory/delete', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            id: message.id,
+            type: 'message'
+          }),
+        });
+        
+        const deleteData = await deleteResponse.json();
+        console.log('Delete API response:', deleteData);
+        
+        success = deleteResponse.ok && deleteData.success;
+        
+        if (success) {
+          console.log('Message deleted successfully via client-side approach');
+        } else {
+          console.error('API returned unsuccessful deletion:', deleteData);
+          
+          // Fall back to parent handler if direct API call failed
+          if (onDeleteMessage && message.timestamp) {
+            console.log('Direct API call failed, trying parent handler');
+            
+            // We still pass a timestamp to the parent handler because that's what the interface expects
+            const timestamp = message.timestamp instanceof Date 
+              ? message.timestamp 
+              : new Date(message.timestamp as string || Date.now());
+            
+            try {
+              success = await onDeleteMessage(timestamp);
+              console.log('Deletion via parent handler result:', success);
+            } catch (deleteError) {
+              console.error('Error in parent deletion handler:', deleteError);
+              success = false;
+            }
+          }
+        }
+      } catch (apiError) {
+        console.error('Error in client-side deletion:', apiError);
         success = false;
+        
+        // Fall back to parent handler
+        if (onDeleteMessage && message.timestamp) {
+          const timestamp = message.timestamp instanceof Date 
+            ? message.timestamp 
+            : new Date(message.timestamp as string || Date.now());
+          
+          try {
+            success = await onDeleteMessage(timestamp);
+          } catch (deleteError) {
+            console.error('Error in parent deletion handler:', deleteError);
+            success = false;
+          }
+        }
       }
       
       if (success) {
-        // Note: No need to update UI here as the parent component will update
-        // its state based on the deleteMessage response and remove the message
         setIsDeleteDialogOpen(false);
         showToast('Message deleted successfully');
+        
+        // Create a DOM event to notify the UI that a message was deleted
+        try {
+          const deleteEvent = new CustomEvent('messageDeleted', {
+            detail: { 
+              id: message.id,
+              messageId: message.id,
+              timestamp: message.timestamp instanceof Date 
+                ? message.timestamp.toISOString() 
+                : typeof message.timestamp === 'string' 
+                  ? message.timestamp 
+                  : new Date().toISOString(),
+              sender: message.sender,
+              type: message.messageType
+            }
+          });
+          console.log('Dispatching messageDeleted event with details:', deleteEvent.detail);
+          document.dispatchEvent(deleteEvent);
+          
+          // Force refresh the UI if needed
+          try {
+            const refreshEvent = new CustomEvent('refreshMessages', {
+              detail: { 
+                source: 'deletion',
+                messageId: message.id
+              }
+            });
+            document.dispatchEvent(refreshEvent);
+          } catch (refreshError) {
+            console.error('Error dispatching refresh event:', refreshError);
+          }
+        } catch (eventError) {
+          console.error('Error dispatching message deleted event:', eventError);
+        }
       } else {
         showToast('Failed to delete message');
       }
@@ -525,6 +622,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
             onExportToCoda={exportToCoda}
             onDeleteMessage={onDeleteMessage ? handleDeleteMessage : undefined}
             messageId={message.id}
+            onDeleteMemory={undefined}
             isAssistantMessage={isAssistantMessage}
             showVersionControls={messageVersions.length > 1}
             currentVersionIndex={currentVersionIndex}
