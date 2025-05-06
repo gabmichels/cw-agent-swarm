@@ -41,6 +41,12 @@ async function handler(message: string, options: {
     throw new Error('Failed to initialize Chloe agent');
   }
   
+  // Ensure agent is initialized
+  if (!agent.initialized && typeof agent.initialize === 'function') {
+    console.log('Initializing Chloe agent on first message processing');
+    await agent.initialize();
+  }
+  
   // Process the message
   const response = await agent.processMessage(message, { 
     userId: options.userId, 

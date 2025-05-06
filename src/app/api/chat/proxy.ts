@@ -396,6 +396,12 @@ export async function POST(req: Request) {
           if (!agent) {
             throw new Error('Failed to load Chloe agent');
           }
+          
+          // Make sure Chloe is initialized
+          if (!agent.initialized && typeof agent.initialize === 'function') {
+            console.log('Initializing Chloe on first use');
+            await agent.initialize();
+          }
         } else {
           throw new Error(`Unsupported agent ID: ${agentId}`);
         }

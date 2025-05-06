@@ -2,6 +2,10 @@ import './globals.css';
 import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
 
+// Initialize server components - this will only run on the server
+// The import itself will trigger the initialization
+import '../lib/server-init';
+
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {

@@ -1,10 +1,14 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
+// Import the server initialization module
+// This will run the initialization code on import
+import './lib/server-init';
+
 /**
  * Middleware function for API request logging
  */
-export function middleware(request: NextRequest) {
+export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   
   // Only process API routes
@@ -23,5 +27,6 @@ export function middleware(request: NextRequest) {
 
 // Configure middleware to run on specific paths
 export const config = {
-  matcher: ['/api/:path*'],
+  // Only run on API routes to avoid unnecessary execution
+  matcher: '/api/:path*',
 }; 
