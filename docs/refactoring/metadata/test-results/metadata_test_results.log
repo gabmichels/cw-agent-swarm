@@ -1,0 +1,319 @@
+Starting metadata implementation test script...
+
+========================================
+🧪 Starting Metadata Implementation Tests
+========================================
+
+🔄 Using mock memory services for testing...
+🔄 Running tests...
+
+
+📝 Testing Structured IDs
+----------------------------------------
+[32mUser ID:[0m {
+  "namespace": "user",
+  "type": "user",
+  "id": "test-user"
+}
+[32mAgent ID:[0m {
+  "namespace": "agent",
+  "type": "agent",
+  "id": "test-agent"
+}
+[32mChat ID:[0m {
+  "namespace": "chat",
+  "type": "chat",
+  "id": "test-chat"
+}
+[32mParsed ID:[0m {
+  "namespace": "user",
+  "type": "user",
+  "id": "test-user"
+}
+✅ Structured ID tests passed
+
+
+📝 Testing Thread Info
+----------------------------------------
+[32mThread Info:[0m {
+  "id": "thread-123",
+  "position": 0
+}
+[32mChild Thread Info:[0m {
+  "id": "thread-456",
+  "position": 0,
+  "parentId": "thread-123"
+}
+✅ Thread Info tests passed
+
+
+📝 Testing Message Metadata
+----------------------------------------
+[32mMessage Metadata:[0m {
+  "role": "user",
+  "userId": {
+    "namespace": "user",
+    "type": "user",
+    "id": "test-user"
+  },
+  "agentId": {
+    "namespace": "agent",
+    "type": "agent",
+    "id": "test-agent"
+  },
+  "chatId": {
+    "namespace": "chat",
+    "type": "chat",
+    "id": "test-chat"
+  },
+  "thread": {
+    "id": "thread-123",
+    "position": 0
+  },
+  "schemaVersion": "1.0.0",
+  "messageType": "test",
+  "importance": "medium",
+  "tags": [
+    "test",
+    "metadata"
+  ]
+}
+✅ Message Metadata tests passed
+
+
+📝 Testing Cognitive Process Metadata
+----------------------------------------
+[32mThought Metadata:[0m {
+  "processType": "thought",
+  "agentId": {
+    "namespace": "agent",
+    "type": "agent",
+    "id": "test-agent"
+  },
+  "schemaVersion": "1.0.0",
+  "contextId": "context-123",
+  "importance": "medium",
+  "tags": [
+    "test",
+    "thought"
+  ]
+}
+[32mReflection Metadata:[0m {
+  "processType": "reflection",
+  "agentId": {
+    "namespace": "agent",
+    "type": "agent",
+    "id": "test-agent"
+  },
+  "schemaVersion": "1.0.0",
+  "contextId": "context-123",
+  "importance": "high",
+  "tags": [
+    "test",
+    "reflection"
+  ]
+}
+✅ Cognitive Process Metadata tests passed
+
+
+📝 Testing Document Metadata
+----------------------------------------
+[32mDocument Metadata:[0m {
+  "source": "user_upload",
+  "agentId": {
+    "namespace": "agent",
+    "type": "agent",
+    "id": "test-agent"
+  },
+  "schemaVersion": "1.0.0",
+  "title": "Test Document",
+  "contentType": "text/plain",
+  "tags": [
+    "test",
+    "document"
+  ]
+}
+✅ Document Metadata tests passed
+
+
+📝 Testing Task Metadata
+----------------------------------------
+[32mTask Metadata:[0m {
+  "title": "Test Task",
+  "status": "pending",
+  "priority": "medium",
+  "agentId": {
+    "namespace": "agent",
+    "type": "agent",
+    "id": "test-agent"
+  },
+  "schemaVersion": "1.0.0",
+  "description": "This is a test task",
+  "importance": "medium",
+  "tags": [
+    "test",
+    "task"
+  ]
+}
+✅ Task Metadata tests passed
+
+
+📝 Testing Memory Service Wrappers
+----------------------------------------
+🔄 Adding message to memory...
+[32mMessage Memory Result:[0m {
+  "id": "mem_1746567980430",
+  "type": "message",
+  "content": "This is a test message",
+  "metadata": {
+    "role": "user",
+    "userId": {
+      "namespace": "user",
+      "type": "user",
+      "id": "test-user"
+    },
+    "agentId": {
+      "namespace": "agent",
+      "type": "agent",
+      "id": "test-agent"
+    },
+    "chatId": {
+      "namespace": "chat",
+      "type": "chat",
+      "id": "test-chat"
+    },
+    "thread": {
+      "id": "thread_1746567980430",
+      "position": 0
+    },
+    "schemaVersion": "1.0.0",
+    "messageType": "test",
+    "importance": "medium",
+    "tags": [
+      "test",
+      "message"
+    ]
+  }
+}
+🔄 Adding cognitive process to memory...
+[32mThought Memory Result:[0m {
+  "id": "mem_1746567980431",
+  "type": "cognitive_process",
+  "content": "This is a test thought",
+  "metadata": {
+    "processType": "thought",
+    "agentId": {
+      "namespace": "agent",
+      "type": "agent",
+      "id": "test-agent"
+    },
+    "schemaVersion": "1.0.0",
+    "contextId": "context-123",
+    "importance": "medium",
+    "tags": [
+      "test",
+      "thought"
+    ]
+  }
+}
+🔄 Adding document to memory...
+[32mDocument Memory Result:[0m {
+  "id": "mem_1746567980431",
+  "type": "document",
+  "content": "This is a test document content",
+  "metadata": {
+    "source": "user_upload",
+    "agentId": {
+      "namespace": "agent",
+      "type": "agent",
+      "id": "test-agent"
+    },
+    "schemaVersion": "1.0.0",
+    "title": "Test Document",
+    "contentType": "text/plain",
+    "tags": [
+      "test",
+      "document"
+    ]
+  }
+}
+🔄 Adding task to memory...
+[32mTask Memory Result:[0m {
+  "id": "mem_1746567980431",
+  "type": "task",
+  "content": "This is a test task description",
+  "metadata": {
+    "title": "Test Task",
+    "status": "pending",
+    "priority": "medium",
+    "agentId": {
+      "namespace": "agent",
+      "type": "agent",
+      "id": "test-agent"
+    },
+    "schemaVersion": "1.0.0",
+    "description": "This is a test task",
+    "importance": "medium",
+    "tags": [
+      "test",
+      "task"
+    ]
+  }
+}
+🔄 Searching for memories...
+[32mMessage Search Result:[0m {
+  "count": 1,
+  "sample": [
+    {
+      "id": "mem_1746567980431",
+      "payload": {
+        "text": "Mock result",
+        "metadata": {}
+      }
+    }
+  ]
+}
+[32mThought Search Result:[0m {
+  "count": 1,
+  "sample": [
+    {
+      "id": "mem_1746567980431",
+      "payload": {
+        "text": "Mock result",
+        "metadata": {}
+      }
+    }
+  ]
+}
+[32mDocument Search Result:[0m {
+  "count": 1,
+  "sample": [
+    {
+      "id": "mem_1746567980431",
+      "payload": {
+        "text": "Mock result",
+        "metadata": {}
+      }
+    }
+  ]
+}
+[32mTask Search Result:[0m {
+  "count": 1,
+  "sample": [
+    {
+      "id": "mem_1746567980431",
+      "payload": {
+        "text": "Mock result",
+        "metadata": {}
+      }
+    }
+  ]
+}
+✅ Memory Service Wrapper tests passed
+
+
+========================================
+🎉 All tests completed successfully!
+========================================
+
+Tests execution completed
