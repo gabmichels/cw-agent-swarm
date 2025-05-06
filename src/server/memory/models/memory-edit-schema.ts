@@ -62,6 +62,7 @@ export function createMemoryEditDefaults(
   return {
     type: MemoryType.MEMORY_EDIT,
     metadata: {
+      schemaVersion: "1.0.0",
       original_memory_id: originalMemoryId,
       original_type: originalType,
       original_timestamp: originalTimestamp,

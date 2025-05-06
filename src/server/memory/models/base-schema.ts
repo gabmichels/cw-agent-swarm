@@ -28,7 +28,7 @@ export interface BaseMemorySchema {
  * Extends the core BaseMetadata interface with additional memory-specific fields
  */
 export interface BaseMetadataSchema extends BaseMetadata {
-  // Importance info (extends the base importance field from BaseMetadata)
+  // Importance info
   importance_score?: number;
   critical?: boolean;
   

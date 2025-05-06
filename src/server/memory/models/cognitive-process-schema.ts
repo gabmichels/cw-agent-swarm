@@ -16,7 +16,7 @@ import {
   PlanningMetadata,
   CognitiveProcessType
 } from '../../../types/metadata';
-import { StructuredId } from '../../../types/structured-id';
+import { StructuredId, createEnumStructuredId, EntityNamespace, EntityType } from '../../../types/structured-id';
 
 /**
  * Base cognitive process metadata schema
@@ -99,6 +99,13 @@ export interface PlanningSchema extends CognitiveProcessSchema {
   metadata: PlanningMetadataSchema;
 }
 
+// Default agent ID for system assistant
+const DEFAULT_AGENT_ID = createEnumStructuredId(
+  EntityNamespace.SYSTEM,
+  EntityType.AGENT,
+  'assistant'
+);
+
 /**
  * Default values for thought schema
  */
@@ -107,11 +114,7 @@ export const THOUGHT_DEFAULTS: Partial<ThoughtSchema> = {
   metadata: {
     schemaVersion: "1.0.0",
     processType: CognitiveProcessType.THOUGHT,
-    agentId: {
-      namespace: 'default',
-      type: 'agent',
-      id: 'assistant'
-    } as StructuredId
+    agentId: DEFAULT_AGENT_ID
   }
 };
 
@@ -123,11 +126,7 @@ export const REFLECTION_DEFAULTS: Partial<ReflectionSchema> = {
   metadata: {
     schemaVersion: "1.0.0",
     processType: CognitiveProcessType.REFLECTION,
-    agentId: {
-      namespace: 'default',
-      type: 'agent',
-      id: 'assistant'
-    } as StructuredId
+    agentId: DEFAULT_AGENT_ID
   }
 };
 
@@ -139,11 +138,7 @@ export const INSIGHT_DEFAULTS: Partial<InsightSchema> = {
   metadata: {
     schemaVersion: "1.0.0",
     processType: CognitiveProcessType.INSIGHT,
-    agentId: {
-      namespace: 'default',
-      type: 'agent',
-      id: 'assistant'
-    } as StructuredId
+    agentId: DEFAULT_AGENT_ID
   }
 };
 
@@ -155,10 +150,6 @@ export const PLANNING_DEFAULTS: Partial<PlanningSchema> = {
   metadata: {
     schemaVersion: "1.0.0",
     processType: CognitiveProcessType.PLANNING,
-    agentId: {
-      namespace: 'default',
-      type: 'agent',
-      id: 'assistant'
-    } as StructuredId
+    agentId: DEFAULT_AGENT_ID
   }
 }; 

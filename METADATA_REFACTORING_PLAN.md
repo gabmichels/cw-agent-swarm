@@ -774,16 +774,17 @@ Create comprehensive tests for the new metadata system:
 Create and update files:
 
 1. Create: `src/types/metadata.ts` - Central location for metadata type definitions
-2. Create: `src/server/memory/services/helpers/metadata-helpers.ts` - Centralized factory functions and helper utilities
-3. Update: `src/server/memory/models/message-schema.ts` - Update message schema
-4. Update: `src/server/memory/models/thought-schema.ts` - Update thought schema
-5. Update: `src/server/memory/models/base-schema.ts` - Update base schema
-6. Update: `src/server/memory/services/memory/memory-service.ts` - Update service
-7. Update: `src/agents/shared/base/AgentBase.ts` - Update message creation
-8. Update: `src/lib/memory/storeInternalMessageToMemory.ts` - Update internal message handling
-9. Update: `src/utils/messageFilters.ts` - Update filtering with new metadata
-10. Update: `src/utils/smartSearch.ts` - Update searching with new metadata
-11. Create: `src/types/structured-id.ts` - Structured identifier system
+2. Create: `src/types/structured-id.ts` - Structured identifier system
+3. Create: `src/server/memory/services/helpers/metadata-helpers.ts` - Centralized factory functions and helper utilities
+4. Update: `src/server/memory/models/message-schema.ts` - Update message schema
+5. Update: `src/server/memory/models/thought-schema.ts` - Update thought schema
+6. Update: `src/server/memory/models/base-schema.ts` - Update base schema
+7. Update: `src/server/memory/services/memory/memory-service.ts` - Update service
+8. Update: `src/agents/shared/base/AgentBase.ts` - Update message creation
+9. Update: `src/lib/memory/storeInternalMessageToMemory.ts` - Update internal message handling
+10. Update: `src/app/api/chat/proxy.ts` - Update saveToHistory function to use new metadata structure
+11. Update: `src/utils/messageFilters.ts` - Update filtering with new metadata
+12. Update: `src/utils/smartSearch.ts` - Update searching with new metadata
 
 ## Future Considerations
 

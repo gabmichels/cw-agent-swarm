@@ -62,25 +62,68 @@ export interface PerformanceDirectives {
 }
 
 /**
- * Base metadata interface that all specific metadata types extend
+ * Core metadata types for standardized message and thought handling
  */
+
+// Base metadata interface that all specific metadata types extend
 export interface BaseMetadata {
-  // Schema version
-  schemaVersion: string; // Semantic versioning string
-  
-  // Common fields across all metadata types
+  schemaVersion: string;
+  source?: string;
+  timestamp?: number;
   importance?: ImportanceLevel;
   importance_score?: number;
   tags?: string[];
-  
-  // Soft deletion fields
   is_deleted?: boolean;
   deletion_time?: string;
-  
-  // Optional cross-cutting concerns
   authContext?: AuthContext;
   tenant?: TenantContext;
   performanceDirectives?: PerformanceDirectives;
+}
+
+// Legacy metadata interfaces (to be deprecated)
+export interface LegacyMessageMetadata {
+  userId?: string;
+  agentId?: string;
+  chatId?: string;
+  parentMessageId?: string;
+  threadId?: string;
+  messageType?: string;
+  role?: string;
+  source?: string;
+  timestamp?: number;
+}
+
+export interface LegacyThoughtMetadata {
+  userId?: string;
+  agentId?: string;
+  chatId?: string;
+  parentMessageId?: string;
+  parentThoughtId?: string;
+  threadId?: string;
+  thoughtType?: string;
+  source?: string;
+  timestamp?: number;
+}
+
+// Factory function type definitions
+export type MessageMetadataFactory = (partialMetadata: Partial<MessageMetadata>) => MessageMetadata;
+export type ThoughtMetadataFactory = (partialMetadata: Partial<CognitiveProcessMetadata>) => CognitiveProcessMetadata;
+
+// Common metadata sources
+export enum MetadataSource {
+  AGENT = 'agent',
+  USER = 'user',
+  SYSTEM = 'system',
+  MEMORY = 'memory',
+  CHAT = 'chat',
+}
+
+// Message type classifications
+export enum MessageType {
+  CHAT = 'chat',
+  THOUGHT = 'thought',
+  SYSTEM = 'system',
+  INTERNAL = 'internal',
 }
 
 /**

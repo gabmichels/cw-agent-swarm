@@ -56,6 +56,7 @@ export interface DocumentSchema extends BaseMemorySchema {
 export const DOCUMENT_DEFAULTS: Partial<DocumentSchema> = {
   type: MemoryType.DOCUMENT,
   metadata: {
+    schemaVersion: "1.0.0",
     source: 'user_provided',
   }
 }; 

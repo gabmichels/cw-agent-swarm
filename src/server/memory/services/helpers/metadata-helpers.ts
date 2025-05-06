@@ -27,16 +27,19 @@ import {
   TaskPriority,
   AuthContext,
   TenantContext,
-  PerformanceDirectives
+  PerformanceDirectives,
+  MetadataSource,
+  MessageType
 } from '../../../../types/metadata';
 import { MessageRole } from '../../../../agents/chloe/types/state';
-import { ImportanceLevel } from '../../../../constants/memory';
+import { ImportanceLevel, MemoryImportanceLevel } from '../../../../constants/memory';
 import {
   StructuredId,
   createStructuredId,
   createEnumStructuredId,
   EntityNamespace,
-  EntityType
+  EntityType,
+  IdPrefix
 } from '../../../../types/structured-id';
 
 /**
@@ -674,4 +677,55 @@ export function createTenantContext(
       classificationLevel: options.classificationLevel || 'internal'
     }
   };
+}
+
+/**
+ * Creates a message ID with the structured ID format
+ * @returns A structured message ID
+ */
+export function createMessageId(): StructuredId {
+  return createEnumStructuredId(
+    EntityNamespace.CHAT,
+    EntityType.MESSAGE,
+    `${Date.now()}-${generateRandomString(8)}`
+  );
+}
+
+/**
+ * Creates a thought ID with the structured ID format
+ * @returns A structured thought ID
+ */
+export function createThoughtId(): StructuredId {
+  return createEnumStructuredId(
+    EntityNamespace.MEMORY,
+    EntityType.THOUGHT,
+    `${Date.now()}-${generateRandomString(8)}`
+  );
+}
+
+/**
+ * Creates a chat ID with the structured ID format
+ * @returns A structured chat ID
+ */
+export function createChatId(): StructuredId {
+  return createEnumStructuredId(
+    EntityNamespace.CHAT,
+    EntityType.CHAT,
+    `${Date.now()}-${generateRandomString(8)}`
+  );
+}
+
+/**
+ * Generates a random alphanumeric string
+ * @param length The length of the string to generate
+ * @returns A random alphanumeric string
+ */
+function generateRandomString(length: number): string {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  let result = '';
+  for (let i = 0; i < length; i++) {
+    const randomIndex = Math.floor(Math.random() * chars.length);
+    result += chars.charAt(randomIndex);
+  }
+  return result;
 } 

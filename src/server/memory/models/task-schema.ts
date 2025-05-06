@@ -1,8 +1,9 @@
 /**
  * Task memory schema
  */
-import { ImportanceLevel, MemoryType } from '../config';
+import { MemoryType } from '../config';
 import { BaseMemorySchema, BaseMetadataSchema } from './base-schema';
+import { MemoryImportanceLevel } from '../../../constants/memory';
 
 /**
  * Task status types
@@ -58,8 +59,9 @@ export interface TaskSchema extends BaseMemorySchema {
 export const TASK_DEFAULTS: Partial<TaskSchema> = {
   type: MemoryType.TASK,
   metadata: {
+    schemaVersion: "1.0.0",
     status: 'pending',
     priority: 'medium',
-    importance: ImportanceLevel.MEDIUM,
+    importance: MemoryImportanceLevel.MEDIUM,
   }
 }; 

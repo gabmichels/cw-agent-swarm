@@ -249,12 +249,20 @@ async function saveToHistory(userId: string, role: 'user' | 'assistant', content
         // Ensure userId is always set and is a string
         const safeUserId = String(userId || 'gab');
         
+        // Create standardized metadata using the new structure
         const metadata: Record<string, any> = {
-          userId: safeUserId, // Ensure userId is explicitly set and not undefined
+          // Core fields from BaseMetadata
+          source: role === 'user' ? 'user' : 'agent',
+          timestamp: Date.now(),
+          
+          // Message-specific fields
+          userId: safeUserId,
           role,
-          source: role === 'user' ? 'user' : 'chloe',
+          messageType: 'chat',
+          
+          // Additional message-specific fields
           attachments: processedAttachments || [],
-          isForChat: true // Explicitly mark regular messages as intended for chat display
+          isForChat: true,
         };
         
         // Add visionResponseFor if it exists

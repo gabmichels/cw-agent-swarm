@@ -26,6 +26,7 @@ This document tracks the implementation progress of the memory metadata refactor
 
 ### Up Next
 - Begin updating memory service usage across the codebase
+- Update API endpoints to use new metadata structure
 
 ## Project Phases
 
@@ -87,6 +88,7 @@ This document tracks the implementation progress of the memory metadata refactor
 |------|--------|-------|
 | Update AgentBase.ts | 🔄 In Progress | Update storeMessageInMemory method |
 | Update storeInternalMessageToMemory.ts | ⏳ Not Started | Update internal message handling |
+| Update proxy.ts API endpoint | ⏳ Not Started | Update the saveToHistory function to use new metadata helpers |
 | Update message creation points | ⏳ Not Started | Modify all places that create message metadata |
 | Update message consumption points | ⏳ Not Started | Modify all places that consume message metadata |
 | Update cognitive process creation | ⏳ Not Started | Update thought, reflection, insight creation |
@@ -125,6 +127,7 @@ This document tracks the implementation progress of the memory metadata refactor
 | `src/server/memory/services/memory/memory-service.ts` | ⏳ Not Modified | Update service for compatibility |
 | `src/agents/shared/base/AgentBase.ts` | ⏳ Not Modified | Update message creation |
 | `src/lib/memory/storeInternalMessageToMemory.ts` | ⏳ Not Modified | Update internal message handling |
+| `src/app/api/chat/proxy.ts` | ⏳ Not Modified | Update saveToHistory function to use factory functions |
 | `src/utils/messageFilters.ts` | ⏳ Not Modified | Update filtering with new metadata |
 | `src/utils/smartSearch.ts` | ⏳ Not Modified | Update searching with new metadata |
 
@@ -247,6 +250,24 @@ Based on our analysis, the following files need to be created or updated:
    - Dependencies: `memory-service-wrappers.ts`
    - Priority: High (Phase 4)
 
+8. **`src/app/api/chat/proxy.ts`**
+   - Status: ⏳ Not Modified
+   - Changes Needed:
+     - Update `saveToHistory` to use factory functions
+     - Implement structured IDs for user, agent, and chat
+     - Create proper ThreadInfo objects
+     - Use memory service wrappers instead of direct service calls
+   - Dependencies: `memory-service-wrappers.ts`, `metadata-helpers.ts`
+   - Priority: High (Phase 4)
+
+9. **`src/lib/memory/storeInternalMessageToMemory.ts`**
+   - Status: ⏳ Not Modified
+   - Changes Needed:
+     - Update to use memory service wrappers
+     - Implement proper message threading
+   - Dependencies: `memory-service-wrappers.ts`
+   - Priority: High (Phase 4)
+
 ## Design Decisions
 
 1. **Thread Handling**: Every user-agent interaction forms a thread. ThreadInfo is a required field in message metadata. ✅
@@ -273,6 +294,8 @@ Based on our analysis, the following files need to be created or updated:
 
 11. **Schema Extension Pattern**: Used TypeScript's interface extension to extend base schemas with specialized metadata while maintaining structural typing. ✅
 
+12. **API Endpoint Integration**: Update API endpoints like `proxy.ts` to use the new metadata structure and factory functions, ensuring consistent metadata creation across all entry points.
+
 ## Progress Updates
 
 - **2023-06-XX**: Initial analysis of metadata usage across the codebase completed ✅
@@ -291,6 +314,8 @@ Based on our analysis, the following files need to be created or updated:
 - **2023-06-XX**: Updated schema exports in index.ts file ✅
 - **2023-06-XX**: Updated constants.ts with new metadata fields for structured IDs and ThreadInfo ✅
 - **2023-06-XX**: Completed Phase 3 (Service Integration) ✅
+- **2023-06-XX**: Added proxy.ts to the implementation plan to update the API endpoint
+- **2023-06-XX**: Fixed linter errors in structured-id.ts, metadata.ts, metadata-helpers.ts, thought-schema.ts, and message-schema.ts ✅
 
 ## Next Steps - Phase 4 (Codebase Updates)
 
@@ -304,15 +329,21 @@ Based on our analysis, the following files need to be created or updated:
    - Implement structured IDs for all entity references
    - Use ThreadInfo for message threading
 
-3. Update `src/lib/memory/storeInternalMessageToMemory.ts`:
+3. Update `src/app/api/chat/proxy.ts`:
+   - Modify `saveToHistory` to use factory functions
+   - Implement structured IDs for user, agent, and chat
+   - Create proper ThreadInfo objects
+   - Use memory service wrappers instead of direct service calls
+
+4. Update `src/lib/memory/storeInternalMessageToMemory.ts`:
    - Use memory service wrappers
    - Implement proper message threading
 
-4. Update message filters:
+5. Update message filters:
    - Modify message filters to work with structured IDs
    - Update smart search functionality
 
-5. Update UI components:
+6. Update UI components:
    - Update components to handle new metadata structure
    - Ensure proper display of threaded messages
 
