@@ -8,6 +8,8 @@ import { IMemoryClient } from '../client/types';
 import { EmbeddingService } from '../client/embedding-service';
 import { MemoryService } from '../memory/memory-service';
 import { FilterBuilderOptions, HybridSearchOptions, SearchOptions, SearchResult } from './types';
+import { IQueryOptimizer, QueryOptimizationStrategy } from '../query/types';
+import { FilterOperator } from '../filters/types';
 
 /**
  * Causal relationship type in memory metadata
@@ -48,6 +50,9 @@ interface CausalChainResult {
 export interface SearchServiceOptions {
   // Default timestamp function
   getTimestamp?: () => number;
+  
+  // Query optimizer
+  queryOptimizer?: IQueryOptimizer;
 }
 
 /**
@@ -57,6 +62,7 @@ export class SearchService {
   private client: IMemoryClient;
   private embeddingService: EmbeddingService;
   private memoryService: MemoryService;
+  private queryOptimizer: IQueryOptimizer | null = null;
   
   /**
    * Create a new search service
@@ -70,6 +76,19 @@ export class SearchService {
     this.client = client;
     this.embeddingService = embeddingService;
     this.memoryService = memoryService;
+    
+    if (options?.queryOptimizer) {
+      this.queryOptimizer = options.queryOptimizer;
+    }
+  }
+  
+  /**
+   * Set the query optimizer for optimized searches
+   * 
+   * @param optimizer Query optimizer instance
+   */
+  setQueryOptimizer(optimizer: IQueryOptimizer): void {
+    this.queryOptimizer = optimizer;
   }
   
   /**
@@ -90,10 +109,6 @@ export class SearchService {
         console.log('Causal chain search requested - using standard search as fallback');
       }
       
-      // Get an embedding for the query
-      const embeddingResult = await this.embeddingService.getEmbedding(query);
-      const vector = embeddingResult.embedding; // Extract the actual vector array
-      
       // If no specific types requested, search all collections
       const collectionsToSearch = types.length > 0
         ? types.map(type => COLLECTION_NAMES[type])
@@ -106,6 +121,59 @@ export class SearchService {
         console.warn('No valid collections to search');
         return [];
       }
+      
+      // If query optimizer is available and this is a single collection search,
+      // use the optimizer for better performance
+      if (this.queryOptimizer && types.length === 1) {
+        try {
+          const collectionName = COLLECTION_NAMES[types[0]];
+          if (collectionName) {
+            console.log(`Using query optimizer for ${collectionName}`);
+            
+            // Determine best optimization strategy
+            const strategy = options.highQuality 
+              ? QueryOptimizationStrategy.HIGH_QUALITY 
+              : options.highSpeed 
+                ? QueryOptimizationStrategy.HIGH_SPEED 
+                : undefined; // Use default strategy
+            
+            // Execute optimized query
+            const queryResponse = await this.queryOptimizer.query<T>(
+              {
+                query,
+                collection: collectionName,
+                limit,
+                minScore: options.minScore
+              },
+              strategy
+            );
+            
+            // Map query results to search results
+            return queryResponse.results.map(item => {
+              const type = this.getTypeFromCollectionName(collectionName);
+              return {
+                point: {
+                  id: item.id as any,
+                  vector: [],
+                  payload: item.metadata as T
+                },
+                score: item.score,
+                type: type as MemoryType,
+                collection: collectionName
+              };
+            });
+          }
+        } catch (error) {
+          console.warn('Query optimizer failed, falling back to standard search:', error);
+          // Fall back to standard search
+        }
+      }
+      
+      // Standard search when optimizer is not available or failed
+      
+      // Get an embedding for the query
+      const embeddingResult = await this.embeddingService.getEmbedding(query);
+      const vector = embeddingResult.embedding; // Extract the actual vector array
       
       const results: SearchResult<T>[] = [];
       const missingCollections: string[] = [];
@@ -193,8 +261,49 @@ export class SearchService {
    * Build a Qdrant-compatible filter from our memory filter
    */
   private buildQdrantFilter(filter: MemoryFilter): Record<string, any> {
-    // Simple direct mapping for now
-    // This can be expanded to handle more complex filter transformations
+    // If filter is already in Qdrant format, return as is
+    if (typeof filter === 'object' && (filter.must || filter.should || filter.must_not)) {
+      return filter as Record<string, any>;
+    }
+    
+    // Simple direct mapping for basic filters
+    if (typeof filter === 'object') {
+      const qdrantFilter: Record<string, any> = {};
+      
+      // Convert filter fields to Qdrant format
+      Object.entries(filter).forEach(([key, value]) => {
+        // Handle object values that might be complex conditions
+        if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+          // Handle range conditions
+          if ('$gt' in value || '$gte' in value || '$lt' in value || '$lte' in value) {
+            qdrantFilter[key] = { range: value };
+          } 
+          // Handle match conditions
+          else if ('$in' in value || '$nin' in value || '$eq' in value || '$ne' in value) {
+            qdrantFilter[key] = { match: value };
+          }
+          // Handle text conditions
+          else if ('$contains' in value || '$startsWith' in value || '$endsWith' in value) {
+            qdrantFilter[key] = { match: { text: value } };
+          } 
+          // Default to passing through the object
+          else {
+            qdrantFilter[key] = value;
+          }
+        } 
+        // Simple value becomes a match condition
+        else {
+          qdrantFilter[key] = { match: { value } };
+        }
+      });
+      
+      // Wrap in must clause if there are conditions
+      if (Object.keys(qdrantFilter).length > 0) {
+        return { must: Object.entries(qdrantFilter).map(([key, value]) => ({ [key]: value })) };
+      }
+    }
+    
+    // Return original filter if we couldn't transform it
     return filter as Record<string, any>;
   }
   

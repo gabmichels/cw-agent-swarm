@@ -37,6 +37,14 @@ export interface SearchOptions {
   
   // Whether to analyze the results
   analyze?: boolean;
+  
+  // Optimization strategy flags
+  
+  // Prioritize high quality results (more accurate but slower)
+  highQuality?: boolean;
+  
+  // Prioritize high speed (faster but possibly less accurate)
+  highSpeed?: boolean;
 }
 
 /**

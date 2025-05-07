@@ -5,6 +5,7 @@
 // Client services
 export * from './client/types';
 export * from './client/embedding-service';
+export * from './client/vector-db-adapter';
 
 // Memory services
 export * from './memory/types';
@@ -14,17 +15,30 @@ export * from './memory/memory-service';
 export * from './search/types';
 export * from './search/search-service';
 
+// Query optimization services
+export * from './query/types';
+export * from './query/query-optimizer';
+
+// Filter services
+export * from './filters/types';
+
 // Service utilities
 import { QdrantMemoryClient } from './client/qdrant-client';
 import { EmbeddingService } from './client/embedding-service';
+import { VectorDatabaseAdapter } from './client/vector-db-adapter';
 import { MemoryService } from './memory/memory-service';
 import { SearchService } from './search/search-service';
+import { QueryOptimizer } from './query/query-optimizer';
+import { QdrantFilterBuilder } from './filters/filter-builder';
 
 // Singleton instances
 let memoryClientInstance: QdrantMemoryClient | null = null;
 let embeddingServiceInstance: EmbeddingService | null = null;
 let memoryServiceInstance: MemoryService | null = null;
 let searchServiceInstance: SearchService | null = null;
+let queryOptimizerInstance: QueryOptimizer | null = null;
+let filterBuilderInstance: QdrantFilterBuilder | null = null;
+let vectorDbAdapterInstance: VectorDatabaseAdapter | null = null;
 
 /**
  * Initialize and return memory services
@@ -33,12 +47,14 @@ let searchServiceInstance: SearchService | null = null;
 export async function getMemoryServices() {
   // Return existing instances if available
   if (memoryClientInstance && embeddingServiceInstance && 
-      memoryServiceInstance && searchServiceInstance) {
+      memoryServiceInstance && searchServiceInstance && 
+      queryOptimizerInstance) {
     return {
       client: memoryClientInstance,
       embeddingService: embeddingServiceInstance,
       memoryService: memoryServiceInstance,
-      searchService: searchServiceInstance
+      searchService: searchServiceInstance,
+      queryOptimizer: queryOptimizerInstance
     };
   }
   
@@ -59,24 +75,55 @@ export async function getMemoryServices() {
     // Initialize client
     await memoryClientInstance.initialize();
     
+    // Create filter builder
+    filterBuilderInstance = new QdrantFilterBuilder();
+    
+    // Create vector database adapter
+    vectorDbAdapterInstance = new VectorDatabaseAdapter(memoryClientInstance);
+    
+    // Create embedding wrapper for query optimizer
+    const embeddingWrapper = {
+      embedText: async (text: string) => {
+        if (!embeddingServiceInstance) {
+          throw new Error("Embedding service not initialized");
+        }
+        const result = await embeddingServiceInstance.getEmbedding(text);
+        return result.embedding;
+      }
+    };
+    
+    // Create query optimizer
+    queryOptimizerInstance = new QueryOptimizer(
+      vectorDbAdapterInstance,
+      filterBuilderInstance,
+      embeddingWrapper
+    );
+    
     // Create MemoryService
     memoryServiceInstance = new MemoryService(
       memoryClientInstance, 
       embeddingServiceInstance
     );
     
-    // Create SearchService
+    // Create SearchService with query optimizer
+    // We'll pass the query optimizer separately to avoid type errors
     searchServiceInstance = new SearchService(
       memoryClientInstance,
       embeddingServiceInstance,
       memoryServiceInstance
     );
     
+    // Attach the query optimizer to the search service if it has support for it
+    if (searchServiceInstance && 'setQueryOptimizer' in searchServiceInstance) {
+      (searchServiceInstance as any).setQueryOptimizer(queryOptimizerInstance);
+    }
+    
     return {
       client: memoryClientInstance,
       embeddingService: embeddingServiceInstance,
       memoryService: memoryServiceInstance,
-      searchService: searchServiceInstance
+      searchService: searchServiceInstance,
+      queryOptimizer: queryOptimizerInstance
     };
   } catch (error) {
     console.error('Failed to initialize memory services:', error);
