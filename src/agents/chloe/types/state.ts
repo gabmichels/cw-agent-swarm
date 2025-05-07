@@ -125,4 +125,11 @@ export enum PlanStepPriority {
   LOW = 'low',
   MEDIUM = 'medium', 
   HIGH = 'high'
+}
+
+export interface MessageOptions {
+  userId: string;
+  attachments?: any[];
+  visionResponseFor?: string;
+  userMessageId?: string; // ID of the user message if already stored
 } 

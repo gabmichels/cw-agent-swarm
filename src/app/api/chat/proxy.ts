@@ -49,7 +49,7 @@ const pendingMemoryOperations = new Map<string, Promise<any>>();
 
 // Create a function to normalize messages for caching
 function normalizeMessage(message: string): string {
-  return message.trim().toLowerCase();
+  return message.trim();
 }
 
 // Create a cache key from message and userId
@@ -104,6 +104,21 @@ export async function loadChatHistoryFromQdrant(specificUserId?: string) {
     const searchResults = await Promise.race([fetchPromise, timeoutPromise]);
     const allMessages = searchResults.map(result => result.point);
     console.log(`Retrieved ${allMessages.length} total messages from memory service`);
+    
+    // Debug log all messages before grouping
+    console.log(`DEBUG - All messages before filtering in loadChatHistoryFromQdrant:`, 
+      allMessages.map(message => {
+        const payload = message.payload as any;
+        const metadata = payload.metadata || {};
+        return {
+          id: message.id,
+          role: metadata.role || 'unknown',
+          userId: metadata.userId || 'unknown',
+          chatId: metadata.chatId || 'unknown',
+          text: (payload.text || '').substring(0, 30) + '...'
+        };
+      })
+    );
     
     // Group by user id
     const messagesByUser = new Map<string, any[]>();
@@ -375,6 +390,17 @@ export async function POST(req: Request) {
           await initializeMemory();
         }
         
+        // Track this message in history
+        let userMessageId = null;
+        if (!memoryDisabled) {
+          // Save user message to history
+          const memoryResult = await saveToHistory(userId, 'user', normalizedMessage, attachments);
+          if (memoryResult && memoryResult.id) {
+            userMessageId = memoryResult.id;
+            console.log(`Saved user message to memory with ID: ${userMessageId}`);
+          }
+        }
+        
         // Set up a timeout to ensure we always respond
         const timeoutPromise = new Promise((_, reject) => {
           setTimeout(() => reject(new Error('Request timed out after 60 seconds')), 60000);
@@ -405,6 +431,8 @@ export async function POST(req: Request) {
         const chatResponse = await agent.processMessage(message, {
           attachments,
           userId,
+          // Add the userMessageId to the options so the agent knows not to save this message again
+          userMessageId,
           // TypeScript error fix: Cast to any to allow the visionResponseFor property
           ...(visionResponseFor ? { visionResponseFor } : {})
         } as any);

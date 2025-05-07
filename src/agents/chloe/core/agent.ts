@@ -402,22 +402,31 @@ export class ChloeAgent implements IAgent {
       }
       
       // Store the user message in memory with the determined importance and extracted tags
-      const userMemoryResult = await memoryManager.addMemory(
-        message, // Store the raw message without prefixes
-        MemoryType.MESSAGE,
-        messageImportance,
-        MemorySource.USER,
-        `From user: ${options.userId}`,
-        threadAnalysis.isPartOfThread 
-          ? ['thread:' + threadAnalysis.threadId, ...(threadAnalysis.threadTopic?.split(',') || []), ...tagTexts] 
-          : tagTexts, // Use extracted tags
-        {
-          // Include timestamp in metadata instead
-          timestamp: new Date().toISOString(),
-          messageType: 'user',
-          ...options
-        }
-      );
+      let userMemoryResult;
+      
+      // Check if the message was already stored by the proxy, if so, skip storage
+      if ((options as any).userMessageId) {
+        console.log(`User message already stored with ID: ${(options as any).userMessageId}, skipping duplicate storage`);
+        userMemoryResult = { id: (options as any).userMessageId };
+      } else {
+        // Otherwise store the message as usual
+        userMemoryResult = await memoryManager.addMemory(
+          message, // Store the raw message without prefixes
+          MemoryType.MESSAGE,
+          messageImportance,
+          MemorySource.USER,
+          `From user: ${options.userId}`,
+          threadAnalysis.isPartOfThread 
+            ? ['thread:' + threadAnalysis.threadId, ...(threadAnalysis.threadTopic?.split(',') || []), ...tagTexts] 
+            : tagTexts, // Use extracted tags
+          {
+            // Include timestamp in metadata instead
+            timestamp: new Date().toISOString(),
+            messageType: 'user',
+            ...options
+          }
+        );
+      }
       
       // STEP 1: Generate initial thought about what the message is asking
       const initialThought = await this.generateThought(message);
