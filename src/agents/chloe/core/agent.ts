@@ -694,28 +694,33 @@ Please continue with the next section whenever you're ready, and I'll maintain t
       try {
         // Store the response in memory with standardized format
         // Include the extracted tags directly in metadata to ensure they're stored in Qdrant
-        await memoryManager.addMemory(
-          finalResponse, // Store the raw response without prefixes
-          MemoryType.MESSAGE,
-          ImportanceLevel.MEDIUM,
-          MemorySource.AGENT,
-          `Response to: ${message.substring(0, 50)}...`,
-          responseTagTexts, // Use combined tags from user + extracted from response
-          {
-            userId: options.userId || 'unknown',
-            role: 'assistant',
-            isInternalMessage: false,
-            notForChat: false,
-            source: 'chloe',
-            attachments: [],
-            isForChat: true,
-            tags: responseTagTexts, // Include tags directly in metadata
-            tagsManagedBy: 'openai-extractor',
-            tagsUpdatedAt: new Date().toISOString(), // Add timestamp to metadata instead
-            timestamp: new Date().toISOString(), // Add timestamp to metadata instead
-            relatedToUserMessage: userMemoryResult?.id // Link to the user message
-          }
-        );
+        // Only store the response if skipResponseMemoryStorage is not true
+        if (!(options as any).skipResponseMemoryStorage) {
+          await memoryManager.addMemory(
+            finalResponse, // Store the raw response without prefixes
+            MemoryType.MESSAGE,
+            ImportanceLevel.MEDIUM,
+            MemorySource.AGENT,
+            `Response to: ${message.substring(0, 50)}...`,
+            responseTagTexts, // Use combined tags from user + extracted from response
+            {
+              userId: options.userId || 'unknown',
+              role: 'assistant',
+              isInternalMessage: false,
+              notForChat: false,
+              source: 'chloe',
+              attachments: [],
+              isForChat: true,
+              tags: responseTagTexts, // Include tags directly in metadata
+              tagsManagedBy: 'openai-extractor',
+              tagsUpdatedAt: new Date().toISOString(), // Add timestamp to metadata instead
+              timestamp: new Date().toISOString(), // Add timestamp to metadata instead
+              relatedToUserMessage: userMemoryResult?.id // Link to the user message
+            }
+          );
+        } else {
+          console.log('Skipping response memory storage as requested');
+        }
         
         // No need to apply memory updates since we're not using the middleware anymore
       } catch (memoryError) {

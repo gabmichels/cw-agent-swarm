@@ -132,4 +132,5 @@ export interface MessageOptions {
   attachments?: any[];
   visionResponseFor?: string;
   userMessageId?: string; // ID of the user message if already stored
+  skipResponseMemoryStorage?: boolean; // Flag to skip storing the agent response in memory (if stored elsewhere)
 } 

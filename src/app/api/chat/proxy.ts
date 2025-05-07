@@ -502,6 +502,8 @@ export async function POST(req: Request) {
             userId,
             // Add the userMessageId to the options so the agent knows not to save this message again
             userMessageId,
+            // Prevent the agent from storing its response in memory since we'll do it here
+            skipResponseMemoryStorage: true,
             // TypeScript error fix: Cast to any to allow the visionResponseFor property
             ...(visionResponseFor ? { visionResponseFor } : {})
           } as any);
