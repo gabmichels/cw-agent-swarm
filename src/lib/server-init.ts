@@ -14,19 +14,11 @@ let isInitialized = false;
  */
 export async function initializeServer() {
   // Avoid multiple initialization
-  if (isInitialized) {
-    console.log('Server already initialized, skipping duplicate initialization');
-    return;
+  if (isInitialized && initializationPromise) {
+    return initializationPromise;
   }
-
-  // If initialization is in progress, wait for it
-  if (initializationPromise) {
-    console.log('Server initialization already in progress, waiting for completion');
-    await initializationPromise;
-    return;
-  }
-
-  // Set up initialization promise
+  
+  // Create and store the initialization promise
   initializationPromise = (async () => {
     try {
       console.log('Starting server initialization...');

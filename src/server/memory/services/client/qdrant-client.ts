@@ -310,6 +310,7 @@ export class QdrantMemoryClient implements IMemoryClient {
         const exists = await this.collectionExists(collectionName);
         
         if (!exists) {
+          console.log(`Collection ${collectionName} does not exist, creating it now...`);
           const dimensions = point.vector?.length || DEFAULTS.DIMENSIONS;
           await this.createCollection(collectionName, dimensions);
         }
@@ -320,16 +321,47 @@ export class QdrantMemoryClient implements IMemoryClient {
       const recordPayload = { ...(point.payload as unknown as Record<string, unknown>) };
       
       // Insert point into Qdrant
-      await this.client.upsert(collectionName, {
-        wait: true,
-        points: [
-          {
-            id: point.id,
-            vector: point.vector,
-            payload: recordPayload
+      try {
+        await this.client.upsert(collectionName, {
+          wait: true,
+          points: [
+            {
+              id: point.id,
+              vector: point.vector,
+              payload: recordPayload
+            }
+          ]
+        });
+      } catch (upsertError) {
+        // Handle 404 Not Found errors by creating the collection and retrying
+        if (
+          upsertError instanceof Error && 
+          (upsertError.message.includes('404') || upsertError.message.includes('Not Found'))
+        ) {
+          console.log(`Collection ${collectionName} not found during upsert, creating it now...`);
+          const dimensions = point.vector?.length || DEFAULTS.DIMENSIONS;
+          const created = await this.createCollection(collectionName, dimensions);
+          
+          if (created) {
+            // Retry the upsert now that we've created the collection
+            await this.client.upsert(collectionName, {
+              wait: true,
+              points: [
+                {
+                  id: point.id,
+                  vector: point.vector,
+                  payload: recordPayload
+                }
+              ]
+            });
+          } else {
+            throw new Error(`Failed to create collection ${collectionName}`);
           }
-        ]
-      });
+        } else {
+          // Rethrow other errors
+          throw upsertError;
+        }
+      }
       
       return point.id;
     } catch (error) {
@@ -357,32 +389,53 @@ export class QdrantMemoryClient implements IMemoryClient {
     }
     
     try {
-      // Get points from Qdrant using retrieve method
-      const response = await this.client.retrieve(collectionName, {
-        ids,
-        with_payload: true,
-        with_vector: true
-      });
-      
-      // Transform response to MemoryPoint objects
-      return response.map(point => {
-        // Ensure vector is an array and handle all possible types
-        let vector: number[] = [];
-        if (Array.isArray(point.vector)) {
-          // Flatten if it's a nested array
-          if (point.vector.length > 0 && Array.isArray(point.vector[0])) {
-            vector = (point.vector as number[][]).flat();
-          } else {
-            vector = point.vector as number[];
-          }
+      // Check if collection exists first
+      if (!this.collections.has(collectionName)) {
+        const exists = await this.collectionExists(collectionName);
+        if (!exists) {
+          console.log(`Collection ${collectionName} does not exist during getPoints, returning empty array`);
+          return [];
         }
+      }
+      
+      // Get points from Qdrant using retrieve method
+      try {
+        const response = await this.client.retrieve(collectionName, {
+          ids,
+          with_payload: true,
+          with_vector: true
+        });
         
-        return {
-          id: String(point.id),
-          vector,
-          payload: point.payload as T
-        };
-      });
+        // Transform response to MemoryPoint objects
+        return response.map(point => {
+          // Ensure vector is an array and handle all possible types
+          let vector: number[] = [];
+          if (Array.isArray(point.vector)) {
+            // Flatten if it's a nested array
+            if (point.vector.length > 0 && Array.isArray(point.vector[0])) {
+              vector = (point.vector as number[][]).flat();
+            } else {
+              vector = point.vector as number[];
+            }
+          }
+          
+          return {
+            id: String(point.id),
+            vector,
+            payload: point.payload as T
+          };
+        });
+      } catch (retrieveError) {
+        // Handle 404 Not Found errors by returning empty array
+        if (
+          retrieveError instanceof Error && 
+          (retrieveError.message.includes('404') || retrieveError.message.includes('Not Found'))
+        ) {
+          console.log(`Collection ${collectionName} not found during retrieve, returning empty array`);
+          return [];
+        }
+        throw retrieveError;
+      }
     } catch (error) {
       console.error(`Error getting points from ${collectionName}:`, error);
       
@@ -460,22 +513,34 @@ export class QdrantMemoryClient implements IMemoryClient {
         throw new Error('No vector or query provided for search');
       }
       
-      const searchResponse = await this.client.search(collectionName, {
-        vector: vector,
-        limit: query.limit || DEFAULTS.DEFAULT_LIMIT,
-        offset: query.offset || 0,
-        filter: query.filter ? this.buildQdrantFilter(query.filter) : undefined,
-        with_payload: true,
-        with_vector: !!query.includeVectors,
-        score_threshold: query.scoreThreshold
-      });
-      
-      // Transform results
-      return searchResponse.map(result => ({
-        id: String(result.id),
-        score: result.score,
-        payload: result.payload as T
-      }));
+      try {
+        const searchResponse = await this.client.search(collectionName, {
+          vector: vector,
+          limit: query.limit || DEFAULTS.DEFAULT_LIMIT,
+          offset: query.offset || 0,
+          filter: query.filter ? this.buildQdrantFilter(query.filter) : undefined,
+          with_payload: true,
+          with_vector: !!query.includeVectors,
+          score_threshold: query.scoreThreshold
+        });
+        
+        // Transform results
+        return searchResponse.map(result => ({
+          id: String(result.id),
+          score: result.score,
+          payload: result.payload as T
+        }));
+      } catch (searchError) {
+        // Handle 404 Not Found errors by returning empty array 
+        if (
+          searchError instanceof Error && 
+          (searchError.message.includes('404') || searchError.message.includes('Not Found'))
+        ) {
+          console.warn(`Collection ${collectionName} not found during search. Returning empty results.`);
+          return [];
+        }
+        throw searchError;
+      }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       
@@ -563,31 +628,77 @@ export class QdrantMemoryClient implements IMemoryClient {
       };
       
       // Get points
-      const response = await this.client.scroll(collectionName, scrollParams);
-      
-      if (!response || !response.points) {
-        return [];
-      }
-      
-      // Transform to MemoryPoint objects
-      return response.points.map(point => {
-        // Ensure vector is an array and handle all possible types
-        let vector: number[] = [];
-        if (Array.isArray(point.vector)) {
-          // Flatten if it's a nested array
-          if (point.vector.length > 0 && Array.isArray(point.vector[0])) {
-            vector = (point.vector as number[][]).flat();
-          } else {
-            vector = point.vector as number[];
+      try {
+        const response = await this.client.scroll(collectionName, scrollParams);
+        
+        if (!response || !response.points) {
+          return [];
+        }
+        
+        // Transform to MemoryPoint objects
+        return response.points.map(point => {
+          // Ensure vector is an array and handle all possible types
+          let vector: number[] = [];
+          if (Array.isArray(point.vector)) {
+            // Flatten if it's a nested array
+            if (point.vector.length > 0 && Array.isArray(point.vector[0])) {
+              vector = (point.vector as number[][]).flat();
+            } else {
+              vector = point.vector as number[];
+            }
+          }
+          
+          return {
+            id: String(point.id),
+            vector,
+            payload: point.payload as T
+          };
+        });
+      } catch (scrollError) {
+        // Handle 400 Bad Request errors, which can happen if the collection was recreated
+        // without proper indices (like timestamp) needed for scrolling
+        if (
+          scrollError instanceof Error && 
+          (scrollError.message.includes('400') || scrollError.message.includes('Bad Request'))
+        ) {
+          console.warn(`Bad request error during scroll on ${collectionName}. The collection might be new or missing indices. Trying alternative method...`);
+          
+          // Try to get points without sorting or scrolling
+          try {
+            // Use search with no vector instead of scroll
+            const searchResponse = await this.client.search(collectionName, {
+              vector: new Array(DEFAULTS.DIMENSIONS).fill(0), // Add dummy vector to satisfy type requirements
+              limit: limit || DEFAULTS.DEFAULT_LIMIT,
+              offset: offset || 0,
+              filter: filter ? this.buildQdrantFilter(filter) : undefined,
+              with_payload: true,
+              with_vector: false
+            });
+            
+            return searchResponse.map(result => ({
+              id: String(result.id),
+              // Empty vector since we didn't request it
+              vector: [],
+              payload: result.payload as T
+            }));
+          } catch (searchError) {
+            console.warn(`Alternative method also failed for ${collectionName}:`, searchError);
+            return [];
           }
         }
         
-        return {
-          id: String(point.id),
-          vector,
-          payload: point.payload as T
-        };
-      });
+        // Handle 404 Not Found errors by returning empty array
+        if (
+          scrollError instanceof Error && 
+          (scrollError.message.includes('404') || scrollError.message.includes('Not Found'))
+        ) {
+          console.warn(`Collection ${collectionName} not found during scroll. Returning empty results.`);
+          return [];
+        }
+        
+        // Rethrow other errors
+        throw scrollError;
+      }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       
@@ -750,7 +861,7 @@ export class QdrantMemoryClient implements IMemoryClient {
   }
   
   /**
-   * Add multiple points
+   * Add multiple points in a batch
    */
   async addPoints<T extends BaseMemorySchema>(
     collectionName: string,
@@ -760,16 +871,18 @@ export class QdrantMemoryClient implements IMemoryClient {
       await this.initialize();
     }
     
-    // Generate IDs for points if not provided
-    const pointsWithIds = points.map(point => ({
-      ...point,
-      id: point.id || uuidv4()
-    }));
+    // Generate IDs for points that don't have them
+    points = points.map(point => {
+      if (!point.id) {
+        point.id = uuidv4();
+      }
+      return point;
+    });
     
     // Use fallback storage if Qdrant is not available
     if (!this.useQdrant) {
-      return pointsWithIds.map(point => 
-        this.fallbackStorage.addPoint(collectionName, point.id, point)
+      return Promise.all(
+        points.map(point => this.fallbackStorage.addPoint(collectionName, point.id, point))
       );
     }
     
@@ -779,37 +892,62 @@ export class QdrantMemoryClient implements IMemoryClient {
         const exists = await this.collectionExists(collectionName);
         
         if (!exists) {
-          const dimensions = pointsWithIds[0]?.vector?.length || DEFAULTS.DIMENSIONS;
+          console.log(`Collection ${collectionName} does not exist, creating it now...`);
+          // Use the vector dimensions from the first point with a vector
+          const pointWithVector = points.find(p => p.vector && p.vector.length > 0);
+          const dimensions = pointWithVector?.vector?.length || DEFAULTS.DIMENSIONS;
           await this.createCollection(collectionName, dimensions);
         }
       }
       
-      // Prepare points with proper payload format
-      const qdrantPoints = pointsWithIds.map(point => {
-        // Convert the payload to a standard record format for Qdrant
-        // Using type assertion to handle the BaseMemorySchema conversion
-        const recordPayload = { ...(point.payload as unknown as Record<string, unknown>) };
-        
-        return {
-          id: point.id,
-          vector: point.vector,
-          payload: recordPayload
-        };
-      });
+      // Convert payload to standard record format
+      const qdrantPoints = points.map(point => ({
+        id: point.id,
+        vector: point.vector,
+        payload: { ...(point.payload as unknown as Record<string, unknown>) }
+      }));
       
-      // Insert points into Qdrant
-      await this.client.upsert(collectionName, {
-        wait: true,
-        points: qdrantPoints
-      });
+      // Batch insert into Qdrant
+      try {
+        await this.client.upsert(collectionName, {
+          wait: true,
+          points: qdrantPoints
+        });
+      } catch (upsertError) {
+        // Handle 404 Not Found errors by creating the collection and retrying
+        if (
+          upsertError instanceof Error && 
+          (upsertError.message.includes('404') || upsertError.message.includes('Not Found'))
+        ) {
+          console.log(`Collection ${collectionName} not found during batch upsert, creating it now...`);
+          // Use the vector dimensions from the first point with a vector
+          const pointWithVector = points.find(p => p.vector && p.vector.length > 0);
+          const dimensions = pointWithVector?.vector?.length || DEFAULTS.DIMENSIONS;
+          const created = await this.createCollection(collectionName, dimensions);
+          
+          if (created) {
+            // Retry the upsert now that we've created the collection
+            await this.client.upsert(collectionName, {
+              wait: true,
+              points: qdrantPoints
+            });
+          } else {
+            throw new Error(`Failed to create collection ${collectionName}`);
+          }
+        } else {
+          // Rethrow other errors
+          throw upsertError;
+        }
+      }
       
-      return pointsWithIds.map(point => point.id);
+      // Return the IDs
+      return points.map(point => point.id);
     } catch (error) {
       console.error(`Error adding points to ${collectionName}:`, error);
       
       // Fallback to in-memory storage
-      return pointsWithIds.map(point => 
-        this.fallbackStorage.addPoint(collectionName, point.id, point)
+      return Promise.all(
+        points.map(point => this.fallbackStorage.addPoint(collectionName, point.id, point))
       );
     }
   }

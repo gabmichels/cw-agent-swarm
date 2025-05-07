@@ -178,11 +178,47 @@ export class ChloeAgent implements IAgent {
       this.memoryManager = new MemoryManager({ agentId: this.agentId });
       await this.memoryManager.initialize();
       
-      // Initialize markdown memory loader
+      // Initialize markdown memory loader - respecting cache
       try {
         console.log('Initializing markdown memory loader...');
-        await initializeMarkdownMemory({ force: false, agentId: this.agentId, department: 'marketing' });
-        console.log('Markdown memory loader initialized');
+        // Check if cache file exists to avoid redundant loads
+        const fs = require('fs');
+        const path = require('path');
+        const CACHE_FILE_PATH = path.join(process.cwd(), 'data', 'cache', 'markdown-cache.json');
+        
+        // Check if we're in post-deletion mode
+        const preventMarkdownReload = (this as any).preventMarkdownReload === true || 
+                                     (global as any).preventMarkdownReload === true;
+        
+        if (preventMarkdownReload) {
+          console.log('Detected post-deletion reload: Skipping markdown initialization');
+        } else {
+          // Only force load if explicitly requested or cache doesn't exist
+          let forceLoad = false;
+          try {
+            const cacheExists = fs.existsSync(CACHE_FILE_PATH) && 
+                                fs.statSync(CACHE_FILE_PATH).size > 0;
+            forceLoad = !cacheExists;
+            
+            if (cacheExists) {
+              console.log('Markdown cache exists, using cached data');
+            } else {
+              console.log('No markdown cache found, will perform full load');
+            }
+          } catch (fsError) {
+            console.warn('Error checking for markdown cache:', fsError);
+            forceLoad = true;
+          }
+          
+          // Call with appropriate parameters based on cache state
+          await initializeMarkdownMemory({ 
+            force: forceLoad, 
+            agentId: this.agentId, 
+            department: 'marketing',
+            skipCacheCheck: false // Always check for duplicates to prevent double ingestion
+          });
+          console.log('Markdown memory loader initialized');
+        }
       } catch (error) {
         console.warn('Failed to initialize markdown memory loader:', error);
         // Don't throw here - we want to continue even if markdown loading fails

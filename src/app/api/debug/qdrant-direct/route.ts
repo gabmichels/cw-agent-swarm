@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getMemoryServices } from '../../../../server/memory/services';
+import { QdrantClient } from '@qdrant/js-client-rest';
 
 export const runtime = 'nodejs'; // Mark as server-side only
 export const dynamic = 'force-dynamic'; // Prevent caching
+
+const QDRANT_URL = process.env.QDRANT_URL || 'http://localhost:6333';
+const QDRANT_API_KEY = process.env.QDRANT_API_KEY || '';
 
 // Create direct HTTP fetch wrapper for Qdrant API
 async function callQdrantHttpApi(path: string, method: string = 'GET', body?: object): Promise<Response> {
@@ -48,337 +52,282 @@ function getMemoryTypeFromCollection(collectionName: string): string {
 }
 
 /**
- * Direct operations on Qdrant client for emergency deletion/maintenance
- * This endpoint allows raw operations on the Qdrant client
- * Use with caution as this bypasses normal memory service safeguards
+ * Direct API endpoint to perform various Qdrant operations
  */
-export async function POST(req: NextRequest) {
+export async function POST(request: NextRequest) {
   try {
-    // Parse request body
-    const body = await req.json();
-    const { operation, collection, filter, points, wait = true } = body;
+    const body = await request.json();
+    const { operation } = body;
     
-    if (!operation) {
-      return NextResponse.json(
-        { success: false, error: 'Missing operation parameter' },
-        { status: 400 }
-      );
-    }
-
-    // Get Qdrant client (for non-direct operations)
-    const { client } = await getMemoryServices();
+    // Initialize Qdrant client
+    const client = new QdrantClient({ url: QDRANT_URL, apiKey: QDRANT_API_KEY });
     
-    // Verify connection
-    const status = await client.getStatus();
-    if (!status.initialized) {
-      await client.initialize();
-    }
-
-    // Execute requested operation
-    let result;
+    // Handle different operations
     switch (operation) {
       case 'listCollections':
-        try {
-          // Use direct HTTP call to Qdrant API
-          const response = await callQdrantHttpApi('/collections');
-          
-          if (response.ok) {
-            const data = await response.json();
-            result = {
-              collections: data.result.collections.map((c: { name: string }) => c.name)
-            };
-          } else {
-            const errorText = await response.text();
-            throw new Error(`Qdrant API error: ${response.status} ${errorText}`);
-          }
-        } catch (listError) {
-          console.error('Error listing collections:', listError);
-          
-          // Fallback to manual method if direct call fails
-          try {
-            const knownTypes = ["message", "thought", "document", "task", "memory_message", "memory_thought", "memory_document", "memory_task"];
-            const collectionExistsPromises = knownTypes.map(async type => {
-              try {
-                const exists = await client.collectionExists(type);
-                return exists ? type : null;
-              } catch {
-                return null;
-              }
-            });
-            
-            const existingCollections = (await Promise.all(collectionExistsPromises)).filter(Boolean);
-            
-            result = {
-              collections: existingCollections,
-              note: "Using fallback collection check method"
-            };
-          } catch (fallbackError) {
-            console.error('Error with fallback collection listing:', fallbackError);
-            return NextResponse.json({
-              success: false,
-              error: 'Failed to list collections with fallback method',
-              details: fallbackError instanceof Error ? fallbackError.message : String(fallbackError)
-            }, { status: 500 });
-          }
-        }
-        break;
-        
-      case 'deleteCollection':
-        if (!collection) {
-          return NextResponse.json(
-            { success: false, error: 'Missing collection parameter for deleteCollection' },
-            { status: 400 }
-          );
-        }
-        
-        try {
-          // Use direct HTTP call to Qdrant API
-          const response = await callQdrantHttpApi(`/collections/${collection}`, 'DELETE');
-          
-          if (response.ok) {
-            const data = await response.json();
-            result = { 
-              deleted: true, 
-              collection,
-              qdrantResult: data
-            };
-          } else {
-            // If collection doesn't exist, API returns 404
-            if (response.status === 404) {
-              result = { 
-                deleted: true, 
-                collection,
-                note: "Collection didn't exist (404)"
-              };
-            } else {
-              const errorText = await response.text();
-              throw new Error(`Qdrant API error: ${response.status} ${errorText}`);
-            }
-          }
-        } catch (deleteError) {
-          console.error(`Error deleting collection ${collection}:`, deleteError);
-          
-          // Fallback to point deletion if direct call fails
-          try {
-            // Get all points in the collection
-            const allPoints = await client.scrollPoints(collection);
-            console.log(`Found ${allPoints.length} points to delete in collection ${collection}`);
-            
-            // Delete each point
-            const deleteResults = await Promise.allSettled(
-              allPoints.map(point => client.deletePoint(collection, point.id, { hardDelete: true }))
-            );
-            
-            result = {
-              total: allPoints.length,
-              deleted: deleteResults.filter(r => r.status === 'fulfilled' && r.value === true).length,
-              failed: deleteResults.filter(r => r.status !== 'fulfilled' || r.value !== true).length,
-              note: "Used point deletion instead of collection deletion"
-            };
-          } catch (scrollError) {
-            console.error(`Error scrolling collection ${collection}:`, scrollError);
-            result = { deleted: false, error: 'Error scrolling collection', note: "Collection may not exist" };
-          }
-        }
-        break;
-        
+        return await listCollections(client);
+      
       case 'deleteAllCollections':
-        try {
-          // Step 1: List all collections using direct HTTP call
-          const listResponse = await callQdrantHttpApi('/collections');
-          
-          if (!listResponse.ok) {
-            const errorText = await listResponse.text();
-            throw new Error(`Qdrant API error listing collections: ${listResponse.status} ${errorText}`);
-          }
-          
-          const listData = await listResponse.json();
-          const collections = listData.result.collections.map((c: { name: string }) => c.name);
-          
-          console.log(`Found ${collections.length} collections to delete`);
-          
-          // Step 2: Delete each collection
-          const results = [];
-          for (const name of collections) {
-            try {
-              const deleteResponse = await callQdrantHttpApi(`/collections/${name}`, 'DELETE');
-              
-              if (deleteResponse.ok) {
-                const memoryType = getMemoryTypeFromCollection(name);
-                results.push({ 
-                  collection: name, 
-                  memoryType,
-                  deleted: true 
-                });
-              } else {
-                const errorText = await deleteResponse.text();
-                throw new Error(`Error deleting collection ${name}: ${deleteResponse.status} ${errorText}`);
-              }
-            } catch (deleteError) {
-              console.error(`Error deleting collection ${name}:`, deleteError);
-              results.push({ 
-                collection: name, 
-                memoryType: getMemoryTypeFromCollection(name),
-                deleted: false, 
-                error: deleteError instanceof Error ? deleteError.message : String(deleteError)
-              });
-            }
-          }
-          
-          // Group the results by memory type for clearer reporting
-          const byType: Record<string, { deleted: boolean, count: number }> = {};
-          
-          for (const result of results) {
-            const type = result.memoryType;
-            if (!byType[type]) {
-              byType[type] = { deleted: result.deleted, count: 1 };
-            } else {
-              byType[type].count++;
-              if (!result.deleted) {
-                byType[type].deleted = false;
-              }
-            }
-          }
-          
-          result = {
-            totalCollections: collections.length,
-            deletedCollections: results.filter(r => r.deleted).length,
-            failedCollections: results.filter(r => !r.deleted).length,
-            byType,
-            details: results
-          };
-        } catch (operationError) {
-          console.error('Error in deleteAllCollections operation:', operationError);
-          return NextResponse.json({
-            success: false,
-            error: 'Failed to delete all collections',
-            details: operationError instanceof Error ? operationError.message : String(operationError)
-          }, { status: 500 });
-        }
-        break;
+        return await deleteAllCollections(client);
+      
+      case 'deleteCollection':
+        return await deleteCollection(client, body.collection);
       
       case 'deletePoints':
-        if (!collection) {
-          return NextResponse.json(
-            { success: false, error: 'Missing collection parameter for deletePoints' },
-            { status: 400 }
-          );
-        }
-        
-        // Since direct deletePoints method doesn't exist, we'll use individual deletePoint calls
-        if (filter) {
-          let points = [];
-          
-          try {
-            // First scroll to get matching points - might fail if collection doesn't exist
-            points = await client.scrollPoints(collection, filter, 1000);
-            console.log(`Found ${points.length} points to delete`);
-          } catch (scrollError) {
-            console.error('Error scrolling points:', scrollError);
-            
-            // Return success with 0 deleted if we couldn't scroll (likely collection doesn't exist)
-            return NextResponse.json({
-              success: true,
-              operation,
-              collection,
-              result: { total: 0, deleted: 0, failed: 0, error: 'Error scrolling points' }
-            });
-          }
-          
-          if (points.length === 0) {
-            return NextResponse.json({
-              success: true,
-              operation,
-              collection,
-              result: { total: 0, deleted: 0, failed: 0 }
-            });
-          }
-          
-          // Delete each point
-          const results = await Promise.allSettled(
-            points.map(point => client.deletePoint(collection, point.id, { hardDelete: true }))
-          );
-          
-          result = {
-            total: points.length,
-            deleted: results.filter(r => r.status === 'fulfilled' && r.value === true).length,
-            failed: results.filter(r => r.status !== 'fulfilled' || r.value !== true).length
-          };
-        } else if (points && Array.isArray(points)) {
-          // Delete specific points
-          const results = await Promise.allSettled(
-            points.map(id => client.deletePoint(collection, id, { hardDelete: true }))
-          );
-          
-          result = {
-            total: points.length,
-            deleted: results.filter(r => r.status === 'fulfilled' && r.value === true).length,
-            failed: results.filter(r => r.status !== 'fulfilled' || r.value !== true).length
-          };
-        } else {
-          return NextResponse.json(
-            { success: false, error: 'Missing filter or points parameter for deletePoints' },
-            { status: 400 }
-          );
-        }
-        break;
-        
-      case 'resetCollection':
-        if (!collection) {
-          return NextResponse.json(
-            { success: false, error: 'Missing collection parameter for resetCollection' },
-            { status: 400 }
-          );
-        }
-        
-        try {
-          // Get all points in the collection
-          const allPoints = await client.scrollPoints(collection);
-          console.log(`Found ${allPoints.length} points to delete in collection ${collection}`);
-          
-          // Delete all points
-          const deleteResults = await Promise.allSettled(
-            allPoints.map(point => client.deletePoint(collection, point.id, { hardDelete: true }))
-          );
-          
-          result = {
-            total: allPoints.length,
-            deleted: deleteResults.filter(r => r.status === 'fulfilled' && r.value === true).length,
-            failed: deleteResults.filter(r => r.status !== 'fulfilled' || r.value !== true).length
-          };
-        } catch (scrollError) {
-          console.error('Error scrolling collection:', scrollError);
-          // Return success with 0 deleted if we couldn't scroll
-          result = { total: 0, deleted: 0, failed: 0, error: 'Error scrolling collection' };
-        }
-        break;
-        
-      case 'getStatus':
-        result = await client.getStatus();
-        break;
-        
+        return await deletePoints(client, body.collection, body.filter);
+      
+      case 'createCollections':
+        return await createCollections(client, body.collections);
+      
       default:
         return NextResponse.json(
-          { success: false, error: `Unsupported operation: ${operation}` },
+          { success: false, error: `Unknown operation: ${operation}` },
           { status: 400 }
         );
+    }
+  } catch (error) {
+    console.error('Error in Qdrant direct API:', error);
+    return NextResponse.json(
+      { success: false, error: String(error) },
+      { status: 500 }
+    );
+  }
+}
+
+/**
+ * List all collections
+ */
+async function listCollections(client: QdrantClient) {
+  try {
+    const { collections } = await client.getCollections();
+    
+    return NextResponse.json({
+      success: true,
+      result: {
+        collections: collections.map(c => c.name),
+        count: collections.length
+      }
+    });
+  } catch (error) {
+    return NextResponse.json(
+      { success: false, error: String(error) },
+      { status: 500 }
+    );
+  }
+}
+
+/**
+ * Delete all collections
+ */
+async function deleteAllCollections(client: QdrantClient) {
+  try {
+    const { collections } = await client.getCollections();
+    const collectionNames = collections.map(c => c.name);
+    
+    // Group by collection name prefix (like memory_, documents_, etc.)
+    const groupedByType: Record<string, { count: number; deleted: boolean }> = {};
+    
+    // Collect collection names by type
+    for (const name of collectionNames) {
+      const parts = name.split('_');
+      const type = parts.length > 1 ? parts[0] : 'general';
+      
+      if (!groupedByType[type]) {
+        groupedByType[type] = { count: 0, deleted: false };
+      }
+      
+      groupedByType[type].count++;
+    }
+    
+    let deletedCount = 0;
+    
+    // Delete each collection
+    for (const name of collectionNames) {
+      try {
+        await client.deleteCollection(name);
+        deletedCount++;
+        
+        // Update deleted status for the type
+        const parts = name.split('_');
+        const type = parts.length > 1 ? parts[0] : 'general';
+        if (groupedByType[type]) {
+          groupedByType[type].deleted = true;
+        }
+      } catch (deleteError) {
+        console.warn(`Failed to delete collection ${name}:`, deleteError);
+      }
     }
     
     return NextResponse.json({
       success: true,
-      operation,
-      collection,
-      result
+      result: {
+        totalCollections: collectionNames.length,
+        deletedCollections: deletedCount,
+        byType: groupedByType
+      }
     });
-    
   } catch (error) {
-    console.error('Error in direct Qdrant operation:', error);
     return NextResponse.json(
-      { 
-        success: false, 
-        error: error instanceof Error ? error.message : 'Unknown error',
-        stack: error instanceof Error ? error.stack : undefined
-      },
+      { success: false, error: String(error) },
+      { status: 500 }
+    );
+  }
+}
+
+/**
+ * Delete a specific collection
+ */
+async function deleteCollection(client: QdrantClient, collectionName: string) {
+  if (!collectionName) {
+    return NextResponse.json(
+      { success: false, error: 'Collection name is required' },
+      { status: 400 }
+    );
+  }
+  
+  try {
+    await client.deleteCollection(collectionName);
+    
+    return NextResponse.json({
+      success: true,
+      result: {
+        collection: collectionName,
+        deleted: true
+      }
+    });
+  } catch (error) {
+    return NextResponse.json(
+      { success: false, error: String(error) },
+      { status: 500 }
+    );
+  }
+}
+
+/**
+ * Delete points from a collection
+ */
+async function deletePoints(client: QdrantClient, collectionName: string, filter: any) {
+  if (!collectionName) {
+    return NextResponse.json(
+      { success: false, error: 'Collection name is required' },
+      { status: 400 }
+    );
+  }
+  
+  try {
+    const result = await client.delete(collectionName, { filter, wait: true });
+    
+    return NextResponse.json({
+      success: true,
+      result: {
+        collection: collectionName,
+        deleted: result.status === 'completed' ? true : false,
+        status: result.status
+      }
+    });
+  } catch (error) {
+    return NextResponse.json(
+      { success: false, error: String(error) },
+      { status: 500 }
+    );
+  }
+}
+
+/**
+ * Create multiple collections with specified dimensions
+ */
+async function createCollections(client: QdrantClient, collections: Array<{name: string, dimensions: number}>) {
+  if (!collections || !Array.isArray(collections) || collections.length === 0) {
+    return NextResponse.json(
+      { success: false, error: 'Collections array is required' },
+      { status: 400 }
+    );
+  }
+  
+  try {
+    const results = [];
+    
+    for (const collection of collections) {
+      if (!collection.name || !collection.dimensions) {
+        results.push({
+          name: collection.name || 'unnamed',
+          created: false,
+          error: 'Missing name or dimensions'
+        });
+        continue;
+      }
+      
+      try {
+        // Check if collection already exists
+        const { collections: existingCollections } = await client.getCollections();
+        const exists = existingCollections.some(c => c.name === collection.name);
+        
+        if (exists) {
+          results.push({
+            name: collection.name,
+            created: false,
+            error: 'Collection already exists'
+          });
+          continue;
+        }
+        
+        // Create collection
+        await client.createCollection(collection.name, {
+          vectors: {
+            size: collection.dimensions,
+            distance: "Cosine"
+          },
+          optimizers_config: {
+            indexing_threshold: 0, // Start indexing immediately
+            memmap_threshold: 10000 // Force memory-mapping for speed
+          }
+        });
+        
+        // Create standard indices for common fields
+        const indices: Array<{field_name: string, field_schema: "datetime" | "keyword" | "float" | "bool"}> = [
+          { field_name: "timestamp", field_schema: "datetime" },
+          { field_name: "type", field_schema: "keyword" },
+          { field_name: "importance", field_schema: "float" },
+          { field_name: "is_deleted", field_schema: "bool" },
+          { field_name: "tags", field_schema: "keyword" }
+        ];
+        
+        // Create all indices
+        for (const index of indices) {
+          try {
+            await client.createPayloadIndex(collection.name, index);
+          } catch (indexError) {
+            console.warn(`Failed to create index ${index.field_name} for collection ${collection.name}:`, indexError);
+            // Continue with other indices even if one fails
+          }
+        }
+        
+        results.push({
+          name: collection.name,
+          created: true,
+          dimensions: collection.dimensions,
+          indices: indices.map(i => i.field_name)
+        });
+      } catch (error) {
+        results.push({
+          name: collection.name,
+          created: false,
+          error: String(error)
+        });
+      }
+    }
+    
+    return NextResponse.json({
+      success: true,
+      result: {
+        collections: results,
+        totalRequested: collections.length,
+        totalCreated: results.filter(r => r.created).length
+      }
+    });
+  } catch (error) {
+    return NextResponse.json(
+      { success: false, error: String(error) },
       { status: 500 }
     );
   }

@@ -117,14 +117,24 @@ export class OpenAITagExtractor {
             - For very short messages, extract fewer but more precise tags
             - For technical content, include technical terms as tags
             - For conversational content, focus on the main topics and intent
-            - Return the tags with confidence scores between 0.0 and 1.0`
+            - Return the tags with confidence scores between 0.0 and 1.0
+            
+            Format your response as a JSON object with a "tags" array. Each tag in the array should be an object with "text" and "confidence" properties.`
           },
           {
             role: "user" as const,
-            content: `Extract tags from the following text. ${existingTagsText}
+            content: `Extract tags from the following text and return them as JSON. ${existingTagsText}
             
             TEXT:
-            ${truncatedContent}`
+            ${truncatedContent}
+            
+            Return the extracted tags in JSON format with the following structure:
+            {
+              "tags": [
+                {"text": "example tag", "confidence": 0.9},
+                {"text": "another tag", "confidence": 0.7}
+              ]
+            }`
           }
         ],
         temperature: 0.1,

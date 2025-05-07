@@ -11,6 +11,7 @@ import { Tag, TagAlgorithm } from '../../../lib/memory/TagExtractor';
 import { ChloeMemory } from '../memory';
 import { extractTags } from '../../../utils/tagExtractor';
 import { MemoryManager } from '../core/memoryManager';
+import { COLLECTIONS } from '../../../constants/qdrant';
 
 // Define memory types constants to replace the import from qdrant
 const MEMORY_TYPES = {
@@ -37,11 +38,14 @@ export function resetCacheState() {
 
 /**
  * Load the file modification cache from disk
+ * This function now checks if the cache is already loaded before trying to reload it
  */
 async function loadFileModCache(): Promise<void> {
-  // Always load the cache on every request
-  // This will let us detect if the cache file has been deleted or modified
-  cacheLoaded = false;
+  // If cache is already loaded, don't reload it
+  if (cacheLoaded && fileModCache.size > 0) {
+    logger.info(`Using existing cache with ${fileModCache.size} entries`);
+    return;
+  }
   
   try {
     // Create cache directory if it doesn't exist
@@ -145,6 +149,46 @@ async function shouldReloadFile(filePath: string): Promise<{ needsReload: boolea
       // File has been modified, needs to be reloaded
       logger.info(`File modified since last load: ${filePath}`);
       return { needsReload: true, memoryIds: cached.memoryIds, reason: 'modified' };
+    }
+
+    // Additional check to see if the memory IDs still exist in the database
+    if (cached.memoryIds.length > 0) {
+      try {
+        // Import the QdrantMemoryClient directly to check if memories exist
+        const { QdrantMemoryClient } = await import('../../../server/memory/services/client/qdrant-client');
+        const memoryClient = new QdrantMemoryClient();
+        await memoryClient.initialize();
+        
+        // Try to fetch the first memory ID from any collection to see if it exists
+        const firstId = cached.memoryIds[0];
+        
+        // Check all collections for this ID
+        let memoryExists = false;
+        for (const collectionName of Object.values(COLLECTIONS)) {
+          try {
+            // Ensure the collection name is a string
+            if (typeof collectionName === 'string') {
+              const points = await memoryClient.getPoints(collectionName, [firstId]);
+              if (points && points.length > 0) {
+                memoryExists = true;
+                break;
+              }
+            }
+          } catch (err) {
+            // Ignore errors for individual collections
+            continue;
+          }
+        }
+        
+        // If memory doesn't exist in any collection, we need to reload the file
+        if (!memoryExists) {
+          logger.info(`Memory ID ${firstId} for file ${filePath} not found in any collection, will reload`);
+          return { needsReload: true, memoryIds: [], reason: 'memory_not_found' };
+        }
+      } catch (memoryError) {
+        logger.warn(`Error checking memory existence for ${filePath}, will reload to be safe:`, memoryError);
+        return { needsReload: true, memoryIds: [], reason: 'memory_check_error' };
+      }
     }
 
     // File hasn't changed, no need to reload
@@ -665,6 +709,15 @@ export async function loadAllMarkdownAsMemory(
     // Process each file sequentially to avoid race conditions
     for (const filePath of markdownFiles) {
       try {
+        // Check if we need to process this file based on cache
+        const fileStatus = await shouldReloadFile(filePath);
+        
+        if (!fileStatus.needsReload && !options.force) {
+          logger.info(`Skipping unchanged file: ${filePath}`);
+          stats.unchangedFiles++;
+          continue;
+        }
+        
         await processFile(filePath, memoryManager, chloeMemory, options, stats);
       } catch (error) {
         logger.error(`Error processing file ${filePath}:`, error);

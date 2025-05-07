@@ -14,8 +14,8 @@ interface MarkdownDocument {
   timestamp: string;
   isMarkdown: boolean;
   content: string;
-  originalTitle?: string;    // Added for debugging purposes
-  titleExtracted?: boolean;  // Added to track if title was extracted
+  originalTitle?: string;    // Made optional to fix type error
+  titleExtracted?: boolean;  // Made optional to fix type error
   extractionMethod?: string; // Added to note how title was extracted
 }
 
@@ -87,7 +87,7 @@ export default function MarkdownViewer() {
       }
       
       // Process documents to extract titles from content
-      const processedDocs = data.documents.map(doc => {
+      let processedDocs = data.documents.map(doc => {
         // Always extract title from the first line of content, regardless of original title
         const extractedTitle = extractTitleFromFirstLine(doc.content);
         
@@ -116,9 +116,38 @@ export default function MarkdownViewer() {
         }
       });
       
+      // Deduplicate documents based on file path
+      // Some documents might be duplicated in the database but we only want to show each unique file once
+      const pathMap = new Map<string, MarkdownDocument>();
+      
+      // Use the path as a unique key and keep only the latest document for each path
+      processedDocs.forEach(doc => {
+        if (doc.path) {
+          // If we already have this path, only replace if this one is newer
+          const existingDoc = pathMap.get(doc.path);
+          if (!existingDoc || new Date(doc.timestamp) > new Date(existingDoc.timestamp)) {
+            pathMap.set(doc.path, doc);
+          }
+        } else {
+          // For documents without a path, use the ID as the key
+          pathMap.set(doc.id, doc);
+        }
+      });
+      
+      // Convert back to array
+      processedDocs = Array.from(pathMap.values()) as typeof processedDocs;
+      
+      if (debugMode) {
+        console.log(`Deduplication: ${data.documents.length} original docs → ${processedDocs.length} unique docs`);
+      }
+      
       setDocuments(processedDocs);
       setFilteredDocs(processedDocs);
-      setStats(data.statistics);
+      setStats({
+        ...data.statistics,
+        total: processedDocs.length,
+        markdownCount: processedDocs.length
+      });
       
       if (processedDocs.length > 0) {
         setSelectedDoc(processedDocs[0]);

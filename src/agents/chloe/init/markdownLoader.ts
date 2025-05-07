@@ -101,7 +101,7 @@ export async function initializeMarkdownMemory(options: {
       
       const stats = await loadAllMarkdownAsMemory(directoriesToLoad, {
         force: options.force || options.skipCacheCheck || false,
-        checkForDuplicates: !options.skipCacheCheck && true
+        checkForDuplicates: true // Always check for duplicates
       });
       
       // Record successful initialization details
@@ -157,12 +157,11 @@ export async function forceReloadMarkdownFiles(agentId?: string, department?: st
       // Continue anyway
     }
     
-    // Force a reload with skipCacheCheck to bypass all caching
+    // Force a reload with clean slate but still check for duplicates
     await initializeMarkdownMemory({ 
       force: true, 
       agentId, 
-      department,
-      skipCacheCheck: true 
+      department
     });
     
     logger.info('Forced markdown reload complete');
@@ -188,9 +187,35 @@ export function getAgentDirectories(agentId: string = 'chloe', department: strin
 if (typeof window === 'undefined') {
   const checkCacheAndInitialize = async () => {
     try {
-      // First, reset the cache state to force a fresh check
+      // Check if we're in a post-deletion reload by examining the global flag
+      // that gets set by middleware
+      const globalAny = global as any;
+      if (globalAny.preventMarkdownReload === true) {
+        logger.info('Detected post-deletion reload: Skipping markdown initialization');
+        // Set initialization as complete to avoid subsequent loads
+        initializationComplete = true;
+        return;
+      }
+      
+      // Also check URL if available (fallback method)
+      try {
+        if (globalAny.req && globalAny.req.url) {
+          const url = new URL(globalAny.req.url, 'http://localhost');
+          const skipMarkdownLoad = url.searchParams.has('prevent_markdown_reload');
+          
+          if (skipMarkdownLoad) {
+            logger.info('Detected post-deletion reload via URL: Skipping markdown initialization');
+            initializationComplete = true;
+            return;
+          }
+        }
+      } catch (urlCheckError) {
+        logger.warn('Error checking URL parameters:', urlCheckError);
+        // Continue with normal initialization if we can't check
+      }
+      
+      // Only load the cache state without resetting
       const { resetCacheState } = await import('../knowledge/markdownMemoryLoader');
-      resetCacheState();
       
       // Check if the cache file exists and has content
       let cacheExists = false;
@@ -201,22 +226,22 @@ if (typeof window === 'undefined') {
         cacheExists = false;
       }
       
-      // Initialize with appropriate options - always reset internal state
-      // on server restart to ensure fresh checking
       if (!cacheExists) {
         logger.info('Cache file not found or empty, will perform a full initialization');
-        await initializeMarkdownMemory({ skipCacheCheck: true });
+        // Reset cache state only when no cache file exists
+        resetCacheState();
+        await initializeMarkdownMemory({ force: true });
       } else {
-        // Reset initialization state to force a fresh check
-        initializationComplete = false;
-        initializationPromise = null;
-        
-        await initializeMarkdownMemory();
+        logger.info('Cache file exists, using cached data for markdown files');
+        // We set initialization as complete without loading files again
+        // ChloeAgent will still call initializeMarkdownMemory but it will respect the cache
+        initializationComplete = true; 
       }
     } catch (error) {
       logger.error('Failed to initialize markdown memory:', error);
     }
   };
   
+  // We still check the cache but we don't automatically load files
   checkCacheAndInitialize();
 } 
