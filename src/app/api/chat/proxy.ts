@@ -375,11 +375,6 @@ export async function POST(req: Request) {
           await initializeMemory();
         }
         
-        // Track this message in history
-        if (!memoryDisabled) {
-          await saveToHistory(userId, 'user', normalizedMessage, attachments);
-        }
-        
         // Set up a timeout to ensure we always respond
         const timeoutPromise = new Promise((_, reject) => {
           setTimeout(() => reject(new Error('Request timed out after 60 seconds')), 60000);
