@@ -51,6 +51,8 @@ import { DocumentSource } from '../../types/metadata';
 import { RerankerService } from './services/reranker';
 // Import PII redaction functionality
 import { redactSensitiveData, RedactionResult, PIIType } from '../../lib/pii/redactor';
+// Add the import at the top of the file, after the other imports
+import { COLLECTION_CONFIGS as COLLECTIONS } from '../../server/memory/config/collections';
 
 // Define pattern for detecting brand information
 const BRAND_PATTERN = /\b(brand|company|organization)\s+(mission|vision|values|identity|info|information)\b/i;
@@ -433,9 +435,11 @@ export class ChloeMemory {
       // For server-side, use standardized memory service
       if (typeof window === 'undefined' && this.memoryService) {
         try {
-          const results = await this.memoryService.getMemories({
+          // Replace getMemories with search method
+          const results = await this.memoryService.search({
             type,
-            filter: filter
+            metadata: filter,
+            limit
           });
           
           return this.convertRecordsToMemoryEntries(
@@ -554,9 +558,11 @@ export class ChloeMemory {
           ]
         };
         
-        const results = await this.memoryService.getMemories({
+        // Replace getMemories with search method
+        const results = await this.memoryService.search({
           type: MemoryType.THOUGHT,
-          filter: filter
+          metadata: filter,
+          limit
         });
         
         const memories = this.convertRecordsToMemoryEntries(
@@ -603,13 +609,18 @@ export class ChloeMemory {
       // Use the standardized memory service to count messages
       if (typeof window === 'undefined' && this.memoryService) {
         try {
-          const stats = await this.memoryService.getStats({
-            type: MemoryType.MESSAGE
-          });
-          return stats.count || 0;
+          // Use the client from the getMemoryServices() call
+          const { client } = await getMemoryServices();
+          const collectionName = COLLECTIONS[MemoryType.MESSAGE]?.name;
+          
+          if (collectionName) {
+            const count = await client.getPointCount(collectionName);
+            return count;
+          }
+          return 0;
         } catch (error) {
           handleError(MemoryError.retrievalFailed(
-            'Error getting stats from memory service',
+            'Error getting message count from memory service',
             { agentId: this.agentId },
             error instanceof Error ? error : undefined
           ));
@@ -661,23 +672,14 @@ export class ChloeMemory {
         await this.initialize();
       }
       
-      const filter = {
-        must: [
-          {
-            key: "metadata.category",
-            match: {
-              value: "insight"
-            }
-          }
-        ]
-      };
-      
       let insights: MemoryEntry[] = [];
       
       // Use server-side memory service
       if (typeof window === 'undefined' && this.searchService) {
         const results = await this.searchService.search('', {
-          filter: filter,
+          metadata: {
+            "category": "insight"
+          },
           limit: limit
         });
         
@@ -1982,7 +1984,7 @@ export class ChloeMemory {
       // Get most recently modified memories from standardized system
       if (typeof window === 'undefined' && this.memoryService) {
         // Use StandardMemoryType.DOCUMENT directly
-        const results = await this.memoryService.getMemories({
+        const results = await this.memoryService.search({
           type: MemoryType.DOCUMENT,
           sort: {
             field: "last_modified",
@@ -2047,5 +2049,46 @@ export class ChloeMemory {
       created: timestamp,
       metadata: metadata
     };
+  }
+
+  /**
+   * Get a memory by ID
+   */
+  async getMemoryById(id: string, type: MemoryType): Promise<MemoryEntry | null> {
+    try {
+      if (!this.initialized) {
+        await this.initialize();
+      }
+      
+      // For server-side, use standardized memory service
+      if (typeof window === 'undefined' && this.memoryService) {
+        try {
+          const memoryPoint = await this.memoryService.getMemory({
+            id,
+            type
+          });
+          
+          if (!memoryPoint) {
+            return null;
+          }
+          
+          return this.createMemoryEntryFromPoint(memoryPoint);
+        } catch (error) {
+          console.error('Error retrieving memory by ID from standardized memory service:', error);
+          return null;
+        }
+      }
+      
+      // Fallback to local in-memory storage for client-side
+      const localMemory = this.memoryStore.entries.find(entry => entry.id === id);
+      return localMemory || null;
+    } catch (error) {
+      handleError(MemoryError.retrievalFailed(
+        `Error retrieving memory by ID for type ${type}`,
+        { id, type },
+        error instanceof Error ? error : undefined
+      ));
+      return null;
+    }
   }
 }
