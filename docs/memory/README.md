@@ -1,6 +1,48 @@
 # Memory System Documentation
 
-This folder contains comprehensive documentation about the memory system, its current state, and proposed improvements.
+This directory contains documentation for the memory system components.
+
+## Components
+
+### Schema Validation
+
+The [Schema Validation](./SCHEMA_VALIDATION.md) system provides type-safe validation with versioning and migration capabilities. It ensures data integrity and provides a clear path for schema evolution.
+
+### Memory Service Base Classes
+
+The memory service base classes provide standardized, type-safe interfaces and implementations for memory operations. They follow a repository pattern with clear separation between data access and business logic.
+
+Key features:
+- Type-safe repositories and services with generic type parameters
+- Schema validation integration for all operations
+- Standardized error handling with detailed context
+- Clean abstractions for vector database operations
+- Support for advanced search and filtering
+
+See the [Memory Service Base Classes README](../src/server/memory/services/base/README.md) for detailed documentation.
+
+## Collections
+
+The memory system organizes data into specialized collections:
+
+- **Chat Memory** - Stores conversation history with metadata
+- **Knowledge Memory** - Stores extracted knowledge with context information
+- **Cognitive Process Memory** - Stores thinking processes, reflections, and insights
+- **Document Memory** - Stores document content and metadata
+- **Task Memory** - Stores task information and status
+
+## Architecture
+
+The memory system follows a layered architecture:
+
+1. **Services** - Business logic and error handling
+2. **Repositories** - Data access and mapping
+3. **Database Clients** - Direct database interaction
+4. **Schemas** - Data validation and versioning
+
+## Usage
+
+See individual component documentation for usage examples.
 
 ## Directory Structure
 
