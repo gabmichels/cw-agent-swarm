@@ -30,10 +30,10 @@ import { MarketScannerManager } from './marketScannerManager';
 import { KnowledgeGapsManager } from './knowledgeGapsManager';
 import { StateManager } from './stateManager';
 import { ChloeMemory, MemoryEntry } from '../memory';
-import { MarkdownWatcher } from '../knowledge/markdownWatcher';
+import { MarkdownManager } from '../knowledge/markdownManager';
 
 // Add the import for our markdown memory loader
-import { initializeMarkdownMemory } from '../init/markdownLoader';
+// import { initializeMarkdownMemory, markdownLoaderState } from '../init/markdownLoader';
 import { initializeAutonomy } from '../scheduler';
 import { ChloeScheduler } from '../scheduler';
 
@@ -95,7 +95,7 @@ export class ChloeAgent implements IAgent {
   private safeguards: RobustSafeguards;
   
   // New properties
-  private markdownWatcher: MarkdownWatcher | null = null;
+  private markdownManager: MarkdownManager | null = null;
   
   // Thought and reflection caches to avoid redundant LLM calls
   private thoughtCache = new Map<string, {
@@ -151,6 +151,10 @@ export class ChloeAgent implements IAgent {
    * Initialize the agent with necessary services and resources
    */
   async initialize(): Promise<void> {
+    if (this._initialized) {
+      return;
+    }
+
     try {
       console.log('Initializing ChloeAgent...');
 
@@ -178,56 +182,43 @@ export class ChloeAgent implements IAgent {
       this.memoryManager = new MemoryManager({ agentId: this.agentId });
       await this.memoryManager.initialize();
       
-      // Initialize markdown memory loader - respecting cache
-      try {
-        console.log('Initializing markdown memory loader...');
-        // Check if cache file exists to avoid redundant loads
-        const fs = require('fs');
-        const path = require('path');
-        const CACHE_FILE_PATH = path.join(process.cwd(), 'data', 'cache', 'markdown-cache.json');
-        
-        // Check if we're in post-deletion mode
-        const preventMarkdownReload = (this as any).preventMarkdownReload === true || 
-                                     (global as any).preventMarkdownReload === true;
-        
-        if (preventMarkdownReload) {
-          console.log('Detected post-deletion reload: Skipping markdown initialization');
-        } else {
-          // Only force load if explicitly requested or cache doesn't exist
-          let forceLoad = false;
-          try {
-            const cacheExists = fs.existsSync(CACHE_FILE_PATH) && 
-                                fs.statSync(CACHE_FILE_PATH).size > 0;
-            forceLoad = !cacheExists;
-            
-            if (cacheExists) {
-              console.log('Markdown cache exists, using cached data');
-            } else {
-              console.log('No markdown cache found, will perform full load');
-            }
-          } catch (fsError) {
-            console.warn('Error checking for markdown cache:', fsError);
-            forceLoad = true;
-          }
-          
-          // Call with appropriate parameters based on cache state
-          await initializeMarkdownMemory({ 
-            force: forceLoad, 
-            agentId: this.agentId, 
-            department: 'marketing',
-            skipCacheCheck: false // Always check for duplicates to prevent double ingestion
-          });
-          console.log('Markdown memory loader initialized');
-        }
-      } catch (error) {
-        console.warn('Failed to initialize markdown memory loader:', error);
-        // Don't throw here - we want to continue even if markdown loading fails
-      }
-      
       // Get the base memory for initializing other managers
       const chloeMemory = this.memoryManager.getChloeMemory();
       if (!chloeMemory) {
         throw new Error('Failed to initialize ChloeMemory');
+      }
+
+      // Initialize markdown manager
+      this.markdownManager = new MarkdownManager({
+        memory: chloeMemory,
+        agentId: this.agentId,
+        department: 'marketing',
+        logFunction: (message, data) => {
+          this.taskLogger.logAction(`MarkdownManager: ${message}`, data);
+        }
+      });
+
+      // Load markdown files for this agent
+      try {
+        console.log('🔄 ChloeAgent: Starting markdown file loading process...');
+        console.time('MarkdownLoading');
+        const stats = await this.markdownManager.loadMarkdownFiles();
+        console.timeEnd('MarkdownLoading');
+        console.log('✅ ChloeAgent: Markdown files loaded successfully', stats);
+        this.taskLogger.logAction('Loaded markdown files', stats);
+      } catch (error) {
+        console.error('❌ ChloeAgent: Error loading markdown files', error);
+        this.taskLogger.logAction('Error loading markdown files', { error: String(error) });
+        // Continue initialization even if markdown loading fails
+      }
+
+      // Start watching markdown files
+      try {
+        await this.markdownManager.startWatching();
+        this.taskLogger.logAction('Started markdown file watcher');
+      } catch (error) {
+        this.taskLogger.logAction('Error starting markdown watcher', { error: String(error) });
+        // Continue initialization even if watcher fails
       }
       
       // Initialize scheduler with this agent instance
@@ -299,23 +290,6 @@ export class ChloeAgent implements IAgent {
         }
       });
       await this.knowledgeGapsManager.initialize();
-      
-      // Initialize markdown watcher
-      try {
-        this.markdownWatcher = new MarkdownWatcher({
-          memory: this.memoryManager.getChloeMemory()!,
-          logFunction: (message, data) => {
-            this.taskLogger.logAction(`MarkdownWatcher: ${message}`, data);
-          }
-        });
-        
-        // Start watching markdown files
-        await this.markdownWatcher.startWatching();
-        this.taskLogger.logAction('Started markdown knowledge watcher');
-      } catch (watcherError) {
-        this.taskLogger.logAction('Error initializing markdown watcher', { error: String(watcherError) });
-        // Continue initialization even if watcher fails
-      }
       
       // Initialize autonomy system
       try {
@@ -1168,11 +1142,11 @@ I don't have enough information about Claro's brand identity. I should ask for c
         await this.taskLogger.close();
       }
       
-      // Stop the markdown watcher if it's running
-      if (this.markdownWatcher) {
+      // Stop the markdown manager if it's running
+      if (this.markdownManager) {
         try {
-          await this.markdownWatcher.stopWatching();
-          this.taskLogger.logAction('Stopped markdown knowledge watcher');
+          await this.markdownManager.stopWatching();
+          this.taskLogger.logAction('Stopped markdown file watcher');
         } catch (error) {
           this.taskLogger.logAction('Error stopping markdown watcher', { error: String(error) });
         }
@@ -1558,69 +1532,6 @@ I don't have enough information about Claro's brand identity. I should ask for c
     
     return (hasMarkdownHeadings || hasNumberedSections || hasBulletPoints) && 
            (hasStructuredKeywords || hasNeatFormatting);
-  }
-
-  /**
-   * Force reload all markdown files into memory
-   * This is useful when files have been updated and we want to refresh our knowledge
-   * @returns A promise resolving to a summary of what was loaded
-   */
-  async reloadMarkdownFiles(): Promise<{ 
-    success: boolean; 
-    message: string;
-    stats?: {
-      filesProcessed: number;
-      entriesAdded: number;
-      filesSkipped: number;
-      duplicatesSkipped: number;
-    }
-  }> {
-    try {
-      if (!this.initialized) {
-        await this.initialize();
-      }
-      
-      this.taskLogger?.logAction('Forcing reload of all markdown files', {
-        timestamp: new Date().toISOString()
-      });
-      
-      // Import the loader dynamically to avoid circular dependencies
-      const { loadAllMarkdownAsMemory } = await import('../knowledge/markdownMemoryLoader');
-      
-      // Force reload all markdown files
-      const stats = await loadAllMarkdownAsMemory(['docs/', 'knowledge/'], {
-        force: true, // Force reload all files
-        checkForDuplicates: false // Skip duplicate checking since we're forcing reload
-      });
-      
-      this.taskLogger?.logAction('Markdown files reloaded successfully', {
-        filesProcessed: stats.filesProcessed,
-        entriesAdded: stats.entriesAdded,
-        filesSkipped: stats.filesSkipped
-      });
-      
-      return {
-        success: true,
-        message: `Successfully reloaded markdown files: Processed ${stats.filesProcessed}, Added ${stats.entriesAdded} entries, Skipped ${stats.filesSkipped} files`,
-        stats
-      };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      this.taskLogger?.logAction('Error reloading markdown files', { error: errorMessage });
-      
-      return {
-        success: false,
-        message: `Error reloading markdown files: ${errorMessage}`
-      };
-    }
-  }
-
-  /**
-   * Gets the scheduler for this agent
-   * @returns The ChloeScheduler instance or null if not available
-   */
-  getScheduler(): ChloeScheduler | null {
-    return this.scheduler;
   }
 
   /**

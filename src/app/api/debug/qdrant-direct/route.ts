@@ -69,7 +69,7 @@ export async function POST(request: NextRequest) {
       
       case 'deleteAllCollections':
         return await deleteAllCollections(client);
-      
+        
       case 'deleteCollection':
         return await deleteCollection(client, body.collection);
       
@@ -80,11 +80,11 @@ export async function POST(request: NextRequest) {
         return await createCollections(client, body.collections);
       
       default:
-        return NextResponse.json(
+          return NextResponse.json(
           { success: false, error: `Unknown operation: ${operation}` },
-          { status: 400 }
-        );
-    }
+            { status: 400 }
+          );
+        }
   } catch (error) {
     console.error('Error in Qdrant direct API:', error);
     return NextResponse.json(
@@ -113,8 +113,8 @@ async function listCollections(client: QdrantClient) {
       { success: false, error: String(error) },
       { status: 500 }
     );
-  }
-}
+            }
+          }
 
 /**
  * Delete all collections
@@ -140,10 +140,10 @@ async function deleteAllCollections(client: QdrantClient) {
     }
     
     let deletedCount = 0;
-    
+          
     // Delete each collection
     for (const name of collectionNames) {
-      try {
+            try {
         await client.deleteCollection(name);
         deletedCount++;
         
@@ -152,8 +152,8 @@ async function deleteAllCollections(client: QdrantClient) {
         const type = parts.length > 1 ? parts[0] : 'general';
         if (groupedByType[type]) {
           groupedByType[type].deleted = true;
-        }
-      } catch (deleteError) {
+              }
+            } catch (deleteError) {
         console.warn(`Failed to delete collection ${name}:`, deleteError);
       }
     }
@@ -179,40 +179,40 @@ async function deleteAllCollections(client: QdrantClient) {
  */
 async function deleteCollection(client: QdrantClient, collectionName: string) {
   if (!collectionName) {
-    return NextResponse.json(
+          return NextResponse.json(
       { success: false, error: 'Collection name is required' },
-      { status: 400 }
-    );
-  }
-  
+            { status: 400 }
+          );
+        }
+        
   try {
     await client.deleteCollection(collectionName);
     
-    return NextResponse.json({
-      success: true,
+            return NextResponse.json({
+              success: true,
       result: {
         collection: collectionName,
         deleted: true
       }
-    });
+            });
   } catch (error) {
     return NextResponse.json(
       { success: false, error: String(error) },
       { status: 500 }
     );
   }
-}
-
+          }
+          
 /**
  * Delete points from a collection
  */
 async function deletePoints(client: QdrantClient, collectionName: string, filter: any) {
   if (!collectionName) {
-    return NextResponse.json(
+          return NextResponse.json(
       { success: false, error: 'Collection name is required' },
-      { status: 400 }
-    );
-  }
+            { status: 400 }
+          );
+        }
   
   try {
     const result = await client.delete(collectionName, { filter, wait: true });
@@ -238,13 +238,13 @@ async function deletePoints(client: QdrantClient, collectionName: string, filter
  */
 async function createCollections(client: QdrantClient, collections: Array<{name: string, dimensions: number}>) {
   if (!collections || !Array.isArray(collections) || collections.length === 0) {
-    return NextResponse.json(
+          return NextResponse.json(
       { success: false, error: 'Collections array is required' },
-      { status: 400 }
-    );
-  }
-  
-  try {
+            { status: 400 }
+          );
+        }
+        
+        try {
     const results = [];
     
     for (const collection of collections) {

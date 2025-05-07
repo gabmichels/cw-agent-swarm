@@ -8,6 +8,7 @@ let initializationPromise: Promise<void> | null = null;
 
 // Keep track of initialization state
 let isInitialized = false;
+let chloeInitAttempted = false;
 
 /**
  * Initialize server-side components and singletons
@@ -15,6 +16,7 @@ let isInitialized = false;
 export async function initializeServer() {
   // Avoid multiple initialization
   if (isInitialized && initializationPromise) {
+    console.log('Server is already initialized, skipping');
     return initializationPromise;
   }
   
@@ -29,20 +31,32 @@ export async function initializeServer() {
         return;
       }
       
-      console.log('Initializing Chloe agent...');
-      try {
-        // Dynamic import to ensure it only runs on server
-        const { getChloeInstance } = await import('../agents/chloe');
-        const chloe = await getChloeInstance();
+      // Use a flag to track Chloe initialization attempts within this process
+      if (!chloeInitAttempted) {
+        console.log('Initializing Chloe agent (first attempt)...');
+        chloeInitAttempted = true; // Set flag before initialization
         
-        if (chloe && !chloe.initialized && typeof chloe.initialize === 'function') {
-          await chloe.initialize();
-          console.log('Chloe agent initialized successfully');
-        } else {
-          console.log('Chloe agent already initialized or not available');
+        try {
+          // Check if global Chloe instance already exists
+          if (global.chloeAgent) {
+            console.log('Chloe agent already exists in global scope, skipping initialization');
+          } else {
+            // Dynamic import to ensure it only runs on server
+            const { getChloeInstance } = await import('../agents/chloe');
+            const chloe = await getChloeInstance();
+            
+            if (chloe && !chloe.initialized && typeof chloe.initialize === 'function') {
+              await chloe.initialize();
+              console.log('Chloe agent initialized successfully');
+            } else {
+              console.log('Chloe agent already initialized or not available');
+            }
+          }
+        } catch (error) {
+          console.error('Error initializing Chloe agent:', error);
         }
-      } catch (error) {
-        console.error('Error initializing Chloe agent:', error);
+      } else {
+        console.log('Skipping Chloe initialization - already attempted in this process');
       }
       
       console.log('Server initialization complete');
@@ -59,7 +73,7 @@ export async function initializeServer() {
   await initializationPromise;
 }
 
-// Automatically initialize on module import
+// Automatically initialize on module import in server environments
 if (typeof window === 'undefined') {
   console.log('Auto-initializing server components...');
   initializeServer().catch(err => {

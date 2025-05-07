@@ -66,26 +66,32 @@ export async function getChloeInstance(): Promise<ChloeAgent> {
     return new ChloeAgent();
   }
   
-  // Check for existing global instance
+  // Check for existing global instance first (highest priority)
   if (global.chloeAgent) {
+    console.log('Using existing global Chloe instance');
     return global.chloeAgent;
   }
   
-  // Create a new instance
-  if (!chloeInstance) {
-    console.log('Creating new Chloe instance');
-    chloeInstance = new ChloeAgent();
-    
-    // Initialize on creation
-    try {
-      await chloeInstance.initialize();
-      console.log('Chloe instance initialized successfully');
-    } catch (error) {
-      console.error('Error initializing Chloe instance:', error);
-    }
-    
-    // Store as global
-    global.chloeAgent = chloeInstance;
+  // Check for existing module instance next
+  if (chloeInstance) {
+    console.log('Using existing module-level Chloe instance');
+    return chloeInstance;
+  }
+  
+  // Create a new instance only if no instance exists at all
+  console.log('Creating new Chloe instance');
+  chloeInstance = new ChloeAgent();
+  
+  // Store as global immediately to prevent duplicate initialization
+  global.chloeAgent = chloeInstance;
+  
+  // Initialize on creation
+  try {
+    console.log('Initializing new Chloe instance');
+    await chloeInstance.initialize();
+    console.log('Chloe instance initialized successfully');
+  } catch (error) {
+    console.error('Error initializing Chloe instance:', error);
   }
   
   return chloeInstance;

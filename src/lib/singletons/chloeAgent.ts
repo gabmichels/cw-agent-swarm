@@ -44,7 +44,7 @@ export async function getGlobalChloeAgent(): Promise<ChloeAgent> {
   return globalChloeAgent;
 }
 
-// Initialize immediately on server start
-getGlobalChloeAgent().catch(err => {
-  console.error('Error initializing global Chloe agent:', err);
-}); 
+// Remove automatic initialization on import
+// getGlobalChloeAgent().catch(err => {
+//   console.error('Error initializing global Chloe agent:', err);
+// }); 

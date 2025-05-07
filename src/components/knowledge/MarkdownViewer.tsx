@@ -63,7 +63,7 @@ const extractTitleFromFirstLine = (content: string): string | null => {
 };
 
 export default function MarkdownViewer() {
-  const [loading, setLoading] = useState<boolean>(false);
+  const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [documents, setDocuments] = useState<MarkdownDocument[]>([]);
   const [stats, setStats] = useState<MarkdownStats | null>(null);
@@ -73,6 +73,7 @@ export default function MarkdownViewer() {
   const [activeTab, setActiveTab] = useState<string>('content');
   const [activeStatTab, setActiveStatTab] = useState<string>('source');
   const [debugMode, setDebugMode] = useState<boolean>(false);
+  const [retryCount, setRetryCount] = useState<number>(0);
   
   const fetchMarkdownDocs = async () => {
     setLoading(true);
@@ -80,6 +81,9 @@ export default function MarkdownViewer() {
     
     try {
       const response = await fetch('/api/markdown-test');
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
       const data: ApiResponse = await response.json();
       
       if (!data.success) {
@@ -133,9 +137,20 @@ export default function MarkdownViewer() {
       } else {
         setSelectedDoc(null);
       }
+      
+      // Reset retry count on success
+      setRetryCount(0);
     } catch (err) {
       console.error('Error fetching markdown documents:', err);
       setError(err instanceof Error ? err.message : 'An unknown error occurred');
+      
+      // Implement retry logic
+      if (retryCount < 3) {
+        setRetryCount(prev => prev + 1);
+        setTimeout(() => {
+          fetchMarkdownDocs();
+        }, 1000 * Math.pow(2, retryCount)); // Exponential backoff
+      }
     } finally {
       setLoading(false);
     }
@@ -251,15 +266,33 @@ export default function MarkdownViewer() {
           
           {error && (
             <div className="p-4 mb-4 bg-red-900 text-red-100 rounded">
-              {error}
+              <p className="font-bold">Error loading markdown documents:</p>
+              <p>{error}</p>
+              {retryCount < 3 && (
+                <p className="mt-2">Retrying... (Attempt {retryCount + 1} of 3)</p>
+              )}
+              {retryCount >= 3 && (
+                <button 
+                  onClick={() => {
+                    setRetryCount(0);
+                    fetchMarkdownDocs();
+                  }}
+                  className="mt-2 px-4 py-2 bg-red-700 hover:bg-red-600 rounded"
+                >
+                  Retry
+                </button>
+              )}
             </div>
           )}
           
-          {loading ? (
-            <div className="flex justify-center p-8 text-white">
-              <Loader2 className="h-8 w-8 animate-spin" />
+          {loading && (
+            <div className="flex items-center justify-center p-8">
+              <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
+              <span className="ml-2 text-gray-400">Loading markdown documents...</span>
             </div>
-          ) : (
+          )}
+          
+          {!loading && !error && (
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="md:col-span-1 h-[600px] overflow-y-auto border border-gray-700 rounded p-2 bg-gray-800">
                 {filteredDocs.length > 0 ? (
