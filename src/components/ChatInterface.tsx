@@ -225,21 +225,34 @@ export default function ChatInterface() {
     
     if (!input.trim() || isLoading) return;
     
+    // Get the current timestamp for the new message
+    const messageTimestamp = new Date();
+    
     // Add user message to chat - we'll create a temporary message object
     // but we no longer need to add it to memory since the agent will handle that
     const userMessage: Message = {
       sender: 'You',
       content: input.trim(),
-      timestamp: new Date(),
+      timestamp: messageTimestamp, // Use the reference timestamp
       messageType: MessageType.USER,
       metadata: {
-        chatId: "chat-chloe-gab" // Add the hardcoded chatId
+        chatId: "chat-chloe-gab", // Add the hardcoded chatId
+        timestamp: messageTimestamp.toISOString(), // Store ISO string timestamp in metadata
       }
     };
     
     // Display the message in UI immediately (it will be replaced by the stored version on next load)
-    setLocalMessages(prev => [...prev, userMessage]);
+    const updatedMessages = [...localMessages, userMessage];
     
+    // Ensure messages are sorted by timestamp
+    updatedMessages.sort((a: Message, b: Message) => {
+      // Convert both timestamps to numbers for comparison
+      const aTime = typeof a.timestamp === 'string' ? new Date(a.timestamp).getTime() : a.timestamp.getTime();
+      const bTime = typeof b.timestamp === 'string' ? new Date(b.timestamp).getTime() : b.timestamp.getTime();
+      return aTime - bTime;
+    });
+    
+    setLocalMessages(updatedMessages);
     setInput('');
     setIsLoading(true);
 
@@ -288,34 +301,63 @@ export default function ChatInterface() {
       }
       
       // Display the bot's response in the UI immediately
+      const responseTimestamp = new Date();
       const botResponse: Message = {
         sender: 'Assistant',
         content: replyText,
-        timestamp: new Date(),
+        timestamp: responseTimestamp,
         memory: messageMemory,
         thoughts: messageThoughts,
         messageType: MessageType.AGENT,
+        metadata: {
+          chatId: "chat-chloe-gab",
+          timestamp: responseTimestamp.toISOString()
+        }
       };
       
       // Add to UI immediately - will be replaced by stored version on next refresh
-      setLocalMessages(prev => [...prev, botResponse]);
+      const updatedMessages = [...localMessages, botResponse];
+      
+      // Ensure messages are sorted by timestamp
+      updatedMessages.sort((a: Message, b: Message) => {
+        // Convert both timestamps to numbers for comparison
+        const aTime = typeof a.timestamp === 'string' ? new Date(a.timestamp).getTime() : a.timestamp.getTime();
+        const bTime = typeof b.timestamp === 'string' ? new Date(b.timestamp).getTime() : b.timestamp.getTime();
+        return aTime - bTime;
+      });
+      
+      setLocalMessages(updatedMessages);
       
       // Refresh messages from memory after a short delay
       setTimeout(() => {
-        loadChatHistory();
+        loadMessagesDirectly();
       }, 1000);
     } catch (error) {
       console.error('Error sending message:', error);
       
       // Add error message to UI
+      const errorTimestamp = new Date();
       const errorMessage: Message = {
         sender: 'Assistant',
         content: 'Sorry, I encountered an error processing your request. Please try again.',
-        timestamp: new Date(),
+        timestamp: errorTimestamp,
         messageType: MessageType.AGENT,
+        metadata: {
+          chatId: "chat-chloe-gab",
+          timestamp: errorTimestamp.toISOString(),
+          isError: true
+        }
       };
       
-      setLocalMessages(prev => [...prev, errorMessage]);
+      // Add to UI with proper sorting
+      const updatedMessages = [...localMessages, errorMessage];
+      updatedMessages.sort((a: Message, b: Message) => {
+        // Convert both timestamps to numbers for comparison
+        const aTime = typeof a.timestamp === 'string' ? new Date(a.timestamp).getTime() : a.timestamp.getTime();
+        const bTime = typeof b.timestamp === 'string' ? new Date(b.timestamp).getTime() : b.timestamp.getTime();
+        return aTime - bTime;
+      });
+      setLocalMessages(updatedMessages);
     } finally {
       setIsLoading(false);
     }
@@ -445,6 +487,73 @@ export default function ChatInterface() {
     }, 500);
   };
 
+  // Debugging: Log chat history whenever it changes
+  useEffect(() => {
+    console.log(`ChatInterface: received ${messages.length} messages for chat chat-chloe-gab`);
+    if (messages.length > 0) {
+      console.log('First message:', messages[0]);
+      console.log('Last message:', messages[messages.length - 1]);
+    }
+  }, [messages]);
+
+  // Reset loading state when agent changes
+  useEffect(() => {
+    setIsLoading(false);
+  }, [selectedAgent]);
+
+  // Add direct loading function to bypass useChatMemory hook issues
+  const loadMessagesDirectly = async () => {
+    try {
+      console.log("Loading messages directly from API...");
+      const response = await fetch("/api/chat/history");
+      
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      if (data.status === 'success' && Array.isArray(data.history)) {
+        console.log(`Loaded ${data.history.length} messages directly from API`);
+        
+        // Log the raw timestamps for debugging
+        data.history.forEach((msg: any) => {
+          console.log(`Message ${msg.id} API timestamp: ${msg.timestamp}`);
+        });
+        
+        // Convert to the format our component expects, preserving the original timestamp
+        const formattedMessages = data.history.map((msg: any) => ({
+          id: msg.id,
+          sender: msg.sender,
+          content: msg.content,
+          timestamp: msg.timestamp, // Keep the original timestamp format
+          messageType: msg.sender === 'You' ? MessageType.USER : MessageType.AGENT,
+        }));
+        
+        // Sort messages by timestamp (oldest first)
+        formattedMessages.sort((a: Message, b: Message) => {
+          // Convert both timestamps to numbers for comparison
+          const aTime = typeof a.timestamp === 'string' ? new Date(a.timestamp).getTime() : a.timestamp.getTime();
+          const bTime = typeof b.timestamp === 'string' ? new Date(b.timestamp).getTime() : b.timestamp.getTime();
+          return aTime - bTime;
+        });
+        console.log("Messages sorted by timestamp, oldest first");
+        
+        // Update our local messages state directly
+        setLocalMessages(formattedMessages);
+      } else {
+        console.error("Invalid response format:", data);
+      }
+    } catch (error) {
+      console.error("Error loading messages directly:", error);
+    }
+  };
+  
+  // Call our direct loading function on initial render
+  useEffect(() => {
+    loadMessagesDirectly();
+  }, []);
+
   return (
     <div className={`flex flex-col h-screen bg-gray-900 text-white ${isFullscreen ? 'fixed inset-0 z-50' : ''}`}>
       {/* Agent initialization status indicator - only show if there's an issue */}
@@ -482,7 +591,8 @@ export default function ChatInterface() {
         />
         <button 
           className="bg-blue-600 text-white px-3 py-1 rounded"
-          onClick={() => {
+          onClick={(e) => {
+            e.preventDefault();
             console.log('Manual search test with:', searchQuery);
             // Force re-render by setting the same value
             setSearchQuery(prev => prev + ' ');

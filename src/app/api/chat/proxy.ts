@@ -76,8 +76,8 @@ async function initializeMemory(options: any = {}): Promise<void> {
 }
 
 // Load chat history from memory service
-export async function loadChatHistoryFromQdrant(specificUserId?: string) {
-  console.log(`Loading chat history from memory service${specificUserId ? ` for user: ${specificUserId}` : ''}`);
+export async function loadChatHistoryFromQdrant(specificUserId?: string, specificChatId?: string) {
+  console.log(`Loading chat history from memory service${specificUserId ? ` for user: ${specificUserId}` : ''}${specificChatId ? ` and chat: ${specificChatId}` : ''}`);
   try {
     // Check if memory services are initialized
     const { client, memoryService, searchService } = await getMemoryServices();
@@ -125,6 +125,10 @@ export async function loadChatHistoryFromQdrant(specificUserId?: string) {
     // Group by user id
     const messagesByUser = new Map<string, any[]>();
     const defaultUserId = 'gab';  // Default user ID for the application
+    const defaultChatId = 'chat-chloe-gab'; // Default chat ID
+    
+    // The actual chatId to filter by
+    const targetChatId = specificChatId || defaultChatId;
     
     for (const message of allMessages) {
       const payload = message.payload as any;
@@ -134,8 +138,29 @@ export async function loadChatHistoryFromQdrant(specificUserId?: string) {
       // This fixes the issue where some messages have 'default' or undefined userId
       const userId = metadata.userId || defaultUserId;
       
+      // Get the message chatId, handling both string and object formats
+      let messageChatId;
+      if (metadata.chatId) {
+        if (typeof metadata.chatId === 'object' && metadata.chatId !== null) {
+          // Handle structured ID format
+          messageChatId = metadata.chatId.id;
+        } else {
+          // Handle string format
+          messageChatId = metadata.chatId;
+        }
+      } else {
+        // Default chatId if none is found
+        messageChatId = defaultChatId;
+      }
+      
       // Skip messages that don't match the specific user ID if one was provided
       if (specificUserId && userId !== specificUserId) {
+        continue;
+      }
+      
+      // Skip messages that don't match the target chat ID
+      if (targetChatId && messageChatId !== targetChatId) {
+        console.log(`Skipping message ${message.id} - chatId mismatch: ${messageChatId} !== ${targetChatId}`);
         continue;
       }
       
@@ -149,8 +174,13 @@ export async function loadChatHistoryFromQdrant(specificUserId?: string) {
       messagesByUser.get(userKey)?.push(message);
     }
     
+    // Log how many messages were found for the target chat
+    messagesByUser.forEach((messages, userId) => {
+      console.log(`Found ${messages.length} messages for user ${userId} in chat ${targetChatId}`);
+    });
+    
     // Sort each user's messages by timestamp
-    Array.from(messagesByUser.entries()).forEach(([userId, messages]) => {
+    messagesByUser.forEach((messages, userId) => {
       // Sort by timestamp
       messages.sort((a: any, b: any) => {
         const aTime = (a.payload as any).timestamp || '0';

@@ -57,20 +57,46 @@ export default function useChatMemory({
       
       console.log(`Retrieved ${memories.length} raw memory items before filtering`);
       
+      // Log a few sample messages to help diagnose filtering issues
+      if (memories.length > 0) {
+        console.log('Sample memory format:', JSON.stringify(memories[0], null, 2).substring(0, 500) + '...');
+      }
+      
       // Filter messages client-side for this user and chat
       const filteredMemories = memories.filter((memory: any) => {
         // Get metadata
         const metadata = memory.payload?.metadata || {};
         
-        // Match user ID
-        if (metadata.userId && metadata.userId !== userId) {
-          return false;
+        // For debugging: Log the memory we're filtering
+        console.log('Filtering memory:', {
+          id: memory.id?.substring(0, 8),
+          userId: typeof metadata.userId === 'object' ? metadata.userId.id : metadata.userId,
+          chatId: typeof metadata.chatId === 'object' ? metadata.chatId.id : metadata.chatId,
+          effectiveChatId,
+        });
+        
+        // Match user ID if provided in metadata
+        if (metadata.userId) {
+          const userIdToMatch = typeof metadata.userId === 'object' ? metadata.userId.id : metadata.userId;
+          if (userIdToMatch !== userId && userIdToMatch !== 'gab') {
+            return false;
+          }
         }
         
         // Match chat ID if we're filtering by a specific chat
-        if (effectiveChatId && metadata.chatId && 
-            metadata.chatId.id !== effectiveChatId && 
-            metadata.chatId !== effectiveChatId) {
+        if (effectiveChatId && metadata.chatId) {
+          // Handle both string and object formats for chatId
+          if (typeof metadata.chatId === 'object' && metadata.chatId !== null) {
+            // Handle structured ID format: { namespace: 'chat', type: 'chat', id: 'chat-chloe-gab' }
+            return metadata.chatId.id === effectiveChatId;
+          } else {
+            // Handle string format directly
+            return metadata.chatId === effectiveChatId;
+          }
+        }
+        
+        // If we got here and there's a chatId filter but no chatId in metadata, exclude the message
+        if (effectiveChatId && !metadata.chatId) {
           return false;
         }
         
@@ -82,7 +108,42 @@ export default function useChatMemory({
         return true;
       });
       
-      console.log(`Filtered to ${filteredMemories.length} messages for user ${userId}`);
+      console.log(`Filtered to ${filteredMemories.length} messages for user ${userId} in chat ${effectiveChatId}`);
+      
+      // If no messages were found, try a fallback approach with an API call
+      if (filteredMemories.length === 0) {
+        console.log(`No messages found with client-side filtering, trying API endpoint directly for chat ${effectiveChatId}`);
+        try {
+          const apiUrl = `/api/chat/history?userId=${encodeURIComponent(userId)}&chatId=${encodeURIComponent(effectiveChatId)}`;
+          console.log(`Calling API directly: ${apiUrl}`);
+          
+          const response = await fetch(apiUrl);
+          if (response.ok) {
+            const data = await response.json();
+            if (data.status === 'success' && data.history && data.history.length > 0) {
+              console.log(`API returned ${data.history.length} messages from direct call`);
+              // Convert API messages to our format
+              const apiMessages = data.history.map((msg: any) => ({
+                id: msg.id,
+                sender: msg.sender,
+                content: msg.content,
+                timestamp: new Date(msg.timestamp),
+                messageType: msg.sender === 'You' ? MessageType.USER : MessageType.AGENT,
+                metadata: msg.metadata || {}
+              }));
+              
+              // Sort and set chat history
+              apiMessages.sort((a: any, b: any) => a.timestamp.getTime() - b.timestamp.getTime());
+              setChatHistory(apiMessages);
+              setIsLoadingHistory(false);
+              return; // Exit early since we set the chat history directly
+            }
+          }
+        } catch (err) {
+          console.warn('Error with fallback API call:', err);
+          // Continue with normal flow if fallback fails
+        }
+      }
       
       // Convert memories to Message objects
       const messages: Message[] = filteredMemories.map((memory: {

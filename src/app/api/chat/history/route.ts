@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
-import { loadChatHistoryFromQdrant } from '../proxy';
+import { getMemoryServices } from '../../../../server/memory/services';
+import { MemoryType } from '../../../../server/memory/config';
 
 // Add server-only markers to prevent client-side execution
 export const runtime = 'nodejs';
@@ -13,89 +14,95 @@ export async function GET(req: Request) {
   try {
     console.log('GET /api/chat/history - Retrieving chat history');
     
-    // Use a default user ID
+    // Hardcoded values - skip all the parameter parsing
     const userId = 'gab';
+    const chatId = 'chat-chloe-gab';
     
-    // Load chat history from Qdrant
-    const result = await loadChatHistoryFromQdrant(userId);
-    const { messagesByUser, totalMessagesLoaded, userCount, error } = result;
+    console.log(`Retrieving chat history for hardcoded chatId: ${chatId}`);
     
-    // Get messages for the specific user
-    const userMessages = messagesByUser.get(userId) || [];
+    // Get memory services
+    const { client, searchService } = await getMemoryServices();
     
-    // Format messages for chat interface
-    const formattedHistory = userMessages.map((message: any) => {
-      try {
-        const payload = message.payload || {};
-        const metadata = payload.metadata || {};
-        
-        // Debug the timestamp
-        console.log(`Message ID: ${message.id}, Raw timestamp: ${payload.timestamp || message.timestamp || 'none'}`);
-        
-        // Try to get timestamp from various possible locations
-        let timestamp: Date;
-        try {
-          if (payload.timestamp) {
-            timestamp = new Date(payload.timestamp);
-            if (isNaN(timestamp.getTime())) {
-              // If timestamp is invalid, try parsing it as a number
-              const numericTimestamp = parseInt(payload.timestamp);
-              if (!isNaN(numericTimestamp)) {
-                timestamp = new Date(numericTimestamp);
-              } else {
-                // If still invalid, use current time
-                timestamp = new Date();
-              }
-            }
-          } else if (message.timestamp) {
-            timestamp = new Date(message.timestamp);
-            if (isNaN(timestamp.getTime())) {
-              // If timestamp is invalid, try parsing it as a number
-              const numericTimestamp = parseInt(message.timestamp);
-              if (!isNaN(numericTimestamp)) {
-                timestamp = new Date(numericTimestamp);
-              } else {
-                // If still invalid, use current time
-                timestamp = new Date();
-              }
-            }
-          } else {
-            // Fallback to current time if no timestamp available
-            timestamp = new Date();
-          }
-        } catch (e) {
-          console.error("Error parsing timestamp:", e);
-          timestamp = new Date();
-        }
-        
-        return {
-          id: message.id,
-          content: payload.text || '',
-          sender: metadata.role === 'user' ? 'You' : 'Chloe',
-          timestamp: timestamp,
-          attachments: metadata.attachments || [],
-          visionResponseFor: metadata.visionResponseFor
-        };
-      } catch (error) {
-        console.error('Error formatting message:', error);
-        return null;
-      }
-    }).filter(Boolean);
+    // Ensure memory services are initialized
+    const status = await client.getStatus();
     
-    // Sort messages by timestamp
-    formattedHistory.sort((a: any, b: any) => {
-      const timeA = a.timestamp ? a.timestamp.getTime() : 0;
-      const timeB = b.timestamp ? b.timestamp.getTime() : 0;
-      return timeA - timeB;
+    if (!status.initialized) {
+      console.log('Initializing memory services...');
+      await client.initialize();
+    }
+    
+    // Directly fetch all message memories
+    console.log('Fetching ALL messages with no filters');
+    const allSearchResults = await searchService.search("", {
+      limit: 1000,
+      types: [MemoryType.MESSAGE]
     });
     
-    console.log(`Returning ${formattedHistory.length} chat history messages for user ${userId}`);
+    // Extract the actual messages
+    const allMessages = allSearchResults.map((result: any) => result.point);
+    console.log(`Retrieved ${allMessages.length} total messages`);
+    
+    // Manually filter to find messages with chatId "chat-chloe-gab"
+    const filteredMessages = allMessages.filter((message: any) => {
+      const payload = message.payload as any;
+      const metadata = payload.metadata || {};
+      
+      // Log each message's chatId for debugging
+      const messageChatId = typeof metadata.chatId === 'object' ? 
+        `object:${metadata.chatId?.id || 'undefined'}` : 
+        `string:${metadata.chatId || 'undefined'}`;
+      
+      console.log(`Message ${message.id}: chatId = ${messageChatId}`);
+      
+      // Check chatId in all possible formats
+      if (typeof metadata.chatId === 'object' && metadata.chatId?.id === chatId) {
+        console.log(`✅ MATCH - Message ${message.id} has matching chatId.id`);
+        return true;
+      }
+      
+      if (metadata.chatId === chatId) {
+        console.log(`✅ MATCH - Message ${message.id} has matching chatId string`);
+        return true;
+      }
+      
+      return false;
+    });
+    
+    console.log(`Filtered to ${filteredMessages.length} messages with chatId "${chatId}"`);
+    
+    // Format the messages for display
+    const formattedHistory = filteredMessages.map((message: any) => {
+      const payload = message.payload || {};
+      const metadata = payload.metadata || {};
+      
+      // Use the original timestamp from the message payload
+      const originalTimestamp = payload.timestamp || message.timestamp;
+      
+      // Log the original timestamp for debugging
+      console.log(`Message ${message.id} original timestamp: ${originalTimestamp}`);
+      
+      return {
+        id: message.id,
+        content: payload.text || '',
+        sender: metadata.role === 'user' ? 'You' : 'Chloe',
+        timestamp: originalTimestamp, // Use the original timestamp directly
+        attachments: metadata.attachments || []
+      };
+    });
+    
+    // Sort by timestamp (oldest first)
+    formattedHistory.sort((a: any, b: any) => {
+      const timeA = new Date(a.timestamp).getTime();
+      const timeB = new Date(b.timestamp).getTime();
+      return timeA - timeB; // Ascending order (oldest first)
+    });
+    
+    console.log(`Returning ${formattedHistory.length} formatted messages, sorted oldest to newest`);
     
     return NextResponse.json({
       status: 'success',
       history: formattedHistory,
-      totalLoaded: totalMessagesLoaded,
-      error: error || undefined
+      totalLoaded: formattedHistory.length
     });
   } catch (error) {
     console.error('Error in chat history GET handler:', error);
