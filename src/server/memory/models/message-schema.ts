@@ -42,7 +42,7 @@ export const MESSAGE_DEFAULTS: Partial<MessageSchema> = {
     timestamp: Date.now(),
     userId: createUserId('default-user'),
     agentId: createAgentId('default-agent'),
-    chatId: createChatId('default-chat'),
+    chatId: createChatId('chat-chloe-gab'),
     role: MessageRole.ASSISTANT,
     messageType: 'chat',
     thread: {

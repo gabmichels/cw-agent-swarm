@@ -104,22 +104,22 @@ export class ChatService {
       if (options.forceNewId) {
         // Generate a completely new chat ID with UUID
         chatId = generateNewChatId(userId, agentId);
-      } else {
-        // Check for legacy chat format first (for backward compatibility)
-        const legacyId = `chat-${userId}-${agentId}`;
+      } else if (userId === 'gab' && agentId === 'chloe') {
+        // Use hardcoded chatId for Chloe and Gab
+        chatId = 'chat-chloe-gab';
+        
+        // Check if this chat already exists
         try {
-          existingChat = await this.getChatById(legacyId);
-          
+          existingChat = await this.getChatById(chatId);
           if (existingChat) {
-            console.log(`Using existing legacy chat ID: ${legacyId}`);
             return existingChat;
           }
-        } catch (legacyError) {
-          console.warn(`Error checking legacy chat ID, will use UUID: ${legacyError}`);
+        } catch (error) {
+          console.log(`Creating new chat with hardcoded ID: ${chatId}`);
         }
-        
-        // No legacy chat found, use UUID-based chat ID
-        chatId = generateAgentUserChatId(userId, agentId);
+      } else {
+        // Generate a predictable chat ID for this user-agent pair
+        chatId = generateAgentUserChatId(agentId, userId);
       }
       
       // Check if chat already exists with the UUID if not already checked

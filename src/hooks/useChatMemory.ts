@@ -21,7 +21,7 @@ interface UseChatMemoryParams {
  */
 export default function useChatMemory({
   userId,
-  chatId,
+  chatId = "chat-chloe-gab", // Default to our hardcoded chatId
   limit = 100,
   includeInternalMessages = false
 }: UseChatMemoryParams) {

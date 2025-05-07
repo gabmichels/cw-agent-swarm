@@ -218,7 +218,7 @@ export class ChloeMemory {
       // Create structured IDs - these will be needed for standardized metadata
       const userId = createUserId("default");
       const agentId = createAgentId(this.agentId);
-      const chatId = createChatId("default");
+      const chatId = createChatId("chat-chloe-gab");
       
       // Create standardized metadata based on memory type
       let standardizedMetadata: Record<string, any>;

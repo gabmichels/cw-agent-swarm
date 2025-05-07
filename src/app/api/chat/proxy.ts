@@ -202,7 +202,7 @@ function containsImageData(message: string): boolean {
 }
 
 // Modify the saveToHistory function to be more efficient
-async function saveToHistory(userId: string, role: 'user' | 'assistant', content: string, attachments?: any[], visionResponseFor?: string) {
+async function saveToHistory(userId: string, role: 'user' | 'assistant', content: string, chatId: string = 'chat-chloe-gab', attachments?: any[], visionResponseFor?: string) {
   if (!content || content.trim() === '') return null;
   
   // Create an operation key to track this specific save operation
@@ -266,26 +266,28 @@ async function saveToHistory(userId: string, role: 'user' | 'assistant', content
         
         // Get or create a chat session for this user-agent pair
         let chatSession;
-        let chatId;
         let chatStructuredId;
         
         try {
           const chatService = await getChatService();
-          const agentId = 'assistant'; // Default agent ID
+          const assistantAgentId = 'assistant'; // Default agent ID for the memory service
           
-          // Get or create a chat session
-          chatSession = await chatService.createChat(userId, agentId, {
-            title: `Chat between ${userId} and ${agentId}`,
-            description: 'Automated chat session',
-          });
+          // Check if the chat already exists
+          try {
+            await chatService.getChatById(chatId);
+          } catch (err) {
+            // If chat doesn't exist, create it with the hardcoded id
+            await chatService.createChat(userId, assistantAgentId, {
+              title: `Chat with ${assistantAgentId}`,
+              description: `Conversation between user ${userId} and agent ${assistantAgentId}`
+            });
+          }
           
-          // Use the chatId directly from the chat session
-          chatId = chatSession.id;
+          // Create a structured chat ID
           chatStructuredId = createChatId(chatId);
-        } catch (chatError) {
-          console.error('Error getting chat session in saveToHistory:', chatError);
-          // Create a fallback chat ID and structured ID
-          chatId = `chat-${userId}-assistant`;
+        } catch (error) {
+          console.warn('Error checking/creating chat session:', error);
+          // Create a fallback structured ID
           chatStructuredId = createChatId(chatId);
         }
         
@@ -370,7 +372,7 @@ let agent = null;
 export async function POST(req: Request) {
   try {
     // Parse the JSON request
-    const { message, userId = 'gab', memoryDisabled, attachments = [], visionResponseFor, agentId = 'chloe' } = await req.json();
+    const { message, userId = 'gab', memoryDisabled, attachments = [], visionResponseFor, agentId = 'chloe', chatId = 'chat-chloe-gab' } = await req.json();
     
     // Normalize and validate the message
     const normalizedMessage = normalizeMessage(message);
@@ -459,7 +461,7 @@ export async function POST(req: Request) {
         let userMessageId = null;
         if (!memoryDisabled) {
           // Save user message to history
-          const memoryResult = await saveToHistory(userId, 'user', normalizedMessage, attachments);
+          const memoryResult = await saveToHistory(userId, 'user', normalizedMessage, chatId, attachments);
           if (memoryResult && memoryResult.id) {
             userMessageId = memoryResult.id;
             console.log(`Saved user message to memory with ID: ${userMessageId}`);
@@ -539,6 +541,11 @@ export async function POST(req: Request) {
           timestamp,
           expiry: Date.now() + CACHE_TTL
         });
+        
+        // Save reply to history if memory is enabled
+        if (!memoryDisabled) {
+          await saveToHistory(userId, 'assistant', reply, chatId, attachments);
+        }
         
         return {
           reply,

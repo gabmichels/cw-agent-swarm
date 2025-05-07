@@ -584,7 +584,7 @@ export class AgentBase {
       
       // Default user and chat IDs if not provided
       const userIdStr = message.metadata?.userId || 'system';
-      const chatIdStr = message.metadata?.chatId || 'default';
+      const chatIdStr = message.metadata?.chatId || 'chat-chloe-gab';
       
       const userStructuredId = createUserId(userIdStr);
       const chatStructuredId = createChatId(chatIdStr);

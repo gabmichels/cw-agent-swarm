@@ -118,6 +118,7 @@ export default function ChatInterface() {
     loadChatHistory
   } = useChatMemory({
     userId,
+    chatId: "chat-chloe-gab", // Use hardcoded chatId
     includeInternalMessages: showInternalMessages
   });
   
@@ -231,6 +232,9 @@ export default function ChatInterface() {
       content: input.trim(),
       timestamp: new Date(),
       messageType: MessageType.USER,
+      metadata: {
+        chatId: "chat-chloe-gab" // Add the hardcoded chatId
+      }
     };
     
     // Display the message in UI immediately (it will be replaced by the stored version on next load)
@@ -251,7 +255,8 @@ export default function ChatInterface() {
         body: JSON.stringify({
           message: userMessage.content,
           userId,
-          agentId: selectedAgent // Include the agent ID
+          agentId: selectedAgent, // Include the agent ID
+          chatId: "chat-chloe-gab" // Include the hardcoded chatId
         }),
       });
       
