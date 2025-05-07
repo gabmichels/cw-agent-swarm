@@ -70,7 +70,7 @@ export async function GET(request: NextRequest) {
     
     // Parse query parameters
     const url = new URL(request.url);
-    const limit = parseInt(url.searchParams.get('limit') || '100', 10);
+    const limit = parseInt(url.searchParams.get('limit') || '1000', 10);
     
     console.log(`[markdown-test] Fetching up to ${limit} document memories`);
     
