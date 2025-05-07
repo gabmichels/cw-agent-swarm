@@ -630,7 +630,10 @@ const ToolsTab: React.FC<ToolsTabProps> = ({
                           `Cache File: ${data.cacheFile.exists ? 'Exists' : 'Missing'}\n` +
                           `Size: ${data.cacheFile.size} bytes\n` +
                           `Last Modified: ${data.cacheFile.lastModified || 'N/A'}\n` +
-                          `Entries: ${data.cacheFile.entries}`
+                          `Entries: ${data.cacheFile.entries}\n\n` +
+                          `Init Flag: ${data.initFlag?.exists ? 'Exists' : 'Missing'}\n` +
+                          `Last Modified: ${data.initFlag?.lastModified || 'N/A'}\n` +
+                          `Content: ${data.initFlag?.content || 'N/A'}`
                         );
                       } else {
                         alert('Error checking markdown status');

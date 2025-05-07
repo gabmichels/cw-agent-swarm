@@ -154,18 +154,34 @@ export class MarkdownManager {
       // to prevent duplicate ingestion on agent reinitialization
       if (!options.force) {
         try {
+          // Check for the flag file's existence
+          console.log(`Checking for initialization flag at ${INIT_FLAG_PATH}`);
+          
           const initFlagExists = await fs.access(INIT_FLAG_PATH)
             .then(() => true)
             .catch(() => false);
             
           if (initFlagExists) {
+            try {
+              // Try to read the flag content for debugging
+              const flagContent = await fs.readFile(INIT_FLAG_PATH, 'utf-8');
+              console.log(`Markdown initialization flag exists with content: ${flagContent}`);
+            } catch (readError) {
+              console.log(`Markdown initialization flag exists but could not read content`);
+            }
+            
             this.logFunction('Markdown already initialized this session. Skipping ingestion.');
             console.log('Markdown already initialized this session. Skipping loading of markdown files.');
             return stats;
+          } else {
+            console.log('No initialization flag found. Will process markdown files.');
           }
         } catch (error) {
           // Ignore errors and continue with ingestion
+          console.error('Error checking initialization flag:', error);
         }
+      } else if (options.force) {
+        console.log('Force flag set to true. Will process markdown files regardless of initialization flag.');
       }
       
       const directories = this.getAgentDirectories();
@@ -454,9 +470,9 @@ export class MarkdownManager {
     });
 
     // Handle file events
-    // this.watcher.on('add', (filePath: string) => this.handleFileAddOrChange(filePath, 'add'));
-    // this.watcher.on('change', (filePath: string) => this.handleFileAddOrChange(filePath, 'change'));
-    // this.watcher.on('unlink', (filePath: string) => this.handleFileDelete(filePath));
+    this.watcher.on('add', (filePath: string) => this.handleFileAddOrChange(filePath, 'add'));
+    this.watcher.on('change', (filePath: string) => this.handleFileAddOrChange(filePath, 'change'));
+    this.watcher.on('unlink', (filePath: string) => this.handleFileDelete(filePath));
     this.watcher.on('error', (error: Error) => {
       this.logFunction('Error in file watcher', { error: error.message });
     });
