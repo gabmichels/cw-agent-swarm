@@ -21,6 +21,11 @@ const CACHE_FILE_PATH = path.join(process.cwd(), 'data', 'cache', 'markdown-cach
 // Track whether initialization has already occurred to prevent multiple loads 
 let initializationComplete = false;
 let initializationPromise: Promise<void> | null = null;
+// Add a global loading flag to prevent concurrent initializations
+let isCurrentlyLoading = false;
+
+// Global flag to track startup load - only allow one initial load per server start
+let hasInitializedThisServerSession = false;
 
 /**
  * Get agent ID from path
@@ -71,47 +76,69 @@ export async function initializeMarkdownMemory(options: {
       await initializationPromise;
       return;
     }
+    
+    // Add extra protection against concurrent loading - this fixes the "double loading" issue
+    if (isCurrentlyLoading) {
+      logger.info('Another initialization is currently in progress, waiting for it to finish');
+      
+      // Wait for any existing initialization to complete
+      if (initializationPromise) {
+        await initializationPromise;
+      } else {
+        // Wait a bit before returning to ensure any in-progress initialization completes
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+      return;
+    }
+    
+    // Set loading flag to prevent concurrent initializations
+    isCurrentlyLoading = true;
 
     // Set initialization promise to avoid concurrent initializations
     initializationPromise = (async () => {
-      logger.info('Starting automatic markdown memory loader initialization...');
-      
-      // Get agent ID from options or determine from module path
-      const agentId = options.agentId || getAgentIdFromPath();
-      
-      // Get agent config based on ID
-      const agentConfig = AGENT_CONFIGS[agentId];
-      
-      // Get department directly - either from options, agent config, or default
-      const department = options.department || 
-                        (agentConfig && agentConfig.departments && agentConfig.departments.length > 0 ? 
-                        agentConfig.departments[0] : 'marketing');
-      
-      // Set up directories to search - these contain the most important documentation
-      const directoriesToLoad = options.directories || [
-        'data/knowledge/company', 
-        `data/knowledge/agents/${agentId}`,
-        `data/knowledge/agents/shared`,
-        `data/knowledge/domains/${department}`
-      ];
-      
-      // Load all markdown files into memory
-      // Apply duplication checking by default
-      logger.info(`Loading markdown documentation for agent ${agentId} (department: ${department}) into memory with caching enabled...`);
-      
-      const stats = await loadAllMarkdownAsMemory(directoriesToLoad, {
-        force: options.force || options.skipCacheCheck || false,
-        checkForDuplicates: true // Always check for duplicates
-      });
-      
-      // Record successful initialization details
-      logger.info(`Markdown initialization complete: Processed ${stats.filesProcessed} files, Added ${stats.entriesAdded} memory entries, Skipped ${stats.duplicatesSkipped} duplicates, Unchanged: ${stats.unchangedFiles}`);
-      
-      // Mark as initialized 
-      initializationComplete = true;
-      
-      // Log that ongoing file changes will be handled by the watcher
-      logger.info('Initial markdown loading complete. Ongoing file changes will be detected by MarkdownWatcher.');
+      try {
+        logger.info('Starting automatic markdown memory loader initialization...');
+        
+        // Get agent ID from options or determine from module path
+        const agentId = options.agentId || getAgentIdFromPath();
+        
+        // Get agent config based on ID
+        const agentConfig = AGENT_CONFIGS[agentId];
+        
+        // Get department directly - either from options, agent config, or default
+        const department = options.department || 
+                          (agentConfig && agentConfig.departments && agentConfig.departments.length > 0 ? 
+                          agentConfig.departments[0] : 'marketing');
+        
+        // Set up directories to search - these contain the most important documentation
+        const directoriesToLoad = options.directories || [
+          'data/knowledge/company', 
+          `data/knowledge/agents/${agentId}`,
+          `data/knowledge/agents/shared`,
+          `data/knowledge/domains/${department}`
+        ];
+        
+        // Load all markdown files into memory
+        // Apply duplication checking by default
+        logger.info(`Loading markdown documentation for agent ${agentId} (department: ${department}) into memory with caching enabled...`);
+        
+        const stats = await loadAllMarkdownAsMemory(directoriesToLoad, {
+          force: options.force || options.skipCacheCheck || false,
+          checkForDuplicates: true // Always check for duplicates
+        });
+        
+        // Record successful initialization details
+        logger.info(`Markdown initialization complete: Processed ${stats.filesProcessed} files, Added ${stats.entriesAdded} memory entries, Skipped ${stats.duplicatesSkipped} duplicates, Unchanged: ${stats.unchangedFiles}`);
+        
+        // Mark as initialized 
+        initializationComplete = true;
+        
+        // Log that ongoing file changes will be handled by the watcher
+        logger.info('Initial markdown loading complete. Ongoing file changes will be detected by MarkdownWatcher.');
+      } finally {
+        // Always make sure to reset the loading flag when done, even on error
+        isCurrentlyLoading = false;
+      }
     })();
 
     // Wait for initialization to complete
@@ -125,50 +152,13 @@ export async function initializeMarkdownMemory(options: {
     // Reset initialization state so we can try again
     initializationPromise = null;
     initializationComplete = false;
+    isCurrentlyLoading = false;
+  } finally {
+    // Ensure the loading flag is reset even if an error occurs outside the promise
+    isCurrentlyLoading = false;
   }
 }
 
-/**
- * Force reload all markdown files, ignoring duplication checks.
- * This is primarily used by admin tools and should be used with caution
- * as it may interfere with the MarkdownWatcher's file tracking.
- */
-export async function forceReloadMarkdownFiles(agentId?: string, department?: string): Promise<void> {
-  try {
-    logger.info('Forcing reload of all markdown files...');
-    
-    // Reset initialization state
-    initializationComplete = false;
-    initializationPromise = null;
-    
-    // Reset the cache state in the loader module
-    const { resetCacheState } = await import('../knowledge/markdownMemoryLoader');
-    resetCacheState();
-    
-    // Optionally delete the cache file if it exists
-    try {
-      const exists = await fs.stat(CACHE_FILE_PATH).then(() => true).catch(() => false);
-      if (exists) {
-        logger.info('Deleting markdown cache file to ensure a clean reload');
-        await fs.unlink(CACHE_FILE_PATH);
-      }
-    } catch (fsError) {
-      logger.warn('Error checking/deleting cache file:', fsError);
-      // Continue anyway
-    }
-    
-    // Force a reload with clean slate but still check for duplicates
-    await initializeMarkdownMemory({ 
-      force: true, 
-      agentId, 
-      department
-    });
-    
-    logger.info('Forced markdown reload complete');
-  } catch (error) {
-    logger.error('Error during forced markdown reload:', error);
-  }
-}
 
 /**
  * Get standard directories for the agent
@@ -181,67 +171,3 @@ export function getAgentDirectories(agentId: string = 'chloe', department: strin
     `data/knowledge/domains/${department}`
   ];
 }
-
-// Auto-initialize if this file is imported directly in server context
-// This handles the initial load only, ongoing changes are handled by MarkdownWatcher
-if (typeof window === 'undefined') {
-  const checkCacheAndInitialize = async () => {
-    try {
-      // Check if we're in a post-deletion reload by examining the global flag
-      // that gets set by middleware
-      const globalAny = global as any;
-      if (globalAny.preventMarkdownReload === true) {
-        logger.info('Detected post-deletion reload: Skipping markdown initialization');
-        // Set initialization as complete to avoid subsequent loads
-        initializationComplete = true;
-        return;
-      }
-      
-      // Also check URL if available (fallback method)
-      try {
-        if (globalAny.req && globalAny.req.url) {
-          const url = new URL(globalAny.req.url, 'http://localhost');
-          const skipMarkdownLoad = url.searchParams.has('prevent_markdown_reload');
-          
-          if (skipMarkdownLoad) {
-            logger.info('Detected post-deletion reload via URL: Skipping markdown initialization');
-            initializationComplete = true;
-            return;
-          }
-        }
-      } catch (urlCheckError) {
-        logger.warn('Error checking URL parameters:', urlCheckError);
-        // Continue with normal initialization if we can't check
-      }
-      
-      // Only load the cache state without resetting
-      const { resetCacheState } = await import('../knowledge/markdownMemoryLoader');
-      
-      // Check if the cache file exists and has content
-      let cacheExists = false;
-      try {
-        const stats = await fs.stat(CACHE_FILE_PATH);
-        cacheExists = stats.isFile() && stats.size > 0;
-      } catch (error) {
-        cacheExists = false;
-      }
-      
-      if (!cacheExists) {
-        logger.info('Cache file not found or empty, will perform a full initialization');
-        // Reset cache state only when no cache file exists
-        resetCacheState();
-        await initializeMarkdownMemory({ force: true });
-      } else {
-        logger.info('Cache file exists, using cached data for markdown files');
-        // We set initialization as complete without loading files again
-        // ChloeAgent will still call initializeMarkdownMemory but it will respect the cache
-        initializationComplete = true; 
-      }
-    } catch (error) {
-      logger.error('Failed to initialize markdown memory:', error);
-    }
-  };
-  
-  // We still check the cache but we don't automatically load files
-  checkCacheAndInitialize();
-} 

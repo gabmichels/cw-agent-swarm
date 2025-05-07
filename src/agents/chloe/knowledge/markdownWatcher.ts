@@ -2,11 +2,12 @@ import fs from 'fs/promises';
 import path from 'path';
 import { watch } from 'chokidar';
 import { ChloeMemory } from '../memory';
-import { markdownToMemoryEntries, loadAllMarkdownAsMemory } from './markdownMemoryLoader';
+import { markdownToMemoryEntries, shouldReloadFile } from './markdownMemoryLoader';
 import { ImportanceLevel, MemorySource } from '../../../constants/memory';
 import { getMemoryServices } from '../../../server/memory/services';
 import { MemoryType } from '../../../server/memory/config';
 import { syncMarkdownWithGraph } from './markdownGraphIntegration';
+import { logger } from '@/lib/logging';
 
 /**
  * Watcher options interface
@@ -108,10 +109,12 @@ export class MarkdownWatcher {
       const stats = await fs.stat(filePath);
       const lastModified = stats.mtimeMs;
 
-      // Check if we need to process this file (either new or modified)
-      const cachedFile = this.fileCache.get(filePath);
-      if (cachedFile && cachedFile.lastModified === lastModified && eventType === 'change') {
-        // File hasn't actually changed since last processing
+      // Check if we need to process this file using the same cache as markdown loader
+      const fileStatus = await shouldReloadFile(filePath);
+      
+      // If file is in cache and not changed, skip processing
+      if (!fileStatus.needsReload && eventType === 'add') {
+        logger.info(`Skipping cached file in watcher: ${filePath} (in_cache)`);
         return;
       }
 
@@ -128,8 +131,8 @@ export class MarkdownWatcher {
       const memoryEntries = await markdownToMemoryEntries(relativePath, content);
       
       // If this is a change event, mark old entries as superseded
-      if (eventType === 'change' && cachedFile) {
-        await this.markEntriesAsSuperseded(cachedFile.memoryIds, relativePath);
+      if (eventType === 'change' && fileStatus.memoryIds.length > 0) {
+        await this.markEntriesAsSuperseded(fileStatus.memoryIds, relativePath);
       }
       
       // Store new memory IDs
@@ -195,10 +198,11 @@ export class MarkdownWatcher {
       this.logFunction(`Successfully processed markdown file`, { 
         filePath, 
         entriesAdded: memoryEntries.length,
-        memoryIds: newMemoryIds
+        eventType
       });
     } catch (error) {
-      this.logFunction(`Error processing markdown file ${filePath}`, { 
+      this.logFunction(`Error processing markdown file`, { 
+        filePath, 
         error: String(error) 
       });
     }

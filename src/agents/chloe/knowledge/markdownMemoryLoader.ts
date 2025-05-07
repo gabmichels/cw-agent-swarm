@@ -21,9 +21,16 @@ const MEMORY_TYPES = {
   TASK: 'task'
 };
 
-// Cache to store file modification times and memory IDs
-let fileModCache = new Map<string, { lastModified: number, memoryIds: string[] }>();
+// Cache to store file modification times, content hashes, and memory IDs
+let fileModCache = new Map<string, { 
+  lastModified: number, 
+  contentHash?: string, 
+  memoryIds: string[],
+  tags?: string[] // Add tags to the cache entry
+}>();
 let cacheLoaded = false;
+// Add a loading flag to prevent concurrent cache operations
+let isCacheLoading = false;
 
 // Path to the cache file
 const CACHE_FILE_PATH = path.join(process.cwd(), 'data', 'cache', 'markdown-cache.json');
@@ -46,6 +53,24 @@ async function loadFileModCache(): Promise<void> {
     logger.info(`Using existing cache with ${fileModCache.size} entries`);
     return;
   }
+  
+  // If already loading, wait for it to complete
+  if (isCacheLoading) {
+    logger.info('Cache is already being loaded, waiting...');
+    // Wait for loading to complete
+    await new Promise(resolve => {
+      const checkInterval = setInterval(() => {
+        if (!isCacheLoading) {
+          clearInterval(checkInterval);
+          resolve(true);
+        }
+      }, 100);
+    });
+    return;
+  }
+  
+  // Set loading flag
+  isCacheLoading = true;
   
   try {
     // Create cache directory if it doesn't exist
@@ -90,9 +115,10 @@ async function loadFileModCache(): Promise<void> {
         return;
       }
       
-      // Convert from plain object to Map
+      // Convert from plain object to Map, normalizing paths
       fileModCache = new Map(Object.entries(parsed).map(([filePath, info]) => {
-        return [filePath, info as { lastModified: number, memoryIds: string[] }];
+        const normalizedPath = path.normalize(filePath);
+        return [normalizedPath, info as { lastModified: number, contentHash?: string, memoryIds: string[], tags?: string[] }];
       }));
       
       logger.info(`Loaded markdown cache with ${fileModCache.size} entries`);
@@ -106,6 +132,9 @@ async function loadFileModCache(): Promise<void> {
     logger.error('Error loading markdown cache:', err);
     fileModCache = new Map();
     cacheLoaded = true; // Mark as loaded even on error to prevent future loads
+  } finally {
+    // Reset loading flag
+    isCacheLoading = false;
   }
 }
 
@@ -114,8 +143,13 @@ async function loadFileModCache(): Promise<void> {
  */
 async function saveFileModCache(): Promise<void> {
   try {
-    // Convert Map to plain object for JSON serialization
-    const cacheObj = Object.fromEntries(fileModCache.entries());
+    // Convert Map to plain object for JSON serialization, ensuring paths are normalized
+    const cacheObj = Object.fromEntries(
+      Array.from(fileModCache.entries()).map(([filePath, info]) => [
+        path.normalize(filePath),
+        info
+      ])
+    );
     
     // Create cache directory if it doesn't exist
     const cacheDir = path.dirname(CACHE_FILE_PATH);
@@ -130,71 +164,38 @@ async function saveFileModCache(): Promise<void> {
 }
 
 /**
- * Check if a file needs to be reloaded based on its modification time
+ * Check if a file needs to be reloaded - SIMPLIFIED VERSION
  * @param filePath Path to the markdown file
  * @returns Object containing whether the file needs reloading and any existing memory IDs
  */
-async function shouldReloadFile(filePath: string): Promise<{ needsReload: boolean, memoryIds: string[], reason: string }> {
+export async function shouldReloadFile(filePath: string): Promise<{ needsReload: boolean, memoryIds: string[], tags?: string[], reason: string }> {
   try {
-    const stats = await fs.stat(filePath);
-    const lastModified = stats.mtime.getTime();
-    const cached = fileModCache.get(filePath);
-
+    // Wait for cache to be loaded if it isn't already
+    if (!cacheLoaded) {
+      await loadFileModCache();
+    }
+    
+    // Normalize path to prevent path format inconsistencies
+    const normalizedPath = path.normalize(filePath);
+    
+    // Check if file exists in cache - that's it!
+    const cached = fileModCache.get(normalizedPath);
+    
+    // If no cache entry exists, we need to reload
     if (!cached) {
-      // New file, needs to be loaded
       return { needsReload: true, memoryIds: [], reason: 'new_file' };
     }
-
-    if (lastModified > cached.lastModified) {
-      // File has been modified, needs to be reloaded
-      logger.info(`File modified since last load: ${filePath}`);
-      return { needsReload: true, memoryIds: cached.memoryIds, reason: 'modified' };
-    }
-
-    // Additional check to see if the memory IDs still exist in the database
-    if (cached.memoryIds.length > 0) {
-      try {
-        // Import the QdrantMemoryClient directly to check if memories exist
-        const { QdrantMemoryClient } = await import('../../../server/memory/services/client/qdrant-client');
-        const memoryClient = new QdrantMemoryClient();
-        await memoryClient.initialize();
-        
-        // Try to fetch the first memory ID from any collection to see if it exists
-        const firstId = cached.memoryIds[0];
-        
-        // Check all collections for this ID
-        let memoryExists = false;
-        for (const collectionName of Object.values(COLLECTIONS)) {
-          try {
-            // Ensure the collection name is a string
-            if (typeof collectionName === 'string') {
-              const points = await memoryClient.getPoints(collectionName, [firstId]);
-              if (points && points.length > 0) {
-                memoryExists = true;
-                break;
-              }
-            }
-          } catch (err) {
-            // Ignore errors for individual collections
-            continue;
-          }
-        }
-        
-        // If memory doesn't exist in any collection, we need to reload the file
-        if (!memoryExists) {
-          logger.info(`Memory ID ${firstId} for file ${filePath} not found in any collection, will reload`);
-          return { needsReload: true, memoryIds: [], reason: 'memory_not_found' };
-        }
-      } catch (memoryError) {
-        logger.warn(`Error checking memory existence for ${filePath}, will reload to be safe:`, memoryError);
-        return { needsReload: true, memoryIds: [], reason: 'memory_check_error' };
-      }
-    }
-
-    // File hasn't changed, no need to reload
-    return { needsReload: false, memoryIds: cached.memoryIds, reason: 'unchanged' };
+    
+    // We have a cache entry, so no need to reload
+    return { 
+      needsReload: false, 
+      memoryIds: cached.memoryIds, 
+      tags: cached.tags,
+      reason: 'in_cache' 
+    };
+    
   } catch (error) {
-    logger.error(`Error checking file modification time for ${filePath}:`, error);
+    logger.error(`Error checking file in cache for ${filePath}:`, error);
     return { needsReload: true, memoryIds: [], reason: 'error' };
   }
 }
@@ -203,17 +204,22 @@ async function shouldReloadFile(filePath: string): Promise<{ needsReload: boolea
  * Update the file modification cache
  * @param filePath Path to the markdown file
  * @param memoryIds Array of memory IDs associated with this file
+ * @param tags Optional array of tags to store
  */
-async function updateFileModCache(filePath: string, memoryIds: string[]): Promise<void> {
+async function updateFileModCache(filePath: string, memoryIds: string[], tags?: string[]): Promise<void> {
   try {
-    const stats = fsSync.statSync(filePath);
-    fileModCache.set(filePath, {
-      lastModified: stats.mtime.getTime(),
-      memoryIds
+    const normalizedPath = path.normalize(filePath);
+    
+    // Store the path, memory IDs, and tags
+    fileModCache.set(normalizedPath, {
+      lastModified: Date.now(), // Use current time
+      memoryIds,
+      tags
     });
     
     // Save the cache after each update to ensure persistence
     await saveFileModCache();
+    logger.info(`Added ${normalizedPath} to markdown cache`);
   } catch (error) {
     logger.error(`Error updating file modification cache for ${filePath}:`, error);
   }
@@ -401,9 +407,16 @@ function determineMemoryType(filePath: string): string {
  * Process a markdown file into memory
  * @param memoryManager Memory manager instance to use
  * @param filePath Path to markdown file
+ * @param needsReload Whether the file needs reloading (should be determined by caller)
+ * @param existingMemoryIds Existing memory IDs if any
  * @returns Result of processing
  */
-export async function processMarkdownFile(memoryManager: any, filePath: string): Promise<{
+export async function processMarkdownFile(
+  memoryManager: any, 
+  filePath: string,
+  needsReload: boolean = true,
+  existingMemoryIds: string[] = []
+): Promise<{
   success: boolean;
   memoryId?: string;
   title?: string;
@@ -412,57 +425,73 @@ export async function processMarkdownFile(memoryManager: any, filePath: string):
   error?: string;
 }> {
   try {
-    // Check if file needs to be reloaded
-    const { needsReload, memoryIds, reason } = await shouldReloadFile(filePath);
+    // Add file path normalization to handle potential inconsistencies
+    const normalizedPath = path.normalize(filePath);
     
-    if (!needsReload) {
-      logger.info(`Skipping unchanged file: ${filePath}`);
+    // If file doesn't need reloading, return early with success
+    if (!needsReload && existingMemoryIds.length > 0) {
+      const cached = fileModCache.get(normalizedPath);
+      logger.info(`Skipping unchanged file: ${normalizedPath}`);
       return {
         success: true,
-        memoryId: memoryIds[0],
-        type: 'unchanged'
+        memoryId: existingMemoryIds[0],
+        type: 'unchanged',
+        tags: cached?.tags
       };
     }
 
-    // Read file content
-    const content = await fs.readFile(filePath, 'utf8');
+    // Only read file content when needed
+    const content = await fs.readFile(normalizedPath, 'utf8');
     
     // Extract title and headings
     const headings = extractHeadings(content);
     
-    // Use the OpenAI tag extractor for enhanced extraction
+    // Generate cache key for tag extraction
+    const contentHash = generateContentHash(content);
+    
+    // Get tags using the OpenAI extractor or from cache
     let finalTags: string[] = [];
     
-    try {
-      // Import the tagExtractor
-      const { extractTags } = await import('../../../utils/tagExtractor');
-      
-      // Extract tags using OpenAI
-      const tagResult = await extractTags(content, {
-        maxTags: 25,
-        minConfidence: 0.3
-      });
-      
-      if (tagResult.success) {
-        // Convert Tag objects to string tags
-        finalTags = tagResult.tags.map(tag => tag.text);
-        logger.debug(`Tag extraction for ${filePath} found ${finalTags.length} tags`);
-      } else {
-        logger.warn(`Tag extraction for ${filePath} failed: ${tagResult.error}`);
+    // Check if we need to extract tags
+    const cached = fileModCache.get(normalizedPath);
+    const needsTagExtraction = needsReload || !cached?.tags;
+    
+    if (!needsTagExtraction && cached?.tags) {
+      // Use cached tags if available and file hasn't changed
+      finalTags = cached.tags;
+      logger.debug(`Using cached tags for ${normalizedPath}`);
+    } else {
+      try {
+        // Import the tagExtractor
+        const { extractTags } = await import('../../../utils/tagExtractor');
+        
+        // Extract tags using OpenAI
+        const tagResult = await extractTags(content, {
+          maxTags: 25,
+          minConfidence: 0.3
+        });
+        
+        if (tagResult.success) {
+          // Convert Tag objects to string tags
+          finalTags = tagResult.tags.map(tag => tag.text);
+          logger.debug(`Tag extraction for ${normalizedPath} found ${finalTags.length} tags`);
+        } else {
+          logger.warn(`Tag extraction for ${normalizedPath} failed: ${tagResult.error}`);
+          finalTags = ['markdown', 'document'];
+        }
+      } catch (tagError) {
+        logger.error(`Error using tag extraction for ${normalizedPath}:`, tagError);
+        // Fall back to basic tags
         finalTags = ['markdown', 'document'];
       }
-    } catch (tagError) {
-      logger.error(`Error using tag extraction for ${filePath}:`, tagError);
-      // Fall back to basic tags
-      finalTags = ['markdown', 'document'];
     }
     
     // Determine memory type based on file path
-    const memoryType = determineMemoryType(filePath);
+    const memoryType = determineMemoryType(normalizedPath);
     
     // If we have existing memory IDs, delete them before adding new content
-    if (memoryIds.length > 0) {
-      for (const id of memoryIds) {
+    if (existingMemoryIds.length > 0) {
+      for (const id of existingMemoryIds) {
         await memoryManager.deleteMemory(id);
       }
     }
@@ -472,26 +501,27 @@ export async function processMarkdownFile(memoryManager: any, filePath: string):
       content,
       memoryType,
       ImportanceLevel.CRITICAL,  // Always CRITICAL for markdown files
-      ExtendedMemorySource.FILE,
-      `Loaded from ${filePath}`,
+      MemorySource.FILE,
+      `Loaded from ${normalizedPath}`,
       finalTags,
       {
-        filePath,
+        filePath: normalizedPath,
         source: "markdown",
         critical: true,
         importance: 1.0,      // Explicit numeric importance
         contentType: 'markdown',
-        extractedFrom: filePath,
+        extractedFrom: normalizedPath,
         lastModified: new Date().toISOString(),
         headings: headings,    // Store headings for better retrieval context
-        tagSource: 'openai-extractor' // Mark that we used the OpenAI extractor
+        tagSource: 'openai-extractor', // Mark that we used the OpenAI extractor
+        contentHash: contentHash // Store content hash for future cache validation
       }
     );
     
-    // Update the file modification cache
-    await updateFileModCache(filePath, [result.id]);
+    // Update the file modification cache with both memory IDs and tags
+    await updateFileModCache(normalizedPath, [result.id], finalTags);
     
-    logger.info(`Processed markdown file "${filePath}" with ${finalTags.length} tags as ${memoryType}`);
+    logger.info(`Processed markdown file "${normalizedPath}" with ${finalTags.length} tags as ${memoryType}`);
     
     return {
       success: true,
@@ -509,6 +539,19 @@ export async function processMarkdownFile(memoryManager: any, filePath: string):
 }
 
 /**
+ * Generate a simple hash for content to help with caching
+ */
+function generateContentHash(content: string): string {
+  let hash = 0;
+  for (let i = 0; i < content.length; i++) {
+    const char = content.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash; // Convert to 32bit integer
+  }
+  return Math.abs(hash).toString(16);
+}
+
+/**
  * Find all markdown files in the specified directories
  * @param directories Directories to search for markdown files
  * @returns Array of file paths
@@ -523,13 +566,22 @@ export async function findMarkdownFiles(directories: string[] = ['docs/', 'knowl
     const priorityDirectories = directories.length > 0 ? directories : ['docs/', 'knowledge/'];
     
     for (const dir of priorityDirectories) {
+      // Normalize the directory path first and ensure forward slashes for glob
+      const normalizedDir = path.normalize(dir).replace(/\\/g, '/');
+      
       // Use glob to find all markdown files
-      const files = glob.sync(`${dir}/**/*.md`, { nodir: true });
+      const files = glob.sync(`${normalizedDir}/**/*.md`, { 
+        nodir: true,
+        windowsPathsNoEscape: true // Enable Windows path support
+      });
+      
+      // Normalize all file paths before adding them
+      const normalizedFiles = files.map(file => path.normalize(file));
       
       // Log how many files were found in each directory
-      logger.info(`Found ${files.length} markdown files in ${dir}`);
+      logger.info(`Found ${normalizedFiles.length} markdown files in ${normalizedDir}`);
       
-      allFiles.push(...files);
+      allFiles.push(...normalizedFiles);
     }
     
     return allFiles;
@@ -565,74 +617,64 @@ async function processFile(
   }
 ): Promise<void> {
   try {
-    // If force loading is disabled, check if the file needs to be reloaded
-    if (!options.force) {
-      const { needsReload, memoryIds, reason } = await shouldReloadFile(filePath);
-      
-      if (!needsReload && memoryIds.length > 0) {
-        logger.info(`Skipping unchanged file (${reason}): ${filePath}`);
-        stats.unchangedFiles++;
-        return;
-      }
-      
-      if (needsReload && reason === 'modified' && memoryIds.length > 0) {
-        logger.info(`File modified, will reload: ${filePath}`);
-        // Continue processing to reload the file
-      } else if (needsReload && reason === 'new_file') {
-        logger.info(`New file found, will load: ${filePath}`);
-        // Continue processing to load the new file
-      }
-    } else {
-      logger.info(`Force loading file: ${filePath}`);
+    // Normalize the file path to prevent double-processing due to path format differences
+    const normalizedPath = path.normalize(filePath);
+    
+    // Check cache first - if file is cached and we're not forcing reload, skip completely
+    const cached = fileModCache.get(normalizedPath);
+    if (cached && !options.force) {
+      logger.info(`Skipping cached file: ${normalizedPath} (in_cache)`);
+      stats.unchangedFiles++;
+      return;
     }
-
-    // Only check for duplicates if we're not forcing a reload and the cache didn't find it
+    
+    // Log which file we're processing
+    logger.debug(`Processing markdown file: ${normalizedPath}`);
+    
+    // Only check for duplicates if we're not forcing a reload
     if (options.checkForDuplicates && !options.force) {
       // Search for memories with this file path in metadata
       const existingEntries = await chloeMemory.getEnhancedMemoriesWithHybridSearch(
-        filePath, // Use the file path as a query
+        normalizedPath, // Use the file path as a query
         5,        // Limit to a few results
         {
-          types: ['document', 'knowledge', 'strategy', 'persona', 'vision', 'process'],
+          types: [MemoryType.DOCUMENT], // Use the proper enum value
           expandQuery: false
         }
       );
       
       // Check if any of the found memories have this exact file path in metadata
       const isDuplicate = existingEntries.some((entry: any) => 
-        entry.metadata?.filePath === filePath || 
-        entry.metadata?.extractedFrom === filePath
+        entry.metadata?.filePath === normalizedPath || 
+        entry.metadata?.extractedFrom === normalizedPath
       );
       
       if (isDuplicate) {
-        logger.info(`Skipping duplicate file: ${filePath}`);
+        logger.info(`Skipping duplicate file: ${normalizedPath}`);
         stats.duplicatesSkipped++;
         return;
       }
     }
     
-    // Process file if it's not a duplicate or if force loading is enabled
-    const result = await processMarkdownFile(memoryManager, filePath);
+    // Process file - pass true for needsReload since we've already checked cache
+    const result = await processMarkdownFile(memoryManager, normalizedPath, true, []);
     
     if (result.success) {
-      if (result.type === 'unchanged') {
-        stats.unchangedFiles++;
-      } else {
-        stats.entriesAdded++;
-        stats.filesProcessed++;
-        
-        // Track memory types
-        const type = result.type || 'unknown';
-        stats.typeStats[type] = (stats.typeStats[type] || 0) + 1;
-      }
+      stats.entriesAdded++;
+      stats.filesProcessed++;
+      
+      // Track memory types
+      const type = result.type || 'unknown';
+      stats.typeStats[type] = (stats.typeStats[type] || 0) + 1;
+      
+      logger.debug(`Added to memory: ${normalizedPath} as ${type}`);
     } else {
       stats.filesSkipped++;
-      logger.warn(`Skipped file ${filePath}: ${result.error}`);
+      logger.warn(`Skipped file ${normalizedPath}: ${result.error}`);
     }
   } catch (error) {
     stats.filesSkipped++;
     logger.error(`Error processing ${filePath}:`, error);
-    throw error; // Re-throw so it can be caught by the caller
   }
 }
 
@@ -656,90 +698,61 @@ export async function loadAllMarkdownAsMemory(
   duplicatesSkipped: number;
   unchangedFiles: number;
 }> {
+  // Initialize stats
+  const stats = {
+    filesProcessed: 0,
+    entriesAdded: 0,
+    typeStats: {} as Record<string, number>,
+    filesSkipped: 0,
+    duplicatesSkipped: 0,
+    unchangedFiles: 0
+  };
+
   try {
-    // If force loading, clear the cache state
-    if (options.force) {
-      fileModCache.clear();
-      cacheLoaded = true; // Mark as loaded with empty cache
-      logger.info('Force reload requested, clearing cache state');
-    } else {
-      // Load the file modification cache from disk
-      await loadFileModCache();
-    }
+    // Load cache first
+    await loadFileModCache();
     
-    // If cache isn't loaded for some reason, create a new one
-    if (!cacheLoaded) {
-      logger.warn('Cache loading failed or skipped, creating new cache');
-      fileModCache = new Map();
-      cacheLoaded = true;
-    }
-    
-    // Find all markdown files
-    const markdownFiles = await findMarkdownFiles(directoriesToLoad);
-    
-    logger.info(`Found ${markdownFiles.length} markdown files to process`);
-    
-    // Initialize stats
-    const stats = {
-      filesProcessed: 0,
-      entriesAdded: 0,
-      typeStats: {} as Record<string, number>,
-      filesSkipped: 0,
-      duplicatesSkipped: 0,
-      unchangedFiles: 0
-    };
-    
-    // Get memory manager instance
-    let memoryManager;
-    try {
-      memoryManager = new MemoryManager({ agentId: 'chloe' });
-      await memoryManager.initialize();
-    } catch (error) {
-      logger.error('Error initializing memory manager:', error);
-      throw new Error('Failed to initialize memory manager for markdown loading');
-    }
-    
-    // Get the memory instance to check for duplicates
+    // Get memory manager and Chloe memory instances
+    const memoryManager = new MemoryManager({ agentId: 'chloe' });
+    await memoryManager.initialize();
     const chloeMemory = memoryManager.getChloeMemory();
     
     if (!chloeMemory) {
       throw new Error('ChloeMemory not initialized');
     }
-    
-    // Process each file sequentially to avoid race conditions
-    for (const filePath of markdownFiles) {
-      try {
-        // Check if we need to process this file based on cache
-        const fileStatus = await shouldReloadFile(filePath);
-        
-        if (!fileStatus.needsReload && !options.force) {
-          logger.info(`Skipping unchanged file: ${filePath}`);
-          stats.unchangedFiles++;
-          continue;
-        }
-        
-        await processFile(filePath, memoryManager, chloeMemory, options, stats);
-      } catch (error) {
-        logger.error(`Error processing file ${filePath}:`, error);
-        stats.filesSkipped++;
+
+    // Find all markdown files
+    const files = await findMarkdownFiles(directoriesToLoad);
+    logger.info(`Found ${files.length} markdown files to process`);
+
+    // First pass: Check cache and skip cached files
+    const filesToProcess: string[] = [];
+    for (const filePath of files) {
+      const normalizedPath = path.normalize(filePath);
+      const cached = fileModCache.get(normalizedPath);
+      
+      if (cached && !options.force) {
+        logger.info(`Skipping cached file: ${filePath} (in_cache)`);
+        stats.unchangedFiles++;
+        continue;
       }
+      
+      filesToProcess.push(filePath);
     }
-    
-    // Save the cache at the end of processing
+
+    // Second pass: Process only uncached files
+    for (const filePath of filesToProcess) {
+      await processFile(filePath, memoryManager, chloeMemory, options, stats);
+    }
+
+    // Save cache after processing
     await saveFileModCache();
-    
+
     logger.info(`Markdown loading complete: Processed ${stats.filesProcessed} files, added ${stats.entriesAdded} entries, skipped ${stats.duplicatesSkipped} duplicates, unchanged: ${stats.unchangedFiles}`);
     return stats;
   } catch (error) {
     logger.error('Error loading markdown files:', error);
-    return {
-      filesProcessed: 0,
-      entriesAdded: 0,
-      typeStats: {},
-      filesSkipped: 0,
-      duplicatesSkipped: 0,
-      unchangedFiles: 0
-    };
+    throw error;
   }
 }
 
@@ -767,17 +780,34 @@ export async function markdownToMemoryEntries(filePath: string, content: string)
   // Extract the title from frontmatter or first heading
   const title = extractTitle(frontMatter, markdownContent);
   
-  // Get tags using the OpenAI extractor
-  const { extractTags } = await import('../../../utils/tagExtractor');
+  // Generate a cache key for tag extraction using content hash
+  const contentHash = generateContentHash(markdownContent);
+  const normalizedPath = path.normalize(filePath);
   
+  // Get tags using the OpenAI extractor or from cache
   let tags: string[] = [];
   
-  try {
-    const tagResult = await extractTags(markdownContent, { maxTags: 20 });
-    tags = tagResult.tags.map(tag => tag.text);
-  } catch (error) {
-    logger.error(`Error extracting tags from ${filePath}:`, error);
-    tags = ['markdown', 'document']; // Fallback tags
+  // Check cache first - if we have tags, use them
+  const cached = fileModCache.get(normalizedPath);
+  if (cached?.tags) {
+    tags = cached.tags;
+    logger.debug(`Using cached tags for ${filePath}`);
+  } else {
+    // Only extract tags if we don't have them in cache
+    try {
+      // Import the tag extractor only when needed
+      const { extractTags } = await import('../../../utils/tagExtractor');
+      
+      const tagResult = await extractTags(markdownContent, { maxTags: 20 });
+      tags = tagResult.tags.map(tag => tag.text);
+      
+      // Store in cache
+      await updateFileModCache(normalizedPath, [], tags);
+      logger.debug(`Extracted and cached ${tags.length} tags for ${filePath}`);
+    } catch (error) {
+      logger.error(`Error extracting tags from ${filePath}:`, error);
+      tags = ['markdown', 'document']; // Fallback tags
+    }
   }
   
   // Calculate importance (always high for markdown)
@@ -810,20 +840,50 @@ export async function markdownToMemoryEntries(filePath: string, content: string)
   for (let index = 0; index < chunks.length; index++) {
     const chunk = chunks[index];
     
-    // Extract tags for this specific chunk
-    let chunkTags: string[] = [...tags]; // Start with the document-level tags
+    // Start with the document-level tags
+    let chunkTags: string[] = [...tags];
     
-    try {
-      const chunkTagResult = await extractTags(chunk, { maxTags: 15 });
-      // Add any unique tags from this chunk
-      chunkTagResult.tags.forEach(tag => {
-        if (!chunkTags.includes(tag.text)) {
-          chunkTags.push(tag.text);
+    // Only extract additional tags for large chunks
+    if (chunk.length > 1000) {
+      const chunkCacheKey = `${normalizedPath}:chunk${index}`;
+      const chunkCached = fileModCache.get(chunkCacheKey);
+      
+      if (chunkCached?.tags) {
+        // Use cached chunk tags
+        const cachedChunkTags = chunkCached.tags;
+        
+        // Add any unique tags from this chunk
+        cachedChunkTags.forEach(tag => {
+          if (!chunkTags.includes(tag)) {
+            chunkTags.push(tag);
+          }
+        });
+        logger.debug(`Using cached tags for chunk ${index} of ${filePath}`);
+      } else {
+        // Only extract tags if we don't have them in cache
+        try {
+          // Import the tag extractor only when needed
+          const { extractTags } = await import('../../../utils/tagExtractor');
+          
+          const chunkTagResult = await extractTags(chunk, { maxTags: 15 });
+          const newChunkTags: string[] = [];
+          
+          // Add any unique tags from this chunk
+          chunkTagResult.tags.forEach(tag => {
+            if (!chunkTags.includes(tag.text)) {
+              chunkTags.push(tag.text);
+              newChunkTags.push(tag.text);
+            }
+          });
+          
+          // Cache the chunk-specific tags
+          await updateFileModCache(chunkCacheKey, [], newChunkTags);
+          logger.debug(`Extracted and cached ${newChunkTags.length} tags for chunk ${index} of ${filePath}`);
+        } catch (error) {
+          logger.error(`Error extracting tags from chunk ${index} of ${filePath}:`, error);
+          // Just use the document tags if chunk tag extraction fails
         }
-      });
-    } catch (error) {
-      logger.error(`Error extracting tags from chunk ${index} of ${filePath}:`, error);
-      // Just use the document tags if chunk tag extraction fails
+      }
     }
     
     chunkEntries.push({
