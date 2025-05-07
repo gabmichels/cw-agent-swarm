@@ -713,7 +713,7 @@ export async function sendAgentToAgentMessage(
   options: AgentCommunicationOptions = {}
 ): Promise<MemoryResult> {
   // Import thread helper to avoid circular dependencies
-  const { getOrCreateThreadInfo } = require('../../../app/api/chat/thread/helper');
+  const { getOrCreateThreadInfo } = require('../../../../app/api/chat/thread/helper');
   
   // Get appropriate thread info
   const threadInfo = getOrCreateThreadInfo(
