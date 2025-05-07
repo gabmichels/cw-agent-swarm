@@ -7,7 +7,7 @@ import { handleMemoryError } from '../../utils';
 import { IMemoryClient } from '../client/types';
 import { EmbeddingService } from '../client/embedding-service';
 import { MemoryService } from '../memory/memory-service';
-import { FilterBuilderOptions, HybridSearchOptions, SearchOptions, SearchResult } from './types';
+import { FilterBuilderOptions, HybridSearchOptions, SearchOptions, SearchResult, FilterOptions } from './types';
 import { IQueryOptimizer, QueryOptimizationStrategy } from '../query/types';
 import { FilterOperator } from '../filters/types';
 
@@ -631,6 +631,158 @@ export class SearchService {
         causes: [],
         effects: []
       };
+    }
+  }
+
+  /**
+   * Filter memories without semantic search
+   * Retrieves memories based on exact filtering criteria without embedding comparison
+   */
+  async filter<T extends BaseMemorySchema>(
+    options: FilterOptions = {}
+  ): Promise<SearchResult<T>[]> {
+    try {
+      const { 
+        types = [], 
+        limit = 50, 
+        offset = 0,
+        filter = {},
+        sortBy = 'timestamp',
+        sortOrder = 'desc'
+      } = options;
+      
+      // If no specific types requested, search all collections
+      const collectionsToSearch = types.length > 0
+        ? types.map((type: MemoryType) => COLLECTION_NAMES[type])
+        : Object.values(COLLECTION_NAMES);
+        
+      // Filter out undefined collection names
+      const validCollections = collectionsToSearch.filter(Boolean) as string[];
+      
+      if (validCollections.length === 0) {
+        console.warn('No valid collections to filter');
+        return [];
+      }
+      
+      const results: SearchResult<T>[] = [];
+      const missingCollections: string[] = [];
+      
+      // Process each collection
+      for (const collectionName of validCollections) {
+        if (!collectionName) continue;
+        
+        try {
+          // Check if collection exists before filtering
+          const collectionExists = await this.client.collectionExists(collectionName);
+          
+          if (!collectionExists) {
+            missingCollections.push(collectionName);
+            console.warn(`Collection ${collectionName} does not exist, skipping filter`);
+            continue;
+          }
+          
+          // Convert the filter to Qdrant format
+          const qdrantFilter = filter ? this.buildQdrantFilter(filter) : undefined;
+          
+          // Build scroll params including sort options
+          const scrollParams: {
+            filter?: Record<string, any>;
+            limit: number;
+            offset: number;
+            with_payload: boolean;
+            with_vector: boolean;
+            order_by?: {
+              key: string;
+              direction: 'asc' | 'desc';
+            };
+          } = {
+            filter: qdrantFilter,
+            limit,
+            offset,
+            with_payload: true,
+            with_vector: false
+          };
+          
+          // Add sorting if specified
+          if (sortBy) {
+            scrollParams.order_by = {
+              key: sortBy,
+              direction: sortOrder
+            };
+          }
+          
+          // Use scroll API to get paginated results with sorting
+          const scrolledPoints = await this.client.scrollPoints<T>(
+            collectionName,
+            scrollParams
+          );
+          
+          if (scrolledPoints && scrolledPoints.length > 0) {
+            const type = this.getTypeFromCollectionName(collectionName);
+            
+            if (type) {
+              // Convert to search result format
+              const collectionResults = scrolledPoints.map((point: MemoryPoint<T>) => ({
+                point,
+                score: 1.0, // No relevance score for pure filtering
+                type: type as MemoryType,
+                collection: collectionName
+              }));
+              
+              results.push(...collectionResults);
+            }
+          }
+        } catch (error) {
+          console.error(`Error filtering collection ${collectionName}:`, error);
+          // Continue with other collections despite errors
+        }
+      }
+      
+      // If we have missing collections and no results, throw error
+      if (missingCollections.length > 0 && results.length === 0) {
+        const errorMessage = `Collections not found: ${missingCollections.join(', ')}`;
+        throw handleMemoryError(errorMessage, 'NOT_FOUND');
+      }
+      
+      // Sort combined results if we searched multiple collections
+      if (validCollections.length > 1 && sortBy) {
+        results.sort((a, b) => {
+          const aValue = a.point.payload[sortBy as keyof T];
+          const bValue = b.point.payload[sortBy as keyof T];
+          
+          // Handle string comparisons
+          if (typeof aValue === 'string' && typeof bValue === 'string') {
+            return sortOrder === 'asc' 
+              ? aValue.localeCompare(bValue) 
+              : bValue.localeCompare(aValue);
+          }
+          
+          // Handle numeric comparisons
+          if (typeof aValue === 'number' && typeof bValue === 'number') {
+            return sortOrder === 'asc' ? aValue - bValue : bValue - aValue;
+          }
+          
+          // Handle date comparisons (stored as strings)
+          if (sortBy === 'timestamp') {
+            const aTime = parseInt(String(aValue), 10);
+            const bTime = parseInt(String(bValue), 10);
+            if (!isNaN(aTime) && !isNaN(bTime)) {
+              return sortOrder === 'asc' ? aTime - bTime : bTime - aTime;
+            }
+          }
+          
+          return 0;
+        });
+      }
+      
+      // Apply the pagination at the combined results level if we had multiple collections
+      if (validCollections.length > 1) {
+        return results.slice(0, limit);
+      }
+      
+      return results;
+    } catch (error) {
+      throw handleMemoryError(error, 'SEARCH_ERROR');
     }
   }
 } 

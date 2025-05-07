@@ -85,6 +85,29 @@ export interface FilterBuilderOptions {
 }
 
 /**
+ * Filter options for direct filtering without semantic search
+ */
+export interface FilterOptions {
+  // Memory types to filter (all if not specified)
+  types?: MemoryType[];
+  
+  // Filter to apply
+  filter?: MemoryFilter;
+  
+  // Maximum results to return
+  limit?: number;
+  
+  // Offset for pagination
+  offset?: number;
+  
+  // Field to sort by (e.g., 'timestamp')
+  sortBy?: string;
+  
+  // Sort direction
+  sortOrder?: 'asc' | 'desc';
+}
+
+/**
  * Hybrid search options
  */
 export interface HybridSearchOptions extends SearchOptions {
