@@ -116,29 +116,8 @@ export default function MarkdownViewer() {
         }
       });
       
-      // Deduplicate documents based on file path
-      // Some documents might be duplicated in the database but we only want to show each unique file once
-      const pathMap = new Map<string, MarkdownDocument>();
-      
-      // Use the path as a unique key and keep only the latest document for each path
-      processedDocs.forEach(doc => {
-        if (doc.path) {
-          // If we already have this path, only replace if this one is newer
-          const existingDoc = pathMap.get(doc.path);
-          if (!existingDoc || new Date(doc.timestamp) > new Date(existingDoc.timestamp)) {
-            pathMap.set(doc.path, doc);
-          }
-        } else {
-          // For documents without a path, use the ID as the key
-          pathMap.set(doc.id, doc);
-        }
-      });
-      
-      // Convert back to array
-      processedDocs = Array.from(pathMap.values()) as typeof processedDocs;
-      
       if (debugMode) {
-        console.log(`Deduplication: ${data.documents.length} original docs → ${processedDocs.length} unique docs`);
+        console.log(`Documents count: ${processedDocs.length}`);
       }
       
       setDocuments(processedDocs);
