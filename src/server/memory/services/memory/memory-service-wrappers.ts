@@ -684,6 +684,8 @@ export interface AgentCommunicationOptions {
   priority?: 'low' | 'normal' | 'high' | 'urgent';
   requiresResponse?: boolean;
   responseDeadline?: string;
+  parentMessageId?: string; // ID of the parent message for thread linking
+  communicationType?: 'request' | 'response' | 'notification' | 'broadcast'; // Type of communication
   conversationContext?: {
     taskId?: string;
     purpose: string;
@@ -710,8 +712,15 @@ export async function sendAgentToAgentMessage(
   chatId: StructuredId,
   options: AgentCommunicationOptions = {}
 ): Promise<MemoryResult> {
-  // Create thread
-  const threadInfo = createThreadInfo(uuidv4(), 0);
+  // Import thread helper to avoid circular dependencies
+  const { getOrCreateThreadInfo } = require('../../../app/api/chat/thread/helper');
+  
+  // Get appropriate thread info
+  const threadInfo = getOrCreateThreadInfo(
+    chatId.id, 
+    'assistant', // Agent-to-agent is always an assistant role
+    options.parentMessageId
+  );
   
   // System user (for agent-to-agent communication)
   const systemUserId = {
@@ -734,7 +743,7 @@ export async function sendAgentToAgentMessage(
       metadata: {
         senderAgentId,
         receiverAgentId,
-        communicationType: 'request',
+        communicationType: options.communicationType || 'request',
         priority: options.priority as any || 'normal',
         requiresResponse: options.requiresResponse || false,
         responseDeadline: options.responseDeadline,

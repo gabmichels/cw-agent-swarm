@@ -589,107 +589,47 @@ export class AgentBase {
       const userStructuredId = createUserId(userIdStr);
       const chatStructuredId = createChatId(chatIdStr);
       
-      // Create thread info
-      const threadId = message.metadata?.threadId || `thread_${Date.now()}`;
-      const threadInfo = createThreadInfo(threadId, 0);
+      // Create proper thread info
+      let threadInfo;
       
-      // Store based on message kind
-      if (message.metadata?.kind === 'thought') {
-        // Add as cognitive process
-        await addCognitiveProcessMemory(
-          this.memoryService,
-          content,
-          CognitiveProcessType.THOUGHT,
-          agentStructuredId,
-          {
-            contextId: message.correlationId || message.delegationContextId,
-            relatedTo: message.metadata?.relatedTo,
-            influencedBy: message.metadata?.influencedBy,
-            importance: message.metadata?.importance,
-            metadata: {
-              source: 'agent',
-              category: message.metadata?.category || 'thought'
-            }
-          }
-        );
+      // Check if this is a response to another message
+      if (message.correlationId && message.type === 'result') {
+        // This is a response, so create a thread with proper position and parent reference
+        // Import the thread helper directly to avoid circular dependencies
+        const { createResponseThreadInfo } = await import('../../../app/api/chat/thread/helper');
         
-        // Log the contentHash separately
-        console.log(`Content hash for thought: ${contentHash}`);
-      } else if (message.metadata?.kind === 'task') {
-        // Add as task
-        await addTaskMemory(
-          this.memoryService,
-          content,
-          message.metadata?.title || 'Untitled Task',
-          message.metadata?.status || TaskStatus.PENDING,
-          message.metadata?.priority || TaskPriority.MEDIUM,
-          agentStructuredId,
-          {
-            description: message.metadata?.description,
-            assignedTo: message.metadata?.assignedTo ? createAgentId(message.metadata.assignedTo) : undefined,
-            dueDate: message.metadata?.dueDate,
-            parentTaskId: message.metadata?.parentTaskId,
-            importance: message.metadata?.importance
-            // Avoid adding custom fields not in TaskMetadata
-          }
-        );
-        
-        // Log correlation info separately
-        console.log(`Task correlation ID: ${message.correlationId}, delegation context: ${message.delegationContextId}`);
-      } else if (message.metadata?.kind === 'document') {
-        // Add as document
-        await addDocumentMemory(
-          this.memoryService,
-          content,
-          message.metadata?.source || DocumentSource.AGENT,
-          {
-            title: message.metadata?.title || 'Agent Document',
-            contentType: message.metadata?.contentType || 'text/plain',
-            agentId: agentStructuredId,
-            importance: message.metadata?.importance
-            // Avoid adding custom fields not in DocumentMetadata
-          }
-        );
-        
-        // Log content hash separately
-        console.log(`Content hash for document: ${contentHash}`);
+        // Use correlation ID as parent message ID
+        threadInfo = await createResponseThreadInfo(message.correlationId);
       } else {
-        // Default: add as regular message
-        const messageRole = message.fromAgentId === this.agentId 
-          ? MessageRole.ASSISTANT 
-          : MessageRole.USER;
-          
-        // Add as message with proper metadata structure
-        await addMessageMemory(
-          this.memoryService,
-          content,
-          messageRole,
-          userStructuredId,
-          agentStructuredId,
-          chatStructuredId,
-          threadInfo,
-          {
-            importance: message.metadata?.importance,
-            messageType: message.type,
-            // Add only fields that are part of MessageMetadata
-            metadata: {
-              tags: [
-                ...(message.metadata?.tags || []),
-                'correlation:' + (message.correlationId || 'none'),
-                'delegation:' + (message.delegationContextId || 'none')
-              ]
-            }
-          }
-        );
+        // This is a new message or initial request
+        // Import the thread helper directly to avoid circular dependencies
+        const { getOrCreateThreadInfo } = await import('../../../app/api/chat/thread/helper');
         
-        // Log additional context separately
-        console.log(`Message from ${message.fromAgentId}, correlation: ${message.correlationId}`);
+        // Determine the message role (user or assistant)
+        const role = message.fromAgentId === this.agentId ? 'assistant' : 'user';
+        threadInfo = getOrCreateThreadInfo(chatIdStr, role);
       }
       
-      // Add to recent messages cache for deduplication
-      await this.trackRecentMessage(contentHash);
+      // Add to memory
+      await this.memoryService.addMemory({
+        type: MemoryType.MESSAGE,
+        content,
+        metadata: {
+          // Required metadata
+          role: message.fromAgentId === this.agentId ? MessageRole.ASSISTANT : MessageRole.USER,
+          userId: userStructuredId,
+          agentId: agentStructuredId,
+          chatId: chatStructuredId,
+          thread: threadInfo,
+          
+          // Optional metadata
+          timestamp: new Date().toISOString(),
+          messageType: message.type,
+          ...(message.metadata || {})
+        }
+      });
       
-      console.log(`[${this.agentId}] Stored message in memory (kind: ${message.metadata?.kind || 'message'})`);
+      console.log(`[${this.agentId}] Stored message in memory from ${message.fromAgentId} with thread ID ${threadInfo.id}, position ${threadInfo.position}`);
     } catch (error) {
       console.error(`[${this.agentId}] Error storing message in memory:`, error);
     }

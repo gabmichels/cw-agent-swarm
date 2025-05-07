@@ -16,6 +16,7 @@ import { createUserId, createAgentId, createChatId } from '../../../types/struct
 import { MessageRole } from '../../../agents/chloe/types/state';
 import { generateChatId } from '../../../utils/uuid';
 import { getChatService } from '../../../server/memory/services/chat-service';
+import { getOrCreateThreadInfo, createResponseThreadInfo } from './thread/helper';
 
 // In-memory cache and in-flight request tracking
 const responseCache = new Map<string, {
@@ -231,7 +232,9 @@ function containsImageData(message: string): boolean {
          message.includes('![](data:image');
 }
 
-// Modify the saveToHistory function to be more efficient
+// Track the last user message ID to maintain thread relationships
+let lastUserMessageId: string | null = null;
+
 async function saveToHistory(userId: string, role: 'user' | 'assistant', content: string, chatId: string = 'chat-chloe-gab', attachments?: any[], visionResponseFor?: string) {
   if (!content || content.trim() === '') return null;
   
@@ -321,8 +324,27 @@ async function saveToHistory(userId: string, role: 'user' | 'assistant', content
           chatStructuredId = createChatId(chatId);
         }
         
-        // Create thread info
-        const threadInfo = createThreadInfo(`thread_${Date.now()}`, 0);
+        // Create proper thread info based on the message role and previous message
+        let threadInfo;
+        
+        if (role === 'user') {
+          // For user messages, get or create a thread (always position 0)
+          threadInfo = getOrCreateThreadInfo(chatId, role);
+          // Store this message ID for the assistant response to reference
+          if (threadInfo) {
+            console.log(`Created user message with thread ID: ${threadInfo.id}, position: ${threadInfo.position}`);
+          }
+        } else {
+          // For assistant responses, ensure they link to the previous user message
+          if (lastUserMessageId) {
+            // Create a response thread that properly links to user message
+            threadInfo = await createResponseThreadInfo(lastUserMessageId);
+            console.log(`Created assistant response with thread ID: ${threadInfo.id}, position: ${threadInfo.position}, parentId: ${threadInfo.parentId}`);
+          } else {
+            // Fallback to a simple thread if no previous message
+            threadInfo = getOrCreateThreadInfo(chatId, role);
+          }
+        }
         
         // Add to memory using new pattern
         const memoryOperation = addMessageMemory(
@@ -346,6 +368,11 @@ async function saveToHistory(userId: string, role: 'user' | 'assistant', content
         // Execute with timeout protection
         const memoryResult = await Promise.race([memoryOperation, timeoutPromise]);
         
+        // Update last user message ID if this is a user message
+        if (role === 'user' && memoryResult && memoryResult.id) {
+          lastUserMessageId = memoryResult.id;
+        }
+        
         // Update cache with new message (if relevant)
         if (userId && chatHistoryCache.has(userId)) {
           const cachedData = chatHistoryCache.get(userId);
@@ -359,7 +386,8 @@ async function saveToHistory(userId: string, role: 'user' | 'assistant', content
                   role: messageRole,
                   userId: userStructuredId,
                   timestamp: Date.now(),
-                  chatId: chatId, // Store the UUID-based chat ID in metadata
+                  chatId: chatId,
+                  thread: threadInfo, // Include thread info in cache
                   ...(visionResponseFor ? { visionResponseFor } : {}) // Keep this for the cache only
                 }
               }
