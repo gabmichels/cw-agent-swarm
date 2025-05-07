@@ -1,14 +1,16 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import { MemoryType } from '../server/memory/config';
 import useMemory from './useMemory';
 import { Message } from '../types';
 import { MessageType } from '../constants/message';
+import { generateChatId } from '../utils/uuid';
 
 /**
  * Parameters for the useChatMemory hook
  */
 interface UseChatMemoryParams {
   userId: string;
+  chatId?: string; // Optional chat ID, if not provided will use default for the user
   limit?: number;
   includeInternalMessages?: boolean;
 }
@@ -19,6 +21,7 @@ interface UseChatMemoryParams {
  */
 export default function useChatMemory({
   userId,
+  chatId,
   limit = 100,
   includeInternalMessages = false
 }: UseChatMemoryParams) {
@@ -29,6 +32,10 @@ export default function useChatMemory({
   // Use the base memory hook for operations
   const { searchMemories, addMemory, deleteMemory } = useMemory([MemoryType.MESSAGE]);
   
+  // Calculate default chatId if not provided explicitly
+  const defaultChatId = useMemo(() => generateChatId(userId), [userId]);
+  const effectiveChatId = chatId || defaultChatId;
+  
   /**
    * Load the chat history for a user
    */
@@ -37,7 +44,7 @@ export default function useChatMemory({
     setHistoryError(null);
     
     try {
-      console.log(`Loading chat history for user ${userId} with limit ${limit}`);
+      console.log(`Loading chat history for user ${userId} in chat ${effectiveChatId} with limit ${limit}`);
       
       // Search with empty string to get all messages for this user
       // Don't set any complex filters - just get all messages and filter client-side
@@ -50,13 +57,20 @@ export default function useChatMemory({
       
       console.log(`Retrieved ${memories.length} raw memory items before filtering`);
       
-      // Filter messages client-side for this user
+      // Filter messages client-side for this user and chat
       const filteredMemories = memories.filter((memory: any) => {
         // Get metadata
         const metadata = memory.payload?.metadata || {};
         
         // Match user ID
         if (metadata.userId && metadata.userId !== userId) {
+          return false;
+        }
+        
+        // Match chat ID if we're filtering by a specific chat
+        if (effectiveChatId && metadata.chatId && 
+            metadata.chatId.id !== effectiveChatId && 
+            metadata.chatId !== effectiveChatId) {
           return false;
         }
         
@@ -104,7 +118,7 @@ export default function useChatMemory({
     } finally {
       setIsLoadingHistory(false);
     }
-  }, [userId, limit, includeInternalMessages, searchMemories]);
+  }, [userId, effectiveChatId, limit, includeInternalMessages, searchMemories]);
   
   /**
    * Add a new message to chat history

@@ -322,16 +322,16 @@ export class QdrantMemoryClient implements IMemoryClient {
       
       // Insert point into Qdrant
       try {
-      await this.client.upsert(collectionName, {
-        wait: true,
-        points: [
-          {
-            id: point.id,
-            vector: point.vector,
-            payload: recordPayload
-          }
-        ]
-      });
+        await this.client.upsert(collectionName, {
+          wait: true,
+          points: [
+            {
+              id: point.id,
+              vector: point.vector,
+              payload: recordPayload
+            }
+          ]
+        });
       } catch (upsertError) {
         // Handle 404 Not Found errors by creating the collection and retrying
         if (
@@ -400,31 +400,31 @@ export class QdrantMemoryClient implements IMemoryClient {
       
       // Get points from Qdrant using retrieve method
       try {
-      const response = await this.client.retrieve(collectionName, {
-        ids,
-        with_payload: true,
-        with_vector: true
-      });
-      
-      // Transform response to MemoryPoint objects
-      return response.map(point => {
-        // Ensure vector is an array and handle all possible types
-        let vector: number[] = [];
-        if (Array.isArray(point.vector)) {
-          // Flatten if it's a nested array
-          if (point.vector.length > 0 && Array.isArray(point.vector[0])) {
-            vector = (point.vector as number[][]).flat();
-          } else {
-            vector = point.vector as number[];
-          }
-        }
+        const response = await this.client.retrieve(collectionName, {
+          ids,
+          with_payload: true,
+          with_vector: true
+        });
         
-        return {
-          id: String(point.id),
-          vector,
-          payload: point.payload as T
-        };
-      });
+        // Transform response to MemoryPoint objects
+        return response.map(point => {
+          // Ensure vector is an array and handle all possible types
+          let vector: number[] = [];
+          if (Array.isArray(point.vector)) {
+            // Flatten if it's a nested array
+            if (point.vector.length > 0 && Array.isArray(point.vector[0])) {
+              vector = (point.vector as number[][]).flat();
+            } else {
+              vector = point.vector as number[];
+            }
+          }
+          
+          return {
+            id: String(point.id),
+            vector,
+            payload: point.payload as T
+          };
+        });
       } catch (retrieveError) {
         // Handle 404 Not Found errors by returning empty array
         if (
@@ -514,22 +514,22 @@ export class QdrantMemoryClient implements IMemoryClient {
       }
       
       try {
-      const searchResponse = await this.client.search(collectionName, {
-        vector: vector,
-        limit: query.limit || DEFAULTS.DEFAULT_LIMIT,
-        offset: query.offset || 0,
-        filter: query.filter ? this.buildQdrantFilter(query.filter) : undefined,
-        with_payload: true,
-        with_vector: !!query.includeVectors,
-        score_threshold: query.scoreThreshold
-      });
-      
-      // Transform results
-      return searchResponse.map(result => ({
-        id: String(result.id),
-        score: result.score,
-        payload: result.payload as T
-      }));
+        const searchResponse = await this.client.search(collectionName, {
+          vector: vector,
+          limit: query.limit || DEFAULTS.DEFAULT_LIMIT,
+          offset: query.offset || 0,
+          filter: query.filter ? this.buildQdrantFilter(query.filter) : undefined,
+          with_payload: true,
+          with_vector: true,
+          score_threshold: query.scoreThreshold
+        });
+        
+        // Transform results
+        return searchResponse.map(result => ({
+          id: String(result.id),
+          score: result.score,
+          payload: result.payload as T
+        }));
       } catch (searchError) {
         // Handle 404 Not Found errors by returning empty array 
         if (
@@ -629,31 +629,31 @@ export class QdrantMemoryClient implements IMemoryClient {
       
       // Get points
       try {
-      const response = await this.client.scroll(collectionName, scrollParams);
-      
-      if (!response || !response.points) {
-        return [];
-      }
-      
-      // Transform to MemoryPoint objects
-      return response.points.map(point => {
-        // Ensure vector is an array and handle all possible types
-        let vector: number[] = [];
-        if (Array.isArray(point.vector)) {
-          // Flatten if it's a nested array
-          if (point.vector.length > 0 && Array.isArray(point.vector[0])) {
-            vector = (point.vector as number[][]).flat();
-          } else {
-            vector = point.vector as number[];
-          }
+        const response = await this.client.scroll(collectionName, scrollParams);
+        
+        if (!response || !response.points) {
+          return [];
         }
         
-        return {
-          id: String(point.id),
-          vector,
-          payload: point.payload as T
-        };
-      });
+        // Transform to MemoryPoint objects
+        return response.points.map(point => {
+          // Ensure vector is an array and handle all possible types
+          let vector: number[] = [];
+          if (Array.isArray(point.vector)) {
+            // Flatten if it's a nested array
+            if (point.vector.length > 0 && Array.isArray(point.vector[0])) {
+              vector = (point.vector as number[][]).flat();
+            } else {
+              vector = point.vector as number[];
+            }
+          }
+          
+          return {
+            id: String(point.id),
+            vector,
+            payload: point.payload as T
+          };
+        });
       } catch (scrollError) {
         // Handle 400 Bad Request errors, which can happen if the collection was recreated
         // without proper indices (like timestamp) needed for scrolling

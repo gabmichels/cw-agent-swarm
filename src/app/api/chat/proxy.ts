@@ -14,6 +14,8 @@ import { addMessageMemory } from '../../../server/memory/services/memory/memory-
 import { createThreadInfo } from '../../../server/memory/services/helpers/metadata-helpers';
 import { createUserId, createAgentId, createChatId } from '../../../types/structured-id';
 import { MessageRole } from '../../../agents/chloe/types/state';
+import { generateChatId } from '../../../utils/uuid';
+import { getChatService } from '../../../server/memory/services/chat-service';
 
 // In-memory cache and in-flight request tracking
 const responseCache = new Map<string, {
@@ -261,7 +263,31 @@ async function saveToHistory(userId: string, role: 'user' | 'assistant', content
         // Create structured IDs
         const userStructuredId = createUserId(userId || 'default');
         const agentStructuredId = createAgentId('assistant');
-        const chatStructuredId = createChatId('default-chat');
+        
+        // Get or create a chat session for this user-agent pair
+        let chatSession;
+        let chatId;
+        let chatStructuredId;
+        
+        try {
+          const chatService = await getChatService();
+          const agentId = 'assistant'; // Default agent ID
+          
+          // Get or create a chat session
+          chatSession = await chatService.createChat(userId, agentId, {
+            title: `Chat between ${userId} and ${agentId}`,
+            description: 'Automated chat session',
+          });
+          
+          // Use the chatId directly from the chat session
+          chatId = chatSession.id;
+          chatStructuredId = createChatId(chatId);
+        } catch (chatError) {
+          console.error('Error getting chat session in saveToHistory:', chatError);
+          // Create a fallback chat ID and structured ID
+          chatId = `chat-${userId}-assistant`;
+          chatStructuredId = createChatId(chatId);
+        }
         
         // Create thread info
         const threadInfo = createThreadInfo(`thread_${Date.now()}`, 0);
@@ -301,6 +327,7 @@ async function saveToHistory(userId: string, role: 'user' | 'assistant', content
                   role: messageRole,
                   userId: userStructuredId,
                   timestamp: Date.now(),
+                  chatId: chatId, // Store the UUID-based chat ID in metadata
                   ...(visionResponseFor ? { visionResponseFor } : {}) // Keep this for the cache only
                 }
               }
@@ -390,6 +417,44 @@ export async function POST(req: Request) {
           await initializeMemory();
         }
         
+        // Get or create a chat session for this conversation
+        let chatSession;
+        try {
+          const chatService = await getChatService();
+          chatSession = await chatService.createChat(userId, agentId, {
+            title: `Chat with ${agentId}`,
+            description: `Conversation between user ${userId} and agent ${agentId}`
+          });
+        } catch (chatError) {
+          console.error('Error creating chat session:', chatError);
+          // Continue without a chat session - the conversation will still work
+          chatSession = {
+            id: `chat-${userId}-${agentId}`,
+            type: 'direct',
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            status: 'active',
+            participants: [
+              { id: userId, type: 'user', joinedAt: new Date().toISOString() },
+              { id: agentId, type: 'agent', joinedAt: new Date().toISOString() }
+            ],
+            metadata: {
+              title: `Chat with ${agentId}`,
+              description: `Conversation between user ${userId} and agent ${agentId}`
+            }
+          };
+        }
+        
+        // Use the UUID directly - no longer need to create a structured ID from it
+        const chatId = chatSession.id;
+        
+        // Create structured IDs for user and agent
+        const userStructuredId = createUserId(userId || 'default');
+        const agentStructuredId = createAgentId('assistant');
+        
+        // Create thread info
+        const threadInfo = createThreadInfo(`thread_${Date.now()}`, 0);
+        
         // Track this message in history
         let userMessageId = null;
         if (!memoryDisabled) {
@@ -402,7 +467,7 @@ export async function POST(req: Request) {
         }
         
         // Set up a timeout to ensure we always respond
-        const timeoutPromise = new Promise((_, reject) => {
+        const timeoutPromise = new Promise<any>((_, reject) => {
           setTimeout(() => reject(new Error('Request timed out after 60 seconds')), 60000);
         });
         
@@ -427,15 +492,29 @@ export async function POST(req: Request) {
           throw new Error(`Unsupported agent ID: ${agentId}`);
         }
         
-        // Process the message with the selected agent
-        const chatResponse = await agent.processMessage(message, {
-          attachments,
-          userId,
-          // Add the userMessageId to the options so the agent knows not to save this message again
-          userMessageId,
-          // TypeScript error fix: Cast to any to allow the visionResponseFor property
-          ...(visionResponseFor ? { visionResponseFor } : {})
-        } as any);
+        // Process the message with the selected agent - with timeout protection
+        let chatResponse;
+        try {
+          const processPromise = agent.processMessage(message, {
+            attachments,
+            userId,
+            // Add the userMessageId to the options so the agent knows not to save this message again
+            userMessageId,
+            // TypeScript error fix: Cast to any to allow the visionResponseFor property
+            ...(visionResponseFor ? { visionResponseFor } : {})
+          } as any);
+          
+          // Race the process against a timeout
+          chatResponse = await Promise.race([processPromise, timeoutPromise]);
+        } catch (agentError) {
+          console.error('Error from agent process:', agentError);
+          // Provide a fallback response
+          chatResponse = {
+            content: "I'm experiencing some technical difficulties at the moment. Please try again later.",
+            memories: [],
+            thoughts: [`Error: ${agentError instanceof Error ? agentError.message : String(agentError)}`]
+          };
+        }
         
         // TypeScript error fix: Properly extract data with type handling
         // Extract essential information with proper type handling
@@ -465,7 +544,21 @@ export async function POST(req: Request) {
           reply,
           memory: memories,
           thoughts,
-          timestamp
+          timestamp,
+          chatId: chatSession?.id || `chat-${userId}-${agentId}`,
+          chatInfo: chatSession ? {
+            title: chatSession.metadata?.title || `Chat with ${agentId}`,
+            participants: chatSession.participants.map(p => ({
+              id: p.id,
+              type: p.type
+            }))
+          } : {
+            title: `Chat with ${agentId}`,
+            participants: [
+              { id: userId, type: 'user' },
+              { id: agentId, type: 'agent' }
+            ]
+          }
         };
       } catch (error) {
         console.error('Error processing message:', error);
