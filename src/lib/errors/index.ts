@@ -1,4 +1,59 @@
 /**
+ * Error handling framework
+ * 
+ * This module provides a comprehensive error handling framework for the application.
+ * It includes standardized error types, error handling utilities, and error boundary patterns.
+ */
+
+// Re-export all items from base module
+export * from './base';
+
+// Re-export all items from types module 
+export * from './types';
+
+// Re-export all items from utils module
+export * from './utils';
+
+// Import AppError for assertion functions
+import { AppError } from './base';
+
+/**
+ * Utility function to assert that a value is not undefined or null
+ * @param value Value to check
+ * @param message Error message if value is undefined or null
+ * @param errorCode Custom error code
+ * @param context Additional error context
+ */
+export function assertDefined<T>(
+  value: T | null | undefined, 
+  message = 'Value is required but was not provided', 
+  errorCode = 'ASSERTION_ERROR',
+  context: Record<string, unknown> = {}
+): asserts value is T {
+  if (value === null || value === undefined) {
+    throw new AppError(message, errorCode, context);
+  }
+}
+
+/**
+ * Utility function to assert that a condition is true
+ * @param condition Condition to check
+ * @param message Error message if condition is false
+ * @param errorCode Custom error code
+ * @param context Additional error context
+ */
+export function assert(
+  condition: boolean,
+  message = 'Assertion failed',
+  errorCode = 'ASSERTION_ERROR',
+  context: Record<string, unknown> = {}
+): asserts condition {
+  if (!condition) {
+    throw new AppError(message, errorCode, context);
+  }
+}
+
+/**
  * Error system for the application
  * Provides standardized error handling, logging, and reporting
  */
