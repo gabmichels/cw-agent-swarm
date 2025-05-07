@@ -648,6 +648,26 @@ const ToolsTab: React.FC<ToolsTabProps> = ({
                 >
                   Check Markdown Status
                 </button>
+                <button
+                  onClick={async () => {
+                    try {
+                      const response = await fetch('/api/debug/test-watcher');
+                      if (response.ok) {
+                        const data = await response.json();
+                        alert('Markdown watcher test started. Check console for results.');
+                      } else {
+                        alert('Error testing markdown watcher');
+                      }
+                    } catch (error) {
+                      console.error('Error testing markdown watcher:', error);
+                      alert('Error testing markdown watcher: ' + String(error));
+                    }
+                  }}
+                  disabled={isDebugLoading}
+                  className="w-full px-4 py-2 bg-green-600 hover:bg-green-700 rounded text-white"
+                >
+                  Test Markdown Watcher
+                </button>
               </div>
             </div>
           </div>

@@ -71,3 +71,4 @@ data/files/file_metadata.json
 
 data/cache/markdown-cache.json
 .cursor/rules/no-any.mdc
+data/cache/markdown-initialized.flag

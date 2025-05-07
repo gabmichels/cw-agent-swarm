@@ -1671,4 +1671,11 @@ I don't have enough information about Claro's brand identity. I should ask for c
       };
     }
   }
+
+  /**
+   * Get the markdown manager
+   */
+  getMarkdownManager(): MarkdownManager | null {
+    return this.markdownManager;
+  }
 }

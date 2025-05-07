@@ -127,7 +127,8 @@ export class MarkdownManager {
       'data/knowledge/company',
       `data/knowledge/agents/${this.agentId}`,
       'data/knowledge/agents/shared',
-      `data/knowledge/domains/${this.department}`
+      `data/knowledge/domains/${this.department}`,
+      'data/knowledge/test' // Added test directory for development
     ];
   }
 
@@ -458,26 +459,69 @@ export class MarkdownManager {
 
     const directories = this.getAgentDirectories();
     this.logFunction('Starting markdown file watcher', { directories });
+    console.log(`Starting markdown file watcher for directories: ${directories.join(', ')}`);
 
-    // Initialize chokidar watcher
-    this.watcher = watch(directories, {
-      persistent: true,
-      ignoreInitial: true,
-      awaitWriteFinish: {
-        stabilityThreshold: 2000,
-        pollInterval: 100
+    try {
+      // Get absolute paths for all directories
+      const absolutePaths = directories.map(dir => path.join(process.cwd(), dir));
+      
+      // Make sure the directories exist
+      for (const dirPath of absolutePaths) {
+        try {
+          await fs.mkdir(dirPath, { recursive: true });
+        } catch (error) {
+          console.error(`Error creating directory ${dirPath}:`, error);
+        }
       }
-    });
 
-    // Handle file events
-    this.watcher.on('add', (filePath: string) => this.handleFileAddOrChange(filePath, 'add'));
-    this.watcher.on('change', (filePath: string) => this.handleFileAddOrChange(filePath, 'change'));
-    this.watcher.on('unlink', (filePath: string) => this.handleFileDelete(filePath));
-    this.watcher.on('error', (error: Error) => {
-      this.logFunction('Error in file watcher', { error: error.message });
-    });
+      // Initialize chokidar watcher with improved settings
+      this.watcher = watch(absolutePaths, {
+        persistent: true,
+        ignoreInitial: true,
+        awaitWriteFinish: {
+          stabilityThreshold: 1000, // Reduced from 2000ms
+          pollInterval: 100
+        },
+        ignorePermissionErrors: true, // More resilient to permission issues
+        usePolling: true, // Use polling for better compatibility across platforms
+        interval: 1000, // Polling interval
+        binaryInterval: 3000 // For binary files
+      });
 
-    this.isWatching = true;
+      // Handle file events with explicit event logging
+      this.watcher.on('add', (filePath: string) => {
+        console.log(`📥 File added: ${filePath}`);
+        this.handleFileAddOrChange(filePath, 'add');
+      });
+      
+      this.watcher.on('change', (filePath: string) => {
+        console.log(`🔄 File changed: ${filePath}`);
+        this.handleFileAddOrChange(filePath, 'change');
+      });
+      
+      this.watcher.on('unlink', (filePath: string) => {
+        console.log(`🗑️ File deleted: ${filePath}`);
+        this.handleFileDelete(filePath);
+      });
+      
+      this.watcher.on('error', (error: Error) => {
+        console.error(`❌ Error in file watcher: ${error.message}`);
+        this.logFunction('Error in file watcher', { error: error.message });
+      });
+
+      // Add ready event to confirm watcher is working
+      this.watcher.on('ready', () => {
+        console.log(`✅ Markdown watcher ready and monitoring ${absolutePaths.length} directories`);
+        this.logFunction('Markdown watcher ready', { directories: absolutePaths });
+      });
+
+      this.isWatching = true;
+      console.log('File watcher started successfully');
+    } catch (error) {
+      console.error('Error starting markdown file watcher:', error);
+      this.logFunction('Error starting markdown file watcher', { error: String(error) });
+      throw error;
+    }
   }
 
   /**
@@ -499,18 +543,57 @@ export class MarkdownManager {
    * Handle file add or change events
    */
   private async handleFileAddOrChange(filePath: string, eventType: 'add' | 'change'): Promise<void> {
-    if (!filePath.toLowerCase().endsWith('.md')) return;
+    if (!filePath.toLowerCase().endsWith('.md')) {
+      console.log(`Ignoring non-markdown file: ${filePath}`);
+      return;
+    }
 
     try {
       const relativePath = path.relative(process.cwd(), filePath);
-      await this.processMarkdownFile(filePath, relativePath);
+      console.log(`🔍 Processing ${eventType} event for file: ${relativePath}`);
       
-      this.logFunction(`Processed ${eventType} event`, { filePath });
+      // First check if the file exists and is accessible
+      try {
+        const fileStats = await fs.stat(filePath);
+        console.log(`File stats: size=${fileStats.size}, mtime=${fileStats.mtime.toISOString()}`);
+        
+        // Check if file is empty
+        if (fileStats.size === 0) {
+          console.log(`Warning: File is empty, skipping: ${relativePath}`);
+          return;
+        }
+      } catch (statError) {
+        console.error(`Error accessing file ${filePath}:`, statError);
+        return;
+      }
+      
+      // For 'change' events, first delete existing memories for this file
+      if (eventType === 'change') {
+        try {
+          const deletedCount = await this.deleteMemoriesForFile(relativePath);
+          this.logFunction(`Deleted ${deletedCount} existing memories for changed file: ${relativePath}`);
+          console.log(`✅ Deleted ${deletedCount} existing memories for changed file: ${relativePath}`);
+        } catch (deleteError) {
+          console.error(`Error deleting existing memories for ${relativePath}:`, deleteError);
+          // Continue processing even if deletion fails
+        }
+      }
+      
+      // Process the file (adds new memories)
+      console.log(`📝 Processing file content: ${relativePath}`);
+      const result = await this.processMarkdownFile(filePath, relativePath);
+      
+      this.logFunction(`Processed ${eventType} event`, { 
+        filePath,
+        entriesAdded: result.entriesAdded
+      });
+      console.log(`✅ Processed ${eventType} event for ${relativePath}, added ${result.entriesAdded} entries`);
     } catch (error) {
       this.logFunction(`Error handling ${eventType} event`, { 
         filePath, 
         error: String(error) 
       });
+      console.error(`❌ Error handling ${eventType} event for ${filePath}:`, error);
     }
   }
 
@@ -521,38 +604,171 @@ export class MarkdownManager {
     if (!filePath.toLowerCase().endsWith('.md')) return;
 
     try {
-      // Simply remove from cache, don't interact with memory database
-      await this.removeFromCache(filePath);
-      this.logFunction('Removed file from cache', { filePath });
+      const relativePath = path.relative(process.cwd(), filePath);
       
-      /* Original code commented out
-      const cached = this.fileCache.get(filePath);
-      if (cached) {
-        const { memoryService } = await getMemoryServices();
-        
-        // Mark memories as deleted
-        for (const memoryId of cached.memoryIds) {
-          await memoryService.updateMemory({
-            id: memoryId,
-            type: MemoryType.DOCUMENT,
-            metadata: {
-              deleted: true,
-              deletedAt: new Date().toISOString(),
-              fileDeleted: true,
-              filePath: path.relative(process.cwd(), filePath)
-            }
-          });
-        }
-        
-        await this.removeFromCache(filePath);
-        this.logFunction('Marked memories as deleted', { filePath });
-      }
-      */
+      // Delete associated memories from the memory service
+      await this.deleteMemoriesForFile(relativePath);
+      
+      // Remove from cache
+      await this.removeFromCache(filePath);
+      
+      this.logFunction('Processed delete event', { filePath: relativePath });
+      console.log(`Processed delete event for ${relativePath}, removed associated memories`);
     } catch (error) {
       this.logFunction('Error handling delete event', { 
         filePath, 
         error: String(error) 
       });
+      console.error(`Error handling delete event for ${filePath}:`, error);
+    }
+  }
+  
+  /**
+   * Delete all memories associated with a specific file path
+   */
+  private async deleteMemoriesForFile(relativePath: string): Promise<number> {
+    try {
+      // Get memory services
+      const { memoryService } = await getMemoryServices();
+      
+      // Normalize the path to ensure consistent matching
+      const normalizedPath = relativePath.replace(/\\/g, '/');
+      
+      // Search for existing memories for this file using EXACT path match
+      // We need to be very precise here to avoid deleting unrelated memories
+      const query = `metadata.filePath:"${normalizedPath}"`;
+      console.log(`🔍 Searching for memories with EXACT file path match: ${query}`);
+      
+      const existingMemories = await memoryService.searchMemories({
+        type: MemoryType.DOCUMENT,
+        query: query,
+        limit: 100 // Increase limit to handle multiple entries per file
+      });
+      
+      // If no memories exist, nothing to delete
+      if (!existingMemories || existingMemories.length === 0) {
+        this.logFunction(`No existing memories found for ${normalizedPath}, nothing to delete`);
+        return 0;
+      }
+      
+      // Double-check that we're only deleting memories for THIS exact file
+      const filteredMemories = existingMemories.filter(memory => {
+        // Try to find filePath in different possible locations using type casting to avoid TypeScript errors
+        // since the actual runtime objects may have these properties even if not in the type definitions
+        const metadata = memory.payload?.metadata as any;
+        const memFilePath = metadata?.filePath || metadata?.extractedFrom || '';
+        
+        if (!memFilePath) return false;
+        
+        // Normalize paths for comparison
+        const normalizedMemPath = memFilePath.toString().replace(/\\/g, '/');
+        const pathsMatch = normalizedMemPath === normalizedPath;
+        
+        if (!pathsMatch) {
+          console.log(`⚠️ Skipping memory - path mismatch: '${normalizedMemPath}' vs '${normalizedPath}'`);
+        }
+        
+        return pathsMatch;
+      });
+      
+      // Log the results of our filtering
+      if (filteredMemories.length !== existingMemories.length) {
+        console.log(`⚠️ Query matched ${existingMemories.length} memories, but only ${filteredMemories.length} have the exact file path match`);
+      }
+      
+      this.logFunction(`Found ${filteredMemories.length} memories to delete for file: ${normalizedPath}`);
+      console.log(`Found ${filteredMemories.length} memories to delete for file: ${normalizedPath}`);
+      
+      // Delete each memory
+      let deletedCount = 0;
+      for (const memory of filteredMemories) {
+        try {
+          if (memory.id) {
+            await memoryService.deleteMemory({
+              type: MemoryType.DOCUMENT,
+              id: memory.id,
+              hardDelete: true
+            });
+            deletedCount++;
+          }
+        } catch (deleteError) {
+          this.logFunction(`Error deleting memory: ${deleteError}`);
+          console.error(`Error deleting memory: ${deleteError}`);
+        }
+      }
+      
+      this.logFunction(`Deleted ${deletedCount}/${filteredMemories.length} memories for ${normalizedPath}`);
+      console.log(`✅ Deleted ${deletedCount}/${filteredMemories.length} memories for ${normalizedPath}`);
+      return deletedCount;
+    } catch (error) {
+      this.logFunction(`Error deleting memories for file ${relativePath}: ${error}`);
+      console.error(`Error deleting memories for file ${relativePath}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Test file watcher by creating a test file
+   * This is for development testing only
+   */
+  async testFileWatcher(): Promise<boolean> {
+    try {
+      // Create test directory if it doesn't exist
+      const testDir = path.join(process.cwd(), 'data', 'knowledge', 'test');
+      await fs.mkdir(testDir, { recursive: true });
+      
+      // Create a random filename to avoid cache hits
+      const randomId = Math.floor(Math.random() * 10000);
+      const testFilePath = path.join(testDir, `test-file-${randomId}.md`);
+      const relativePath = path.relative(process.cwd(), testFilePath);
+      
+      // Create test content
+      const testContent = `# Test Markdown File ${randomId}
+
+This is a test file created at ${new Date().toISOString()}.
+
+## Test Section
+
+This file should be detected by the markdown watcher.
+`;
+      
+      console.log(`🧪 Creating test file at: ${relativePath}`);
+      
+      // Write the file
+      await fs.writeFile(testFilePath, testContent, 'utf-8');
+      console.log(`✅ Test file created successfully`);
+      
+      // After 5 seconds, update the file to test change detection
+      setTimeout(async () => {
+        try {
+          console.log(`🧪 Updating test file: ${relativePath}`);
+          await fs.writeFile(
+            testFilePath, 
+            testContent + `\n\n## Updated Section\n\nThis file was updated at ${new Date().toISOString()}.\n`,
+            'utf-8'
+          );
+          console.log(`✅ Test file updated successfully`);
+          
+          // After another 5 seconds, delete the file to test delete detection
+          setTimeout(async () => {
+            try {
+              console.log(`🧪 Deleting test file: ${relativePath}`);
+              await fs.unlink(testFilePath);
+              console.log(`✅ Test file deleted successfully`);
+            } catch (deleteError) {
+              console.error(`Error deleting test file:`, deleteError);
+            }
+          }, 5000);
+          
+        } catch (updateError) {
+          console.error(`Error updating test file:`, updateError);
+        }
+      }, 5000);
+      
+      return true;
+    } catch (error) {
+      console.error(`Error testing file watcher:`, error);
+      return false;
     }
   }
 } 
