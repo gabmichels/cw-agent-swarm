@@ -7,6 +7,8 @@ This directory contains all documentation for the cw-agent-swarm project. The do
 - **[architecture/](./architecture/)** - System architecture documentation
   - **[memory/](./architecture/memory/)** - Memory system design and architecture
   - **[system/](./architecture/system/)** - Core system architecture components
+  - **[designs/](./architecture/designs/)** - Detailed design documents for key components 
+    - [SCHEMA_VERSIONING_STRATEGY.md](./refactoring/architecture/designs/SCHEMA_VERSIONING_STRATEGY.md) - Schema validation and versioning
 
 - **[code-standards/](./code-standards/)** - Coding guidelines and standards
   - [TYPESCRIPT.md](./code-standards/TYPESCRIPT.md) - TypeScript coding standards
@@ -15,6 +17,7 @@ This directory contains all documentation for the cw-agent-swarm project. The do
 
 - **[memory/](./memory/)** - Memory subsystem documentation
   - Contains detailed documentation on memory operations, schemas, and integration
+  - [SCHEMA_VALIDATION.md](./memory/SCHEMA_VALIDATION.md) - Schema validation system usage
 
 - **[project-planning/](./project-planning/)** - Project planning documents
   - [ROADMAP.md](./project-planning/ROADMAP.md) - Project roadmap
@@ -40,6 +43,17 @@ The architecture documentation provides a high-level overview of the system desi
 ### Memory System
 
 The memory system documentation covers the design and implementation of the agent memory system, including storage, retrieval, and integration with other system components.
+
+#### Schema Validation System
+
+The schema validation system provides robust data validation with versioning capabilities:
+
+- **Type-Safety**: Strong TypeScript integration with type predicates
+- **Versioning**: Support for schema evolution with major/minor versioning
+- **Migration**: Schema migration framework for data transformations
+- **Validation**: JSON Schema-based validation with detailed error reporting
+
+See [src/server/memory/schema/README.md](../src/server/memory/schema/README.md) for detailed usage guides.
 
 ### Refactoring Projects
 
