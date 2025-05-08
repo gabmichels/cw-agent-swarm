@@ -33,9 +33,12 @@ import {
   createMessageMetadata
 } from '../../../server/memory/services/helpers/metadata-helpers';
 import {
+  createSystemId,
   createAgentId,
   createUserId,
-  createChatId
+  createChatId,
+  StructuredId,
+  EntityType
 } from '../../../types/structured-id';
 import {
   CognitiveProcessType,
@@ -44,6 +47,10 @@ import {
   DocumentSource
 } from '../../../types/metadata';
 import { MessageRole } from '../../chloe/types/state';
+import { 
+  ImportanceLevel, 
+  MemoryImportanceLevel 
+} from '../../../constants/memory';
 
 // Extend MessageType to include 'command' type
 type ExtendedMessageType = MessageType | 'command';
@@ -610,24 +617,31 @@ export class AgentBase {
         threadInfo = getOrCreateThreadInfo(chatIdStr, role);
       }
       
-      // Add to memory
-      await this.memoryService.addMemory({
-        type: MemoryType.MESSAGE,
+      // Use the wrapper function for adding messages to memory
+      const messageRole = message.fromAgentId === this.agentId 
+        ? MessageRole.ASSISTANT 
+        : MessageRole.USER;
+        
+      // Import the wrapper function
+      const { addMessageMemory } = await import('../../../server/memory/services/memory/memory-service-wrappers');
+      
+      // Add to memory using the wrapper function for type safety and optimization
+      await addMessageMemory(
+        this.memoryService,
         content,
-        metadata: {
-          // Required metadata
-          role: message.fromAgentId === this.agentId ? MessageRole.ASSISTANT : MessageRole.USER,
-          userId: userStructuredId,
-          agentId: agentStructuredId,
-          chatId: chatStructuredId,
-          thread: threadInfo,
-          
-          // Optional metadata
-          timestamp: new Date().toISOString(),
+        messageRole,
+        userStructuredId,
+        agentStructuredId,
+        chatStructuredId,
+        threadInfo,
+        {
           messageType: message.type,
-          ...(message.metadata || {})
+          metadata: {
+            timestamp: Date.now(),
+            ...(message.metadata || {})
+          }
         }
-      });
+      );
       
       console.log(`[${this.agentId}] Stored message in memory from ${message.fromAgentId} with thread ID ${threadInfo.id}, position ${threadInfo.position}`);
     } catch (error) {

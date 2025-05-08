@@ -28,6 +28,8 @@ import { MessageRole } from '../../../../agents/chloe/types/state';
 import { MemoryType } from '../../config/types';
 import { ImportanceLevel } from '../../../../constants/memory';
 import { MemoryService } from './memory-service';
+import { EnhancedMemoryService } from '../multi-agent/enhanced-memory-service';
+import { isEnhancedMemoryService } from '../multi-agent/migration-helpers';
 import {
   createMessageMetadata,
   createThreadInfo,
@@ -40,6 +42,12 @@ import {
 } from '../helpers/metadata-helpers';
 import { BaseMemorySchema, MemoryPoint } from '../../models';
 import { MemoryResult } from './types';
+
+/**
+ * Type definition for either a MemoryService or EnhancedMemoryService
+ * This allows the wrapper functions to work with both types
+ */
+export type AnyMemoryService = MemoryService | EnhancedMemoryService;
 
 /**
  * Maps cognitive process type to memory type
@@ -66,18 +74,18 @@ export function getCognitiveProcessMemoryType(processType: CognitiveProcessType)
 /**
  * Add message to memory with proper metadata structure
  * 
- * @param memoryService Memory service instance
+ * @param memoryService Memory service instance (either MemoryService or EnhancedMemoryService)
  * @param content Message content
  * @param role Message role (user, assistant, system)
  * @param userId User ID structured identifier
  * @param agentId Agent ID structured identifier
- * @param chatId Chat ID structured identifier
+ * @param chatId Chat structured identifier
  * @param threadInfo Thread information
  * @param options Additional options
  * @returns Memory operation result
  */
 export async function addMessageMemory(
-  memoryService: MemoryService,
+  memoryService: AnyMemoryService,
   content: string,
   role: MessageRole,
   userId: StructuredId,
@@ -123,7 +131,7 @@ export async function addMessageMemory(
 /**
  * Add cognitive process to memory with proper metadata structure
  * 
- * @param memoryService Memory service instance
+ * @param memoryService Memory service instance (either MemoryService or EnhancedMemoryService)
  * @param content Process content
  * @param processType Process type
  * @param agentId Agent ID structured identifier
@@ -131,7 +139,7 @@ export async function addMessageMemory(
  * @returns Memory operation result
  */
 export async function addCognitiveProcessMemory(
-  memoryService: MemoryService,
+  memoryService: AnyMemoryService,
   content: string,
   processType: CognitiveProcessType,
   agentId: StructuredId,
@@ -228,14 +236,14 @@ export async function addCognitiveProcessMemory(
 /**
  * Add document to memory with proper metadata structure
  * 
- * @param memoryService Memory service instance
+ * @param memoryService Memory service instance (either MemoryService or EnhancedMemoryService)
  * @param content Document content
  * @param source Document source
  * @param options Additional options
  * @returns Memory operation result
  */
 export async function addDocumentMemory(
-  memoryService: MemoryService,
+  memoryService: AnyMemoryService,
   content: string,
   source: DocumentSource,
   options: {
@@ -293,7 +301,7 @@ export async function addDocumentMemory(
 /**
  * Add task to memory with proper metadata structure
  * 
- * @param memoryService Memory service instance
+ * @param memoryService Memory service instance (either MemoryService or EnhancedMemoryService)
  * @param content Task content
  * @param title Task title
  * @param status Task status
@@ -303,7 +311,7 @@ export async function addDocumentMemory(
  * @returns Memory operation result
  */
 export async function addTaskMemory(
-  memoryService: MemoryService,
+  memoryService: AnyMemoryService,
   content: string,
   title: string,
   status: TaskStatus,
@@ -368,13 +376,13 @@ export interface MessageSearchFilters {
 /**
  * Search for messages with strongly typed filters
  * 
- * @param memoryService Memory service instance
+ * @param memoryService Memory service instance (either MemoryService or EnhancedMemoryService)
  * @param filters Search filters
  * @param options Search options
  * @returns Array of matching memory points
  */
 export async function searchMessages(
-  memoryService: MemoryService,
+  memoryService: AnyMemoryService,
   filters: MessageSearchFilters,
   options: {
     query?: string;
@@ -420,13 +428,58 @@ export async function searchMessages(
     metadataFilters['importance'] = filters.importance;
   }
   
+  // Create optimized filters for EnhancedMemoryService
+  let optimizedFilter: Record<string, any> = {};
+  
+  // Check if we're using EnhancedMemoryService which can use top-level fields
+  if (isEnhancedMemoryService(memoryService)) {
+    // Use the top-level fields for frequently accessed properties
+    if (filters.userId) {
+      optimizedFilter.userId = typeof filters.userId === 'string' 
+        ? filters.userId 
+        : filters.userId.id;
+    }
+    
+    if (filters.agentId) {
+      optimizedFilter.agentId = typeof filters.agentId === 'string'
+        ? filters.agentId
+        : filters.agentId.id;
+    }
+    
+    if (filters.chatId) {
+      optimizedFilter.chatId = typeof filters.chatId === 'string'
+        ? filters.chatId
+        : filters.chatId.id;
+    }
+    
+    if (filters.threadId) {
+      optimizedFilter.threadId = filters.threadId;
+    }
+    
+    if (filters.messageType) {
+      optimizedFilter.messageType = filters.messageType;
+    }
+    
+    if (filters.importance) {
+      optimizedFilter.importance = filters.importance;
+    }
+    
+    // Add remaining metadata filters
+    if (filters.role) {
+      optimizedFilter.metadata = { role: filters.role };
+    }
+  } else {
+    // For base MemoryService, just use metadata filters
+    optimizedFilter = { metadata: metadataFilters };
+  }
+  
   return memoryService.searchMemories({
     type: MemoryType.MESSAGE,
     query: options.query,
     limit: options.limit,
     offset: options.offset,
     minScore: options.minScore,
-    filter: metadataFilters
+    filter: optimizedFilter
   });
 }
 
@@ -446,13 +499,13 @@ export interface CognitiveProcessSearchFilters {
 /**
  * Search for cognitive processes with strongly typed filters
  * 
- * @param memoryService Memory service instance
+ * @param memoryService Memory service instance (either MemoryService or EnhancedMemoryService)
  * @param filters Search filters
  * @param options Search options
  * @returns Array of matching memory points
  */
 export async function searchCognitiveProcesses(
-  memoryService: MemoryService,
+  memoryService: AnyMemoryService,
   filters: CognitiveProcessSearchFilters,
   options: {
     query?: string;
@@ -494,6 +547,49 @@ export async function searchCognitiveProcesses(
     metadataFilters['importance'] = filters.importance;
   }
   
+  // Create optimized filters for EnhancedMemoryService
+  let optimizedFilter: Record<string, any> = {};
+  
+  // Check if we're using EnhancedMemoryService which can use top-level fields
+  if (isEnhancedMemoryService(memoryService)) {
+    // Use the top-level fields for frequently accessed properties
+    if (filters.agentId) {
+      optimizedFilter.agentId = typeof filters.agentId === 'string'
+        ? filters.agentId
+        : filters.agentId.id;
+    }
+    
+    if (filters.importance) {
+      optimizedFilter.importance = filters.importance;
+    }
+    
+    // Add remaining metadata filters
+    optimizedFilter.metadata = {};
+    
+    if (filters.processType) {
+      optimizedFilter.metadata.processType = filters.processType;
+    }
+    
+    if (filters.contextId) {
+      optimizedFilter.metadata.contextId = filters.contextId;
+    }
+    
+    if (filters.relatedTo) {
+      optimizedFilter.metadata.relatedTo = filters.relatedTo;
+    }
+    
+    if (filters.influences) {
+      optimizedFilter.metadata.influences = filters.influences;
+    }
+    
+    if (filters.influencedBy) {
+      optimizedFilter.metadata.influencedBy = filters.influencedBy;
+    }
+  } else {
+    // For base MemoryService, just use metadata filters
+    optimizedFilter = { metadata: metadataFilters };
+  }
+  
   // Determine memory type based on process type
   let memoryType: MemoryType | undefined;
   if (filters.processType) {
@@ -506,7 +602,7 @@ export async function searchCognitiveProcesses(
     limit: options.limit,
     offset: options.offset,
     minScore: options.minScore,
-    filter: metadataFilters
+    filter: optimizedFilter
   });
 }
 
@@ -528,13 +624,13 @@ export interface DocumentSearchFilters {
 /**
  * Search for documents with strongly typed filters
  * 
- * @param memoryService Memory service instance
+ * @param memoryService Memory service instance (either MemoryService or EnhancedMemoryService)
  * @param filters Search filters
  * @param options Search options
  * @returns Array of matching memory points
  */
 export async function searchDocuments(
-  memoryService: MemoryService,
+  memoryService: AnyMemoryService,
   filters: DocumentSearchFilters,
   options: {
     query?: string;
@@ -586,13 +682,66 @@ export async function searchDocuments(
     metadataFilters['importance'] = filters.importance;
   }
   
+  // Create optimized filters for EnhancedMemoryService
+  let optimizedFilter: Record<string, any> = {};
+  
+  // Check if we're using EnhancedMemoryService which can use top-level fields
+  if (isEnhancedMemoryService(memoryService)) {
+    // Use the top-level fields for frequently accessed properties
+    if (filters.userId) {
+      optimizedFilter.userId = typeof filters.userId === 'string'
+        ? filters.userId
+        : filters.userId.id;
+    }
+    
+    if (filters.agentId) {
+      optimizedFilter.agentId = typeof filters.agentId === 'string'
+        ? filters.agentId
+        : filters.agentId.id;
+    }
+    
+    if (filters.importance) {
+      optimizedFilter.importance = filters.importance;
+    }
+    
+    // Add remaining metadata filters
+    optimizedFilter.metadata = {};
+    
+    if (filters.source) {
+      optimizedFilter.metadata.source = filters.source;
+    }
+    
+    if (filters.title) {
+      optimizedFilter.metadata.title = filters.title;
+    }
+    
+    if (filters.fileName) {
+      optimizedFilter.metadata.fileName = filters.fileName;
+    }
+    
+    if (filters.contentType) {
+      optimizedFilter.metadata.contentType = filters.contentType;
+    }
+    
+    if (filters.fileType) {
+      optimizedFilter.metadata.fileType = filters.fileType;
+    }
+    
+    if (filters.author) {
+      optimizedFilter.metadata.author = filters.author;
+    }
+  } else {
+    // For base MemoryService, just use metadata filters
+    optimizedFilter = { metadata: metadataFilters };
+  }
+  
   return memoryService.searchMemories({
     type: MemoryType.DOCUMENT,
     query: options.query,
     limit: options.limit,
     offset: options.offset,
     minScore: options.minScore,
-    filter: metadataFilters
+    filter: optimizedFilter
   });
 }
 
@@ -613,13 +762,13 @@ export interface TaskSearchFilters {
 /**
  * Search for tasks with strongly typed filters
  * 
- * @param memoryService Memory service instance
+ * @param memoryService Memory service instance (either MemoryService or EnhancedMemoryService)
  * @param filters Search filters
  * @param options Search options
  * @returns Array of matching memory points
  */
 export async function searchTasks(
-  memoryService: MemoryService,
+  memoryService: AnyMemoryService,
   filters: TaskSearchFilters,
   options: {
     query?: string;
@@ -667,13 +816,62 @@ export async function searchTasks(
     metadataFilters['importance'] = filters.importance;
   }
   
+  // Create optimized filters for EnhancedMemoryService
+  let optimizedFilter: Record<string, any> = {};
+  
+  // Check if we're using EnhancedMemoryService which can use top-level fields
+  if (isEnhancedMemoryService(memoryService)) {
+    // Use the top-level fields for frequently accessed properties
+    if (filters.importance) {
+      optimizedFilter.importance = filters.importance;
+    }
+    
+    // Add remaining metadata filters
+    optimizedFilter.metadata = {};
+    
+    if (filters.title) {
+      optimizedFilter.metadata.title = filters.title;
+    }
+    
+    if (filters.status) {
+      optimizedFilter.metadata.status = filters.status;
+    }
+    
+    if (filters.priority) {
+      optimizedFilter.metadata.priority = filters.priority;
+    }
+    
+    if (filters.createdBy) {
+      optimizedFilter.metadata['createdBy.id'] = typeof filters.createdBy === 'string'
+        ? filters.createdBy
+        : filters.createdBy.id;
+    }
+    
+    if (filters.assignedTo) {
+      optimizedFilter.metadata['assignedTo.id'] = typeof filters.assignedTo === 'string'
+        ? filters.assignedTo
+        : filters.assignedTo.id;
+    }
+    
+    if (filters.dueDate) {
+      optimizedFilter.metadata.dueDate = filters.dueDate;
+    }
+    
+    if (filters.parentTaskId) {
+      optimizedFilter.metadata.parentTaskId = filters.parentTaskId;
+    }
+  } else {
+    // For base MemoryService, just use metadata filters
+    optimizedFilter = { metadata: metadataFilters };
+  }
+  
   return memoryService.searchMemories({
     type: MemoryType.TASK,
     query: options.query,
     limit: options.limit,
     offset: options.offset,
     minScore: options.minScore,
-    filter: metadataFilters
+    filter: optimizedFilter
   });
 }
 
@@ -696,7 +894,7 @@ export interface AgentCommunicationOptions {
 /**
  * Send a message from one agent to another
  * 
- * @param memoryService Memory service instance
+ * @param memoryService Memory service instance (either MemoryService or EnhancedMemoryService)
  * @param content Message content
  * @param senderAgentId Sender agent structured identifier
  * @param receiverAgentId Receiver agent structured identifier
@@ -705,7 +903,7 @@ export interface AgentCommunicationOptions {
  * @returns Memory operation result
  */
 export async function sendAgentToAgentMessage(
-  memoryService: MemoryService,
+  memoryService: AnyMemoryService,
   content: string,
   senderAgentId: StructuredId,
   receiverAgentId: StructuredId,

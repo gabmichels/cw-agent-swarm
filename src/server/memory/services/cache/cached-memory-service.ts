@@ -1,9 +1,9 @@
 /**
  * Cached Memory Service
- * A wrapper around MemoryService that adds caching capabilities
+ * A wrapper around EnhancedMemoryService that adds caching capabilities
  */
 
-import { MemoryService } from '../memory/memory-service';
+import { EnhancedMemoryService } from '../multi-agent/enhanced-memory-service';
 import { CacheManager, CachePriority } from './types';
 import { GetMemoryParams, AddMemoryParams, UpdateMemoryParams, DeleteMemoryParams, MemoryResult, SearchMemoryParams } from '../memory/types';
 import { BaseMemorySchema, MemoryPoint } from '../../models';
@@ -43,20 +43,21 @@ const DEFAULT_CONFIG: Required<CachedMemoryServiceConfig> = {
 
 /**
  * Memory Service with caching capabilities
+ * Works with the enhanced memory service for improved query performance
  */
 export class CachedMemoryService {
-  private memoryService: MemoryService;
+  private memoryService: EnhancedMemoryService;
   private cache: CacheManager;
   private config: Required<CachedMemoryServiceConfig>;
   
   /**
    * Create a new cached memory service
-   * @param memoryService The underlying memory service
+   * @param memoryService The underlying enhanced memory service
    * @param cache The cache manager to use
    * @param config Configuration options
    */
   constructor(
-    memoryService: MemoryService,
+    memoryService: EnhancedMemoryService,
     cache: CacheManager,
     config?: CachedMemoryServiceConfig
   ) {
@@ -64,7 +65,7 @@ export class CachedMemoryService {
     this.cache = cache;
     this.config = { ...DEFAULT_CONFIG, ...config };
     
-    this.log('CachedMemoryService initialized');
+    this.log('CachedMemoryService initialized with EnhancedMemoryService');
   }
   
   /**

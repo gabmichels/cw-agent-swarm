@@ -135,6 +135,9 @@ The implementation should follow these principles:
    - Implement type-safe wrapper functions for agent and chat operations
    - Ensure proper error handling and validation
    - Maintain compatibility with memory system refactoring
+   - Support both MemoryService and EnhancedMemoryService through AnyMemoryService type
+   - Implement optimized filter paths for EnhancedMemoryService leveraging top-level fields
+   - Handle ImportanceLevel type variations consistently across the codebase
 
 4. **Memory Model Optimization**:
    - Implement dual-field approach for critical identifiers (userId, agentId, chatId)
@@ -142,6 +145,18 @@ The implementation should follow these principles:
    - Create optimized filter conditions that leverage top-level fields
    - Use structured IDs with ULID for all new entities following implementation guidelines
    - Ensure type safety with no usage of 'any' types in schema definitions
+   - Standardize timestamp handling with numeric millisecond values for consistency
+   - Follow the migrationHelpers patterns for converting existing MemoryService instances to EnhancedMemoryService
+   - Reference usage examples in documentation when implementing new components
+
+5. **Code Migration Strategy**:
+   - Use provided migration helpers when working with existing code
+   - Update wrapper function parameters to use AnyMemoryService type
+   - Optimize search functions to detect and leverage EnhancedMemoryService capabilities
+   - Use isEnhancedMemoryService() check for conditional optimization
+   - Adhere to consistent timestamp formats and field naming conventions
+   - Reference the usage documentation for examples of proper migration patterns
+   - Test all migrated components with both service types before finalizing
 
 ### UI Integration
 

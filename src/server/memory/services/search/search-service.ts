@@ -6,7 +6,7 @@ import { BaseMemorySchema, MemoryPoint } from '../../models';
 import { handleMemoryError } from '../../utils';
 import { IMemoryClient } from '../client/types';
 import { EmbeddingService } from '../client/embedding-service';
-import { MemoryService } from '../memory/memory-service';
+import { EnhancedMemoryService } from '../multi-agent/enhanced-memory-service';
 import { FilterBuilderOptions, HybridSearchOptions, SearchOptions, SearchResult, FilterOptions, MemoryContext, MemoryContextOptions, MemoryContextGroup } from './types';
 import { IQueryOptimizer, QueryOptimizationStrategy } from '../query/types';
 import { FilterOperator } from '../filters/types';
@@ -61,7 +61,7 @@ export interface SearchServiceOptions {
 export class SearchService {
   private client: IMemoryClient;
   private embeddingService: EmbeddingService;
-  private memoryService: MemoryService;
+  private memoryService: EnhancedMemoryService;
   private queryOptimizer: IQueryOptimizer | null = null;
   
   /**
@@ -70,7 +70,7 @@ export class SearchService {
   constructor(
     client: IMemoryClient, 
     embeddingService: EmbeddingService,
-    memoryService: MemoryService,
+    memoryService: EnhancedMemoryService,
     options?: SearchServiceOptions
   ) {
     this.client = client;

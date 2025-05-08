@@ -15,7 +15,8 @@ import {
 import { CognitiveProcessType } from '../../types/metadata';
 import { 
   addMessageMemory, 
-  addCognitiveProcessMemory 
+  addCognitiveProcessMemory,
+  AnyMemoryService
 } from '../../server/memory/services/memory/memory-service-wrappers';
 import { 
   createSystemId,
@@ -33,13 +34,13 @@ import { MessageRole } from '../../agents/chloe/types/state';
  * 
  * @param message The message content to store
  * @param type The type of internal message (thought, reflection, etc.)
- * @param memoryService The memory service instance
+ * @param memoryService The memory service instance (either MemoryService or EnhancedMemoryService)
  * @param metadata Optional metadata about the message
  */
 export async function storeInternalMessageToMemory(
   message: string,
   type: MessageType.THOUGHT | MessageType.REFLECTION | MessageType.SYSTEM | MessageType.TOOL_LOG | MessageType.MEMORY_LOG,
-  memoryService: any,
+  memoryService: AnyMemoryService,
   metadata: {
     originTaskId?: string,
     toolUsed?: string,

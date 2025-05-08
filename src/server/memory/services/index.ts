@@ -11,6 +11,9 @@ export * from './client/vector-db-adapter';
 export * from './memory/types';
 export * from './memory/memory-service';
 
+// Enhanced Memory services
+export * from './multi-agent/enhanced-memory-service';
+
 // Search services
 export * from './search/types';
 export * from './search/search-service';
@@ -19,14 +22,17 @@ export * from './search/search-service';
 export * from './query/types';
 export * from './query/query-optimizer';
 
-// Filter services
-export * from './filters/types';
+// Filter services - use explicit re-export to avoid ambiguity
+import type { FilterOperator, FilterCondition } from './filters/types';
+export type { FilterOperator, FilterCondition };
+// Do not re-export FilterOptions as it would conflict with the one from search/types
 
 // Service utilities
 import { QdrantMemoryClient } from './client/qdrant-client';
 import { EmbeddingService } from './client/embedding-service';
 import { VectorDatabaseAdapter } from './client/vector-db-adapter';
 import { MemoryService } from './memory/memory-service';
+import { EnhancedMemoryService } from './multi-agent/enhanced-memory-service';
 import { SearchService } from './search/search-service';
 import { QueryOptimizer } from './query/query-optimizer';
 import { QdrantFilterBuilder } from './filters/filter-builder';
@@ -34,7 +40,7 @@ import { QdrantFilterBuilder } from './filters/filter-builder';
 // Singleton instances
 let memoryClientInstance: QdrantMemoryClient | null = null;
 let embeddingServiceInstance: EmbeddingService | null = null;
-let memoryServiceInstance: MemoryService | null = null;
+let memoryServiceInstance: EnhancedMemoryService | null = null;
 let searchServiceInstance: SearchService | null = null;
 let queryOptimizerInstance: QueryOptimizer | null = null;
 let filterBuilderInstance: QdrantFilterBuilder | null = null;
@@ -99,8 +105,8 @@ export async function getMemoryServices() {
       embeddingWrapper
     );
     
-    // Create MemoryService
-    memoryServiceInstance = new MemoryService(
+    // Create EnhancedMemoryService instead of base MemoryService
+    memoryServiceInstance = new EnhancedMemoryService(
       memoryClientInstance, 
       embeddingServiceInstance
     );

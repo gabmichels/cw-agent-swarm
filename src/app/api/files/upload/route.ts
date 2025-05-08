@@ -3,14 +3,14 @@ import { fileProcessor } from '../../../../lib/file-processing';
 import path from 'path';
 import fs from 'fs';
 import { MemoryType } from '../../../../server/memory/config';
-import { MemoryService } from '../../../../server/memory/services/memory/memory-service';
+import { AnyMemoryService } from '../../../../server/memory/services/memory/memory-service-wrappers';
 import { getMemoryServices } from '../../../../server/memory/services';
 
 // Import the FileMetadata interface from file-processing to extend it
 import { FileMetadata, ProcessedFile } from '../../../../lib/file-processing';
 
 // Create a function to get memory service
-async function getMemoryService(): Promise<MemoryService> {
+async function getMemoryService(): Promise<AnyMemoryService> {
   const services = await getMemoryServices();
   return services.memoryService;
 }

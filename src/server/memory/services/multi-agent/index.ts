@@ -46,6 +46,14 @@ export type {
   EnhancedMemoryServiceOptions 
 } from './enhanced-memory-service';
 
+// Export migration helpers
+export {
+  migrateToEnhancedMemoryService,
+  createEnhancedMemoryService as createEnhancedServiceWithDependencies,
+  isEnhancedMemoryService,
+  asEnhancedMemoryService
+} from './migration-helpers';
+
 // Export other shared types
 export { IdGenerator } from '../../../../utils/ulid';
 export type { StructuredId } from '../../../../utils/ulid';
