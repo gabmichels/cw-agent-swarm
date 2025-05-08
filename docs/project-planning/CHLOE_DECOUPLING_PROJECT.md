@@ -10,12 +10,12 @@ This project aims to decouple the "Chloe" agent from our codebase to create a ge
 |-------|--------|----------|----------|
 | 1. Audit of Hardcoded Elements | ✅ Completed | Week 1 | High |
 | 2. Agent Initialization Refactoring | ✅ Completed | Week 2 | High |
-| 3. Knowledge System Refactoring | 🔄 In Progress | Week 2-3 | High |
-| 4. Capability Configuration | 🔄 Not Started | Week 3 | Medium |
+| 3. Knowledge System Refactoring | ✅ Completed | Week 2-3 | High |
+| 4. Capability Configuration | 🔄 In Progress (25%) | Week 3 | Medium |
 | 5. UI Registration Flow Enhancement | 🔄 Not Started | Week 4 | Medium |
 | 6. Testing & Validation | 🔄 Not Started | Week 4-5 | High |
 
-**Overall Progress:** 50% - Phase 1 and 2 complete, Phase 3 partially completed (2/4 tasks).
+**Overall Progress:** 65% - Phase 1, 2, and 3 complete, Phase 4 started (2/4 tasks in Phase 3 completed, progressing on the 3rd task).
 
 ## Executive Summary
 
@@ -62,12 +62,12 @@ This project will refactor our agent architecture to use a generic, configurable
 
 ### Phase 1: Agent Architecture Integration
 
-| Task | Scope | Priority |
-|------|-------|----------|
-| Leverage existing `AgentBase` | Utilize the existing generic base agent implementation | High |
-| Utilize `AgentFactory` | Use the existing factory for creating agent instances | High |
-| Migrate ChloeAgent to extend AgentBase | Update ChloeAgent to inherit from AgentBase | High |
-| Replace singleton pattern | Move from singleton to service-based agent management | High |
+| Task | Scope | Priority | Status |
+|------|-------|----------|--------|
+| Leverage existing `AgentBase` | Utilize the existing generic base agent implementation | High | ✅ Completed |
+| Utilize `AgentFactory` | Use the existing factory for creating agent instances | High | ✅ Completed |
+| Migrate ChloeAgent to extend AgentBase | Update ChloeAgent to inherit from AgentBase | High | ✅ Completed |
+| Replace singleton pattern | Move from singleton to service-based agent management | High | ✅ Completed |
 
 ### Phase 2: Knowledge System Refactoring
 
@@ -80,21 +80,51 @@ This project will refactor our agent architecture to use a generic, configurable
 
 ### Phase 3: Capability Configuration
 
-| Task | Scope | Priority |
-|------|-------|----------|
-| Extract capability definitions | Move capability definitions to configuration | Medium |
-| Use existing CapabilityRegistry | Leverage the existing capability registry | Medium |
-| Create capability loading system | Develop dynamic capability loading based on agent config | High |
-| Update memory structures | Ensure memory structures support multi-agent capabilities | Medium |
+| Task | Scope | Priority | Status |
+|------|-------|----------|--------|
+| Extract capability definitions | Move capability definitions to configuration | Medium | ✅ Completed |
+| Use existing CapabilityRegistry | Leverage the existing capability registry | Medium | ✅ Completed |
+| Create capability loading system | Develop dynamic capability loading based on agent config | High | 🔄 In Progress |
+| Update memory structures | Ensure memory structures support multi-agent capabilities | Medium | 🔄 Not Started |
+
+#### Capability System Implementation
+
+The capability system defines what agents can do, what roles they can fulfill, and what knowledge domains they specialize in. We've implemented this system with the following components:
+
+1. **Capability Types**:
+   - Skills: Technical abilities (e.g., marketing_strategy, data_analysis)
+   - Roles: Functional roles (e.g., cmo, researcher)
+   - Domains: Knowledge areas (e.g., marketing, finance)
+   - Tags: General categorization
+
+2. **Proficiency Levels**:
+   - Basic, Intermediate, Advanced, and Expert levels
+   - Used to indicate how skilled an agent is in a particular capability
+
+3. **Central Registry**:
+   - Singleton registry for capability registration and discovery
+   - Enables dynamic agent selection for tasks
+   - Supports capability-based agent matching
+
+4. **ID Standardization**:
+   - Consistent ID format: `[type].[name]` (e.g., `skill.marketing_strategy`)
+   - Makes capabilities easily categorizable and discoverable
+
+5. **Implementation Strategy**:
+   - Created generic capability system module with helper functions
+   - Defined transitional Chloe-specific capabilities file
+   - Standardized capability registration in agent initialization
+   - Will be replaced by UI-driven configuration in future phase
 
 ### Phase 4: UI Registration Flow Enhancement
 
-| Task | Scope | Priority |
-|------|-------|----------|
-| Enhance AgentRegistrationForm | Add additional fields for all agent configurations | High |
-| Implement knowledge upload UI | Create UI for uploading markdown knowledge | Medium |
-| Create capability selection UI | Develop UI for selecting from available capabilities | Medium |
-| Add system prompt editor | Implement editor for customizing system prompts | High |
+| Task | Scope | Priority | Status |
+|------|-------|----------|--------|
+| Enhance AgentRegistrationForm | Add additional fields for all agent configurations | High | 🔄 Not Started |
+| Implement knowledge upload UI | Create UI for uploading markdown knowledge | Medium | 🔄 Not Started |
+| Create capability selection UI | Develop UI for selecting from available capabilities | Medium | 🔄 Not Started |
+| Add system prompt editor | Implement editor for customizing system prompts | High | 🔄 Not Started |
+| Implement capability configuration table | Implement a four-column table layout for managing capabilities | Medium | 🔄 Not Started |
 
 #### AgentRegistrationForm Enhancements
 
@@ -125,9 +155,13 @@ The current `AgentRegistrationForm.tsx` lacks several critical fields needed to 
    - Provide preconfigured templates (including Chloe template)
    - Template preview functionality
 
-6. **Capability Level Configuration**:
-   - Add interface for setting capability levels
-   - Provide visualization of capability strength
+6. **Capability Configuration Table**:
+   - Implement a four-column table layout (Skills, Roles, Domains, Tags)
+   - Each capability row contains name, description, and proficiency level selector
+   - Add/remove controls for managing capabilities
+   - Automatic capability ID generation using pattern `[type].[name]`
+   - Preview section showing derived capability configuration
+   - Capability template support to quickly populate from predefined sets
 
 7. **Agent Relationships**:
    - Configure how the agent relates to other agents
@@ -137,12 +171,12 @@ The form should include a comprehensive validation system to ensure all required
 
 ### Phase 5: Testing & Validation
 
-| Task | Scope | Priority |
-|------|-------|----------|
-| Create test suite for agent creation | Develop tests for creating different agent types | High |
-| Test Chloe recreation | Verify Chloe can be fully recreated through the registration form | High |
-| Performance testing | Ensure multi-agent support doesn't impact performance | Medium |
-| Cross-agent interaction tests | Test interactions between different agent types | Medium |
+| Task | Scope | Priority | Status |
+|------|-------|----------|--------|
+| Create test suite for agent creation | Develop tests for creating different agent types | High | 🔄 Not Started |
+| Test Chloe recreation | Verify Chloe can be fully recreated through the registration form | High | 🔄 Not Started |
+| Performance testing | Ensure multi-agent support doesn't impact performance | Medium | 🔄 Not Started |
+| Cross-agent interaction tests | Test interactions between different agent types | Medium | 🔄 Not Started |
 
 ## Key Changes Required
 

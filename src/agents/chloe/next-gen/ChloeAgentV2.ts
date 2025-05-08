@@ -5,6 +5,12 @@
 
 import { ChatOpenAI } from '@langchain/openai';
 import { AgentBase, AgentBaseConfig, AgentBaseOptions, AgentCapabilityLevel } from '../../shared/base/AgentBase';
+import { CapabilityRegistry } from '../../shared/capability-system';
+import { 
+  ChloeCapabilityConfig, 
+  registerChloeCapabilities, 
+  registerChloeAgentCapabilities 
+} from './ChloeCapabilities';
 
 // Define a fallback system prompt since we can't import it
 const DEFAULT_SYSTEM_PROMPT = 
@@ -55,18 +61,6 @@ export class ChloeAgentV2 extends AgentBase {
    * Create a new Chloe agent instance
    */
   constructor(options: ChloeAgentOptions = {}) {
-    // Create a capabilities object first to use type assertion
-    const capabilities = {
-      skills: {
-        "marketing_strategy": "advanced",
-        "growth_optimization": "expert",
-        "viral_marketing": "advanced", 
-        "low_budget_acquisition": "expert"
-      },
-      domains: ['marketing', 'growth', 'strategy'],
-      roles: ['cmo', 'advisor', 'strategist']
-    };
-    
     // Prepare default Chloe-specific configuration
     const chloeConfig: AgentBaseConfig = {
       agentId: 'chloe',
@@ -76,8 +70,12 @@ export class ChloeAgentV2 extends AgentBase {
       model: process.env.OPENAI_MODEL_NAME || 'gpt-4o',
       temperature: 0.7,
       maxTokens: 4000,
-      // Use type assertion to bypass type checking
-      capabilities: capabilities as any,
+      // Use capability configuration from ChloeCapabilities
+      capabilities: {
+        skills: ChloeCapabilityConfig.skills,
+        domains: ChloeCapabilityConfig.domains,
+        roles: ChloeCapabilityConfig.roles
+      },
       ...(options.config || {})
     };
     
@@ -101,18 +99,18 @@ export class ChloeAgentV2 extends AgentBase {
     try {
       console.log(`Initializing ChloeAgentV2 with ID: ${this.getAgentId()}`);
       
-      // Call parent initialization
+      // Register Chloe-specific capabilities with the registry
+      const registry = CapabilityRegistry.getInstance();
+      registerChloeCapabilities(registry);
+      
+      // Call parent initialization (which will register agent capabilities)
       const initialized = await super.initialize();
       if (!initialized) {
         console.error('Failed to initialize AgentBase');
         return false;
       }
       
-      // Chloe-specific initialization would go here
-      // This would include things like setting up specialized managers
-      // for marketing tasks, content generation, etc.
-      
-      // For example, we might initialize a marketing knowledge base:
+      // Chloe-specific initialization
       const marketingKnowledgePaths = [
         `data/knowledge/domains/${this.department}`,
         `data/knowledge/agents/${this.getAgentId()}`
