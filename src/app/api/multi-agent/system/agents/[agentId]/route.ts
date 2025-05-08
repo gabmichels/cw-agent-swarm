@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createAgentMemoryService } from '../../../../../../server/memory/services/multi-agent';
+import { WebSocketNotificationService } from '../../../../../../server/websocket/notification-service';
 
 /**
  * GET handler - get agent by ID
@@ -88,6 +89,9 @@ export async function PUT(
       );
     }
     
+    // Send WebSocket notification
+    WebSocketNotificationService.notifyAgentUpdated(response.data, updateData.userId);
+    
     return NextResponse.json({ agent: response.data });
   } catch (error) {
     console.error(`Error updating agent ${params.agentId}:`, error);
@@ -161,6 +165,13 @@ export async function PATCH(
       );
     }
     
+    // Send WebSocket notification
+    if (updateData.status) {
+      WebSocketNotificationService.notifyAgentStatusChanged(response.data, updateData.userId);
+    } else {
+      WebSocketNotificationService.notifyAgentUpdated(response.data, updateData.userId);
+    }
+    
     return NextResponse.json({ agent: response.data });
   } catch (error) {
     console.error(`Error patching agent ${params.agentId}:`, error);
@@ -211,6 +222,17 @@ export async function DELETE(
         { status: 500 }
       );
     }
+    
+    // Send WebSocket notification - extract userId from the URL or request body if available
+    let userId;
+    try {
+      const url = new URL(request.url);
+      userId = url.searchParams.get('userId') || undefined;
+    } catch (e) {
+      // Ignore URL parsing errors
+    }
+    
+    WebSocketNotificationService.notifyAgentDeleted(agentId, userId);
     
     return NextResponse.json({
       success: true,

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createAgentMemoryService } from '../../../../../server/memory/services/multi-agent';
+import { WebSocketNotificationService } from '../../../../../server/websocket/notification-service';
 
 /**
  * GET handler - list agents or get specific agent by ID
@@ -96,6 +97,9 @@ export async function POST(request: Request) {
         { status: 500 }
       );
     }
+    
+    // Send WebSocket notification
+    WebSocketNotificationService.notifyAgentCreated(response.data, data.userId);
     
     return NextResponse.json(
       { agent: response.data },
