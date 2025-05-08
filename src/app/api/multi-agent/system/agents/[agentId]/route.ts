@@ -1,0 +1,227 @@
+import { NextResponse } from 'next/server';
+import { createAgentMemoryService } from '../../../../../../server/memory/services/multi-agent';
+
+/**
+ * GET handler - get agent by ID
+ */
+export async function GET(
+  request: Request,
+  { params }: { params: { agentId: string } }
+) {
+  try {
+    console.log(`API DEBUG: GET multi-agent/system/agents/${params.agentId}`);
+    
+    const { agentId } = params;
+    
+    if (!agentId) {
+      return NextResponse.json(
+        { error: 'Agent ID is required' },
+        { status: 400 }
+      );
+    }
+    
+    const agentService = await createAgentMemoryService(null);
+    const response = await agentService.getById(agentId);
+    
+    if (response.isError || !response.data) {
+      return NextResponse.json(
+        { error: 'Agent not found' },
+        { status: 404 }
+      );
+    }
+    
+    return NextResponse.json({ agent: response.data });
+  } catch (error) {
+    console.error(`Error getting agent ${params.agentId}:`, error);
+    
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : 'Unknown error' },
+      { status: 500 }
+    );
+  }
+}
+
+/**
+ * PUT handler - update agent
+ */
+export async function PUT(
+  request: Request,
+  { params }: { params: { agentId: string } }
+) {
+  try {
+    console.log(`API DEBUG: PUT multi-agent/system/agents/${params.agentId}`);
+    
+    const { agentId } = params;
+    const updateData = await request.json();
+    
+    if (!agentId) {
+      return NextResponse.json(
+        { error: 'Agent ID is required' },
+        { status: 400 }
+      );
+    }
+    
+    const agentService = await createAgentMemoryService(null);
+    
+    // Check if agent exists
+    const checkResponse = await agentService.getById(agentId);
+    
+    if (checkResponse.isError || !checkResponse.data) {
+      return NextResponse.json(
+        { error: 'Agent not found' },
+        { status: 404 }
+      );
+    }
+    
+    // Add updated timestamp
+    const updatedData = {
+      ...updateData,
+      updatedAt: new Date()
+    };
+    
+    const response = await agentService.update(agentId, updatedData);
+    
+    if (response.isError || !response.data) {
+      return NextResponse.json(
+        { error: 'Failed to update agent' },
+        { status: 500 }
+      );
+    }
+    
+    return NextResponse.json({ agent: response.data });
+  } catch (error) {
+    console.error(`Error updating agent ${params.agentId}:`, error);
+    
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : 'Unknown error' },
+      { status: 500 }
+    );
+  }
+}
+
+/**
+ * PATCH handler - partially update agent (status or capabilities)
+ */
+export async function PATCH(
+  request: Request,
+  { params }: { params: { agentId: string } }
+) {
+  try {
+    console.log(`API DEBUG: PATCH multi-agent/system/agents/${params.agentId}`);
+    
+    const { agentId } = params;
+    const updateData = await request.json();
+    
+    if (!agentId) {
+      return NextResponse.json(
+        { error: 'Agent ID is required' },
+        { status: 400 }
+      );
+    }
+    
+    const agentService = await createAgentMemoryService(null);
+    
+    // Check if agent exists
+    const checkResponse = await agentService.getById(agentId);
+    
+    if (checkResponse.isError || !checkResponse.data) {
+      return NextResponse.json(
+        { error: 'Agent not found' },
+        { status: 404 }
+      );
+    }
+    
+    let response;
+    
+    // Update status if provided
+    if (updateData.status) {
+      response = await agentService.updateAgentStatus(agentId, updateData.status);
+    }
+    
+    // Update capabilities if provided
+    if (updateData.capabilities) {
+      response = await agentService.updateAgentCapabilities(agentId, updateData.capabilities);
+    }
+    
+    // General update for other fields
+    if (!response && (Object.keys(updateData).length > 0)) {
+      // Add updated timestamp
+      const updatedData = {
+        ...updateData,
+        updatedAt: new Date()
+      };
+      
+      response = await agentService.update(agentId, updatedData);
+    }
+    
+    if (!response || response.isError || !response.data) {
+      return NextResponse.json(
+        { error: 'Failed to update agent' },
+        { status: 500 }
+      );
+    }
+    
+    return NextResponse.json({ agent: response.data });
+  } catch (error) {
+    console.error(`Error patching agent ${params.agentId}:`, error);
+    
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : 'Unknown error' },
+      { status: 500 }
+    );
+  }
+}
+
+/**
+ * DELETE handler - delete agent
+ */
+export async function DELETE(
+  request: Request,
+  { params }: { params: { agentId: string } }
+) {
+  try {
+    console.log(`API DEBUG: DELETE multi-agent/system/agents/${params.agentId}`);
+    
+    const { agentId } = params;
+    
+    if (!agentId) {
+      return NextResponse.json(
+        { error: 'Agent ID is required' },
+        { status: 400 }
+      );
+    }
+    
+    const agentService = await createAgentMemoryService(null);
+    
+    // Check if agent exists
+    const checkResponse = await agentService.getById(agentId);
+    
+    if (checkResponse.isError || !checkResponse.data) {
+      return NextResponse.json(
+        { error: 'Agent not found' },
+        { status: 404 }
+      );
+    }
+    
+    const response = await agentService.delete(agentId);
+    
+    if (response.isError || !response.data) {
+      return NextResponse.json(
+        { error: 'Failed to delete agent' },
+        { status: 500 }
+      );
+    }
+    
+    return NextResponse.json({
+      success: true,
+      message: 'Agent deleted successfully'
+    });
+  } catch (error) {
+    console.error(`Error deleting agent ${params.agentId}:`, error);
+    
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : 'Unknown error' },
+      { status: 500 }
+    );
+  }
+} 
