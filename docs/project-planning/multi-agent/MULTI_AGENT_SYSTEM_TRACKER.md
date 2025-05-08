@@ -45,6 +45,7 @@ This project implements a comprehensive multi-agent system to enable agent-to-ag
 | Add Agent collection | | ✅ Completed | W3D1 | New collection for agent data |
 | Add Chat collection | | ✅ Completed | W3D1 | New collection for chat data |
 | Implement memory service wrappers | | ✅ Completed | W3D5 | Type-safe wrappers for new collections |
+| Optimize memory data model | | 🟡 In Progress | W3D7 | Dual-field approach for faster queries and better organization |
 
 ### Communication Phase (Week 4-6)
 
@@ -128,6 +129,35 @@ For effective message routing:
 - Design for async communication patterns
 - Consider load balancing for busy agents
 
+### Memory Data Model Optimization
+
+The Memory Data Model will be optimized for multi-agent system requirements:
+
+- **Dual-Field Approach for Key Identifiers**:
+  - Add top-level indexable fields for commonly queried attributes (userId, agentId, chatId)
+  - Maintain existing metadata structure for backward compatibility
+  - Populate both locations for new records to optimize query performance
+
+- **Memory Service Enhancements**:
+  - Update memory service to populate top-level index fields automatically
+  - Add validation to ensure consistency between top-level fields and metadata
+  - Optimize search operations to use top-level fields when available
+
+- **Query Performance Optimizations**:
+  - Create specialized indexes for common multi-agent queries
+  - Optimize retrieval of agent-to-agent communications
+  - Implement efficient storage and retrieval of conversation threads
+
+- **Standardized IDs and References**:
+  - Use ULID (Universally Unique Lexicographically Sortable Identifier) for all new entities
+  - Maintain consistent reference formats across all collections
+  - Implement structured IDs with type prefixes for improved debugging and tracing
+
+- **Implementation Approach**:
+  - Apply improvements to all new records without migrating existing data
+  - Follow clean break principle from legacy patterns as per implementation guidelines
+  - Add comprehensive unit tests for optimized memory operations
+
 ## Next Steps
 
 1. ✅ Complete the Agent and Chat data models
@@ -144,3 +174,241 @@ For effective message routing:
 | API Documentation | ⚪ Not Started | - | `/docs/api/` |
 | Integration Guide | ⚪ Not Started | - | `/docs/integration/` |
 | User Manual | ⚪ Not Started | - | `/docs/user/` | 
+
+## Memory Model Implementation Details
+
+### Memory Point Structure with Indexable Fields
+
+```typescript
+/**
+ * Enhanced memory point with top-level indexable fields
+ * This implements the dual-field approach for improved query performance
+ */
+export interface EnhancedMemoryPoint<T extends BaseMemorySchema> {
+  // Core fields from original design
+  id: string;
+  vector: number[];
+  payload: T;
+  
+  // Indexable fields for common queries - duplicated from metadata for performance
+  userId?: string;       // From payload.metadata.userId
+  agentId?: string;      // From payload.metadata.agentId
+  chatId?: string;       // From payload.metadata.chatId
+  threadId?: string;     // From payload.metadata.thread.id
+  messageType?: string;  // From payload.metadata.messageType 
+  timestamp?: number;    // From payload.timestamp (as number)
+  importance?: string;   // From payload.metadata.importance
+}
+```
+
+### Memory Service Extension
+
+```typescript
+/**
+ * Extension of memory service with dual-field support
+ */
+export class EnhancedMemoryService extends MemoryService {
+  /**
+   * Add a memory with top-level indexable fields
+   */
+  async addMemory<T extends BaseMemorySchema>(params: AddMemoryParams<T>): Promise<MemoryResult> {
+    try {
+      // Validate parameters (use existing validation)
+      const validation = validateAddMemoryParams(params);
+      if (!validation.valid) {
+        return {
+          success: false,
+          error: {
+            code: MemoryErrorCode.VALIDATION_ERROR,
+            message: validation.errors?.[0]?.message || 'Invalid parameters'
+          }
+        };
+      }
+      
+      // Generate ID if not provided (use ULID instead of UUID)
+      const id = params.id || ulid();
+      
+      // Generate embedding if not provided
+      const embedding = params.embedding || 
+        (await this.embeddingService.getEmbedding(params.content)).embedding;
+      
+      // Extract indexable fields from metadata
+      const indexableFields = this.extractIndexableFields(params.metadata);
+      
+      // Create memory point with both in-metadata and top-level fields
+      const point: EnhancedMemoryPoint<T> = {
+        id,
+        vector: embedding,
+        payload: {
+          id,
+          text: params.content,
+          type: params.type,
+          timestamp: Date.now().toString(),
+          ...(params.payload || {}),
+          metadata: {
+            ...(params.metadata || {})
+          }
+        } as any,
+        ...indexableFields
+      };
+      
+      // Add to collection
+      await this.client.addPoint(this.getCollectionName(params.type), point);
+      
+      return {
+        success: true,
+        id
+      };
+    } catch (error) {
+      // Error handling (existing implementation)
+    }
+  }
+  
+  /**
+   * Extract indexable fields from metadata
+   */
+  private extractIndexableFields(metadata: any): Record<string, any> {
+    if (!metadata) return {};
+    
+    return {
+      // User and conversation context
+      ...(metadata.userId && { userId: metadata.userId.toString() }),
+      ...(metadata.agentId && { agentId: metadata.agentId.toString() }),
+      ...(metadata.chatId && { chatId: metadata.chatId.toString() }),
+      
+      // Thread and message info
+      ...(metadata.thread?.id && { threadId: metadata.thread.id }),
+      ...(metadata.messageType && { messageType: metadata.messageType }),
+      
+      // Classification and importance
+      ...(metadata.importance && { importance: metadata.importance }),
+      
+      // Agent-to-agent communication fields
+      ...(metadata.senderAgentId && { senderAgentId: metadata.senderAgentId.toString() }),
+      ...(metadata.receiverAgentId && { receiverAgentId: metadata.receiverAgentId.toString() }),
+      ...(metadata.communicationType && { communicationType: metadata.communicationType }),
+      ...(metadata.priority && { priority: metadata.priority })
+    };
+  }
+  
+  /**
+   * Search with optimized field usage
+   */
+  async searchMemories<T extends BaseMemorySchema>(
+    params: SearchMemoryParams
+  ): Promise<EnhancedMemoryPoint<T>[]> {
+    // Create filter conditions using top-level fields when available
+    // and metadata fields as fallback
+    const filterConditions = this.createOptimizedFilterConditions(params.filters);
+    
+    // Rest of implementation follows existing pattern
+    // ...
+    
+    return results;
+  }
+  
+  /**
+   * Create optimized filter conditions using top-level fields when possible
+   */
+  private createOptimizedFilterConditions(
+    filters: Record<string, any>
+  ): any[] {
+    const conditions = [];
+    
+    // Map of metadata field paths to their top-level equivalents
+    const fieldMapping: Record<string, string> = {
+      'metadata.userId': 'userId',
+      'metadata.agentId': 'agentId',
+      'metadata.chatId': 'chatId',
+      'metadata.thread.id': 'threadId',
+      'metadata.importance': 'importance',
+      // Add other mappings as needed
+    };
+    
+    // Process each filter
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value === undefined || value === null) return;
+      
+      // Check if there's a top-level field for this metadata path
+      const metadataPath = `metadata.${key}`;
+      const topLevelField = fieldMapping[metadataPath];
+      
+      if (topLevelField) {
+        // Use top-level field for better performance
+        conditions.push({ key: topLevelField, match: { value: value.toString() } });
+      } else {
+        // Fall back to metadata field
+        conditions.push({ key: metadataPath, match: { value: value.toString() } });
+      }
+    });
+    
+    return conditions;
+  }
+}
+
+### Usage Examples
+
+#### Adding a Message with Optimized Fields
+
+```typescript
+// Example of adding a message using the enhanced service
+async function addChatMessage(
+  content: string,
+  userId: string,
+  agentId: string,
+  chatId: string
+): Promise<string> {
+  const memoryService = new EnhancedMemoryService(/* dependencies */);
+  
+  // Create thread info
+  const threadInfo = createThreadInfo();
+  
+  // Create message metadata
+  const metadata = createMessageMetadata(
+    MessageRole.USER,
+    createStructuredId(userId, EntityNamespace.USER),
+    createStructuredId(agentId, EntityNamespace.AGENT),
+    createStructuredId(chatId, EntityNamespace.CHAT),
+    threadInfo
+  );
+  
+  // Add to memory with enhanced service
+  const result = await memoryService.addMemory({
+    type: MemoryType.MESSAGE,
+    content,
+    metadata
+  });
+  
+  return result.id;
+}
+```
+
+#### Searching with Optimized Fields
+
+```typescript
+// Example of searching messages with optimized fields
+async function searchAgentMessages(
+  agentId: string,
+  chatId?: string,
+  messageType?: string
+): Promise<MemoryPoint<BaseMemorySchema>[]> {
+  const memoryService = new EnhancedMemoryService(/* dependencies */);
+  
+  // Create filter using structured IDs
+  const filters: MessageSearchFilters = {
+    agentId: createStructuredId(agentId, EntityNamespace.AGENT)
+  };
+  
+  // Add optional filters
+  if (chatId) {
+    filters.chatId = createStructuredId(chatId, EntityNamespace.CHAT);
+  }
+  
+  if (messageType) {
+    filters.messageType = messageType;
+  }
+  
+  // Search will use top-level fields automatically for better performance
+  return memoryService.searchMessages(filters);
+}
+``` 

@@ -274,6 +274,37 @@ The multi-agent system will utilize the following collections in the memory syst
 3. **messages**: Store chat messages with relationships
 4. **agent-state**: Store runtime state for active agents
 
+### Enhanced Memory Point Structure
+
+For improved query performance, the memory system will use an enhanced memory point structure with indexable fields at the top level:
+
+```typescript
+/**
+ * Enhanced memory point with top-level indexable fields for query optimization
+ */
+export interface EnhancedMemoryPoint<T extends BaseMemorySchema> {
+  // Core fields from original design
+  id: string;
+  vector: number[];
+  payload: T;
+  
+  // Indexable fields for common queries - duplicated from metadata for performance
+  userId?: string;       // From payload.metadata.userId
+  agentId?: string;      // From payload.metadata.agentId
+  chatId?: string;       // From payload.metadata.chatId
+  threadId?: string;     // From payload.metadata.thread.id
+  messageType?: string;  // From payload.metadata.messageType 
+  timestamp?: number;    // From payload.timestamp (as number)
+  importance?: string;   // From payload.metadata.importance
+}
+```
+
+This dual-field approach provides significant performance benefits:
+1. Faster queries using top-level fields
+2. Improved filtering capabilities for high-volume operations
+3. Better indexing for common query patterns
+4. Compatibility with vector search operations
+
 ### Memory Service Wrappers
 
 ```typescript
@@ -331,6 +362,46 @@ interface MessageQueryOptions {
   includeMetadata?: boolean;
   sortDirection?: 'asc' | 'desc';
   threadedView?: boolean;
+}
+```
+
+### Optimized Query Implementation
+
+The memory services will leverage the enhanced memory point structure for better performance:
+
+```typescript
+/**
+ * Example of optimized query implementation using top-level fields
+ */
+class OptimizedMessageService {
+  /**
+   * Find messages for a specific agent in a chat with improved performance
+   */
+  async findAgentMessages(agentId: StructuredId, chatId: StructuredId): Promise<Message[]> {
+    // Create optimized filter that uses top-level fields
+    const filterConditions = [
+      // Use top-level fields for better performance
+      { key: 'agentId', match: { value: agentId.toString() } },
+      { key: 'chatId', match: { value: chatId.toString() } },
+      
+      // Fallback to metadata fields for backward compatibility
+      { key: 'payload.metadata.agentId', match: { value: agentId.toString() } },
+      { key: 'payload.metadata.chatId', match: { value: chatId.toString() } }
+    ];
+    
+    // Execute the optimized query
+    const results = await this.memoryClient.search(
+      'messages',
+      {
+        filter: {
+          must: filterConditions
+        },
+        limit: 100
+      }
+    );
+    
+    return results.map(r => this.mapToMessage(r));
+  }
 }
 ```
 

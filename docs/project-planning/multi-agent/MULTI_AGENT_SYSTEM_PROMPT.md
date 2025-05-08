@@ -136,6 +136,13 @@ The implementation should follow these principles:
    - Ensure proper error handling and validation
    - Maintain compatibility with memory system refactoring
 
+4. **Memory Model Optimization**:
+   - Implement dual-field approach for critical identifiers (userId, agentId, chatId)
+   - Store indexable fields at both top level and in metadata for query performance
+   - Create optimized filter conditions that leverage top-level fields
+   - Use structured IDs with ULID for all new entities following implementation guidelines
+   - Ensure type safety with no usage of 'any' types in schema definitions
+
 ### UI Integration
 
 1. **API Extensions**:
