@@ -9,13 +9,13 @@ This project aims to decouple the "Chloe" agent from our codebase to create a ge
 | Phase | Status | Timeline | Priority |
 |-------|--------|----------|----------|
 | 1. Audit of Hardcoded Elements | ✅ Completed | Week 1 | High |
-| 2. Agent Initialization Refactoring | 🔄 In Progress | Week 2 | High |
-| 3. Knowledge System Refactoring | 🔄 Not Started | Week 2-3 | High |
+| 2. Agent Initialization Refactoring | ✅ Completed | Week 2 | High |
+| 3. Knowledge System Refactoring | 🔄 In Progress | Week 2-3 | High |
 | 4. Capability Configuration | 🔄 Not Started | Week 3 | Medium |
 | 5. UI Registration Flow Enhancement | 🔄 Not Started | Week 4 | Medium |
 | 6. Testing & Validation | 🔄 Not Started | Week 4-5 | High |
 
-**Overall Progress:** 15% - Initial audit completed; identified existing components to leverage.
+**Overall Progress:** 50% - Phase 1 and 2 complete, Phase 3 partially completed (2/4 tasks).
 
 ## Executive Summary
 
@@ -71,12 +71,12 @@ This project will refactor our agent architecture to use a generic, configurable
 
 ### Phase 2: Knowledge System Refactoring
 
-| Task | Scope | Priority |
-|------|-------|----------|
-| Implement dynamic knowledge paths | Replace hardcoded knowledge paths with dynamic paths | High |
-| Create knowledge upload system | Develop UI for uploading agent-specific knowledge | Medium |
-| Implement agent profile storage | Create storage for agent-specific profiles and data | Medium |
-| Refactor MarkdownManager | Make MarkdownManager configurable and agent-agnostic | High |
+| Task | Scope | Priority | Status |
+|------|-------|----------|--------|
+| Implement dynamic knowledge paths | Replace hardcoded knowledge paths with dynamic paths | High | ✅ Completed |
+| Create knowledge upload system | Develop UI for uploading agent-specific knowledge | Medium | 🔄 Not Started |
+| Implement agent profile storage | Create storage for agent-specific profiles and data | Medium | 🔄 Not Started |
+| Refactor MarkdownManager | Make MarkdownManager configurable and agent-agnostic | High | ✅ Completed |
 
 ### Phase 3: Capability Configuration
 
@@ -91,10 +91,49 @@ This project will refactor our agent architecture to use a generic, configurable
 
 | Task | Scope | Priority |
 |------|-------|----------|
-| Enhance AgentRegistrationForm | Add additional fields for all agent configurations | Medium |
+| Enhance AgentRegistrationForm | Add additional fields for all agent configurations | High |
 | Implement knowledge upload UI | Create UI for uploading markdown knowledge | Medium |
 | Create capability selection UI | Develop UI for selecting from available capabilities | Medium |
-| Add system prompt editor | Implement editor for customizing system prompts | Medium |
+| Add system prompt editor | Implement editor for customizing system prompts | High |
+
+#### AgentRegistrationForm Enhancements
+
+The current `AgentRegistrationForm.tsx` lacks several critical fields needed to fully configure an agent. The following enhancements are needed:
+
+1. **System Prompt Configuration**:
+   - Add a rich text editor for creating/editing system prompts
+   - Support for multiple system prompt templates
+   - Preview functionality for system prompts
+
+2. **Department Selection**:
+   - Add a dropdown for department selection (Marketing, HR, Finance, etc.)
+   - Allow custom department creation
+
+3. **Knowledge Configuration**:
+   - Add file upload functionality for markdown knowledge files
+   - Directory structure visualization and management
+   - Knowledge import from URLs or existing sources
+
+4. **Advanced Parameters**:
+   - Add sections for customInstructions
+   - Add systemMessages array support
+   - Add contextWindow configuration
+   - Add tool permissions selection interface
+
+5. **Agent Templates**:
+   - Add a template selection dropdown
+   - Provide preconfigured templates (including Chloe template)
+   - Template preview functionality
+
+6. **Capability Level Configuration**:
+   - Add interface for setting capability levels
+   - Provide visualization of capability strength
+
+7. **Agent Relationships**:
+   - Configure how the agent relates to other agents
+   - Set up collaboration patterns
+
+The form should include a comprehensive validation system to ensure all required fields are properly configured before agent creation.
 
 ### Phase 5: Testing & Validation
 
@@ -242,6 +281,7 @@ this.markdownManager = new MarkdownManager({
 | Incomplete decoupling | Medium | High | Perform static analysis to identify all hardcoded references |
 | Knowledge system disruption | High | High | Implement careful migration strategy for existing knowledge |
 | Integration challenges with existing components | Medium | High | Create mapping between ChloeAgent and AgentBase interfaces |
+| Form complexity overwhelming users | Medium | Medium | Design intuitive UI with progressive disclosure of advanced options |
 
 ## Backward Compatibility Plan
 

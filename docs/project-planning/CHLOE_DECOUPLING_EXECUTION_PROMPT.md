@@ -47,10 +47,12 @@ We need to decouple the Chloe agent from our codebase to create a generic agent 
 ### Phase 3: UI Registration Flow Enhancement
 
 1. Update the `AgentRegistrationForm` component:
-   - Add fields for all agent configuration options
-   - Include system prompt customization
-   - Support capability selection
-   - Add knowledge upload functionality
+   - Add critical missing fields for complete agent configuration
+   - Implement system prompt customization with rich editing
+   - Support capability level selection
+   - Add department selection and configuration
+   - Add knowledge upload functionality 
+   - Create template system for quick agent setup
 
 2. Create agent instance creation flow:
    - Connect registration form to agent factory
@@ -61,6 +63,363 @@ We need to decouple the Chloe agent from our codebase to create a generic agent 
    - Create a "Load Chloe Template" option
    - Pre-populate form with Chloe's configuration
    - Allow customization of Chloe template
+
+#### AgentRegistrationForm Enhancement Details
+
+1. **System Prompt Configuration Component**:
+   ```tsx
+   const SystemPromptEditor = () => {
+     return (
+       <div className="bg-gray-800 p-6 rounded-lg shadow-md">
+         <h2 className="text-xl font-semibold mb-4">System Prompt</h2>
+         
+         <div className="mb-4">
+           <label htmlFor="systemPromptTemplate" className="block text-sm font-medium mb-1">
+             Template
+           </label>
+           <select
+             id="systemPromptTemplate"
+             onChange={(e) => loadSystemPromptTemplate(e.target.value)}
+             className="w-full bg-gray-700 border border-gray-600 rounded py-2 px-3 text-white"
+           >
+             <option value="">Select a template or create custom</option>
+             <option value="chloe">Chloe (Marketing Expert)</option>
+             <option value="assistant">General Assistant</option>
+             <option value="researcher">Researcher</option>
+             <option value="coder">Coding Expert</option>
+           </select>
+         </div>
+         
+         <div>
+           <label htmlFor="parameters.systemPrompt" className="block text-sm font-medium mb-1">
+             System Prompt
+           </label>
+           <textarea
+             id="parameters.systemPrompt"
+             name="parameters.systemPrompt"
+             value={formData.parameters.systemPrompt || ''}
+             onChange={handleChange}
+             rows={10}
+             className="w-full bg-gray-700 border border-gray-600 rounded py-2 px-3 text-white monospace"
+             placeholder="You are an AI assistant with expertise in..."
+           />
+         </div>
+         
+         <div className="mt-2">
+           <button
+             type="button"
+             onClick={() => setShowSystemPromptPreview(!showSystemPromptPreview)}
+             className="text-blue-400 hover:text-blue-300 text-sm"
+           >
+             {showSystemPromptPreview ? 'Hide Preview' : 'Show Preview'}
+           </button>
+           
+           {showSystemPromptPreview && (
+             <div className="mt-4 p-4 bg-gray-700 rounded border border-gray-600">
+               <h3 className="text-md font-medium mb-2">Preview:</h3>
+               <div className="text-sm whitespace-pre-wrap">
+                 {formData.parameters.systemPrompt || 'No system prompt provided yet'}
+               </div>
+             </div>
+           )}
+         </div>
+       </div>
+     );
+   };
+   ```
+
+2. **Department Configuration**:
+   ```tsx
+   const DepartmentSelector = () => {
+     return (
+       <div className="mb-4">
+         <label htmlFor="department" className="block text-sm font-medium mb-1">
+           Department
+         </label>
+         <select
+           id="department"
+           name="config.department"
+           value={formData.config.department || ''}
+           onChange={handleChange}
+           className="w-full bg-gray-700 border border-gray-600 rounded py-2 px-3 text-white"
+         >
+           <option value="">Select a department</option>
+           <option value="marketing">Marketing</option>
+           <option value="sales">Sales</option>
+           <option value="hr">Human Resources</option>
+           <option value="finance">Finance</option>
+           <option value="engineering">Engineering</option>
+           <option value="support">Customer Support</option>
+           <option value="general">General</option>
+           <option value="custom">Custom...</option>
+         </select>
+         
+         {formData.config.department === 'custom' && (
+           <input
+             type="text"
+             name="config.customDepartment"
+             value={formData.config.customDepartment || ''}
+             onChange={handleChange}
+             className="mt-2 w-full bg-gray-700 border border-gray-600 rounded py-2 px-3 text-white"
+             placeholder="Enter custom department"
+           />
+         )}
+       </div>
+     );
+   };
+   ```
+
+3. **Knowledge Upload Component**:
+   ```tsx
+   const KnowledgeUploader = () => {
+     return (
+       <div className="bg-gray-800 p-6 rounded-lg shadow-md">
+         <h2 className="text-xl font-semibold mb-4">Knowledge Sources</h2>
+         
+         <div className="mb-4">
+           <h3 className="text-md font-medium mb-2">Upload Markdown Files</h3>
+           <div className="border-2 border-dashed border-gray-600 rounded-lg p-6 text-center">
+             <input
+               type="file"
+               id="markdown-upload"
+               accept=".md"
+               multiple
+               onChange={handleFileUpload}
+               className="hidden"
+             />
+             <label
+               htmlFor="markdown-upload"
+               className="cursor-pointer bg-blue-600 hover:bg-blue-700 py-2 px-4 rounded text-white inline-block"
+             >
+               Select Files
+             </label>
+             <p className="mt-2 text-sm text-gray-400">
+               Or drag and drop markdown files here
+             </p>
+           </div>
+         </div>
+         
+         {uploadedFiles.length > 0 && (
+           <div className="mb-4">
+             <h3 className="text-md font-medium mb-2">Uploaded Files:</h3>
+             <ul className="space-y-1">
+               {uploadedFiles.map((file, index) => (
+                 <li key={index} className="bg-gray-700 p-2 rounded flex justify-between items-center">
+                   <span>{file.name}</span>
+                   <button
+                     type="button"
+                     onClick={() => removeFile(index)}
+                     className="text-red-400 hover:text-red-300"
+                   >
+                     Remove
+                   </button>
+                 </li>
+               ))}
+             </ul>
+           </div>
+         )}
+         
+         <div className="mb-4">
+           <h3 className="text-md font-medium mb-2">Knowledge Directories</h3>
+           <div className="space-y-2">
+             {formData.config.knowledgePaths?.map((path, index) => (
+               <div key={index} className="flex items-center">
+                 <input
+                   type="text"
+                   value={path}
+                   onChange={(e) => updateKnowledgePath(index, e.target.value)}
+                   className="flex-1 bg-gray-700 border border-gray-600 rounded-l py-2 px-3 text-white"
+                 />
+                 <button
+                   type="button"
+                   onClick={() => removeKnowledgePath(index)}
+                   className="bg-red-600 hover:bg-red-700 px-3 py-2 rounded-r text-white"
+                 >
+                   Remove
+                 </button>
+               </div>
+             ))}
+             
+             <button
+               type="button"
+               onClick={addKnowledgePath}
+               className="bg-blue-600 hover:bg-blue-700 py-1 px-3 rounded text-white text-sm"
+             >
+               Add Path
+             </button>
+           </div>
+         </div>
+       </div>
+     );
+   };
+   ```
+
+4. **Advanced Parameters Component**:
+   ```tsx
+   const AdvancedParameters = () => {
+     return (
+       <div className="bg-gray-800 p-6 rounded-lg shadow-md">
+         <div className="flex justify-between items-center mb-4">
+           <h2 className="text-xl font-semibold">Advanced Parameters</h2>
+           <button
+             type="button"
+             onClick={() => setShowAdvancedParams(!showAdvancedParams)}
+             className="text-blue-400 hover:text-blue-300 text-sm"
+           >
+             {showAdvancedParams ? 'Hide' : 'Show'}
+           </button>
+         </div>
+         
+         {showAdvancedParams && (
+           <div className="space-y-4">
+             <div>
+               <label htmlFor="parameters.contextWindow" className="block text-sm font-medium mb-1">
+                 Context Window Size
+               </label>
+               <input
+                 type="number"
+                 id="parameters.contextWindow"
+                 name="parameters.contextWindow"
+                 value={formData.parameters.contextWindow || 4000}
+                 onChange={handleNumberChange}
+                 min="1000"
+                 max="32000"
+                 step="1000"
+                 className="w-full bg-gray-700 border border-gray-600 rounded py-2 px-3 text-white"
+               />
+             </div>
+             
+             <div>
+               <label htmlFor="parameters.customInstructions" className="block text-sm font-medium mb-1">
+                 Custom Instructions
+               </label>
+               <textarea
+                 id="parameters.customInstructions"
+                 name="parameters.customInstructions"
+                 value={formData.parameters.customInstructions || ''}
+                 onChange={handleChange}
+                 rows={4}
+                 className="w-full bg-gray-700 border border-gray-600 rounded py-2 px-3 text-white"
+                 placeholder="Additional custom instructions..."
+               />
+             </div>
+             
+             <div>
+               <label className="block text-sm font-medium mb-1">
+                 System Messages
+               </label>
+               <div className="space-y-2">
+                 {formData.parameters.systemMessages?.map((message, index) => (
+                   <div key={index} className="flex items-start">
+                     <textarea
+                       value={message}
+                       onChange={(e) => updateSystemMessage(index, e.target.value)}
+                       rows={2}
+                       className="flex-1 bg-gray-700 border border-gray-600 rounded-l py-2 px-3 text-white"
+                     />
+                     <button
+                       type="button"
+                       onClick={() => removeSystemMessage(index)}
+                       className="bg-red-600 hover:bg-red-700 px-3 py-2 h-full rounded-r text-white"
+                     >
+                       Remove
+                     </button>
+                   </div>
+                 ))}
+                 
+                 <button
+                   type="button"
+                   onClick={addSystemMessage}
+                   className="bg-blue-600 hover:bg-blue-700 py-1 px-3 rounded text-white text-sm"
+                 >
+                   Add System Message
+                 </button>
+               </div>
+             </div>
+             
+             <div>
+               <label className="block text-sm font-medium mb-1">
+                 Tool Permissions
+               </label>
+               <div className="grid grid-cols-2 gap-2">
+                 {availableTools.map(tool => (
+                   <div key={tool.id} className="flex items-center">
+                     <input
+                       type="checkbox"
+                       id={`tool-${tool.id}`}
+                       checked={formData.toolPermissions?.includes(tool.id) || false}
+                       onChange={(e) => toggleToolPermission(tool.id, e.target.checked)}
+                       className="mr-2"
+                     />
+                     <label htmlFor={`tool-${tool.id}`} className="text-sm">
+                       {tool.name}
+                     </label>
+                   </div>
+                 ))}
+               </div>
+             </div>
+           </div>
+         )}
+       </div>
+     );
+   };
+   ```
+
+5. **Capability Level Configuration**:
+   ```tsx
+   const CapabilityLevelEditor = () => {
+     return (
+       <div className="mt-6">
+         <h3 className="text-md font-medium mb-2">Capability Levels</h3>
+         
+         {formData.capabilities.length > 0 ? (
+           <div className="space-y-4">
+             {formData.capabilities.map((capability) => (
+               <div key={capability.id} className="bg-gray-700 p-3 rounded">
+                 <div className="flex justify-between items-center mb-2">
+                   <h4 className="font-medium">{capability.name}</h4>
+                   <span className="text-xs text-gray-400">{capability.id}</span>
+                 </div>
+                 
+                 <p className="text-sm text-gray-300 mb-2">{capability.description}</p>
+                 
+                 <div>
+                   <label htmlFor={`level-${capability.id}`} className="block text-sm mb-1">
+                     Proficiency Level
+                   </label>
+                   <select
+                     id={`level-${capability.id}`}
+                     value={getCapabilityLevel(capability.id) || 'basic'}
+                     onChange={(e) => setCapabilityLevel(capability.id, e.target.value)}
+                     className="w-full bg-gray-600 border border-gray-500 rounded py-1 px-2 text-white text-sm"
+                   >
+                     <option value="basic">Basic</option>
+                     <option value="intermediate">Intermediate</option>
+                     <option value="advanced">Advanced</option>
+                     <option value="expert">Expert</option>
+                   </select>
+                   
+                   <div className="mt-2 bg-gray-600 rounded-full h-2">
+                     <div 
+                       className="bg-blue-500 h-2 rounded-full" 
+                       style={{ 
+                         width: getLevelPercentage(getCapabilityLevel(capability.id)) 
+                       }}
+                     ></div>
+                   </div>
+                 </div>
+               </div>
+             ))}
+           </div>
+         ) : (
+           <p className="text-sm text-gray-400">
+             Add capabilities first to configure their levels
+           </p>
+         )}
+       </div>
+     );
+   };
+   ```
 
 ### Phase 4: Testing and Validation
 

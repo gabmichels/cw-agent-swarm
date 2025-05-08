@@ -4,7 +4,19 @@
 
 // Export core components
 export { ChloeAgent } from './core/agent';
-export { ChloeAgent as Agent } from './core/agent'; // Legacy export
+export { ChloeAgentV2 } from './next-gen/ChloeAgentV2';
+
+// Export types
+export type { ChloeAgentConfig, ChloeAgentOptions } from './types/interfaces';
+
+// Export the registry adapter functions
+export { 
+  getModernChloeInstance,
+  migrateToChloeV2
+} from './adapters/registry-adapter';
+
+// Re-export from registry-adapter for backward compatibility
+export { getChloeInstance } from './adapters/registry-adapter';
 
 // Export additional components
 export { ToolManager } from './core/toolManager';
