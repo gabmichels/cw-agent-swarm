@@ -15,6 +15,11 @@ import {
   CapabilityRequest, 
   CapabilityRegistration 
 } from './types';
+import { 
+  CapabilityMetricsService, 
+  ICapabilityMetricsService, 
+  CapabilityPerformanceMetrics
+} from './capability-metrics';
 
 // String literal type for capability memory types, avoiding enum conflicts
 type CapabilityMemoryType = 'agent' | 'agent_capability' | 'capability_definition';
@@ -46,6 +51,14 @@ export interface ICapabilityRegistry {
     capabilityId: string, 
     request?: Partial<CapabilityRequest>
   ): Promise<string[]>;
+
+  /**
+   * Find best performing agents for a capability based on metrics
+   */
+  findBestProviders(
+    capabilityId: string,
+    limit?: number
+  ): Promise<string[]>;
   
   /**
    * Get all capabilities for an agent
@@ -66,6 +79,43 @@ export interface ICapabilityRegistry {
    * Get all registered capability definitions
    */
   getAllCapabilities(): Promise<Capability[]>;
+
+  /**
+   * Get performance metrics for a capability
+   */
+  getCapabilityMetrics(
+    agentId: string,
+    capabilityId: string
+  ): Promise<CapabilityPerformanceMetrics | null>;
+
+  /**
+   * Record usage of a capability with performance data
+   */
+  recordCapabilityUsage(
+    agentId: string,
+    capabilityId: string,
+    success: boolean,
+    duration: number,
+    options?: {
+      latency?: number;
+      tokenCount?: number;
+      confidenceScore?: number;
+      qualityScore?: number;
+      context?: {
+        requestId?: string;
+        chatId?: string;
+        taskId?: string;
+      };
+    }
+  ): Promise<void>;
+
+  /**
+   * Update capability levels based on performance metrics
+   */
+  updateCapabilityLevels(agentId: string): Promise<{
+    updated: number;
+    unchanged: number;
+  }>;
 }
 
 /**
@@ -77,12 +127,18 @@ export class CapabilityRegistry implements ICapabilityRegistry {
   private readonly AGENT_CAPABILITY_TYPE: CapabilityMemoryType = 'agent_capability';
   private readonly CAPABILITY_DEFINITION_TYPE: CapabilityMemoryType = 'capability_definition';
   
+  // Metrics service for tracking capability performance
+  private readonly metricsService: ICapabilityMetricsService;
+
   /**
    * Create a new capability registry
    */
   constructor(
     private readonly memoryService: AnyMemoryService
-  ) {}
+  ) {
+    // Initialize the metrics service
+    this.metricsService = new CapabilityMetricsService(memoryService);
+  }
   
   /**
    * Register a capability for an agent
@@ -478,6 +534,133 @@ export class CapabilityRegistry implements ICapabilityRegistry {
     } catch (error) {
       console.error(`Error removing agent capability ${capabilityId} from ${agentId}:`, error);
       // Don't throw, just log the error
+    }
+  }
+
+  /**
+   * Find best performing agents for a capability based on metrics
+   */
+  async findBestProviders(
+    capabilityId: string,
+    limit: number = 5
+  ): Promise<string[]> {
+    try {
+      // Get best performing agents from metrics service
+      const bestPerforming = await this.metricsService.getBestPerformingAgents(
+        capabilityId,
+        limit
+      );
+      
+      if (bestPerforming.length > 0) {
+        return bestPerforming.map(result => result.agentId);
+      }
+      
+      // Fall back to regular findProviders if no metrics exist
+      return this.findProviders(capabilityId, {
+        minimumProficiency: 0.5 // Reasonable default
+      });
+    } catch (error) {
+      console.error(`Error finding best providers for capability ${capabilityId}:`, error);
+      // Fall back to regular provider search
+      return this.findProviders(capabilityId);
+    }
+  }
+
+  /**
+   * Get performance metrics for a capability
+   */
+  async getCapabilityMetrics(
+    agentId: string,
+    capabilityId: string
+  ): Promise<CapabilityPerformanceMetrics | null> {
+    return this.metricsService.getCapabilityPerformance(agentId, capabilityId);
+  }
+
+  /**
+   * Record usage of a capability with performance data
+   */
+  async recordCapabilityUsage(
+    agentId: string,
+    capabilityId: string,
+    success: boolean,
+    duration: number,
+    options: {
+      latency?: number;
+      tokenCount?: number;
+      confidenceScore?: number;
+      qualityScore?: number;
+      context?: {
+        requestId?: string;
+        chatId?: string;
+        taskId?: string;
+      };
+    } = {}
+  ): Promise<void> {
+    try {
+      // Verify the capability is registered for this agent
+      const capabilities = await this.getAgentCapabilities(agentId);
+      const hasCapability = capabilities.some(cap => cap.capabilityId === capabilityId);
+      
+      if (!hasCapability) {
+        console.warn(`Agent ${agentId} does not have capability ${capabilityId} registered`);
+        return;
+      }
+      
+      // Record the usage
+      await this.metricsService.recordCapabilityUsage(
+        agentId,
+        capabilityId,
+        {
+          duration,
+          success,
+          latency: options.latency || duration, // Default to duration if latency not provided
+          tokenCount: options.tokenCount,
+          confidenceScore: options.confidenceScore,
+          qualityScore: options.qualityScore,
+          context: options.context
+        }
+      );
+    } catch (error) {
+      console.error(`Error recording capability usage for ${capabilityId} by agent ${agentId}:`, error);
+    }
+  }
+
+  /**
+   * Update capability levels based on performance metrics
+   */
+  async updateCapabilityLevels(agentId: string): Promise<{
+    updated: number;
+    unchanged: number;
+  }> {
+    try {
+      // Get all capabilities for the agent
+      const capabilities = await this.getAgentCapabilities(agentId);
+      
+      let updated = 0;
+      let unchanged = 0;
+      
+      // Update each capability level based on performance
+      for (const capability of capabilities) {
+        const result = await this.metricsService.updateCapabilityLevel(
+          agentId,
+          capability.capabilityId
+        );
+        
+        if (result) {
+          if (result.previousLevel !== result.newLevel) {
+            updated++;
+          } else {
+            unchanged++;
+          }
+        } else {
+          unchanged++;
+        }
+      }
+      
+      return { updated, unchanged };
+    } catch (error) {
+      console.error(`Error updating capability levels for agent ${agentId}:`, error);
+      return { updated: 0, unchanged: 0 };
     }
   }
 } 

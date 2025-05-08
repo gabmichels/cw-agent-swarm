@@ -5,10 +5,10 @@
 | Phase | Status | Timeline | Completion % |
 |-------|--------|----------|-------------|
 | 1. Foundation Phase | ✅ Completed | Week 1-3 | 100% |
-| 2. Communication Phase | 🟡 In Progress | Week 4-6 | 75% |
+| 2. Communication Phase | 🟡 In Progress | Week 4-6 | 80% |
 | 3. Integration Phase | ⚪ Not Started | Week 7-9 | 0% |
 
-**Overall Progress:** 58% - Foundation phase completed and Communication Phase mostly implemented. Core messaging infrastructure is now complete with message routing, transformation, conversation management, and capability registry components.
+**Overall Progress:** 60% - Foundation phase completed and Communication Phase mostly implemented. Core messaging infrastructure is now complete with message routing, transformation, conversation management, capability registry, and agent capability collection with performance tracking.
 
 ## Executive Summary
 
@@ -28,6 +28,7 @@ This project implements a comprehensive multi-agent system to enable agent-to-ag
 - ✅ Added usage documentation for memory service wrappers
 - ✅ Core messaging infrastructure implementation (router, transformer, conversation manager, capability registry)
 - ✅ Updated memory types to support multi-agent system requirements
+- ✅ Capability metrics service for tracking and optimizing agent performance
 
 ### In Progress
 - 🔄 Agent factory implementation
@@ -75,7 +76,7 @@ This project implements a comprehensive multi-agent system to enable agent-to-ag
 | Implement messaging factory | | ✅ Completed | W4D7 | Created factory module with singleton management for communication components |
 | Update memory types for multi-agent system | | ✅ Completed | W4D7 | Added CONVERSATION, AGENT, AGENT_ACTIVITY, TASK, AGENT_CAPABILITY, CAPABILITY_DEFINITION memory types |
 | Create messaging infrastructure documentation | | ✅ Completed | W5D1 | Created COMMUNICATION_PHASE_DESIGN.md with detailed architecture documentation |
-| Implement agent capabilities collection | | 🟡 In Progress | W5D2 | Store and manage agent capabilities with performance tracking |
+| Implement agent capabilities collection | | ✅ Completed | W5D2 | Store and manage agent capabilities with performance tracking and automatic capability level adjustment |
 | Implement agent relationships collection | | 🟡 In Progress | W5D4 | Track agent-to-agent relationships and collaboration patterns |
 | Test multi-agent conversations | | 🟡 In Progress | W5D3 | Integration testing of routing and conversation capabilities |
 | Add conversation analytics | | 🟡 In Progress | W5D5 | |
@@ -228,6 +229,14 @@ The Communication Phase now includes complete implementations of:
   - Manages capability hierarchy and dependencies
   - Tracks capability usage and performance metrics
   - Implements dynamic capability assignment and revocation
+
+- **Capability Metrics Service**: Tracks and optimizes capability performance:
+  - Records detailed capability usage metrics (success rate, latency, quality)
+  - Aggregates performance data for data-driven agent selection
+  - Identifies best-performing agents for specific capabilities
+  - Automatically adjusts capability levels based on performance
+  - Provides trending analysis of capability usage and improvement
+  - Supports finding optimal agent for capability-based routing
 
 - **Agent Relationship Management**:
   - Tracks collaboration patterns between agents

@@ -502,4 +502,316 @@ describe('CapabilityRegistry', () => {
       expect(capabilities).toEqual([]);
     });
   });
+
+  // Test for capabilities metrics integration
+  describe('capability metrics integration', () => {
+    // Mock the metrics service methods
+    beforeEach(() => {
+      // Mock the getAgentCapabilities method to return a capability
+      mockMemoryService.searchMemories = vi.fn().mockImplementation((params) => {
+        if (params.type === 'agent_capability') {
+          return Promise.resolve([
+            {
+              id: TEST_CAPABILITY_ID,
+              payload: {
+                metadata: {
+                  capability: {
+                    capabilityId: TEST_CAPABILITY_ID,
+                    level: CapabilityLevel.INTERMEDIATE,
+                    enabled: true
+                  }
+                }
+              }
+            }
+          ]);
+        }
+        return Promise.resolve([]);
+      });
+    });
+
+    describe('recordCapabilityUsage', () => {
+      it('should record capability usage', async () => {
+        // Call the method
+        await registry.recordCapabilityUsage(
+          'test-agent',
+          TEST_CAPABILITY_ID,
+          true,
+          100,
+          {
+            latency: 50,
+            confidenceScore: 0.9
+          }
+        );
+
+        // Verify that searchMemories was called
+        expect(mockMemoryService.searchMemories).toHaveBeenCalled();
+        expect(mockMemoryService.addMemory).toHaveBeenCalled();
+      });
+
+      it('should not record usage for unregistered capability', async () => {
+        // Mock to return no capabilities
+        mockMemoryService.searchMemories = vi.fn().mockResolvedValue([]);
+
+        // Call the method
+        await registry.recordCapabilityUsage(
+          'test-agent',
+          'non-existent-capability',
+          true,
+          100
+        );
+
+        // Verify searchMemories was called but addMemory was not
+        expect(mockMemoryService.searchMemories).toHaveBeenCalled();
+        expect(mockMemoryService.addMemory).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('getCapabilityMetrics', () => {
+      it('should return metrics for a capability', async () => {
+        // Set up the mock to return metrics
+        const sampleMetrics = {
+          capabilityId: TEST_CAPABILITY_ID,
+          agentId: 'test-agent',
+          usageCount: 10,
+          successRate: 0.8,
+          averageDuration: 150,
+          averageLatency: 70,
+          averageConfidence: 0.85,
+          lastUsed: Date.now(),
+          trending: {
+            usageFrequency: 'increasing',
+            performanceDirection: 'improving'
+          },
+          historicalData: {
+            timeframe: 'day',
+            successRates: [0.7, 0.8, 0.9],
+            latencies: [80, 75, 70]
+          }
+        };
+
+        mockMemoryService.searchMemories = vi.fn().mockImplementation((params) => {
+          if (params.type === 'capability_metrics') {
+            return Promise.resolve([
+              {
+                id: 'metrics-id',
+                payload: {
+                  metadata: sampleMetrics
+                }
+              }
+            ]);
+          }
+          return Promise.resolve([]);
+        });
+
+        // Call the method
+        const metrics = await registry.getCapabilityMetrics('test-agent', TEST_CAPABILITY_ID);
+
+        // Verify the result
+        expect(metrics).toBeDefined();
+        expect(metrics?.capabilityId).toBe(TEST_CAPABILITY_ID);
+        expect(metrics?.agentId).toBe('test-agent');
+        expect(metrics?.usageCount).toBe(10);
+      });
+    });
+
+    describe('findBestProviders', () => {
+      it('should return best providers based on metrics', async () => {
+        // Set up the mock to return metrics for multiple agents
+        mockMemoryService.searchMemories = vi.fn().mockImplementation((params) => {
+          if (params.type === 'capability_metrics') {
+            return Promise.resolve([
+              {
+                id: 'metrics-1',
+                payload: {
+                  metadata: {
+                    capabilityId: TEST_CAPABILITY_ID,
+                    agentId: 'agent-1',
+                    usageCount: 20,
+                    successRate: 0.9,
+                    averageLatency: 50
+                  }
+                }
+              },
+              {
+                id: 'metrics-2',
+                payload: {
+                  metadata: {
+                    capabilityId: TEST_CAPABILITY_ID,
+                    agentId: 'agent-2',
+                    usageCount: 15,
+                    successRate: 0.95,
+                    averageLatency: 60
+                  }
+                }
+              },
+              {
+                id: 'metrics-3',
+                payload: {
+                  metadata: {
+                    capabilityId: TEST_CAPABILITY_ID,
+                    agentId: 'agent-3',
+                    usageCount: 10,
+                    successRate: 0.85,
+                    averageLatency: 40
+                  }
+                }
+              }
+            ]);
+          }
+          return Promise.resolve([]);
+        });
+
+        // Call the method
+        const bestProviders = await registry.findBestProviders(TEST_CAPABILITY_ID, 2);
+
+        // Verify the result
+        expect(bestProviders).toHaveLength(2);
+        expect(bestProviders).toContain('agent-2'); // Highest success rate
+        expect(bestProviders[0]).toBe('agent-2'); // Should be first
+      });
+
+      it('should fall back to regular findProviders if no metrics exist', async () => {
+        // Set up the mock to return no metrics
+        mockMemoryService.searchMemories = vi.fn().mockImplementation((params) => {
+          if (params.type === 'capability_metrics') {
+            return Promise.resolve([]);
+          }
+          if (params.type === 'agent_capability') {
+            return Promise.resolve([
+              {
+                id: 'cap-1',
+                payload: {
+                  metadata: {
+                    agentId: 'agent-1',
+                    capability: {
+                      capabilityId: TEST_CAPABILITY_ID,
+                      level: CapabilityLevel.ADVANCED,
+                      enabled: true
+                    }
+                  }
+                }
+              }
+            ]);
+          }
+          return Promise.resolve([]);
+        });
+
+        // Call the method
+        const providers = await registry.findBestProviders(TEST_CAPABILITY_ID);
+
+        // Verify the result
+        expect(providers).toHaveLength(1);
+        expect(providers[0]).toBe('agent-1');
+      });
+    });
+
+    describe('updateCapabilityLevels', () => {
+      it('should update capability levels based on performance', async () => {
+        // Set up the mock for capability metrics
+        const metricsResponse = {
+          capabilityId: TEST_CAPABILITY_ID,
+          agentId: 'test-agent',
+          usageCount: 20,
+          successRate: 0.96, // High enough for EXPERT level
+          averageDuration: 100,
+          averageLatency: 50,
+          averageConfidence: 0.9,
+          lastUsed: Date.now()
+        };
+
+        mockMemoryService.searchMemories = vi.fn().mockImplementation((params) => {
+          if (params.type === 'agent_capability') {
+            return Promise.resolve([
+              {
+                id: 'cap-1',
+                payload: {
+                  metadata: {
+                    capability: {
+                      capabilityId: TEST_CAPABILITY_ID,
+                      level: CapabilityLevel.ADVANCED,
+                      enabled: true
+                    }
+                  }
+                }
+              }
+            ]);
+          }
+          if (params.type === 'capability_metrics') {
+            return Promise.resolve([
+              {
+                id: 'metrics-id',
+                payload: {
+                  metadata: metricsResponse
+                }
+              }
+            ]);
+          }
+          return Promise.resolve([]);
+        });
+
+        // Call the method
+        const result = await registry.updateCapabilityLevels('test-agent');
+
+        // Verify the result
+        expect(result).toBeDefined();
+        expect(result.updated).toBe(1);
+        expect(result.unchanged).toBe(0);
+
+        // Verify updateMemory was called
+        expect(mockMemoryService.updateMemory).toHaveBeenCalled();
+      });
+
+      it('should handle case when no capabilities need updates', async () => {
+        // Set up the mock for capability metrics with low sample size
+        const metricsResponse = {
+          capabilityId: TEST_CAPABILITY_ID,
+          agentId: 'test-agent',
+          usageCount: 5, // Too few samples to trigger level change
+          successRate: 0.96,
+          averageDuration: 100,
+          averageLatency: 50,
+          averageConfidence: 0.9,
+          lastUsed: Date.now()
+        };
+
+        mockMemoryService.searchMemories = vi.fn().mockImplementation((params) => {
+          if (params.type === 'agent_capability') {
+            return Promise.resolve([
+              {
+                id: 'cap-1',
+                payload: {
+                  metadata: {
+                    capability: {
+                      capabilityId: TEST_CAPABILITY_ID,
+                      level: CapabilityLevel.INTERMEDIATE,
+                      enabled: true
+                    }
+                  }
+                }
+              }
+            ]);
+          }
+          if (params.type === 'capability_metrics') {
+            return Promise.resolve([
+              {
+                id: 'metrics-id',
+                payload: {
+                  metadata: metricsResponse
+                }
+              }
+            ]);
+          }
+          return Promise.resolve([]);
+        });
+
+        // Call the method
+        const result = await registry.updateCapabilityLevels('test-agent');
+
+        // Verify the result
+        expect(result).toBeDefined();
+        expect(result.updated).toBe(0);
+        expect(result.unchanged).toBe(1);
+      });
+    });
+  });
 }); 

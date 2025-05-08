@@ -638,8 +638,8 @@ export class AgentBase {
           messageType: message.type,
           metadata: {
             timestamp: Date.now(),
-            ...(message.metadata || {})
-          }
+          ...(message.metadata || {})
+        }
         }
       );
       
