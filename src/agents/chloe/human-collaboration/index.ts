@@ -1,5 +1,6 @@
 import { PlanningTask } from '../graph/nodes/types';
 import { StakeholderProfile, StakeholderManager, DEFAULT_PROFILE } from './stakeholder';
+import { approvalConfig, ApprovalRule } from './approval-config';
 
 // Using PlanningTask as a base but extending with confidence score
 export interface PlannedTask extends PlanningTask {
@@ -18,6 +19,10 @@ export interface PlannedTask extends PlanningTask {
   correctionNotes?: string[];
   correctionCategory?: 'misunderstanding' | 'tool_misuse' | 'missed_context' | 'wrong_approach' | 'other';
   correctionTimestamp?: number;
+  // Approval tracking
+  approvalEntryId?: string;
+  approvedBy?: string;
+  approvalNotes?: string;
 }
 
 /**
@@ -57,31 +62,16 @@ export async function checkNeedClarification(task: PlannedTask): Promise<boolean
 
 /**
  * Determines whether a task requires explicit user approval before execution.
+ * Uses the configurable approval system to evaluate rules.
  * 
  * @param task The planned task to evaluate
- * @returns True if approval is required, false otherwise
+ * @returns An object with required flag and matched rule if approval is needed
  */
-export function checkIfApprovalRequired(task: PlannedTask): boolean {
-  // Check for external posting tasks
-  if (task.type === 'external_post') {
-    return true;
-  }
-  
-  // Check for strategic tasks
-  if (task.isStrategic === true) {
-    return true;
-  }
-  
-  // Check for specific tools that require approval
-  if (task.toolName === 'new_tool') {
-    return true;
-  }
-  
-  // TODO: Extend this to support admin-defined approval settings
-  // This could check against a configurable list of task types,
-  // tools, or other properties that require approval
-  
-  return false;
+export function checkIfApprovalRequired(task: PlannedTask): { 
+  required: boolean; 
+  rule?: ApprovalRule;
+} {
+  return approvalConfig.checkApprovalRequired(task);
 }
 
 /**
@@ -216,14 +206,28 @@ export function formatApprovalRequest(
 ): string {
   const profile = stakeholderProfile || task.stakeholderProfile || DEFAULT_PROFILE;
   
+  // Get the approval requirement with rule details
+  const approvalCheck = checkIfApprovalRequired(task);
+  
   // Determine the reason for approval
   let approvalReason = "This task requires approval based on defined rules";
-  if (task.type === 'external_post') {
-    approvalReason = "This task involves posting content externally";
-  } else if (task.isStrategic === true) {
-    approvalReason = "This is a strategic task that requires review";
-  } else if (task.toolName === 'new_tool') {
-    approvalReason = "This task uses a tool that requires approval";
+  
+  if (approvalCheck.rule) {
+    approvalReason = approvalCheck.rule.reason || approvalCheck.rule.description;
+    
+    // Record this approval request in history if not already recorded
+    if (!task.approvalEntryId) {
+      const taskTitle = task.subGoals.find(sg => sg.id === task.currentSubGoalId)?.description || task.goal;
+      const entry = approvalConfig.recordApprovalRequest(
+        task.id || `task_${Date.now()}`,
+        taskTitle,
+        approvalCheck.rule,
+        task.currentSubGoalId
+      );
+      
+      // Store the approval entry ID on the task for future reference
+      task.approvalEntryId = entry.id;
+    }
   }
   
   // Generate the base approval message
@@ -238,6 +242,50 @@ export function formatApprovalRequest(
   );
   
   return baseMessage;
+}
+
+/**
+ * Applies an approval decision to a task
+ * 
+ * @param task The task to apply approval to
+ * @param approved Whether the task is approved
+ * @param approvedBy Who approved the task
+ * @param notes Optional notes about the approval decision
+ * @returns The updated task with approval information
+ */
+export function applyApprovalDecision(
+  task: PlannedTask,
+  approved: boolean,
+  approvedBy: string = 'user',
+  notes?: string
+): PlannedTask {
+  // Update the task approval properties
+  task.approvalGranted = approved;
+  task.approvedBy = approvedBy;
+  task.approvalNotes = notes;
+  
+  // If the task has an approval entry ID, record the decision in history
+  if (task.approvalEntryId) {
+    approvalConfig.recordApprovalDecision(
+      task.approvalEntryId,
+      approved,
+      approvedBy,
+      'user', // Default role
+      notes
+    );
+  }
+  
+  return task;
+}
+
+/**
+ * Get approval history for a specific task
+ * 
+ * @param taskId The ID of the task
+ * @returns Array of approval history entries
+ */
+export function getApprovalHistory(taskId: string) {
+  return approvalConfig.getTaskApprovalHistory(taskId);
 }
 
 /**
@@ -264,5 +312,7 @@ export const HumanCollaboration = {
   checkIfApprovalRequired,
   formatClarificationRequest,
   formatApprovalRequest,
-  setStakeholderProfile
+  setStakeholderProfile,
+  applyApprovalDecision,
+  getApprovalHistory
 }; 

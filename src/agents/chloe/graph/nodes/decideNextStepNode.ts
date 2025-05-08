@@ -5,6 +5,27 @@
 import { AIMessage } from "@langchain/core/messages";
 import { ChatPromptTemplate } from "@langchain/core/prompts";
 import { NodeContext, PlanningState, SubGoal, ExecutionTraceEntry } from "./types";
+import { PlannedTask, HumanCollaboration } from "../../human-collaboration";
+import { approvalConfig } from "../../human-collaboration/approval-config";
+
+/**
+ * Helper function to find a sub-goal by ID in a hierarchical structure
+ */
+function findSubGoalById(subGoals: SubGoal[], id: string): SubGoal | undefined {
+  // First, check if the sub-goal is at this level
+  const subGoal = subGoals.find(sg => sg.id === id);
+  if (subGoal) return subGoal;
+  
+  // If not found, recursively search in children
+  for (const sg of subGoals) {
+    if (sg.children && sg.children.length > 0) {
+      const found = findSubGoalById(sg.children, id);
+      if (found) return found;
+    }
+  }
+  
+  return undefined;
+}
 
 /**
  * Decides the next step in the execution process
@@ -96,7 +117,45 @@ export async function decideNextStepNode(
     if (state.route === 'request-approval') {
       const endTime = new Date();
       const duration = endTime.getTime() - startTime.getTime();
+      const task = state.task as PlannedTask;
       
+      // Get more detailed information about the approval request
+      let approvalReason = "This task requires approval before execution";
+      let approvalRule = "Standard approval rule";
+      
+      // If we have metadata about the approval rule, use it
+      if (task.metadata?.approvalRuleName) {
+        approvalRule = task.metadata.approvalRuleName as string;
+      }
+      
+      // Get any historical approval information for this task if available
+      let approvalHistory = null;
+      if (task.id && task.approvalEntryId) {
+        approvalHistory = HumanCollaboration.getApprovalHistory(task.id);
+      }
+      
+      // If we have an approval entry and history, extract the reason
+      if (approvalHistory && approvalHistory.length > 0) {
+        approvalReason = approvalHistory[0].reason;
+      }
+      
+      // Construct a more informative message for the user
+      const currentSubGoalId = task.currentSubGoalId;
+      const subGoal = currentSubGoalId ? 
+        findSubGoalById(task.subGoals, currentSubGoalId) : undefined;
+      
+      const subGoalDescription = subGoal ? 
+        subGoal.description : "the current step";
+      
+      // Create a detailed approval message
+      const approvalMessage = `Task execution is paused pending approval.
+
+**Step requiring approval**: ${subGoalDescription}
+**Approval rule**: ${approvalRule}
+**Reason for approval**: ${approvalReason}
+
+This task cannot be executed until approved by an authorized user. To approve, respond with your decision.`;
+        
       const traceEntry: ExecutionTraceEntry = {
         step: "Pausing execution pending approval",
         startTime,
@@ -105,22 +164,32 @@ export async function decideNextStepNode(
         status: 'info',
         details: {
           status: 'awaiting_approval',
-          blockedReason: "awaiting approval"
+          blockedReason: "awaiting approval",
+          approvalRule,
+          approvalReason,
+          approvalEntryId: task.approvalEntryId,
+          subGoalId: task.currentSubGoalId,
+          subGoalDescription
         }
       };
       
       taskLogger.logAction("Pausing for approval", {
-        taskId: state.task.currentSubGoalId,
-        goal: state.goal
+        taskId: task.currentSubGoalId,
+        goal: state.goal,
+        approvalRule,
+        approvalEntryId: task.approvalEntryId
       });
       
-      // Return the state with 'finalize' route but special status
-      // This will effectively pause execution and return control to the user
+      // Update the task status to awaiting_approval
       return {
         ...state,
         route: 'finalize',
+        task: {
+          ...state.task,
+          status: 'awaiting_approval'
+        },
         executionTrace: [...state.executionTrace, traceEntry],
-        finalResult: `Task execution is paused pending approval. This task cannot be executed until approved by an authorized user.`
+        finalResult: approvalMessage
       };
     }
     
@@ -148,6 +217,53 @@ export async function decideNextStepNode(
         finalResult: `This task requires clarification before it can be executed. Please provide the following information:\n\n${
           state.task.clarificationQuestions?.map((q, i) => `${i + 1}. ${q}`).join('\n\n')
         }`
+      };
+    }
+    
+    // Check if the task is awaiting approval (status check)
+    if (state.task.status === 'awaiting_approval') {
+      const task = state.task as PlannedTask;
+      const endTime = new Date();
+      const duration = endTime.getTime() - startTime.getTime();
+      
+      // Get any historical approval information for this task if available
+      let approvalHistory = null;
+      let approvalMessage = "This task is awaiting approval before execution can continue.";
+      
+      if (task.id && task.approvalEntryId) {
+        approvalHistory = HumanCollaboration.getApprovalHistory(task.id);
+        
+        // If we have approval history entries, provide more context
+        if (approvalHistory && approvalHistory.length > 0) {
+          const entry = approvalHistory[0];
+          approvalMessage = `This task is awaiting approval before execution.
+
+**Reason**: ${entry.reason}
+**Requested**: ${entry.requestedAt.toLocaleString()}
+
+Please provide your approval decision to continue.`;
+        }
+      }
+      
+      const traceEntry: ExecutionTraceEntry = {
+        step: "Task awaiting approval",
+        startTime,
+        endTime,
+        duration,
+        status: 'info',
+        details: {
+          status: 'awaiting_approval',
+          approvalEntryId: task.approvalEntryId,
+          approvalHistory: approvalHistory ? approvalHistory.length : 0
+        }
+      };
+      
+      // If we reach this point, the task is still awaiting approval
+      return {
+        ...state,
+        route: 'finalize',
+        executionTrace: [...state.executionTrace, traceEntry],
+        finalResult: approvalMessage
       };
     }
     

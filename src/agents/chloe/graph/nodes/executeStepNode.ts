@@ -15,6 +15,7 @@ import { TaskWithOutcome } from "../../self-improvement/taskOutcomeIntegration";
 import { onTaskStateChange } from "../../hooks/taskCompletionHook";
 import { ExecutionOutcomeAnalyzer } from "../../self-improvement/executionOutcomeAnalyzer";
 import { MemoryType } from '../../../../server/memory/config/types';
+import { ApprovalHistoryEntry } from '../../human-collaboration/approval-config';
 
 /**
  * Helper function to get the full path to a sub-goal in the hierarchy
@@ -103,15 +104,26 @@ export async function executeStepNode(
     
     const subGoalPath = getSubGoalHierarchyPath(currentSubGoal);
     
-    // Check if the task requires approval but hasn't been granted yet
+    // Check if the task requires approval but hasn't been granted yet using the new system
     const currentTask = state.task as PlannedTask;
-    if (currentTask.requiresApproval === true && currentTask.approvalGranted !== true) {
+    
+    // Get approval check result from the configuration system
+    const approvalCheck = HumanCollaboration.checkIfApprovalRequired(currentTask);
+    
+    // Apply the approval check result
+    if ((approvalCheck.required || currentTask.requiresApproval === true) && currentTask.approvalGranted !== true) {
+      // Mark the task as requiring approval if not already set
+      if (!currentTask.requiresApproval) {
+        currentTask.requiresApproval = true;
+      }
+      
       // Add dry run indicator to the log
       taskLogger.logAction("Task execution blocked pending approval", { 
         subGoalId: currentSubGoal.id,
         description: currentSubGoal.description,
         path: subGoalPath,
-        requiresApproval: true
+        requiresApproval: true,
+        rule: approvalCheck.rule?.name || 'Custom rule'
       });
       
       // Update the sub-goal with blocked status
@@ -131,15 +143,20 @@ export async function executeStepNode(
         content: approvalRequestContent
       });
       
-      // Store the blocked reason in memory
+      // Store the blocked reason in memory with more details
       if (memory) {
+        const memoryContent = `Task execution blocked: ${currentSubGoal.description} - Awaiting approval
+Reason: ${approvalCheck.rule?.reason || 'Task requires approval based on configuration'}
+Rule: ${approvalCheck.rule?.name || 'Custom rule'}
+SubGoal ID: ${currentSubGoal.id}`;
+        
         await memory.addMemory(
-          `Task execution blocked: ${currentSubGoal.description} - Awaiting approval`,
+          memoryContent,
           MemoryType.TASK,
           'high' as any,
           'chloe' as any,
           state.goal,
-          ['task', 'approval', 'blocker', currentSubGoal.id]
+          ['task', 'approval', 'blocker', currentSubGoal.id, approvalCheck.rule?.id || 'custom']
         );
       }
       
@@ -147,7 +164,7 @@ export async function executeStepNode(
       const endTime = new Date();
       const duration = endTime.getTime() - startTime.getTime();
       
-      // Create execution trace entry with timing information
+      // Create execution trace entry with timing information and more approval details
       const traceEntry: ExecutionTraceEntry = {
         step: `Task blocked: Awaiting approval for ${subGoalPath}`,
         startTime,
@@ -158,7 +175,10 @@ export async function executeStepNode(
           subGoalId: currentSubGoal.id,
           description: currentSubGoal.description,
           blockedReason: "awaiting approval",
-          stakeholderProfile: currentTask.stakeholderProfile?.id || 'default'
+          stakeholderProfile: currentTask.stakeholderProfile?.id || 'default',
+          approvalRule: approvalCheck.rule?.name || 'Custom rule',
+          approvalReason: approvalCheck.rule?.reason || 'Task requires approval',
+          approvalEntryId: currentTask.approvalEntryId
         }
       };
       
@@ -169,27 +189,44 @@ export async function executeStepNode(
         task: {
           ...state.task,
           subGoals: updatedSubGoals,
-          blockedReason: "awaiting approval"
+          blockedReason: "awaiting approval",
+          // Set the rule details to the task if available
+          metadata: {
+            ...state.task.metadata,
+            approvalRule: approvalCheck.rule?.id,
+            approvalRuleName: approvalCheck.rule?.name
+          }
         } as PlannedTask,
         messages: [...state.messages, approvalRequestMessage],
         executionTrace: [...state.executionTrace, traceEntry],
       };
     }
     
-    // Add dry run indicator to the log if in dry run mode
-    if (dryRun) {
-      taskLogger.logAction("SIMULATING sub-goal execution", { 
+    // If approval was granted, log the approval details
+    if (currentTask.requiresApproval === true && currentTask.approvalGranted === true) {
+      taskLogger.logAction("Executing sub-goal with approval granted", { 
         subGoalId: currentSubGoal.id,
         description: currentSubGoal.description,
         path: subGoalPath,
-        dryRun: true
+        approvedBy: currentTask.approvedBy || 'user',
+        approvalNotes: currentTask.approvalNotes
       });
     } else {
-      taskLogger.logAction("Executing sub-goal", { 
-        subGoalId: currentSubGoal.id,
-        description: currentSubGoal.description,
-        path: subGoalPath
-      });
+      // Add dry run indicator to the log if in dry run mode
+      if (dryRun) {
+        taskLogger.logAction("SIMULATING sub-goal execution", { 
+          subGoalId: currentSubGoal.id,
+          description: currentSubGoal.description,
+          path: subGoalPath,
+          dryRun: true
+        });
+      } else {
+        taskLogger.logAction("Executing sub-goal", { 
+          subGoalId: currentSubGoal.id,
+          description: currentSubGoal.description,
+          path: subGoalPath
+        });
+      }
     }
     
     // Update the sub-goal status to in progress
