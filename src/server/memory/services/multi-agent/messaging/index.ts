@@ -12,6 +12,7 @@ import { MessageTransformer, IMessageTransformer } from './message-transformer';
 import { ConversationManager, IConversationManager } from './conversation-manager';
 import { CapabilityRegistry, ICapabilityRegistry } from '../../../../../agents/shared/capabilities/capability-registry';
 import { AgentRelationshipService } from '../../../../../agents/shared/capabilities/agent-relationship';
+import { ConversationAnalyticsService } from './conversation-analytics/analytics-service';
 
 // Singleton instances
 let messageRouter: MessageRouter | null = null;
@@ -19,6 +20,7 @@ let messageTransformer: MessageTransformer | null = null;
 let conversationManager: ConversationManager | null = null;
 let capabilityRegistry: CapabilityRegistry | null = null;
 let agentRelationshipService: AgentRelationshipService | null = null;
+let conversationAnalyticsService: ConversationAnalyticsService | null = null;
 
 /**
  * Get the message router instance
@@ -102,6 +104,21 @@ export async function getAgentRelationshipService(): Promise<AgentRelationshipSe
 }
 
 /**
+ * Get the conversation analytics service instance
+ */
+export async function getConversationAnalyticsService(): Promise<ConversationAnalyticsService> {
+  if (!conversationAnalyticsService) {
+    const services = await getMemoryServices();
+    
+    conversationAnalyticsService = new ConversationAnalyticsService(
+      services.memoryService
+    );
+  }
+  
+  return conversationAnalyticsService;
+}
+
+/**
  * Create a custom message router
  */
 export function createMessageRouter(
@@ -162,6 +179,17 @@ export function createAgentRelationshipService(
   );
 }
 
+/**
+ * Create a custom conversation analytics service
+ */
+export function createConversationAnalyticsService(
+  memoryService: AnyMemoryService
+): ConversationAnalyticsService {
+  return new ConversationAnalyticsService(
+    memoryService
+  );
+}
+
 // Export component classes
 export { MessageRouter } from './message-router';
 export { MessageTransformer } from './message-transformer';
@@ -181,4 +209,20 @@ export type { ConversationState, ParticipantType, ParticipantRole, FlowControlTy
 export type { Capability, CapabilityLevel, CapabilityType, AgentCapability } from '../../../../../agents/shared/capabilities/types';
 
 // Export factory
-export { MessagingFactory, messagingFactory } from './factory'; 
+export { MessagingFactory, messagingFactory } from './factory';
+
+// Export interface
+export type { IConversationAnalyticsService } from './conversation-analytics/interfaces';
+
+// Export type definitions
+export type {
+  ConversationAnalytics,
+  MessageAnalyticsUpdate,
+  AnalyticsQueryOptions,
+  ConversationInsights,
+  Insight,
+  ParticipantAnalytics,
+  InteractionLink,
+  AnalyticsPeriod,
+  InsightType
+} from './conversation-analytics/types'; 

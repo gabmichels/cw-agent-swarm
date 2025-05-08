@@ -12,6 +12,8 @@ import { AnyMemoryService } from '../../memory/memory-service-wrappers';
 import { MemoryType } from '../../../config';
 import { MessageRouter, RoutingStrategy, MessagePriority, RoutingParams, DeliveryStatus } from './message-router';
 import { MessageTransformer, MessageFormat, EnrichmentType, TransformableMessage } from './message-transformer';
+import { getConversationAnalyticsService } from './index';
+import { MessageAnalyticsUpdate } from './conversation-analytics';
 
 // Ensure type compatibility with MemoryType enum
 const MEMORY_TYPE = {
@@ -463,6 +465,9 @@ export class ConversationManager implements IConversationManager {
       
       // Determine recipients and route the message
       await this.routeMessageToRecipients(conversation, message);
+      
+      // Track the message in conversation analytics
+      await this.trackMessageAnalytics(conversation, message);
       
       return message;
     } catch (error) {
@@ -935,6 +940,86 @@ export class ConversationManager implements IConversationManager {
     } catch (error) {
       console.error(`Error handling conversation end for ${conversationId}:`, error);
       // Don't throw, just log the error
+    }
+  }
+  
+  /**
+   * Track message analytics
+   */
+  private async trackMessageAnalytics(
+    conversation: Conversation,
+    message: ConversationMessage
+  ): Promise<void> {
+    try {
+      // Get the analytics service
+      const analyticsService = await getConversationAnalyticsService();
+      
+      // Determine sender type
+      const sender = conversation.participants.find(p => p.id === message.senderId);
+      const senderType = sender?.type === ParticipantType.USER ? 'human' : 'agent';
+      
+      // Determine recipient type if any
+      let recipientType: 'human' | 'agent' | undefined;
+      let recipientId: string | undefined;
+      
+      // Check for recipient in metadata if exists
+      const referencedMessageId = message.referencedMessageIds?.[0];
+      const messageMetadata = message.metadata || {};
+      recipientId = messageMetadata.recipientId as string;
+      
+      if (recipientId) {
+        const recipient = conversation.participants.find(p => p.id === recipientId);
+        recipientType = recipient?.type === ParticipantType.USER ? 'human' : 'agent';
+      }
+      
+      // Calculate response time if this is a reference to another message
+      let responseTimeMs: number | undefined;
+      if (referencedMessageId) {
+        // Get the original message
+        const originalMessages = await this.memoryService.searchMemories({
+          type: MEMORY_TYPE.MESSAGE,
+          filter: {
+            'metadata.id': referencedMessageId,
+            'metadata.conversationId': conversation.id
+          },
+          limit: 1
+        });
+        
+        if (originalMessages.length > 0) {
+          const originalTimestamp = originalMessages[0].payload.metadata?.timestamp as number;
+          if (originalTimestamp) {
+            responseTimeMs = message.timestamp - originalTimestamp;
+          }
+        }
+      }
+      
+      // Get message type from metadata or default to 'text'
+      const messageType = messageMetadata.messageType as string || 'text';
+      
+      // Get capabilities from metadata if any
+      const capabilities = messageMetadata.capabilities as string[] || [];
+      
+      // Create analytics update
+      const update: MessageAnalyticsUpdate = {
+        conversationId: conversation.id,
+        messageId: message.id,
+        senderId: message.senderId,
+        senderType,
+        recipientId,
+        recipientType,
+        messageType,
+        timestamp: message.timestamp,
+        responseToMessageId: referencedMessageId,
+        responseTimeMs,
+        messageLength: message.content.length,
+        capabilities
+      };
+      
+      // Track the message
+      await analyticsService.trackMessage(update);
+    } catch (error) {
+      console.error('Error tracking message analytics:', error);
+      // Don't let analytics errors affect the main conversation flow
     }
   }
 } 

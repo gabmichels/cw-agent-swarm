@@ -63,6 +63,10 @@ export enum MemoryType {
   CAPABILITY_METRICS = 'capability_metrics',
   AGENT_RELATIONSHIP = 'agent_relationship',
   
+  // Conversation analytics types
+  CONVERSATION_ANALYTICS = 'conversation_analytics',
+  CONVERSATION_INSIGHTS = 'conversation_insights',
+  
   // Additional types from ChloeMemoryType that weren't in AgentMemoryType
   CHAT = 'chat',
   SYSTEM_PROMPT = 'system_prompt',
