@@ -1,6 +1,7 @@
 import React, { useState, useCallback } from 'react';
-import { MinimizeIcon, MaximizeIcon, Search } from 'lucide-react';
+import { MinimizeIcon, MaximizeIcon, Search, Trash2 } from 'lucide-react';
 import SearchResults from './SearchResults';
+import DeleteAgentDialog from './dialogs/DeleteAgentDialog';
 
 interface TabsNavigationProps {
   selectedTab: string;
@@ -13,6 +14,8 @@ interface TabsNavigationProps {
   searchResults?: any[];
   searchQuery?: string;
   onSelectResult?: (messageId: string) => void;
+  agentName?: string;
+  onDeleteAgent?: () => Promise<void>;
 }
 
 const TabsNavigation: React.FC<TabsNavigationProps> = ({
@@ -25,11 +28,14 @@ const TabsNavigation: React.FC<TabsNavigationProps> = ({
   onSearchClose,
   searchResults = [],
   searchQuery = '',
-  onSelectResult
+  onSelectResult,
+  agentName = 'Agent',
+  onDeleteAgent
 }) => {
   const tabs = ['Chat', 'Tools', 'Tasks', 'Memory', 'Knowledge', 'Social', 'Files'];
   const [searchInputValue, setSearchInputValue] = useState('');
   const [showSearchResults, setShowSearchResults] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
 
   const handleSearch = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
@@ -87,79 +93,115 @@ const TabsNavigation: React.FC<TabsNavigationProps> = ({
     }, 200);
   }, []);
 
+  const handleOpenDeleteDialog = useCallback(() => {
+    setShowDeleteDialog(true);
+  }, []);
+
+  const handleCloseDeleteDialog = useCallback(() => {
+    setShowDeleteDialog(false);
+  }, []);
+
+  const handleConfirmDelete = useCallback(async () => {
+    if (onDeleteAgent) {
+      await onDeleteAgent();
+    }
+  }, [onDeleteAgent]);
+
   return (
-    <div className="bg-gray-800 border-b border-gray-700 p-2 flex justify-between items-center">
-      <div className="flex space-x-1">
-        {tabs.map((tab) => (
-          <button 
-            key={tab}
-            onClick={() => setSelectedTab(tab.toLowerCase())}
-            className={`px-3 py-1 rounded-t ${
-              selectedTab === tab.toLowerCase()
-                ? 'bg-gray-700 text-white'
-                : 'hover:bg-gray-700/50'
-            }`}
-          >
-            {tab}
-          </button>
-        ))}
-      </div>
-      <div className="flex items-center space-x-2">
-        {/* Active search input */}
-        <div className="relative search-input-container">
-          <input
-            type="text"
-            placeholder="Search messages..."
-            value={searchInputValue}
-            onChange={handleSearch}
-            onKeyDown={handleKeyDown}
-            onFocus={handleSearchFocus}
-            onBlur={handleSearchBlur}
-            className="bg-gray-700 text-white text-sm rounded-md px-8 py-1.5 w-56 focus:outline-none focus:ring-1 focus:ring-blue-500"
-            aria-label="Search messages"
-          />
-          <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-          {searchInputValue && (
-            <button
-              className="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-white"
-              onClick={handleClearSearch}
-              aria-label="Clear search"
+    <>
+      <div className="bg-gray-800 border-b border-gray-700 p-2 flex justify-between items-center">
+        <div className="flex space-x-1">
+          {tabs.map((tab) => (
+            <button 
+              key={tab}
+              onClick={() => setSelectedTab(tab.toLowerCase())}
+              className={`px-3 py-1 rounded-t ${
+                selectedTab === tab.toLowerCase()
+                  ? 'bg-gray-700 text-white'
+                  : 'hover:bg-gray-700/50'
+              }`}
             >
-              ×
+              {tab}
             </button>
-          )}
-          
-          {/* Search results dropdown */}
-          {showSearchResults && searchInputValue && (
-            <div className="absolute right-0 top-full z-50 mt-1">
-              <SearchResults
-                searchQuery={searchInputValue}
-                results={searchResults || []}
-                onSelectMessage={(id) => {
-                  console.log('Selected search result:', id);
-                  if (onSelectResult) {
-                    onSelectResult(id);
-                  }
-                }}
-                onClose={() => setShowSearchResults(false)}
-              />
-            </div>
-          )}
+          ))}
         </div>
-        
-        <button 
-          onClick={toggleFullscreen}
-          className="p-2 rounded hover:bg-gray-700"
-          aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
-        >
-          {isFullscreen ? (
-            <MinimizeIcon className="h-5 w-5" />
-          ) : (
-            <MaximizeIcon className="h-5 w-5" />
-          )}
-        </button>
+        <div className="flex items-center space-x-2">
+          {/* Active search input */}
+          <div className="relative search-input-container">
+            <input
+              type="text"
+              placeholder="Search messages..."
+              value={searchInputValue}
+              onChange={handleSearch}
+              onKeyDown={handleKeyDown}
+              onFocus={handleSearchFocus}
+              onBlur={handleSearchBlur}
+              className="bg-gray-700 text-white text-sm rounded-md px-8 py-1.5 w-56 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              aria-label="Search messages"
+            />
+            <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+            {searchInputValue && (
+              <button
+                className="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-white"
+                onClick={handleClearSearch}
+                aria-label="Clear search"
+              >
+                ×
+              </button>
+            )}
+            
+            {/* Search results dropdown */}
+            {showSearchResults && searchInputValue && (
+              <div className="absolute right-0 top-full z-50 mt-1 search-results-panel">
+                <SearchResults
+                  searchQuery={searchInputValue}
+                  results={searchResults || []}
+                  onSelectResult={(id) => {
+                    console.log('Selected search result:', id);
+                    if (onSelectResult) {
+                      onSelectResult(id);
+                    }
+                  }}
+                  onClose={() => setShowSearchResults(false)}
+                />
+              </div>
+            )}
+          </div>
+          
+          {/* Delete Agent Button */}
+          <button 
+            onClick={handleOpenDeleteDialog}
+            className="p-2 rounded hover:bg-gray-700"
+            aria-label="Delete agent"
+            title="Delete agent"
+          >
+            <Trash2 className="h-5 w-5 text-gray-400 hover:text-red-500" />
+          </button>
+          
+          {/* Fullscreen Button */}
+          <button 
+            onClick={toggleFullscreen}
+            className="p-2 rounded hover:bg-gray-700"
+            aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+            title={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+          >
+            {isFullscreen ? (
+              <MinimizeIcon className="h-5 w-5" />
+            ) : (
+              <MaximizeIcon className="h-5 w-5" />
+            )}
+          </button>
+        </div>
       </div>
-    </div>
+      
+      {/* Delete Agent Dialog */}
+      <DeleteAgentDialog 
+        isOpen={showDeleteDialog}
+        onClose={handleCloseDeleteDialog}
+        onConfirmDelete={handleConfirmDelete}
+        agentName={agentName}
+      />
+    </>
   );
 };
 

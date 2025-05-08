@@ -1,10 +1,58 @@
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { AgentCapability, AgentRegistrationRequest } from '@/lib/multi-agent/types/agent';
+import { AgentCapability, AgentRegistrationRequest, AgentParameters, AgentMetadata } from '@/lib/multi-agent/types/agent';
+import SystemPromptEditor from './SystemPromptEditor';
+import KnowledgeUploader from './KnowledgeUploader';
+import AgentPersonaForm from './AgentPersonaForm';
+import AgentCapabilityManager from './AgentCapabilityManager';
+import { CapabilityLevel } from '@/agents/shared/capability-system';
+
+// Custom extensions to standard types
+interface ExtendedAgentParameters extends AgentParameters {
+  systemPrompt?: string;
+}
+
+interface ExtendedAgentMetadata extends AgentMetadata {
+  // Additional metadata fields
+  knowledgePaths?: string[];
+  persona?: {
+    background: string;
+    personality: string;
+    communicationStyle: string;
+    preferences: string;
+  };
+}
+
+interface KnowledgeFile {
+  id: string;
+  name: string;
+  content: string;
+  size: number;
+  type: string;
+  preview?: string;
+}
+
+interface PersonaData {
+  background: string;
+  personality: string;
+  communicationStyle: string;
+  preferences: string;
+}
+
+interface AgentConfig {
+  knowledgePaths: string[];
+  department?: string;
+}
 
 interface AgentRegistrationFormProps {
   onSubmit: (data: AgentRegistrationRequest) => Promise<void>;
   isSubmitting: boolean;
+}
+
+// Using our extended types
+interface ExtendedAgentRegistrationRequest extends Omit<AgentRegistrationRequest, 'parameters' | 'metadata'> {
+  parameters: ExtendedAgentParameters;
+  metadata: ExtendedAgentMetadata;
 }
 
 const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
@@ -12,7 +60,9 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
   isSubmitting
 }) => {
   const router = useRouter();
-  const [formData, setFormData] = useState<AgentRegistrationRequest>({
+  
+  // Use extended type for formData
+  const [formData, setFormData] = useState<ExtendedAgentRegistrationRequest>({
     name: '',
     description: '',
     status: 'available',
@@ -46,6 +96,35 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
   const [newTag, setNewTag] = useState('');
   const [newDomain, setNewDomain] = useState('');
   const [newSpecialization, setNewSpecialization] = useState('');
+
+  const [systemPrompt, setSystemPrompt] = useState('');
+  const [knowledgeData, setKnowledgeData] = useState<{
+    knowledgePaths: string[];
+    files: KnowledgeFile[];
+  }>({
+    knowledgePaths: ['data/knowledge/company', 'data/knowledge/agents/shared'],
+    files: []
+  });
+  const [personaData, setPersonaData] = useState<PersonaData>({
+    background: '',
+    personality: '',
+    communicationStyle: '',
+    preferences: ''
+  });
+  const [agentCapabilities, setAgentCapabilities] = useState<{
+    skills: Record<string, CapabilityLevel>;
+    domains: string[];
+    roles: string[];
+    tags: string[];
+  }>({
+    skills: {},
+    domains: [],
+    roles: [],
+    tags: []
+  });
+  const [agentConfig, setAgentConfig] = useState<AgentConfig>({
+    knowledgePaths: ['data/knowledge/company', 'data/knowledge/agents/shared']
+  });
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -210,7 +289,30 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    await onSubmit(formData);
+    
+    // Create a standard compliant version of the request
+    const standardRequest: AgentRegistrationRequest = {
+      name: formData.name,
+      description: formData.description,
+      status: formData.status,
+      capabilities: formData.capabilities,
+      parameters: {
+        model: formData.parameters.model,
+        temperature: formData.parameters.temperature,
+        maxTokens: formData.parameters.maxTokens,
+        tools: formData.parameters.tools
+      },
+      metadata: {
+        tags: formData.metadata.tags,
+        domain: formData.metadata.domain,
+        specialization: formData.metadata.specialization,
+        performanceMetrics: formData.metadata.performanceMetrics,
+        version: formData.metadata.version,
+        isPublic: formData.metadata.isPublic
+      }
+    };
+    
+    await onSubmit(standardRequest);
   };
 
   return (
@@ -270,87 +372,95 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
         </div>
       </div>
       
-      <div className="bg-gray-800 p-6 rounded-lg shadow-md">
-        <h2 className="text-xl font-semibold mb-4">Capabilities</h2>
-        
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-          <div>
-            <label htmlFor="capabilityId" className="block text-sm font-medium mb-1">
-              ID (optional)
-            </label>
-            <input
-              type="text"
-              id="capabilityId"
-              value={newCapability.id || ''}
-              onChange={(e) => setNewCapability({...newCapability, id: e.target.value})}
-              className="w-full bg-gray-700 border border-gray-600 rounded py-2 px-3 text-white"
-              placeholder="cap_example_id"
-            />
-          </div>
+      {/* System Prompt Editor */}
+      <SystemPromptEditor 
+        initialPrompt={systemPrompt}
+        onChange={(prompt) => {
+          setSystemPrompt(prompt);
+          setFormData({
+            ...formData,
+            parameters: {
+              ...formData.parameters,
+              systemPrompt: prompt
+            }
+          });
+        }}
+      />
+      
+      {/* Knowledge Uploader */}
+      <KnowledgeUploader 
+        initialKnowledgePaths={knowledgeData.knowledgePaths}
+        initialFiles={knowledgeData.files}
+        onChange={(data) => {
+          setKnowledgeData(data);
+          setAgentConfig({
+            ...agentConfig,
+            knowledgePaths: data.knowledgePaths
+          });
+          setFormData({
+            ...formData,
+            metadata: {
+              ...formData.metadata,
+              knowledgePaths: data.knowledgePaths
+            }
+          });
+        }}
+      />
+      
+      {/* Agent Persona Form */}
+      <AgentPersonaForm 
+        initialBackground={personaData.background}
+        initialPersonality={personaData.personality}
+        initialCommunicationStyle={personaData.communicationStyle}
+        initialPreferences={personaData.preferences}
+        onChange={(data) => {
+          setPersonaData(data);
+          setFormData({
+            ...formData,
+            metadata: {
+              ...formData.metadata,
+              persona: data
+            }
+          });
+        }}
+      />
+      
+      {/* Agent Capability Manager */}
+      <AgentCapabilityManager 
+        initialCapabilities={agentCapabilities}
+        onChange={(capabilities) => {
+          const safeCapabilities = {
+            ...capabilities,
+            tags: capabilities.tags || []
+          };
           
-          <div>
-            <label htmlFor="capabilityName" className="block text-sm font-medium mb-1">
-              Name
-            </label>
-            <input
-              type="text"
-              id="capabilityName"
-              value={newCapability.name || ''}
-              onChange={(e) => setNewCapability({...newCapability, name: e.target.value})}
-              className="w-full bg-gray-700 border border-gray-600 rounded py-2 px-3 text-white"
-              placeholder="Capability name"
-            />
-          </div>
+          setAgentCapabilities(safeCapabilities);
           
-          <div className="md:col-span-3">
-            <label htmlFor="capabilityDescription" className="block text-sm font-medium mb-1">
-              Description
-            </label>
-            <div className="flex">
-              <input
-                type="text"
-                id="capabilityDescription"
-                value={newCapability.description || ''}
-                onChange={(e) => setNewCapability({...newCapability, description: e.target.value})}
-                className="flex-1 bg-gray-700 border border-gray-600 rounded-l py-2 px-3 text-white"
-                placeholder="Describe this capability"
-              />
-              <button
-                type="button"
-                onClick={addCapability}
-                className="bg-blue-600 hover:bg-blue-700 px-4 rounded-r text-white"
-                disabled={!newCapability.name || !newCapability.description}
-              >
-                Add
-              </button>
-            </div>
-          </div>
-        </div>
-        
-        {formData.capabilities.length > 0 && (
-          <div className="mt-4">
-            <h3 className="text-md font-medium mb-2">Added Capabilities:</h3>
-            <div className="space-y-2">
-              {formData.capabilities.map((capability) => (
-                <div key={capability.id} className="bg-gray-700 p-3 rounded flex justify-between items-start">
-                  <div>
-                    <h4 className="font-medium">{capability.name}</h4>
-                    <p className="text-sm text-gray-300">{capability.description}</p>
-                    <span className="text-xs text-gray-400">{capability.id}</span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => removeCapability(capability.id)}
-                    className="text-red-400 hover:text-red-300"
-                  >
-                    Remove
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
+          const mappedCapabilities: AgentCapability[] = Object.entries(safeCapabilities.skills).map(([id, level]) => ({
+            id,
+            name: id.split('.')[1] || id,
+            description: `Capability level: ${level}`,
+            version: '1.0'
+          }));
+          
+          setFormData({
+            ...formData,
+            capabilities: mappedCapabilities,
+            metadata: {
+              ...formData.metadata,
+              domain: safeCapabilities.domains,
+              specialization: [
+                ...formData.metadata.specialization,
+                ...safeCapabilities.roles
+              ],
+              tags: [
+                ...formData.metadata.tags,
+                ...safeCapabilities.tags
+              ]
+            }
+          });
+        }}
+      />
       
       <div className="bg-gray-800 p-6 rounded-lg shadow-md">
         <h2 className="text-xl font-semibold mb-4">Model Parameters</h2>

@@ -85,7 +85,7 @@ export class ChloeAgent extends AgentBase {
       
       // Initialize the task logger
       await this.taskLogger.initialize();
-      
+
       return true;
     } catch (error) {
       console.error('Failed to initialize ChloeAgent:', error);
@@ -106,7 +106,7 @@ export class ChloeAgent extends AgentBase {
   getModel(): ChatOpenAI | null {
     return this.model;
   }
-  
+
   /**
    * Execute a plan (simplified implementation)
    */
@@ -120,7 +120,7 @@ export class ChloeAgent extends AgentBase {
     }
     
     // Simplified implementation
-    return {
+      return {
       success: true,
       message: `Planned execution for: ${goal}`,
       plan: { steps: [] }

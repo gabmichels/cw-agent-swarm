@@ -1,13 +1,17 @@
-import React, { ReactNode, useState } from 'react';
+import React, { ReactNode, useState, useCallback } from 'react';
 import Header from '../Header';
 import Sidebar from '../Sidebar';
 import TabsNavigation from '../TabsNavigation';
+import { AgentService } from '../../services/AgentService';
+import { useRouter } from 'next/router';
 
 interface DashboardLayoutProps {
   children: ReactNode;
 }
 
 const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
+  const router = useRouter();
+  
   // State for the layout components
   const [selectedDepartment, setSelectedDepartment] = useState('Marketing');
   const [selectedAgent, setSelectedAgent] = useState('Chloe');
@@ -44,6 +48,27 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
     setSelectedAgent(agent);
     setIsAgentDropdownOpen(false);
   };
+  
+  // Handle agent deletion
+  const handleDeleteAgent = useCallback(async () => {
+    try {
+      // Convert agent display name to ID (lowercase)
+      const agentId = selectedAgent.toLowerCase();
+      
+      // Call agent service to delete the agent
+      await AgentService.deleteAgent(agentId);
+      
+      // Navigate to the home page or agent selection page
+      router.push('/');
+      
+      // Show success notification (you can implement this)
+      console.log(`Agent ${selectedAgent} deleted successfully`);
+    } catch (error) {
+      // Handle errors
+      console.error(`Failed to delete agent: ${error}`);
+      // Show error notification (you can implement this)
+    }
+  }, [selectedAgent, router]);
 
   // Mock data for departments and agents
   const departments = ['Marketing', 'HR', 'Finance'];
@@ -103,6 +128,8 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
               setSelectedTab={setSelectedTab}
               isFullscreen={isFullscreen}
               toggleFullscreen={toggleFullscreen}
+              agentName={selectedAgent}
+              onDeleteAgent={handleDeleteAgent}
             />
 
             {/* Main content area */}
