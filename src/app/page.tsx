@@ -24,6 +24,7 @@ import { FileAttachmentType } from '../constants/file';
 import useMemory from '../hooks/useMemory';
 import { BaseMemorySchema, MemoryPoint } from '../server/memory/models';
 import { MemoryType } from '../server/memory/config';
+import Link from 'next/link';
 
 // Add constants for storage
 const SAVED_ATTACHMENTS_KEY = 'crowd-wisdom-saved-attachments';
@@ -1418,6 +1419,13 @@ For detailed instructions, see the Debug panel.`,
   useEffect(() => {
     // Define the function inside to have access to state
     async function loadInitialChat() {
+      // Don't attempt to load chat if no valid agent is selected
+      if (!selectedAgent || selectedAgent.includes('Soon')) {
+        console.log("No valid agent selected, skipping initial chat load");
+        setMessages([]);
+        return;
+      }
+      
       setIsLoading(true);
       
       try {
@@ -1709,29 +1717,21 @@ For detailed instructions, see the Debug panel.`,
           console.log(`Setting ${formattedMessages.length} formatted messages`);
           setMessages(formattedMessages);
         } else {
-          console.log("No history found, using welcome message");
-          // Fallback to default welcome message if no history
-          setMessages([{
-            sender: selectedAgent,
-            content: `Hello! I'm ${selectedAgent}, your marketing expert. How can I help you today?`,
-            timestamp: new Date()
-          }]);
+          console.log("No history found, setting empty messages array");
+          // Set empty array instead of a welcome message
+          setMessages([]);
         }
       } catch (error) {
         console.error("Error loading initial chat:", error);
-        // Set a basic welcome message on error
-        setMessages([{
-          sender: selectedAgent,
-          content: `Hello! I'm ${selectedAgent}. There was an error loading our previous conversation.`,
-          timestamp: new Date()
-        }]);
+        // Set empty array on error instead of a welcome message
+        setMessages([]);
       } finally {
         setIsLoading(false);
       }
     }
     
     loadInitialChat();
-  }, [selectedAgent]);
+  }, [selectedAgent, setMessages]);
 
   // Auto-scroll to bottom only when new messages are added or when switching to chat tab for the first time
   useEffect(() => {
@@ -2227,6 +2227,78 @@ For detailed instructions, see the Debug panel.`,
     };
   }, []);
 
+  // Add this new component just before the return statement in the Home component
+  // Welcome screen component to display when no agent is selected
+  const WelcomeScreen = () => {
+    return (
+      <div className="flex flex-col items-center justify-center h-full py-16 px-4 text-center">
+        <img 
+          src="/assets/images/cw_fulltext.svg" 
+          alt="Crowd Wisdom" 
+          className="h-16 mb-8" 
+        />
+        <h1 className="text-3xl font-bold mb-4">Welcome to Crowd Wisdom</h1>
+        <p className="text-xl text-gray-400 mb-8 max-w-2xl">
+          Your platform for intelligent agent-based collaboration. Get started by creating your first agent or using one of our pre-built agents.
+        </p>
+        <div className="flex space-x-4">
+          <Link href="/agents">
+            <button className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg transition duration-200 flex items-center">
+              <span className="mr-2">Create Agent</span>
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="12" y1="5" x2="12" y2="19"></line>
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+              </svg>
+            </button>
+          </Link>
+          <Link href="/multi-agent-chat">
+            <button className="bg-gray-700 hover:bg-gray-600 text-white font-bold py-3 px-6 rounded-lg transition duration-200 flex items-center">
+              <span className="mr-2">Multi-Agent Interface</span>
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="18" cy="5" r="3"></circle>
+                <circle cx="6" cy="12" r="3"></circle>
+                <circle cx="18" cy="19" r="3"></circle>
+                <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line>
+                <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line>
+              </svg>
+            </button>
+          </Link>
+        </div>
+        <div className="mt-12 grid grid-cols-1 md:grid-cols-3 gap-6 max-w-4xl">
+          <div className="bg-gray-800 p-6 rounded-lg border border-gray-700">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 text-blue-500 mb-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10"></circle>
+              <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>
+              <line x1="12" y1="17" x2="12.01" y2="17"></line>
+            </svg>
+            <h3 className="text-lg font-semibold mb-2">Get Started</h3>
+            <p className="text-gray-400">Learn the basics with our interactive tutorials and comprehensive documentation.</p>
+          </div>
+          <div className="bg-gray-800 p-6 rounded-lg border border-gray-700">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 text-green-500 mb-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+              <polyline points="14 2 14 8 20 8"></polyline>
+              <line x1="16" y1="13" x2="8" y2="13"></line>
+              <line x1="16" y1="17" x2="8" y2="17"></line>
+              <polyline points="10 9 9 9 8 9"></polyline>
+            </svg>
+            <h3 className="text-lg font-semibold mb-2">Explore Templates</h3>
+            <p className="text-gray-400">Browse our library of pre-built agent templates for various use cases and industries.</p>
+          </div>
+          <div className="bg-gray-800 p-6 rounded-lg border border-gray-700">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 text-purple-500 mb-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="16 18 22 12 16 6"></polyline>
+              <polyline points="8 6 2 12 8 18"></polyline>
+            </svg>
+            <h3 className="text-lg font-semibold mb-2">Developer Resources</h3>
+            <p className="text-gray-400">Access APIs, SDKs, and developer tools to integrate and extend agent capabilities.</p>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // In the return statement, let's update the chat section to use our welcome screen when needed
   return (
     <div className="flex flex-col h-screen bg-gray-900 text-white">
       {/* Image Modal */}
@@ -2288,29 +2360,30 @@ For detailed instructions, see the Debug panel.`,
               {selectedTab === 'chat' && (
                 <div className="flex flex-col h-full overflow-hidden">
                   <div className="flex-1 h-full">
-                    {/* Add debugging info about the number of messages */}
-                    {process.env.NODE_ENV !== 'production' && messages.length > 0 && (
-                      <div className="text-xs text-gray-500 mb-2 p-2 border border-gray-700 rounded">
-                        Passing {messages.length} messages to ChatMessages component
-                      </div>
-                    )}
-                    
-                    {/* Use the new ChatMessages component */}
-                    {messages.length > 0 ? (
-                      <ChatMessages 
-                        messages={messages} 
-                        isLoading={isLoading}
-                        onImageClick={handleImageClick}
-                        showInternalMessages={showInternalMessages}
-                        pageSize={20}
-                        preloadCount={10}
-                        searchQuery={searchQuery}
-                        initialMessageId={selectedMessageId}
-                      />
+                    {/* Show welcome screen when no agent is selected or no messages */}
+                    {(!selectedAgent || selectedAgent.includes('Soon') || messages.length === 0) ? (
+                      <WelcomeScreen />
                     ) : (
-                      <div className="text-center text-gray-500 py-8">
-                        No messages to display. Start a conversation!
-                      </div>
+                      <>
+                        {/* Add debugging info about the number of messages */}
+                        {process.env.NODE_ENV !== 'production' && messages.length > 0 && (
+                          <div className="text-xs text-gray-500 mb-2 p-2 border border-gray-700 rounded">
+                            Passing {messages.length} messages to ChatMessages component
+                          </div>
+                        )}
+                        
+                        {/* Use the ChatMessages component */}
+                        <ChatMessages 
+                          messages={messages} 
+                          isLoading={isLoading}
+                          onImageClick={handleImageClick}
+                          showInternalMessages={showInternalMessages}
+                          pageSize={20}
+                          preloadCount={10}
+                          searchQuery={searchQuery}
+                          initialMessageId={selectedMessageId}
+                        />
+                      </>
                     )}
                     
                     {/* Scroll anchor div - always place at the end of messages */}
@@ -2368,7 +2441,7 @@ For detailed instructions, see the Debug panel.`,
 
             {/* Input area */}
             <div className="border-t border-gray-700 p-4">
-              {selectedTab === 'chat' && (
+              {selectedTab === 'chat' && selectedAgent && !selectedAgent.includes('Soon') && (
                 <ChatInput
                   inputMessage={inputMessage}
                   setInputMessage={setInputMessage}
