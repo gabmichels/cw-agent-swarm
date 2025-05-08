@@ -54,6 +54,15 @@ export enum MemoryType {
   // Tool routing and adaptation types
   TOOL_EXECUTION_METRICS = 'tool_execution_metrics',
   
+  // Agent communication and relationship types
+  AGENT = 'agent',
+  AGENT_ACTIVITY = 'agent_activity',
+  AGENT_CAPABILITY = 'agent_capability',
+  CAPABILITY_DEFINITION = 'capability_definition',
+  CAPABILITY_USAGE = 'capability_usage',
+  CAPABILITY_METRICS = 'capability_metrics',
+  AGENT_RELATIONSHIP = 'agent_relationship',
+  
   // Additional types from ChloeMemoryType that weren't in AgentMemoryType
   CHAT = 'chat',
   SYSTEM_PROMPT = 'system_prompt',

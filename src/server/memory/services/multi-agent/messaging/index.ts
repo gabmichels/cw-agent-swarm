@@ -11,12 +11,14 @@ import { MessageRouter, IMessageRouter } from './message-router';
 import { MessageTransformer, IMessageTransformer } from './message-transformer';
 import { ConversationManager, IConversationManager } from './conversation-manager';
 import { CapabilityRegistry, ICapabilityRegistry } from '../../../../../agents/shared/capabilities/capability-registry';
+import { AgentRelationshipService } from '../../../../../agents/shared/capabilities/agent-relationship';
 
 // Singleton instances
 let messageRouter: MessageRouter | null = null;
 let messageTransformer: MessageTransformer | null = null;
 let conversationManager: ConversationManager | null = null;
 let capabilityRegistry: CapabilityRegistry | null = null;
+let agentRelationshipService: AgentRelationshipService | null = null;
 
 /**
  * Get the message router instance
@@ -85,6 +87,21 @@ export async function getCapabilityRegistry(): Promise<CapabilityRegistry> {
 }
 
 /**
+ * Get the agent relationship service instance
+ */
+export async function getAgentRelationshipService(): Promise<AgentRelationshipService> {
+  if (!agentRelationshipService) {
+    const services = await getMemoryServices();
+    
+    agentRelationshipService = new AgentRelationshipService(
+      services.memoryService
+    );
+  }
+  
+  return agentRelationshipService;
+}
+
+/**
  * Create a custom message router
  */
 export function createMessageRouter(
@@ -130,6 +147,17 @@ export function createCapabilityRegistry(
   memoryService: AnyMemoryService
 ): CapabilityRegistry {
   return new CapabilityRegistry(
+    memoryService
+  );
+}
+
+/**
+ * Create a custom agent relationship service
+ */
+export function createAgentRelationshipService(
+  memoryService: AnyMemoryService
+): AgentRelationshipService {
+  return new AgentRelationshipService(
     memoryService
   );
 }
