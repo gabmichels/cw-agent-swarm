@@ -108,6 +108,81 @@ export interface FilterOptions {
 }
 
 /**
+ * Memory context contains related memories for a specific context
+ */
+export interface MemoryContext<T extends BaseMemorySchema = BaseMemorySchema> {
+  // Original query or context identifier
+  contextId: string;
+  
+  // Timestamp when the context was created
+  timestamp: number;
+  
+  // Related memories grouped by relevance or relationship
+  groups: MemoryContextGroup<T>[];
+  
+  // Overall context summary (if generated)
+  summary?: string;
+  
+  // Additional metadata
+  metadata?: Record<string, any>;
+}
+
+/**
+ * Group of related memories in a context
+ */
+export interface MemoryContextGroup<T extends BaseMemorySchema = BaseMemorySchema> {
+  // Group name or category
+  name: string;
+  
+  // Brief description of this group
+  description?: string;
+  
+  // Memories in this group
+  memories: SearchResult<T>[];
+  
+  // Relevance of this group to the context (0-1)
+  relevance: number;
+}
+
+/**
+ * Options for memory context retrieval
+ */
+export interface MemoryContextOptions {
+  // Query used to find relevant memories
+  query?: string;
+  
+  // Filter criteria for memories
+  filter?: MemoryFilter;
+  
+  // Memory types to include
+  types?: MemoryType[];
+  
+  // Maximum memories per group
+  maxMemoriesPerGroup?: number;
+  
+  // Maximum total memories
+  maxTotalMemories?: number;
+  
+  // Whether to generate a summary
+  includeSummary?: boolean;
+  
+  // Minimum similarity score (0-1)
+  minScore?: number;
+  
+  // Whether to use time-weighted relevance
+  timeWeighted?: boolean;
+  
+  // Number of groups to create
+  numGroups?: number;
+  
+  // Groups to explicitly include
+  includedGroups?: string[];
+  
+  // Custom grouping strategy
+  groupingStrategy?: 'time' | 'topic' | 'type' | 'custom';
+}
+
+/**
  * Hybrid search options
  */
 export interface HybridSearchOptions extends SearchOptions {
