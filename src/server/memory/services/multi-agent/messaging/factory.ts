@@ -5,9 +5,26 @@
  * communication system components.
  */
 
-import { getMessageRouter, getMessageTransformer, getConversationManager, getCapabilityRegistry } from './index';
-import { MessageRouter, MessageTransformer, ConversationManager } from './index';
+import { 
+  getMessageRouter, 
+  getMessageTransformer, 
+  getConversationManager, 
+  getCapabilityRegistry,
+  getAgentRelationshipService,
+  getConversationAnalyticsService,
+  getSecurityTrustService,
+  getConversationBranchingService
+} from './index';
+import { 
+  MessageRouter, 
+  MessageTransformer, 
+  ConversationManager,
+  SecurityTrustService,
+  ConversationBranchingService
+} from './index';
 import { CapabilityRegistry } from '../../../../../agents/shared/capabilities/capability-registry';
+import { AgentRelationshipService } from '../../../../../agents/shared/capabilities/agent-relationship';
+import { ConversationAnalyticsService } from './conversation-analytics/analytics-service';
 import { AnyMemoryService } from '../../memory/memory-service-wrappers';
 
 /**
@@ -43,58 +60,106 @@ export class MessagingFactory {
   }
   
   /**
-   * Get all messaging components as a bundle
+   * Get the singleton agent relationship service instance
    */
-  static async getMessagingComponents(): Promise<{
-    router: MessageRouter;
-    transformer: MessageTransformer;
-    conversationManager: ConversationManager;
-    capabilityRegistry: CapabilityRegistry;
-  }> {
-    const [router, transformer, conversationManager, capabilityRegistry] = await Promise.all([
-      this.getMessageRouter(),
-      this.getMessageTransformer(),
-      this.getConversationManager(),
-      this.getCapabilityRegistry()
-    ]);
-    
-    return {
-      router,
-      transformer,
-      conversationManager,
-      capabilityRegistry
-    };
+  static async getAgentRelationshipService(): Promise<AgentRelationshipService> {
+    return getAgentRelationshipService();
   }
   
   /**
-   * Create custom messaging components with a specific memory service
+   * Get the singleton conversation analytics service instance
    */
-  static createCustomComponents(memoryService: AnyMemoryService): {
-    router: MessageRouter;
-    transformer: MessageTransformer;
-    conversationManager: ConversationManager;
-    capabilityRegistry: CapabilityRegistry;
-  } {
-    // Create the capability registry first since the router depends on it
-    const capabilityRegistry = new CapabilityRegistry(memoryService);
-    
-    // Create router and transformer
-    const router = new MessageRouter(memoryService, capabilityRegistry);
-    const transformer = new MessageTransformer(memoryService);
-    
-    // Create conversation manager which depends on router and transformer
-    const conversationManager = new ConversationManager(
-      memoryService,
-      router,
-      transformer
-    );
-    
-    return {
-      router,
-      transformer,
-      conversationManager,
-      capabilityRegistry
-    };
+  static async getConversationAnalyticsService(): Promise<ConversationAnalyticsService> {
+    return getConversationAnalyticsService();
+  }
+  
+  /**
+   * Get the singleton security trust service instance
+   */
+  static async getSecurityTrustService(): Promise<SecurityTrustService> {
+    return getSecurityTrustService();
+  }
+  
+  /**
+   * Get the singleton conversation branching service instance
+   */
+  static async getConversationBranchingService(): Promise<ConversationBranchingService> {
+    return getConversationBranchingService();
+  }
+  
+  /**
+   * Create a new message router instance (for testing)
+   */
+  static createMessageRouter(
+    memoryService: AnyMemoryService,
+    capabilityRegistry: CapabilityRegistry
+  ): MessageRouter {
+    return new MessageRouter(memoryService, capabilityRegistry);
+  }
+  
+  /**
+   * Create a new message transformer instance (for testing)
+   */
+  static createMessageTransformer(
+    memoryService: AnyMemoryService
+  ): MessageTransformer {
+    return new MessageTransformer(memoryService);
+  }
+  
+  /**
+   * Create a new conversation manager instance (for testing)
+   */
+  static createConversationManager(
+    memoryService: AnyMemoryService,
+    messageRouter: MessageRouter,
+    messageTransformer: MessageTransformer
+  ): ConversationManager {
+    return new ConversationManager(memoryService, messageRouter, messageTransformer);
+  }
+  
+  /**
+   * Create a new capability registry instance (for testing)
+   */
+  static createCapabilityRegistry(
+    memoryService: AnyMemoryService
+  ): CapabilityRegistry {
+    return new CapabilityRegistry(memoryService);
+  }
+  
+  /**
+   * Create a new agent relationship service instance (for testing)
+   */
+  static createAgentRelationshipService(
+    memoryService: AnyMemoryService
+  ): AgentRelationshipService {
+    return new AgentRelationshipService(memoryService);
+  }
+  
+  /**
+   * Create a new conversation analytics service instance (for testing)
+   */
+  static createConversationAnalyticsService(
+    memoryService: AnyMemoryService
+  ): ConversationAnalyticsService {
+    return new ConversationAnalyticsService(memoryService);
+  }
+  
+  /**
+   * Create a new security trust service instance (for testing)
+   */
+  static createSecurityTrustService(
+    memoryService: AnyMemoryService
+  ): SecurityTrustService {
+    return new SecurityTrustService(memoryService);
+  }
+  
+  /**
+   * Create a new conversation branching service instance (for testing)
+   */
+  static createConversationBranchingService(
+    memoryService: AnyMemoryService
+  ): ConversationBranchingService {
+    return new ConversationBranchingService(memoryService);
   }
 }
 

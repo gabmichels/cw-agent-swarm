@@ -13,6 +13,10 @@ import { ConversationManager, IConversationManager } from './conversation-manage
 import { CapabilityRegistry, ICapabilityRegistry } from '../../../../../agents/shared/capabilities/capability-registry';
 import { AgentRelationshipService } from '../../../../../agents/shared/capabilities/agent-relationship';
 import { ConversationAnalyticsService } from './conversation-analytics/analytics-service';
+import { SecurityTrustService } from './security-trust/security-trust-service';
+import { ISecurityTrustService } from './security-trust/security-trust-interface';
+import { ConversationBranchingService } from './conversation-branching/branching-service';
+import { IConversationBranchingService } from './conversation-branching/branching-interface';
 
 // Singleton instances
 let messageRouter: MessageRouter | null = null;
@@ -21,6 +25,8 @@ let conversationManager: ConversationManager | null = null;
 let capabilityRegistry: CapabilityRegistry | null = null;
 let agentRelationshipService: AgentRelationshipService | null = null;
 let conversationAnalyticsService: ConversationAnalyticsService | null = null;
+let securityTrustService: SecurityTrustService | null = null;
+let conversationBranchingService: ConversationBranchingService | null = null;
 
 /**
  * Get the message router instance
@@ -119,6 +125,36 @@ export async function getConversationAnalyticsService(): Promise<ConversationAna
 }
 
 /**
+ * Get the security trust service instance
+ */
+export async function getSecurityTrustService(): Promise<SecurityTrustService> {
+  if (!securityTrustService) {
+    const services = await getMemoryServices();
+    
+    securityTrustService = new SecurityTrustService(
+      services.memoryService
+    );
+  }
+  
+  return securityTrustService;
+}
+
+/**
+ * Get the conversation branching service instance
+ */
+export async function getConversationBranchingService(): Promise<ConversationBranchingService> {
+  if (!conversationBranchingService) {
+    const services = await getMemoryServices();
+    
+    conversationBranchingService = new ConversationBranchingService(
+      services.memoryService
+    );
+  }
+  
+  return conversationBranchingService;
+}
+
+/**
  * Create a custom message router
  */
 export function createMessageRouter(
@@ -195,12 +231,16 @@ export { MessageRouter } from './message-router';
 export { MessageTransformer } from './message-transformer';
 export { ConversationManager } from './conversation-manager';
 export { CapabilityRegistry } from '../../../../../agents/shared/capabilities/capability-registry';
+export { SecurityTrustService } from './security-trust/security-trust-service';
+export { ConversationBranchingService } from './conversation-branching/branching-service';
 
 // Export interfaces
 export type { IMessageRouter } from './message-router';
 export type { IMessageTransformer } from './message-transformer';
 export type { IConversationManager } from './conversation-manager';
 export type { ICapabilityRegistry } from '../../../../../agents/shared/capabilities/capability-registry';
+export type { ISecurityTrustService } from './security-trust/security-trust-interface';
+export type { IConversationBranchingService } from './conversation-branching/branching-interface';
 
 // Export type definitions
 export type { MessagePriority, RoutingStrategy, DeliveryStatus, AgentMessage, RoutingParams, RoutingResult } from './message-router';
