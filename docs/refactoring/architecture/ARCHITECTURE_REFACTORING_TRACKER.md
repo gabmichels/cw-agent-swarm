@@ -61,8 +61,8 @@ This project aims to address the architectural issues identified in the recent a
 | Implement error taxonomy & hierarchy | | ✅ Completed | W4D1 | |
 | Create standardized API error responses | | ✅ Completed | W4D3 | |
 | **Documentation** |  |  |  |  |
-| Update API documentation | | 🔄 In Progress | W6D5 | |
-| Create architecture diagrams | | 🔄 In Progress | W6D5 | |
+| Update API documentation | | ✅ Completed | W6D5 | Created comprehensive API documentation for the Human Approval Workflow system |
+| Create architecture diagrams | | ✅ Completed | W6D5 | Created detailed architecture diagrams for the Human Approval Workflow system |
 
 ### Feature Implementation Phase (Week 7-10)
 
@@ -163,7 +163,7 @@ Key best practices being implemented:
 | Document | Status | Last Updated | Location |
 |----------|--------|--------------|----------|
 | Architecture Overview | 🟡 In Progress | MM/DD/YYYY | `/docs/architecture/` |
-| API Documentation | ⚪ Not Started | - | `/docs/api/` |
+| API Documentation | ✅ Completed | 2025-08-XX | `/docs/refactoring/architecture/designs/HUMAN_APPROVAL_API.md` |
 | Data Model Specification | 🟡 In Progress | MM/DD/YYYY | `/docs/data-models/` |
 | Qdrant Filter Builder Design | ✅ Completed | 2023-XX-XX | `/docs/refactoring/architecture/designs/QDRANT_FILTER_BUILDER.md` |
 | Implementation Guide | ⚪ Not Started | - | `/docs/implementation/` |
@@ -175,6 +175,8 @@ Key best practices being implemented:
 | Memory Context API | ✅ Completed | 2025-XX-XX | `/docs/memory/MEMORY_CONTEXT_API.md` |
 | Legacy Code Removal Plan | ✅ Completed | 2025-XX-XX | `/docs/refactoring/architecture/LEGACY_CODE_REMOVAL_PLAN.md` |
 | Approval System Design | ✅ Completed | 2025-XX-XX | `/docs/refactoring/architecture/designs/APPROVAL_SYSTEM_DESIGN.md` |
+| Human Approval API | ✅ Completed | 2025-08-XX | `/docs/refactoring/architecture/designs/HUMAN_APPROVAL_API.md` |
+| Human Approval Architecture Diagrams | ✅ Completed | 2025-08-XX | `/docs/refactoring/architecture/designs/HUMAN_APPROVAL_DIAGRAMS.md` |
 
 ## File Change Tracking
 
