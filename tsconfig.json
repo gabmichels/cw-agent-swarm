@@ -34,12 +34,15 @@
       {
         "name": "next"
       }
-    ]
+    ],
+    "types": []
   },
   "include": [
     "src/**/*.ts",
     "src/**/*.tsx",
-    ".next/types/**/*.ts"
+    ".next/types/**/*.ts",
+    "tests/**/*.ts",
+    "tests/**/*.tsx"
   ],
   "exclude": [
     "node_modules"
