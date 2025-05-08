@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { AgentMonitor } from '@/agents/shared/monitoring/AgentMonitor';
+import Link from 'next/link';
 
 type AgentLog = {
   agentId: string;
@@ -50,7 +51,32 @@ export default function AgentsDashboard() {
 
   return (
     <div className="p-6 bg-gray-900 text-gray-100 min-h-screen">
-      <h1 className="text-3xl font-bold mb-8">Agent Monitor Dashboard</h1>
+      <div className="flex justify-between items-center mb-8">
+        <h1 className="text-3xl font-bold">Agent Monitor Dashboard</h1>
+        
+        <div className="flex space-x-4">
+          <Link href="/agents/register" className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded text-white font-medium flex items-center">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
+            </svg>
+            Register Chloe
+          </Link>
+        </div>
+      </div>
+
+      {/* Multi-Agent System Integration Banner */}
+      <div className="bg-gradient-to-r from-blue-900 to-indigo-900 rounded-lg p-6 mb-8 shadow-md">
+        <h2 className="text-xl font-bold mb-2">Multi-Agent System Integration</h2>
+        <p className="mb-4">Register Chloe in our new multi-agent architecture to remove hardcoded values and enable dynamic agent-to-chat relationships.</p>
+        <div className="flex flex-wrap gap-2">
+          <Link href="/agents/register" className="bg-white text-blue-900 hover:bg-blue-100 px-4 py-2 rounded font-medium">
+            Register Chloe Now
+          </Link>
+          <Link href="/docs/multi-agent" className="bg-transparent text-white border border-white hover:bg-white/10 px-4 py-2 rounded font-medium">
+            Learn More
+          </Link>
+        </div>
+      </div>
 
       {/* Overview Metrics */}
       <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
