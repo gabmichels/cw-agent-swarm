@@ -39,6 +39,13 @@ export type { AgentTemplate } from './agent-factory';
 export { ConversationManager } from './conversation-manager';
 export type { Message, ConversationOptions } from './conversation-manager';
 
+// Export enhanced memory service
+export { EnhancedMemoryService } from './enhanced-memory-service';
+export type { 
+  EnhancedMemoryPoint, 
+  EnhancedMemoryServiceOptions 
+} from './enhanced-memory-service';
+
 // Export other shared types
 export { IdGenerator } from '../../../../utils/ulid';
 export type { StructuredId } from '../../../../utils/ulid';
@@ -81,4 +88,20 @@ export function createAgentFactory(repository: any) {
 export function createConversationManager(repository: any) {
   const { ConversationManager } = require('./conversation-manager');
   return new ConversationManager(repository);
+}
+
+/**
+ * Helper function to create a new enhanced memory service instance
+ * @param memoryClient The memory client to use
+ * @param embeddingClient The embedding client to use
+ * @param options Service options
+ * @returns A new enhanced memory service
+ */
+export function createEnhancedMemoryService(
+  memoryClient: any, 
+  embeddingClient: any, 
+  options?: any
+) {
+  const { EnhancedMemoryService } = require('./enhanced-memory-service');
+  return new EnhancedMemoryService(memoryClient, embeddingClient, options);
 } 
