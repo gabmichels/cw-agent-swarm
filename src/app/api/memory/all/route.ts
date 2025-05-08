@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getMemoryServices } from '../../../../server/memory/services';
-import { MemoryType, MemoryErrorCode } from '../../../../server/memory/config';
+import { MemoryType, MemoryErrorCode, COLLECTION_NAMES } from '../../../../server/memory/config';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -94,14 +94,15 @@ export async function GET(request: NextRequest) {
     }
     
     // Map old memory types to new MemoryType enum
-    let type: MemoryType | undefined;
+    let type: MemoryType | string | undefined;
     if (typeParam) {
       switch (typeParam) {
         case 'message':
           type = MemoryType.MESSAGE;
           break;
         case 'thought':
-          type = MemoryType.THOUGHT;
+          // Use the collection name for thought type
+          type = COLLECTION_NAMES.THOUGHT;
           break;
         case 'document':
           type = MemoryType.DOCUMENT;
@@ -119,13 +120,14 @@ export async function GET(request: NextRequest) {
     // Get the memory services
     const { searchService } = await getMemoryServices();
     
-    // Define memory types to test
-    const MEMORY_TYPES = [
+    // Define memory types to test - allow both enum values and strings
+    const MEMORY_TYPES: (MemoryType | string)[] = [
       MemoryType.MESSAGE,
-      MemoryType.THOUGHT,
       MemoryType.DOCUMENT,
       MemoryType.TASK,
-      MemoryType.REFLECTION
+      // Use string values for types not in the enum but available as collections
+      COLLECTION_NAMES.THOUGHT, 
+      COLLECTION_NAMES.REFLECTION
     ];
     
     // Test each memory type individually to identify issues
@@ -133,11 +135,12 @@ export async function GET(request: NextRequest) {
       try {
         console.log(`[memory/all/route] Testing memory type ${memoryType}...`);
         const typeMemories = await searchService.search('', {
-          types: [memoryType],
+          types: [memoryType as MemoryType], // Type assertion to satisfy TypeScript
           limit: 5
         });
         
-        const collectionName = memoryType.toString().toLowerCase();
+        // Add null check before calling toString to prevent errors
+        const collectionName = memoryType ? String(memoryType).toLowerCase() : 'unknown';
         diagnosticResults.collections[collectionName] = {
           status: 'ok',
           count: typeMemories.length,
@@ -152,13 +155,14 @@ export async function GET(request: NextRequest) {
       } catch (typeError) {
         console.error(`[memory/all/route] Error testing memory type ${memoryType}:`, typeError);
         
-        const collectionName = memoryType.toString().toLowerCase();
+        // Add null check here too
+        const collectionName = memoryType ? String(memoryType).toLowerCase() : 'unknown';
         diagnosticResults.collections[collectionName] = {
           status: 'error',
           error: typeError instanceof Error ? typeError.message : String(typeError)
         };
         diagnosticResults.errors.push({
-          component: `memory_type_${memoryType}`,
+          component: `memory_type_${memoryType || 'unknown'}`,
           error: typeError instanceof Error ? typeError.message : String(typeError)
         });
       }
@@ -198,7 +202,7 @@ export async function GET(request: NextRequest) {
             console.log(`[memory/all/route] Fetching from memory type: ${memoryType}`);
             
             const searchOptions: any = {
-              types: [memoryType],
+              types: [memoryType as MemoryType], // Type assertion to satisfy TypeScript
               limit: perTypeLimit
             };
             
@@ -407,12 +411,40 @@ export async function GET_ALL_MESSAGES(request: NextRequest) {
     const url = new URL(request.url);
     const typeParam = url.searchParams.get('type');
     
+    // Handle the type parameter, mapping to collection names if needed
+    let searchType: MemoryType | string | undefined;
+    
+    if (typeParam) {
+      // Map old memory types to new MemoryType enum or collection names
+      switch (typeParam) {
+        case 'message':
+          searchType = MemoryType.MESSAGE;
+          break;
+        case 'thought':
+          searchType = COLLECTION_NAMES.THOUGHT;
+          break;
+        case 'document':
+          searchType = MemoryType.DOCUMENT;
+          break;
+        case 'task':
+          searchType = MemoryType.TASK;
+          break;
+        default:
+          // Try to use the typeParam directly if it's in the enum
+          searchType = typeParam;
+      }
+    }
+    
     // Set search options with a high limit to get all messages
-    const searchOptions = {
-      types: typeParam ? [typeParam as MemoryType] : undefined,
+    const searchOptions: any = {
       limit: 1000,  // Set a very high limit to get all messages
       offset: 0
     };
+    
+    // Only add types filter if a valid type was provided
+    if (searchType) {
+      searchOptions.types = [searchType];
+    }
     
     console.log('Searching for memories with options:', searchOptions);
     

@@ -154,7 +154,9 @@ const Header: React.FC<HeaderProps> = ({
               </li>
             {/* )} */}
             <li>
-              <a href="#" className="text-sm hover:text-blue-400">Analytics</a>
+              <Link href="/multi-agent-chat" className="text-sm hover:text-blue-400">
+                Multi-Agent
+              </Link>
             </li>
             <li>
               <a href="/knowledge-gaps" className="text-sm hover:text-blue-400">Knowledge Gaps</a>
