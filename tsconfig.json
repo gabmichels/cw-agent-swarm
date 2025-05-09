@@ -40,11 +40,11 @@
   "include": [
     "src/**/*.ts",
     "src/**/*.tsx",
-    ".next/types/**/*.ts",
     "tests/**/*.ts",
     "tests/**/*.tsx"
   ],
   "exclude": [
-    "node_modules"
+    "node_modules",
+    ".next"
   ]
 }

@@ -6,7 +6,7 @@
  */
 
 import { getChloeInstance } from '../index';
-import { PlanAndExecuteResult } from '../../../lib/shared/types/agentTypes';
+import { PlanAndExecuteResult, PlanStep } from '../../../lib/shared/types/agentTypes';
 
 async function runGraphTest() {
   try {
@@ -33,7 +33,7 @@ async function runGraphTest() {
     // Print plan steps if available
     if (result.plan && result.plan.steps.length > 0) {
       console.log('\nPlan Steps:');
-      result.plan.steps.forEach((step, index) => {
+      result.plan.steps.forEach((step: PlanStep, index: number) => {
         console.log(`${index + 1}. ${step.description} (${step.status})`);
         if (step.result && step.result.response) {
           console.log(`   Result: ${step.result.response.substring(0, 100)}...`);

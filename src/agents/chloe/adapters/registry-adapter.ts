@@ -7,7 +7,7 @@
 
 import { ChloeAgent } from '../core/agent';
 import { ChloeAgentV2 } from '../next-gen/ChloeAgentV2';
-import { AgentRegistry } from '../../shared/registry/AgentRegistry';
+import { AgentRegistry } from '../../../lib/agents/registry';
 
 /**
  * Type for global Chloe instance

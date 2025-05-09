@@ -74,8 +74,9 @@ export async function runAutonomousMaintenance(): Promise<void> {
     getReflectionManager: () => null,
     getPlanningManager: () => null,
     getKnowledgeGapsManager: () => null,
-    getToolManager: () => null
-  } as ChloeAgent;
+    getToolManager: () => null,
+    getScheduler: () => null
+  } as unknown as ChloeAgent;
   
   const scheduler = new ChloeScheduler(mockAgent);
   
@@ -204,8 +205,9 @@ export async function checkForSelfTriggeredTasks(): Promise<PlannedTask[]> {
     getReflectionManager: () => null,
     getPlanningManager: () => null,
     getKnowledgeGapsManager: () => null,
-    getToolManager: () => null
-  } as ChloeAgent;
+    getToolManager: () => null,
+    getScheduler: () => null
+  } as unknown as ChloeAgent;
   
   const scheduler = new ChloeScheduler(mockAgent);
   

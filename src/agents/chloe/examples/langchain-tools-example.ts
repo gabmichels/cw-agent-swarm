@@ -10,6 +10,7 @@ import { ChatOpenAI } from '@langchain/openai';
 import { ChatPromptTemplate, MessagesPlaceholder } from '@langchain/core/prompts';
 import { ChloeAgent } from '../../chloe'; // Import from chloe directory
 import { MemoryRetrievalToolLC, WorkingMemoryToolLC } from '../tools/cognitiveTools';
+import { MemoryImportanceLevel } from '../../../constants/memory';
 
 async function runAgentWithCognitiveTool() {
   try {
@@ -68,8 +69,8 @@ Use the available tools to help retrieve information and manage working memory.`
     await cognitiveMemory.addEpisodicMemory(
       "Meeting with marketing team about Q3 campaign planning",
       { 
-        importance: "high",
-        type: "meeting"
+        importance: MemoryImportanceLevel.HIGH,
+        source: "meeting"
       },
       ["positive"]
     );

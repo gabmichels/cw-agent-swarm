@@ -33,7 +33,7 @@ async function initChloeAgent(): Promise<ChloeAgent> {
     getKnowledgeGapsManager: () => null,
     getToolManager: () => null,
     getScheduler: () => null
-  } as ChloeAgent;
+  } as unknown as ChloeAgent;
   
   return mockAgent;
 }

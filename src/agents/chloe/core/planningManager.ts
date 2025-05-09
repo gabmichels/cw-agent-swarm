@@ -807,8 +807,9 @@ Your task is to create an optimal plan to achieve the above goal. The plan will 
       getReflectionManager: () => null,
       getPlanningManager: () => null,
       getKnowledgeGapsManager: () => null,
-      getToolManager: () => null
-    } as ChloeAgent;
+      getToolManager: () => null,
+      getScheduler: () => null
+    } as unknown as ChloeAgent;
     
     const scheduler = new ChloeScheduler(mockAgent);
     return scheduler;

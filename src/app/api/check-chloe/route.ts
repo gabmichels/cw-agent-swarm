@@ -68,11 +68,13 @@ export async function GET() {
     // Step 4: Check for required methods
     try {
       results.steps.push('4. Checking for required methods');
-      if (typeof instance.processMessage !== 'function') {
-        throw new Error('processMessage method is missing');
-      }
+      // processMessage was removed in the Chloe decoupling project
+      // Check for essential methods instead
       if (typeof instance.getMemory !== 'function') {
         throw new Error('getMemory method is missing');
+      }
+      if (typeof instance.planAndExecute !== 'function') {
+        throw new Error('planAndExecute method is missing');
       }
       
       results.steps.push('✅ All required methods are present');
