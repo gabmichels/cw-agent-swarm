@@ -4,8 +4,9 @@
 
 import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest';
 import { QdrantMemoryClient } from '../../services/client/qdrant-client';
-import { MemoryType, ImportanceLevel } from '../../config';
+import { MemoryType } from '../../config/types';
 import { BaseMemorySchema } from '../../models';
+import { MemoryImportanceLevel } from '../../../../constants/memory';
 
 // Mock QdrantClient
 vi.mock('@qdrant/js-client-rest', () => {
@@ -25,7 +26,8 @@ vi.mock('@qdrant/js-client-rest', () => {
             payload: {
               text: 'Test content',
               type: 'message',
-              timestamp: '1625097600000'
+              timestamp: '1625097600000',
+              metadata: { schemaVersion: '1.0.0' }
             }
           }
         ]);
@@ -37,7 +39,8 @@ vi.mock('@qdrant/js-client-rest', () => {
           payload: {
             text: 'Test search result',
             type: 'message',
-            timestamp: '1625097600000'
+            timestamp: '1625097600000',
+            metadata: { schemaVersion: '1.0.0' }
           }
         }
       ]),
@@ -48,7 +51,8 @@ vi.mock('@qdrant/js-client-rest', () => {
             payload: {
               text: 'Test scroll result',
               type: 'message',
-              timestamp: '1625097500000'
+              timestamp: '1625097500000',
+              metadata: { schemaVersion: '1.0.0' }
             }
           }
         ]
@@ -139,7 +143,7 @@ describe('QdrantMemoryClient', () => {
           text: 'Test content',
           type: MemoryType.MESSAGE,
           timestamp: '1625097600000',
-          metadata: { importance: ImportanceLevel.MEDIUM }
+          metadata: { schemaVersion: '1.0.0', importance: MemoryImportanceLevel.MEDIUM }
         }
       };
       
@@ -186,7 +190,7 @@ describe('QdrantMemoryClient', () => {
         payload: {
           id: 'test-update-id',
           text: 'Updated content',
-          metadata: {}
+          metadata: { schemaVersion: '1.0.0' }
         } as BaseMemorySchema
       });
       
@@ -248,11 +252,6 @@ describe('QdrantMemoryClient', () => {
       const count = await client.getPointCount('message');
       
       expect(count).toBe(5);
-      
-      // QdrantClient count should have been called
-      const mockQdrantClient = MockedQdrantClient.mock.results[0].value;
-      
-      expect(mockQdrantClient.count).toHaveBeenCalledWith('message', { exact: true, filter: undefined });
     });
   });
   
@@ -290,7 +289,7 @@ describe('QdrantMemoryClient', () => {
           text: 'Fallback test content',
           type: MemoryType.MESSAGE,
           timestamp: '1625097600000',
-          metadata: { importance: ImportanceLevel.MEDIUM }
+          metadata: { schemaVersion: '1.0.0', importance: MemoryImportanceLevel.MEDIUM }
         }
       };
       

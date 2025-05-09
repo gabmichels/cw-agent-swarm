@@ -11,10 +11,12 @@ import { SearchService } from '../../services/search/search-service';
 import { MemoryService } from '../../services/memory/memory-service';
 import { MockMemoryClient } from '../utils/mock-memory-client';
 import { MockEmbeddingService } from '../utils/mock-embedding-service';
-import { COLLECTION_NAMES, MemoryType } from '../../config';
+import { COLLECTION_NAMES } from '../../config';
+import { MemoryType } from '../../config/types';
 import { generateMemoryPoint } from '../utils/test-data-generator';
 import { BaseMemorySchema } from '../../models';
 import { IQueryOptimizer, QueryOptimizationStrategy } from '../../services/query/types';
+import { EnhancedMemoryService } from '../../services/multi-agent/enhanced-memory-service';
 
 // Mock query optimizer
 class MockQueryOptimizer implements IQueryOptimizer {
@@ -29,7 +31,7 @@ class MockQueryOptimizer implements IQueryOptimizer {
           id: 'optimized-result-1',
           text: 'Optimized result 1',
           timestamp: Date.now().toString(),
-          metadata: { schemaVersion: '1.0' }
+          metadata: { schemaVersion: '1.0.0' }
         }
       },
       {
@@ -41,7 +43,7 @@ class MockQueryOptimizer implements IQueryOptimizer {
           id: 'optimized-result-2',
           text: 'Optimized result 2',
           timestamp: Date.now().toString(),
-          metadata: { schemaVersion: '1.0' }
+          metadata: { schemaVersion: '1.0.0' }
         }
       }
     ],
@@ -66,6 +68,7 @@ describe('SearchService - Extended Tests', () => {
   let mockEmbeddingService: MockEmbeddingService;
   let mockQueryOptimizer: MockQueryOptimizer;
   let memoryService: MemoryService;
+  let enhancedMemoryService: EnhancedMemoryService;
   let searchService: SearchService;
   
   beforeEach(() => {
@@ -78,16 +81,32 @@ describe('SearchService - Extended Tests', () => {
     vi.spyOn(mockClient, 'collectionExists').mockResolvedValue(true);
     
     // Initialize services
-    // @ts-ignore - MockEmbeddingService needs to be compatible with EmbeddingService
     memoryService = new MemoryService(mockClient, mockEmbeddingService, {
       getTimestamp: () => Date.now()
     });
     
-    // @ts-ignore - MockEmbeddingService needs to be compatible with EmbeddingService
+    // Create an adapter that implements the EnhancedMemoryService interface
+    enhancedMemoryService = {
+      ...memoryService,
+      embeddingClient: mockEmbeddingService,
+      memoryClient: mockClient,
+      getTimestampFn: () => Date.now(),
+      extractIndexableFields: (memory: Record<string, unknown>) => ({ 
+        text: memory.text as string 
+      }),
+      // Add the methods that SearchService actually uses
+      getMemory: memoryService.getMemory,
+      addMemory: memoryService.addMemory,
+      updateMemory: memoryService.updateMemory,
+      deleteMemory: memoryService.deleteMemory,
+      searchMemories: memoryService.searchMemories
+    } as unknown as EnhancedMemoryService;
+    
+    // Initialize the search service with our enhanced memory service
     searchService = new SearchService(
       mockClient,
       mockEmbeddingService,
-      memoryService
+      enhancedMemoryService
     );
   });
   
@@ -110,7 +129,7 @@ describe('SearchService - Extended Tests', () => {
       expect(mockQueryOptimizer.query).toHaveBeenCalledWith(
         expect.objectContaining({
           query,
-          collection: COLLECTION_NAMES[MemoryType.MESSAGE]
+          collection: COLLECTION_NAMES.MESSAGE
         }),
         undefined
       );
@@ -175,7 +194,7 @@ describe('SearchService - Extended Tests', () => {
             type: MemoryType.MESSAGE,
             timestamp: Date.now().toString(),
             id: 'fallback-result',
-            metadata: { schemaVersion: '1.0' }
+            metadata: { schemaVersion: '1.0.0' }
           }
         }
       ]);
@@ -209,7 +228,7 @@ describe('SearchService - Extended Tests', () => {
           type: MemoryType.MESSAGE,
           id: 'memory-id',
           timestamp: Date.now().toString(),
-          metadata: { schemaVersion: '1.0' }
+          metadata: { schemaVersion: '1.0.0' }
         }
       };
       
@@ -230,12 +249,12 @@ describe('SearchService - Extended Tests', () => {
               type: MemoryType.THOUGHT,
               id: 'thought-1',
               timestamp: Date.now().toString(),
-              metadata: { schemaVersion: '1.0' }
+              metadata: { schemaVersion: '1.0.0' }
             } as BaseMemorySchema
           },
           score: 0.9,
           type: MemoryType.THOUGHT,
-          collection: COLLECTION_NAMES[MemoryType.THOUGHT] as string
+          collection: COLLECTION_NAMES.THOUGHT
         },
         {
           point: {
@@ -246,12 +265,12 @@ describe('SearchService - Extended Tests', () => {
               type: MemoryType.MESSAGE, 
               id: 'message-1',
               timestamp: Date.now().toString(),
-              metadata: { schemaVersion: '1.0' }
+              metadata: { schemaVersion: '1.0.0' }
             } as BaseMemorySchema
           },
           score: 0.8,
           type: MemoryType.MESSAGE,
-          collection: COLLECTION_NAMES[MemoryType.MESSAGE] as string
+          collection: COLLECTION_NAMES.MESSAGE
         },
         {
           point: {
@@ -262,12 +281,12 @@ describe('SearchService - Extended Tests', () => {
               type: MemoryType.THOUGHT,
               id: 'thought-2',
               timestamp: Date.now().toString(),
-              metadata: { schemaVersion: '1.0' }
+              metadata: { schemaVersion: '1.0.0' }
             } as BaseMemorySchema
           },
           score: 0.7,
           type: MemoryType.THOUGHT,
-          collection: COLLECTION_NAMES[MemoryType.THOUGHT] as string
+          collection: COLLECTION_NAMES.THOUGHT
         },
         {
           point: {
@@ -278,12 +297,12 @@ describe('SearchService - Extended Tests', () => {
               type: MemoryType.MESSAGE,
               id: 'message-2',
               timestamp: Date.now().toString(),
-              metadata: { schemaVersion: '1.0' }
+              metadata: { schemaVersion: '1.0.0' }
             } as BaseMemorySchema
           },
           score: 0.6,
           type: MemoryType.MESSAGE,
-          collection: COLLECTION_NAMES[MemoryType.MESSAGE] as string
+          collection: COLLECTION_NAMES.MESSAGE
         }
       ]);
       
@@ -342,7 +361,7 @@ describe('SearchService - Extended Tests', () => {
           type: MemoryType.MESSAGE,
           id: 'error-memory-id',
           timestamp: Date.now().toString(),
-          metadata: { schemaVersion: '1.0' }
+          metadata: { schemaVersion: '1.0.0' }
         }
       };
       

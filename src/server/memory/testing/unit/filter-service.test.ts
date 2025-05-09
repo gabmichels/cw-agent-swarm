@@ -6,18 +6,22 @@ import { SearchService } from '../../services/search/search-service';
 import { MemoryService } from '../../services/memory/memory-service';
 import { MockMemoryClient } from '../utils/mock-memory-client';
 import { MockEmbeddingService } from '../utils/mock-embedding-service';
-import { COLLECTION_NAMES, MemoryType } from '../../config';
+import { COLLECTION_NAMES } from '../../config';
+import { MemoryType } from '../../config/types';
 import { BaseMemorySchema, MemoryPoint } from '../../models';
-import { FilterOptions } from '../../services/search/types';
+import { FilterOptions, SearchResult } from '../../services/search/types';
+import { EnhancedMemoryService } from '../../services/multi-agent/enhanced-memory-service';
+import { MemoryImportanceLevel } from '../../../../constants/memory';
 
 describe('SearchService - Filter Method', () => {
   let searchService: SearchService;
   let mockClient: MockMemoryClient;
   let mockMemoryService: MemoryService;
+  let enhancedMemoryService: EnhancedMemoryService;
   let mockEmbeddingService: MockEmbeddingService;
   
   // Create test data
-  const createMemoryResult = (id: string, type: MemoryType, tags: string[] = [], importance: string = 'medium') => ({
+  const createMemoryResult = (id: string, type: MemoryType, tags: string[] = [], importance: MemoryImportanceLevel = MemoryImportanceLevel.MEDIUM) => ({
     point: {
       id,
       vector: [],
@@ -27,6 +31,7 @@ describe('SearchService - Filter Method', () => {
         type,
         timestamp: Date.now().toString(),
         metadata: {
+          schemaVersion: '1.0.0',
           tags,
           importance
         }
@@ -34,16 +39,16 @@ describe('SearchService - Filter Method', () => {
     },
     score: 1.0,
     type,
-    collection: COLLECTION_NAMES[type]
-  });
+    collection: COLLECTION_NAMES[type as unknown as keyof typeof COLLECTION_NAMES] || `${type}_collection`
+  } as unknown as SearchResult<BaseMemorySchema>);
   
   // Mock implementation for the filter method
-  const mockFilterImplementation = (options: FilterOptions = {}) => {
+  const mockFilterImplementation = (options: FilterOptions = {}): Promise<SearchResult<BaseMemorySchema>[]> => {
     // Create some test results
-    const msgResult1 = createMemoryResult('msg-1', MemoryType.MESSAGE, ['important', 'work'], 'high');
+    const msgResult1 = createMemoryResult('msg-1', MemoryType.MESSAGE, ['important', 'work'], MemoryImportanceLevel.HIGH);
     const msgResult2 = createMemoryResult('msg-2', MemoryType.MESSAGE, ['casual']);
     const docResult1 = createMemoryResult('doc-1', MemoryType.DOCUMENT, ['work', 'reference']);
-    const docResult2 = createMemoryResult('doc-2', MemoryType.DOCUMENT, ['project', 'proposal'], 'high');
+    const docResult2 = createMemoryResult('doc-2', MemoryType.DOCUMENT, ['project', 'proposal'], MemoryImportanceLevel.HIGH);
     const thoughtResult1 = createMemoryResult('thought-1', MemoryType.THOUGHT, ['idea', 'feature']);
     
     let results = [msgResult1, msgResult2, docResult1, docResult2, thoughtResult1];
@@ -100,20 +105,36 @@ describe('SearchService - Filter Method', () => {
     mockEmbeddingService = new MockEmbeddingService();
     
     // Initialize services
-    // @ts-ignore - MockEmbeddingService needs to be compatible with EmbeddingService
     mockMemoryService = new MemoryService(mockClient, mockEmbeddingService, {
       getTimestamp: () => Date.now()
     });
     
-    // @ts-ignore - MockEmbeddingService needs to be compatible with EmbeddingService
+    // Create an adapter that implements the EnhancedMemoryService interface
+    enhancedMemoryService = {
+      ...mockMemoryService,
+      embeddingClient: mockEmbeddingService,
+      memoryClient: mockClient,
+      getTimestampFn: () => Date.now(),
+      extractIndexableFields: (memory: Record<string, unknown>) => ({ 
+        text: memory.text as string 
+      }),
+      // Add the methods that SearchService actually uses
+      getMemory: mockMemoryService.getMemory,
+      addMemory: mockMemoryService.addMemory,
+      updateMemory: mockMemoryService.updateMemory,
+      deleteMemory: mockMemoryService.deleteMemory,
+      searchMemories: mockMemoryService.searchMemories
+    } as unknown as EnhancedMemoryService;
+    
+    // Initialize SearchService with EnhancedMemoryService
     searchService = new SearchService(
       mockClient,
       mockEmbeddingService,
-      mockMemoryService
+      enhancedMemoryService
     );
     
     // Mock the filter method
-    vi.spyOn(searchService, 'filter').mockImplementation(mockFilterImplementation as any);
+    vi.spyOn(searchService, 'filter').mockImplementation(mockFilterImplementation);
   });
   
   afterEach(() => {
@@ -164,7 +185,7 @@ describe('SearchService - Filter Method', () => {
     // Filter memories with high importance
     const results = await searchService.filter({
       filter: {
-        'metadata.importance': 'high'
+        'metadata.importance': MemoryImportanceLevel.HIGH
       }
     });
     
@@ -173,7 +194,7 @@ describe('SearchService - Filter Method', () => {
     
     // Verify all results have the correct importance
     for (const result of results) {
-      expect(result.point.payload.metadata.importance).toBe('high');
+      expect(result.point.payload.metadata.importance).toBe(MemoryImportanceLevel.HIGH);
     }
     
     // Verify IDs of found memories
@@ -228,7 +249,7 @@ describe('SearchService - Filter Method', () => {
     // Filter for high importance work-related memories
     const results = await searchService.filter({
       filter: {
-        'metadata.importance': 'high',
+        'metadata.importance': MemoryImportanceLevel.HIGH,
         'metadata.tags': {
           $in: ['work']
         }
@@ -240,7 +261,7 @@ describe('SearchService - Filter Method', () => {
     expect(results[0].point.id).toBe('msg-1');
     
     // Verify properties
-    expect(results[0].point.payload.metadata.importance).toBe('high');
+    expect(results[0].point.payload.metadata.importance).toBe(MemoryImportanceLevel.HIGH);
     expect(results[0].point.payload.metadata.tags).toContain('work');
   });
   
@@ -248,7 +269,7 @@ describe('SearchService - Filter Method', () => {
     // Override the mock for this test only
     vi.spyOn(searchService, 'filter').mockResolvedValueOnce([]);
     
-    // Filter with criteria that match no memories
+    // Filter with impossible criteria
     const results = await searchService.filter({
       filter: {
         'metadata.tags': {
@@ -257,7 +278,7 @@ describe('SearchService - Filter Method', () => {
       }
     });
     
-    // Verify empty results
+    // Verify results
     expect(results).toHaveLength(0);
   });
 }); 
