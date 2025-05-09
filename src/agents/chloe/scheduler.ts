@@ -1,15 +1,12 @@
 import { CronJob } from 'cron';
-import { ChloeAgent } from './core/agent';
-import { PlanAndExecuteOptions } from './planAndExecute';
-import { logger } from '../../lib/logging';
-import { runMemoryConsolidation } from './tasks/memoryConsolidation';
+import { ChloeAgent, PlanAndExecuteResult as ChloeAgentPlanAndExecuteResult } from './core/agent';
 import { 
-  runMarketScanTask, 
-  runNewsScanTask, 
-  runTrendingTopicResearchTask, 
-  runSocialMediaTrendsTask 
-} from './tasks/marketScanTask';
-import { ScheduledTask as AgentScheduledTask } from '../../lib/shared/types/agentTypes';
+  AutonomySystem, 
+  PlanAndExecuteOptions,
+  PlanAndExecuteResult,
+  ScheduledTask as AgentScheduledTask 
+} from '../../lib/shared/types/agentTypes';
+import { v4 as uuidv4 } from 'uuid';
 import { TASK_IDS } from '../../lib/shared/constants';
 import { calculateChloeCapacity, deferOverflowTasks } from './scheduler/capacityManager';
 import { enableAutonomousMode as _enableAutonomousMode, runAutonomousMaintenance } from './scheduler/autonomousScheduler';
@@ -20,8 +17,43 @@ import { MemoryType } from '../../server/memory/config/types';
 // Types for scheduler
 export type TaskId = string;
 
+// Define our own ScheduledTask interface to avoid conflicts
+interface ScheduledTask {
+  id: string;
+  name: string;
+  description: string;
+  schedule: string; // Cron pattern
+  goalPrompt: string;
+  lastRun?: Date;
+  nextRun?: Date;
+  enabled: boolean;
+  tags: string[];
+  interval?: number; // Interval in milliseconds for non-cron tasks
+  intervalId?: NodeJS.Timeout; // For tracking interval-based tasks
+  task?: CronJob; // For backward compatibility
+  cronExpression?: string; // For backward compatibility
+}
+
+// Type for our extended agent - using type instead of interface
+// to avoid compatibility issues with ChloeAgent
+type ExtendedChloeAgent = ChloeAgent & {
+  // Optional methods that might be implemented
+  getPlanningManager?(): any;
+  getMemoryManager?(): any;
+  getReflectionManager?(): any;
+  getKnowledgeGapsManager?(): any;
+  getToolManager?(): any;
+  
+  // Task execution methods
+  runDailyTasks?(): Promise<void>;
+  runWeeklyReflection?(): Promise<string>;
+  reflect?(prompt: string): Promise<string>;
+  getMemory?(): any;
+  scheduleTask?(task: ScheduledTask): Promise<boolean>;
+};
+
 // Setup scheduler for the agent's recurring tasks
-export function setupScheduler(agent: ChloeAgent) {
+export function setupScheduler(agent: any) {
   // Tasks to run daily at 9:00 AM
   const dailyTasks = new CronJob(
     '0 9 * * *', // Run at 9:00 AM every day
@@ -88,8 +120,9 @@ export function setupScheduler(agent: ChloeAgent) {
     '0 10 * * 0', // Run at 10:00 AM every Sunday
     async () => {
       console.log('Running weekly reflection...');
-      await agent.reflect('What went well this week? What can be improved?');
-      agent.notify('Weekly reflection completed.');
+      // Use optional chaining to safely call reflect and notify
+      await (agent as any).reflect?.('What went well this week? What can be improved?');
+      (agent as any).notify?.('Weekly reflection completed.');
     },
     null,
     false,
@@ -135,8 +168,10 @@ export function setupScheduler(agent: ChloeAgent) {
     status: () => {
       // Check if job is active safely
       const isJobActive = (job: CronJob) => {
-        // Cron v4 uses isActive, earlier versions use running
-        return typeof job.running === 'boolean' ? job.running : false;
+        // Use hasOwnProperty to check if property exists, as running property 
+        // might not be directly accessible in all CronJob versions
+        return Object.prototype.hasOwnProperty.call(job, 'running') ? 
+          (job as any).running : false;
       };
       
       return {
@@ -164,26 +199,16 @@ export function setupScheduler(agent: ChloeAgent) {
   };
 }
 
-interface ScheduledTask {
-  id: string;
-  cronExpression: string;
-  goalPrompt: string;
-  tags: string[];
-  enabled: boolean;
-  lastRun?: Date;
-  task?: CronJob;
-}
-
 /**
  * Manages scheduled autonomous tasks for Chloe
  */
 export class ChloeScheduler {
-  private agent: ChloeAgent;
+  private agent: ExtendedChloeAgent;
   private scheduledTasks: Map<string, ScheduledTask> = new Map();
   private autonomyMode: boolean = false;
 
   constructor(agent: ChloeAgent) {
-    this.agent = agent;
+    this.agent = agent as ExtendedChloeAgent;
     console.log('ChloeScheduler initialized');
   }
 
@@ -238,7 +263,10 @@ export class ChloeScheduler {
 
       const taskConfig: ScheduledTask = {
         id,
-        cronExpression,
+        name: id, // Use ID as name for backward compatibility
+        description: goalPrompt, // Use prompt as description
+        schedule: cronExpression, // Set schedule to cronExpression
+        cronExpression, // Keep for backward compatibility
         goalPrompt,
         tags: [...tags, 'scheduled', 'autonomous'],
         enabled: true
@@ -276,9 +304,16 @@ export class ChloeScheduler {
         return true;
       }
 
+      // Use schedule as the primary source, fall back to cronExpression
+      const cronPattern = task.schedule || task.cronExpression;
+      if (!cronPattern) {
+        console.error(`No schedule or cronExpression found for task ${id}`);
+        return false;
+      }
+
       // Create a new CronJob
       const job = new CronJob(
-        task.cronExpression,
+        cronPattern,
         async () => {
           console.log(`Executing scheduled task: ${id}`);
           try {
@@ -348,9 +383,9 @@ export class ChloeScheduler {
     try {
       console.log(`Executing task ${id}: ${task.goalPrompt}`);
       
-      // Get references to memories and taskLoggers
-      const memory = this.agent.getMemory ? this.agent.getMemory() : null;
-      const taskLogger = this.agent.getTaskLogger ? this.agent.getTaskLogger() : null;
+      // Get references to memories and taskLoggers using optional chaining
+      const memory = this.agent.getMemory?.();
+      const taskLogger = this.agent.getTaskLogger?.();
       
       // Log task start if we have a task logger
       if (taskLogger) {
@@ -358,7 +393,7 @@ export class ChloeScheduler {
           id,
           goalPrompt: task.goalPrompt,
           timestamp: new Date().toISOString(),
-          tags: task.tags
+          tags: task.tags || []
         });
       }
       
@@ -368,7 +403,7 @@ export class ChloeScheduler {
         const options: PlanAndExecuteOptions = {
           goalPrompt: task.goalPrompt,
           autonomyMode: true,
-          tags: task.tags
+          tags: task.tags || []
         };
         
         // Run the task
@@ -393,7 +428,7 @@ export class ChloeScheduler {
             ImportanceLevel.MEDIUM,
             MemorySource.SYSTEM,
             `Completed execution of scheduled task ${id}`,
-            [...task.tags, "scheduled", "autonomous"]
+            [...(task.tags || []), "scheduled", "autonomous"]
           ).catch((e: Error | unknown) => console.error(`Failed to store task result in memory:`, e));
         }
         
@@ -408,7 +443,7 @@ export class ChloeScheduler {
       console.error(`Error executing task ${id}:`, error);
       
       // Log error if we have a task logger
-      const taskLogger = this.agent.getTaskLogger ? this.agent.getTaskLogger() : null;
+      const taskLogger = this.agent.getTaskLogger?.();
       if (taskLogger) {
         taskLogger.logAction(`Error in scheduled task ${id}`, {
           id,
@@ -434,7 +469,7 @@ export class ChloeScheduler {
   /**
    * Get the agent
    */
-  public getAgent(): ChloeAgent {
+  public getAgent(): ExtendedChloeAgent {
     return this.agent;
   }
 
@@ -590,8 +625,8 @@ function convertDayToCronFormat(day: string): number {
 /**
  * Initializes Chloe's autonomy system, enabling self-management capabilities
  */
-export function initializeAutonomy(agent: ChloeAgent): import('../../lib/shared/types/agentTypes').AutonomySystem {
-  const scheduler = new ChloeScheduler(agent);
+export function initializeAutonomy(agent: any): import('../../lib/shared/types/agentTypes').AutonomySystem {
+  const scheduler = new ChloeScheduler(agent as any);
   const tasks = setupScheduler(agent);
   
   // Set up default schedule
@@ -753,7 +788,14 @@ export function initializeAutonomy(agent: ChloeAgent): import('../../lib/shared/
     planAndExecute: async (options: PlanAndExecuteOptions): Promise<import('../../lib/shared/types/agentTypes').PlanAndExecuteResult> => {
       try {
         if (typeof agent.planAndExecute === 'function') {
-          return await agent.planAndExecute(options.goalPrompt, options);
+          const result = await agent.planAndExecute(options.goalPrompt, options);
+          // Ensure result conforms to PlanAndExecuteResult interface
+          return {
+            success: result.success,
+            message: result.message || 'Task completed',
+            plan: result.plan,
+            error: result.error
+          };
         } else {
           return {
             success: false,
@@ -832,4 +874,674 @@ export function initializeAutonomy(agent: ChloeAgent): import('../../lib/shared/
       }
     }
   };
+}
+
+// Type guard to handle potential undefined values
+function isRunning(job: CronJob | undefined): boolean {
+  if (!job) return false;
+  
+  // Use hasOwnProperty to safely check if the property exists
+  if (Object.prototype.hasOwnProperty.call(job, 'running')) {
+    return (job as any).running === true;
+  }
+  
+  return false;
+}
+
+/**
+ * AutonomySystem implementation for Chloe Agent
+ */
+export class SchedulerSystem implements AutonomySystem {
+  private agent: ExtendedChloeAgent;
+  private _scheduledTasks: Map<string, ScheduledTask> = new Map();
+  private activeJobs: Map<string, CronJob> = new Map();
+  private autonomyMode: boolean = false;
+  public status: 'active' | 'inactive' = 'inactive';
+  
+  // Fix the getter to correctly match AutonomySystem interface
+  get scheduledTasks(): AgentScheduledTask[] {
+    // Convert internal ScheduledTask to AgentScheduledTask
+    return Array.from(this._scheduledTasks.values()).map(task => {
+      // Create a proper AgentScheduledTask object that matches the interface
+      const agentTask: AgentScheduledTask = {
+        id: task.id,
+        name: task.name,
+        description: task.description,
+        schedule: task.schedule,
+        goalPrompt: task.goalPrompt,
+        // Keep as Date objects to match the interface
+        lastRun: task.lastRun,
+        nextRun: task.nextRun,
+        enabled: task.enabled,
+        tags: task.tags || []
+      };
+      return agentTask;
+    });
+  }
+  
+  constructor(agent: ChloeAgent) {
+    this.agent = agent as ExtendedChloeAgent;
+    this.status = 'inactive';
+  }
+  
+  /**
+   * Initialize the autonomy system
+   */
+  async initialize(): Promise<boolean> {
+    try {
+      console.log('[SchedulerSystem] Initializing...');
+      
+      // Check if the planning manager is available as an optional feature
+      const planningManager = this.agent.getPlanningManager?.();
+      
+      // Schedule default tasks
+      await this.scheduleDefaultTasks();
+      
+      this.status = 'active';
+      console.log('[SchedulerSystem] Initialized successfully');
+      return true;
+    } catch (error) {
+      console.error('[SchedulerSystem] Failed to initialize:', error);
+      this.status = 'inactive';
+      return false;
+    }
+  }
+  
+  /**
+   * Schedule default system tasks
+   */
+  private async scheduleDefaultTasks(): Promise<void> {
+    console.log('[SchedulerSystem] Setting up default tasks...');
+    
+    // Daily tasks runner - at 8 AM
+    await this.scheduleTask({
+      id: 'daily-tasks-runner',
+      name: 'Daily Tasks Runner',
+      description: 'Runs daily tasks automatically',
+      schedule: '0 8 * * *',
+      goalPrompt: 'Run daily agent tasks',
+      enabled: true,
+      tags: ['system', 'maintenance']
+    });
+    
+    // Weekly reflection - Sunday at 10 AM
+    await this.scheduleTask({
+      id: 'weekly-reflection',
+      name: 'Weekly Reflection',
+      description: 'Perform weekly reflection on activities and insights',
+      schedule: '0 10 * * 0',
+      goalPrompt: 'What went well this week? What can be improved?',
+      enabled: true,
+      tags: ['system', 'reflection']
+    });
+  }
+  
+  /**
+   * Run daily tasks
+   */
+  async runDailyTasks(): Promise<boolean> {
+    console.log('[SchedulerSystem] Running daily tasks...');
+    const agent = this.agent;
+    
+    if (agent && agent.runDailyTasks) {
+      await agent.runDailyTasks();
+      return true;
+    }
+    
+    console.log('[SchedulerSystem] Agent does not support runDailyTasks');
+    return false;
+  }
+  
+  /**
+   * Run weekly reflection
+   */
+  async runWeeklyReflection(): Promise<boolean> {
+    console.log('[SchedulerSystem] Running weekly reflection...');
+    
+    try {
+      await this.agent.reflect?.('What went well this week? What can be improved?');
+      return true;
+    } catch (error) {
+      console.error('[SchedulerSystem] Failed to run weekly reflection:', error);
+      return false;
+    }
+  }
+  
+  /**
+   * Get the scheduler interface
+   */
+  get scheduler() {
+    return {
+      runTaskNow: async (taskId: string) => this.runTask(taskId),
+      getScheduledTasks: () => Array.from(this._scheduledTasks.values()),
+      setTaskEnabled: (taskId: string, enabled: boolean) => this.setTaskEnabled(taskId, enabled),
+      setAutonomyMode: (enabled: boolean) => this.setAutonomyMode(enabled),
+      getAutonomyMode: () => this.autonomyMode
+    };
+  }
+  
+  /**
+   * Set autonomy mode
+   */
+  setAutonomyMode(enabled: boolean): void {
+    this.autonomyMode = enabled;
+    console.log(`[SchedulerSystem] Autonomy mode ${enabled ? 'enabled' : 'disabled'}`);
+  }
+  
+  /**
+   * Get autonomy mode status
+   */
+  getAutonomyMode(): boolean {
+    return this.autonomyMode;
+  }
+  
+  /**
+   * Check if a task is currently running
+   */
+  isTaskRunning(taskId: string): boolean {
+    const job = this.activeJobs.get(taskId);
+    return isRunning(job);
+  }
+  
+  /**
+   * Set a task's enabled status
+   */
+  setTaskEnabled(taskId: string, enabled: boolean): boolean {
+    const task = this._scheduledTasks.get(taskId);
+    if (!task) {
+      console.error(`[SchedulerSystem] Task not found: ${taskId}`);
+      return false;
+    }
+    
+    task.enabled = enabled;
+    
+    // Stop the job if disabling
+    if (!enabled && this.activeJobs.has(taskId)) {
+      const job = this.activeJobs.get(taskId);
+      job?.stop();
+    } else if (enabled && !this.isTaskRunning(taskId)) {
+      // Restart the job if enabling
+      this.setupCronJob(task);
+    }
+    
+    console.log(`[SchedulerSystem] Task '${task.name}' ${enabled ? 'enabled' : 'disabled'}`);
+    return true;
+  }
+  
+  /**
+   * Set up a cron job for a scheduled task
+   */
+  private setupCronJob(task: ScheduledTask): void {
+    // Stop existing job if any
+    if (this.activeJobs.has(task.id)) {
+      const existingJob = this.activeJobs.get(task.id);
+      existingJob?.stop();
+      this.activeJobs.delete(task.id);
+    }
+    
+    if (!task.enabled) {
+      return;
+    }
+    
+    // Skip if no schedule pattern
+    if (!task.schedule) {
+      console.warn(`[SchedulerSystem] Task '${task.name}' has no schedule pattern`);
+      return;
+    }
+    
+    try {
+      // Create new cron job
+      const job = new CronJob(
+        task.schedule,
+        async () => {
+          console.log(`[SchedulerSystem] Running scheduled task '${task.name}'`);
+          await this.runTask(task.id);
+        },
+        null, // onComplete
+        true, // start
+        'America/New_York' // timezone
+      );
+      
+      this.activeJobs.set(task.id, job);
+      
+      // Calculate next run time - safer access to nextDates
+      try {
+        // Approximate the next run time - avoid using nextDate() which doesn't exist
+        task.nextRun = new Date();
+        task.nextRun.setDate(task.nextRun.getDate() + 1); // Rough estimate for daily
+        
+        console.log(`[SchedulerSystem] Scheduled task '${task.name}' for ${task.nextRun.toLocaleString()}`);
+      } catch (e) {
+        console.error(`[SchedulerSystem] Failed to calculate next run time for task '${task.name}':`, e);
+      }
+    } catch (error) {
+      console.error(`[SchedulerSystem] Failed to set up cron job for task '${task.name}':`, error);
+    }
+  }
+  
+  /**
+   * Schedule a task
+   */
+  async scheduleTask(task: ScheduledTask): Promise<boolean> {
+    // Generate ID if not provided
+    if (!task.id) {
+      task.id = uuidv4();
+    }
+    
+    // Store the task
+    this._scheduledTasks.set(task.id, task);
+    
+    // Set up cron job if enabled
+    if (task.enabled) {
+      this.setupCronJob(task);
+    }
+    
+    console.log(`[SchedulerSystem] Task scheduled: ${task.name}`);
+    return true;
+  }
+  
+  /**
+   * Run a scheduled task
+   */
+  async runTask(taskId: string): Promise<boolean> {
+    const task = this._scheduledTasks.get(taskId);
+    if (!task) {
+      console.error(`[SchedulerSystem] Task not found: ${taskId}`);
+      return false;
+    }
+    
+    console.log(`[SchedulerSystem] Running task: ${task.name}`);
+    task.lastRun = new Date();
+    
+    try {
+      // Handle specific system tasks
+      if (taskId === 'daily-tasks-runner') {
+        return await this.runDailyTasks();
+      } else if (taskId === 'weekly-reflection') {
+        return await this.runWeeklyReflection();
+      }
+      
+      // Execute task with goal prompt
+      if (task.goalPrompt) {
+        const result = await this.planAndExecute({
+          goalPrompt: task.goalPrompt,
+          tags: task.tags
+        });
+        
+        return result.success;
+      }
+      
+      console.log(`[SchedulerSystem] Task has no goal prompt: ${task.name}`);
+      return true;
+    } catch (error) {
+      console.error(`[SchedulerSystem] Failed to run task '${task.name}':`, error);
+      return false;
+    }
+  }
+  
+  /**
+   * Cancel a scheduled task
+   */
+  async cancelTask(taskId: string): Promise<boolean> {
+    // Stop the cron job if active
+    if (this.activeJobs.has(taskId)) {
+      const job = this.activeJobs.get(taskId);
+      job?.stop();
+      this.activeJobs.delete(taskId);
+    }
+    
+    // Remove the task
+    const result = this._scheduledTasks.delete(taskId);
+    return result;
+  }
+  
+  /**
+   * Shutdown the autonomy system
+   */
+  async shutdown(): Promise<void> {
+    console.log('[SchedulerSystem] Shutting down...');
+    
+    // Stop all cron jobs - use Array.from to avoid iterator issues
+    Array.from(this.activeJobs.entries()).forEach(([taskId, job]) => {
+      console.log(`[SchedulerSystem] Stopping task: ${taskId}`);
+      job.stop();
+    });
+    
+    this.activeJobs.clear();
+    this.status = 'inactive';
+    
+    console.log('[SchedulerSystem] Shutdown complete');
+  }
+  
+  /**
+   * Diagnose the system state
+   */
+  async diagnose(): Promise<{
+    memory: { status: string; messageCount: number };
+    scheduler: { status: string; activeTasks: number };
+    planning: { status: string };
+  }> {
+    console.log('[SchedulerSystem] Running diagnostics...');
+    
+    // Check memory status
+    const memory = this.agent.getMemory?.();
+    const messageCount = memory ? await memory.getMessageCount() : 0;
+    
+    // Check scheduler status
+    const activeTasks = Array.from(this.activeJobs.values()).filter(job => 
+      isRunning(job)
+    ).length;
+    
+    // Check planning system
+    let planningStatus = 'unavailable';
+    try {
+      const planningManager = this.agent.getPlanningManager?.();
+      planningStatus = planningManager ? 'operational' : 'unavailable';
+    } catch (error) {
+      planningStatus = 'error';
+    }
+    
+    return {
+      memory: {
+        status: memory ? 'operational' : 'unavailable',
+        messageCount
+      },
+      scheduler: {
+        status: this.status,
+        activeTasks
+      },
+      planning: {
+        status: planningStatus
+      }
+    };
+  }
+  
+  /**
+   * Plan and execute a task
+   */
+  async planAndExecute(options: PlanAndExecuteOptions): Promise<PlanAndExecuteResult> {
+    if (!this.agent) {
+      return {
+        success: false,
+        message: 'Agent is not available',
+        error: 'No agent instance'
+      };
+    }
+    
+    console.log(`[SchedulerSystem] Planning and executing: ${options.goalPrompt}`);
+    
+    // Call agent's planAndExecute if available
+    try {
+      const agent = this.agent;
+      if (typeof agent.planAndExecute !== 'function') {
+        return {
+          success: false,
+          message: 'Agent does not support planAndExecute',
+          error: 'Method not implemented'
+        };
+      }
+      
+      // Execute the plan
+      const result = await agent.planAndExecute(options.goalPrompt, options) as ChloeAgentPlanAndExecuteResult;
+      
+      // Return a properly formatted result
+      return {
+        success: result.success,
+        message: result.message || 'Task executed',
+        plan: result.plan,
+        error: result.error
+      };
+    } catch (error) {
+      console.error('[SchedulerSystem] Plan execution failed:', error);
+      return {
+        success: false,
+        message: 'Plan execution failed',
+        error: error instanceof Error ? error.message : String(error)
+      };
+    }
+  }
+  
+  /**
+   * Run daily autonomous tasks
+   */
+  async runDailyAutonomous(): Promise<boolean> {
+    if (!this.autonomyMode) {
+      console.log('[SchedulerSystem] Autonomy mode is disabled, skipping daily autonomous tasks');
+      return false;
+    }
+    
+    const agent = this.agent;
+    try {
+      console.log('[SchedulerSystem] Running daily autonomous tasks');
+      
+      // Run daily tasks if available
+      if (agent.runDailyTasks) {
+        await agent.runDailyTasks();
+        return true;
+      }
+      
+      return false;
+    } catch (error) {
+      console.error('[SchedulerSystem] Failed to run daily autonomous tasks:', error);
+      return false;
+    }
+  }
+  
+  /**
+   * Run weekly autonomous tasks
+   */
+  async runWeeklyAutonomous(): Promise<boolean> {
+    if (!this.autonomyMode) {
+      console.log('[SchedulerSystem] Autonomy mode is disabled, skipping weekly autonomous tasks');
+      return false;
+    }
+    
+    const agent = this.agent;
+    try {
+      console.log('[SchedulerSystem] Running weekly autonomous tasks');
+      
+      // Run weekly reflection if available
+      if (agent.runWeeklyReflection) {
+        await agent.runWeeklyReflection();
+        return true;
+      }
+      
+      return false;
+    } catch (error) {
+      console.error('[SchedulerSystem] Failed to run weekly autonomous tasks:', error);
+      return false;
+    }
+  }
+  
+  /**
+   * Get agent memory statistics
+   */
+  async getMemoryStats(): Promise<{
+    totalMessages: number;
+    totalReflections: number;
+    totalTasks: number;
+  }> {
+    const memoryManager = this.agent.getMemoryManager ? this.agent.getMemoryManager() : null;
+    
+    if (!memoryManager) {
+      return {
+        totalMessages: 0,
+        totalReflections: 0,
+        totalTasks: 0
+      };
+    }
+    
+    try {
+      const totalMessages = await memoryManager.getMessageCount();
+      const totalReflections = await memoryManager.getReflectionCount();
+      const totalTasks = await memoryManager.getTaskCount();
+      
+      return {
+        totalMessages,
+        totalReflections,
+        totalTasks
+      };
+    } catch (error) {
+      console.error('[SchedulerSystem] Failed to get memory stats:', error);
+      return {
+        totalMessages: 0,
+        totalReflections: 0,
+        totalTasks: 0
+      };
+    }
+  }
+  
+  /**
+   * Get planning statistics
+   */
+  async getPlanningStats(): Promise<{
+    totalPlans: number;
+    successfulPlans: number;
+    failedPlans: number;
+  }> {
+    const planningManager = this.agent.getPlanningManager ? this.agent.getPlanningManager() : null;
+    
+    if (!planningManager) {
+      return {
+        totalPlans: 0,
+        successfulPlans: 0,
+        failedPlans: 0
+      };
+    }
+    
+    try {
+      return await planningManager.getStats();
+    } catch (error) {
+      console.error('[SchedulerSystem] Failed to get planning stats:', error);
+      return {
+        totalPlans: 0,
+        successfulPlans: 0,
+        failedPlans: 0
+      };
+    }
+  }
+  
+  /**
+   * Get knowledge gaps statistics
+   */
+  async getKnowledgeGapsStats(): Promise<{
+    totalGaps: number;
+    addressedGaps: number;
+    pendingGaps: number;
+  }> {
+    const knowledgeGapsManager = this.agent.getKnowledgeGapsManager?.();
+    
+    if (!knowledgeGapsManager) {
+      return {
+        totalGaps: 0,
+        addressedGaps: 0,
+        pendingGaps: 0
+      };
+    }
+    
+    try {
+      return await knowledgeGapsManager.getStats();
+    } catch (error) {
+      console.error('[SchedulerSystem] Failed to get knowledge gaps stats:', error);
+      return {
+        totalGaps: 0,
+        addressedGaps: 0,
+        pendingGaps: 0
+      };
+    }
+  }
+  
+  /**
+   * Get tools usage statistics
+   */
+  async getToolsUsageStats(): Promise<Record<string, number>> {
+    const toolManager = this.agent.getToolManager?.();
+    
+    if (!toolManager) {
+      return {};
+    }
+    
+    try {
+      return await toolManager.getToolUsageStats();
+    } catch (error) {
+      console.error('[SchedulerSystem] Failed to get tool usage stats:', error);
+      return {};
+    }
+  }
+}
+
+/**
+ * Create an autonomy system for the given agent
+ */
+export async function createAutonomySystem(agent: any): Promise<AutonomySystem> {
+  const schedulerSystem = new SchedulerSystem(agent as any);
+  await schedulerSystem.initialize();
+  
+  // Create a new object that satisfies the AutonomySystem interface
+  const system: AutonomySystem = {
+    status: schedulerSystem.status,
+    scheduledTasks: schedulerSystem.scheduledTasks,
+    scheduler: schedulerSystem.scheduler,
+    initialize: schedulerSystem.initialize.bind(schedulerSystem),
+    shutdown: schedulerSystem.shutdown.bind(schedulerSystem),
+    runTask: schedulerSystem.runTask.bind(schedulerSystem),
+    scheduleTask: async (task: AgentScheduledTask): Promise<boolean> => {
+      return schedulerSystem.scheduleTask(task as unknown as ScheduledTask);
+    },
+    cancelTask: schedulerSystem.cancelTask.bind(schedulerSystem),
+    planAndExecute: schedulerSystem.planAndExecute.bind(schedulerSystem),
+    diagnose: schedulerSystem.diagnose.bind(schedulerSystem)
+  };
+  
+  return system;
+}
+
+/**
+ * Schedule a daily reflection task
+ */
+export async function scheduleDailyReflection(agent: ExtendedChloeAgent): Promise<boolean> {
+  try {
+    if (agent.scheduleTask) {
+      agent.scheduleTask({
+        id: 'daily-reflection',
+        name: 'Daily Reflection',
+        description: 'Reflect on the day and identify opportunities for improvement',
+        schedule: '0 19 * * *', // Every day at 7 PM
+        enabled: true,
+        goalPrompt: 'Reflect on activities from today. Identify patterns and opportunities for improvement. What went well? What could be improved?',
+        tags: ['reflection', 'improvement']
+      });
+      return true;
+    }
+    
+    return false;
+  } catch (error) {
+    console.error('[Scheduler] Failed to schedule daily reflection:', error);
+    return false;
+  }
+}
+
+/**
+ * Schedule a weekly planning task
+ */
+export async function scheduleWeeklyPlanning(agent: ExtendedChloeAgent): Promise<boolean> {
+  try {
+    if (agent.scheduleTask) {
+      agent.scheduleTask({
+        id: 'weekly-planning',
+        name: 'Weekly Planning',
+        description: 'Plan the week ahead based on priorities and insights',
+        schedule: '0 9 * * 1', // Every Monday at 9 AM
+        enabled: true,
+        goalPrompt: 'Based on reflections and key insights, plan strategic priorities for the week. Identify 3-5 key marketing initiatives to focus on.',
+        tags: ['planning', 'strategy']
+      });
+      return true;
+    }
+    
+    return false;
+  } catch (error) {
+    console.error('[Scheduler] Failed to schedule weekly planning:', error);
+    return false;
+  }
 } 

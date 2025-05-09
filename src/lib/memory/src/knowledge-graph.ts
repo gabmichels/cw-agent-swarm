@@ -1,6 +1,8 @@
 import { getMemoryServices } from '../../../server/memory/services';
 import { MemoryType as StandardMemoryType } from '../../../server/memory/config/types';
-import { DateTime } from 'luxon';
+import { BaseMemorySchema } from '../../../server/memory/models';
+import { MemoryImportanceLevel } from '../../../constants/memory';
+import { ulid } from 'ulid';
 
 /**
  * Knowledge Graph System
@@ -46,6 +48,42 @@ export enum NodeType {
   FACT = 'fact',
   PRINCIPLE = 'principle',
   INSIGHT = 'insight'
+}
+
+/**
+ * Interface for node metadata in the knowledge graph
+ */
+export interface NodeMetadataSchema {
+  schemaVersion: string;
+  type: 'knowledge_graph_node';
+  nodeType: NodeType;
+  label: string;
+  namespace: string;
+  importance: MemoryImportanceLevel | number;
+  source?: string;
+  confidence?: number;
+  properties?: Record<string, string | number | boolean | null>;
+  created: string;
+  lastUpdated: string;
+  [key: string]: unknown;
+}
+
+/**
+ * Interface for edge metadata in the knowledge graph
+ */
+export interface EdgeMetadataSchema {
+  schemaVersion: string;
+  type: 'knowledge_graph_edge';
+  edgeType: RelationType;
+  source: string;
+  target: string;
+  strength: number;
+  namespace: string;
+  bidirectional: boolean;
+  properties?: Record<string, string | number | boolean | null>;
+  created: string;
+  lastUpdated: string;
+  [key: string]: unknown;
 }
 
 /**
@@ -98,9 +136,33 @@ export interface GraphQuery {
 }
 
 /**
+ * Interface for the Knowledge Graph operations
+ */
+export interface IKnowledgeGraph {
+  initialize(): Promise<boolean>;
+  addNode(label: string, type: NodeType, metadata?: Record<string, unknown>, importance?: number): Promise<string>;
+  addEdge(sourceId: string, targetId: string, type: RelationType, strength?: number, metadata?: Record<string, unknown>): Promise<string>;
+  findNodes(labelPattern: string, nodeTypes?: string[], limit?: number): Promise<GraphNode[]>;
+  getEdges(nodeId: string, direction?: 'outgoing' | 'incoming' | 'both', types?: RelationType[], minStrength?: number): Promise<GraphEdge[]>;
+  findPath(startNodeId: string, endNodeId: string, maxDepth?: number): Promise<GraphEdge[]>;
+  inferNewEdges(nodeId: string, minConfidence?: number): Promise<InferredEdge[]>;
+  addRelationship(sourceId: string, targetId: string, relationshipType: RelationType, metadata?: Record<string, unknown>): Promise<string>;
+}
+
+/**
+ * Interface for inferred edges
+ */
+export interface InferredEdge {
+  source: string;
+  target: string;
+  type: RelationType;
+  confidence: number;
+}
+
+/**
  * Knowledge Graph implementation
  */
-export class KnowledgeGraph {
+export class KnowledgeGraph implements IKnowledgeGraph {
   private namespace: string;
   private isInitialized: boolean = false;
   
@@ -133,7 +195,7 @@ export class KnowledgeGraph {
   async addNode(
     label: string,
     type: NodeType,
-    metadata: Record<string, any> = {},
+    metadata: Record<string, unknown> = {},
     importance: number = 0.5
   ): Promise<string> {
     try {
@@ -142,19 +204,18 @@ export class KnowledgeGraph {
       }
       
       const now = new Date();
-      const nodeId = `node_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+      const nodeId = `node_${ulid()}`;
       
-      const node: GraphNode = {
-        id: nodeId,
-        type,
+      const nodeMetadata: NodeMetadataSchema = {
+        schemaVersion: '1.0.0',
+        type: 'knowledge_graph_node',
+        nodeType: type,
         label,
-        created: now,
-        lastUpdated: now,
-        importance,
-        metadata: {
-          ...metadata,
-          namespace: this.namespace
-        }
+        namespace: this.namespace,
+        importance: this.convertImportanceToLevel(importance),
+        created: now.toISOString(),
+        lastUpdated: now.toISOString(),
+        ...metadata
       };
       
       // Store node using memory service instead of directly with qdrant
@@ -164,12 +225,7 @@ export class KnowledgeGraph {
         id: nodeId,
         type: StandardMemoryType.DOCUMENT,
         content: `${type}:${label}`,
-        metadata: {
-          ...node,
-          type: 'knowledge_graph_node',
-          nodeType: type,
-          importance
-        }
+        metadata: nodeMetadata
       });
       
       return nodeId;
@@ -180,6 +236,18 @@ export class KnowledgeGraph {
   }
   
   /**
+   * Convert numeric importance (0-1) to an ImportanceLevel enum value
+   */
+  private convertImportanceToLevel(importance: number): MemoryImportanceLevel {
+    if (importance < 0.2) return MemoryImportanceLevel.VERY_LOW;
+    if (importance < 0.4) return MemoryImportanceLevel.LOW;
+    if (importance < 0.6) return MemoryImportanceLevel.MEDIUM;
+    if (importance < 0.8) return MemoryImportanceLevel.HIGH;
+    if (importance < 0.95) return MemoryImportanceLevel.VERY_HIGH;
+    return MemoryImportanceLevel.CRITICAL;
+  }
+  
+  /**
    * Add edge between two nodes
    */
   async addEdge(
@@ -187,7 +255,7 @@ export class KnowledgeGraph {
     targetId: string,
     type: RelationType,
     strength: number = 0.5,
-    metadata: Record<string, any> = {}
+    metadata: Record<string, unknown> = {}
   ): Promise<string> {
     try {
       if (!this.isInitialized) {
@@ -195,21 +263,20 @@ export class KnowledgeGraph {
       }
       
       const now = new Date();
-      const edgeId = `edge_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+      const edgeId = `edge_${ulid()}`;
       
-      const edge: GraphEdge = {
-        id: edgeId,
+      const edgeMetadata: EdgeMetadataSchema = {
+        schemaVersion: '1.0.0',
+        type: 'knowledge_graph_edge',
+        edgeType: type,
         source: sourceId,
         target: targetId,
-        type,
         strength,
-        created: now,
-        lastUpdated: now,
+        namespace: this.namespace,
         bidirectional: false,
-        metadata: {
-          ...metadata,
-          namespace: this.namespace
-        }
+        created: now.toISOString(),
+        lastUpdated: now.toISOString(),
+        ...metadata
       };
       
       // Store edge using memory service
@@ -219,14 +286,7 @@ export class KnowledgeGraph {
         id: edgeId,
         type: StandardMemoryType.DOCUMENT,
         content: `${sourceId}-[${type}]->${targetId}`,
-        metadata: {
-          ...edge,
-          type: 'knowledge_graph_edge',
-          edgeType: type,
-          strength,
-          sourceNode: sourceId,
-          targetNode: targetId
-        }
+        metadata: edgeMetadata
       });
       
       return edgeId;
@@ -253,7 +313,7 @@ export class KnowledgeGraph {
       const { searchService } = await getMemoryServices();
       
       // Build filter
-      const filter: any = {
+      const filter: Record<string, unknown> = {
         must: [
           {
             key: "metadata.type",
@@ -272,7 +332,7 @@ export class KnowledgeGraph {
       
       // Add node type filter if specified
       if (nodeTypes && nodeTypes.length > 0) {
-        filter.must.push({
+        (filter.must as Array<Record<string, unknown>>).push({
           key: "metadata.nodeType",
           match: {
             value: nodeTypes
@@ -292,27 +352,32 @@ export class KnowledgeGraph {
       
       for (const result of results) {
         const point = result.point;
-        const metadata = point.payload.metadata || {};
+        // Cast metadata to any type first to avoid TypeScript error, then to Record<string, unknown>
+        const metadata = point.payload.metadata as unknown as Record<string, unknown>;
         
-        if (metadata.id) {
-          try {
-            const node: GraphNode = {
-              id: metadata.id,
-              type: metadata.nodeType || NodeType.CONCEPT,
-              label: metadata.label || point.payload.text,
-              created: new Date(metadata.created),
-              lastUpdated: new Date(metadata.lastUpdated),
-              importance: typeof metadata.importance === 'number' ? metadata.importance : 
-                (metadata.importance ? Number(metadata.importance.toString()) : 0.5),
-              metadata: metadata,
-              source: metadata.source,
-              confidence: metadata.confidence
-            };
-            
-            nodes.push(node);
-          } catch (error) {
-            console.error('Error parsing node data:', error);
-          }
+        if (!this.isValidNodeMetadata(metadata)) {
+          console.error('Invalid node metadata structure:', metadata);
+          continue;
+        }
+        
+        try {
+          const node: GraphNode = {
+            id: point.id,
+            type: metadata.nodeType as NodeType || NodeType.CONCEPT,
+            label: metadata.label as string || point.payload.text,
+            created: new Date(metadata.created as string),
+            lastUpdated: new Date(metadata.lastUpdated as string),
+            importance: typeof metadata.importance === 'number' ? metadata.importance : 
+              (metadata.importance ? this.importanceLevelToNumber(metadata.importance as MemoryImportanceLevel) : 0.5),
+            metadata: metadata,
+            source: metadata.source as string | undefined,
+            confidence: metadata.confidence as number | undefined,
+            properties: metadata.properties as Record<string, string | number | boolean | null> | undefined
+          };
+          
+          nodes.push(node);
+        } catch (error) {
+          console.error('Error parsing node data:', error);
         }
       }
       
@@ -320,6 +385,49 @@ export class KnowledgeGraph {
     } catch (error) {
       console.error('Error finding nodes in knowledge graph:', error);
       return [];
+    }
+  }
+  
+  /**
+   * Type guard to check if an object is valid NodeMetadata
+   */
+  private isValidNodeMetadata(metadata: Record<string, unknown>): metadata is NodeMetadataSchema {
+    return (
+      metadata.type === 'knowledge_graph_node' &&
+      typeof metadata.nodeType === 'string' &&
+      typeof metadata.label === 'string' &&
+      typeof metadata.namespace === 'string' &&
+      metadata.created !== undefined &&
+      metadata.lastUpdated !== undefined
+    );
+  }
+  
+  /**
+   * Type guard to check if an object is valid EdgeMetadata
+   */
+  private isValidEdgeMetadata(metadata: Record<string, unknown>): metadata is EdgeMetadataSchema {
+    return (
+      metadata.type === 'knowledge_graph_edge' &&
+      typeof metadata.edgeType === 'string' &&
+      typeof metadata.source === 'string' &&
+      typeof metadata.target === 'string' &&
+      metadata.created !== undefined &&
+      metadata.lastUpdated !== undefined
+    );
+  }
+  
+  /**
+   * Convert ImportanceLevel to a numeric value
+   */
+  private importanceLevelToNumber(level: MemoryImportanceLevel): number {
+    switch(level) {
+      case MemoryImportanceLevel.VERY_LOW: return 0.1;
+      case MemoryImportanceLevel.LOW: return 0.3;
+      case MemoryImportanceLevel.MEDIUM: return 0.5;
+      case MemoryImportanceLevel.HIGH: return 0.7;
+      case MemoryImportanceLevel.VERY_HIGH: return 0.9;
+      case MemoryImportanceLevel.CRITICAL: return 1.0;
+      default: return 0.5;
     }
   }
   
@@ -338,10 +446,10 @@ export class KnowledgeGraph {
       }
       
       // Create filters for outgoing and/or incoming edges
-      const filters: Record<string, any>[] = [];
+      const filters: Record<string, unknown>[] = [];
       
       if (direction === 'outgoing' || direction === 'both') {
-        const outgoingFilter: Record<string, any> = {
+        const outgoingFilter: Record<string, unknown> = {
           type: 'knowledge_graph_edge',
           namespace: this.namespace,
           source: nodeId
@@ -359,7 +467,7 @@ export class KnowledgeGraph {
       }
       
       if (direction === 'incoming' || direction === 'both') {
-        const incomingFilter: Record<string, any> = {
+        const incomingFilter: Record<string, unknown> = {
           type: 'knowledge_graph_edge',
           namespace: this.namespace,
           target: nodeId
@@ -387,20 +495,28 @@ export class KnowledgeGraph {
         
         if (results && results.length > 0) {
           // Convert to GraphEdge objects
-          const convertedEdges = results.map(result => ({
-            id: result.point.payload.metadata.id,
-            source: result.point.payload.metadata.source,
-            target: result.point.payload.metadata.target,
-            type: result.point.payload.metadata.edgeType as RelationType,
-            strength: result.point.payload.metadata.strength || 0.5,
-            created: new Date(result.point.payload.metadata.created),
-            lastUpdated: new Date(result.point.payload.metadata.lastUpdated),
-            metadata: result.point.payload.metadata,
-            bidirectional: result.point.payload.metadata.bidirectional || false,
-            properties: result.point.payload.metadata.properties || {}
-          }));
-          
-          edges.push(...convertedEdges);
+          for (const result of results) {
+            // Cast metadata to any type first to avoid TypeScript error, then to Record<string, unknown>
+            const metadata = result.point.payload.metadata as unknown as Record<string, unknown>;
+            
+            // Only process valid edge data
+            if (this.isValidEdgeMetadata(metadata)) {
+              const edge: GraphEdge = {
+                id: result.point.id,
+                source: metadata.source,
+                target: metadata.target,
+                type: metadata.edgeType as RelationType,
+                strength: metadata.strength as number || 0.5,
+                created: new Date(metadata.created),
+                lastUpdated: new Date(metadata.lastUpdated),
+                metadata: metadata,
+                bidirectional: metadata.bidirectional as boolean || false,
+                properties: metadata.properties as Record<string, string | number | boolean | null> | undefined
+              };
+              
+              edges.push(edge);
+            }
+          }
         }
       }
       
@@ -470,18 +586,13 @@ export class KnowledgeGraph {
   async inferNewEdges(
     nodeId: string,
     minConfidence: number = 0.6
-  ): Promise<Array<{ source: string; target: string; type: RelationType; confidence: number }>> {
+  ): Promise<InferredEdge[]> {
     try {
       if (!this.isInitialized) {
         await this.initialize();
       }
       
-      const inferences: Array<{ 
-        source: string; 
-        target: string; 
-        type: RelationType; 
-        confidence: number 
-      }> = [];
+      const inferences: InferredEdge[] = [];
       
       // Implement simple transitive inference:
       // If A->B and B->C then potentially A->C
@@ -553,18 +664,20 @@ export class KnowledgeGraph {
     sourceId: string,
     targetId: string,
     relationshipType: RelationType,
-    metadata: Record<string, any> = {}
+    metadata: Record<string, unknown> = {}
   ): Promise<string> {
     // Determine strength/weight from metadata
-    const weight = metadata.weight || 0.5;
-    delete metadata.weight; // Remove from metadata since we use it directly
+    const weight = typeof metadata.weight === 'number' ? metadata.weight : 0.5;
+    
+    // Create a copy of metadata without the weight property
+    const { weight: _, ...restMetadata } = metadata;
     
     // Call the existing addEdge method
-    return this.addEdge(sourceId, targetId, relationshipType, weight, metadata);
+    return this.addEdge(sourceId, targetId, relationshipType, weight, restMetadata);
   }
 }
 
-// Factory function
-export const createKnowledgeGraph = (namespace: string = 'chloe'): KnowledgeGraph => {
+// Factory function - implements dependency injection pattern
+export const createKnowledgeGraph = (namespace: string = 'chloe'): IKnowledgeGraph => {
   return new KnowledgeGraph(namespace);
 }; 
