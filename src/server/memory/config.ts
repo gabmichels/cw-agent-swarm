@@ -1,16 +1,5 @@
-export enum MemoryType {
-  CHAT = 'chat',
-  TOOL = 'tool',
-  MESSAGE = 'message',
-  TRANSACTION = 'transaction',
-  DOCUMENT = 'document',
-  CONVERSATION = 'conversation',
-  AGENT = 'agent',
-  AGENT_ACTIVITY = 'agent_activity',
-  TASK = 'task',
-  AGENT_CAPABILITY = 'agent_capability',
-  CAPABILITY_DEFINITION = 'capability_definition'
-}
+// Re-export MemoryType from config/types.ts
+export { MemoryType } from './config/types';
 
 // Default values for memory operations
 export const DEFAULTS = {
@@ -69,5 +58,8 @@ export type {
   MemoryFilter,
   SortOptions,
   CollectionConfig,
-  ValidationResult
+  ValidationResult,
+  // Re-export MemoryErrorCode and ImportanceLevel types to avoid duplicates
+  MemoryErrorCode as MemoryErrorCodeType,
+  ExtendedMemorySource
 } from './config/types'; 

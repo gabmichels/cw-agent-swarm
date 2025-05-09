@@ -2,14 +2,16 @@
  * Integration tests for scheduler persistence with new memory system
  */
 
-import { describe, test, expect, beforeAll, afterAll, vi } from 'vitest';
+import { describe, test, expect, beforeAll, afterAll, vi, beforeEach } from 'vitest';
 import { MemoryService } from '../../services/memory/memory-service';
 import { SearchService } from '../../services/search/search-service';
 import { QdrantMemoryClient } from '../../services/client/qdrant-client';
 import { EmbeddingService } from '../../services/client/embedding-service';
-import { MemoryType } from '../../config';
+import { EnhancedMemoryService } from '../../services/multi-agent/enhanced-memory-service';
+import { MemoryType } from '../../config/types';
 import { loadApiKey } from '../load-api-key';
 import { randomUUID } from 'crypto';
+import { BaseMetadataSchema } from '../../models/base-schema';
 
 // Define interface for relationship test results
 interface RelationshipResult {
@@ -21,43 +23,70 @@ interface RelationshipResult {
   };
 }
 
+// Define a task-specific metadata schema to fix type errors
+interface TaskMetadataSchema extends BaseMetadataSchema {
+  taskId: string;
+  scheduledTime: string;
+  priority: string;
+  status: string;
+  recurrence?: string;
+  isScheduledTask: boolean;
+  startedAt?: string;
+  executionCount?: number;
+  previousExecutionId?: string;
+}
+
 // Mock SearchService with relationship methods for testing
 class MockSearchService extends SearchService {
+  // Override constructor to accept a regular MemoryService
+  constructor(
+    client: QdrantMemoryClient,
+    embeddingService: EmbeddingService,
+    memoryService: MemoryService
+  ) {
+    // Cast memoryService to any to bypass type checking
+    // This is acceptable in a test context since we're mocking the behavior
+    super(client, embeddingService, memoryService as any);
+  }
+
   async createRelationship(
     sourceId: string,
     targetId: string,
     relationship: { type: string; metadata: Record<string, any> }
   ) {
-    console.log(`Creating relationship: ${sourceId} -> ${targetId} (${relationship.type})`);
-    return { success: true };
+    return {
+      success: true,
+      id: `rel-${sourceId}-${targetId}`
+    };
   }
-
+  
   async getRelationships(
     memoryId: string,
     options: { types?: string[]; direction?: 'outgoing' | 'incoming' | 'both' }
   ): Promise<RelationshipResult[]> {
-    console.log(`Getting relationships for ${memoryId}`);
-    // Return mock relationship data
-    if (options.direction === 'outgoing' && this.mockIds.nextOccurrenceId) {
-      return [
-        {
-          sourceId: memoryId,
-          targetId: this.mockIds.nextOccurrenceId,
-          relationship: {
-            type: 'recurring_task_sequence',
-            metadata: {
-              recurrence: 'daily',
-              taskId: 'content_indexing'
-            }
+    if (
+      memoryId && 
+      options?.types?.includes('recurring_task_sequence') && 
+      this.mockIds.nextOccurrenceId
+    ) {
+      return [{
+        sourceId: memoryId,
+        targetId: this.mockIds.nextOccurrenceId,
+        relationship: {
+          type: 'recurring_task_sequence',
+          metadata: {
+            recurrence: 'daily',
+            taskId: 'content_indexing'
           }
         }
-      ];
+      }];
     }
+    
     return [];
   }
-
-  // Store mock IDs for consistent testing
-  mockIds: Record<string, string> = {}
+  
+  // Store IDs for mock relationships
+  mockIds: Record<string, string> = {};
 }
 
 // Use environment variables or defaults
@@ -100,7 +129,8 @@ describe('Scheduler Persistence with Memory System', () => {
     
     memoryService = new MemoryService(client, embeddingService);
     
-    // Use our mock search service
+    // Use our mock search service with the memory service
+    // We don't need to fully implement EnhancedMemoryService for this test
     searchService = new MockSearchService(client, embeddingService, memoryService);
   });
   
@@ -151,6 +181,7 @@ describe('Scheduler Persistence with Memory System', () => {
         type: MemoryType.TASK,
         content: `SCHEDULED TASK: ${task.title}\n${task.description}`,
         metadata: {
+          schemaVersion: '1.0.0',
           taskId: task.id,
           scheduledTime: task.scheduledTime.toISOString(),
           priority: task.priority,
@@ -182,6 +213,7 @@ describe('Scheduler Persistence with Memory System', () => {
             timestamp: task.scheduledTime.toISOString(),
             type: MemoryType.TASK,
             metadata: {
+              schemaVersion: '1.0.0',
               taskId: task.id,
               scheduledTime: task.scheduledTime.toISOString(),
               priority: task.priority,
@@ -224,18 +256,19 @@ describe('Scheduler Persistence with Memory System', () => {
     
     // Sort results by scheduled time
     const sortedResults = searchResults.sort((a, b) => {
-      const timeA = new Date(a.point.payload.metadata.scheduledTime).getTime();
-      const timeB = new Date(b.point.payload.metadata.scheduledTime).getTime();
+      // Use type assertion for metadata to TaskMetadataSchema to fix TypeScript errors
+      const timeA = new Date((a.point.payload.metadata as TaskMetadataSchema).scheduledTime).getTime();
+      const timeB = new Date((b.point.payload.metadata as TaskMetadataSchema).scheduledTime).getTime();
       return timeA - timeB;
     });
     
     // Check daily task is first (sooner)
     expect(sortedResults[0].point.payload.text).toContain('Daily system health check');
-    expect(sortedResults[0].point.payload.metadata.recurrence).toBe('daily');
+    expect((sortedResults[0].point.payload.metadata as TaskMetadataSchema).recurrence).toBe('daily');
     
     // Check weekly task is second
     expect(sortedResults[1].point.payload.text).toContain('Weekly data backup');
-    expect(sortedResults[1].point.payload.metadata.recurrence).toBe('weekly');
+    expect((sortedResults[1].point.payload.metadata as TaskMetadataSchema).recurrence).toBe('weekly');
   });
   
   (runTests ? test : test.skip)('Should update scheduled task status in memory system', async () => {
@@ -246,6 +279,7 @@ describe('Scheduler Persistence with Memory System', () => {
       type: MemoryType.TASK,
       content: 'SCHEDULED TASK: One-time maintenance task',
       metadata: {
+        schemaVersion: '1.0.0',
         taskId: 'maintenance_task_1',
         scheduledTime: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(), // 2 hours from now
         priority: 'high',
@@ -278,8 +312,8 @@ describe('Scheduler Persistence with Memory System', () => {
     
     // Verify update
     expect(retrievedTask).not.toBeNull();
-    expect(retrievedTask?.payload.metadata.status).toBe('in_progress');
-    expect(retrievedTask?.payload.metadata.startedAt).toBeDefined();
+    expect((retrievedTask?.payload.metadata as TaskMetadataSchema).status).toBe('in_progress');
+    expect((retrievedTask?.payload.metadata as TaskMetadataSchema).startedAt).toBeDefined();
   });
   
   (runTests ? test : test.skip)('Should track task execution history with relationships in memory system', async () => {
@@ -290,6 +324,7 @@ describe('Scheduler Persistence with Memory System', () => {
       type: MemoryType.TASK,
       content: 'SCHEDULED TASK: Content indexing task',
       metadata: {
+        schemaVersion: '1.0.0',
         taskId: 'content_indexing',
         scheduledTime: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(), // yesterday
         priority: 'medium',
@@ -311,6 +346,7 @@ describe('Scheduler Persistence with Memory System', () => {
       type: MemoryType.TASK,
       content: 'SCHEDULED TASK: Content indexing task',
       metadata: {
+        schemaVersion: '1.0.0',
         taskId: 'content_indexing',
         scheduledTime: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), // tomorrow
         priority: 'medium',

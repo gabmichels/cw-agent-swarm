@@ -7,11 +7,43 @@ import { MemoryService } from '../../services/memory/memory-service';
 import { SearchService } from '../../services/search/search-service';
 import { QdrantMemoryClient } from '../../services/client/qdrant-client';
 import { EmbeddingService } from '../../services/client/embedding-service';
-import { MemoryType } from '../../config';
+import { MemoryType } from '../../config/types';
 import { loadApiKey } from '../load-api-key';
 import { randomUUID } from 'crypto';
 import { BaseMemorySchema } from '../../models/base-schema';
 import { SearchResult } from '../../services/search/types';
+import { EnhancedMemoryService } from '../../services/multi-agent/enhanced-memory-service';
+
+// Create a custom metadata schema for testing
+interface ToolMetadataSchema {
+  schemaVersion: string;
+  toolName: string;
+  status: string;
+  executionTime?: number;
+  parameters?: Record<string, unknown>;
+  result?: {
+    success: boolean;
+    data?: Record<string, unknown>;
+  };
+  error?: {
+    type: string;
+    message: string;
+    recoverable?: boolean;
+    context?: Record<string, unknown>;
+  };
+  agentId?: string;
+  timestamp?: string | number;
+  parentExecution?: string;
+  executionOrder?: number;
+  subTools?: string[];
+  adaptationApplied?: Record<string, unknown>;
+  // Include any other fields from BaseMetadataSchema that might be needed
+  usage_count?: number;
+  importance?: string;
+  source?: string;
+  tags?: string[];
+  [key: string]: unknown;
+}
 
 // Use the actual enum value instead of a constant
 const TOOL_METRICS_TYPE = MemoryType.TOOL_EXECUTION_METRICS;
@@ -22,12 +54,12 @@ class MockToolPerformanceTracker {
     toolName: string, 
     success: boolean, 
     executionTime: number,
-    parameters?: Record<string, any>
+    parameters?: Record<string, unknown>
   ): void {
     // Mock implementation
   }
   
-  public getPerformanceData(toolName: string): any {
+  public getPerformanceData(toolName: string): Record<string, unknown> {
     // Mock implementation
     return {
       toolName,
@@ -79,7 +111,23 @@ describe('Tool Routing Memory Integration', () => {
     await client.initialize();
     
     memoryService = new MemoryService(client, embeddingService);
-    searchService = new SearchService(client, embeddingService, memoryService);
+    
+    // Create an adapter that implements the EnhancedMemoryService interface
+    const enhancedMemoryService = {
+      ...memoryService,
+      embeddingClient: embeddingService,
+      memoryClient: client,
+      getTimestampFn: () => Date.now(),
+      extractIndexableFields: (memory: Record<string, unknown>) => ({ text: memory.text as string }),
+      // Add the methods that SearchService actually uses
+      getMemory: memoryService.getMemory,
+      addMemory: memoryService.addMemory,
+      updateMemory: memoryService.updateMemory,
+      deleteMemory: memoryService.deleteMemory,
+      searchMemories: memoryService.searchMemories
+    } as unknown as EnhancedMemoryService;
+
+    searchService = new SearchService(client, embeddingService, enhancedMemoryService);
     performanceTracker = new MockToolPerformanceTracker();
   });
   
@@ -119,6 +167,7 @@ describe('Tool Routing Memory Integration', () => {
         type: TOOL_METRICS_TYPE as any,
         content: 'Executed web_search tool to find information about memory systems',
         metadata: {
+          schemaVersion: '1.0.0',
           toolName: 'web_search',
           status: 'success',
           executionTime: 250,
@@ -134,7 +183,7 @@ describe('Tool Routing Memory Integration', () => {
           },
           agentId: 'test-agent',
           timestamp: new Date().toISOString()
-        }
+        } as ToolMetadataSchema
       });
       
       // Store ID for cleanup
@@ -157,8 +206,8 @@ describe('Tool Routing Memory Integration', () => {
       
       // Note: We're using the DOCUMENT collection for storage, so the internal type will be document
       // but we can check that our metadata is correct
-      expect(retrievedMetrics?.payload.metadata.toolName).toBe('web_search');
-      expect(retrievedMetrics?.payload.metadata.status).toBe('success');
+      expect((retrievedMetrics?.payload.metadata as ToolMetadataSchema).toolName).toBe('web_search');
+      expect((retrievedMetrics?.payload.metadata as ToolMetadataSchema).status).toBe('success');
     });
 
     test('Should store tool error handling metrics', async () => {
@@ -173,6 +222,7 @@ describe('Tool Routing Memory Integration', () => {
         type: TOOL_METRICS_TYPE as any,
         content: 'Failed to execute database_query tool due to connection error',
         metadata: {
+          schemaVersion: '1.0.0',
           toolName: 'database_query',
           status: 'error',
           executionTime: 150,
@@ -186,7 +236,7 @@ describe('Tool Routing Memory Integration', () => {
           },
           agentId: 'test-agent',
           timestamp: new Date().toISOString()
-        }
+        } as ToolMetadataSchema
       });
       
       // Store ID for cleanup
@@ -205,9 +255,9 @@ describe('Tool Routing Memory Integration', () => {
       
       // Verify retrieved metrics
       expect(retrievedMetrics).not.toBeNull();
-      expect(retrievedMetrics?.payload.metadata.status).toBe('error');
-      expect(retrievedMetrics?.payload.metadata.error.type).toBe('ConnectionError');
-      expect(retrievedMetrics?.payload.metadata.error.recoverable).toBe(true);
+      expect((retrievedMetrics?.payload.metadata as ToolMetadataSchema).status).toBe('error');
+      expect((retrievedMetrics?.payload.metadata as ToolMetadataSchema).error?.type).toBe('ConnectionError');
+      expect((retrievedMetrics?.payload.metadata as ToolMetadataSchema).error?.recoverable).toBe(true);
     });
     
     test('Should store complex tool execution chain', async () => {
@@ -223,6 +273,7 @@ describe('Tool Routing Memory Integration', () => {
         type: TOOL_METRICS_TYPE as any,
         content: 'Executed data_analysis tool to process customer data',
         metadata: {
+          schemaVersion: '1.0.0',
           toolName: 'data_analysis',
           status: 'success',
           executionTime: 1500,
@@ -236,7 +287,7 @@ describe('Tool Routing Memory Integration', () => {
           subTools: childExecutionIds, // Reference to child executions
           agentId: 'test-agent',
           timestamp: new Date().toISOString()
-        }
+        } as ToolMetadataSchema
       });
       
       if (parentAddResult.success) {
@@ -252,6 +303,7 @@ describe('Tool Routing Memory Integration', () => {
           type: TOOL_METRICS_TYPE as any,
           content: `Executed ${childToolNames[i]} as part of data_analysis`,
           metadata: {
+            schemaVersion: '1.0.0',
             toolName: childToolNames[i],
             status: 'success',
             executionTime: 500 + (i * 200),
@@ -265,7 +317,7 @@ describe('Tool Routing Memory Integration', () => {
             agentId: 'test-agent',
             executionOrder: i,
             timestamp: new Date().toISOString()
-          }
+          } as ToolMetadataSchema
         });
         
         if (childAddResult.success) {
@@ -280,7 +332,7 @@ describe('Tool Routing Memory Integration', () => {
       });
       
       expect(parentExecution).not.toBeNull();
-      expect(parentExecution?.payload.metadata.subTools).toHaveLength(2);
+      expect((parentExecution?.payload.metadata as ToolMetadataSchema).subTools).toHaveLength(2);
       
       // Verify child executions
       for (const childId of childExecutionIds) {
@@ -290,7 +342,7 @@ describe('Tool Routing Memory Integration', () => {
         });
         
         expect(childExecution).not.toBeNull();
-        expect(childExecution?.payload.metadata.parentExecution).toBe(parentExecutionId);
+        expect((childExecution?.payload.metadata as ToolMetadataSchema).parentExecution).toBe(parentExecutionId);
       }
       
       // Verify relationships through search
@@ -331,6 +383,7 @@ describe('Tool Routing Memory Integration', () => {
           type: TOOL_METRICS_TYPE as any,
           content: `${success ? 'Successfully executed' : 'Failed to execute'} ${toolNames[i]} tool`,
           metadata: {
+            schemaVersion: '1.0.0',
             toolName: toolNames[i],
             status: success ? 'success' : 'error',
             executionTime: 100 + i * 50, // 100, 150, 200ms
@@ -339,7 +392,7 @@ describe('Tool Routing Memory Integration', () => {
             error: !success ? { type: 'Error', message: 'Test error' } : undefined,
             agentId: 'test-agent',
             timestamp: date.toISOString()
-          }
+          } as ToolMetadataSchema
         });
         
         if (addResult.success) {
@@ -364,7 +417,7 @@ describe('Tool Routing Memory Integration', () => {
       
       // Calculate success rate from search results
       const successCount = searchResults.filter(
-        (result: SearchResult<BaseMemorySchema>) => result.point.payload.metadata.status === 'success'
+        (result: SearchResult<BaseMemorySchema>) => (result.point.payload.metadata as ToolMetadataSchema).status === 'success'
       ).length;
       
       const calculatedSuccessRate = successCount / searchResults.length;
@@ -395,6 +448,7 @@ describe('Tool Routing Memory Integration', () => {
             type: TOOL_METRICS_TYPE as any,
             content: `${success ? 'Successfully executed' : 'Failed to execute'} ${tool.name} tool`,
             metadata: {
+              schemaVersion: '1.0.0',
               toolName: tool.name,
               status: success ? 'success' : 'error',
               executionTime: tool.avgExecutionTime + (Math.random() * 100 - 50), // Add some variance
@@ -403,7 +457,7 @@ describe('Tool Routing Memory Integration', () => {
               error: !success ? { type: 'Error', message: 'Test error' } : undefined,
               agentId: 'test-agent',
               timestamp: new Date().toISOString()
-            }
+            } as ToolMetadataSchema
           });
           
           if (addResult.success) {
@@ -444,6 +498,7 @@ describe('Tool Routing Memory Integration', () => {
           type: TOOL_METRICS_TYPE as any,
           content: `Failed to execute ${toolName} tool`,
           metadata: {
+            schemaVersion: '1.0.0',
             toolName,
             status: 'error',
             executionTime: 300,
@@ -461,7 +516,7 @@ describe('Tool Routing Memory Integration', () => {
             },
             agentId: 'test-agent',
             timestamp: new Date().toISOString()
-          }
+          } as ToolMetadataSchema
         });
         
         if (addResult.success) {
@@ -479,6 +534,7 @@ describe('Tool Routing Memory Integration', () => {
           type: TOOL_METRICS_TYPE as any,
           content: `Successfully executed ${toolName} tool`,
           metadata: {
+            schemaVersion: '1.0.0',
             toolName,
             status: 'success',
             executionTime: 250,
@@ -503,7 +559,7 @@ describe('Tool Routing Memory Integration', () => {
             },
             agentId: 'test-agent',
             timestamp: new Date().toISOString()
-          }
+          } as ToolMetadataSchema
         });
         
         if (addResult.success) {
@@ -523,11 +579,11 @@ describe('Tool Routing Memory Integration', () => {
       // Calculate performance metrics
       const phases = {
         initial: allExecutions.filter((r: SearchResult<BaseMemorySchema>) => 
-          r.point.payload.metadata.error?.context?.phase === 'initial' ||
-          r.point.payload.metadata.status === 'error'
+          (r.point.payload.metadata as ToolMetadataSchema).error?.context?.phase === 'initial' ||
+          (r.point.payload.metadata as ToolMetadataSchema).status === 'error'
         ),
         improved: allExecutions.filter((r: SearchResult<BaseMemorySchema>) => 
-          r.point.payload.metadata.status === 'success'
+          (r.point.payload.metadata as ToolMetadataSchema).status === 'success'
         )
       };
       
@@ -537,10 +593,10 @@ describe('Tool Routing Memory Integration', () => {
       
       // Success rates
       const initialSuccessRate = phases.initial.filter(
-        (r: SearchResult<BaseMemorySchema>) => r.point.payload.metadata.status === 'success'
+        (r: SearchResult<BaseMemorySchema>) => (r.point.payload.metadata as ToolMetadataSchema).status === 'success'
       ).length / phases.initial.length;
       const improvedSuccessRate = phases.improved.filter(
-        (r: SearchResult<BaseMemorySchema>) => r.point.payload.metadata.status === 'success'
+        (r: SearchResult<BaseMemorySchema>) => (r.point.payload.metadata as ToolMetadataSchema).status === 'success'
       ).length / phases.improved.length;
       
       // Verify success rate improved
@@ -549,7 +605,7 @@ describe('Tool Routing Memory Integration', () => {
       
       // Verify adaptation was recorded
       const adaptedExecutions = allExecutions.filter(
-        (r: SearchResult<BaseMemorySchema>) => r.point.payload.metadata.adaptationApplied
+        (r: SearchResult<BaseMemorySchema>) => (r.point.payload.metadata as ToolMetadataSchema).adaptationApplied
       );
       expect(adaptedExecutions.length).toBeGreaterThan(0);
     });

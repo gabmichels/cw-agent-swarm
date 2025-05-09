@@ -7,7 +7,8 @@ import { MemoryService } from '../../services/memory/memory-service';
 import { SearchService } from '../../services/search/search-service';
 import { QdrantMemoryClient } from '../../services/client/qdrant-client';
 import { EmbeddingService } from '../../services/client/embedding-service';
-import { MemoryType } from '../../config';
+import { MemoryType } from '../../config/types';
+import { EnhancedMemoryService } from '../../services/multi-agent/enhanced-memory-service';
 import { loadApiKey } from '../load-api-key';
 import { randomUUID } from 'crypto';
 
@@ -49,7 +50,23 @@ describe('Memory System Integration', () => {
     await client.initialize();
     
     memoryService = new MemoryService(client, embeddingService);
-    searchService = new SearchService(client, embeddingService, memoryService);
+    
+    // Create an adapter that implements the EnhancedMemoryService interface
+    const enhancedMemoryService = {
+      ...memoryService,
+      embeddingClient: embeddingService,
+      memoryClient: client,
+      getTimestampFn: () => Date.now(),
+      extractIndexableFields: (memory: Record<string, any>) => ({ text: memory.text }),
+      // Add the methods that SearchService actually uses
+      getMemory: memoryService.getMemory,
+      addMemory: memoryService.addMemory,
+      updateMemory: memoryService.updateMemory,
+      deleteMemory: memoryService.deleteMemory,
+      searchMemories: memoryService.searchMemories
+    } as unknown as EnhancedMemoryService;
+    
+    searchService = new SearchService(client, embeddingService, enhancedMemoryService);
   });
   
   afterAll(async () => {
@@ -105,21 +122,33 @@ describe('Memory System Integration', () => {
         id: message1Id,
         content: 'This is a test message about artificial intelligence',
         type: MemoryType.MESSAGE,
-        metadata: { source: 'integration-test', importance: 'high' }
+        metadata: { 
+          schemaVersion: '1.0.0',
+          source: 'integration-test', 
+          importance: 'high' 
+        }
       });
       
       const addMessage2Result = await memoryService.addMemory({
         id: message2Id,
         content: 'This is another test message about machine learning',
         type: MemoryType.MESSAGE,
-        metadata: { source: 'integration-test', importance: 'medium' }
+        metadata: { 
+          schemaVersion: '1.0.0',
+          source: 'integration-test', 
+          importance: 'medium' 
+        }
       });
       
       const addDocumentResult = await memoryService.addMemory({
         id: documentId,
         content: 'This is a test document about neural networks and deep learning',
         type: MemoryType.DOCUMENT,
-        metadata: { source: 'integration-test', filetype: 'text' }
+        metadata: { 
+          schemaVersion: '1.0.0',
+          source: 'integration-test', 
+          filetype: 'text' 
+        }
       });
       
       // Store IDs for cleanup
@@ -166,7 +195,10 @@ describe('Memory System Integration', () => {
         id: message1Id,
         type: MemoryType.MESSAGE,
         content: 'This is an updated test message about artificial intelligence and machine learning',
-        metadata: { importance: 'critical' }
+        metadata: { 
+          schemaVersion: '1.0.0',
+          importance: 'critical' 
+        }
       });
       
       expect(updateResult).toBe(true);

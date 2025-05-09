@@ -7,9 +7,10 @@ import { MemoryService } from '../../services/memory/memory-service';
 import { SearchService } from '../../services/search/search-service';
 import { QdrantMemoryClient } from '../../services/client/qdrant-client';
 import { EmbeddingService } from '../../services/client/embedding-service';
-import { MemoryType } from '../../config';
+import { MemoryType } from '../../config/types';
 import { loadApiKey } from '../load-api-key';
 import { randomUUID } from 'crypto';
+import { EnhancedMemoryService } from '../../services/multi-agent/enhanced-memory-service';
 
 // Import the ExecutionOutcomeAnalyzer
 import { ExecutionOutcomeAnalyzer, ExecutionOutcome } from '../../../../agents/chloe/self-improvement/executionOutcomeAnalyzer';
@@ -25,6 +26,29 @@ const OPENAI_API_KEY = loadApiKey();
 // Mock implementation for causal chain search and relationship creation
 class MockSearchService extends SearchService {
   mockIds: Record<string, string> = {};
+
+  constructor(
+    client: QdrantMemoryClient,
+    embeddingService: EmbeddingService, 
+    memoryService: MemoryService
+  ) {
+    // Create an adapter that implements the EnhancedMemoryService interface
+    const enhancedMemoryService = {
+      ...memoryService,
+      embeddingClient: embeddingService,
+      memoryClient: client,
+      getTimestampFn: () => Date.now(),
+      extractIndexableFields: (memory: Record<string, any>) => ({ text: memory.text }),
+      // Add the methods that SearchService actually uses
+      getMemory: memoryService.getMemory,
+      addMemory: memoryService.addMemory,
+      updateMemory: memoryService.updateMemory,
+      deleteMemory: memoryService.deleteMemory,
+      searchMemories: memoryService.searchMemories
+    } as unknown as EnhancedMemoryService;
+    
+    super(client, embeddingService, enhancedMemoryService);
+  }
 
   async createRelationship(sourceId: string, targetId: string, relationship: any) {
     console.log(`Mock creating relationship: ${sourceId} -> ${targetId} (${relationship.type})`);
@@ -186,6 +210,7 @@ describe('ExecutionOutcomeAnalyzer Integration with Memory System', () => {
           type: MemoryType.THOUGHT,
           content: formattedContent,
           metadata: {
+            schemaVersion: '1.0.0',
             memoryType: MemoryType.EXECUTION_OUTCOME,
             taskId: outcome.taskId,
             taskType: outcome.taskType,
@@ -260,6 +285,7 @@ describe('ExecutionOutcomeAnalyzer Integration with Memory System', () => {
       type: MemoryType.TASK,
       content: 'Research AI ethics frameworks and prepare a report',
       metadata: {
+        schemaVersion: '1.0.0',
         type: 'research',
         status: 'in_progress'
       }
@@ -274,6 +300,7 @@ describe('ExecutionOutcomeAnalyzer Integration with Memory System', () => {
       type: MemoryType.TASK,
       content: 'Compare different AI ethics frameworks',
       metadata: {
+        schemaVersion: '1.0.0',
         type: 'analysis',
         status: 'in_progress',
         parentTaskId
@@ -301,6 +328,7 @@ describe('ExecutionOutcomeAnalyzer Integration with Memory System', () => {
       taskType: 'analysis',
       completionDate: new Date(),
       metadata: { 
+        schemaVersion: '1.0.0',
         relatedTaskId: parentTaskId
       }
     };
@@ -316,7 +344,11 @@ describe('ExecutionOutcomeAnalyzer Integration with Memory System', () => {
       id: relationshipTrackingId,
       type: MemoryType.THOUGHT,
       content: 'Tracking memory for relationship test',
-      metadata: { parentTaskId, subtaskId }
+      metadata: { 
+        schemaVersion: '1.0.0',
+        parentTaskId, 
+        subtaskId 
+      }
     });
     
     if (trackingMemory.success) {
