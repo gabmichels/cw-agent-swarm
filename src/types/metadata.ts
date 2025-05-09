@@ -118,30 +118,6 @@ export interface BaseMetadata {
   editor_id?: string;
 }
 
-// Legacy metadata interfaces (to be deprecated)
-export interface LegacyMessageMetadata {
-  userId?: string;
-  agentId?: string;
-  chatId?: string;
-  parentMessageId?: string;
-  threadId?: string;
-  messageType?: string;
-  role?: string;
-  source?: string;
-  timestamp?: number;
-}
-
-export interface LegacyThoughtMetadata {
-  userId?: string;
-  agentId?: string;
-  chatId?: string;
-  parentMessageId?: string;
-  parentThoughtId?: string;
-  threadId?: string;
-  thoughtType?: string;
-  source?: string;
-  timestamp?: number;
-}
 
 // Factory function type definitions
 export type MessageMetadataFactory = (partialMetadata: Partial<MessageMetadata>) => MessageMetadata;
