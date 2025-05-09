@@ -5,7 +5,7 @@ This document tracks TypeScript errors found in the codebase. Each issue will be
 
 ## Summary
 - Initial Issues: 538 (in 134 files)
-- Current Issues: 202 (in 55 files)
+- Current Issues: 193 (in 49 files)
 - Completed Issues: 
   - 9 in `scheduler-persistence.test.ts`
   - ~10 in `cached-memory-service.test.ts`
@@ -20,6 +20,12 @@ This document tracks TypeScript errors found in the codebase. Each issue will be
   - 4 in `memory-service.test.ts`
   - 2 in `qdrant-client.test.ts`
   - 17 in `knowledge-graph.ts`
+  - 3 in `cognitive-memory.ts`
+  - 1 in `helpers.ts`
+  - 1 in `setup-collections.ts`
+  - 1 in `setup-test-collections.ts`
+  - 1 in `load-api-key.ts`
+  - 2 in `cached-memory-service.test.ts`
 - Remaining Issues: Primarily in Chloe agent files, API routes, and component files
 
 ## Progress Made
@@ -35,6 +41,8 @@ This document tracks TypeScript errors found in the codebase. Each issue will be
    - Fixed issues with `extractIndexableFields` return type
    - Created proper mock for `EnhancedMemoryService` with all required methods
    - Used type assertions to handle type compatibility
+   - Changed test functions from `it()` to `test()` to ensure compatibility with the testing framework
+   - Standardized all test function calls for consistency
 
 3. **In src/server/memory/config.ts**:
    - Removed the duplicate MemoryType enum
@@ -90,6 +98,8 @@ This document tracks TypeScript errors found in the codebase. Each issue will be
 12. **In src/server/memory/testing/unit/qdrant-client.test.ts**:
     - Updated import of `MemoryType` and `ImportanceLevel` from `config/types.ts`
     - Added `schemaVersion: '1.0.0'` to all metadata objects
+    - Created an adapter function to convert between `ImportanceLevel` from config/types.ts and `MemoryImportanceLevel` from constants/memory.ts
+    - Used the adapter function to ensure type compatibility with BaseMemorySchema
 
 13. **In src/lib/memory/src/knowledge-graph.ts**:
     - Completely refactored using interface-first design principles
@@ -100,6 +110,34 @@ This document tracks TypeScript errors found in the codebase. Each issue will be
     - Replaced timestamp-based IDs with ULID-based IDs for better uniqueness and sorting
     - Added proper conversion between importance levels and numeric values
     - Fixed metadata type issues with proper type assertions
+
+14. **In src/lib/memory/src/cognitive-memory.ts**:
+    - Created a `MemoryMetadataSchema` interface to properly type memory metadata
+    - Replaced unsafe property access with properly typed metadata access
+    - Used the nullish coalescing operator (??) for safer default values
+    - Fixed inconsistent property access patterns
+
+15. **In src/server/memory/services/memory/helpers.ts**:
+    - Created a `MessageMetadataSchema` interface that extends BaseMetadataSchema
+    - Added proper type definitions for message-specific metadata properties
+    - Updated import of `MemoryType` from `config/types.ts`
+    - Fixed unsafe property access with proper typing and default values
+    - Used type assertion with intermediate variables for type safety
+    - Added required schemaVersion field to new metadata objects
+
+16. **In src/server/memory/scripts/setup-collections.ts**:
+    - Fixed import paths for `MemoryType`, `MemoryError`, and `MemoryErrorCode` to use `../config/types`
+    - Updated import for `COLLECTION_CONFIGS` to use the specific path `../config/collections`
+    - Separated imports to use specific paths rather than grouped imports from a common path
+
+17. **In src/server/memory/testing/setup-test-collections.ts**:
+    - Fixed import paths for `MemoryType` to use `../config/types`
+    - Updated import for `COLLECTION_NAMES` to use the specific path `../config/constants`
+    - Separated imports to use specific paths rather than grouped imports from a common path
+
+18. **In src/server/memory/testing/load-api-key.ts**:
+    - Fixed dotenv import by changing from default import to named import
+    - Changed `import dotenv from 'dotenv'` to `import * as dotenv from 'dotenv'`
 
 ## Root Causes
 
@@ -130,6 +168,7 @@ This document tracks TypeScript errors found in the codebase. Each issue will be
 7. **ImportanceLevel Enum Mismatches**
    - Two different `ImportanceLevel` enums existed in the codebase
    - One in `constants/memory.ts` (`MemoryImportanceLevel`) and another in `config/types.ts`
+   - Created adapter functions to convert between these types when needed
 
 8. **Untyped Metadata Access**
    - Many files accessed metadata properties without proper typing
@@ -138,6 +177,18 @@ This document tracks TypeScript errors found in the codebase. Each issue will be
 9. **Legacy Timestamp-based ID Generation**
    - Many components used timestamp-based IDs instead of ULID/UUID
    - This caused sorting and uniqueness issues
+
+10. **Incorrect Import Paths**
+    - Some files were importing from composite paths (`../config`) when they needed specific modules
+    - This led to mismatches between expected exports and what was actually available
+
+11. **Incompatible Import Types**
+    - Some modules were using default imports for libraries that don't have default exports
+    - For example, dotenv needs to be imported with `import * as dotenv` instead of `import dotenv`
+
+12. **Test Framework Inconsistencies**
+    - Some test files used `it()` while others used `test()` for defining test cases
+    - This inconsistency led to TypeScript errors because the test framework expects functions to be defined consistently
 
 ## Fix Strategy
 
@@ -166,6 +217,7 @@ This document tracks TypeScript errors found in the codebase. Each issue will be
 6. For ImportanceLevel mismatches:
    - Use the correct ImportanceLevel enum from `config/types.ts` in server code
    - Add type conversion functions between numeric values and enum values
+   - Create adapter functions to convert between different ImportanceLevel enums when needed
 
 7. For untyped metadata access:
    - Define proper interfaces for metadata structures
@@ -176,6 +228,18 @@ This document tracks TypeScript errors found in the codebase. Each issue will be
    - Replace timestamp-based IDs with ULID/UUID
    - Implement proper identifier interfaces
 
+9. For incorrect import paths:
+   - Update imports to target specific modules rather than relying on barrel files
+   - Use explicit imports from their source modules to avoid ambiguity
+
+10. For incompatible import types:
+    - Check the library's export structure and use appropriate import syntax
+    - Use named imports for libraries without default exports
+
+11. For test framework inconsistencies:
+    - Standardize on using `test()` for all test definitions
+    - Update existing `it()` calls to use `test()` for consistency
+
 ## Current Issues
 
 ### Test files with remaining errors
@@ -185,24 +249,14 @@ This document tracks TypeScript errors found in the codebase. Each issue will be
    - Property 'getCollectionName' does not exist on type 'SearchService'
    - Type conversion issues with MemoryType and COLLECTION_NAMES
 
-2. **src/server/memory/testing/unit/qdrant-client.test.ts** (2 errors):
-   - Type 'ImportanceLevel' is not assignable to type 'MemoryImportanceLevel | undefined'
-
-3. **src/server/memory/testing/unit/cached-memory-service.test.ts** (2 errors)
-
-4. **src/server/memory/testing/setup-test-collections.ts** (1 error)
-
 ### Service Implementation Files
 1. **src/server/memory/services/search/search-service.ts** (6 errors)
-2. **src/server/memory/services/memory/helpers.ts** (1 error)
-3. **src/server/memory/scripts/setup-collections.ts** (1 error)
-4. **src/server/memory/services/multi-agent/messaging/__tests__/factory.test.ts** (2 errors)
+2. **src/server/memory/services/multi-agent/messaging/__tests__/factory.test.ts** (2 errors)
 
 ### Most Affected Areas
 - **Chloe Agent Files** (76 errors): Primarily in scheduler, tasks, and autonomous execution components
 - **API Routes** (45 errors): Mostly memory-related API endpoints
 - **Web UI Components** (19 errors): Including FilesTable and MemoryItem components
-- **Memory Library** (5 errors): Now primarily in cognitive-memory.ts after knowledge-graph.ts fixes
 
 ## Remaining Files & Errors
 Errors  Files
@@ -244,18 +298,12 @@ Errors  Files
      4  src/cli/chloe.ts:43
     11  src/components/FilesTable.tsx:57
      8  src/components/memory/MemoryItem.tsx:85
-     2  src/lib/memory/src/cognitive-memory.ts:227
      3  src/lib/memory/test-memory-utils.ts:550
      1  src/scheduledTasks/chloe.ts:21
      1  src/scripts/reindex-markdown.ts:16
      1  src/scripts/run-chloe-scheduler.ts:22
-     1  src/server/memory/scripts/setup-collections.ts:9
-     1  src/server/memory/services/memory/helpers.ts:43
      2  src/server/memory/services/multi-agent/messaging/__tests__/factory.test.ts:77
      6  src/server/memory/services/search/search-service.ts:114
-     1  src/server/memory/testing/setup-test-collections.ts:46
-     2  src/server/memory/testing/unit/cached-memory-service.test.ts:458
-     2  src/server/memory/testing/unit/qdrant-client.test.ts:149
     10  src/server/memory/testing/unit/search-service.test.ts:451
      1  src/tools/loadMarkdownToMemory.ts:8
      2  tests/markdownMemoryLoader.test.ts:4
@@ -264,16 +312,14 @@ Errors  Files
 
 ## Next Steps
 
-Now that we've made significant progress fixing the integration tests, unit tests, and implemented interface-first design for the knowledge graph, the next areas to focus on are:
+Now that we've made significant progress fixing the memory service files, the next areas to focus on are:
 
 1. **Fix remaining unit test issues**:
    - Address the `search-service.test.ts` with 10 remaining errors
-   - Resolve the ImportanceLevel type issues in `qdrant-client.test.ts`
-   - Fix the 2 remaining errors in `cached-memory-service.test.ts`
 
 2. **Fix the core service implementation files**:
    - Refactor the `search-service.ts` using interface-first design
-   - Address type issues in memory helpers and factory test files
+   - Address type issues in factory test files
 
 3. **Target high-error-count files in the Chloe agent system**:
    - Apply interface-first design to the scheduler with 15 errors
@@ -283,4 +329,4 @@ Now that we've made significant progress fixing the integration tests, unit test
    - Create shared interfaces for common patterns
    - Implement standardized error handling with proper types
 
-The interface-first approach used in the knowledge-graph.ts refactoring has proven effective at resolving multiple type issues while improving code quality. This pattern should be applied consistently across the codebase.
+The interface-first approach used in the cognitive-memory.ts, knowledge-graph.ts, and helpers.ts refactoring has proven effective at resolving multiple type issues while improving code quality. This pattern should be applied consistently across the codebase, especially when dealing with API changes and metadata structures. Creating adapter functions to handle type mismatches between different parts of the system has also been effective.

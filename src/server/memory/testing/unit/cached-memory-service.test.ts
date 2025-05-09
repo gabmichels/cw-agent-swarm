@@ -455,7 +455,7 @@ describe('CachedMemoryService', () => {
       expect(cacheSetSpy).not.toHaveBeenCalled();
     });
 
-    it('should use the cache for searchMemories calls with same parameters', async () => {
+    test('should use the cache for searchMemories calls with same parameters', async () => {
       // Mock results without using mockResolvedValue
       const mockFirstResult = [
         {
@@ -505,7 +505,7 @@ describe('CachedMemoryService', () => {
       expect(result2).toEqual(mockFirstResult);
     });
 
-    it.skip('should get memories by type', async () => {
+    test.skip('should get memories by type', async () => {
       // This test is skipped because getMemoriesByType doesn't exist on CachedMemoryService
     });
   });

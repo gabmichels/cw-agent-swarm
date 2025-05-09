@@ -4,9 +4,26 @@
 
 import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest';
 import { QdrantMemoryClient } from '../../services/client/qdrant-client';
-import { MemoryType } from '../../config/types';
+import { MemoryType, ImportanceLevel } from '../../config/types';
 import { BaseMemorySchema } from '../../models';
 import { MemoryImportanceLevel } from '../../../../constants/memory';
+
+// Function to adapt ImportanceLevel to MemoryImportanceLevel
+function adaptImportanceLevel(importance: ImportanceLevel): MemoryImportanceLevel {
+  // Direct mapping between the enums
+  switch (importance) {
+    case ImportanceLevel.LOW:
+      return MemoryImportanceLevel.LOW;
+    case ImportanceLevel.MEDIUM:
+      return MemoryImportanceLevel.MEDIUM;
+    case ImportanceLevel.HIGH:
+      return MemoryImportanceLevel.HIGH;
+    case ImportanceLevel.CRITICAL:
+      return MemoryImportanceLevel.CRITICAL;
+    default:
+      return MemoryImportanceLevel.MEDIUM;
+  }
+}
 
 // Mock QdrantClient
 vi.mock('@qdrant/js-client-rest', () => {
@@ -134,16 +151,20 @@ describe('QdrantMemoryClient', () => {
   });
   
   describe('point operations', () => {
+    beforeEach(async () => {
+      await client.initialize();
+    });
+    
     test('should add a point', async () => {
       const point = {
         id: 'test-add-id',
         vector: [0.1, 0.2, 0.3],
         payload: {
           id: 'test-payload-id',
-          text: 'Test content',
+          text: 'Test add content',
           type: MemoryType.MESSAGE,
           timestamp: '1625097600000',
-          metadata: { schemaVersion: '1.0.0', importance: MemoryImportanceLevel.MEDIUM }
+          metadata: { schemaVersion: '1.0.0', importance: adaptImportanceLevel(ImportanceLevel.MEDIUM) }
         }
       };
       
@@ -289,7 +310,7 @@ describe('QdrantMemoryClient', () => {
           text: 'Fallback test content',
           type: MemoryType.MESSAGE,
           timestamp: '1625097600000',
-          metadata: { schemaVersion: '1.0.0', importance: MemoryImportanceLevel.MEDIUM }
+          metadata: { schemaVersion: '1.0.0', importance: adaptImportanceLevel(ImportanceLevel.MEDIUM) }
         }
       };
       

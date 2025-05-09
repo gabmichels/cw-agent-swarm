@@ -1,7 +1,7 @@
 import { getMemoryServices } from '../../../server/memory/services';
 import { DateTime } from 'luxon';
 import { EnhancedMemory, MemoryEntry } from './enhanced-memory';
-import { ImportanceLevel } from '../../../constants/memory';
+import { ImportanceLevel, MemorySource } from '../../../constants/memory';
 import { MemoryType as StandardMemoryType } from '../../../server/memory/config/types';
 import { SearchResult } from '../../../server/memory/services/search/types';
 import { BaseMemorySchema } from '../../../server/memory/models';
@@ -20,6 +20,17 @@ import { BaseMemorySchema } from '../../../server/memory/models';
 
 // Extended memory types
 export type MemoryEmotion = 'neutral' | 'positive' | 'negative' | 'surprise' | 'fear' | 'joy' | 'sadness' | 'anger';
+
+// Define the memory metadata interface
+export interface MemoryMetadataSchema {
+  schemaVersion: string;
+  decayFactor?: number;
+  retrievalCount?: number;
+  importance?: ImportanceLevel;
+  emotions?: MemoryEmotion[];
+  tags?: string[];
+  [key: string]: unknown;
+}
 
 export interface EpisodicMemory extends MemoryEntry {
   episodeId: string;
@@ -222,17 +233,17 @@ export class CognitiveMemory extends EnhancedMemory {
         const memory = result.point;
         const memoryId = memory.id;
         
-        // Get current decay factor
-        const metadata = memory.payload.metadata || {};
-        const decayFactor = metadata.decayFactor || 1.0;
-        const retrievalCount = metadata.retrievalCount || 0;
+        // Get current decay factor with proper typing
+        const metadata = memory.payload.metadata as MemoryMetadataSchema;
+        const decayFactor = metadata.decayFactor ?? 1.0;
+        const retrievalCount = metadata.retrievalCount ?? 0;
         
         // Calculate new decay factor based on retrieval and time
         const adjustedDecayRate = this.decayRate * (retrievalCount === 0 ? 1.2 : 0.8);
         const currentDecayFactor = Math.max(0, decayFactor - adjustedDecayRate);
         
-        // Get importance level
-        const importanceValue = metadata.importance || ImportanceLevel.MEDIUM;
+        // Get importance level with proper typing
+        const importanceValue = metadata.importance ?? ImportanceLevel.MEDIUM;
         
         // Apply forgetting curve - delete low importance memories that have decayed significantly
         if (String(importanceValue) === ImportanceLevel.LOW && currentDecayFactor > 0.85) {

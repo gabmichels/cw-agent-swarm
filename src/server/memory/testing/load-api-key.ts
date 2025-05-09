@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import dotenv from 'dotenv';
+import * as dotenv from 'dotenv';
 
 // Load API key from environment
 export function loadApiKey(): string | undefined {

@@ -4,8 +4,23 @@
  * Utility functions for common memory operations
  */
 
-import { MemoryType } from "../../config";
+import { MemoryType } from "../../config/types";
 import { getMemoryServices } from "..";
+import { BaseMetadataSchema } from "../../models";
+
+/**
+ * Extended metadata schema for message memories that includes additional properties
+ */
+export interface MessageMetadataSchema extends BaseMetadataSchema {
+  messageId?: string;
+  flaggedUnreliable?: boolean;
+  flaggedUnreliableAt?: string;
+  unreliabilityReason?: string;
+  excludeFromRetrieval?: boolean;
+  confidence?: number;
+  source?: string;
+  role?: string;
+}
 
 /**
  * Flag content as unreliable in the memory system
@@ -38,10 +53,12 @@ export async function flagAsUnreliable(
     if (searchResults && searchResults.length > 0) {
       // If messageId was provided, try to match by ID first
       if (messageId) {
-        targetMessage = searchResults.find(result => 
-          result.point.id === messageId || 
-          (result.point.payload.metadata && result.point.payload.metadata.messageId === messageId)
-        ) || null;
+        targetMessage = searchResults.find(result => {
+          // Cast to our extended metadata schema
+          const metadata = result.point.payload.metadata as MessageMetadataSchema;
+          return result.point.id === messageId || 
+            (metadata && metadata.messageId === messageId);
+        }) || null;
       }
       
       // If no match by ID or ID wasn't provided, try to match by timestamp
@@ -64,12 +81,14 @@ export async function flagAsUnreliable(
     if (targetMessage) {
       console.log(`Found existing message to flag as unreliable: ${targetMessage.point.id}`);
       
-      // Get existing metadata
+      // Get existing metadata and cast to our schema
       const existingMetadata = targetMessage.point.payload.metadata || {};
+      const typedMetadata = existingMetadata as MessageMetadataSchema;
       
       // Update the message metadata to mark it as unreliable
-      const updatedMetadata = {
-        ...existingMetadata,
+      const updatedMetadata: MessageMetadataSchema = {
+        ...typedMetadata,
+        schemaVersion: typedMetadata.schemaVersion || '1.0.0',
         flaggedUnreliable: true,
         flaggedUnreliableAt: new Date().toISOString(),
         unreliabilityReason: 'user_flagged',
@@ -94,6 +113,7 @@ export async function flagAsUnreliable(
         type: MemoryType.MESSAGE,
         content: content,
         metadata: {
+          schemaVersion: '1.0.0',
           flaggedUnreliable: true,
           flaggedUnreliableAt: new Date().toISOString(),
           unreliabilityReason: 'user_flagged',
@@ -102,7 +122,7 @@ export async function flagAsUnreliable(
           source: 'user_flagged',
           role: 'system',
           messageId: messageId
-        }
+        } as MessageMetadataSchema
       });
       
       return result.success;

@@ -6,7 +6,8 @@
  */
 
 import { QdrantMemoryClient } from '../services/client/qdrant-client';
-import { COLLECTION_CONFIGS, MemoryType, MemoryError, MemoryErrorCode } from '../config';
+import { MemoryType, MemoryError, MemoryErrorCode } from '../config/types';
+import { COLLECTION_CONFIGS } from '../config/collections';
 
 // Collection configurations - these should match what's defined in config/collections.ts
 // We're directly importing COLLECTION_CONFIGS instead of defining them here

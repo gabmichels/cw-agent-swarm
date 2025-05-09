@@ -547,7 +547,7 @@ async function main() {
     });
     
     if (searchResults.length > 0) {
-      const usageCount = searchResults[0].point.payload?.metadata?.usageCount || 0;
+      const usageCount = searchResults[0].point.payload?.metadata?.usage_count || 0;
       console.log(`Document ${i+1}: Usage count = ${usageCount}`);
     }
   }
@@ -602,7 +602,6 @@ async function main() {
       const metadata = searchResults[0].point.payload?.metadata || {};
       console.log(`Document ${i+1}:`);
       console.log(`   Importance: ${metadata.importance || 'N/A'}`);
-      console.log(`   Reinforced: ${metadata.reinforced || 0} times`);
       console.log(`   Critical: ${metadata.critical || false}`);
     }
   }
@@ -632,7 +631,6 @@ async function main() {
       const metadata = searchResults[0].point.payload?.metadata || {};
       console.log(`Document ${i+1}:`);
       console.log(`   Importance: ${metadata.importance || 'N/A'}`);
-      console.log(`   Decayed: ${metadata.decayed || 0} times`);
     }
   }
   
