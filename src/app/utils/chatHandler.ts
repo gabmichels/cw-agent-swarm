@@ -4,6 +4,7 @@
 
 import { getMemoryServices } from '../../server/memory/services';
 import { MemoryType } from '../../server/memory/config';
+import { MessageMetadata } from '../../types/metadata';
 
 /**
  * Generate a new response for the chat
@@ -47,15 +48,30 @@ export async function getConversationHistory(
     
     // Sort by timestamp if available (most recent first)
     const sorted = searchResults.sort((a, b) => {
-      const timeA = a.point.payload?.metadata?.timestamp || '';
-      const timeB = b.point.payload?.metadata?.timestamp || '';
-      return timeB.localeCompare(timeA); // Descending order
+      const metadataA = a.point.payload?.metadata as MessageMetadata | undefined;
+      const metadataB = b.point.payload?.metadata as MessageMetadata | undefined;
+      
+      const timeA = metadataA?.timestamp || '';
+      const timeB = metadataB?.timestamp || '';
+      
+      // If both are strings or both are numbers, use direct comparison
+      if (typeof timeA === 'string' && typeof timeB === 'string') {
+        return timeB.localeCompare(timeA); // Descending order
+      } else if (typeof timeA === 'number' && typeof timeB === 'number') {
+        return timeB - timeA; // Descending order
+      } else {
+        // Convert to date objects for comparison when mixed types
+        const dateA = new Date(timeA).getTime();
+        const dateB = new Date(timeB).getTime();
+        return dateB - dateA; // Descending order
+      }
     });
     
     // Format messages as strings
     return sorted.map(result => {
       const msg = result.point;
-      const role = msg.payload?.metadata?.role || 'unknown';
+      const metadata = msg.payload?.metadata as MessageMetadata | undefined;
+      const role = metadata?.role || 'unknown';
       return `${role}: ${msg.payload?.text || ''}`;
     });
   } catch (error) {

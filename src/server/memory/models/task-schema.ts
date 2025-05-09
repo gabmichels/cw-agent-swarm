@@ -2,55 +2,46 @@
  * Task memory schema
  */
 import { MemoryType } from '../config';
-import { BaseMemorySchema, BaseMetadataSchema } from './base-schema';
+import { BaseMemorySchema } from './base-schema';
+import { BaseMetadata, TaskStatus, TaskPriority } from '../../../types/metadata';
 import { MemoryImportanceLevel } from '../../../constants/memory';
 
 /**
- * Task status types
- */
-export type TaskStatus = 'pending' | 'in_progress' | 'completed' | 'failed' | 'cancelled';
-
-/**
- * Task priority levels
- */
-export type TaskPriority = 'low' | 'medium' | 'high' | 'critical';
-
-/**
- * Task-specific metadata
- */
-export interface TaskMetadataSchema extends BaseMetadataSchema {
-  // Task status info
-  status: TaskStatus;
-  priority: TaskPriority;
-  
-  // Scheduling info
-  dueDate?: string;
-  completedAt?: string;
-  startedAt?: string;
-  
-  // Assignment
-  assignedTo?: string;
-  createdBy?: string;
-  
-  // Progress
-  progress?: number;
-  progressNotes?: string[];
-  
-  // Parent/child relationships
-  parentTaskId?: string;
-  childTaskIds?: string[];
-  
-  // Dependencies
-  dependsOn?: string[];
-  blockedBy?: string[];
-}
-
-/**
- * Task schema
+ * Task schema for storing objectives and goals
  */
 export interface TaskSchema extends BaseMemorySchema {
   type: MemoryType.TASK;
   metadata: TaskMetadataSchema;
+}
+
+/**
+ * Task-specific metadata
+ */
+export interface TaskMetadataSchema extends BaseMetadata {
+  // Task status and priority
+  status: TaskStatus;
+  priority: TaskPriority;
+  
+  // Task timing
+  dueDate?: string;
+  startDate?: string;
+  completedDate?: string;
+  
+  // Task assignment
+  assignedTo?: string;
+  createdBy?: string;
+  
+  // Task relationships
+  parentTaskId?: string;
+  subtaskIds?: string[];
+  dependsOn?: string[];
+  blockedBy?: string[];
+  
+  // Task category and metadata
+  category?: string;
+  estimatedDuration?: string;
+  actualDuration?: string;
+  progress?: number; // 0-100
 }
 
 /**
@@ -60,8 +51,7 @@ export const TASK_DEFAULTS: Partial<TaskSchema> = {
   type: MemoryType.TASK,
   metadata: {
     schemaVersion: "1.0.0",
-    status: 'pending',
-    priority: 'medium',
-    importance: MemoryImportanceLevel.MEDIUM,
+    status: TaskStatus.PENDING,
+    priority: TaskPriority.MEDIUM
   }
 }; 

@@ -43,7 +43,7 @@ export async function POST(request: Request) {
     }
     
     // Toggle the task's enabled status
-    const result = autonomySystem.scheduler.setTaskEnabled(taskId, enabled);
+    const result = await autonomySystem.scheduler.setTaskEnabled(taskId, enabled);
     
     if (result) {
       return NextResponse.json({

@@ -2,23 +2,13 @@
  * Document memory schema
  */
 import { MemoryType } from '../config';
-import { BaseMemorySchema, BaseMetadataSchema } from './base-schema';
-
-/**
- * Document source types
- */
-export type DocumentSource = 
-  | 'file_upload'
-  | 'web'
-  | 'api'
-  | 'user_provided'
-  | 'generated'
-  | 'embedded';
+import { BaseMemorySchema } from './base-schema';
+import { BaseMetadata, DocumentSource } from '../../../types/metadata';
 
 /**
  * Document-specific metadata
  */
-export interface DocumentMetadataSchema extends BaseMetadataSchema {
+export interface DocumentMetadataSchema extends BaseMetadata {
   // Document info
   title?: string;
   source: DocumentSource;
@@ -57,6 +47,6 @@ export const DOCUMENT_DEFAULTS: Partial<DocumentSchema> = {
   type: MemoryType.DOCUMENT,
   metadata: {
     schemaVersion: "1.0.0",
-    source: 'user_provided',
+    source: DocumentSource.USER,
   }
 }; 

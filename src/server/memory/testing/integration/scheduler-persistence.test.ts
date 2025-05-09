@@ -11,7 +11,7 @@ import { EnhancedMemoryService } from '../../services/multi-agent/enhanced-memor
 import { MemoryType } from '../../config/types';
 import { loadApiKey } from '../load-api-key';
 import { randomUUID } from 'crypto';
-import { BaseMetadataSchema } from '../../models/base-schema';
+import { BaseMetadata } from '../../../../types/metadata';
 
 // Define interface for relationship test results
 interface RelationshipResult {
@@ -24,7 +24,7 @@ interface RelationshipResult {
 }
 
 // Define a task-specific metadata schema to fix type errors
-interface TaskMetadataSchema extends BaseMetadataSchema {
+interface TaskMetadataSchema extends BaseMetadata {
   taskId: string;
   scheduledTime: string;
   priority: string;

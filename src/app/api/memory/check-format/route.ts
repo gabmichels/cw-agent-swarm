@@ -1,7 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getMemoryServices } from '../../../../server/memory/services';
+import { BaseMetadata } from '../../../../types/metadata';
 
 export const runtime = 'nodejs';
+
+// Extended metadata interface for the specific needs of this API
+interface ExtendedMetadata extends Omit<BaseMetadata, 'timestamp'> {
+  type?: string;
+  messageType?: string;
+  category?: string;
+  tag?: string;
+  source?: string;
+  timestamp?: string; // Using string timestamp here, different from BaseMetadata
+}
 
 /**
  * API endpoint to check memory format issues
@@ -32,7 +43,7 @@ export async function GET(request: NextRequest) {
       if (!memory.id) missingFields.push('id');
       if (!memory.payload?.text) missingFields.push('text');
       
-      const metadata = memory.payload?.metadata || {};
+      const metadata = (memory.payload?.metadata || {}) as ExtendedMetadata;
       const timestamp = metadata.timestamp || memory.payload?.timestamp;
       if (!timestamp) missingFields.push('timestamp');
       

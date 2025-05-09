@@ -37,7 +37,7 @@ interface ToolMetadataSchema {
   executionOrder?: number;
   subTools?: string[];
   adaptationApplied?: Record<string, unknown>;
-  // Include any other fields from BaseMetadataSchema that might be needed
+  // Common BaseMetadata fields
   usage_count?: number;
   importance?: string;
   source?: string;

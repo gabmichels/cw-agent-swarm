@@ -1,30 +1,24 @@
 /**
- * Thought memory schema
+ * Thought memory schema (legacy)
+ * 
+ * This is the legacy schema for thoughts - prefer using cognitive-process-schema.ts
  */
 import { MemoryType } from '../config';
-import { BaseMemorySchema, BaseMetadataSchema } from './base-schema';
+import { BaseMemorySchema } from './base-schema';
 import { ThoughtMetadata, CognitiveProcessType } from '../../../types/metadata';
-import { createAgentId } from '../../../types/structured-id';
+import { EntityNamespace, EntityType, createEnumStructuredId } from '../../../types/structured-id';
 
 /**
- * Thought types
+ * Thought metadata schema (legacy)
+ * 
+ * Extends ThoughtMetadata directly since we've unified the base interfaces
  */
-export type ThoughtType = 'thought' | 'reflection' | 'planning' | 'reasoning' | 'analysis';
-
-/**
- * Thought-specific metadata schema
- * Extends the BaseMetadataSchema with thought-specific fields from our ThoughtMetadata type
- */
-export interface ThoughtMetadataSchema extends BaseMetadataSchema, Omit<ThoughtMetadata, keyof BaseMetadataSchema> {
-  // Additional thought-specific fields
-  relatedTo?: string[];
-  reflectionType?: 'causal' | 'contextual' | 'counterfactual' | 'temporal';
-  isInternalMessage?: boolean;
-  notForChat?: boolean;
+export interface ThoughtMetadataSchema extends ThoughtMetadata {
+  // No additional fields needed as ThoughtMetadata already contains everything
 }
 
 /**
- * Thought schema
+ * Thought schema (legacy)
  */
 export interface ThoughtSchema extends BaseMemorySchema {
   type: MemoryType.THOUGHT;
@@ -41,9 +35,7 @@ export const THOUGHT_DEFAULTS: Partial<ThoughtSchema> = {
     source: 'agent',
     timestamp: Date.now(),
     intention: 'reasoning',
-    isInternalMessage: true,
-    notForChat: true,
     processType: CognitiveProcessType.THOUGHT,
-    agentId: createAgentId('default-agent') // Default agent ID
+    agentId: createEnumStructuredId(EntityNamespace.SYSTEM, EntityType.AGENT, 'default-agent')
   }
 }; 

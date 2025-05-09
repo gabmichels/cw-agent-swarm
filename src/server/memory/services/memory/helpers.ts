@@ -6,12 +6,12 @@
 
 import { MemoryType } from "../../config/types";
 import { getMemoryServices } from "..";
-import { BaseMetadataSchema } from "../../models";
+import { BaseMetadata } from "../../../../types/metadata";
 
 /**
  * Extended metadata schema for message memories that includes additional properties
  */
-export interface MessageMetadataSchema extends BaseMetadataSchema {
+export interface MessageMetadataSchema extends BaseMetadata {
   messageId?: string;
   flaggedUnreliable?: boolean;
   flaggedUnreliableAt?: string;

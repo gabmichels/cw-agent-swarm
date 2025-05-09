@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getMemoryServices } from '../../../server/memory/services';
 import { MemoryType } from '../../../server/memory/config';
+import { SocialMediaMetadata } from '../../../types/metadata';
 
 export const dynamic = 'force-dynamic';
 
@@ -86,10 +87,13 @@ export async function GET(req: NextRequest) {
     
     // Process and format the results
     const socialMediaData = searchResults
-      .filter(result => result.point.payload?.metadata?.memoryType === 'social_media')
+      .filter(result => {
+        const metadata = result.point.payload?.metadata as SocialMediaMetadata | undefined;
+        return metadata?.memoryType === 'social_media';
+      })
       .map(result => {
         const memory = result.point;
-        const metadata = memory.payload?.metadata || {};
+        const metadata = memory.payload?.metadata as SocialMediaMetadata || {} as SocialMediaMetadata;
         
         return {
           id: memory.id,

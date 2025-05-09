@@ -2,7 +2,8 @@
  * Memory edit schema for version history
  */
 import { MemoryType } from '../config';
-import { BaseMemorySchema, BaseMetadataSchema } from './base-schema';
+import { BaseMemorySchema } from './base-schema';
+import { BaseMetadata } from '../../../types/metadata';
 
 /**
  * Edit types
@@ -12,25 +13,26 @@ export type EditType = 'create' | 'update' | 'delete';
 /**
  * Editor types
  */
-export type EditorType = 'human' | 'agent' | 'system';
+export type EditorType = 'agent' | 'system' | 'human';
 
 /**
- * Memory edit-specific metadata
+ * Memory edit metadata schema for tracking changes to memory
  */
-export interface MemoryEditMetadataSchema extends BaseMetadataSchema {
-  // Original memory reference
+export interface MemoryEditMetadataSchema extends BaseMetadata {
+  // Link to the original memory being edited
   original_memory_id: string;
   original_type: MemoryType;
   original_timestamp: string;
   
-  // Edit info
+  // Edit information
   edit_type: EditType;
   editor_type: EditorType;
   editor_id?: string;
   diff_summary?: string;
   
-  // Version chain
+  // Version tracking
   current: boolean;
+  previous_version_id?: string;
   
   // Special flag to prevent recursion
   _skip_logging?: boolean;

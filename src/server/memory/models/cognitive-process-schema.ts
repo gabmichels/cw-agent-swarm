@@ -7,7 +7,7 @@
  */
 
 import { MemoryType } from '../config';
-import { BaseMemorySchema, BaseMetadataSchema } from './base-schema';
+import { BaseMemorySchema } from './base-schema';
 import { 
   CognitiveProcessMetadata, 
   ThoughtMetadata,
@@ -20,10 +20,9 @@ import { StructuredId, createEnumStructuredId, EntityNamespace, EntityType } fro
 
 /**
  * Base cognitive process metadata schema
- * Extends the BaseMetadataSchema with cognitive process specific fields
+ * Extends CognitiveProcessMetadata directly since we're unifying the interfaces
  */
-export interface CognitiveProcessMetadataSchema extends BaseMetadataSchema, 
-  Omit<CognitiveProcessMetadata, keyof BaseMetadataSchema> {
+export interface CognitiveProcessMetadataSchema extends CognitiveProcessMetadata {
   // No additional fields needed as CognitiveProcessMetadata contains everything
 }
 

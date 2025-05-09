@@ -1,7 +1,7 @@
 /**
  * Base memory schema definitions
  */
-import { BaseMetadata } from '../../../types/metadata';
+import { BaseMetadata, CausalRelationship } from '../../../types/metadata';
 import { ImportanceLevel } from '../../../constants/memory';
 import { MemoryType } from '../config';
 
@@ -20,44 +20,7 @@ export interface BaseMemorySchema {
   is_deleted?: boolean;
   
   // Metadata common across all memory types
-  metadata: BaseMetadataSchema;
-}
-
-/**
- * Base metadata fields common across all memory types
- * Extends the core BaseMetadata interface with additional memory-specific fields
- */
-export interface BaseMetadataSchema extends BaseMetadata {
-  // Importance info
-  importance_score?: number;
-  critical?: boolean;
-  
-  // Usage tracking
-  usage_count?: number;
-  last_used?: string;
-  
-  // Tags
-  tags?: string[];
-  tag_confidence?: number;
-  
-  // Causal relationships
-  led_to?: CausalRelationship[];
-  caused_by?: CausalRelationship;
-  
-  // Version info
-  current?: boolean;
-  previous_version_id?: string;
-  editor_type?: 'human' | 'agent' | 'system';
-  editor_id?: string;
-}
-
-/**
- * Causal relationship between memories
- */
-export interface CausalRelationship {
-  memoryId: string;
-  description?: string;
-  timestamp: string;
+  metadata: BaseMetadata;
 }
 
 /**

@@ -1,6 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getMemoryServices } from '../../../../server/memory/services';
 import { MemoryType } from '../../../../server/memory/config';
+import { BaseMetadata } from '../../../../types/metadata';
+
+// Define a properly typed interface for the message metadata
+interface MessageMetadata extends BaseMetadata {
+  userId?: string;
+  chatId?: string;
+  role?: string;
+}
 
 // Make sure this is server-side only
 export const runtime = 'nodejs';
@@ -72,7 +80,7 @@ export async function DELETE(request: NextRequest) {
     const memories = searchResults.map(result => ({
       id: result.point.id,
       timestamp: result.point.payload?.timestamp,
-      metadata: result.point.payload?.metadata || {}
+      metadata: (result.point.payload?.metadata || {}) as MessageMetadata
     }));
     
     console.log(`Retrieved ${memories.length} messages matching timestamp`);

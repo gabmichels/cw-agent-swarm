@@ -2,7 +2,7 @@
  * Message memory schema
  */
 import { MemoryType } from '../config';
-import { BaseMemorySchema, BaseMetadataSchema } from './base-schema';
+import { BaseMemorySchema } from './base-schema';
 import { MessageMetadata } from '../../../types/metadata';
 import { MessageRole } from '../../../agents/chloe/types/state';
 import { 
@@ -17,9 +17,9 @@ import {
 
 /**
  * Message-specific metadata schema
- * Extends the BaseMetadataSchema with message-specific fields from our MessageMetadata type
+ * Extends MessageMetadata directly since we've unified the base interfaces
  */
-export interface MessageMetadataSchema extends BaseMetadataSchema, Omit<MessageMetadata, keyof BaseMetadataSchema> {
+export interface MessageMetadataSchema extends MessageMetadata {
   // No additional fields needed as MessageMetadata already contains everything
 }
 

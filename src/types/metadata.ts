@@ -62,22 +62,60 @@ export interface PerformanceDirectives {
 }
 
 /**
+ * Causal relationship between memories
+ */
+export interface CausalRelationship {
+  memoryId: string;
+  description?: string;
+  timestamp: string;
+}
+
+/**
  * Core metadata types for standardized message and thought handling
  */
 
 // Base metadata interface that all specific metadata types extend
 export interface BaseMetadata {
+  // Schema version (required)
   schemaVersion: string;
+  
+  // Source information
   source?: string;
-  timestamp?: number;
+  
+  // Temporal fields
+  timestamp?: string | number;
+  
+  // Importance info
   importance?: ImportanceLevel;
   importance_score?: number;
+  critical?: boolean;
+  
+  // Usage tracking
+  usage_count?: number;
+  last_used?: string;
+  
+  // Tags
   tags?: string[];
+  tag_confidence?: number;
+  
+  // Deletion marking
   is_deleted?: boolean;
   deletion_time?: string;
+  
+  // Authentication and tenant context
   authContext?: AuthContext;
   tenant?: TenantContext;
   performanceDirectives?: PerformanceDirectives;
+  
+  // Causal relationships
+  led_to?: CausalRelationship[];
+  caused_by?: CausalRelationship;
+  
+  // Version info
+  current?: boolean;
+  previous_version_id?: string;
+  editor_type?: 'human' | 'agent' | 'system';
+  editor_id?: string;
 }
 
 // Legacy metadata interfaces (to be deprecated)
@@ -296,6 +334,20 @@ export interface DocumentMetadata extends BaseMetadata {
   siteName?: string;
   author?: string;
   publishDate?: string;
+}
+
+/**
+ * Social media metadata interface
+ */
+export interface SocialMediaMetadata extends BaseMetadata {
+  // Social media specific fields
+  memoryType?: string;
+  url?: string;
+  author?: string;
+  topic?: string;
+  engagement?: Record<string, any>;
+  sentiment?: any;
+  category?: string;
 }
 
 /**

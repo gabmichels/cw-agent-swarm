@@ -4,6 +4,21 @@ import { useState, useEffect } from 'react';
 import { formatDistanceToNow } from 'date-fns';
 import { MemoryType } from '../server/memory/config';
 import useMemory from '../hooks/useMemory';
+import { BaseMetadata } from '../types/metadata';
+
+/**
+ * Document-specific metadata interface
+ */
+interface DocumentMetadata extends BaseMetadata {
+  fileId?: string;
+  filename?: string;
+  mimeType?: string;
+  size?: number;
+  processingStatus?: 'pending' | 'processing' | 'completed' | 'failed';
+  processingError?: string;
+  summary?: string;
+  processingModel?: string;
+}
 
 /**
  * File metadata interface matching backend
@@ -32,6 +47,18 @@ interface FilesTableProps {
 }
 
 /**
+ * Interface for memory items with typed payload
+ */
+interface MemoryItem {
+  id: string;
+  payload?: {
+    timestamp?: string;
+    text?: string;
+    metadata?: DocumentMetadata;
+  };
+}
+
+/**
  * Files table component that displays a list of uploaded files
  * Can use either the standard file system or the memory system
  */
@@ -54,19 +81,34 @@ export default function FilesTable({ onRefresh, onImageClick, useMemorySystem = 
   useEffect(() => {
     if (!useMemorySystem) return;
     
-    const fileMemories: FileMetadata[] = memoryFiles.map(memory => ({
-      fileId: memory.payload?.metadata?.fileId || memory.id,
-      filename: memory.payload?.metadata?.filename || 'Unknown File',
-      mimeType: memory.payload?.metadata?.mimeType || 'application/octet-stream',
-      size: memory.payload?.metadata?.size || 0,
-      uploadDate: memory.payload?.timestamp || new Date().toISOString(),
-      processingStatus: memory.payload?.metadata?.processingStatus || 'completed',
-      processingError: memory.payload?.metadata?.processingError,
-      summary: memory.payload?.metadata?.summary,
-      processingModel: memory.payload?.metadata?.processingModel,
-      tags: memory.payload?.metadata?.tags || [],
-      memoryId: memory.id
-    }));
+    // Convert memory files to FileMetadata objects
+    const fileMemories: FileMetadata[] = memoryFiles.map(memory => {
+      // First cast to unknown, then to our expected interface
+      const typedMemory = memory as unknown as {
+        id: string;
+        payload?: {
+          timestamp?: string;
+          text?: string;
+          metadata?: DocumentMetadata;
+        };
+      };
+      
+      const metadata = typedMemory.payload?.metadata || {} as DocumentMetadata;
+      
+      return {
+        fileId: metadata.fileId || typedMemory.id,
+        filename: metadata.filename || 'Unknown File',
+        mimeType: metadata.mimeType || 'application/octet-stream',
+        size: metadata.size || 0,
+        uploadDate: typedMemory.payload?.timestamp || new Date().toISOString(),
+        processingStatus: metadata.processingStatus || 'completed',
+        processingError: metadata.processingError,
+        summary: metadata.summary,
+        processingModel: metadata.processingModel,
+        tags: metadata.tags || [],
+        memoryId: typedMemory.id
+      };
+    });
     
     setFiles(fileMemories);
     setIsLoading(isMemoryLoading);
