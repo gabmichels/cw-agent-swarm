@@ -5,7 +5,7 @@ This document tracks TypeScript errors found in the codebase. Each issue will be
 
 ## Summary
 - Initial Issues: 538 (in 134 files)
-- Current Issues: 26 (in 12 files)
+- Current Issues: 10 (in 12 files)
 - Completed Issues: 
   - 9 in `scheduler-persistence.test.ts`
   - 10 in `cached-memory-service.test.ts`
@@ -435,8 +435,8 @@ This document tracks TypeScript errors found in the codebase. Each issue will be
 ## Current Issues
 
 ### Most Affected Areas
-- **Chloe Agent Files** (8 errors): Primarily in scheduler, tasks, and autonomous execution components
-- **Test Files** (18 errors): Mostly import path and type annotation issues in test files
+- **Chloe Agent Files** (3 errors): Primarily in scheduler and planning components
+- **Test Files** (1 error): Import path issues in test files
 
 ## Remaining Files & Errors
 Errors  Files
@@ -448,76 +448,27 @@ Errors  Files
      2  src/agents/chloe/scheduler/autonomousScheduler.ts:65
      1  src/app/api/check-chloe/route.ts:71
      1  src/scheduledTasks/chloe.ts:21
-     1  src/scripts/reindex-markdown.ts:16
-     1  src/scripts/run-chloe-scheduler.ts:22
-     1  src/tools/loadMarkdownToMemory.ts:8
-     2  tests/markdownMemoryLoader.test.ts:4
-     6  tests/markdownWatcher.test.ts:5
-    13  tests/markdownMemoryRetrieval.test.ts:4
 
 ## Next Steps
 
-We've made significant progress, bringing the error count down from 538 to 26. The next areas to focus on are:
+We've made significant progress, bringing the error count down from 538 to 10. The next areas to focus on are:
 
 1. **ChloeAgent mock object issues**:
    - Create a proper MockChloeAgent class that implements all required interfaces for testing
-   - Use casting to an appropriate type through 'unknown' or add required properties
    - Address the issue with the planningManager.ts and autonomousScheduler.ts files casting incomplete objects to ChloeAgent
 
-2. **Test file issues**:
-   - Fix the import path issues in the markdown memory test files
-   - Create mock modules for the missing imports
-   - Add explicit type annotations for parameters in test files
-   - Fix the MemoryType enum usage in test files (use MemoryType.STRATEGY instead of 'STRATEGY')
-
-3. **Missing module issues**:
-   - Fix import errors for '../agents/chloe/knowledge/markdownMemoryLoader' by either:
-     - Creating the missing module
-     - Implementing a mock version
-     - Updating import paths to point to the correct location
-   - Do the same for AgentRegistry and markdownWatcher modules
-
-4. **Parameter typing in graph-test.ts**:
+2. **Parameter typing in graph-test.ts**:
    - Add explicit type annotations for the step and index parameters in forEach callbacks
 
-The interface-first design principles we've been applying have significantly reduced the errors while improving code quality. We should continue using this approach to address the remaining issues.
+3. **Agent Registry Adapter**:
+   - Fix import issues and implement proper interfaces for the registry adapter module
 
 ## Recent Improvements
 
-1. **Interface-First Design**:
-   - Created specialized metadata interfaces for different API route needs
-   - Extended manager interfaces with proper method signatures
-   - Used proper interface extension patterns with Omit<> to handle incompatible fields
-   - Created memory-specific interfaces for UI and debug routes
-
-2. **Type Safety Improvements**:
-   - Fixed timestamp comparison logic to handle both string and number types
-   - Added type casting with proper intermediate variables
-   - Created explicit type guards for metadata access
-   - Implemented helper utilities for type conversion and string handling
-   - Used unknown as an intermediate type for safe casting
-
-3. **Promise Handling**:
-   - Added proper await keywords to Promise-returning methods
-   - Fixed subtle issues with Promise chains and boolean checks
-
-4. **Metadata Access Patterns**:
-   - Created consistent patterns for safely accessing metadata fields
-   - Used strong typing instead of any for metadata objects (except in debug contexts)
-   - Added schemaVersion field to all metadata objects
-   - Added fallback values for optional fields
-   - Created extended interfaces for specialized uses
-
-5. **Helper Utilities**:
-   - Added helper utilities for safely casting metadata to specific types
-   - Implemented proper StructuredId handling with toString()
-   - Added number-to-string timestamp conversion 
-   - Standardized fallback values and null handling
-
-6. **Component-Specific Improvements**:
-   - Enhanced UI component typing with proper React component interfaces
-   - Added specialized data structure interfaces for memory display
-   - Created type-safe casting pipelines for memory display components
-   - Fixed timestamp display and handling for both string and number timestamps
-
-These improvements have not only fixed TypeScript errors but also improved the overall code quality and reduced the potential for runtime errors.
+1. **Markdown Management Improvements**:
+   - Replaced deprecated markdown tools with a unified MarkdownManager class
+   - Created comprehensive test suite for the MarkdownManager that passes all tests
+   - Added proper typing for markdown processing, watching, and memory storage
+   - Fixed script and tool usage to handle markdown files properly through the new manager
+   - Removed obsolete test files in favor of a single, comprehensive test suite
+   - Enhanced error handling and file path normalization for cross-platform compatibility

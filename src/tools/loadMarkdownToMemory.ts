@@ -5,8 +5,117 @@
  * and imports them into Chloe's memory system with critical importance.
  */
 
-import { loadAllMarkdownAsMemory, findMarkdownFiles } from '../agents/chloe/knowledge/markdownMemoryLoader';
+import { z } from "zod";
+import { MemoryType } from "../server/memory/config/types";
+import { MarkdownManager } from "../agents/chloe/knowledge/markdownManager";
+import { getMemoryServices } from "../server/memory/services";
+import * as fs from "fs/promises";
+import * as path from "path";
 import { logger } from '../lib/logging';
+
+// Define type for tool definition
+interface ToolDefinition {
+  name: string;
+  description: string;
+  schema: z.ZodObject<any>;
+  execute: (params: any) => Promise<any>;
+}
+
+// Define the schema for the tool
+export const loadMarkdownToMemorySchema = z.object({
+  directoryPath: z.string().describe("Directory path to search for markdown files (defaults to knowledge directory if empty)"),
+  force: z.boolean().optional().describe("Force reprocessing of all files regardless of modification status"),
+});
+
+// Helper function to find markdown files in a directory
+export async function findMarkdownFiles(dir: string): Promise<string[]> {
+  const files: string[] = [];
+  
+  try {
+    const entries = await fs.readdir(dir, { withFileTypes: true });
+    
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry.name);
+      
+      if (entry.isDirectory()) {
+        // Recursively get files from subdirectories
+        const subFiles = await findMarkdownFiles(fullPath);
+        files.push(...subFiles);
+      } else if (entry.isFile() && entry.name.toLowerCase().endsWith('.md')) {
+        files.push(fullPath);
+      }
+    }
+  } catch (error) {
+    console.error(`Error reading directory ${dir}:`, error);
+  }
+  
+  return files;
+}
+
+/**
+ * Tool definition for loading markdown files into memory
+ */
+export const loadMarkdownToMemoryTool: ToolDefinition = {
+  name: "load_markdown_to_memory",
+  description: "Load markdown files into the memory system for knowledge access",
+  schema: loadMarkdownToMemorySchema,
+  execute: async (params: { directoryPath: string; force?: boolean }) => {
+    const { directoryPath, force = false } = params;
+    
+    try {
+      // Get memory services
+      const { memoryService } = await getMemoryServices();
+      
+      // Resolve directory path, defaulting to knowledge directory
+      const resolvedPath = directoryPath || path.join(process.cwd(), "data", "knowledge");
+      console.log(`📚 Loading markdown files from ${resolvedPath}`);
+      
+      // Initialize markdown manager with needed settings
+      const manager = new MarkdownManager({
+        memory: null as any, // We're using memory service directly
+        agentId: "chloe",
+        logFunction: (message, data) => {
+          console.log(`[MarkdownLoader] ${message}`, data || '');
+        }
+      });
+      
+      // Process the directory
+      console.log(`🔍 Searching for markdown files in ${resolvedPath}`);
+      const stats = await manager.loadMarkdownFiles({
+        force,
+        checkForDuplicates: !force
+      });
+      
+      // Return success message with stats
+      return {
+        type: MemoryType.DOCUMENT, // Use correct enum value from MemoryType
+        content: `Successfully processed markdown files.
+Processed: ${stats.filesProcessed}
+Added: ${stats.entriesAdded}
+Skipped: ${stats.filesSkipped + stats.unchangedFiles}
+Duplicates: ${stats.duplicatesSkipped}`,
+        metadata: {
+          tool: "load_markdown_to_memory",
+          success: true,
+          stats,
+          schemaVersion: "1.0.0" // Add schema version for BaseMetadata compatibility
+        }
+      };
+    } catch (error) {
+      // Return error message
+      return {
+        type: MemoryType.DOCUMENT, // Using DOCUMENT as fallback
+        content: `Error loading markdown files: ${error instanceof Error ? error.message : String(error)}`,
+        metadata: {
+          tool: "load_markdown_to_memory",
+          success: false,
+          error: String(error),
+          schemaVersion: "1.0.0" // Add schema version for BaseMetadata compatibility
+        }
+      };
+    }
+  }
+};
 
 // Process command line arguments
 const args = process.argv.slice(2);
@@ -29,7 +138,7 @@ async function main() {
     logger.info(`📁 Using directories: ${directoriesToLoad.join(', ')}`);
     
     // First, find all markdown files
-    const files = await findMarkdownFiles(directoriesToLoad);
+    const files = await findMarkdownFiles(directoriesToLoad[0]);
     logger.info(`📄 Found ${files.length} markdown files to process`);
     
     if (files.length === 0) {
@@ -39,18 +148,15 @@ async function main() {
     
     // Load all markdown files into memory
     logger.info('🧠 Loading markdown files into memory with CRITICAL importance...');
-    const stats = await loadAllMarkdownAsMemory(directoriesToLoad, {
-      force: forceReload,
-      checkForDuplicates: !forceReload
-    });
+    const stats = await loadMarkdownToMemoryTool.execute({ directoryPath: directoriesToLoad[0], force: forceReload });
     
     // Log stats
     logger.info('✅ Markdown loading process complete!');
-    logger.info(`📊 Stats: Processed ${stats.filesProcessed} files, Added ${stats.entriesAdded} memory entries, Skipped ${stats.filesSkipped} files, Duplicates skipped: ${stats.duplicatesSkipped}`);
+    logger.info(`📊 Stats: Processed ${stats.metadata.stats.filesProcessed} files, Added ${stats.metadata.stats.entriesAdded} memory entries, Skipped ${stats.metadata.stats.filesSkipped + stats.metadata.stats.unchangedFiles} files, Duplicates skipped: ${stats.metadata.stats.duplicatesSkipped}`);
     
     // Log type statistics
     logger.info('📑 Memory types created:');
-    for (const [type, count] of Object.entries(stats.typeStats)) {
+    for (const [type, count] of Object.entries(stats.metadata.stats.typeStats)) {
       logger.info(`  - ${type}: ${count} entries`);
     }
     

@@ -13,12 +13,13 @@
  * --directories: Comma-separated list of directories to search (defaults to docs/,knowledge/)
  */
 
-import { loadAllMarkdownAsMemory } from '../agents/chloe/knowledge/markdownMemoryLoader';
+import { MarkdownManager } from '../agents/chloe/knowledge/markdownManager';
+import { getMemoryServices } from '../server/memory/services';
 import { logger } from '../lib/logging';
 
 async function main() {
   try {
-    console.log('🔄 Starting markdown re-indexing process...');
+    console.log('🚀 Starting Markdown reindexing process...');
     
     // Parse command line arguments
     const args = process.argv.slice(2);
@@ -41,30 +42,40 @@ async function main() {
       console.log('⚠️ Force mode enabled - will reindex all files regardless of modification status');
     }
     
+    // Get memory services
+    const { memoryService } = await getMemoryServices();
+    
+    // Initialize markdown manager with basic options
+    const manager = new MarkdownManager({
+      memory: null as any, // We're using the memory service directly
+      agentId: 'chloe',
+      logFunction: (message, data) => {
+        console.log(`[MarkdownReindex] ${message}`, data || '');
+      }
+    });
+    
     // Run the indexing process
     console.log('🔍 Searching for markdown files...');
-    const stats = await loadAllMarkdownAsMemory(directories, {
-      force: forceReindex,
-      checkForDuplicates: !forceReindex
+    const stats = await manager.loadMarkdownFiles({ 
+      force: forceReindex, 
+      checkForDuplicates: !forceReindex 
     });
     
-    // Log results
-    console.log('\n✅ Markdown indexing complete!');
-    console.log('-----------------------------');
-    console.log(`📊 Files processed: ${stats.filesProcessed}`);
-    console.log(`📝 Entries added: ${stats.entriesAdded}`);
-    console.log(`🔄 Unchanged files: ${stats.unchangedFiles}`);
-    console.log(`⏭️ Files skipped: ${stats.filesSkipped}`);
-    console.log(`🔍 Duplicates skipped: ${stats.duplicatesSkipped}`);
+    // Output the results
+    console.log('✅ Markdown reindexing complete!');
+    console.log(`📊 Summary:
+      - Files processed: ${stats.filesProcessed}
+      - Entries added: ${stats.entriesAdded}
+      - Files skipped: ${stats.filesSkipped}
+      - Duplicates skipped: ${stats.duplicatesSkipped}
+      - Unchanged files: ${stats.unchangedFiles}
+    `);
     
-    // Display type statistics
-    console.log('\n📋 Content type breakdown:');
-    Object.entries(stats.typeStats).forEach(([type, count]) => {
-      console.log(`   - ${type}: ${count} entries`);
-    });
-    
-    console.log('\n🔢 All done! Your markdown content is now indexed and available to Chloe.');
-    process.exit(0);
+    // Return success
+    return {
+      success: true,
+      stats
+    };
   } catch (error) {
     console.error('❌ Error during markdown indexing:', error);
     process.exit(1);
