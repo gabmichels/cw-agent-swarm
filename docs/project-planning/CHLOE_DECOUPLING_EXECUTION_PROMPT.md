@@ -4,6 +4,369 @@
 
 We need to decouple the Chloe agent from our codebase to create a generic agent architecture that supports multiple agents. After reviewing the codebase, we discovered we already have `AgentBase` and `AgentFactory` implementations we can leverage. This prompt provides a structured approach to executing this project efficiently.
 
+## Revised Implementation Strategy: Using Chloe as the Base Agent
+
+Rather than making Chloe extend AgentBase, we've determined a more efficient approach is to rename and move Chloe's implementation to become our base agent framework. This approach leverages Chloe's sophisticated architecture while making it agent-agnostic.
+
+### Step 1: Directory Reorganization
+
+1. Move the entire `agents/chloe` directory structure to `lib/agents/base`
+2. Create a new minimal `agents/chloe` implementation that extends the base agent
+3. Update all imports throughout the codebase to reflect this new structure
+
+```typescript
+// Example directory structure
+- lib/
+  - agents/
+    - base/ (formerly agents/chloe/)
+      - core/
+      - managers/
+      - utils/
+      - scheduler.ts (renamed to agent-scheduler.ts)
+    - registry/
+- agents/
+  - chloe/ (new minimal implementation)
+    - index.ts
+  - shared/
+```
+
+### Step 2: Generalization
+
+1. Replace all hardcoded "chloe" references with configurable values:
+
+```typescript
+// BEFORE
+class ChloeAgent {
+  readonly agentId = 'chloe';
+  readonly department = 'marketing';
+  // ...
+}
+
+// AFTER
+class BaseAgent {
+  readonly agentId: string;
+  readonly department: string;
+  
+  constructor(options: BaseAgentOptions) {
+    this.agentId = options.agentId || 'agent';
+    this.department = options.department || 'general';
+    // ...
+  }
+}
+```
+
+2. Create the minimal Chloe implementation:
+
+```typescript
+import { BaseAgent } from '../lib/agents/base/core/agent';
+
+export class ChloeAgent extends BaseAgent {
+  constructor(options = {}) {
+    super({
+      agentId: 'chloe',
+      department: 'marketing',
+      role: 'cmo',
+      // Other Chloe-specific settings
+      ...options
+    });
+  }
+  
+  // Any Chloe-specific methods not in BaseAgent
+}
+```
+
+### Step 3: Manager System Refactoring
+
+Make all managers agent-agnostic and configurable:
+
+```typescript
+// lib/agents/base/managers/manager-factory.ts
+export class ManagerFactory {
+  static createManagers(agent: BaseAgent, config: AgentConfig): Map<string, AgentManager> {
+    const managers = new Map();
+    
+    if (config.enableMemoryManager) {
+      managers.set('memory', new MemoryManager(agent, config.memoryOptions));
+    }
+    
+    if (config.enableKnowledgeManager) {
+      managers.set('knowledge', new KnowledgeManager(agent, config.knowledgeOptions));
+    }
+    
+    if (config.enablePlanningManager) {
+      managers.set('planning', new PlanningManager(agent, config.planningOptions));
+    }
+    
+    // More managers...
+    
+    return managers;
+  }
+}
+```
+
+### Step 4: Scheduler System Refactoring
+
+Rename and refactor the scheduler to be agent-agnostic:
+
+```typescript
+// BEFORE: agents/chloe/scheduler.ts
+export class ChloeScheduler {
+  private agent: ChloeAgent;
+  // ...
+}
+
+// AFTER: lib/agents/base/agent-scheduler.ts
+export class AgentScheduler {
+  private agent: BaseAgent;
+  private tasks: AgentTask[];
+  private registry: SchedulerRegistry;
+  
+  constructor(agent: BaseAgent, options: SchedulerOptions = {}) {
+    this.agent = agent;
+    this.tasks = options.tasks || [];
+    this.registry = SchedulerRegistry.getInstance();
+    
+    // Register this scheduler
+    this.registry.registerScheduler(agent.agentId, this);
+  }
+  
+  // Methods for task scheduling, execution, etc.
+}
+
+// lib/agents/base/scheduler-registry.ts
+export class SchedulerRegistry {
+  private static instance: SchedulerRegistry;
+  private schedulers: Map<string, AgentScheduler> = new Map();
+  
+  static getInstance(): SchedulerRegistry {
+    if (!this.instance) {
+      this.instance = new SchedulerRegistry();
+    }
+    return this.instance;
+  }
+  
+  registerScheduler(agentId: string, scheduler: AgentScheduler): void {
+    this.schedulers.set(agentId, scheduler);
+  }
+  
+  getScheduler(agentId: string): AgentScheduler | undefined {
+    return this.schedulers.get(agentId);
+  }
+  
+  getAllSchedulers(): Map<string, AgentScheduler> {
+    return this.schedulers;
+  }
+}
+```
+
+### Step 5: UI Registration Form Updates
+
+Update the AgentRegistrationForm to include manager configuration:
+
+```tsx
+const ManagerConfiguration = () => {
+  return (
+    <div className="bg-gray-800 p-6 rounded-lg shadow-md">
+      <h2 className="text-xl font-semibold mb-4">Manager Configuration</h2>
+      
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="font-medium">Memory Manager</h3>
+            <p className="text-sm text-gray-400">Remembers conversations and important information</p>
+          </div>
+          <div className="flex items-center">
+            <input
+              type="checkbox"
+              id="enableMemoryManager"
+              name="config.enableMemoryManager"
+              checked={formData.config.enableMemoryManager}
+              onChange={handleChange}
+              className="mr-2"
+            />
+            <label htmlFor="enableMemoryManager">Enable</label>
+          </div>
+        </div>
+        
+        {formData.config.enableMemoryManager && (
+          <div className="ml-6 mt-2 space-y-3">
+            <div>
+              <label htmlFor="config.memoryOptions.importanceThreshold" className="block text-sm font-medium mb-1">
+                Importance Threshold
+              </label>
+              <input
+                type="number"
+                id="config.memoryOptions.importanceThreshold"
+                name="config.memoryOptions.importanceThreshold"
+                value={formData.config.memoryOptions?.importanceThreshold || 0.7}
+                onChange={handleNumberChange}
+                min="0"
+                max="1"
+                step="0.1"
+                className="w-full bg-gray-700 border border-gray-600 rounded py-2 px-3 text-white"
+              />
+            </div>
+            
+            {/* Other memory options */}
+          </div>
+        )}
+        
+        {/* Similar sections for other managers */}
+        
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="font-medium">Scheduler</h3>
+            <p className="text-sm text-gray-400">Enables autonomous scheduled tasks</p>
+          </div>
+          <div className="flex items-center">
+            <input
+              type="checkbox"
+              id="enableScheduler"
+              name="config.enableScheduler"
+              checked={formData.config.enableScheduler}
+              onChange={handleChange}
+              className="mr-2"
+            />
+            <label htmlFor="enableScheduler">Enable</label>
+          </div>
+        </div>
+        
+        {formData.config.enableScheduler && (
+          <div className="ml-6 mt-2">
+            <TaskTemplateSelector
+              capabilities={selectedCapabilities}
+              onChange={handleTaskTemplatesChange}
+            />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+```
+
+## Testing Strategy
+
+When testing this new approach, we need to validate:
+
+1. Existing code referencing Chloe still works properly
+2. Multiple agents can be created with different configurations
+3. Agents can selectively enable or disable different managers
+4. The scheduler properly supports multiple agents
+5. No functionality is lost in the transition
+
+Add these additional test cases to your existing testing plan:
+
+```typescript
+describe('BaseAgent Implementation', () => {
+  it('should work with minimal configuration', async () => {
+    const agent = new BaseAgent({ agentId: 'test-agent' });
+    await agent.initialize();
+    expect(agent.getAgentId()).toBe('test-agent');
+  });
+  
+  it('should support selective manager initialization', async () => {
+    const agent = new BaseAgent({
+      agentId: 'test-agent',
+      config: {
+        enableMemoryManager: true,
+        enableKnowledgeManager: false
+      }
+    });
+    await agent.initialize();
+    
+    expect(agent.getManager('memory')).toBeDefined();
+    expect(agent.getManager('knowledge')).toBeUndefined();
+  });
+  
+  it('should support multiple agent instances with different configs', async () => {
+    const agent1 = new BaseAgent({
+      agentId: 'agent1',
+      config: { department: 'marketing' }
+    });
+    
+    const agent2 = new BaseAgent({
+      agentId: 'agent2',
+      config: { department: 'engineering' }
+    });
+    
+    await Promise.all([agent1.initialize(), agent2.initialize()]);
+    
+    expect(agent1.getDepartment()).toBe('marketing');
+    expect(agent2.getDepartment()).toBe('engineering');
+    expect(agent1).not.toBe(agent2);
+  });
+});
+
+// Test Chloe still works with new implementation
+describe('ChloeAgent with new implementation', () => {
+  it('should still have all Chloe functionality', async () => {
+    const chloe = new ChloeAgent();
+    await chloe.initialize();
+    
+    // Test Chloe-specific functionality
+    expect(chloe.getAgentId()).toBe('chloe');
+    expect(chloe.getDepartment()).toBe('marketing');
+    
+    // Test Chloe-specific methods still work
+    const result = await chloe.runMarketingAnalysis('test topic');
+    expect(result).toBeDefined();
+  });
+});
+
+describe('Scheduler Registry', () => {
+  it('should manage multiple agent schedulers', async () => {
+    const registry = SchedulerRegistry.getInstance();
+    
+    const agent1 = new BaseAgent({ agentId: 'agent1' });
+    const agent2 = new BaseAgent({ agentId: 'agent2' });
+    
+    await Promise.all([agent1.initialize(), agent2.initialize()]);
+    
+    const scheduler1 = new AgentScheduler(agent1);
+    const scheduler2 = new AgentScheduler(agent2);
+    
+    expect(registry.getScheduler('agent1')).toBe(scheduler1);
+    expect(registry.getScheduler('agent2')).toBe(scheduler2);
+    expect(registry.getAllSchedulers().size).toBe(2);
+  });
+});
+```
+
+## Search and Replace Patterns
+
+Use these patterns to find and replace hardcoded references:
+
+1. Import statements:
+   - Search: `from '../../../agents/chloe`
+   - Replace: `from '../../../lib/agents/base`
+
+2. Agent ID references:
+   - Search: `'chloe'`, `"chloe"`, `agentId: 'chloe'`
+   - Replace: `this.agentId`, `options.agentId`, `this.config.agentId`
+
+3. Scheduler references:
+   - Search: `ChloeScheduler`, `new ChloeScheduler`
+   - Replace: `AgentScheduler`, `new AgentScheduler`
+
+4. Manager access:
+   - Search: `this.memoryManager`, `this.knowledgeManager`
+   - Replace: `this.getManager('memory')`, `this.getManager('knowledge')`
+
+## Rollout Plan
+
+1. Create a feature branch for this refactoring: `feature/chloe-to-base`
+2. Move and rename the directory structure
+3. Update import references
+4. Replace hardcoded values with configuration
+5. Create the minimal Chloe implementation 
+6. Update the agent registration form
+7. Run tests and fix any issues
+8. Perform thorough manual testing
+9. Create a PR with detailed documentation
+10. Deploy to staging for validation
+11. Roll out to production with feature flags
+
 ## Execution Strategy
 
 ### Phase 1: Agent Architecture Integration

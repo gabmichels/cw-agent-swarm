@@ -15,19 +15,26 @@ This project aims to decouple the "Chloe" agent from our codebase to create a ge
 | 5. UI Registration Flow Enhancement | ✅ Completed | Week 4 | Medium |
 | 6. Testing & Validation | 🔄 Not Started | Week 4-5 | High |
 | 3.5. Agent Persona Memory System | ✅ Completed | Week 5 | High |
+| 7. Migrate Chloe to Base Agent | ⭐ NEW | Week 6 | Critical |
+| 8. Scheduler/Autonomy System Refactoring | ⭐ NEW | Week 6-7 | High |
 
-**Overall Progress:** 95% - Phases 1, 2, 3, 4, 3.5, and 5 complete. Only Phase 6 (Testing & Validation) remains to be done.
+**Overall Progress:** 85% - Two new critical phases identified: moving Chloe to be the base agent framework and refactoring the scheduler/autonomy system.
 
 ## Executive Summary
 
 The current implementation of our agent system is tightly coupled to a specific agent named "Chloe". This creates several challenges:
 
-1. New agents cannot leverage Chloe's capabilities without code duplication
+1. New agents cannot leverage Chloe's sophisticated capabilities without code duplication
 2. Agent-specific data (like markdown knowledge) is hardcoded into file paths
 3. System prompts, capabilities, and configuration are not dynamic
 4. The singleton pattern for Chloe prevents proper multi-agent support
 
-This project will refactor our agent architecture to use a generic, configurable design that separates agent-specific data from the underlying implementation. The end goal is to create a flexible system where any agent (including Chloe) can be fully configured through the `AgentRegistrationForm` UI.
+After our initial audit and early implementation, we have determined that the most efficient approach is to use Chloe's implementation as the foundation for our generic agent architecture. This revised approach will:
+
+1. Move Chloe's implementation to a shared base location
+2. Generalize agent-specific references and configurations
+3. Create a minimal version of Chloe that extends from this base implementation
+4. Refactor the scheduler and autonomy systems to support multiple agents
 
 ## Audit of Hardcoded Elements
 
@@ -59,6 +66,85 @@ This project will refactor our agent architecture to use a generic, configurable
 - Specialized managers like `MemoryManager` designed specifically for Chloe
 - Singleton pattern for agent initialization in `getGlobalChloeAgent()`
 
+### Scheduler/Autonomy System
+
+- `ChloeScheduler` class with hardcoded references to Chloe
+- Direct dependencies on Chloe-specific methods and properties
+- Scheduled tasks specific to Chloe's marketing role
+
+## Revised Implementation Plan
+
+### Phase 7: Migrate Chloe to Base Agent
+
+| Task | Scope | Priority | Status |
+|------|-------|----------|--------|
+| Rename agents/chloe to lib/agents/base | Move Chloe's implementation to a shared location | Critical | 🔄 Not Started |
+| Generalize Chloe-specific references | Replace hardcoded "chloe" with configurable values | High | 🔄 Not Started |
+| Create configuration system | Allow enabling/disabling specific managers | High | 🔄 Not Started |
+| Create new minimal Chloe implementation | Extend from base agent with Chloe-specific configuration | Medium | 🔄 Not Started |
+| Update import references | Update all imports throughout the codebase | High | 🔄 Not Started |
+| Create agent capability toggling UI | Add UI controls for enabling/disabling agent capabilities | Medium | 🔄 Not Started |
+
+#### Base Agent Implementation
+
+Instead of refactoring individual components of Chloe, we'll take a more efficient approach by using Chloe as the template for our base agent:
+
+1. **Directory Reorganization**:
+   - Move `agents/chloe` to `lib/agents/base`
+   - Create a new `agents/chloe` that extends from the base agent
+   - Update all imports to reflect the new structure
+
+2. **Generalized Implementation**:
+   - Replace all hardcoded references to "chloe" with agent ID from configuration
+   - Make role, department, and capability references configurable
+   - Create configuration options for all managers and systems
+
+3. **Manager System**:
+   - Allow agents to selectively enable or disable specific managers
+   - Provide reasonable defaults for all manager configurations
+   - Implement fallbacks for disabled managers
+
+4. **Configuration Inheritance**:
+   - Define configuration inheritance system for agent types
+   - Allow overriding of specific configuration values
+   - Support capability-based configuration presets
+
+5. **Agent Registration Integration**:
+   - Update agent registration form to include manager configuration
+   - Provide templates for common agent configurations
+   - Add capability-based presets for manager settings
+
+### Phase 8: Scheduler/Autonomy System Refactoring
+
+| Task | Scope | Priority | Status |
+|------|-------|----------|--------|
+| Rename ChloeScheduler to AgentScheduler | Create generic scheduler class usable by any agent | High | 🔄 Not Started |
+| Create SchedulerRegistry | Implement registry for managing multiple agent schedulers | High | 🔄 Not Started |
+| Parameterize hardcoded values | Replace hardcoded "chloe" references with agent ID config | High | 🔄 Not Started |
+| Create task templates based on capabilities | Define task templates based on agent capabilities | Medium | 🔄 Not Started |
+| Implement per-agent cron job management | Ensure cron jobs are isolated per agent | Medium | 🔄 Not Started |
+
+#### Scheduler System Implementation
+
+The scheduler system needs to be refactored to support multiple agents with different capabilities:
+
+1. **Agent-Agnostic Scheduler**:
+   - Rename `ChloeScheduler` to `AgentScheduler`
+   - Replace hardcoded agent ID references with configurable values
+   - Create a registry to track multiple schedulers
+
+2. **Task Templates Based on Capabilities**:
+   - Define task templates based on agent capabilities
+   - Allow agents to have capability-specific scheduled tasks
+   - Create a task matching system based on capability profiles
+
+3. **Simplified Refactoring Approach**:
+   - Make minimal changes to the existing code structure
+   - Focus on parameterizing hardcoded values
+   - Add a registry layer for multi-agent support
+
+This simplified approach to the scheduler system refactoring aligns with the "move Chloe to base" approach by focusing on making the existing code more generic rather than reconstructing it from scratch.
+
 ## Implementation Plan
 
 ### Phase 1: Agent Architecture Integration
@@ -75,8 +161,8 @@ This project will refactor our agent architecture to use a generic, configurable
 | Task | Scope | Priority | Status |
 |------|-------|----------|--------|
 | Implement dynamic knowledge paths | Replace hardcoded knowledge paths with dynamic paths | High | ✅ Completed |
-| Create markdown upload system | Develop file upload interface for agent-specific knowledge | Medium | 🔄 In Progress |
-| Implement agent-specific storage | Create dedicated storage for each agent's knowledge files | Medium | 🔄 Not Started |
+| Create markdown upload system | Develop file upload interface for agent-specific knowledge | Medium | ✅ Completed |
+| Implement agent-specific storage | Create dedicated storage for each agent's knowledge files | Medium | ✅ Completed |
 | Refactor MarkdownManager | Make MarkdownManager configurable and agent-agnostic | High | ✅ Completed |
 
 #### Knowledge System Implementation
@@ -184,12 +270,13 @@ The persona system defines how agents communicate, behave, and present themselve
 
 | Task | Scope | Priority | Status |
 |------|-------|----------|--------|
-| Enhance AgentRegistrationForm | Add additional fields for all agent configurations | High | 🔄 In Progress |
-| Implement knowledge upload UI | Create UI for uploading markdown knowledge | Medium | 🔄 In Progress |
+| Enhance AgentRegistrationForm | Add additional fields for all agent configurations | High | ✅ Completed |
+| Implement knowledge upload UI | Create UI for uploading markdown knowledge | Medium | ✅ Completed |
 | Create capability selection UI | Develop UI for selecting from available capabilities | Medium | ✅ Completed |
-| Add system prompt editor | Implement editor for customizing system prompts | High | 🔄 In Progress |
+| Add system prompt editor | Implement editor for customizing system prompts | High | ✅ Completed |
 | Implement capability configuration table | Implement a four-column table layout for managing capabilities | Medium | ✅ Completed |
 | Add Agent Persona Configuration | Add structured text fields for persona aspects | High | ✅ Completed |
+| Add Manager Configuration UI | NEW: Add controls for enabling/disabling agent managers | High | 🔄 Not Started |
 
 #### AgentRegistrationForm Enhancements
 
@@ -230,8 +317,6 @@ The `AgentRegistrationForm.tsx` has been enhanced with the following components:
    - ✅ Added automatic conversion between extended and standard agent types
    - ✅ Ensured backward compatibility with existing API interfaces
 
-With these enhancements, the registration form now provides a comprehensive interface for configuring all aspects of an agent, including Chloe.
-
 ### Phase 5: Testing & Validation
 
 | Task | Scope | Priority | Status |
@@ -243,558 +328,199 @@ With these enhancements, the registration form now provides a comprehensive inte
 
 ## Key Changes Required
 
-### 1. Refactor ChloeAgent to Extend AgentBase
+### 1. Move Chloe to Base Agent
 
 ```typescript
 // BEFORE
+// agents/chloe/core/agent.ts
 export class ChloeAgent implements IAgent {
   readonly agentId: string = 'chloe';
   // ...
 }
 
 // AFTER
-import { AgentBase } from '../../lib/agents/shared/base/AgentBase';
-
-export class ChloeAgent extends AgentBase {
-  constructor(options: AgentOptions) {
-    super({
-      config: {
-        agentId: 'chloe',
-        name: 'Chloe',
-        description: 'CMO of Crowd Wisdom focused on marketing strategy',
-        ...options.config
-      },
-      capabilityLevel: options.capabilityLevel || AgentCapabilityLevel.ADVANCED,
-      toolPermissions: options.toolPermissions || []
-    });
-  }
-}
-```
-
-### 2. Make Knowledge Paths Dynamic
-
-```typescript
-// BEFORE
-private getAgentDirectories(): string[] {
-  return [
-    'data/knowledge/company',
-    `data/knowledge/agents/${this.agentId}`,
-    'data/knowledge/agents/shared',
-    `data/knowledge/domains/${this.department}`,
-    'data/knowledge/test'
-  ];
-}
-
-// AFTER
-private getAgentDirectories(): string[] {
-  // Reuse implementation from AgentBase or KnowledgeManager
-  return this.getDefaultDirectories();
-}
-```
-
-### 3. Make System Prompts Configurable
-
-```typescript
-// BEFORE
-this.config = {
-  systemPrompt: SYSTEM_PROMPTS.CHLOE,
-  model: 'gpt-4.1-2025-04-14',
-  temperature: 0.7,
-  maxTokens: 4000,
-  ...(options?.config || {}),
-};
-
-// AFTER
-// Leverage the AgentBase config constructor
-super({
-  config: {
-    systemPrompt: options?.config?.systemPrompt || SYSTEM_PROMPTS.CHLOE,
-    model: options?.config?.model || process.env.DEFAULT_MODEL || 'gpt-4.1-2025-04-14',
-    temperature: options?.config?.temperature || 0.7,
-    maxTokens: options?.config?.maxTokens || 4000,
-    ...(options?.config || {})
-  }
-});
-```
-
-### 4. Replace Singleton Pattern
-
-```typescript
-// BEFORE
-// Global instance (singleton)
-let chloeInstance: ChloeAgent | null = null;
-
-export async function getChloeInstance(): Promise<ChloeAgent> {
-  if (chloeInstance) {
-    return chloeInstance;
+// lib/agents/base/agent.ts
+export class BaseAgent implements IAgent {
+  readonly agentId: string;
+  readonly config: AgentConfig;
+  readonly managers: Map<string, AgentManager> = new Map();
+  
+  constructor(options: BaseAgentOptions) {
+    this.agentId = options.agentId;
+    this.config = {
+      ...DEFAULT_CONFIG,
+      ...options.config
+    };
+    
+    // Initialize only the managers enabled in configuration
+    if (this.config.enableMemoryManager) {
+      this.managers.set('memory', new MemoryManager({
+        agent: this,
+        config: this.config.memoryManagerConfig
+      }));
+    }
+    
+    // Similar for other managers...
   }
   
-  chloeInstance = new ChloeAgent();
-  await chloeInstance.initialize();
-  return chloeInstance;
+  // Common functionality shared by all agents...
 }
 
-// AFTER
-// Use the existing AgentRegistry or adapt it
-import { AgentRegistry } from '../../lib/agents/registry';
-
-export async function getChloeInstance(): Promise<any> {
-  return AgentRegistry.getAgent('chloe');
+// agents/chloe/index.ts (new minimal implementation)
+export class ChloeAgent extends BaseAgent {
+  constructor(options: ChloeAgentOptions = {}) {
+    super({
+      agentId: 'chloe',
+      config: {
+        // Enable all the managers Chloe currently uses
+        enableMemoryManager: true,
+        enablePlanningManager: true,
+        enableKnowledgeManager: true,
+        // Chloe-specific configurations
+        department: 'marketing',
+        role: 'cmo',
+        // ...other Chloe-specific settings
+        ...options.config
+      }
+    });
+  }
+  
+  // Any Chloe-specific methods that aren't in BaseAgent...
 }
 ```
 
-### 5. Update Manager Initialization
+### 2. Rename and Refactor Scheduler
 
 ```typescript
 // BEFORE
-this.markdownManager = new MarkdownManager({
-  memory: chloeMemory,
-  agentId: this.agentId,
-  department: 'marketing',
-  logFunction: (message, data) => {
-    this.taskLogger.logAction(`MarkdownManager: ${message}`, data);
-  }
-});
+// agents/chloe/scheduler.ts
+export class ChloeScheduler {
+  private agent: ExtendedChloeAgent;
+  // ...
+}
 
 // AFTER
-this.markdownManager = new MarkdownManager({
-  memory: this.memory,
-  agentId: this.agentId,
-  department: this.config.department || 'marketing',
-  knowledgePaths: this.config.knowledgePaths,
-  logFunction: (message, data) => {
-    this.taskLogger.logAction(`MarkdownManager: ${message}`, data);
+// lib/agents/base/scheduler.ts
+export class AgentScheduler {
+  private agent: IAgent;
+  // ...
+  
+  constructor(agent: IAgent, options: AgentSchedulerOptions = {}) {
+    this.agent = agent;
+    // Initialize with agent-agnostic approach
+    // ...
+    
+    // Register this scheduler in the registry
+    SchedulerRegistry.registerScheduler(agent.agentId, this);
   }
-});
+}
+
+// lib/agents/base/scheduler-registry.ts
+export class SchedulerRegistry {
+  private static schedulers = new Map<string, AgentScheduler>();
+  
+  static registerScheduler(agentId: string, scheduler: AgentScheduler): void {
+    this.schedulers.set(agentId, scheduler);
+  }
+  
+  static getScheduler(agentId: string): AgentScheduler | undefined {
+    return this.schedulers.get(agentId);
+  }
+}
 ```
 
-## Risk Analysis
+### 3. Task Template System
 
-| Risk | Probability | Impact | Mitigation |
-|------|------------|--------|------------|
-| Regression in Chloe functionality | Medium | High | Create comprehensive test suite for current Chloe behavior before changes |
-| Performance degradation | Low | Medium | Benchmark performance before and after changes |
-| API compatibility issues | Medium | Medium | Create compatibility layers for existing code |
-| Incomplete decoupling | Medium | High | Perform static analysis to identify all hardcoded references |
-| Knowledge system disruption | High | High | Implement careful migration strategy for existing knowledge |
-| Integration challenges with existing components | Medium | High | Create mapping between ChloeAgent and AgentBase interfaces |
-| Form complexity overwhelming users | Medium | Medium | Design intuitive UI with progressive disclosure of advanced options |
-
-## Backward Compatibility Plan
-
-1. Create shim layers for existing Chloe imports
-2. Implement backward compatibility for existing API endpoints
-3. Create migration tool for moving from hardcoded to configurable agents
-4. Provide conversion utilities for existing knowledge repositories
-5. Map Chloe's specialized functionality to the generic AgentBase
-
-## Success Criteria
-
-1. Chloe can be fully recreated through the registration form with identical capabilities
-2. Multiple agents can be created with different configurations
-3. No hardcoded references to "chloe" remain in the codebase
-4. All agent-specific data is stored in a structured, configurable format
-5. Knowledge system supports different knowledge bases per agent
-6. ChloeAgent works through the generic agent system with no loss of functionality
-
-#### Agent Persona Configuration Design
-
-The persona configuration will use an intuitive interface to define how an agent communicates and behaves:
-
-```tsx
-const PersonaConfigurationPanel = () => {
-  return (
-    <div className="bg-gray-800 rounded-lg p-6 my-4">
-      <h2 className="text-xl font-semibold mb-4">Agent Persona</h2>
-      
-      {/* Persona Template Selector */}
-      <div className="mb-6">
-        <label className="block text-sm font-medium mb-2">Persona Template</label>
-        <select 
-          value={selectedTemplate} 
-          onChange={handleTemplateChange}
-          className="w-full bg-gray-700 border border-gray-600 rounded p-2"
-        >
-          <option value="">Custom Persona</option>
-          <option value="professional">Professional Expert</option>
-          <option value="friendly">Friendly Assistant</option>
-          <option value="creative">Creative Collaborator</option>
-          <option value="analytical">Analytical Advisor</option>
-          <option value="chloe">Chloe (Marketing CMO)</option>
-        </select>
-      </div>
-      
-      {/* Personality Traits */}
-      <div className="mb-6">
-        <h3 className="text-md font-medium mb-3">Personality Traits</h3>
-        
-        <div className="space-y-4">
-          {/* Friendliness Slider */}
-          <div>
-            <div className="flex justify-between mb-1">
-              <label className="text-sm">Friendliness</label>
-              <span className="text-sm text-blue-400">{friendliness}/10</span>
-            </div>
-            <div className="flex items-center">
-              <span className="text-xs mr-2">Formal</span>
-              <input
-                type="range"
-                min="1"
-                max="10"
-                value={friendliness}
-                onChange={(e) => setFriendliness(parseInt(e.target.value))}
-                className="flex-grow"
-              />
-              <span className="text-xs ml-2">Warm</span>
-            </div>
-          </div>
-          
-          {/* Detail Orientation Slider */}
-          <div>
-            <div className="flex justify-between mb-1">
-              <label className="text-sm">Detail Orientation</label>
-              <span className="text-sm text-blue-400">{detailLevel}/10</span>
-            </div>
-            <div className="flex items-center">
-              <span className="text-xs mr-2">Concise</span>
-              <input
-                type="range"
-                min="1"
-                max="10"
-                value={detailLevel}
-                onChange={(e) => setDetailLevel(parseInt(e.target.value))}
-                className="flex-grow"
-              />
-              <span className="text-xs ml-2">Detailed</span>
-            </div>
-          </div>
-          
-          {/* Creativity Slider */}
-          <div>
-            <div className="flex justify-between mb-1">
-              <label className="text-sm">Creativity</label>
-              <span className="text-sm text-blue-400">{creativity}/10</span>
-            </div>
-            <div className="flex items-center">
-              <span className="text-xs mr-2">Analytical</span>
-              <input
-                type="range"
-                min="1"
-                max="10"
-                value={creativity}
-                onChange={(e) => setCreativity(parseInt(e.target.value))}
-                className="flex-grow"
-              />
-              <span className="text-xs ml-2">Creative</span>
-            </div>
-          </div>
-          
-          {/* Assertiveness Slider */}
-          <div>
-            <div className="flex justify-between mb-1">
-              <label className="text-sm">Assertiveness</label>
-              <span className="text-sm text-blue-400">{assertiveness}/10</span>
-            </div>
-            <div className="flex items-center">
-              <span className="text-xs mr-2">Cautious</span>
-              <input
-                type="range"
-                min="1"
-                max="10"
-                value={assertiveness}
-                onChange={(e) => setAssertiveness(parseInt(e.target.value))}
-                className="flex-grow"
-              />
-              <span className="text-xs ml-2">Confident</span>
-            </div>
-          </div>
-        </div>
-      </div>
-      
-      {/* Communication Style */}
-      <div className="mb-6">
-        <h3 className="text-md font-medium mb-3">Communication Style</h3>
-        
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm mb-1">Tone</label>
-            <select 
-              value={tone} 
-              onChange={(e) => setTone(e.target.value)}
-              className="w-full bg-gray-700 border border-gray-600 rounded p-2"
-            >
-              <option value="professional">Professional</option>
-              <option value="casual">Casual</option>
-              <option value="technical">Technical</option>
-              <option value="friendly">Friendly</option>
-              <option value="authoritative">Authoritative</option>
-            </select>
-          </div>
-          
-          <div>
-            <label className="block text-sm mb-1">Language Style</label>
-            <select 
-              value={languageStyle} 
-              onChange={(e) => setLanguageStyle(e.target.value)}
-              className="w-full bg-gray-700 border border-gray-600 rounded p-2"
-            >
-              <option value="simple">Simple & Accessible</option>
-              <option value="advanced">Advanced Vocabulary</option>
-              <option value="technical">Technical Terminology</option>
-              <option value="conversational">Conversational</option>
-            </select>
-          </div>
-        </div>
-      </div>
-      
-      {/* Response Preview */}
-      <div className="mb-4">
-        <h3 className="text-md font-medium mb-2">Response Preview</h3>
-        <div className="bg-gray-700 border border-gray-600 rounded p-3 text-sm">
-          <p className="mb-2"><strong>Example Prompt:</strong> "Can you explain how SEO works?"</p>
-          <div className="border-l-2 border-blue-400 pl-3 mt-2">
-            {generatePreviewResponse()}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+```typescript
+// lib/agents/base/task-templates.ts
+export const TASK_TEMPLATES: Record<string, AgentScheduledTask[]> = {
+  MARKETING: [
+    {
+      id: 'market-scan',
+      name: 'Market Scan',
+      description: 'Scan the market for new trends and opportunities',
+      schedule: '0 11 * * 2,5', // 11 AM Tuesday and Friday
+      goalPrompt: 'Scan the market for new trends and opportunities',
+      tags: ['market', 'research']
+    },
+    // Other marketing tasks...
+  ],
+  RESEARCH: [
+    {
+      id: 'trending-topics',
+      name: 'Trending Topics',
+      description: 'Research trending topics in the agent\'s domain',
+      schedule: '0 14 * * 3', // 2 PM every Wednesday
+      goalPrompt: 'Research trending topics in your field',
+      tags: ['trending', 'research']
+    },
+    // Other research tasks...
+  ],
+  // Other capability-based task sets...
 };
+
+export function getTasksForCapabilities(capabilities: string[]): AgentScheduledTask[] {
+  const tasks: AgentScheduledTask[] = [];
+  
+  // Add core tasks every agent should have
+  tasks.push({
+    id: 'memory-consolidation',
+    name: 'Memory Consolidation',
+    description: 'Consolidate memories and reinforce important connections',
+    schedule: '0 2 * * *', // 2 AM every day
+    goalPrompt: 'Consolidate memories and reinforce important connections',
+    tags: ['memory', 'maintenance']
+  });
+  
+  // Add capability-specific tasks
+  if (capabilities.includes('marketing')) {
+    tasks.push(...TASK_TEMPLATES.MARKETING);
+  }
+  
+  if (capabilities.includes('research')) {
+    tasks.push(...TASK_TEMPLATES.RESEARCH);
+  }
+  
+  // Return all matched tasks
+  return tasks;
+}
 ```
 
-This design allows for detailed persona configuration while providing immediate feedback through a response preview that shows how the agent would respond with the current settings. The persona data would be stored in the agent's configuration and used to modify system prompts and response formatting. 
+### 4. Updated Agent Registration Form
 
-#### Agent Persona Memory Approach
+The `AgentRegistrationForm` will need new sections for:
 
-Instead of modifying the agent model, we'll use a memory-based approach for personality and persona:
+1. **Manager Configuration**: 
+   - Enable/disable different manager types
+   - Configure parameters for each enabled manager
 
-1. **Text Input Fields for Persona Aspects**:
-   - Each persona aspect will have a dedicated text input field in the UI
-   - Fields will include: Background, Personality, Communication Style, Preferences, etc.
-   - Simple rich text editing for formatting as needed
+2. **Scheduler Configuration**:
+   - Enable/disable the scheduler system
+   - Select task templates based on agent capabilities
+   - Configure custom scheduled tasks
 
-2. **Memory-Based Implementation**:
-   - Each field's content will be ingested as a critically important tagged memory
-   - No modification to the agent model or metadata schema required
-   - Leverages existing memory retrieval mechanisms
+## Testing & Validation
 
-3. **UI Implementation**:
+The testing phase will need to verify:
 
-```tsx
-const PersonaMemoryFields = () => {
-  return (
-    <div className="bg-gray-800 rounded-lg p-6 my-4">
-      <h2 className="text-xl font-semibold mb-4">Agent Persona Information</h2>
-      
-      {/* Background Field */}
-      <div className="mb-6">
-        <div className="flex justify-between mb-1">
-          <label className="block text-sm font-medium">Background & Role</label>
-          <div className="flex items-center">
-            <div className="h-2 w-2 rounded-full bg-red-500 mr-1"></div>
-            <span className="text-xs text-gray-400">Critical Memory</span>
-          </div>
-        </div>
-        <textarea
-          value={background}
-          onChange={(e) => setBackground(e.target.value)}
-          placeholder="Describe the agent's background, role, and expertise..."
-          className="w-full bg-gray-700 border border-gray-600 rounded p-3 min-h-[100px]"
-        />
-        <div className="flex justify-between mt-1">
-          <span className="text-xs text-gray-400">What is the agent's background, experience, and role?</span>
-          <span className="text-xs text-gray-400">{background.length} chars</span>
-        </div>
-      </div>
-      
-      {/* Personality Traits Field */}
-      <div className="mb-6">
-        <div className="flex justify-between mb-1">
-          <label className="block text-sm font-medium">Personality Traits</label>
-          <div className="flex items-center">
-            <div className="h-2 w-2 rounded-full bg-red-500 mr-1"></div>
-            <span className="text-xs text-gray-400">Critical Memory</span>
-          </div>
-        </div>
-        <textarea
-          value={personality}
-          onChange={(e) => setPersonality(e.target.value)}
-          placeholder="Describe the agent's personality traits, character, and temperament..."
-          className="w-full bg-gray-700 border border-gray-600 rounded p-3 min-h-[100px]"
-        />
-        <div className="flex justify-between mt-1">
-          <span className="text-xs text-gray-400">How would you describe the agent's character and personality?</span>
-          <span className="text-xs text-gray-400">{personality.length} chars</span>
-        </div>
-      </div>
-      
-      {/* Communication Style Field */}
-      <div className="mb-6">
-        <div className="flex justify-between mb-1">
-          <label className="block text-sm font-medium">Communication Style</label>
-          <div className="flex items-center">
-            <div className="h-2 w-2 rounded-full bg-red-500 mr-1"></div>
-            <span className="text-xs text-gray-400">Critical Memory</span>
-          </div>
-        </div>
-        <textarea
-          value={communicationStyle}
-          onChange={(e) => setCommunicationStyle(e.target.value)}
-          placeholder="Describe how the agent communicates, their tone, language style..."
-          className="w-full bg-gray-700 border border-gray-600 rounded p-3 min-h-[100px]"
-        />
-        <div className="flex justify-between mt-1">
-          <span className="text-xs text-gray-400">How does the agent communicate? Formal/casual? Verbose/concise?</span>
-          <span className="text-xs text-gray-400">{communicationStyle.length} chars</span>
-        </div>
-      </div>
-      
-      {/* Preferences Field */}
-      <div className="mb-6">
-        <div className="flex justify-between mb-1">
-          <label className="block text-sm font-medium">Preferences & Biases</label>
-          <div className="flex items-center">
-            <div className="h-2 w-2 rounded-full bg-amber-500 mr-1"></div>
-            <span className="text-xs text-gray-400">Important Memory</span>
-          </div>
-        </div>
-        <textarea
-          value={preferences}
-          onChange={(e) => setPreferences(e.target.value)}
-          placeholder="Describe the agent's preferences, biases, and tendencies..."
-          className="w-full bg-gray-700 border border-gray-600 rounded p-3 min-h-[100px]"
-        />
-        <div className="flex justify-between mt-1">
-          <span className="text-xs text-gray-400">What approaches does the agent prefer or tend toward?</span>
-          <span className="text-xs text-gray-400">{preferences.length} chars</span>
-        </div>
-      </div>
-      
-      {/* Template Selection and File Upload */}
-      <div className="grid grid-cols-2 gap-4 mb-6">
-        <div>
-          <label className="block text-sm font-medium mb-2">Load Persona Template</label>
-          <select 
-            onChange={handleTemplateChange}
-            className="w-full bg-gray-700 border border-gray-600 rounded p-2"
-          >
-            <option value="">Select Template</option>
-            <option value="professional">Professional Expert</option>
-            <option value="friendly">Friendly Assistant</option>
-            <option value="chloe">Chloe (Marketing CMO)</option>
-          </select>
-        </div>
-        
-        <div>
-          <label className="block text-sm font-medium mb-2">Upload Persona File</label>
-          <div className="flex items-center">
-            <label className="flex-grow">
-              <div className="bg-blue-600 hover:bg-blue-700 text-center py-2 px-4 rounded cursor-pointer">
-                Select File
-              </div>
-              <input 
-                type="file" 
-                className="hidden" 
-                accept=".txt,.md"
-                onChange={handleFileUpload} 
-              />
-            </label>
-          </div>
-        </div>
-      </div>
-      
-      {/* Memory Preview */}
-      <div>
-        <h3 className="text-md font-medium mb-2">How Agent Will Process This Information</h3>
-        <div className="bg-gray-700 border border-gray-600 rounded p-3 text-xs font-mono">
-          <div className="mb-2">
-            <span className="text-pink-400">// Critical Memory: Background & Role</span><br/>
-            <span className="text-gray-200">memoryId: "{generateId('background')}"</span><br/>
-            <span className="text-gray-200">importance: "critical"</span><br/>
-            <span className="text-gray-200">tags: ["personality", "background", "core"]</span><br/>
-            <span className="text-gray-200">content: "{background.substring(0, 50)}..."</span>
-          </div>
-          <div className="mb-2">
-            <span className="text-pink-400">// Critical Memory: Personality Traits</span><br/>
-            <span className="text-gray-200">memoryId: "{generateId('personality')}"</span><br/>
-            <span className="text-gray-200">importance: "critical"</span><br/>
-            <span className="text-gray-200">tags: ["personality", "traits", "core"]</span><br/>
-            <span className="text-gray-200">content: "{personality.substring(0, 50)}..."</span>
-          </div>
-          <div className="mb-2">
-            <span className="text-pink-400">// Critical Memory: Communication Style</span><br/>
-            <span className="text-gray-200">memoryId: "{generateId('communication')}"</span><br/>
-            <span className="text-gray-200">importance: "critical"</span><br/>
-            <span className="text-gray-200">tags: ["personality", "communication", "core"]</span><br/>
-            <span className="text-gray-200">content: "{communicationStyle.substring(0, 50)}..."</span>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-};
-```
+1. **Backward Compatibility**: Existing code that references Chloe continues to work
+2. **Multi-Agent Support**: Multiple agents can be created with different configurations
+3. **Manager Configuration**: Agents can selectively enable/disable different managers
+4. **Scheduler Functionality**: Each agent can have its own scheduler with appropriate tasks
+5. **Chloe Functionality**: The new minimal Chloe implementation retains all original functionality
 
-4. **Memory Ingestion Process**:
-   - On agent creation, text field content is processed as critical memories
-   - Fields are tagged appropriately (personality, background, communication, etc.)
-   - Memories are set with highest importance level for consistent retrieval
-   - File attachments are processed similarly with appropriate tags
+## Completion Criteria
 
-5. **Advantages of This Approach**:
-   - No need to modify the agent model or metadata schema
-   - Uses existing memory mechanisms that already work
-   - Provides structure through the UI but flexibility in the backend
-   - Easy to extend with additional persona aspects
-   - Memory approach ensures personality is always available in context 
+1. Chloe's implementation has been moved to `lib/agents/base`
+2. A new minimal Chloe agent extends from the base implementation
+3. All hardcoded references to "chloe" are replaced with configuration values
+4. The scheduler system has been refactored to support multiple agents
+5. The agent registration form supports all configuration options
+6. Tests verify backward compatibility and proper functionality
 
-## Completion Summary
+## Next Steps
 
-### What We've Accomplished
-
-The Chloe Decoupling Project has made significant progress, achieving most of the project objectives:
-
-1. **Decoupled Chloe from the Codebase**: We've successfully separated Chloe-specific code from our agent architecture, creating a generic, configurable design where agent-specific data is separated from the underlying implementation.
-
-2. **Implemented Core Systems**:
-   - Created a standardized capability system with skills, roles, domains, and tags
-   - Implemented dynamic knowledge paths and agent-specific storage
-   - Developed a memory-based persona system for agent personality
-   - Built a comprehensive agent registration UI with all necessary components
-
-3. **Enhanced UI Components**:
-   - SystemPromptEditor: For customizing agent behavior through system prompts
-   - KnowledgeUploader: For managing agent-specific knowledge files
-   - AgentPersonaForm: For defining agent personality and communication style
-   - AgentCapabilityManager: For configuring agent capabilities and proficiency levels
-
-4. **Maintained Backward Compatibility**:
-   - Ensured existing Chloe functionality works with the new architecture
-   - Created conversion layers between extended and standard types
-   - Preserved API compatibility
-
-### Next Steps: Testing & Validation
-
-The final phase of the project will focus on comprehensive testing and validation:
-
-1. **Testing Plan**: We've created a detailed testing plan in `docs/testing/AGENT_REGISTRATION_TESTING.md` that outlines all test scenarios and success criteria.
-
-2. **Chloe Recreation Test**: A key validation will be recreating Chloe through the registration form and comparing functionality with the original implementation.
-
-3. **Regression Testing**: We'll ensure no functionality has been lost during the refactoring process.
-
-4. **Cross-Agent Interactions**: We'll test interactions between different agent types to validate the multi-agent capabilities.
-
-### Lessons Learned
-
-The project reinforced several important development principles:
-
-1. **Interface-First Design**: Defining clear interfaces before implementation helped create a more modular and maintainable system.
-
-2. **Clean Break from Legacy Code**: Following the guidance in our implementation guidelines, we created a clean break from the legacy code rather than extending it.
-
-3. **Type Safety**: Ensuring proper TypeScript types throughout the system helped catch issues early and provided better documentation.
-
-4. **Component Reusability**: The new components are designed to be reusable across different parts of the application.
-
-With the completion of the UI Registration Flow Enhancement phase, the project is now ready for final testing and validation before being considered fully complete. 
+1. Begin implementation of Phase 7 (Move Chloe to Base)
+2. Prepare for Phase 8 (Scheduler Refactoring)
+3. Update the UI registration form to support the new configuration options
+4. Create tests to verify the proper functioning of the new architecture

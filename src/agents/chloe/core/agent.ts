@@ -1,10 +1,12 @@
 /**
  * Simplified ChloeAgent - Core implementation for Chloe marketing agent
+ * Implements the agent using the enhanced AgentBase with manager support
  */
 
 import { ChatOpenAI } from '@langchain/openai';
 import { AgentBase, AgentBaseConfig, AgentCapabilityLevel } from '../../shared/base/AgentBase';
 import { TaskLogger } from '../task-logger';
+import { ManagerConfig } from '../../shared/base/managers/BaseManager';
 
 // Define default system prompt
 const DEFAULT_SYSTEM_PROMPT = "You are Chloe, CMO of Crowd Wisdom. You provide marketing expertise and strategy.";
@@ -95,11 +97,6 @@ export interface AutonomySystem {
 export class ChloeAgent extends AgentBase {
   private taskLogger: TaskLogger;
   private department: string;
-  private autonomySystem: AutonomySystem | null = null;
-  private reflectionManager: ReflectionManager | null = null;
-  private planningManager: PlanningManager | null = null;
-  private knowledgeGapsManager: KnowledgeGapsManager | null = null;
-  private toolManager: ToolManager | null = null;
   
   /**
    * Create a new Chloe agent
@@ -115,9 +112,41 @@ export class ChloeAgent extends AgentBase {
       temperature: 0.7,
       maxTokens: 4000,
       capabilities: {
-        skills: {} as any,
+        skills: {}, // Will be populated
         domains: ['marketing', 'growth', 'strategy'],
         roles: ['cmo', 'advisor', 'strategist']
+      },
+      managers: {
+        // Enable specific managers with Chloe's configuration
+        memory: {
+          enabled: true,
+          // Memory manager specific config
+          enableAutoPruning: true,
+          pruningIntervalMs: 300000, // 5 minutes
+          maxShortTermEntries: 100,
+          relevanceThreshold: 0.2,
+          enableAutoConsolidation: true
+        },
+        planning: {
+          enabled: true,
+          // Planning manager specific config
+        },
+        scheduler: {
+          enabled: true,
+          // Scheduler manager specific config
+        },
+        knowledge: {
+          enabled: true,
+          // Knowledge manager specific config
+        },
+        reflection: {
+          enabled: true,
+          // Reflection manager specific config
+        },
+        tools: {
+          enabled: true,
+          // Tools manager specific config
+        }
       }
     };
     
@@ -169,34 +198,22 @@ export class ChloeAgent extends AgentBase {
   }
 
   /**
-   * Execute a plan (simplified implementation)
+   * Execute a plan (now using planning manager)
    */
   async planAndExecute(goal: string, options?: PlanAndExecuteOptions): Promise<PlanAndExecuteResult> {
-    if (!this.model) {
-      return {
-        success: false,
-        message: 'Planning execution failed',
-        error: 'Model not initialized'
-      };
-    }
-    
-    // Simplified implementation
-    return {
-      success: true,
-      message: `Planned execution for: ${goal}`,
-      plan: { steps: [] }
-    };
+    return await super.planAndExecute(goal, options) as PlanAndExecuteResult;
   }
   
   /**
-   * Get the Chloe memory (placeholder)
+   * Get the Chloe memory (through memory manager)
    */
   getChloeMemory(): any {
-    return null;
+    const memoryManager = this.getManager('memory');
+    return memoryManager;
   }
   
   /**
-   * Notification function (placeholder)
+   * Notification function
    */
   notify(message: string): void {
     console.log(`[Chloe Notification] ${message}`);
@@ -210,93 +227,125 @@ export class ChloeAgent extends AgentBase {
   }
 
   /**
-   * Get the agent's autonomy system
+   * Get the agent's autonomy system (through scheduler manager)
    */
   getAutonomySystem(): AutonomySystem | null {
-    return this.autonomySystem;
+    const schedulerManager = this.getManager('scheduler');
+    return schedulerManager as unknown as AutonomySystem;
   }
 
   /**
    * Get the agent's reflection manager
    */
   getReflectionManager(): ReflectionManager | null {
-    return this.reflectionManager;
+    return this.getManager('reflection') as unknown as ReflectionManager;
   }
 
   /**
    * Get the agent's planning manager
    */
   getPlanningManager(): PlanningManager | null {
-    return this.planningManager;
+    return this.getManager('planning') as unknown as PlanningManager;
   }
 
   /**
    * Get the agent's knowledge gaps manager
    */
   getKnowledgeGapsManager(): KnowledgeGapsManager | null {
-    return this.knowledgeGapsManager;
+    return this.getManager('knowledge') as unknown as KnowledgeGapsManager;
   }
 
   /**
    * Get the agent's tool manager
    */
   getToolManager(): ToolManager | null {
-    return this.toolManager;
+    return this.getManager('tools') as unknown as ToolManager;
   }
 
   /**
    * Schedule a task
    */
-  scheduleTask(task: any): Promise<boolean> {
+  async scheduleTask(task: any): Promise<boolean> {
+    const schedulerManager = this.getManager('scheduler');
+    if (schedulerManager && typeof (schedulerManager as any).scheduleTask === 'function') {
+      return await (schedulerManager as any).scheduleTask(task);
+    }
+    
     console.log(`[Chloe] Scheduling task: ${JSON.stringify(task)}`);
-    return Promise.resolve(true);
+    return true;
   }
 
   /**
    * Get tasks with a specific tag
    */
-  getTasksWithTag(tag: string): Promise<any[]> {
+  async getTasksWithTag(tag: string): Promise<any[]> {
+    const schedulerManager = this.getManager('scheduler');
+    if (schedulerManager && typeof (schedulerManager as any).getTasksWithTag === 'function') {
+      return await (schedulerManager as any).getTasksWithTag(tag);
+    }
+    
     console.log(`[Chloe] Getting tasks with tag: ${tag}`);
-    return Promise.resolve([]);
+    return [];
   }
 
   /**
    * Queue a task
    */
-  queueTask(task: any): Promise<boolean> {
+  async queueTask(task: any): Promise<boolean> {
+    const schedulerManager = this.getManager('scheduler');
+    if (schedulerManager && typeof (schedulerManager as any).queueTask === 'function') {
+      return await (schedulerManager as any).queueTask(task);
+    }
+    
     console.log(`[Chloe] Queuing task: ${JSON.stringify(task)}`);
-    return Promise.resolve(true);
+    return true;
   }
 
   /**
    * Run daily tasks
    */
   async runDailyTasks(): Promise<any> {
+    const schedulerManager = this.getManager('scheduler');
+    if (schedulerManager && typeof (schedulerManager as any).runDailyTasks === 'function') {
+      return await (schedulerManager as any).runDailyTasks();
+    }
+    
     console.log(`[Chloe] Running daily tasks`);
-    return Promise.resolve({ success: true });
+    return { success: true };
   }
 
   /**
    * Run weekly reflection
    */
   async runWeeklyReflection(): Promise<string> {
+    const reflectionManager = this.getManager('reflection');
+    if (reflectionManager && typeof (reflectionManager as any).runWeeklyReflection === 'function') {
+      return await (reflectionManager as any).runWeeklyReflection();
+    }
+    
     console.log(`[Chloe] Running weekly reflection`);
-    return Promise.resolve("Weekly reflection completed");
+    return "Weekly reflection completed";
   }
 
   /**
    * Summarize conversation
    */
   async summarizeConversation(options: { maxEntries?: number } = {}): Promise<string> {
+    const memoryManager = this.getManager('memory');
+    if (memoryManager && typeof (memoryManager as any).summarizeConversation === 'function') {
+      return await (memoryManager as any).summarizeConversation(options);
+    }
+    
     console.log(`[Chloe] Summarizing conversation with max ${options.maxEntries || 'all'} entries`);
-    return Promise.resolve("Conversation summary placeholder");
+    return "Conversation summary placeholder";
   }
   
   /**
    * Send daily summary to Discord
    */
   async sendDailySummaryToDiscord(): Promise<boolean> {
+    // This could be implemented through a notification manager in the future
     console.log(`[Chloe] Sending daily summary to Discord`);
-    return Promise.resolve(true);
+    return true;
   }
 }

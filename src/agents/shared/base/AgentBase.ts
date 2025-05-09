@@ -7,6 +7,7 @@
  * - Planning and execution capabilities
  * - Agent coordination for delegation
  * - Inter-agent messaging
+ * - Pluggable manager architecture for customizing agent capabilities
  */
 
 import { ChatOpenAI } from '@langchain/openai';
@@ -21,6 +22,8 @@ import { AgentMessage, MessageRouter, MessageType } from '../messaging/MessageRo
 import { Planner, PlanningContext, Plan } from '../planning/Planner';
 import { AgentHealthChecker } from '../coordination/AgentHealthChecker';
 import { CapabilityRegistry, CapabilityLevel, CapabilityType, Capability } from '../coordination/CapabilityRegistry';
+// Import manager system
+import { BaseManager, ManagerConfig } from './managers/BaseManager';
 // Imports for memory operations
 import { 
   addMessageMemory, 
@@ -60,6 +63,19 @@ interface ExtendedAgentMessage extends AgentMessage {
   id?: string;
 }
 
+/**
+ * Managers configuration for the agent
+ */
+export interface ManagersConfig {
+  memory?: ManagerConfig;
+  planning?: ManagerConfig;
+  knowledge?: ManagerConfig;
+  scheduler?: ManagerConfig;
+  reflection?: ManagerConfig;
+  tools?: ManagerConfig;
+  [key: string]: ManagerConfig | undefined;
+}
+
 // Basic agent configuration
 export interface AgentBaseConfig {
   agentId: string;
@@ -87,6 +103,7 @@ export interface AgentBaseConfig {
     enableMemoryInjection?: boolean;
     maxInjectedMemories?: number;
   };
+  managers?: ManagersConfig;
 }
 
 // Agent capability levels
@@ -125,6 +142,8 @@ export class AgentBase {
   protected domains: string[] = [];
   protected roles: string[] = [];
   protected capabilityRegistry: CapabilityRegistry;
+  // Manager registry
+  protected managers: Map<string, BaseManager> = new Map();
 
   constructor(options: AgentBaseOptions) {
     if (!options.config.agentId) {
@@ -259,6 +278,18 @@ export class AgentBase {
         }
       }
       
+      // Initialize all registered managers
+      const managerEntries = Array.from(this.managers.entries());
+      for (const [name, manager] of managerEntries) {
+        try {
+          console.log(`[${this.agentId}] Initializing manager: ${name}`);
+          await manager.initialize();
+        } catch (error) {
+          console.error(`[${this.agentId}] Error initializing manager ${name}:`, error);
+          // Continue with other managers
+        }
+      }
+      
       this.initialized = true;
       console.log(`[${this.agentId}] Agent initialized successfully`);
       return true;
@@ -266,6 +297,41 @@ export class AgentBase {
       console.error(`[${this.agentId}] Error initializing agent:`, error);
       return false;
     }
+  }
+  
+  /**
+   * Register a manager with the agent
+   * @param name Unique name for this manager
+   * @param manager Manager implementation
+   * @returns True if registration is successful
+   */
+  protected registerManager(name: string, manager: BaseManager): boolean {
+    if (this.managers.has(name)) {
+      console.warn(`[${this.agentId}] Manager "${name}" is already registered`);
+      return false;
+    }
+    
+    this.managers.set(name, manager);
+    console.log(`[${this.agentId}] Registered manager: ${name}`);
+    return true;
+  }
+  
+  /**
+   * Get a manager by name
+   * @param name Manager name
+   * @returns Manager instance or null if not found
+   */
+  getManager<T extends BaseManager>(name: string): T | null {
+    const manager = this.managers.get(name);
+    return manager ? (manager as T) : null;
+  }
+  
+  /**
+   * Get all registered managers
+   * @returns Map of manager names to manager instances
+   */
+  getAllManagers(): Map<string, BaseManager> {
+    return new Map(this.managers);
   }
   
   /**
@@ -447,8 +513,17 @@ export class AgentBase {
   
   /**
    * Prune agent's memory by removing low-relevance or outdated entries
+   * This method will preferentially use a memory manager if available
    */
   async pruneMemory(): Promise<void> {
+    // Check if we have a memory manager
+    const memoryManager = this.getManager<any>('memory');
+    if (memoryManager && typeof memoryManager.pruneMemories === 'function') {
+      await memoryManager.pruneMemories();
+      return;
+    }
+    
+    // Fall back to legacy implementation
     if (!this.memoryService || !this.initialized) {
       console.warn(`Cannot prune memory for agent ${this.agentId}: Memory services not initialized`);
       return;
@@ -470,10 +545,19 @@ export class AgentBase {
   
   /**
    * Consolidate agent memory by generating insights from collected memories
+   * This method will preferentially use a memory manager if available
    */
   async consolidateMemory(options: { 
     contextId?: string; 
   } = {}): Promise<void> {
+    // Check if we have a memory manager
+    const memoryManager = this.getManager<any>('memory');
+    if (memoryManager && typeof memoryManager.consolidateMemories === 'function') {
+      await memoryManager.consolidateMemories();
+      return;
+    }
+    
+    // Fall back to legacy implementation
     if (!this.memoryService || !this.initialized) {
       console.warn(`Cannot consolidate memory for agent ${this.agentId}: Memory services not initialized`);
       return;
@@ -978,7 +1062,7 @@ export class AgentBase {
   }
 
   /**
-   * Shutdown the agent
+   * Shutdown the agent and all its managers
    */
   async shutdown(): Promise<void> {
     try {
@@ -1007,6 +1091,18 @@ export class AgentBase {
         await this.consolidateMemory();
       }
       
+      // Shutdown all managers
+      const managerEntries = Array.from(this.managers.entries());
+      for (const [name, manager] of managerEntries) {
+        try {
+          console.log(`[${this.agentId}] Shutting down manager: ${name}`);
+          await manager.shutdown();
+        } catch (error) {
+          console.error(`[${this.agentId}] Error shutting down manager ${name}:`, error);
+          // Continue with other managers
+        }
+      }
+      
       this.initialized = false;
       console.log(`Agent ${this.agentId} shutdown complete`);
     } catch (error) {
@@ -1023,9 +1119,16 @@ export class AgentBase {
 
   /**
    * Plan and execute a task with proper planning and execution management
-   * This is a standard interface method that can be implemented by subclasses or used directly
+   * This method will preferentially use a planning manager if available
    */
   async planAndExecute(goal: string, options: any = {}): Promise<any> {
+    // Check if we have a planning manager
+    const planningManager = this.getManager<any>('planning');
+    if (planningManager && typeof planningManager.planAndExecute === 'function') {
+      return await planningManager.planAndExecute(goal, options);
+    }
+    
+    // Fall back to legacy implementation
     if (!this.initialized) {
       const initSuccess = await this.initialize();
       if (!initSuccess) {
