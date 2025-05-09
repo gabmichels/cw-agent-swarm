@@ -1,8 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getMemoryServices } from '../../../../server/memory/services';
 import { MemoryType } from '../../../../server/memory/config';
+import { MessageMetadata, MessageRole, ThreadInfo } from '../../../../types/metadata';
+import { createEnumStructuredId, EntityNamespace, EntityType } from '../../../../types/structured-id';
 
 export const runtime = 'nodejs';
+
+// Extended metadata interface for unreliable message flags
+interface ExtendedMessageMetadata extends MessageMetadata {
+  messageId?: string;
+  flaggedUnreliable?: boolean;
+  flaggedUnreliableAt?: string;
+  unreliabilityReason?: string;
+  excludeFromRetrieval?: boolean;
+  confidence?: number;
+}
 
 /**
  * API endpoint to flag content as unreliable
@@ -38,10 +50,11 @@ export async function POST(req: NextRequest) {
     if (searchResults.length > 0) {
       // If messageId was provided, try to match by ID first
       if (messageId) {
-        targetMemory = searchResults.find(result => 
-          result.point.id === messageId || 
-          (result.point.payload?.metadata && result.point.payload.metadata.messageId === messageId)
-        );
+        targetMemory = searchResults.find(result => {
+          const metadata = result.point.payload?.metadata as ExtendedMessageMetadata;
+          return result.point.id === messageId || 
+                (metadata && metadata.messageId === messageId);
+        });
       }
       
       // If no match by ID or ID wasn't provided, try to match by timestamp
@@ -65,11 +78,17 @@ export async function POST(req: NextRequest) {
     if (targetMemory) {
       console.log(`Found existing message to flag as unreliable: ${targetMemory.point.id}`);
       
+      // Get existing metadata
+      const existingMetadata = targetMemory.point.payload?.metadata || {};
+      const typedMetadata = existingMetadata as ExtendedMessageMetadata;
+      
       // Update the message metadata to mark it as unreliable
       await memoryService.updateMemory({
         id: targetMemory.point.id,
         type: MemoryType.MESSAGE,
         metadata: {
+          ...typedMetadata,
+          schemaVersion: typedMetadata.schemaVersion || "1.0.0",
           flaggedUnreliable: true,
           flaggedUnreliableAt: new Date().toISOString(),
           unreliabilityReason: 'user_flagged',
@@ -86,21 +105,36 @@ export async function POST(req: NextRequest) {
       // If message doesn't exist in memory yet, create a new entry with unreliable flag
       console.log('Creating new memory entry with unreliable flag');
       
+      // Create structured IDs
+      const systemUserId = createEnumStructuredId(EntityNamespace.SYSTEM, EntityType.USER, 'system');
+      const systemAgentId = createEnumStructuredId(EntityNamespace.SYSTEM, EntityType.AGENT, 'system');
+      const systemChatId = createEnumStructuredId(EntityNamespace.SYSTEM, EntityType.CHAT, 'flagged-content');
+      
+      // Create default thread info
+      const threadInfo: ThreadInfo = {
+        id: 'system-flagged',
+        position: 0
+      };
+      
       // Add as a new memory with unreliable flag
       await memoryService.addMemory({
         type: MemoryType.MESSAGE,
         content: content,
         metadata: {
-          userId: 'gab',
+          schemaVersion: "1.0.0",
+          role: MessageRole.SYSTEM,
+          userId: systemUserId,
+          agentId: systemAgentId,
+          chatId: systemChatId,
+          thread: threadInfo,
+          messageId: messageId,
           flaggedUnreliable: true,
           flaggedUnreliableAt: new Date().toISOString(),
           unreliabilityReason: 'user_flagged',
           excludeFromRetrieval: true,
           confidence: 0,
-          source: 'user_flagged',
-          role: 'system',
-          messageId: messageId
-        }
+          source: 'user_flagged'
+        } as ExtendedMessageMetadata
       });
       
       return NextResponse.json({ 

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getMemoryServices } from '../../../../server/memory/services';
 import { MemoryType } from '../../../../server/memory/config/types';
+import { MessageMetadata } from '../../../../types/metadata';
 
 // Mark as server-side only
 export const runtime = 'nodejs';
@@ -65,9 +66,11 @@ export async function POST(req: NextRequest) {
     }));
     
     // Filter for this user's messages
-    const userMessages = allMessages.filter(msg => 
-      msg.metadata && msg.metadata.userId === userId
-    );
+    const userMessages = allMessages.filter(msg => {
+      // Cast to MessageMetadata to safely access userId
+      const messageMetadata = msg.metadata as MessageMetadata;
+      return messageMetadata?.userId && messageMetadata.userId.toString() === userId;
+    });
 
     console.log(`Found ${userMessages.length} messages for user ${userId}`);
 

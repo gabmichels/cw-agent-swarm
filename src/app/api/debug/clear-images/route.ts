@@ -1,9 +1,29 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getMemoryServices } from '../../../../server/memory/services';
-import { MemoryType } from '../../../../server/memory/config';
-import { MessageMetadata } from '../../../../types/metadata';
+import { MemoryType } from '../../../../server/memory/config/types';
+import { MessageMetadata, BaseMetadata } from '../../../../types/metadata';
 import * as fs from 'fs';
 import * as path from 'path';
+
+// Extended metadata interface for debug route use
+interface ExtendedMessageMetadata extends MessageMetadata {
+  // UI-specific properties for image handling
+  visionResponseFor?: string;
+  attachments?: Array<{
+    type: string;
+    url?: string;
+    data?: string;
+    filename?: string;
+    contentType?: string;
+    metadata?: Record<string, unknown>;
+  }>;
+}
+
+// Interface for file metadata
+interface FileMetadata {
+  tags?: string[];
+  [key: string]: unknown;
+}
 
 // Mark as server-side only
 export const runtime = 'nodejs';
@@ -30,10 +50,10 @@ export async function POST(req: NextRequest) {
         // Read the metadata file to identify files to delete
         if (fs.existsSync(metadataPath)) {
           const metadataContent = fs.readFileSync(metadataPath, 'utf-8');
-          const metadata = JSON.parse(metadataContent);
+          const metadata: Record<string, FileMetadata> = JSON.parse(metadataContent);
           
           // Find files belonging to the user
-          const userFiles = Object.entries(metadata).filter(([_, fileData]: [string, any]) => {
+          const userFiles = Object.entries(metadata).filter(([_, fileData]) => {
             const tags = fileData.tags || [];
             return tags.includes(`user:${userId}`) || tags.includes('user:gab');
           });
@@ -94,12 +114,12 @@ export async function POST(req: NextRequest) {
         id: result.point.id,
         text: result.point.payload?.text || '',
         timestamp: result.point.payload?.timestamp,
-        metadata: result.point.payload?.metadata || {}
+        metadata: result.point.payload?.metadata || {} as BaseMetadata
       }));
       
-      // Cast metadata to MessageMetadata to access its fields properly
+      // Cast metadata to ExtendedMessageMetadata to access its fields properly
       const userMessages = allMessages.filter(msg => {
-        const messageMetadata = msg.metadata as MessageMetadata;
+        const messageMetadata = msg.metadata as ExtendedMessageMetadata;
         return messageMetadata?.userId && messageMetadata.userId.toString() === userId;
       });
 
@@ -107,7 +127,7 @@ export async function POST(req: NextRequest) {
 
       // Count messages with attachments
       const messagesWithAttachments = userMessages.filter(msg => {
-        const messageMetadata = msg.metadata as MessageMetadata;
+        const messageMetadata = msg.metadata as ExtendedMessageMetadata;
         return messageMetadata?.attachments && 
                Array.isArray(messageMetadata.attachments) && 
                messageMetadata.attachments.length > 0;
@@ -119,24 +139,37 @@ export async function POST(req: NextRequest) {
       for (const msg of messagesWithAttachments) {
         try {
           // Create updated metadata without attachments
-          const messageMetadata = msg.metadata as MessageMetadata;
+          const messageMetadata = msg.metadata as ExtendedMessageMetadata;
           const updatedMetadata = { ...messageMetadata };
           
           // Create a new object without attachments
           const { attachments, ...metadataWithoutAttachments } = updatedMetadata;
           
           // Additional type handling for custom fields
-          const customMetadata = updatedMetadata as any;
-          if (customMetadata.visionResponseFor) {
-            delete customMetadata.visionResponseFor;
+          if (updatedMetadata.visionResponseFor) {
+            // Create a copy without the visionResponseFor field
+            const { visionResponseFor, ...restMetadata } = metadataWithoutAttachments;
+            
+            // Update the memory with the new metadata
+            await memoryService.updateMemory({
+              id: msg.id,
+              type: MemoryType.MESSAGE,
+              metadata: {
+                ...restMetadata,
+                schemaVersion: messageMetadata.schemaVersion || '1.0.0'
+              }
+            });
+          } else {
+            // Update the memory with the new metadata
+            await memoryService.updateMemory({
+              id: msg.id,
+              type: MemoryType.MESSAGE,
+              metadata: {
+                ...metadataWithoutAttachments,
+                schemaVersion: messageMetadata.schemaVersion || '1.0.0'
+              }
+            });
           }
-          
-          // Update the memory with the new metadata
-          await memoryService.updateMemory({
-            id: msg.id,
-            type: MemoryType.MESSAGE,
-            metadata: metadataWithoutAttachments
-          });
           
           successCount++;
         } catch (updateErr) {

@@ -1,13 +1,29 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Tag, Info, Calendar, Clock, ChevronDown, ChevronUp, Edit, RefreshCw, RotateCcw, Sparkles } from 'lucide-react';
 import { MemoryType } from '../../server/memory/config/types';
-import { BaseMemorySchema, MemoryPoint } from '../../server/memory/models/base-schema';
+import { BaseMemorySchema } from '../../server/memory/models/base-schema';
 import useMemory from '../../hooks/useMemory';
 import ReactMarkdown from 'react-markdown';
 import { BaseMetadata, MemoryEditMetadata } from '../../types/metadata';
 
 // Import dialog components directly from source file
 import * as DialogPrimitive from "@radix-ui/react-dialog";
+
+// Enhanced types for memory components
+interface MemoryPayload<T extends BaseMetadata = BaseMetadata> {
+  text?: string;
+  content?: string;
+  timestamp: string | number;
+  type?: string;
+  metadata: T;
+}
+
+// Properly define MemoryPoint to match the server structure
+interface MemoryPoint<T extends BaseMetadata = BaseMetadata> {
+  id: string;
+  payload: MemoryPayload<T>;
+  kind?: string;
+}
 
 // Create dialog components directly for use in this file
 const Dialog = DialogPrimitive.Root;
@@ -90,6 +106,13 @@ interface ExtendedUIMetadata extends BaseMetadata {
   type?: string;
   category?: string;
   related_versions?: RelatedVersion[];
+  // Fields we know exist in metadata but may not be in BaseMetadata
+  userId?: string | { toString(): string };
+  chatId?: string | { toString(): string };
+  agentId?: string | { toString(): string };
+  // Debug fields
+  error?: boolean;
+  notFound?: boolean;
 }
 
 // Define memory edit record type to match the standardized schema
@@ -113,10 +136,7 @@ interface RelatedVersion {
 }
 
 interface MemoryItemProps {
-  memory: MemoryPoint<BaseMemorySchema> & {
-    kind?: string;
-    metadata?: Record<string, any>;
-  };
+  memory: MemoryPoint<ExtendedUIMetadata>;
   onTagUpdate: (memoryId: string, tags: string[]) => void;
   onTagSuggestionRemove: (memoryId: string) => void;
   regenerateTagsForMemory?: (memoryId: string, content: string) => Promise<string[]>;
@@ -179,7 +199,9 @@ const MemoryItem: React.FC<MemoryItemProps> = ({
   const currentVersion: RelatedVersion = {
     id: memoryId,
     type: memoryType,
-    timestamp: memory.payload?.timestamp || new Date().toISOString(),
+    timestamp: typeof memory.payload?.timestamp === 'number' 
+      ? new Date(memory.payload.timestamp).toISOString() 
+      : String(memory.payload?.timestamp || new Date().toISOString()),
     text: memory.payload?.text
   };
 
@@ -238,7 +260,7 @@ const MemoryItem: React.FC<MemoryItemProps> = ({
       const memoryData = await getMemory(versionId);
       
       if (memoryData && memoryData.id === versionId) {
-        return memoryData;
+        return memoryData as MemoryPoint<ExtendedUIMetadata>;
       } else {
         console.warn(`No data returned for version ID: ${versionId}`);
         return { 
@@ -247,9 +269,9 @@ const MemoryItem: React.FC<MemoryItemProps> = ({
             text: 'Content not available for this version',
             timestamp: new Date().toISOString(),
             type: 'unknown',
-            metadata: { notFound: true }
+            metadata: { schemaVersion: '1.0.0', notFound: true } as ExtendedUIMetadata
           }
-        };
+        } as MemoryPoint<ExtendedUIMetadata>;
       }
     } catch (error) {
       console.error('Error loading version content:', error);
@@ -259,9 +281,9 @@ const MemoryItem: React.FC<MemoryItemProps> = ({
           text: `Error loading content: ${error instanceof Error ? error.message : 'Unknown error'}`,
           timestamp: new Date().toISOString(),
           type: 'error',
-          metadata: { error: true }
+          metadata: { error: true, schemaVersion: '1.0.0' } as ExtendedUIMetadata
         }
-      };
+      } as MemoryPoint<ExtendedUIMetadata>;
     } finally {
       setIsLoadingVersion(false);
     }
@@ -290,9 +312,11 @@ const MemoryItem: React.FC<MemoryItemProps> = ({
         const loadedVersion: RelatedVersion = {
           id: versionData.id,
           type: versionData.payload?.type || 'unknown',
-          timestamp: versionData.payload?.timestamp || new Date().toISOString(),
+          timestamp: typeof versionData.payload?.timestamp === 'number'
+            ? new Date(versionData.payload.timestamp).toISOString()
+            : String(versionData.payload?.timestamp || new Date().toISOString()),
           text: versionData.payload?.text,
-          error: versionData.payload?.metadata?.error
+          error: versionData.payload?.metadata ? !!versionData.payload.metadata.error : false
         };
         
         setSelectedVersion(loadedVersion);
@@ -341,15 +365,16 @@ const MemoryItem: React.FC<MemoryItemProps> = ({
     try {
       const timestamp = memory.payload.timestamp;
       // Check if it's a unix timestamp (number)
-      if (!isNaN(Number(timestamp))) {
+      if (typeof timestamp === 'number' || !isNaN(Number(timestamp))) {
         // If it's a 13-digit timestamp (milliseconds), use as is
         // If it's a 10-digit timestamp (seconds), multiply by 1000
-        const timeMs = timestamp.length >= 13 ? Number(timestamp) : Number(timestamp) * 1000;
+        const timeStr = String(timestamp);
+        const timeMs = timeStr.length >= 13 ? Number(timeStr) : Number(timeStr) * 1000;
         return new Date(timeMs).toLocaleString();
       }
       
       // Otherwise try to parse as ISO string
-      const date = new Date(timestamp);
+      const date = new Date(String(timestamp));
       if (isNaN(date.getTime())) {
         return 'Unknown date';
       }
@@ -638,7 +663,7 @@ const MemoryItem: React.FC<MemoryItemProps> = ({
               </div>
               
               <div className="grid grid-cols-2 gap-2 text-xs bg-gray-800 p-2 rounded">
-                {Object.entries(memory.payload.metadata)
+                {Object.entries(memory.payload.metadata as unknown as Record<string, unknown>)
                   .filter(([key]) => !['suggestedTags', 'tags', 'related_versions'].includes(key))
                   .map(([key, value]) => (
                     <div key={key} className="flex">
@@ -710,7 +735,7 @@ const MemoryItem: React.FC<MemoryItemProps> = ({
                         onClick={() => handleSelectVersion({
                           id: historyItem.id,
                           type: historyItem.payload?.type || 'unknown',
-                          timestamp: historyItem.payload?.timestamp || '',
+                          timestamp: historyItem.payload?.timestamp?.toString() || '',
                         })}
                       >
                         <div className="flex justify-between mb-1">
@@ -720,7 +745,7 @@ const MemoryItem: React.FC<MemoryItemProps> = ({
                              historyItem.payload?.metadata?.edit_type === 'delete' ? 'Deleted' : 
                              'Edit'}
                           </span>
-                          <span className="text-gray-400">{formatHistoryDate(historyItem.payload?.timestamp || '')}</span>
+                          <span className="text-gray-400">{formatHistoryDate(historyItem.payload?.timestamp?.toString() || '')}</span>
                         </div>
                         
                         {historyItem.payload?.metadata?.diff_summary && (

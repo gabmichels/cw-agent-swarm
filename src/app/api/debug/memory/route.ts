@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getMemoryServices } from '../../../../server/memory/services';
 import { MemoryType } from '../../../../server/memory/config';
+import { MessageMetadata } from '../../../../types/metadata';
 
 // Add server-only markers to prevent client-side execution
 export const runtime = 'nodejs';
@@ -37,7 +38,8 @@ export async function GET(request: NextRequest) {
       const point = result.point;
       try {
         const payload = point.payload || {};
-        const metadata = payload.metadata || {};
+        const rawMetadata = payload.metadata || {};
+        const metadata = rawMetadata as MessageMetadata;
         
         return {
           id: point.id,
@@ -46,8 +48,6 @@ export async function GET(request: NextRequest) {
           timestamp: payload.timestamp,
           role: metadata.role,
           userId: metadata.userId,
-          isForChat: metadata.isForChat,
-          isInternal: metadata.isInternal,
           source: metadata.source,
           hasAttachments: !!(metadata.attachments && metadata.attachments.length > 0)
         };

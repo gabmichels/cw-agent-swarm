@@ -1,8 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getMemoryServices } from '../../../../server/memory/services';
 import { MemoryType } from '../../../../server/memory/config';
+import { BaseMetadata } from '../../../../types/metadata';
 
 export const runtime = 'nodejs';
+
+// Extended metadata interface for debug information
+interface ExtendedDebugMetadata extends BaseMetadata {
+  type?: string;
+  category?: string;
+}
 
 /**
  * API endpoint to provide detailed debugging information about memory types
@@ -66,9 +73,12 @@ export async function GET(request: NextRequest) {
         
         searchResults.forEach((searchResult, index) => {
           const memory = searchResult.point;
+          // Cast metadata to extended type for accessing custom fields
+          const metadata = memory.payload?.metadata as ExtendedDebugMetadata || {};
+          
           const memoryType = searchResult.type || 
-                           memory.payload?.metadata?.type || 
-                           memory.payload?.metadata?.category || 
+                           metadata.type || 
+                           metadata.category || 
                            'unknown';
           
           // Count this type
@@ -79,7 +89,7 @@ export async function GET(request: NextRequest) {
             samples.push({
               id: memory.id,
               type: memoryType,
-              timestamp: memory.payload?.timestamp || memory.payload?.metadata?.timestamp,
+              timestamp: memory.payload?.timestamp || metadata.timestamp,
               contentPreview: memory.payload?.text ? memory.payload.text.substring(0, 100) + '...' : 'No content',
               metadata: Object.keys(memory.payload?.metadata || {})
             });
@@ -111,9 +121,12 @@ export async function GET(request: NextRequest) {
       const overallTypeDistribution: Record<string, number> = {};
       
       allMemoryResults.forEach(searchResult => {
+        // Cast metadata to extended type
+        const metadata = searchResult.point.payload?.metadata as ExtendedDebugMetadata || {};
+        
         const memoryType = searchResult.type || 
-                         searchResult.point.payload?.metadata?.type || 
-                         searchResult.point.payload?.metadata?.category || 
+                         metadata.type || 
+                         metadata.category || 
                          'unknown';
         
         overallTypeDistribution[memoryType] = (overallTypeDistribution[memoryType] || 0) + 1;

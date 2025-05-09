@@ -2,8 +2,19 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getMemoryServices } from '../../../../server/memory/services';
 import { ImportanceLevel, MemorySource } from '../../../../constants/memory';
 import { MemoryType } from '../../../../server/memory/config/types';
+import { BaseMetadata } from '../../../../types/metadata';
 
 export const runtime = 'nodejs';
+
+// Extended metadata interface for UI-specific properties
+interface ExtendedKnowledgeMetadata extends BaseMetadata {
+  userId?: string | { toString(): string };
+  tags?: string[];
+  flagged?: boolean;
+  isKnowledge?: boolean;
+  addedToKnowledge?: boolean;
+  addedToKnowledgeAt?: string;
+}
 
 /**
  * API endpoint to add flagged messages to knowledge storage
@@ -52,7 +63,11 @@ export async function POST(request: NextRequest) {
         
         // Extract content and metadata
         const content = message.payload?.text;
-        const metadata = message.payload?.metadata || {};
+        const rawMetadata = message.payload?.metadata || {};
+        
+        // Cast to extended metadata interface
+        const metadata = rawMetadata as ExtendedKnowledgeMetadata;
+        
         const originalTags = metadata.tags || [];
         const allTags = Array.from(new Set([...originalTags, ...addTags]));
         const category = getCategoryFromTags(allTags) || messageType;
@@ -63,7 +78,8 @@ export async function POST(request: NextRequest) {
           content,
           metadata: {
             ...metadata,
-            userId: metadata.userId ? String(metadata.userId) : 'gab',
+            schemaVersion: metadata.schemaVersion || "1.0.0", // Ensure required field exists
+            userId: metadata.userId ? metadata.userId.toString() : 'gab',
             source: MemorySource.USER,
             importance: ImportanceLevel.HIGH,
             isKnowledge: true,
@@ -80,7 +96,8 @@ export async function POST(request: NextRequest) {
           type: messageType,
           metadata: {
             ...metadata,
-            userId: metadata.userId ? String(metadata.userId) : 'gab',
+            schemaVersion: metadata.schemaVersion || "1.0.0", // Ensure required field exists
+            userId: metadata.userId ? metadata.userId.toString() : 'gab',
             addedToKnowledge: true,
             addedToKnowledgeAt: new Date().toISOString(),
             flagged: false // Remove flag once processed

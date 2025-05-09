@@ -5,6 +5,13 @@ import { ImportanceLevel } from '../../../constants/memory';
 import { KnowledgeGraph } from '../../../lib/knowledge/KnowledgeGraph';
 import { KnowledgeFlaggingService } from '../../../lib/knowledge/flagging/KnowledgeFlaggingService';
 import { SuggestedKnowledgeType } from '../../../lib/knowledge/flagging/types';
+import { BaseMetadata } from '../../../types/metadata';
+
+// Interface for extended metadata in Knowledge context
+interface ExtendedKnowledgeMetadata extends BaseMetadata {
+  type?: string;
+  tags?: string[];
+}
 
 export const runtime = 'nodejs';
 
@@ -40,7 +47,7 @@ export async function POST(req: NextRequest) {
     let memoryType = 'message';
     let memoryTags = [...tags];
     let sourceId = messageId;
-    let timestamp = new Date().toISOString();
+    let recordTimestamp: string | number = new Date().toISOString();
 
     // If messageId is provided, fetch the memory
     if (messageId) {
@@ -59,15 +66,23 @@ export async function POST(req: NextRequest) {
 
       const record = searchResults[0].point;
       memoryContent = record.payload?.text || '';
-      memoryType = record.payload?.metadata?.type || 'message';
+      
+      // Cast metadata to extended type for knowledge fields
+      const metadata = record.payload?.metadata as ExtendedKnowledgeMetadata;
+      memoryType = metadata?.type || 'message';
       
       // Merge tags from record if available
-      if (record.payload?.metadata?.tags && Array.isArray(record.payload.metadata.tags)) {
-        memoryTags = [...memoryTags, ...record.payload.metadata.tags];
+      if (metadata?.tags && Array.isArray(metadata.tags)) {
+        memoryTags = [...memoryTags, ...metadata.tags];
       }
       
-      timestamp = record.payload?.metadata?.timestamp || new Date().toISOString();
+      recordTimestamp = metadata?.timestamp || new Date().toISOString();
     }
+
+    // Convert timestamp to string if it's a number
+    const timestamp = typeof recordTimestamp === 'number' 
+      ? new Date(recordTimestamp).toISOString() 
+      : recordTimestamp;
 
     // Generate a title from the content (first line or first 50 chars)
     const title = memoryContent.split('\n')[0].trim().substring(0, 50) || 'Knowledge item';
@@ -147,6 +162,7 @@ export async function POST(req: NextRequest) {
         type: MemoryType.DOCUMENT,
         content: memoryContent,
         metadata: {
+          schemaVersion: "1.0.0", // Required by BaseMetadata
           kind: 'knowledge',
           category: inferredCategory,
           tags: memoryTags,
