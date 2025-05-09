@@ -35,13 +35,48 @@ const KnowledgeUploader: React.FC<KnowledgeUploaderProps> = ({
   const [isDragging, setIsDragging] = useState(false);
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  
+  // Keep track of previous values to prevent unnecessary updates
+  const prevValuesRef = useRef<{
+    knowledgePaths: string[];
+    files: KnowledgeFile[];
+  }>({
+    knowledgePaths: initialKnowledgePaths.length > 0 
+      ? initialKnowledgePaths 
+      : ['data/knowledge/company', 'data/knowledge/agents/shared'],
+    files: initialFiles
+  });
+
+  // Update state if initial props change
+  useEffect(() => {
+    if (JSON.stringify(initialKnowledgePaths) !== JSON.stringify(prevValuesRef.current.knowledgePaths)) {
+      setKnowledgePaths(initialKnowledgePaths.length > 0 
+        ? initialKnowledgePaths 
+        : ['data/knowledge/company', 'data/knowledge/agents/shared']);
+      prevValuesRef.current.knowledgePaths = initialKnowledgePaths;
+    }
+    
+    if (JSON.stringify(initialFiles) !== JSON.stringify(prevValuesRef.current.files)) {
+      setFiles(initialFiles);
+      prevValuesRef.current.files = initialFiles;
+    }
+  }, [initialKnowledgePaths, initialFiles]);
 
   // Notify parent component of changes
   useEffect(() => {
-    onChange({
+    const currentValues = {
       knowledgePaths,
       files
-    });
+    };
+    
+    // Only call onChange if values have changed
+    if (
+      JSON.stringify(knowledgePaths) !== JSON.stringify(prevValuesRef.current.knowledgePaths) ||
+      JSON.stringify(files) !== JSON.stringify(prevValuesRef.current.files)
+    ) {
+      onChange(currentValues);
+      prevValuesRef.current = currentValues;
+    }
   }, [knowledgePaths, files, onChange]);
 
   // Handle file upload
@@ -57,7 +92,17 @@ const KnowledgeUploader: React.FC<KnowledgeUploaderProps> = ({
     const newFiles: KnowledgeFile[] = [];
     let processed = 0;
     
-    fileList.forEach(file => {
+    // Client-side ID counter to ensure unique IDs without hydration issues
+    let idCounter = 0;
+    
+    // Generate a stable ID for files that won't cause hydration mismatches
+    const generateStableId = (fileName: string, index: number) => {
+      // Create a deterministic ID based on the file name and an index
+      const safeFileName = fileName.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+      return `file_${safeFileName}_${index}_${idCounter++}`;
+    };
+    
+    fileList.forEach((file, index) => {
       if (!file.name.endsWith('.md') && !file.name.endsWith('.txt')) {
         console.warn(`Skipping file ${file.name}: Only .md and .txt files are supported`);
         return;
@@ -70,7 +115,7 @@ const KnowledgeUploader: React.FC<KnowledgeUploaderProps> = ({
         const preview = content.substring(0, 200) + (content.length > 200 ? '...' : '');
         
         newFiles.push({
-          id: `file_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+          id: generateStableId(file.name, index),
           name: file.name,
           content,
           size: file.size,
@@ -179,6 +224,7 @@ const KnowledgeUploader: React.FC<KnowledgeUploaderProps> = ({
           />
           <button
             onClick={() => fileInputRef.current?.click()}
+            type="button"
             className="bg-blue-600 hover:bg-blue-700 py-2 px-4 rounded text-white"
           >
             Select Files
@@ -210,12 +256,14 @@ const KnowledgeUploader: React.FC<KnowledgeUploaderProps> = ({
                       {(file.size / 1024).toFixed(1)} KB
                     </span>
                     <button
+                      type="button"
                       onClick={() => viewFile(file.id)}
                       className="text-blue-400 hover:text-blue-300"
                     >
                       {selectedFileId === file.id ? 'Hide Preview' : 'Preview'}
                     </button>
                     <button
+                      type="button"
                       onClick={() => removeFile(file.id)}
                       className="text-red-400 hover:text-red-300"
                     >
@@ -249,25 +297,25 @@ const KnowledgeUploader: React.FC<KnowledgeUploaderProps> = ({
                 type="text"
                 value={path}
                 onChange={(e) => updateKnowledgePath(index, e.target.value)}
-                placeholder="Enter directory path"
-                className="flex-1 bg-gray-700 border border-gray-600 rounded-l py-2 px-3 text-sm"
+                className="flex-1 bg-gray-700 border border-gray-600 rounded-l py-2 px-3 text-white"
+                placeholder="Enter path to knowledge directory"
               />
               <button
+                type="button"
                 onClick={() => removeKnowledgePath(index)}
-                className="bg-red-600 hover:bg-red-700 px-3 rounded-r"
-                disabled={knowledgePaths.length <= 1}
-                title={knowledgePaths.length <= 1 ? "At least one path is required" : "Remove path"}
+                className="bg-red-600 hover:bg-red-700 px-4 rounded-r text-white"
               >
-                ×
+                Remove
               </button>
             </div>
           ))}
           
           <button
+            type="button"
             onClick={addKnowledgePath}
-            className="bg-blue-600 hover:bg-blue-700 py-1 px-3 rounded text-white text-sm"
+            className="bg-blue-600 hover:bg-blue-700 py-1 px-3 rounded text-sm text-white"
           >
-            Add Directory
+            + Add Directory
           </button>
         </div>
       </div>

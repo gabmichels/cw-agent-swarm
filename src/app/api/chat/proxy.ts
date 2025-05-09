@@ -17,6 +17,7 @@ import { MessageRole } from '../../../agents/chloe/types/state';
 import { generateChatId } from '../../../utils/uuid';
 import { getChatService } from '../../../server/memory/services/chat-service';
 import { getOrCreateThreadInfo, createResponseThreadInfo } from './thread/helper';
+import { AgentService } from '../../../services/AgentService';
 
 // In-memory cache and in-flight request tracking
 const responseCache = new Map<string, {
@@ -534,22 +535,21 @@ export async function POST(req: Request) {
         // Choose agent based on agentId parameter
         let agent;
         
-        // Currently we only support Chloe, but this can be expanded
-        if (agentId === 'chloe') {
-          const { getChloeInstance } = await import('../../../agents/chloe');
-          agent = await getChloeInstance();
+        try {
+          // Get the agent from the registry using our AgentService
+          agent = await getAgentInstance(agentId);
           
           if (!agent) {
-            throw new Error('Failed to load Chloe agent');
+            throw new Error(`Failed to load agent: ${agentId}`);
           }
           
-          // Make sure Chloe is initialized
-          if (!agent.initialized && typeof agent.initialize === 'function') {
-            console.log('Initializing Chloe on first use');
+          // Make sure agent is initialized
+          if (agent.initialized === false && typeof agent.initialize === 'function') {
+            console.log(`Initializing agent ${agentId} on first use`);
             await agent.initialize();
           }
-        } else {
-          throw new Error(`Unsupported agent ID: ${agentId}`);
+        } catch (error: any) {
+          throw new Error(`Error loading agent ${agentId}: ${error.message}`);
         }
         
         // Process the message with the selected agent - with timeout protection
@@ -690,4 +690,8 @@ export async function GET(req: Request) {
       { status: 500 }
     );
   }
+}
+
+async function getAgentInstance(agentId = 'chloe') {
+  return await AgentService.getAgent(agentId);
 }

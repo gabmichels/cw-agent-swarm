@@ -2,6 +2,20 @@ import { NextResponse } from 'next/server';
 import { ulid } from 'ulid';
 import { AgentRegistrationRequest, AgentProfile } from '@/lib/multi-agent/types/agent';
 
+// Extended type to handle the additional fields from the form
+interface ExtendedAgentRegistrationRequest extends AgentRegistrationRequest {
+  _extended?: {
+    systemPrompt?: string;
+    knowledgePaths?: string[];
+    persona?: {
+      background: string;
+      personality: string;
+      communicationStyle: string;
+      preferences: string;
+    };
+  };
+}
+
 /**
  * POST /api/multi-agent/agents
  * Registers a new agent in the system
@@ -9,7 +23,7 @@ import { AgentRegistrationRequest, AgentProfile } from '@/lib/multi-agent/types/
 export async function POST(request: Request) {
   try {
     // Parse request body
-    const requestData: AgentRegistrationRequest = await request.json();
+    const requestData: ExtendedAgentRegistrationRequest = await request.json();
     
     // Validate request data
     if (!requestData.name) {
@@ -37,15 +51,38 @@ export async function POST(request: Request) {
     const timestamp = new Date();
     const id = `agent_${requestData.name.toLowerCase().replace(/\s+/g, '_')}_${ulid(timestamp.getTime())}`;
     
+    // Process extended data if available
+    if (requestData._extended) {
+      // Add system prompt to parameters if provided
+      if (requestData._extended.systemPrompt) {
+        requestData.parameters = {
+          ...requestData.parameters,
+          systemPrompt: requestData._extended.systemPrompt
+        };
+      }
+      
+      // Add knowledge paths and persona to metadata if provided
+      if (requestData._extended.knowledgePaths || requestData._extended.persona) {
+        requestData.metadata = {
+          ...requestData.metadata,
+          knowledgePaths: requestData._extended.knowledgePaths,
+          persona: requestData._extended.persona
+        };
+      }
+    }
+    
+    // Remove the _extended field before creating the agent profile
+    const { _extended, ...standardRequestData } = requestData;
+    
     // Create agent profile
     const agent: AgentProfile = {
       id,
-      name: requestData.name,
-      description: requestData.description,
-      status: requestData.status,
-      capabilities: requestData.capabilities,
-      parameters: requestData.parameters,
-      metadata: requestData.metadata,
+      name: standardRequestData.name,
+      description: standardRequestData.description,
+      status: standardRequestData.status,
+      capabilities: standardRequestData.capabilities,
+      parameters: standardRequestData.parameters,
+      metadata: standardRequestData.metadata,
       createdAt: timestamp,
       updatedAt: timestamp
     };
@@ -53,6 +90,13 @@ export async function POST(request: Request) {
     // TODO: Store agent data in the database
     // This will be implemented when the database infrastructure is ready
     // For now, we're just returning a successful response with the created agent
+    
+    // TODO: Process knowledge files and create critical memories
+    console.log('Agent created with extended data:', requestData._extended ? {
+      systemPrompt: requestData._extended.systemPrompt?.substring(0, 50) + '...',
+      knowledgePaths: requestData._extended.knowledgePaths,
+      hasPersona: !!requestData._extended.persona
+    } : 'No extended data');
     
     return NextResponse.json({
       success: true,

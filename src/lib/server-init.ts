@@ -41,15 +41,24 @@ export async function initializeServer() {
           if (global.chloeAgent) {
             console.log('Chloe agent already exists in global scope, skipping initialization');
           } else {
-            // Dynamic import to ensure it only runs on server
-            const { getChloeInstance } = await import('../agents/chloe');
-            const chloe = await getChloeInstance();
+            // Check if we should initialize the default agent
+            console.log('Initializing default agent...');
             
-            if (chloe && !chloe.initialized && typeof chloe.initialize === 'function') {
-              await chloe.initialize();
-              console.log('Chloe agent initialized successfully');
-            } else {
-              console.log('Chloe agent already initialized or not available');
+            try {
+              // Import AgentService dynamically to ensure it only runs on server
+              const { AgentService } = await import('../services/AgentService');
+              
+              // Get or create the default agent (currently 'chloe')
+              const agent = await AgentService.getDefaultAgent();
+              
+              if (agent && !agent.initialized && typeof agent.initialize === 'function') {
+                await agent.initialize();
+                console.log('Default agent initialized successfully');
+              } else {
+                console.log('Default agent already initialized or not available');
+              }
+            } catch (error) {
+              console.error('Error initializing default agent:', error);
             }
           }
         } catch (error) {

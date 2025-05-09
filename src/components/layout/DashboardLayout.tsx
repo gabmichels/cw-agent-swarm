@@ -1,4 +1,4 @@
-import React, { ReactNode, useState, useCallback } from 'react';
+import React, { ReactNode, useState, useCallback, useEffect } from 'react';
 import Header from '../Header';
 import Sidebar from '../Sidebar';
 import TabsNavigation from '../TabsNavigation';
@@ -12,6 +12,13 @@ interface DashboardLayoutProps {
 const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
   const router = useRouter();
   
+  // State for available agents
+  const [availableAgents, setAvailableAgents] = useState<Record<string, string[]>>({
+    Marketing: ['Chloe'],
+    HR: [],
+    Finance: []
+  });
+  
   // State for the layout components
   const [selectedDepartment, setSelectedDepartment] = useState('Marketing');
   const [selectedAgent, setSelectedAgent] = useState('Chloe');
@@ -22,6 +29,60 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
   const [isDebugMode, setIsDebugMode] = useState(false);
   const [isDeptDropdownOpen, setIsDeptDropdownOpen] = useState(false);
   const [isAgentDropdownOpen, setIsAgentDropdownOpen] = useState(false);
+  
+  // Load available agents from registry
+  useEffect(() => {
+    const loadAgents = async () => {
+      try {
+        // Get agent IDs from registry
+        const agentIds = await AgentService.getAgentIds();
+        
+        if (!agentIds.length) {
+          console.log('No agents found in registry');
+          return;
+        }
+        
+        // Group agents by department (in a real app, you'd get this from agent metadata)
+        const agentsByDept: Record<string, string[]> = {
+          Marketing: [],
+          HR: [],
+          Finance: []
+        };
+        
+        // For now, place all agents in Marketing dept - in real app would check capabilities
+        for (const id of agentIds) {
+          const agent = await AgentService.getAgent(id);
+          if (agent) {
+            // Determine department based on agent capabilities or metadata
+            const dept = agent.department || 'Marketing';
+            // Use agent name or ID as display name
+            const name = agent.name || id;
+            // Add to department list
+            if (agentsByDept[dept]) {
+              agentsByDept[dept].push(name);
+            } else {
+              agentsByDept[dept] = [name];
+            }
+          }
+        }
+        
+        setAvailableAgents(agentsByDept);
+        
+        // If no agent is selected but we have agents, select the first one
+        if (!selectedAgent && Object.values(agentsByDept).some(arr => arr.length > 0)) {
+          const firstDept = Object.keys(agentsByDept).find(dept => agentsByDept[dept].length > 0);
+          if (firstDept) {
+            setSelectedDepartment(firstDept);
+            setSelectedAgent(agentsByDept[firstDept][0]);
+          }
+        }
+      } catch (error) {
+        console.error('Error loading agents:', error);
+      }
+    };
+    
+    loadAgents();
+  }, [selectedAgent]);
 
   // Toggle functions
   const toggleSidebar = () => setIsSidebarOpen(!isSidebarOpen);
@@ -42,6 +103,13 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
   const handleDepartmentChange = (dept: string) => {
     setSelectedDepartment(dept);
     setIsDeptDropdownOpen(false);
+    
+    // If the department has agents, select the first one
+    if (availableAgents[dept] && availableAgents[dept].length > 0) {
+      setSelectedAgent(availableAgents[dept][0]);
+    } else {
+      setSelectedAgent('');
+    }
   };
 
   const handleAgentChange = (agent: string) => {
@@ -58,8 +126,27 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
       // Call agent service to delete the agent
       await AgentService.deleteAgent(agentId);
       
-      // Navigate to the home page or agent selection page
-      router.push('/');
+      // Update available agents list
+      setAvailableAgents(prev => {
+        const updated = { ...prev };
+        Object.keys(updated).forEach(dept => {
+          updated[dept] = updated[dept].filter(name => name.toLowerCase() !== agentId);
+        });
+        return updated;
+      });
+      
+      // Select a new agent if available, or navigate to home
+      const hasRemainingAgents = Object.values(availableAgents).some(agents => agents.length > 0);
+      if (hasRemainingAgents) {
+        const firstDept = Object.keys(availableAgents).find(dept => availableAgents[dept].length > 0);
+        if (firstDept) {
+          setSelectedDepartment(firstDept);
+          setSelectedAgent(availableAgents[firstDept][0]);
+        }
+      } else {
+        // Navigate to the home page or agent selection page if no agents left
+        router.push('/');
+      }
       
       // Show success notification (you can implement this)
       console.log(`Agent ${selectedAgent} deleted successfully`);
@@ -68,15 +155,10 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
       console.error(`Failed to delete agent: ${error}`);
       // Show error notification (you can implement this)
     }
-  }, [selectedAgent, router]);
+  }, [selectedAgent, router, availableAgents]);
 
-  // Mock data for departments and agents
-  const departments = ['Marketing', 'HR', 'Finance'];
-  const agentsByDepartment = {
-    Marketing: ['Chloe'],
-    HR: ['Emma (Coming Soon)'],
-    Finance: ['Alex (Coming Soon)']
-  };
+  // List of available departments
+  const departments = Object.keys(availableAgents);
 
   return (
     <div className="flex flex-col h-screen bg-gray-900 text-white">
@@ -96,7 +178,7 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
           handleAgentChange={handleAgentChange}
           setIsDebugMode={setIsDebugMode}
           departments={departments}
-          agentsByDepartment={agentsByDepartment}
+          agentsByDepartment={availableAgents}
         />
       )}
 

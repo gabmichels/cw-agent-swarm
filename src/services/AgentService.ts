@@ -2,6 +2,74 @@ import { AgentRegistry } from '../lib/agents/registry';
 
 export class AgentService {
   /**
+   * Get an agent instance by ID
+   * @param agentId The agent ID to retrieve
+   * @returns The agent instance or null if not found
+   */
+  static async getAgent(agentId: string): Promise<any> {
+    try {
+      return await AgentRegistry.getAgent(agentId);
+    } catch (error) {
+      console.error(`Error retrieving agent ${agentId}:`, error);
+      return null;
+    }
+  }
+  
+  /**
+   * Get all registered agent IDs
+   * @returns Array of agent IDs
+   */
+  static async getAgentIds(): Promise<string[]> {
+    try {
+      return await AgentRegistry.getAgentIds();
+    } catch (error) {
+      console.error('Error retrieving agent IDs:', error);
+      return [];
+    }
+  }
+  
+  /**
+   * Get the default agent (currently chloe)
+   * @returns The default agent instance
+   */
+  static async getDefaultAgent(): Promise<any> {
+    // This is a temporary solution during migration
+    // Eventually this should be configurable or based on user preferences
+    return this.getAgent('chloe');
+  }
+  
+  /**
+   * Process a message using the specified agent
+   * @param agentId The agent ID to use
+   * @param message The message to process
+   * @param options Additional options for processing
+   */
+  static async processMessage(agentId: string, message: string, options?: any): Promise<any> {
+    const agent = await this.getAgent(agentId);
+    
+    if (!agent) {
+      throw new Error(`Agent with ID ${agentId} not found`);
+    }
+    
+    // Ensure agent is initialized
+    if (!agent.initialized && typeof agent.initialize === 'function') {
+      console.log(`Initializing agent ${agentId} on first message processing`);
+      await agent.initialize();
+    }
+    
+    return agent.processMessage(message, options);
+  }
+  
+  /**
+   * Register a new agent in the system
+   * @param agentId The unique identifier for the agent
+   * @param agent The agent instance to register
+   */
+  static async registerAgent(agentId: string, agent: any): Promise<void> {
+    await AgentRegistry.registerAgent(agentId, agent);
+  }
+  
+  /**
    * Deletes an agent and all associated data
    * @param agentId The unique identifier of the agent to delete
    */

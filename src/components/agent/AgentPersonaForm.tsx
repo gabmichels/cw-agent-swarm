@@ -1,11 +1,12 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import './wizard.css';
 
 interface AgentPersonaFormProps {
   initialBackground?: string;
   initialPersonality?: string;
   initialCommunicationStyle?: string;
   initialPreferences?: string;
-  onChange: (personaData: {
+  onChange: (data: {
     background: string;
     personality: string;
     communicationStyle: string;
@@ -29,20 +30,63 @@ const AgentPersonaForm: React.FC<AgentPersonaFormProps> = ({
   const [communicationStyle, setCommunicationStyle] = useState(initialCommunicationStyle);
   const [preferences, setPreferences] = useState(initialPreferences);
   const [selectedTemplate, setSelectedTemplate] = useState<string>('');
+  
+  // Add refs to track previous values and prevent update loops
+  const prevValuesRef = useRef({
+    background: initialBackground,
+    personality: initialPersonality,
+    communicationStyle: initialCommunicationStyle,
+    preferences: initialPreferences
+  });
 
-  // Update parent component when form data changes
-  const handleChange = () => {
-    onChange({
+  // Update local state when initial props change
+  useEffect(() => {
+    if (initialBackground !== prevValuesRef.current.background) {
+      setBackground(initialBackground);
+      prevValuesRef.current.background = initialBackground;
+    }
+    if (initialPersonality !== prevValuesRef.current.personality) {
+      setPersonality(initialPersonality);
+      prevValuesRef.current.personality = initialPersonality;
+    }
+    if (initialCommunicationStyle !== prevValuesRef.current.communicationStyle) {
+      setCommunicationStyle(initialCommunicationStyle);
+      prevValuesRef.current.communicationStyle = initialCommunicationStyle;
+    }
+    if (initialPreferences !== prevValuesRef.current.preferences) {
+      setPreferences(initialPreferences);
+      prevValuesRef.current.preferences = initialPreferences;
+    }
+  }, [initialBackground, initialPersonality, initialCommunicationStyle, initialPreferences]);
+
+  // Update parent only when values actually change
+  useEffect(() => {
+    const currentValues = {
       background,
       personality,
       communicationStyle,
       preferences
-    });
-  };
+    };
+    
+    // Only call onChange if any value is different from the previous values
+    if (
+      background !== prevValuesRef.current.background ||
+      personality !== prevValuesRef.current.personality ||
+      communicationStyle !== prevValuesRef.current.communicationStyle ||
+      preferences !== prevValuesRef.current.preferences
+    ) {
+      onChange(currentValues);
+      
+      // Update prev values
+      prevValuesRef.current = { ...currentValues };
+    }
+  }, [background, personality, communicationStyle, preferences, onChange]);
 
-  // Generate a simple memory ID for preview purposes
-  const generateId = (prefix: string): string => {
-    return `${prefix}_${Math.random().toString(36).substring(2, 10)}`;
+  // Fixed IDs for preview - no random generation to avoid hydration errors
+  const previewIds = {
+    background: "background_memory_id",
+    personality: "personality_memory_id",
+    communication: "communication_memory_id"
   };
 
   // Templates for quick persona configuration
@@ -121,189 +165,189 @@ const AgentPersonaForm: React.FC<AgentPersonaFormProps> = ({
   };
 
   return (
-    <div className="bg-gray-800 rounded-lg p-6 my-4">
-      <h2 className="text-xl font-semibold mb-4">Agent Persona</h2>
-      
-      {/* Persona Template Selector */}
-      <div className="mb-6">
-        <label className="block text-sm font-medium mb-2">Persona Template</label>
-        <select 
-          value={selectedTemplate} 
-          onChange={handleTemplateChange}
-          className="w-full bg-gray-700 border border-gray-600 rounded p-2"
-        >
-          <option value="">Custom Persona</option>
-          <option value="professional">Professional Expert</option>
-          <option value="friendly">Friendly Assistant</option>
-          <option value="chloe">Chloe (Marketing CMO)</option>
-        </select>
-      </div>
-      
-      {/* Background Field */}
-      <div className="mb-6">
-        <div className="flex justify-between mb-1">
-          <label className="block text-sm font-medium">Background & Role</label>
-          <div className="flex items-center">
-            <div className="h-2 w-2 rounded-full bg-red-500 mr-1"></div>
-            <span className="text-xs text-gray-400">Critical Memory</span>
-          </div>
-        </div>
-        <textarea
-          value={background}
-          onChange={(e) => {
-            setBackground(e.target.value);
-            handleChange();
-          }}
-          placeholder="Describe the agent's background, role, and expertise..."
-          className="w-full bg-gray-700 border border-gray-600 rounded p-3 min-h-[100px]"
-        />
-        <div className="flex justify-between mt-1">
-          <span className="text-xs text-gray-400">What is the agent's background, experience, and role?</span>
-          <span className="text-xs text-gray-400">{background.length} chars</span>
+    <div>
+      <div className="wizard-panel">
+        <h2 className="wizard-panel-title">Agent Persona</h2>
+        
+        {/* Persona Template Selector */}
+        <div className="wizard-form-group">
+          <label className="wizard-label">Persona Template</label>
+          <select 
+            value={selectedTemplate} 
+            onChange={handleTemplateChange}
+            className="wizard-select"
+          >
+            <option value="">Custom Persona</option>
+            <option value="professional">Professional Expert</option>
+            <option value="friendly">Friendly Assistant</option>
+            <option value="chloe">Chloe (Marketing CMO)</option>
+          </select>
         </div>
         
-        <div className="mt-2">
-          <label className="text-xs bg-blue-600 hover:bg-blue-700 text-white py-1 px-2 rounded cursor-pointer">
-            Upload File
-            <input 
-              type="file" 
-              className="hidden" 
-              accept=".txt,.md"
-              onChange={(e) => handleFileUpload(e, 'background')} 
-            />
-          </label>
-        </div>
-      </div>
-      
-      {/* Personality Traits Field */}
-      <div className="mb-6">
-        <div className="flex justify-between mb-1">
-          <label className="block text-sm font-medium">Personality Traits</label>
-          <div className="flex items-center">
-            <div className="h-2 w-2 rounded-full bg-red-500 mr-1"></div>
-            <span className="text-xs text-gray-400">Critical Memory</span>
+        {/* Background Field */}
+        <div className="wizard-form-group">
+          <div className="flex justify-between mb-1">
+            <label className="wizard-label">Background & Role</label>
+            <div className="flex items-center">
+              <div className="h-2 w-2 rounded-full bg-red-500 mr-1"></div>
+              <span className="text-xs text-gray-400">Critical Memory</span>
+            </div>
+          </div>
+          <textarea
+            value={background}
+            onChange={(e) => {
+              setBackground(e.target.value);
+            }}
+            placeholder="Describe the agent's background, role, and expertise..."
+            className="wizard-input wizard-textarea"
+          />
+          <div className="flex justify-between mt-1">
+            <span className="text-xs text-gray-400">What is the agent's background, experience, and role?</span>
+            <span className="text-xs text-gray-400">{background.length} chars</span>
+          </div>
+          
+          <div className="mt-2">
+            <label className="wizard-btn wizard-btn-secondary inline-block text-xs cursor-pointer">
+              Upload File
+              <input 
+                type="file" 
+                className="hidden" 
+                accept=".txt,.md"
+                onChange={(e) => handleFileUpload(e, 'background')} 
+              />
+            </label>
           </div>
         </div>
-        <textarea
-          value={personality}
-          onChange={(e) => {
-            setPersonality(e.target.value);
-            handleChange();
-          }}
-          placeholder="Describe the agent's personality traits, character, and temperament..."
-          className="w-full bg-gray-700 border border-gray-600 rounded p-3 min-h-[100px]"
-        />
-        <div className="flex justify-between mt-1">
-          <span className="text-xs text-gray-400">How would you describe the agent's character and personality?</span>
-          <span className="text-xs text-gray-400">{personality.length} chars</span>
-        </div>
         
-        <div className="mt-2">
-          <label className="text-xs bg-blue-600 hover:bg-blue-700 text-white py-1 px-2 rounded cursor-pointer">
-            Upload File
-            <input 
-              type="file" 
-              className="hidden" 
-              accept=".txt,.md"
-              onChange={(e) => handleFileUpload(e, 'personality')} 
-            />
-          </label>
-        </div>
-      </div>
-      
-      {/* Communication Style Field */}
-      <div className="mb-6">
-        <div className="flex justify-between mb-1">
-          <label className="block text-sm font-medium">Communication Style</label>
-          <div className="flex items-center">
-            <div className="h-2 w-2 rounded-full bg-red-500 mr-1"></div>
-            <span className="text-xs text-gray-400">Critical Memory</span>
+        {/* Personality Traits Field */}
+        <div className="wizard-form-group">
+          <div className="flex justify-between mb-1">
+            <label className="wizard-label">Personality Traits</label>
+            <div className="flex items-center">
+              <div className="h-2 w-2 rounded-full bg-red-500 mr-1"></div>
+              <span className="text-xs text-gray-400">Critical Memory</span>
+            </div>
           </div>
-        </div>
-        <textarea
-          value={communicationStyle}
-          onChange={(e) => {
-            setCommunicationStyle(e.target.value);
-            handleChange();
-          }}
-          placeholder="Describe how the agent communicates, their tone, language style..."
-          className="w-full bg-gray-700 border border-gray-600 rounded p-3 min-h-[100px]"
-        />
-        <div className="flex justify-between mt-1">
-          <span className="text-xs text-gray-400">How does the agent communicate? Formal/casual? Verbose/concise?</span>
-          <span className="text-xs text-gray-400">{communicationStyle.length} chars</span>
-        </div>
-        
-        <div className="mt-2">
-          <label className="text-xs bg-blue-600 hover:bg-blue-700 text-white py-1 px-2 rounded cursor-pointer">
-            Upload File
-            <input 
-              type="file" 
-              className="hidden" 
-              accept=".txt,.md"
-              onChange={(e) => handleFileUpload(e, 'communicationStyle')} 
-            />
-          </label>
+          <textarea
+            value={personality}
+            onChange={(e) => {
+              setPersonality(e.target.value);
+            }}
+            placeholder="Describe the agent's personality traits, character, and temperament..."
+            className="wizard-input wizard-textarea"
+          />
+          <div className="flex justify-between mt-1">
+            <span className="text-xs text-gray-400">How would you describe the agent's character and personality?</span>
+            <span className="text-xs text-gray-400">{personality.length} chars</span>
+          </div>
+          
+          <div className="mt-2">
+            <label className="wizard-btn wizard-btn-secondary inline-block text-xs cursor-pointer">
+              Upload File
+              <input 
+                type="file" 
+                className="hidden" 
+                accept=".txt,.md"
+                onChange={(e) => handleFileUpload(e, 'personality')} 
+              />
+            </label>
+          </div>
         </div>
       </div>
       
-      {/* Preferences Field */}
-      <div className="mb-6">
-        <div className="flex justify-between mb-1">
-          <label className="block text-sm font-medium">Preferences & Biases</label>
-          <div className="flex items-center">
-            <div className="h-2 w-2 rounded-full bg-amber-500 mr-1"></div>
-            <span className="text-xs text-gray-400">Important Memory</span>
+      <div className="wizard-panel">
+        {/* Communication Style Field */}
+        <div className="wizard-form-group">
+          <div className="flex justify-between mb-1">
+            <label className="wizard-label">Communication Style</label>
+            <div className="flex items-center">
+              <div className="h-2 w-2 rounded-full bg-red-500 mr-1"></div>
+              <span className="text-xs text-gray-400">Critical Memory</span>
+            </div>
+          </div>
+          <textarea
+            value={communicationStyle}
+            onChange={(e) => {
+              setCommunicationStyle(e.target.value);
+            }}
+            placeholder="Describe how the agent communicates, their tone, language style..."
+            className="wizard-input wizard-textarea"
+          />
+          <div className="flex justify-between mt-1">
+            <span className="text-xs text-gray-400">How does the agent communicate? Formal/casual? Verbose/concise?</span>
+            <span className="text-xs text-gray-400">{communicationStyle.length} chars</span>
+          </div>
+          
+          <div className="mt-2">
+            <label className="wizard-btn wizard-btn-secondary inline-block text-xs cursor-pointer">
+              Upload File
+              <input 
+                type="file" 
+                className="hidden" 
+                accept=".txt,.md"
+                onChange={(e) => handleFileUpload(e, 'communicationStyle')} 
+              />
+            </label>
           </div>
         </div>
-        <textarea
-          value={preferences}
-          onChange={(e) => {
-            setPreferences(e.target.value);
-            handleChange();
-          }}
-          placeholder="Describe the agent's preferences, biases, and tendencies..."
-          className="w-full bg-gray-700 border border-gray-600 rounded p-3 min-h-[100px]"
-        />
-        <div className="flex justify-between mt-1">
-          <span className="text-xs text-gray-400">What approaches does the agent prefer or tend toward?</span>
-          <span className="text-xs text-gray-400">{preferences.length} chars</span>
-        </div>
         
-        <div className="mt-2">
-          <label className="text-xs bg-blue-600 hover:bg-blue-700 text-white py-1 px-2 rounded cursor-pointer">
-            Upload File
-            <input 
-              type="file" 
-              className="hidden" 
-              accept=".txt,.md"
-              onChange={(e) => handleFileUpload(e, 'preferences')} 
-            />
-          </label>
+        {/* Preferences Field */}
+        <div className="wizard-form-group">
+          <div className="flex justify-between mb-1">
+            <label className="wizard-label">Preferences & Biases</label>
+            <div className="flex items-center">
+              <div className="h-2 w-2 rounded-full bg-amber-500 mr-1"></div>
+              <span className="text-xs text-gray-400">Important Memory</span>
+            </div>
+          </div>
+          <textarea
+            value={preferences}
+            onChange={(e) => {
+              setPreferences(e.target.value);
+            }}
+            placeholder="Describe the agent's preferences, biases, and tendencies..."
+            className="wizard-input wizard-textarea"
+          />
+          <div className="flex justify-between mt-1">
+            <span className="text-xs text-gray-400">What approaches does the agent prefer or tend toward?</span>
+            <span className="text-xs text-gray-400">{preferences.length} chars</span>
+          </div>
+          
+          <div className="mt-2">
+            <label className="wizard-btn wizard-btn-secondary inline-block text-xs cursor-pointer">
+              Upload File
+              <input 
+                type="file" 
+                className="hidden" 
+                accept=".txt,.md"
+                onChange={(e) => handleFileUpload(e, 'preferences')} 
+              />
+            </label>
+          </div>
         </div>
       </div>
       
       {/* Memory Preview */}
-      <div>
-        <h3 className="text-md font-medium mb-2">How Agent Will Process This Information</h3>
+      <div className="wizard-panel">
+        <h3 className="wizard-panel-title">How Agent Will Process This Information</h3>
         <div className="bg-gray-700 border border-gray-600 rounded p-3 text-xs font-mono">
           <div className="mb-2">
             <span className="text-pink-400">// Critical Memory: Background & Role</span><br/>
-            <span className="text-gray-200">memoryId: "{generateId('background')}"</span><br/>
+            <span className="text-gray-200">memoryId: "{previewIds.background}"</span><br/>
             <span className="text-gray-200">importance: "critical"</span><br/>
             <span className="text-gray-200">tags: ["personality", "background", "core"]</span><br/>
             <span className="text-gray-200">content: "{background.substring(0, 50)}..."</span>
           </div>
           <div className="mb-2">
             <span className="text-pink-400">// Critical Memory: Personality Traits</span><br/>
-            <span className="text-gray-200">memoryId: "{generateId('personality')}"</span><br/>
+            <span className="text-gray-200">memoryId: "{previewIds.personality}"</span><br/>
             <span className="text-gray-200">importance: "critical"</span><br/>
             <span className="text-gray-200">tags: ["personality", "traits", "core"]</span><br/>
             <span className="text-gray-200">content: "{personality.substring(0, 50)}..."</span>
           </div>
           <div className="mb-2">
             <span className="text-pink-400">// Critical Memory: Communication Style</span><br/>
-            <span className="text-gray-200">memoryId: "{generateId('communication')}"</span><br/>
+            <span className="text-gray-200">memoryId: "{previewIds.communication}"</span><br/>
             <span className="text-gray-200">importance: "critical"</span><br/>
             <span className="text-gray-200">tags: ["personality", "communication", "core"]</span><br/>
             <span className="text-gray-200">content: "{communicationStyle.substring(0, 50)}..."</span>

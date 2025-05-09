@@ -1,228 +1,69 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { fileProcessor } from '../../../../lib/file-processing';
-import path from 'path';
-import fs from 'fs';
-import { MemoryType } from '../../../../server/memory/config';
-import { AnyMemoryService } from '../../../../server/memory/services/memory/memory-service-wrappers';
-import { getMemoryServices } from '../../../../server/memory/services';
+import { writeFile } from 'fs/promises';
+import { join } from 'path';
+import { v4 as uuidv4 } from 'uuid';
+import { AgentService } from '../../../../services/AgentService';
 
-// Import the FileMetadata interface from file-processing to extend it
-import { FileMetadata, ProcessedFile } from '../../../../lib/file-processing';
+export const runtime = 'nodejs';
 
-// Create a function to get memory service
-async function getMemoryService(): Promise<AnyMemoryService> {
-  const services = await getMemoryServices();
-  return services.memoryService;
-}
-
-// Send notification to Discord
-async function sendDiscordNotification(filename: string, fileId: string) {
-  try {
-    // Dynamically import to avoid server/client module mismatches
-    const { getChloeInstance } = await import('../../../../agents/chloe');
-    const chloe = await getChloeInstance();
-    
-    if (!chloe) {
-      console.error('Failed to get Chloe instance for Discord notification');
-      return;
-    }
-    
-    // Check if Discord notifier is available
-    chloe.notify(`New file added to memory: ${filename} (ID: ${fileId})`);
-  } catch (error) {
-    console.error('Error sending Discord notification:', error);
-  }
-}
-
-/**
- * Extended FileMetadata interface with memory-specific fields
- */
-interface ExtendedFileMetadata extends FileMetadata {
-  memoryId?: string;
-}
-
-/**
- * Extended ProcessedFile interface with the extended metadata
- */
-interface ExtendedProcessedFile extends Omit<ProcessedFile, 'metadata'> {
-  metadata: ExtendedFileMetadata;
-}
-
-/**
- * POST handler for file uploads
- */
 export async function POST(request: NextRequest) {
   try {
-    // Initialize file processor if needed
-    if (!fileProcessor.isInitialized) {
-      await fileProcessor.initialize();
-    }
-    
-    // Get memory service instance
-    const memoryService = await getMemoryService();
-    if (!memoryService) {
-      console.warn('Memory service unavailable, proceeding without standardized memory integration');
-    }
-    
-    // Parse form data
-    const formData = await request.formData();
-    const file = formData.get('file') as File | null;
+    // Parse FormData
+    const data = await request.formData();
+    const file = data.get('file') as File;
+    const agentId = data.get('agentId') as string || 'chloe';
     
     if (!file) {
       return NextResponse.json(
-        { success: false, error: 'No file provided' },
+        { error: 'No file uploaded' },
         { status: 400 }
       );
     }
     
-    // Extract tags if provided
-    const tagsString = formData.get('tags') as string | null;
-    const tags = tagsString ? tagsString.split(',').map(tag => tag.trim()) : [];
+    // Get the agent
+    const agent = await AgentService.getAgent(agentId);
     
-    // Check file type
-    const allowedTypes = [
-      'text/plain',
-      'text/markdown',
-      'text/csv',
-      'application/pdf',
-      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      'image/jpeg',
-      'image/png',
-      'image/gif'
-    ];
-    
-    if (!allowedTypes.includes(file.type)) {
-      return NextResponse.json(
-        { 
-          success: false, 
-          error: `Unsupported file type: ${file.type}. Allowed types: ${allowedTypes.join(', ')}` 
-        },
-        { status: 400 }
-      );
+    if (!agent) {
+      return NextResponse.json({ 
+        error: `Agent with ID ${agentId} not found` 
+      }, { status: 404 });
     }
     
-    // Check file size (10MB limit)
-    const maxSize = 10 * 1024 * 1024; // 10MB
-    if (file.size > maxSize) {
-      return NextResponse.json(
-        { 
-          success: false, 
-          error: `File too large: ${(file.size / (1024 * 1024)).toFixed(2)}MB. Maximum allowed: 10MB` 
-        },
-        { status: 400 }
-      );
+    // Generate a unique filename
+    const bytes = await file.arrayBuffer();
+    const buffer = Buffer.from(bytes);
+    
+    // Create a unique ID for the file
+    const uniqueId = uuidv4();
+    const fileExt = file.name.split('.').pop() || 'txt';
+    const filename = `${uniqueId}.${fileExt}`;
+    
+    // Define path to save the file
+    const uploadDir = join(process.cwd(), 'uploads');
+    const filePath = join(uploadDir, filename);
+    
+    // Save the file
+    await writeFile(filePath, buffer);
+    
+    // Process the file with the agent if it has the processUploadedFile method
+    let processingResult = null;
+    if (typeof agent.processUploadedFile === 'function') {
+      processingResult = await agent.processUploadedFile(filePath, file.name);
     }
     
-    // Convert file to buffer
-    const fileBuffer = Buffer.from(await file.arrayBuffer());
-    
-    // Create file metadata
-    const fileMetadata = {
-      filename: file.name,
-      originalFilename: file.name,
-      mimeType: file.type,
+    return NextResponse.json({
+      success: true,
+      filename,
+      originalName: file.name,
       size: file.size,
-      tags
-    };
-    
-    // Process the file
-    const result = await fileProcessor.processFile(fileBuffer, fileMetadata) as ExtendedProcessedFile;
-    
-    // Save files to the filesystem for image files
-    if (result.metadata.mimeType.startsWith('image/')) {
-      // Ensure directories exist
-      const uploadsDir = path.join(process.cwd(), 'data', 'files', 'uploads');
-      const storageDir = path.join(process.cwd(), 'data', 'files', 'storage');
-      
-      if (!fs.existsSync(uploadsDir)) {
-        fs.mkdirSync(uploadsDir, { recursive: true });
-      }
-      
-      if (!fs.existsSync(storageDir)) {
-        fs.mkdirSync(storageDir, { recursive: true });
-      }
-      
-      // Save files to both directories
-      const uploadPath = path.join(uploadsDir, result.metadata.fileId);
-      const storagePath = path.join(storageDir, result.metadata.fileId);
-      
-      fs.writeFileSync(uploadPath, fileBuffer);
-      fs.writeFileSync(storagePath, fileBuffer);
-      
-      console.log(`Image file saved to: ${uploadPath} and ${storagePath}`);
-    }
-    
-    // Store the processed file in the standardized memory system
-    if (memoryService) {
-      try {
-        const contentToStore = result.fullText || `File: ${result.metadata.filename}`;
-        
-        // Create the memory item
-        const memoryResult = await memoryService.addMemory({
-          type: MemoryType.DOCUMENT,
-          content: contentToStore,
-          metadata: {
-            ...result.metadata,
-            userId: 'gab',
-            processingDate: new Date().toISOString(),
-            isStandardizedMemory: true
-          }
-        });
-        
-        console.log(`File stored in standardized memory system with ID: ${memoryResult.id}`);
-        
-        // Update result with memory ID for reference
-        result.metadata.memoryId = memoryResult.id;
-      } catch (memoryError) {
-        console.error('Error storing file in standardized memory system:', memoryError);
-      }
-    }
-    
-    // If successful, send notification to Discord
-    if (result.metadata.processingStatus === 'completed') {
-      // Log file information for debugging
-      console.log(`Successfully processed file: ${result.metadata.filename} (ID: ${result.metadata.fileId})`);
-      
-      // Additional logging for image files
-      if (result.metadata.mimeType.startsWith('image/')) {
-        console.log(`Image file stored: ${result.metadata.filename} (ID: ${result.metadata.fileId})`);
-        
-        // Verify file storage (for debugging)
-        const uploadPath = path.join(process.cwd(), 'data', 'files', 'uploads', result.metadata.fileId);
-        const storagePath = path.join(process.cwd(), 'data', 'files', 'storage', result.metadata.fileId);
-        
-        if (fs.existsSync(uploadPath)) {
-          console.log(`✅ Image file verified in uploads: ${uploadPath}`);
-        } else {
-          console.warn(`❌ Image file NOT found in uploads: ${uploadPath}`);
-        }
-        
-        if (fs.existsSync(storagePath)) {
-          console.log(`✅ Image file verified in storage: ${storagePath}`);
-        } else {
-          console.warn(`❌ Image file NOT found in storage: ${storagePath}`);
-        }
-      }
-      
-      // Send notification asynchronously (don't await)
-      sendDiscordNotification(result.metadata.filename, result.metadata.fileId);
-    }
-    
-    // Return response
-    return NextResponse.json({ 
-      success: result.metadata.processingStatus === 'completed',
-      fileId: result.metadata.fileId,
-      filename: result.metadata.filename,
-      status: result.metadata.processingStatus,
-      error: result.metadata.processingError,
-      summary: result.metadata.summary,
-      memoryId: result.metadata.memoryId
+      type: file.type,
+      path: `/uploads/${filename}`,
+      processingResult
     });
-  } catch (error: any) {
-    console.error('Error processing file upload:', error);
-    
+  } catch (error) {
+    console.error('Error uploading file:', error);
     return NextResponse.json(
-      { success: false, error: `File upload failed: ${error.message || 'Unknown error'}` },
+      { error: 'Failed to upload file' },
       { status: 500 }
     );
   }

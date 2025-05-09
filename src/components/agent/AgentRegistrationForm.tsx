@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { AgentCapability, AgentRegistrationRequest, AgentParameters, AgentMetadata } from '@/lib/multi-agent/types/agent';
 import SystemPromptEditor from './SystemPromptEditor';
@@ -6,6 +6,7 @@ import KnowledgeUploader from './KnowledgeUploader';
 import AgentPersonaForm from './AgentPersonaForm';
 import AgentCapabilityManager from './AgentCapabilityManager';
 import { CapabilityLevel } from '@/agents/shared/capability-system';
+import './wizard.css';
 
 // Custom extensions to standard types
 interface ExtendedAgentParameters extends AgentParameters {
@@ -55,11 +56,22 @@ interface ExtendedAgentRegistrationRequest extends Omit<AgentRegistrationRequest
   metadata: ExtendedAgentMetadata;
 }
 
+// Wizard steps
+enum FormStep {
+  INFO_AND_PROMPT = 0,
+  PERSONA = 1,
+  KNOWLEDGE = 2, 
+  CAPABILITIES = 3
+}
+
+const STORAGE_KEY = 'agent_registration_form_data';
+
 const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
   onSubmit,
   isSubmitting
 }) => {
   const router = useRouter();
+  const [currentStep, setCurrentStep] = useState<FormStep>(FormStep.INFO_AND_PROMPT);
   
   // Use extended type for formData
   const [formData, setFormData] = useState<ExtendedAgentRegistrationRequest>({
@@ -87,16 +99,7 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
     }
   });
 
-  const [newCapability, setNewCapability] = useState<Partial<AgentCapability>>({
-    id: '',
-    name: '',
-    description: ''
-  });
-  
-  const [newTag, setNewTag] = useState('');
-  const [newDomain, setNewDomain] = useState('');
-  const [newSpecialization, setNewSpecialization] = useState('');
-
+  // Form section states
   const [systemPrompt, setSystemPrompt] = useState('');
   const [knowledgeData, setKnowledgeData] = useState<{
     knowledgePaths: string[];
@@ -122,9 +125,42 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
     roles: [],
     tags: []
   });
-  const [agentConfig, setAgentConfig] = useState<AgentConfig>({
-    knowledgePaths: ['data/knowledge/company', 'data/knowledge/agents/shared']
-  });
+  
+  // Load saved form data from localStorage on initial render
+  useEffect(() => {
+    const savedData = localStorage.getItem(STORAGE_KEY);
+    if (savedData) {
+      try {
+        const parsedData = JSON.parse(savedData);
+        
+        // Restore main form data
+        setFormData(parsedData.formData);
+        
+        // Restore component-specific states
+        if (parsedData.systemPrompt) setSystemPrompt(parsedData.systemPrompt);
+        if (parsedData.knowledgeData) setKnowledgeData(parsedData.knowledgeData);
+        if (parsedData.personaData) setPersonaData(parsedData.personaData);
+        if (parsedData.agentCapabilities) setAgentCapabilities(parsedData.agentCapabilities);
+        if (parsedData.currentStep !== undefined) setCurrentStep(parsedData.currentStep);
+      } catch (error) {
+        console.error('Error loading saved form data:', error);
+      }
+    }
+  }, []);
+  
+  // Save form data to localStorage whenever it changes
+  useEffect(() => {
+    const dataToSave = {
+      formData,
+      systemPrompt,
+      knowledgeData,
+      personaData,
+      agentCapabilities,
+      currentStep
+    };
+    
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(dataToSave));
+  }, [formData, systemPrompt, knowledgeData, personaData, agentCapabilities, currentStep]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -134,27 +170,27 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
       const [parent, child] = name.split('.');
       
       if (parent === 'parameters') {
-        setFormData({
-          ...formData,
+        setFormData(prevFormData => ({
+          ...prevFormData,
           parameters: {
-            ...formData.parameters,
+            ...prevFormData.parameters,
             [child]: value
           }
-        });
+        }));
       } else if (parent === 'metadata') {
-        setFormData({
-          ...formData,
+        setFormData(prevFormData => ({
+          ...prevFormData,
           metadata: {
-            ...formData.metadata,
+            ...prevFormData.metadata,
             [child]: value
           }
-        });
+        }));
       }
     } else {
-      setFormData({
-        ...formData,
+      setFormData(prevFormData => ({
+        ...prevFormData,
         [name]: value
-      });
+      }));
     }
   };
 
@@ -162,133 +198,91 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
     const { name, value } = e.target;
     const numValue = parseFloat(value);
     
+    // Handle nested properties
     if (name.includes('.')) {
       const [parent, child] = name.split('.');
       
       if (parent === 'parameters') {
-        setFormData({
-          ...formData,
+        setFormData(prevFormData => ({
+          ...prevFormData,
           parameters: {
-            ...formData.parameters,
+            ...prevFormData.parameters,
             [child]: numValue
           }
-        });
+        }));
       } else if (parent === 'metadata') {
-        setFormData({
-          ...formData,
+        setFormData(prevFormData => ({
+          ...prevFormData,
           metadata: {
-            ...formData.metadata,
+            ...prevFormData.metadata,
             [child]: numValue
           }
-        });
+        }));
       }
     } else {
-      setFormData({
-        ...formData,
+      setFormData(prevFormData => ({
+        ...prevFormData,
         [name]: numValue
-      });
+      }));
     }
   };
 
-  const addCapability = () => {
-    if (newCapability.name && newCapability.description) {
-      const capability: AgentCapability = {
-        id: newCapability.id || `cap_${newCapability.name.toLowerCase().replace(/\s+/g, '_')}`,
-        name: newCapability.name,
-        description: newCapability.description
+  // Memoize the capability handler
+  const handleCapabilityChange = useCallback((capabilities: {
+    skills: Record<string, CapabilityLevel>;
+    domains: string[];
+    roles: string[];
+    tags?: string[];
+  }) => {
+    // Prevent infinite updates by checking if values actually changed
+    const isEqual = (
+      JSON.stringify(capabilities.skills) === JSON.stringify(agentCapabilities.skills) &&
+      JSON.stringify(capabilities.domains) === JSON.stringify(agentCapabilities.domains) &&
+      JSON.stringify(capabilities.roles) === JSON.stringify(agentCapabilities.roles) &&
+      JSON.stringify(capabilities.tags) === JSON.stringify(agentCapabilities.tags)
+    );
+    
+    // Only update state if capabilities have actually changed
+    if (!isEqual) {
+      const safeCapabilities = {
+        ...capabilities,
+        tags: capabilities.tags || []
       };
       
-      setFormData({
-        ...formData,
-        capabilities: [...formData.capabilities, capability]
-      });
+      setAgentCapabilities(safeCapabilities);
       
-      setNewCapability({
-        id: '',
-        name: '',
-        description: ''
-      });
-    }
-  };
-
-  const removeCapability = (id: string) => {
-    setFormData({
-      ...formData,
-      capabilities: formData.capabilities.filter(cap => cap.id !== id)
-    });
-  };
-
-  const addTag = () => {
-    if (newTag && !formData.metadata.tags.includes(newTag)) {
-      setFormData({
-        ...formData,
+      // Convert capabilities to the format expected by the API
+      const mappedCapabilities: AgentCapability[] = Object.entries(safeCapabilities.skills).map(([id, level]) => ({
+        id,
+        name: id.split('.')[1] || id,
+        description: `Capability level: ${level}`,
+        version: '1.0'
+      }));
+      
+      // Use functional state update to avoid dependency on current formData
+      setFormData(prevFormData => ({
+        ...prevFormData,
+        capabilities: mappedCapabilities,
         metadata: {
-          ...formData.metadata,
-          tags: [...formData.metadata.tags, newTag]
+          ...prevFormData.metadata,
+          domain: safeCapabilities.domains,
+          // Don't append roles to existing specialization, replace them
+          specialization: safeCapabilities.roles,
+          // Don't append tags to existing tags, replace them
+          tags: safeCapabilities.tags
         }
-      });
-      setNewTag('');
+      }));
     }
-  };
-
-  const removeTag = (tag: string) => {
-    setFormData({
-      ...formData,
-      metadata: {
-        ...formData.metadata,
-        tags: formData.metadata.tags.filter(t => t !== tag)
-      }
-    });
-  };
-
-  const addDomain = () => {
-    if (newDomain && !formData.metadata.domain.includes(newDomain)) {
-      setFormData({
-        ...formData,
-        metadata: {
-          ...formData.metadata,
-          domain: [...formData.metadata.domain, newDomain]
-        }
-      });
-      setNewDomain('');
-    }
-  };
-
-  const removeDomain = (domain: string) => {
-    setFormData({
-      ...formData,
-      metadata: {
-        ...formData.metadata,
-        domain: formData.metadata.domain.filter(d => d !== domain)
-      }
-    });
-  };
-
-  const addSpecialization = () => {
-    if (newSpecialization && !formData.metadata.specialization.includes(newSpecialization)) {
-      setFormData({
-        ...formData,
-        metadata: {
-          ...formData.metadata,
-          specialization: [...formData.metadata.specialization, newSpecialization]
-        }
-      });
-      setNewSpecialization('');
-    }
-  };
-
-  const removeSpecialization = (spec: string) => {
-    setFormData({
-      ...formData,
-      metadata: {
-        ...formData.metadata,
-        specialization: formData.metadata.specialization.filter(s => s !== spec)
-      }
-    });
-  };
+  }, [agentCapabilities]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    if (currentStep < FormStep.CAPABILITIES) {
+      // If not on the last step, move to the next step
+      setCurrentStep(prevStep => prevStep + 1);
+      return;
+    }
     
     // Create a standard compliant version of the request
     const standardRequest: AgentRegistrationRequest = {
@@ -297,10 +291,12 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
       status: formData.status,
       capabilities: formData.capabilities,
       parameters: {
-        model: formData.parameters.model,
+        model: process.env.NEXT_PUBLIC_DEFAULT_MODEL || formData.parameters.model,
         temperature: formData.parameters.temperature,
         maxTokens: formData.parameters.maxTokens,
-        tools: formData.parameters.tools
+        tools: formData.parameters.tools,
+        // We'll store systemPrompt in our own field but not include it directly
+        // in the API request since it's not part of the standard parameters
       },
       metadata: {
         tags: formData.metadata.tags,
@@ -308,21 +304,92 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
         specialization: formData.metadata.specialization,
         performanceMetrics: formData.metadata.performanceMetrics,
         version: formData.metadata.version,
-        isPublic: formData.metadata.isPublic
+        isPublic: formData.metadata.isPublic,
+        // Custom data must be added to a separate field in the API call
       }
     };
     
-    await onSubmit(standardRequest);
+    // Add the extended data for processing by the API handler
+    const extendedRequest = {
+      ...standardRequest,
+      _extended: {
+        systemPrompt,
+        knowledgePaths: knowledgeData.knowledgePaths,
+        persona: personaData
+      }
+    };
+    
+    try {
+      await onSubmit(extendedRequest as any); // Use type assertion for backward compatibility
+      // Clear saved form data after successful submission
+      localStorage.removeItem(STORAGE_KEY);
+    } catch (error) {
+      console.error("Error submitting form:", error);
+    }
   };
 
-  return (
-    <form onSubmit={handleSubmit} className="space-y-6 max-w-4xl mx-auto">
-      <div className="bg-gray-800 p-6 rounded-lg shadow-md">
-        <h2 className="text-xl font-semibold mb-4">Agent Information</h2>
+  const goToNextStep = () => {
+    if (currentStep < FormStep.CAPABILITIES) {
+      setCurrentStep(prevStep => prevStep + 1);
+    }
+  };
+
+  const goToPreviousStep = () => {
+    if (currentStep > FormStep.INFO_AND_PROMPT) {
+      setCurrentStep(prevStep => prevStep - 1);
+    }
+  };
+  
+  const resetForm = () => {
+    if (confirm('Are you sure you want to reset the form? All your data will be lost.')) {
+      localStorage.removeItem(STORAGE_KEY);
+      window.location.reload();
+    }
+  };
+
+  const renderStepIndicator = () => {
+    return (
+      <div className="wizard-step-indicator">
+        {[
+          { step: FormStep.INFO_AND_PROMPT, label: "Agent Info" },
+          { step: FormStep.PERSONA, label: "Persona" },
+          { step: FormStep.KNOWLEDGE, label: "Knowledge" },
+          { step: FormStep.CAPABILITIES, label: "Capabilities" }
+        ].map(({ step, label }) => (
+          <div 
+            key={step} 
+            className={`wizard-step ${currentStep === step ? 'active' : ''} ${currentStep > step ? 'completed' : ''}`}
+          >
+            <div className="wizard-step-circle">
+              {currentStep > step ? (
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+              ) : (
+                step + 1
+              )}
+            </div>
+            <span className="wizard-step-label">{label}</span>
+          </div>
+        ))}
+        <div className="wizard-progress-bar">
+          <div 
+            className="wizard-progress-fill"
+            style={{ width: `${(currentStep / 3) * 100}%` }}
+          ></div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderAgentInfoStep = () => (
+    <>
+      <div className="wizard-panel">
+        <h2 className="wizard-panel-title">Agent Information</h2>
         
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-          <div>
-            <label htmlFor="name" className="block text-sm font-medium mb-1">
+        <div className="wizard-grid wizard-grid-2">
+          <div className="wizard-form-group">
+            <label htmlFor="name" className="wizard-label">
               Agent Name
             </label>
             <input
@@ -332,13 +399,13 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
               value={formData.name}
               onChange={handleChange}
               required
-              className="w-full bg-gray-700 border border-gray-600 rounded py-2 px-3 text-white"
+              className="wizard-input"
               placeholder="Enter agent name"
             />
           </div>
           
-          <div>
-            <label htmlFor="status" className="block text-sm font-medium mb-1">
+          <div className="wizard-form-group">
+            <label htmlFor="status" className="wizard-label">
               Status
             </label>
             <select
@@ -346,7 +413,7 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
               name="status"
               value={formData.status}
               onChange={handleChange}
-              className="w-full bg-gray-700 border border-gray-600 rounded py-2 px-3 text-white"
+              className="wizard-select"
             >
               <option value="available">Available</option>
               <option value="unavailable">Unavailable</option>
@@ -355,8 +422,8 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
           </div>
         </div>
         
-        <div>
-          <label htmlFor="description" className="block text-sm font-medium mb-1">
+        <div className="wizard-form-group">
+          <label htmlFor="description" className="wizard-label">
             Description
           </label>
           <textarea
@@ -366,7 +433,7 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
             onChange={handleChange}
             required
             rows={3}
-            className="w-full bg-gray-700 border border-gray-600 rounded py-2 px-3 text-white"
+            className="wizard-input wizard-textarea"
             placeholder="Describe the agent's purpose and capabilities"
           />
         </div>
@@ -377,299 +444,102 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
         initialPrompt={systemPrompt}
         onChange={(prompt) => {
           setSystemPrompt(prompt);
-          setFormData({
-            ...formData,
+          setFormData(prevFormData => ({
+            ...prevFormData,
             parameters: {
-              ...formData.parameters,
+              ...prevFormData.parameters,
               systemPrompt: prompt
             }
-          });
-        }}
-      />
-      
-      {/* Knowledge Uploader */}
-      <KnowledgeUploader 
-        initialKnowledgePaths={knowledgeData.knowledgePaths}
-        initialFiles={knowledgeData.files}
-        onChange={(data) => {
-          setKnowledgeData(data);
-          setAgentConfig({
-            ...agentConfig,
-            knowledgePaths: data.knowledgePaths
-          });
-          setFormData({
-            ...formData,
-            metadata: {
-              ...formData.metadata,
-              knowledgePaths: data.knowledgePaths
-            }
-          });
-        }}
-      />
-      
-      {/* Agent Persona Form */}
-      <AgentPersonaForm 
-        initialBackground={personaData.background}
-        initialPersonality={personaData.personality}
-        initialCommunicationStyle={personaData.communicationStyle}
-        initialPreferences={personaData.preferences}
-        onChange={(data) => {
-          setPersonaData(data);
-          setFormData({
-            ...formData,
-            metadata: {
-              ...formData.metadata,
-              persona: data
-            }
-          });
-        }}
-      />
-      
-      {/* Agent Capability Manager */}
-      <AgentCapabilityManager 
-        initialCapabilities={agentCapabilities}
-        onChange={(capabilities) => {
-          const safeCapabilities = {
-            ...capabilities,
-            tags: capabilities.tags || []
-          };
-          
-          setAgentCapabilities(safeCapabilities);
-          
-          const mappedCapabilities: AgentCapability[] = Object.entries(safeCapabilities.skills).map(([id, level]) => ({
-            id,
-            name: id.split('.')[1] || id,
-            description: `Capability level: ${level}`,
-            version: '1.0'
           }));
-          
-          setFormData({
-            ...formData,
-            capabilities: mappedCapabilities,
-            metadata: {
-              ...formData.metadata,
-              domain: safeCapabilities.domains,
-              specialization: [
-                ...formData.metadata.specialization,
-                ...safeCapabilities.roles
-              ],
-              tags: [
-                ...formData.metadata.tags,
-                ...safeCapabilities.tags
-              ]
-            }
-          });
         }}
       />
+    </>
+  );
+
+  return (
+    <form onSubmit={handleSubmit} className="wizard-container">
+      {renderStepIndicator()}
       
-      <div className="bg-gray-800 p-6 rounded-lg shadow-md">
-        <h2 className="text-xl font-semibold mb-4">Model Parameters</h2>
+      <div className="wizard-steps-container">
+        {currentStep === FormStep.INFO_AND_PROMPT && renderAgentInfoStep()}
         
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div>
-            <label htmlFor="parameters.model" className="block text-sm font-medium mb-1">
-              Model
-            </label>
-            <input
-              type="text"
-              id="parameters.model"
-              name="parameters.model"
-              value={formData.parameters.model}
-              onChange={handleChange}
-              required
-              className="w-full bg-gray-700 border border-gray-600 rounded py-2 px-3 text-white"
-              placeholder="gpt-4-turbo"
-            />
-          </div>
-          
-          <div>
-            <label htmlFor="parameters.temperature" className="block text-sm font-medium mb-1">
-              Temperature
-            </label>
-            <input
-              type="number"
-              id="parameters.temperature"
-              name="parameters.temperature"
-              value={formData.parameters.temperature}
-              onChange={handleNumberChange}
-              min="0"
-              max="1"
-              step="0.1"
-              required
-              className="w-full bg-gray-700 border border-gray-600 rounded py-2 px-3 text-white"
-            />
-          </div>
-          
-          <div>
-            <label htmlFor="parameters.maxTokens" className="block text-sm font-medium mb-1">
-              Max Tokens
-            </label>
-            <input
-              type="number"
-              id="parameters.maxTokens"
-              name="parameters.maxTokens"
-              value={formData.parameters.maxTokens}
-              onChange={handleNumberChange}
-              min="100"
-              required
-              className="w-full bg-gray-700 border border-gray-600 rounded py-2 px-3 text-white"
-            />
-          </div>
-        </div>
-      </div>
-      
-      <div className="bg-gray-800 p-6 rounded-lg shadow-md">
-        <h2 className="text-xl font-semibold mb-4">Metadata</h2>
-        
-        <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium mb-1">Tags</label>
-            <div className="flex">
-              <input
-                type="text"
-                value={newTag}
-                onChange={(e) => setNewTag(e.target.value)}
-                className="flex-1 bg-gray-700 border border-gray-600 rounded-l py-2 px-3 text-white"
-                placeholder="Add tag"
-              />
-              <button
-                type="button"
-                onClick={addTag}
-                className="bg-blue-600 hover:bg-blue-700 px-4 rounded-r text-white"
-                disabled={!newTag}
-              >
-                Add
-              </button>
-            </div>
-            {formData.metadata.tags.length > 0 && (
-              <div className="flex flex-wrap gap-2 mt-2">
-                {formData.metadata.tags.map((tag) => (
-                  <span key={tag} className="bg-gray-700 px-2 py-1 rounded text-sm flex items-center">
-                    {tag}
-                    <button
-                      type="button"
-                      onClick={() => removeTag(tag)}
-                      className="ml-2 text-red-400 hover:text-red-300"
-                    >
-                      ×
-                    </button>
-                  </span>
-                ))}
-              </div>
-            )}
-          </div>
-          
-          <div>
-            <label className="block text-sm font-medium mb-1">Domains</label>
-            <div className="flex">
-              <input
-                type="text"
-                value={newDomain}
-                onChange={(e) => setNewDomain(e.target.value)}
-                className="flex-1 bg-gray-700 border border-gray-600 rounded-l py-2 px-3 text-white"
-                placeholder="Add domain"
-              />
-              <button
-                type="button"
-                onClick={addDomain}
-                className="bg-blue-600 hover:bg-blue-700 px-4 rounded-r text-white"
-                disabled={!newDomain}
-              >
-                Add
-              </button>
-            </div>
-            {formData.metadata.domain.length > 0 && (
-              <div className="flex flex-wrap gap-2 mt-2">
-                {formData.metadata.domain.map((domain) => (
-                  <span key={domain} className="bg-gray-700 px-2 py-1 rounded text-sm flex items-center">
-                    {domain}
-                    <button
-                      type="button"
-                      onClick={() => removeDomain(domain)}
-                      className="ml-2 text-red-400 hover:text-red-300"
-                    >
-                      ×
-                    </button>
-                  </span>
-                ))}
-              </div>
-            )}
-          </div>
-          
-          <div>
-            <label className="block text-sm font-medium mb-1">Specializations</label>
-            <div className="flex">
-              <input
-                type="text"
-                value={newSpecialization}
-                onChange={(e) => setNewSpecialization(e.target.value)}
-                className="flex-1 bg-gray-700 border border-gray-600 rounded-l py-2 px-3 text-white"
-                placeholder="Add specialization"
-              />
-              <button
-                type="button"
-                onClick={addSpecialization}
-                className="bg-blue-600 hover:bg-blue-700 px-4 rounded-r text-white"
-                disabled={!newSpecialization}
-              >
-                Add
-              </button>
-            </div>
-            {formData.metadata.specialization.length > 0 && (
-              <div className="flex flex-wrap gap-2 mt-2">
-                {formData.metadata.specialization.map((spec) => (
-                  <span key={spec} className="bg-gray-700 px-2 py-1 rounded text-sm flex items-center">
-                    {spec}
-                    <button
-                      type="button"
-                      onClick={() => removeSpecialization(spec)}
-                      className="ml-2 text-red-400 hover:text-red-300"
-                    >
-                      ×
-                    </button>
-                  </span>
-                ))}
-              </div>
-            )}
-          </div>
-          
-          <div className="flex items-center">
-            <input
-              type="checkbox"
-              id="metadata.isPublic"
-              checked={formData.metadata.isPublic}
-              onChange={(e) => setFormData({
-                ...formData,
+        {currentStep === FormStep.PERSONA && (
+          <AgentPersonaForm 
+            initialBackground={personaData.background}
+            initialPersonality={personaData.personality}
+            initialCommunicationStyle={personaData.communicationStyle}
+            initialPreferences={personaData.preferences}
+            onChange={(data) => {
+              setPersonaData(data);
+              setFormData(prevFormData => ({
+                ...prevFormData,
                 metadata: {
-                  ...formData.metadata,
-                  isPublic: e.target.checked
+                  ...prevFormData.metadata,
+                  persona: data
                 }
-              })}
-              className="bg-gray-700 border border-gray-600 rounded mr-2"
-            />
-            <label htmlFor="metadata.isPublic" className="text-sm">
-              Make this agent publicly available
-            </label>
-          </div>
-        </div>
+              }));
+            }}
+          />
+        )}
+        
+        {currentStep === FormStep.KNOWLEDGE && (
+          <KnowledgeUploader 
+            initialKnowledgePaths={knowledgeData.knowledgePaths}
+            initialFiles={knowledgeData.files}
+            onChange={(data) => {
+              setKnowledgeData(data);
+              setFormData(prevFormData => ({
+                ...prevFormData,
+                metadata: {
+                  ...prevFormData.metadata,
+                  knowledgePaths: data.knowledgePaths
+                }
+              }));
+            }}
+          />
+        )}
+        
+        {currentStep === FormStep.CAPABILITIES && (
+          <AgentCapabilityManager 
+            initialCapabilities={agentCapabilities}
+            onChange={handleCapabilityChange}
+          />
+        )}
       </div>
       
-      <div className="flex justify-between">
-        <button
-          type="button"
-          onClick={() => router.back()}
-          className="bg-gray-700 hover:bg-gray-600 py-2 px-6 rounded text-white"
-        >
-          Cancel
-        </button>
-        
-        <button
-          type="submit"
-          disabled={isSubmitting}
-          className="bg-blue-600 hover:bg-blue-700 py-2 px-6 rounded text-white disabled:opacity-50"
-        >
-          {isSubmitting ? 'Registering...' : 'Register Agent'}
-        </button>
+      <div className="wizard-controls">
+        <div className="wizard-controls-inner">
+          <div>
+            {currentStep > FormStep.INFO_AND_PROMPT && (
+              <button
+                type="button"
+                onClick={goToPreviousStep}
+                className="wizard-btn wizard-btn-secondary mr-2"
+              >
+                Previous
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={resetForm}
+              className="wizard-btn wizard-btn-danger"
+            >
+              Reset
+            </button>
+          </div>
+          
+          <button
+            type="submit"
+            disabled={isSubmitting}
+            className="wizard-btn wizard-btn-primary"
+          >
+            {currentStep < FormStep.CAPABILITIES 
+              ? 'Next' 
+              : isSubmitting 
+                ? 'Registering...' 
+                : 'Finalize Agent'}
+          </button>
+        </div>
       </div>
     </form>
   );

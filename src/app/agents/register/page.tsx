@@ -38,26 +38,31 @@ const RegisterAgentPage: React.FC = () => {
   };
 
   return (
-    <div className="container mx-auto py-8 px-4">
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold mb-2">Register New Agent</h1>
-        <p className="text-gray-300">
-          Create a new agent profile to integrate with the multi-agent system. Define capabilities,
-          parameters, and metadata to ensure proper functionality.
+    <div className="py-8 px-4 overflow-y-auto">
+      <div className="max-w-4xl mx-auto mb-8">
+        <h1 className="text-3xl font-bold mb-2">Register New Agent</h1>
+        <p className="text-gray-300 text-lg">
+          Create a new agent profile in 4 simple steps. Define the agent's basic information, 
+          persona, knowledge, and capabilities.
+        </p>
+        <p className="text-gray-400 mt-2">
+          Your progress is automatically saved so you can come back and continue later.
         </p>
       </div>
       
       {error && (
-        <div className="bg-red-900 border border-red-700 text-white px-4 py-3 rounded mb-6">
+        <div className="wizard-alert wizard-alert-danger max-w-4xl mx-auto mb-6">
           <p className="font-bold">Registration Failed</p>
           <p>{error}</p>
         </div>
       )}
       
-      <AgentRegistrationForm 
-        onSubmit={handleSubmit}
-        isSubmitting={isSubmitting}
-      />
+      <div className="pb-20">
+        <AgentRegistrationForm 
+          onSubmit={handleSubmit}
+          isSubmitting={isSubmitting}
+        />
+      </div>
     </div>
   );
 };

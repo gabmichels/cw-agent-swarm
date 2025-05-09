@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 
 interface SystemPromptEditorProps {
   initialPrompt?: string;
@@ -22,6 +22,8 @@ const SystemPromptEditor: React.FC<SystemPromptEditorProps> = ({
   const [prompt, setPrompt] = useState(initialPrompt);
   const [showPreview, setShowPreview] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState('');
+  // Store previous initialPrompt to detect changes
+  const prevInitialPromptRef = useRef(initialPrompt);
 
   // Available templates
   const templates: PromptTemplate[] = [
@@ -51,9 +53,21 @@ const SystemPromptEditor: React.FC<SystemPromptEditorProps> = ({
     }
   ];
 
-  // Update parent when prompt changes
+  // Update initialPrompt when it changes from parent
   useEffect(() => {
-    onChange(prompt);
+    if (initialPrompt !== prevInitialPromptRef.current) {
+      setPrompt(initialPrompt);
+      prevInitialPromptRef.current = initialPrompt;
+    }
+  }, [initialPrompt]);
+
+  // Update parent when prompt changes, but only if different from initialPrompt
+  useEffect(() => {
+    // Only call onChange if prompt actually differs from the initialPrompt
+    // This prevents infinite update loops
+    if (prompt !== prevInitialPromptRef.current) {
+      onChange(prompt);
+    }
   }, [prompt, onChange]);
 
   // Load a template

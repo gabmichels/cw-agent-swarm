@@ -17,6 +17,7 @@ export interface AgentParameters {
   temperature: number;
   maxTokens: number;
   tools: string[];
+  systemPrompt?: string;
 }
 
 /**
@@ -38,6 +39,13 @@ export interface AgentMetadata {
   performanceMetrics: AgentPerformanceMetrics;
   version: string;
   isPublic: boolean;
+  knowledgePaths?: string[];
+  persona?: {
+    background: string;
+    personality: string;
+    communicationStyle: string;
+    preferences: string;
+  };
 }
 
 /**

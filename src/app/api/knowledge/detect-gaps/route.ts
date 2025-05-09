@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { KnowledgeGapsManager } from '../../../../agents/chloe/core/knowledgeGapsManager';
-import { getChloeInstance } from '../../../../agents/chloe';
+import { AgentService } from '../../../../services/AgentService';
 import { logger } from '../../../../lib/logging';
 
 /**
@@ -11,60 +10,48 @@ import { logger } from '../../../../lib/logging';
  * - samplingProbability: Probability to analyze this conversation (optional)
  * - minMessages: Minimum number of messages for analysis (optional)
  */
+export const runtime = 'nodejs';
+
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const { messages, samplingProbability, minMessages } = body;
+    // Extract the text from the request
+    const requestData = await request.json();
+    const { text, agentId = 'chloe' } = requestData;
     
-    if (!messages || !Array.isArray(messages) || messages.length === 0) {
-      return NextResponse.json(
-        { error: 'Valid conversation messages are required' },
-        { status: 400 }
-      );
+    if (!text) {
+      return NextResponse.json({ 
+        error: 'Missing required text field' 
+      }, { status: 400 });
     }
     
-    // Get the Chloe agent instance
-    const chloe = await getChloeInstance();
+    // Get the agent instance
+    const agent = await AgentService.getAgent(agentId);
     
-    // Access the knowledge gaps manager from Chloe
-    // Note: In a production environment, we should check if this exists
-    // and initialize it if needed
-    const knowledgeGapsManager = chloe.getKnowledgeGapsManager();
-    
-    if (!knowledgeGapsManager) {
-      return NextResponse.json(
-        { error: 'Knowledge gaps manager not initialized' },
-        { status: 500 }
-      );
+    if (!agent) {
+      return NextResponse.json({ 
+        error: `Agent with ID ${agentId} not found` 
+      }, { status: 404 });
     }
     
-    // Process the conversation for knowledge gaps
-    const result = await knowledgeGapsManager.processConversation({ messages });
-    
-    // If knowledge gaps were detected, return them
-    if (result) {
-      const gaps = await knowledgeGapsManager.getUnresolvedKnowledgeGaps();
-      
-      return NextResponse.json({
-        success: true,
-        gapsDetected: true,
-        gaps: gaps.slice(0, 5) // Return only the 5 most recent gaps
-      });
+    // Check if the agent has a knowledge gaps manager
+    if (!agent.knowledgeGapsManager) {
+      return NextResponse.json({ 
+        error: `Agent ${agentId} does not support knowledge gap detection` 
+      }, { status: 400 });
     }
     
-    // No gaps were detected
+    // Detect knowledge gaps in the text
+    const knowledgeGaps = await agent.knowledgeGapsManager.detectKnowledgeGaps(text);
+    
     return NextResponse.json({
-      success: true,
-      gapsDetected: false,
-      gaps: []
+      knowledgeGaps,
+      success: true
     });
-    
   } catch (error) {
-    logger.error(`Error detecting knowledge gaps: ${error}`);
-    return NextResponse.json(
-      { error: 'Failed to detect knowledge gaps' },
-      { status: 500 }
-    );
+    console.error('Error detecting knowledge gaps:', error);
+    return NextResponse.json({ 
+      error: 'Internal server error detecting knowledge gaps' 
+    }, { status: 500 });
   }
 }
 
@@ -85,10 +72,10 @@ export async function GET(request: NextRequest) {
     const includeResolved = resolvedStr === 'true';
     
     // Get the Chloe agent instance
-    const chloe = await getChloeInstance();
+    const chloe = await AgentService.getAgent('chloe');
     
     // Access the knowledge gaps manager
-    const knowledgeGapsManager = chloe.getKnowledgeGapsManager();
+    const knowledgeGapsManager = chloe.knowledgeGapsManager;
     
     if (!knowledgeGapsManager) {
       return NextResponse.json(

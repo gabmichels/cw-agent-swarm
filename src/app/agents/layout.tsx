@@ -12,8 +12,8 @@ export default function AgentsLayout({
   children: React.ReactNode;
 }) {
   return (
-    <section className="bg-gray-900 min-h-screen">
-      <div className="border-b border-gray-800">
+    <section className="bg-gray-900 min-h-screen flex flex-col">
+      <div className="sticky top-0 z-10 border-b border-gray-800 bg-gray-900">
         <nav className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center">
@@ -33,16 +33,18 @@ export default function AgentsLayout({
                 Ethics Monitor
               </Link>
               <Link 
-                href="/agents/new" 
+                href="/agents/register" 
                 className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-md text-sm font-medium"
               >
-                Create Agent
+                Register Agent
               </Link>
             </div>
           </div>
         </nav>
       </div>
-      {children}
+      <div className="flex-1 overflow-y-auto">
+        {children}
+      </div>
     </section>
   );
 } 

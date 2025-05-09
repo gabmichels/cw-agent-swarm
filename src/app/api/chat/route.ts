@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getChloeInstance } from '../../../agents/chloe';
+import { AgentService } from '../../../services/AgentService';
 import { 
   POST as proxyPost, 
   GET as proxyGet
@@ -27,33 +27,27 @@ function deduplicateThoughts(thoughts: string[]): string[] {
   });
 }
 
-// Handler function to process messages through Chloe
+// Handler function to process messages through the agent
 async function handler(message: string, options: {
   userId: string;
   rememberMessage: boolean;
   attachments?: any[];
   visionResponseFor?: string;
+  agentId?: string;
 }) {
-  // Initialize Chloe agent if needed
-  const agent = await getChloeInstance();
+  // Get agent ID or use default if not specified
+  const agentId = options.agentId || 'chloe';
   
-  if (!agent) {
-    throw new Error('Failed to initialize Chloe agent');
+  try {
+    // Process the message using AgentService
+    return await AgentService.processMessage(agentId, message, {
+      userId: options.userId,
+      attachments: options.attachments
+    });
+  } catch (error) {
+    console.error(`Error processing message with agent ${agentId}:`, error);
+    throw new Error(`Failed to process message with agent ${agentId}`);
   }
-  
-  // Ensure agent is initialized
-  if (!agent.initialized && typeof agent.initialize === 'function') {
-    console.log('Initializing Chloe agent on first message processing');
-    await agent.initialize();
-  }
-  
-  // Process the message
-  const response = await agent.processMessage(message, { 
-    userId: options.userId, 
-    attachments: options.attachments 
-  });
-  
-  return response;
 }
 
 // Use our own implementation for POST

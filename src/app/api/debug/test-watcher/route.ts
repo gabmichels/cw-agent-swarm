@@ -1,45 +1,44 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getChloeInstance } from '../../../../agents/chloe';
+import { AgentService } from '../../../../services/AgentService';
+
+export const runtime = 'nodejs';
 
 /**
- * API endpoint to test the markdown file watcher
+ * Handler for testing the watcher system
  */
 export async function GET(request: NextRequest) {
   try {
-    // Get Chloe instance
-    const chloe = await getChloeInstance();
+    const { searchParams } = new URL(request.url);
+    const message = searchParams.get('message') || 'Test message';
+    const agentId = searchParams.get('agentId') || 'chloe';
     
-    if (!chloe) {
+    // Get the agent
+    const agent = await AgentService.getAgent(agentId);
+    
+    if (!agent) {
       return NextResponse.json({ 
-        success: false, 
-        error: 'Failed to get Chloe instance' 
-      }, { status: 500 });
+        error: `Agent with ID ${agentId} not found` 
+      }, { status: 404 });
     }
     
-    // Get the markdown manager from the agent
-    const markdownManager = chloe.getMarkdownManager?.();
-    
-    if (!markdownManager) {
+    // Check if the agent has a task logger
+    if (!agent.taskLogger) {
       return NextResponse.json({ 
-        success: false, 
-        error: 'Markdown manager is not available' 
-      }, { status: 500 });
+        error: `Agent ${agentId} does not have a task logger` 
+      }, { status: 400 });
     }
     
-    // Test the file watcher
-    console.log('Testing markdown file watcher...');
-    const testResult = await markdownManager.testFileWatcher();
+    // Log a test message
+    agent.taskLogger.logAction('Test watcher event', { message });
     
     return NextResponse.json({
       success: true,
-      message: 'Test file watcher process started',
-      result: testResult
+      message: `Test event dispatched: ${message}`
     });
   } catch (error) {
-    console.error('Error testing markdown watcher:', error);
+    console.error('Error in test watcher:', error);
     return NextResponse.json({ 
-      success: false, 
-      error: String(error) 
+      error: 'Failed to test watcher' 
     }, { status: 500 });
   }
 } 

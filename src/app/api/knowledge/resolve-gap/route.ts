@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getChloeInstance } from '../../../../agents/chloe';
-import { logger } from '../../../../lib/logging';
+import { AgentService } from '../../../../services/AgentService';
+
+export const runtime = 'nodejs';
 
 /**
  * POST handler for resolving a knowledge gap
@@ -11,49 +12,42 @@ import { logger } from '../../../../lib/logging';
  */
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const { id, resolution } = body;
+    const requestData = await request.json();
+    const { gapId, agentId = 'chloe' } = requestData;
     
-    if (!id || !resolution) {
-      return NextResponse.json(
-        { error: 'Knowledge gap ID and resolution are required' },
-        { status: 400 }
-      );
+    if (!gapId) {
+      return NextResponse.json({ 
+        error: 'Missing required gapId field' 
+      }, { status: 400 });
     }
     
-    // Get the Chloe agent instance
-    const chloe = await getChloeInstance();
+    // Get the agent instance
+    const agent = await AgentService.getAgent(agentId);
     
-    // Access the knowledge gaps manager
-    const knowledgeGapsManager = chloe.getKnowledgeGapsManager();
+    if (!agent) {
+      return NextResponse.json({ 
+        error: `Agent with ID ${agentId} not found` 
+      }, { status: 404 });
+    }
     
-    if (!knowledgeGapsManager) {
-      return NextResponse.json(
-        { error: 'Knowledge gaps manager not initialized' },
-        { status: 500 }
-      );
+    // Check if the agent has a knowledge gaps manager
+    if (!agent.knowledgeGapsManager) {
+      return NextResponse.json({ 
+        error: `Agent ${agentId} does not support knowledge gap resolution` 
+      }, { status: 400 });
     }
     
     // Resolve the knowledge gap
-    const result = await knowledgeGapsManager.resolveKnowledgeGap(id, resolution);
-    
-    if (!result) {
-      return NextResponse.json(
-        { error: `Failed to resolve knowledge gap with ID: ${id}` },
-        { status: 404 }
-      );
-    }
+    const result = await agent.knowledgeGapsManager.resolveKnowledgeGap(gapId);
     
     return NextResponse.json({
       success: true,
-      message: `Knowledge gap resolved successfully`
+      result
     });
-    
   } catch (error) {
-    logger.error(`Error resolving knowledge gap: ${error}`);
-    return NextResponse.json(
-      { error: 'Failed to resolve knowledge gap' },
-      { status: 500 }
-    );
+    console.error('Error resolving knowledge gap:', error);
+    return NextResponse.json({ 
+      error: 'Internal server error resolving knowledge gap' 
+    }, { status: 500 });
   }
 } 

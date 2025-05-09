@@ -59,6 +59,13 @@ const AgentCapabilityManager: React.FC<AgentCapabilityManagerProps> = ({
   // Convert capabilities to a flat list for display
   const [capabilityList, setCapabilityList] = useState<AgentCapability[]>([]);
 
+  // Update capabilities when initialCapabilities changes
+  useEffect(() => {
+    if (initialCapabilities && Object.keys(initialCapabilities).length > 0) {
+      setCapabilities(initialCapabilities);
+    }
+  }, [initialCapabilities]);
+
   // Update the capability list when capabilities change
   useEffect(() => {
     const list: AgentCapability[] = [];
@@ -110,10 +117,17 @@ const AgentCapabilityManager: React.FC<AgentCapabilityManagerProps> = ({
     setCapabilityList(list);
   }, [capabilities]);
 
-  // Update parent component when capabilities change
+  // Update parent component when capabilities change - with deep comparison to prevent unnecessary updates
   useEffect(() => {
-    onChange(capabilities);
-  }, [capabilities, onChange]);
+    // Stringify for deep comparison
+    const currentCapabilitiesString = JSON.stringify(capabilities);
+    const initialCapabilitiesString = JSON.stringify(initialCapabilities || emptyCapabilitySet);
+    
+    // Only call onChange if capabilities actually changed from initial value
+    if (currentCapabilitiesString !== initialCapabilitiesString) {
+      onChange(capabilities);
+    }
+  }, [capabilities, onChange, initialCapabilities, emptyCapabilitySet]);
 
   // Update new capability type when active tab changes
   useEffect(() => {
