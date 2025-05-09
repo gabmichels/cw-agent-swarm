@@ -145,6 +145,14 @@ export interface MemoryContextGroup<T extends BaseMemorySchema = BaseMemorySchem
 }
 
 /**
+ * Extended memory context group with type information
+ */
+export interface TypedMemoryContextGroup<T extends BaseMemorySchema = BaseMemorySchema> extends MemoryContextGroup<T> {
+  // Memory type for this group
+  type: MemoryType;
+}
+
+/**
  * Options for memory context retrieval
  */
 export interface MemoryContextOptions {

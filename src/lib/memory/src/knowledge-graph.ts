@@ -360,24 +360,24 @@ export class KnowledgeGraph implements IKnowledgeGraph {
           continue;
         }
         
-        try {
-          const node: GraphNode = {
+          try {
+            const node: GraphNode = {
             id: point.id,
             type: metadata.nodeType as NodeType || NodeType.CONCEPT,
             label: metadata.label as string || point.payload.text,
             created: new Date(metadata.created as string),
             lastUpdated: new Date(metadata.lastUpdated as string),
-            importance: typeof metadata.importance === 'number' ? metadata.importance : 
+              importance: typeof metadata.importance === 'number' ? metadata.importance : 
               (metadata.importance ? this.importanceLevelToNumber(metadata.importance as MemoryImportanceLevel) : 0.5),
-            metadata: metadata,
+              metadata: metadata,
             source: metadata.source as string | undefined,
             confidence: metadata.confidence as number | undefined,
             properties: metadata.properties as Record<string, string | number | boolean | null> | undefined
-          };
-          
-          nodes.push(node);
-        } catch (error) {
-          console.error('Error parsing node data:', error);
+            };
+            
+            nodes.push(node);
+          } catch (error) {
+            console.error('Error parsing node data:', error);
         }
       }
       
@@ -513,7 +513,7 @@ export class KnowledgeGraph implements IKnowledgeGraph {
                 bidirectional: metadata.bidirectional as boolean || false,
                 properties: metadata.properties as Record<string, string | number | boolean | null> | undefined
               };
-              
+          
               edges.push(edge);
             }
           }

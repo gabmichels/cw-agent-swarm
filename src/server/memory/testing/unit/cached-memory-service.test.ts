@@ -18,6 +18,12 @@ interface TestMessage extends BaseMemorySchema {
   // BaseMemorySchema already includes id, text, timestamp, type, and metadata
 }
 
+// Define the type for extractIndexableFields return value
+interface IndexableFields {
+  text: string;
+  [key: string]: string | number | boolean | undefined;
+}
+
 describe('CachedMemoryService', () => {
   // Test setup
   let mockClient: MockMemoryClient;
@@ -66,7 +72,9 @@ describe('CachedMemoryService', () => {
       embeddingClient: mockEmbeddingService,
       memoryClient: mockClient,
       getTimestampFn: () => Date.now(),
-      extractIndexableFields: (memory: Record<string, any>) => ({ text: memory.text }),
+      extractIndexableFields: (memory: Record<string, unknown>): IndexableFields => ({ 
+        text: memory.text as string 
+      }),
       // Add the methods that CachedMemoryService actually uses
       getMemory: memoryService.getMemory,
       addMemory: memoryService.addMemory,
@@ -518,7 +526,9 @@ describe('CachedMemoryService', () => {
         embeddingClient: mockEmbeddingService,
         memoryClient: mockClient,
         getTimestampFn: () => Date.now(),
-        extractIndexableFields: (memory: Record<string, any>) => ({ text: memory.text }),
+        extractIndexableFields: (memory: Record<string, unknown>): IndexableFields => ({ 
+          text: memory.text as string 
+        }),
         // Add the methods that CachedMemoryService actually uses
         getMemory: memoryService.getMemory,
         addMemory: memoryService.addMemory,
@@ -809,7 +819,9 @@ describe('CachedMemoryService', () => {
         embeddingClient: mockEmbeddingService,
         memoryClient: mockClient,
         getTimestampFn: () => Date.now(),
-        extractIndexableFields: (memory: Record<string, any>) => ({ text: memory.text })
+        extractIndexableFields: (memory: Record<string, unknown>): IndexableFields => ({ 
+          text: memory.text as string 
+        })
       } as unknown as EnhancedMemoryService;
       
       // Reinitialize cached memory service with fresh cache manager

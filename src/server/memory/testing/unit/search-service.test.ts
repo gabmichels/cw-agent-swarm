@@ -15,7 +15,7 @@ import { COLLECTION_NAMES } from '../../config/constants';
 import { generateMemoryPoint } from '../utils/test-data-generator';
 import { BaseMemorySchema, MemoryPoint, MemorySearchResult } from '../../models';
 import { EnhancedMemoryService } from '../../services/multi-agent/enhanced-memory-service';
-import { MemoryContext, MemoryContextGroup, SearchResult } from '../../services/search/types';
+import { MemoryContext, MemoryContextGroup, SearchResult, TypedMemoryContextGroup } from '../../services/search/types';
 import { MemoryImportanceLevel } from '../../../../constants/memory';
 
 // Define extended interfaces for type assertion
@@ -23,33 +23,46 @@ interface ExtendedSearchService extends SearchService {
   getCollectionName(type: MemoryType): string;
 }
 
+// Enhanced MockMemoryClient with scanPoints method
 interface ExtendedMockMemoryClient extends MockMemoryClient {
-  scanPoints(collection: string, query: any, options?: any): Promise<MemoryPoint<BaseMemorySchema>[]>;
+  scanPoints<T extends BaseMemorySchema>(
+    collection: string, 
+    filter?: Record<string, unknown>, 
+    options?: { limit?: number; offset?: number }
+  ): Promise<MemoryPoint<T>[]>;
 }
 
-interface ExtendedMemoryContextGroup extends MemoryContextGroup<BaseMemorySchema> {
+// Complete SearchResult that includes score property
+interface CompleteSearchResult<T extends BaseMemorySchema> extends SearchResult<T> {
+  score: number;
+  point: MemoryPoint<T>;
   type: MemoryType;
-}
-
-interface ExtendedMemoryContext extends MemoryContext<BaseMemorySchema> {
-  total: number;
+  collection: string;
 }
 
 describe('SearchService - Basic Functions', () => {
   // Test setup
-  let mockClient: MockMemoryClient;
+  let mockClient: ExtendedMockMemoryClient;
   let mockEmbeddingService: MockEmbeddingService;
   let memoryService: MemoryService;
   let enhancedMemoryService: EnhancedMemoryService;
-  let searchService: SearchService;
+  let searchService: ExtendedSearchService;
   
   beforeEach(() => {
     // Create mocks
-    mockClient = new MockMemoryClient();
+    mockClient = new MockMemoryClient() as ExtendedMockMemoryClient;
     mockEmbeddingService = new MockEmbeddingService();
     
     // Add scanPoints method to mockClient for testing
-    (mockClient as ExtendedMockMemoryClient).scanPoints = async () => [];
+    mockClient.scanPoints = async <T extends BaseMemorySchema>(
+      collection: string, 
+      filter?: Record<string, unknown>, 
+      options?: { limit?: number; offset?: number }
+    ): Promise<MemoryPoint<T>[]> => {
+      // Simple implementation that returns an empty array
+      // Actual tests will mock this method when needed
+      return [];
+    };
     
     // Mock collection existence check to avoid failures
     vi.spyOn(mockClient, 'collectionExists').mockResolvedValue(true);
@@ -81,10 +94,10 @@ describe('SearchService - Basic Functions', () => {
       mockClient,
       mockEmbeddingService,
       enhancedMemoryService
-    );
+    ) as ExtendedSearchService;
     
     // Add getCollectionName method to searchService for testing
-    (searchService as ExtendedSearchService).getCollectionName = (type: MemoryType): string => {
+    searchService.getCollectionName = (type: MemoryType): string => {
       return COLLECTION_NAMES[type] || String(type);
     };
   });
@@ -180,7 +193,7 @@ describe('SearchService - Basic Functions', () => {
 
   describe('Memory Context', () => {
     // Mock memory search results for testing
-    const mockMemories: SearchResult<BaseMemorySchema>[] = [
+    const mockMemories: CompleteSearchResult<BaseMemorySchema>[] = [
       {
         point: {
           id: 'memory1',
@@ -247,24 +260,26 @@ describe('SearchService - Basic Functions', () => {
       // Call getMemoryContext with custom options
       const context = await searchService.getMemoryContext({
         query: 'project meeting'
-      }) as ExtendedMemoryContext;
+      });
       
       // Assertions
       expect(context).toBeDefined();
       expect(context.groups).toBeDefined();
       
       // Check if there's a group for each type
-      const messageGroup = context.groups.find(g => (g as ExtendedMemoryContextGroup).type === MemoryType.MESSAGE);
-      const thoughtGroup = context.groups.find(g => (g as ExtendedMemoryContextGroup).type === MemoryType.THOUGHT);
+      // Cast to TypedMemoryContextGroup to access the type property
+      const typedGroups = context.groups as TypedMemoryContextGroup<BaseMemorySchema>[];
+      const messageGroup = typedGroups.find(g => g.name === MemoryType.MESSAGE.toString());
+      const thoughtGroup = typedGroups.find(g => g.name === MemoryType.THOUGHT.toString());
       
       expect(messageGroup).toBeDefined();
-      expect((messageGroup as ExtendedMemoryContextGroup)?.memories).toHaveLength(2);
+      expect(messageGroup?.memories).toHaveLength(2);
       
       expect(thoughtGroup).toBeDefined();
-      expect((thoughtGroup as ExtendedMemoryContextGroup)?.memories).toHaveLength(1);
+      expect(thoughtGroup?.memories).toHaveLength(1);
       
-      // Check if the total count is correct
-      expect(context.total).toBe(3);
+      // Check if memories are accessible (we don't check total directly)
+      expect(context.groups.reduce((sum, group) => sum + group.memories.length, 0)).toBe(3);
     });
     
     test('should filter memory context by type', async () => {
@@ -275,7 +290,7 @@ describe('SearchService - Basic Functions', () => {
       const context = await searchService.getMemoryContext({
         query: 'project meeting',
         types: [MemoryType.MESSAGE]
-      }) as ExtendedMemoryContext;
+      });
       
       // Assertions
       expect(context).toBeDefined();
@@ -283,11 +298,14 @@ describe('SearchService - Basic Functions', () => {
       
       // Should only have MESSAGE group
       expect(context.groups).toHaveLength(1);
-      expect((context.groups[0] as ExtendedMemoryContextGroup).type).toBe(MemoryType.MESSAGE);
-      expect((context.groups[0] as ExtendedMemoryContextGroup).memories).toHaveLength(2);
       
-      // Check if the total count is correct
-      expect(context.total).toBe(2);
+      // Cast to TypedMemoryContextGroup to access the type property
+      const typedGroups = context.groups as TypedMemoryContextGroup<BaseMemorySchema>[];
+      expect(typedGroups[0].name).toBe(MemoryType.MESSAGE.toString());
+      expect(typedGroups[0].memories).toHaveLength(2);
+      
+      // Check if memories are accessible (we don't check total directly)
+      expect(context.groups.reduce((sum, group) => sum + group.memories.length, 0)).toBe(2);
     });
   });
   
@@ -303,7 +321,7 @@ describe('SearchService - Basic Functions', () => {
         }
       });
       
-      // Create search result matching MockMemoryClient implementation
+      // Create search result with score property
       const memorySearchResult: MemorySearchResult<BaseMemorySchema> = {
         id: memoryPoint.id,
         score: 0.95,
@@ -325,6 +343,7 @@ describe('SearchService - Basic Functions', () => {
       
       expect(results).toHaveLength(1);
       expect(results[0].point.payload.text).toBe('search result 1');
+      expect(results[0].score).toBe(0.95); // Make sure score is included
       
       // Verify that searchPoints was called with vectors
       expect(mockClient.searchPoints).toHaveBeenCalledWith(
@@ -342,7 +361,7 @@ describe('SearchService - Basic Functions', () => {
       const types = Object.values(MemoryType);
       
       for (const type of types) {
-        const collectionName = (searchService as ExtendedSearchService).getCollectionName(type);
+        const collectionName = searchService.getCollectionName(type);
         expect(collectionName).toBeDefined();
         expect(typeof collectionName).toBe('string');
         

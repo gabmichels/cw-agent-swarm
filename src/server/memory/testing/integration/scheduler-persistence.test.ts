@@ -59,7 +59,7 @@ class MockSearchService extends SearchService {
       id: `rel-${sourceId}-${targetId}`
     };
   }
-  
+
   async getRelationships(
     memoryId: string,
     options: { types?: string[]; direction?: 'outgoing' | 'incoming' | 'both' }
@@ -70,21 +70,21 @@ class MockSearchService extends SearchService {
       this.mockIds.nextOccurrenceId
     ) {
       return [{
-        sourceId: memoryId,
-        targetId: this.mockIds.nextOccurrenceId,
-        relationship: {
-          type: 'recurring_task_sequence',
-          metadata: {
-            recurrence: 'daily',
-            taskId: 'content_indexing'
+          sourceId: memoryId,
+          targetId: this.mockIds.nextOccurrenceId,
+          relationship: {
+            type: 'recurring_task_sequence',
+            metadata: {
+              recurrence: 'daily',
+              taskId: 'content_indexing'
+            }
           }
-        }
       }];
     }
     
     return [];
   }
-  
+
   // Store IDs for mock relationships
   mockIds: Record<string, string> = {};
 }

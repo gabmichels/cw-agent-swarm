@@ -28,6 +28,16 @@ import { ConversationAnalyticsService } from './conversation-analytics/analytics
 import { AnyMemoryService } from '../../memory/memory-service-wrappers';
 
 /**
+ * Interface for the bundle of messaging components
+ */
+export interface MessagingComponents {
+  router: MessageRouter;
+  transformer: MessageTransformer;
+  conversationManager: ConversationManager;
+  capabilityRegistry: CapabilityRegistry;
+}
+
+/**
  * Factory class for creating and accessing multi-agent communication components
  */
 export class MessagingFactory {
@@ -85,6 +95,47 @@ export class MessagingFactory {
    */
   static async getConversationBranchingService(): Promise<ConversationBranchingService> {
     return getConversationBranchingService();
+  }
+  
+  /**
+   * Get all messaging components as a bundle
+   */
+  static async getMessagingComponents(): Promise<MessagingComponents> {
+    const [router, transformer, conversationManager, capabilityRegistry] = await Promise.all([
+      this.getMessageRouter(),
+      this.getMessageTransformer(),
+      this.getConversationManager(),
+      this.getCapabilityRegistry()
+    ]);
+    
+    return {
+      router,
+      transformer,
+      conversationManager,
+      capabilityRegistry
+    };
+  }
+
+  /**
+   * Create custom components with provided memory service
+   */
+  static createCustomComponents(memoryService: AnyMemoryService): MessagingComponents {
+    // Create components in correct dependency order
+    const capabilityRegistry = this.createCapabilityRegistry(memoryService);
+    const transformer = this.createMessageTransformer(memoryService);
+    const router = this.createMessageRouter(memoryService, capabilityRegistry);
+    const conversationManager = this.createConversationManager(
+      memoryService,
+      router,
+      transformer
+    );
+    
+    return {
+      router,
+      transformer,
+      conversationManager,
+      capabilityRegistry
+    };
   }
   
   /**

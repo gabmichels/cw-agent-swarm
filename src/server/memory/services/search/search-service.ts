@@ -7,7 +7,7 @@ import { handleMemoryError } from '../../utils';
 import { IMemoryClient } from '../client/types';
 import { EmbeddingService } from '../client/embedding-service';
 import { EnhancedMemoryService } from '../multi-agent/enhanced-memory-service';
-import { FilterBuilderOptions, HybridSearchOptions, SearchOptions, SearchResult, FilterOptions, MemoryContext, MemoryContextOptions, MemoryContextGroup } from './types';
+import { FilterBuilderOptions, HybridSearchOptions, SearchOptions, SearchResult, FilterOptions, MemoryContext, MemoryContextOptions, MemoryContextGroup, TypedMemoryContextGroup } from './types';
 import { IQueryOptimizer, QueryOptimizationStrategy } from '../query/types';
 import { FilterOperator } from '../filters/types';
 
@@ -65,6 +65,14 @@ export class SearchService {
   private queryOptimizer: IQueryOptimizer | null = null;
   
   /**
+   * Helper method to safely get collection name from memory type
+   */
+  private getCollectionNameForType(type: MemoryType): string {
+    // Use indexing with type assertion to avoid the "Property 'message' does not exist" error
+    return (COLLECTION_NAMES as Record<string, string>)[type] || '';
+  }
+  
+  /**
    * Create a new search service
    */
   constructor(
@@ -111,7 +119,7 @@ export class SearchService {
       
       // If no specific types requested, search all collections
       const collectionsToSearch = types.length > 0
-        ? types.map(type => COLLECTION_NAMES[type])
+        ? types.map(type => this.getCollectionNameForType(type as MemoryType))
         : Object.values(COLLECTION_NAMES);
         
       // Filter out undefined collection names
@@ -126,7 +134,8 @@ export class SearchService {
       // use the optimizer for better performance
       if (this.queryOptimizer && types.length === 1) {
         try {
-          const collectionName = COLLECTION_NAMES[types[0]];
+          const type = types[0] as MemoryType;
+          const collectionName = this.getCollectionNameForType(type);
           if (collectionName) {
             console.log(`Using query optimizer for ${collectionName}`);
             
@@ -317,7 +326,7 @@ export class SearchService {
     options: SearchOptions
   ): Promise<SearchResult<T>[]> {
     try {
-      const collectionName = COLLECTION_NAMES[type];
+      const collectionName = this.getCollectionNameForType(type);
       
       if (!collectionName) {
         return []; // Skip invalid collections
@@ -379,7 +388,8 @@ export class SearchService {
       
       // Get text search results (simple contains for now)
       const textSearchPromises = (options.types || Object.values(MemoryType)).map(type => {
-        const collectionName = COLLECTION_NAMES[type];
+        const memType = type as MemoryType;
+        const collectionName = this.getCollectionNameForType(memType);
         if (!collectionName) return Promise.resolve([]);
         
         return this.client.scrollPoints<T>(
@@ -427,7 +437,7 @@ export class SearchService {
           // Add as new result with text match score only
           const type = point.payload.type as MemoryType;
           if (type) {
-            const collectionName = COLLECTION_NAMES[type];
+            const collectionName = this.getCollectionNameForType(type);
             if (collectionName) {
               const newResult: SearchResult<T> = {
                 point,
@@ -653,7 +663,7 @@ export class SearchService {
       
       // If no specific types requested, search all collections
       const collectionsToSearch = types.length > 0
-        ? types.map((type: MemoryType) => COLLECTION_NAMES[type])
+        ? types.map((type: MemoryType) => this.getCollectionNameForType(type))
         : Object.values(COLLECTION_NAMES);
         
       // Filter out undefined collection names
@@ -863,9 +873,12 @@ export class SearchService {
         case 'time':
           groups = this.groupMemoriesByTime(memories, numGroups);
           break;
-        case 'type':
-          groups = this.groupMemoriesByType(memories);
+        case 'type': {
+          // Type grouping returns TypedMemoryContextGroup which is a subtype of MemoryContextGroup
+          const typedGroups = this.groupMemoriesByType(memories);
+          groups = typedGroups;
           break;
+        }
         case 'custom':
           // Custom grouping would use includedGroups parameter
           groups = this.groupMemoriesByCustomCategories(memories, includedGroups);
@@ -1024,7 +1037,7 @@ export class SearchService {
    */
   private groupMemoriesByType<T extends BaseMemorySchema>(
     memories: SearchResult<T>[]
-  ): MemoryContextGroup<T>[] {
+  ): TypedMemoryContextGroup<T>[] {
     // Group by memory type
     const typeGroups = new Map<MemoryType, SearchResult<T>[]>();
     
@@ -1053,7 +1066,8 @@ export class SearchService {
         name: type.toString(),
         description: typeDescriptions[type] || `Memories of type ${type}`,
         memories: typeMemories,
-        relevance: 0.9 // All types have equal relevance
+        relevance: 0.9, // All types have equal relevance
+        type // Add the type property explicitly
       }))
       .sort((a, b) => b.memories.length - a.memories.length); // Sort by number of memories
   }

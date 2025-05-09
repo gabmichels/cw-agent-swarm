@@ -1,8 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getMemoryServices } from '../../../../server/memory/services';
 import { MemoryType } from '../../../../server/memory/config';
+import { BaseMetadataSchema } from '../../../../server/memory/models/base-schema';
 
 export const runtime = 'nodejs';
+
+// Define an enhanced metadata schema that includes additional fields used in this file
+interface TransferMemoryMetadata extends BaseMetadataSchema {
+  userId?: string;
+  original_id?: string;
+  original_type?: MemoryType;
+  transferred_at?: string;
+}
 
 /**
  * API endpoint to transfer memories from one collection to another
@@ -47,12 +56,13 @@ export async function POST(request: NextRequest) {
       filter
     });
     
+    // Map to a simplified memory structure with properly typed metadata
     const sourceMemories = searchResults.map(result => ({
       id: result.point.id,
       text: result.point.payload.text,
       type: result.type,
       timestamp: result.point.payload.timestamp,
-      metadata: result.point.payload.metadata || {}
+      metadata: (result.point.payload.metadata || {}) as TransferMemoryMetadata
     }));
     
     console.log(`[memory/transfer] Found ${sourceMemories.length} memories in source collection`);
@@ -88,7 +98,7 @@ export async function POST(request: NextRequest) {
               original_id: memory.id,
               original_type: memory.type,
               transferred_at: new Date().toISOString()
-            }
+            } as TransferMemoryMetadata
           });
           
           if (result.success) {
