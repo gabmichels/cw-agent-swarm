@@ -145,3 +145,145 @@ Dry run mode is particularly useful for:
 ## License
 
 [MIT](LICENSE)
+
+# Agent Swarm Architecture
+
+This repository contains a flexible, extensible agent architecture designed for building AI agent systems. The architecture is based on a modular manager pattern, allowing agents to be composed of specialized components (managers) that provide different capabilities.
+
+## Core Architecture
+
+The agent architecture is built around the following key components:
+
+### Agent Base
+
+The `AgentBase` interface defines the core functionality that all agent implementations provide:
+- Unique identification
+- Configuration management
+- Manager registration and retrieval
+- Lifecycle management (initialization, shutdown)
+- Health monitoring
+
+### Managers
+
+Managers are specialized components that provide specific capabilities to agents. Each manager:
+- Has a unique ID and type
+- Can be enabled/disabled
+- Has its own configuration
+- Follows a consistent lifecycle (initialize, shutdown)
+- Reports health status
+
+The architecture includes several specialized manager types:
+
+#### Tool Manager
+
+Provides tools that agents can use to interact with their environment:
+- Tool registration and discovery
+- Tool execution with timeout and retry support
+- Fallback mechanisms for tool failures
+- Tool usage metrics and performance tracking
+
+#### Task Manager
+
+Handles task creation, scheduling, and execution:
+- Task lifecycle management (creation, execution, completion)
+- Priority-based task scheduling
+- Task dependencies
+- Task metrics and performance tracking
+
+#### Planning Manager
+
+Provides planning capabilities for agents:
+- Plan creation based on goals and context
+- Plan execution step by step
+- Plan revision based on new information
+- Plan monitoring and evaluation
+
+#### Knowledge Manager
+
+Manages the agent's knowledge and memory:
+- Knowledge storage and retrieval
+- Knowledge organization and categorization
+- Knowledge updating and validation
+- Knowledge sharing between agents
+
+#### Scheduler Manager
+
+Handles scheduling of recurring tasks and delayed execution:
+- Schedule creation and management
+- Cron-like scheduling support
+- One-time and recurring task scheduling
+- Execution hooks and callbacks
+
+#### Reflection Manager
+
+Provides self-improvement capabilities:
+- Performance monitoring
+- Behavior analysis
+- Learning from past actions
+- Adapting strategies based on outcomes
+
+## Implementation
+
+Each interface has a corresponding abstract implementation that provides common functionality:
+- `AbstractAgentBase`: Base implementation of agent functionality
+- `AbstractBaseManager`: Common manager functionality
+
+To create custom agents and managers:
+1. Extend the abstract classes
+2. Implement the required methods
+3. Register managers with the agent during initialization
+
+## Usage Example
+
+```typescript
+// Create configuration for each manager
+const toolManagerConfig: ToolManagerConfig = { enabled: true };
+const taskManagerConfig: TaskManagerConfig = { enabled: true, maxConcurrentTasks: 5 };
+
+// Create agent configuration
+const agentConfig: AgentConfig = {
+  agentId: 'agent-001',
+  name: 'Example Agent',
+  enabled: true,
+  managers: {
+    tool: toolManagerConfig,
+    task: taskManagerConfig
+  }
+};
+
+// Create agent instance
+const agent = new MyCustomAgent(agentConfig);
+
+// Create and register managers
+const toolManager = new MyToolManager('tool', toolManagerConfig);
+const taskManager = new MyTaskManager('task', taskManagerConfig);
+
+agent.registerManager(toolManager);
+agent.registerManager(taskManager);
+
+// Initialize the agent
+await agent.initialize();
+
+// Use the agent...
+
+// Shutdown when done
+await agent.shutdown();
+```
+
+## Extending the Architecture
+
+The architecture is designed to be extensible:
+
+1. Create new manager types by extending `BaseManager`
+2. Create specialized agents by extending `AbstractAgentBase`
+3. Compose agents with different combinations of managers
+
+## Project Structure
+
+- `src/agents/shared/base/` - Core interfaces and abstract implementations
+- `src/agents/shared/base/managers/` - Base manager implementations
+- `src/lib/agents/base/managers/` - Specialized manager interfaces
+
+## License
+
+MIT

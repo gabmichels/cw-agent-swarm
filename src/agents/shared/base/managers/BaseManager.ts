@@ -1,95 +1,242 @@
 /**
- * BaseManager Interface
+ * Base Manager Interface
  * 
- * This file defines the core manager interface that all agent managers will implement.
- * The manager pattern allows for a pluggable component architecture where agents can
- * selectively enable different capabilities.
+ * This file defines the base manager interface that all specialized
+ * agent managers extend from. It provides core functionality common
+ * to all manager types.
  */
 
+import type { AgentBase } from '../AgentBase';
+
 /**
- * Configuration options for managers
+ * Manager configuration interface
  */
 export interface ManagerConfig {
+  /** Whether this manager is enabled */
   enabled: boolean;
-  [key: string]: any;
+  
+  /** Additional configuration properties */
+  [key: string]: unknown;
 }
 
 /**
- * Base interface for all managers
+ * Base manager interface that all specialized managers extend
  */
 export interface BaseManager {
   /**
+   * Get the unique ID of this manager
+   * @returns The manager ID string
+   */
+  getId(): string;
+  
+  /**
+   * Get the manager type
+   * @returns The manager type string
+   */
+  getType(): string;
+  
+  /**
+   * Get the manager configuration
+   * @returns The current manager configuration
+   */
+  getConfig<T extends ManagerConfig>(): T;
+  
+  /**
+   * Update the manager configuration
+   * @param config The configuration updates to apply
+   * @returns The updated configuration
+   */
+  updateConfig<T extends ManagerConfig>(config: Partial<T>): T;
+  
+  /**
+   * Get the associated agent instance
+   * @returns The agent instance this manager belongs to
+   */
+  getAgent(): AgentBase;
+  
+  /**
    * Initialize the manager
-   * @returns Promise resolving to true if initialization successful
+   * @returns Promise resolving to true if initialization succeeds
    */
   initialize(): Promise<boolean>;
   
   /**
-   * Shutdown the manager and clean up resources
+   * Shutdown the manager and release resources
+   * @returns Promise that resolves when shutdown is complete
    */
   shutdown(): Promise<void>;
   
   /**
-   * Get the manager's current status
-   * @returns Status object with manager-specific information
+   * Check if the manager is currently enabled
+   * @returns Whether the manager is enabled
    */
-  getStatus(): any;
+  isEnabled(): boolean;
   
   /**
-   * Get manager ID
-   * @returns Unique identifier for this manager
+   * Enable or disable the manager
+   * @param enabled Whether to enable or disable
+   * @returns The updated enabled state
    */
-  getManagerId(): string;
+  setEnabled(enabled: boolean): boolean;
   
   /**
-   * Get manager type
-   * @returns Type of manager (e.g., 'memory', 'planning', 'scheduler')
+   * Reset the manager to its initial state
+   * @returns Promise resolving to true if reset succeeds
    */
-  getManagerType(): string;
+  reset(): Promise<boolean>;
+  
+  /**
+   * Get manager health status
+   * @returns The current health status
+   */
+  getHealth(): Promise<{
+    status: 'healthy' | 'degraded' | 'unhealthy';
+    message?: string;
+    metrics?: Record<string, unknown>;
+  }>;
 }
 
 /**
- * Abstract base class for all managers
+ * Abstract implementation of the BaseManager interface
+ * Provides common functionality for concrete manager implementations
  */
 export abstract class AbstractBaseManager implements BaseManager {
+  /** Unique identifier for this manager instance */
   protected managerId: string;
-  protected managerType: string;
-  protected config: ManagerConfig;
-  protected initialized: boolean = false;
   
+  /** Type of manager (e.g., 'memory', 'tool', 'scheduler') */
+  protected managerType: string;
+  
+  /** Manager configuration */
+  protected config: ManagerConfig;
+  
+  /** Reference to the parent agent */
+  protected agent!: AgentBase;
+  
+  /**
+   * Create a new manager instance
+   * @param managerId Unique ID for this manager
+   * @param managerType Type of manager
+   * @param config Manager configuration
+   */
   constructor(managerId: string, managerType: string, config: ManagerConfig) {
     this.managerId = managerId;
     this.managerType = managerType;
     this.config = {
-      // Set defaults for any missing config values
-      ...{ enabled: true },  // Default enabled unless explicitly disabled
-      ...config              // Override with provided config
+      ...config,
+      enabled: config.enabled ?? true
     };
   }
   
-  async initialize(): Promise<boolean> {
-    this.initialized = true;
-    return true;
+  /**
+   * Set the agent this manager belongs to
+   * @param agent The agent instance
+   */
+  setAgent(agent: AgentBase): void {
+    this.agent = agent;
   }
   
-  async shutdown(): Promise<void> {
-    this.initialized = false;
-  }
-  
-  getStatus(): any {
-    return {
-      id: this.managerId,
-      type: this.managerType,
-      initialized: this.initialized,
-      enabled: this.config.enabled,
-    };
-  }
-  
-  getManagerId(): string {
+  /**
+   * Get the unique ID of this manager
+   * @returns The manager ID
+   */
+  getId(): string {
     return this.managerId;
   }
   
-  getManagerType(): string {
+  /**
+   * Get the manager type
+   * @returns The manager type string
+   */
+  getType(): string {
     return this.managerType;
+  }
+  
+  /**
+   * Get the manager configuration
+   * @returns The current manager configuration
+   */
+  getConfig<T extends ManagerConfig>(): T {
+    return this.config as T;
+  }
+  
+  /**
+   * Update the manager configuration
+   * @param config The configuration updates to apply
+   * @returns The updated configuration
+   */
+  updateConfig<T extends ManagerConfig>(config: Partial<T>): T {
+    this.config = {
+      ...this.config,
+      ...config
+    };
+    return this.config as T;
+  }
+  
+  /**
+   * Get the associated agent instance
+   * @returns The agent instance this manager belongs to
+   */
+  getAgent(): AgentBase {
+    return this.agent;
+  }
+  
+  /**
+   * Initialize the manager
+   * @returns Promise resolving to true if initialization succeeds
+   */
+  async initialize(): Promise<boolean> {
+    console.log(`[${this.managerId}] Initializing ${this.managerType} manager`);
+    return true;
+  }
+  
+  /**
+   * Shutdown the manager and release resources
+   * @returns Promise that resolves when shutdown is complete
+   */
+  async shutdown(): Promise<void> {
+    console.log(`[${this.managerId}] Shutting down ${this.managerType} manager`);
+  }
+  
+  /**
+   * Check if the manager is currently enabled
+   * @returns Whether the manager is enabled
+   */
+  isEnabled(): boolean {
+    return this.config.enabled;
+  }
+  
+  /**
+   * Enable or disable the manager
+   * @param enabled Whether to enable or disable
+   * @returns The updated enabled state
+   */
+  setEnabled(enabled: boolean): boolean {
+    this.config.enabled = enabled;
+    return this.config.enabled;
+  }
+  
+  /**
+   * Reset the manager to its initial state
+   * @returns Promise resolving to true if reset succeeds
+   */
+  async reset(): Promise<boolean> {
+    console.log(`[${this.managerId}] Resetting ${this.managerType} manager`);
+    return true;
+  }
+  
+  /**
+   * Get manager health status
+   * @returns The current health status
+   */
+  async getHealth(): Promise<{
+    status: 'healthy' | 'degraded' | 'unhealthy';
+    message?: string;
+    metrics?: Record<string, unknown>;
+  }> {
+    return {
+      status: 'healthy',
+      message: `${this.managerType} manager is healthy`
+    };
   }
 } 

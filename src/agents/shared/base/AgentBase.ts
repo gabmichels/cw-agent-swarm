@@ -76,1098 +76,356 @@ export interface ManagersConfig {
   [key: string]: ManagerConfig | undefined;
 }
 
-// Basic agent configuration
+/**
+ * Base Agent Configuration
+ */
 export interface AgentBaseConfig {
+  /** Unique identifier for this agent instance */
   agentId: string;
-  name?: string; 
-  description?: string;
-  systemPrompt?: string;
-  model?: string;
-  temperature?: number;
-  maxTokens?: number;
-  quota?: number; // Maximum concurrent tasks the agent can handle
-  capabilities?: { // Agent capabilities configuration
-    skills?: Record<string, CapabilityLevel>;
-    domains?: string[];
-    roles?: string[];
-  };
-  memoryOptions?: {
-    enableAutoPruning?: boolean;
-    pruningIntervalMs?: number;
-    maxShortTermEntries?: number;
-    relevanceThreshold?: number;
-    enableAutoConsolidation?: boolean;
-    consolidationIntervalMs?: number;
-    minMemoriesForConsolidation?: number;
-    forgetSourceMemoriesAfterConsolidation?: boolean;
-    enableMemoryInjection?: boolean;
-    maxInjectedMemories?: number;
-  };
-  managers?: ManagersConfig;
-}
-
-// Agent capability levels
-export enum AgentCapabilityLevel {
-  BASIC = 'basic',
-  STANDARD = 'standard',
-  ADVANCED = 'advanced',
-  COORDINATOR = 'coordinator'
-}
-
-// Agent options for initialization
-export interface AgentBaseOptions {
-  config: AgentBaseConfig;
-  capabilityLevel?: AgentCapabilityLevel;
-  toolPermissions?: string[];
+  
+  /** Human-readable name for this agent */
+  name: string;
+  
+  /** Agent version */
+  version: string;
+  
+  /** Whether this agent is enabled */
+  enabled: boolean;
+  
+  /** Additional agent configuration */
+  [key: string]: unknown;
 }
 
 /**
- * Base class for all agents in the system
+ * Agent status information
  */
-export class AgentBase {
-  protected agentId: string;
-  protected config: AgentBaseConfig;
-  protected capabilityLevel: AgentCapabilityLevel;
-  protected model: ChatOpenAI | null = null;
-  // Standardized memory services
-  protected memoryService: any = null;
-  protected searchService: any = null;
-  protected toolPermissions: string[] = [];
-  protected initialized: boolean = false;
-  protected messageInbox: ExtendedAgentMessage[] = [];
-  protected memoryPruningTimer: NodeJS.Timeout | null = null;
-  protected memoryConsolidationTimer: NodeJS.Timeout | null = null;
-  protected quota: number;
-  protected capabilities: Record<string, CapabilityLevel> = {};
-  protected domains: string[] = [];
-  protected roles: string[] = [];
-  protected capabilityRegistry: CapabilityRegistry;
-  // Manager registry
-  protected managers: Map<string, BaseManager> = new Map();
+export interface AgentStatus {
+  /** Agent ID */
+  agentId: string;
+  
+  /** Agent name */
+  name: string;
+  
+  /** Whether the agent is initialized */
+  initialized: boolean;
+  
+  /** Whether the agent is enabled */
+  enabled: boolean;
+  
+  /** Agent state information */
+  state: string;
+  
+  /** Additional status properties */
+  [key: string]: unknown;
+}
 
-  constructor(options: AgentBaseOptions) {
-    if (!options.config.agentId) {
-      throw new Error('Agent ID is required');
-    }
-    
-    this.agentId = options.config.agentId;
-    this.config = {
-      name: this.agentId,
-      description: `Agent ${this.agentId}`,
-      model: 'gpt-4o',
-      temperature: 0.7,
-      maxTokens: 4000,
-      quota: 5, // Default to 5 concurrent tasks
-      capabilities: {
-        skills: {},
-        domains: [],
-        roles: []
-      },
-      memoryOptions: {
-        enableAutoPruning: true,
-        pruningIntervalMs: 300000, // 5 minutes
-        maxShortTermEntries: 100,
-        relevanceThreshold: 0.2,
-        enableAutoConsolidation: true,
-        consolidationIntervalMs: 600000, // 10 minutes
-        minMemoriesForConsolidation: 5,
-        forgetSourceMemoriesAfterConsolidation: false,
-        enableMemoryInjection: true,
-        maxInjectedMemories: 5
-      },
-      ...options.config
-    };
-    
-    this.capabilityLevel = options.capabilityLevel || AgentCapabilityLevel.BASIC;
-    this.toolPermissions = options.toolPermissions || [];
-    this.quota = this.config.quota || 5;
-    
-    // Set up capabilities
-    if (this.config.capabilities) {
-      this.capabilities = this.config.capabilities.skills || {};
-      this.domains = this.config.capabilities.domains || [];
-      this.roles = this.config.capabilities.roles || [];
-    }
-    
-    // Get capability registry
-    this.capabilityRegistry = CapabilityRegistry.getInstance();
-  }
+/**
+ * Agent configuration interface
+ */
+export interface AgentConfig {
+  /** Unique agent identifier */
+  agentId: string;
+  
+  /** Agent name */
+  name: string;
+  
+  /** Agent description */
+  description?: string;
+  
+  /** Agent capabilities */
+  capabilities?: string[];
+  
+  /** Whether the agent is enabled */
+  enabled: boolean;
+  
+  /** Manager configurations */
+  managers?: Record<string, ManagerConfig>;
+  
+  /** Additional configuration properties */
+  [key: string]: unknown;
+}
 
+/**
+ * Base agent interface that all agent implementations extend
+ */
+export interface AgentBase {
+  /**
+   * Get the unique ID of this agent
+   * @returns The agent ID string
+   */
+  getAgentId(): string;
+  
+  /**
+   * Get the agent name
+   * @returns The agent name
+   */
+  getName(): string;
+  
+  /**
+   * Get the agent configuration
+   * @returns The current agent configuration
+   */
+  getConfig(): AgentConfig;
+  
+  /**
+   * Update the agent configuration
+   * @param config The configuration updates to apply
+   * @returns The updated configuration
+   */
+  updateConfig(config: Partial<AgentConfig>): AgentConfig;
+  
   /**
    * Initialize the agent
+   * @returns Promise resolving to true if initialization succeeds
+   */
+  initialize(): Promise<boolean>;
+  
+  /**
+   * Shutdown the agent and release resources
+   * @returns Promise that resolves when shutdown is complete
+   */
+  shutdown(): Promise<void>;
+  
+  /**
+   * Register a manager with this agent
+   * @param manager The manager to register
+   * @returns The registered manager
+   */
+  registerManager<T extends BaseManager>(manager: T): T;
+  
+  /**
+   * Get a registered manager by type
+   * @param managerType The type of manager to retrieve
+   * @returns The manager instance or undefined if not found
+   */
+  getManager<T extends BaseManager>(managerType: string): T | undefined;
+  
+  /**
+   * Get all registered managers
+   * @returns An array of all registered managers
+   */
+  getManagers(): BaseManager[];
+  
+  /**
+   * Check if the agent is currently enabled
+   * @returns Whether the agent is enabled
+   */
+  isEnabled(): boolean;
+  
+  /**
+   * Enable or disable the agent
+   * @param enabled Whether to enable or disable
+   * @returns The updated enabled state
+   */
+  setEnabled(enabled: boolean): boolean;
+  
+  /**
+   * Get agent health status
+   * @returns The current health status
+   */
+  getHealth(): Promise<{
+    status: 'healthy' | 'degraded' | 'unhealthy';
+    message?: string;
+    managerHealth?: Record<string, {
+      status: 'healthy' | 'degraded' | 'unhealthy';
+      message?: string;
+    }>;
+  }>;
+}
+
+/**
+ * Abstract implementation of the AgentBase interface
+ * Provides common functionality for concrete agent implementations
+ */
+export abstract class AbstractAgentBase implements AgentBase {
+  /** Agent configuration */
+  protected config: AgentConfig;
+  
+  /** Registered managers */
+  protected managers: Map<string, BaseManager> = new Map();
+  
+  /**
+   * Create a new agent instance
+   * @param config Agent configuration
+   */
+  constructor(config: AgentConfig) {
+    this.config = {
+      ...config,
+      enabled: config.enabled ?? true
+    };
+  }
+  
+  /**
+   * Get the unique ID of this agent
+   * @returns The agent ID
+   */
+  getAgentId(): string {
+    return this.config.agentId;
+  }
+  
+  /**
+   * Get the agent name
+   * @returns The agent name
+   */
+  getName(): string {
+    return this.config.name;
+  }
+  
+  /**
+   * Get the agent configuration
+   * @returns The current agent configuration
+   */
+  getConfig(): AgentConfig {
+    return this.config;
+  }
+  
+  /**
+   * Update the agent configuration
+   * @param config The configuration updates to apply
+   * @returns The updated configuration
+   */
+  updateConfig(config: Partial<AgentConfig>): AgentConfig {
+    this.config = {
+      ...this.config,
+      ...config
+    };
+    return this.config;
+  }
+  
+  /**
+   * Initialize the agent
+   * @returns Promise resolving to true if initialization succeeds
    */
   async initialize(): Promise<boolean> {
-    if (this.initialized) {
-      return true;
-    }
+    console.log(`[${this.getAgentId()}] Initializing agent`);
     
-    console.log(`Initializing agent: ${this.agentId}`);
+    // Initialize all registered managers
+    const managerInitResults = await Promise.all(
+      Array.from(this.managers.values()).map(manager => manager.initialize())
+    );
     
-    try {
-      // Initialize LLM
-      if (!this.model) {
-        this.model = new ChatOpenAI({
-          modelName: this.config.model || 'gpt-4o',
-          temperature: this.config.temperature || 0,
-          maxTokens: this.config.maxTokens || 4000,
-          verbose: process.env.NODE_ENV === 'development'
-        });
-        console.log(`[${this.agentId}] Initialized LLM: ${this.config.model || 'gpt-4o'}`);
-      }
-      
-      // Initialize memory services
-      try {
-        // Server-side only initialization for standardized memory services
-        if (typeof window === 'undefined') {
-          const services = await getMemoryServices();
-          this.memoryService = services.memoryService;
-          this.searchService = services.searchService;
-          
-          // Setup memory pruning if enabled
-          if (this.config.memoryOptions?.enableAutoPruning) {
-            this.setupMemoryPruning();
-          }
-          
-          // Setup memory consolidation if enabled
-          if (this.config.memoryOptions?.enableAutoConsolidation) {
-            this.setupMemoryConsolidation();
-          }
-        }
-      } catch (memoryError) {
-        console.error(`[${this.agentId}] Error initializing memory services:`, memoryError);
-        // Continue initialization without memory
-      }
-      
-      // Register capabilities with registry if available
-      if (this.capabilities && Object.keys(this.capabilities).length > 0) {
-        try {
-          const registry = await CapabilityRegistry.getInstance();
-          
-          // Register agent capabilities
-          for (const [skill, level] of Object.entries(this.capabilities)) {
-            await registry.registerCapability({
-              id: `${this.agentId}-${skill}`,
-              type: CapabilityType.SKILL,
-              name: skill,
-              level: level
-            } as Capability);
-          }
-          
-          // Register domains if any
-          for (const domain of this.domains) {
-            await registry.registerCapability({
-              id: `${this.agentId}-domain-${domain}`,
-              type: CapabilityType.DOMAIN,
-              name: domain
-            } as Capability);
-          }
-          
-          // Register roles if any
-          for (const role of this.roles) {
-            await registry.registerCapability({
-              id: `${this.agentId}-role-${role}`,
-              type: CapabilityType.ROLE,
-              name: role
-            } as Capability);
-          }
-          
-          console.log(`[${this.agentId}] Registered capabilities with registry`);
-        } catch (registryError) {
-          console.error(`[${this.agentId}] Error registering capabilities:`, registryError);
-          // Continue initialization without capability registration
-        }
-      }
-      
-      // Initialize all registered managers
-      const managerEntries = Array.from(this.managers.entries());
-      for (const [name, manager] of managerEntries) {
-        try {
-          console.log(`[${this.agentId}] Initializing manager: ${name}`);
-          await manager.initialize();
-        } catch (error) {
-          console.error(`[${this.agentId}] Error initializing manager ${name}:`, error);
-          // Continue with other managers
-        }
-      }
-      
-      this.initialized = true;
-      console.log(`[${this.agentId}] Agent initialized successfully`);
-      return true;
-    } catch (error) {
-      console.error(`[${this.agentId}] Error initializing agent:`, error);
-      return false;
-    }
+    // Check if all managers initialized successfully
+    return managerInitResults.every(result => result === true);
   }
   
   /**
-   * Register a manager with the agent
-   * @param name Unique name for this manager
-   * @param manager Manager implementation
-   * @returns True if registration is successful
+   * Shutdown the agent and release resources
+   * @returns Promise that resolves when shutdown is complete
    */
-  protected registerManager(name: string, manager: BaseManager): boolean {
-    if (this.managers.has(name)) {
-      console.warn(`[${this.agentId}] Manager "${name}" is already registered`);
-      return false;
-    }
+  async shutdown(): Promise<void> {
+    console.log(`[${this.getAgentId()}] Shutting down agent`);
     
-    this.managers.set(name, manager);
-    console.log(`[${this.agentId}] Registered manager: ${name}`);
-    return true;
+    // Shutdown all registered managers
+    await Promise.all(
+      Array.from(this.managers.values()).map(manager => manager.shutdown())
+    );
   }
   
   /**
-   * Get a manager by name
-   * @param name Manager name
-   * @returns Manager instance or null if not found
+   * Register a manager with this agent
+   * @param manager The manager to register
+   * @returns The registered manager
    */
-  getManager<T extends BaseManager>(name: string): T | null {
-    const manager = this.managers.get(name);
-    return manager ? (manager as T) : null;
+  registerManager<T extends BaseManager>(manager: T): T {
+    const managerType = manager.getType();
+    
+    // Set the agent reference on the manager
+    if ('setAgent' in manager && typeof manager.setAgent === 'function') {
+      (manager as any).setAgent(this);
+    }
+    
+    // Store the manager
+    this.managers.set(managerType, manager);
+    console.log(`[${this.getAgentId()}] Registered ${managerType} manager`);
+    
+    return manager;
+  }
+  
+  /**
+   * Get a registered manager by type
+   * @param managerType The type of manager to retrieve
+   * @returns The manager instance or undefined if not found
+   */
+  getManager<T extends BaseManager>(managerType: string): T | undefined {
+    return this.managers.get(managerType) as T | undefined;
   }
   
   /**
    * Get all registered managers
-   * @returns Map of manager names to manager instances
+   * @returns An array of all registered managers
    */
-  getAllManagers(): Map<string, BaseManager> {
-    return new Map(this.managers);
+  getManagers(): BaseManager[] {
+    return Array.from(this.managers.values());
   }
   
   /**
-   * Register the agent's capabilities with the capability registry
+   * Check if the agent is currently enabled
+   * @returns Whether the agent is enabled
    */
-  protected registerCapabilities(): void {
-    // Register capabilities with the registry
-    this.capabilityRegistry.registerAgentCapabilities(
-      this.agentId,
-      this.capabilities,
-      {
-        preferredDomains: this.domains,
-        primaryRoles: this.roles
-      }
-    );
-    
-    console.log(`Registered ${Object.keys(this.capabilities).length} capabilities for agent ${this.agentId}`);
+  isEnabled(): boolean {
+    return this.config.enabled;
   }
   
   /**
-   * Declare a new capability for this agent
+   * Enable or disable the agent
+   * @param enabled Whether to enable or disable
+   * @returns The updated enabled state
    */
-  declareCapability(
-    capabilityId: string, 
-    level: CapabilityLevel = CapabilityLevel.INTERMEDIATE
-  ): void {
-    // Add to agent's capabilities
-    this.capabilities[capabilityId] = level;
-    
-    // Update in registry
-    this.capabilityRegistry.registerAgentCapabilities(
-      this.agentId,
-      { [capabilityId]: level },
-      {
-        preferredDomains: this.domains,
-        primaryRoles: this.roles
-      }
-    );
-    
-    console.log(`Declared capability ${capabilityId} at level ${level} for agent ${this.agentId}`);
+  setEnabled(enabled: boolean): boolean {
+    this.config.enabled = enabled;
+    return this.config.enabled;
   }
   
   /**
-   * Add a domain of expertise for this agent
+   * Get agent health status
+   * @returns The current health status
    */
-  addDomain(domain: string): void {
-    if (!this.domains.includes(domain)) {
-      this.domains.push(domain);
-      
-      // Update in registry
-      this.capabilityRegistry.registerAgentCapabilities(
-        this.agentId,
-        this.capabilities,
-        {
-          preferredDomains: this.domains,
-          primaryRoles: this.roles
-        }
-      );
-      
-      console.log(`Added domain ${domain} for agent ${this.agentId}`);
-    }
-  }
-  
-  /**
-   * Add a role for this agent
-   */
-  addRole(role: string): void {
-    if (!this.roles.includes(role)) {
-      this.roles.push(role);
-      
-      // Update in registry
-      this.capabilityRegistry.registerAgentCapabilities(
-        this.agentId,
-        this.capabilities,
-        {
-          preferredDomains: this.domains,
-          primaryRoles: this.roles
-        }
-      );
-      
-      console.log(`Added role ${role} for agent ${this.agentId}`);
-    }
-  }
-  
-  /**
-   * Check if agent has a specific capability
-   */
-  hasAgentCapability(capabilityId: string): boolean {
-    return capabilityId in this.capabilities;
-  }
-  
-  /**
-   * Get agent's capability level for a specific capability
-   */
-  getSpecificCapabilityLevel(capabilityId: string): CapabilityLevel | null {
-    return this.capabilities[capabilityId] || null;
-  }
-  
-  /**
-   * Check if agent specializes in a domain
-   */
-  specializesInDomain(domain: string): boolean {
-    return this.domains.includes(domain);
-  }
-  
-  /**
-   * Check if agent has a specific role
-   */
-  hasRole(role: string): boolean {
-    return this.roles.includes(role);
-  }
-  
-  /**
-   * Get all agent capabilities
-   */
-  getCapabilities(): Record<string, CapabilityLevel> {
-    return { ...this.capabilities };
-  }
-  
-  /**
-   * Get all agent domains
-   */
-  getDomains(): string[] {
-    return [...this.domains];
-  }
-  
-  /**
-   * Get all agent roles
-   */
-  getRoles(): string[] {
-    return [...this.roles];
-  }
-
-  /**
-   * Set up automatic memory pruning
-   */
-  private setupMemoryPruning(): void {
-    if (!this.config.memoryOptions) return;
-    
-    const interval = this.config.memoryOptions.pruningIntervalMs || 3600000; // Default: 1 hour
-    
-    // Clear any existing timer
-    if (this.memoryPruningTimer) {
-      clearInterval(this.memoryPruningTimer);
-    }
-    
-    // Set up new timer
-    this.memoryPruningTimer = setInterval(() => {
-      this.pruneMemory().catch(error => {
-        console.error(`[${this.agentId}] Error during automatic memory pruning:`, error);
-      });
-    }, interval);
-    
-    console.log(`[${this.agentId}] Set up memory pruning with interval ${interval}ms`);
-  }
-
-  /**
-   * Set up automatic memory consolidation
-   */
-  private setupMemoryConsolidation(): void {
-    if (!this.config.memoryOptions) return;
-    
-    const interval = this.config.memoryOptions.consolidationIntervalMs || 7200000; // Default: 2 hours
-    
-    // Clear any existing timer
-    if (this.memoryConsolidationTimer) {
-      clearInterval(this.memoryConsolidationTimer);
-    }
-    
-    // Set up new timer
-    this.memoryConsolidationTimer = setInterval(() => {
-      this.consolidateMemory().catch(error => {
-        console.error(`[${this.agentId}] Error during automatic memory consolidation:`, error);
-      });
-    }, interval);
-    
-    console.log(`[${this.agentId}] Set up memory consolidation with interval ${interval}ms`);
-  }
-  
-  /**
-   * Prune agent's memory by removing low-relevance or outdated entries
-   * This method will preferentially use a memory manager if available
-   */
-  async pruneMemory(): Promise<void> {
-    // Check if we have a memory manager
-    const memoryManager = this.getManager<any>('memory');
-    if (memoryManager && typeof memoryManager.pruneMemories === 'function') {
-      await memoryManager.pruneMemories();
-      return;
-    }
-    
-    // Fall back to legacy implementation
-    if (!this.memoryService || !this.initialized) {
-      console.warn(`Cannot prune memory for agent ${this.agentId}: Memory services not initialized`);
-      return;
-    }
-    
-    console.log(`[${this.agentId}] Running memory pruning...`);
-    
-    try {
-      // Implement memory pruning with standardized memory system
-      // Get memories below relevance threshold to prune
-      const threshold = this.config.memoryOptions?.relevanceThreshold || 0.2;
-      
-      // This would be implemented with actual memory pruning logic via the standardized system
-      console.log(`[${this.agentId}] Memory pruning completed (threshold: ${threshold})`);
-    } catch (error) {
-      console.error(`[${this.agentId}] Error during memory pruning:`, error);
-    }
-  }
-  
-  /**
-   * Consolidate agent memory by generating insights from collected memories
-   * This method will preferentially use a memory manager if available
-   */
-  async consolidateMemory(options: { 
-    contextId?: string; 
-  } = {}): Promise<void> {
-    // Check if we have a memory manager
-    const memoryManager = this.getManager<any>('memory');
-    if (memoryManager && typeof memoryManager.consolidateMemories === 'function') {
-      await memoryManager.consolidateMemories();
-      return;
-    }
-    
-    // Fall back to legacy implementation
-    if (!this.memoryService || !this.initialized) {
-      console.warn(`Cannot consolidate memory for agent ${this.agentId}: Memory services not initialized`);
-      return;
-    }
-    
-    console.log(`[${this.agentId}] Running memory consolidation...`);
-    
-    try {
-      // This would be implemented with the standardized memory system
-      // Group related memories and generate insights
-      console.log(`[${this.agentId}] Memory consolidation completed`);
-    } catch (error) {
-      console.error(`[${this.agentId}] Error during memory consolidation:`, error);
-    }
-  }
-
-  /**
-   * Register this agent's message handler
-   */
-  protected registerMessageHandler(): void {
-    MessageRouter.registerHandler(this.agentId, async (message: AgentMessage) => {
-      await this.handleMessage(message as ExtendedAgentMessage);
-    });
-  }
-
-  /**
-   * Handle an incoming message
-   */
-  protected async handleMessage(message: ExtendedAgentMessage): Promise<void> {
-    // Store message in inbox
-    this.messageInbox.push(message);
-    
-    console.log(`[${this.agentId}] Received message of type '${message.type}' from ${message.fromAgentId}`);
-    
-    // Handle pruneNow command (using type assertion since we're extending the type)
-    if ((message.type as ExtendedMessageType) === 'command' && message.payload?.command === 'pruneNow') {
-      await this.pruneMemory();
-      await this.sendMessage(message.fromAgentId, 'result' as MessageType, { 
-        success: true, 
-        message: 'Memory pruning completed' 
-      }, { 
-        correlationId: message.correlationId
-      });
-      return;
-    }
-    
-    // Handle consolidateNow command
-    if ((message.type as ExtendedMessageType) === 'command' && message.payload?.command === 'consolidateNow') {
-      await this.consolidateMemory({ contextId: message.correlationId });
-      await this.sendMessage(message.fromAgentId, 'result' as MessageType, { 
-        success: true, 
-        message: 'Memory consolidation completed' 
-      }, { 
-        correlationId: message.correlationId
-      });
-      return;
-    }
-    
-    // Dispatch based on message type
-    switch (message.type) {
-      case 'update':
-        // Store in memory/knowledge base
-        await this.storeMessageInMemory(message);
-        break;
-        
-      case 'handoff':
-        // Execute a task based on the message
-        await this.handleTaskHandoff(message);
-        break;
-        
-      case 'ask':
-        // Generate a response to a question
-        await this.handleQuestion(message);
-        break;
-        
-      case 'log':
-        // Just log the message, no response needed
-        console.log(`[${this.agentId}] Log message: ${JSON.stringify(message.payload)}`);
-        break;
-        
-      case 'result':
-        // Process a result from another agent
-        await this.processResult(message);
-        break;
-        
-      default:
-        console.warn(`[${this.agentId}] Unhandled message type: ${message.type}`);
-    }
-  }
-
-  /**
-   * Store a message in the standardized memory system
-   */
-  protected async storeMessageInMemory(message: ExtendedAgentMessage): Promise<void> {
-    if (!this.memoryService) return;
-    
-    try {
-      // Format the message content
-      const content = typeof message.payload === 'string' 
-        ? message.payload 
-        : JSON.stringify(message.payload);
-      
-      // Generate a content hash to check for duplicates
-      const contentHash = await this.generateContentHash(content);
-      
-      // Check if this message content was recently stored (within last 5 seconds)
-      const isDuplicate = await this.checkRecentDuplicate(contentHash, 5000);
-      if (isDuplicate) {
-        console.log(`[${this.agentId}] Duplicate message detected, skipping storage`);
-        return;
-      }
-      
-      // Create structured IDs
-      const agentStructuredId = createAgentId(this.agentId);
-      
-      // Default user and chat IDs if not provided
-      const userIdStr = message.metadata?.userId || 'system';
-      const chatIdStr = message.metadata?.chatId || 'chat-chloe-gab';
-      
-      const userStructuredId = createUserId(userIdStr);
-      const chatStructuredId = createChatId(chatIdStr);
-      
-      // Create proper thread info
-      let threadInfo;
-      
-      // Check if this is a response to another message
-      if (message.correlationId && message.type === 'result') {
-        // This is a response, so create a thread with proper position and parent reference
-        // Import the thread helper directly to avoid circular dependencies
-        const { createResponseThreadInfo } = await import('../../../app/api/chat/thread/helper');
-        
-        // Use correlation ID as parent message ID
-        threadInfo = await createResponseThreadInfo(message.correlationId);
-      } else {
-        // This is a new message or initial request
-        // Import the thread helper directly to avoid circular dependencies
-        const { getOrCreateThreadInfo } = await import('../../../app/api/chat/thread/helper');
-        
-        // Determine the message role (user or assistant)
-        const role = message.fromAgentId === this.agentId ? 'assistant' : 'user';
-        threadInfo = getOrCreateThreadInfo(chatIdStr, role);
-      }
-      
-      // Use the wrapper function for adding messages to memory
-      const messageRole = message.fromAgentId === this.agentId 
-        ? MessageRole.ASSISTANT 
-        : MessageRole.USER;
-        
-      // Import the wrapper function
-      const { addMessageMemory } = await import('../../../server/memory/services/memory/memory-service-wrappers');
-      
-      // Add to memory using the wrapper function for type safety and optimization
-      await addMessageMemory(
-        this.memoryService,
-        content,
-        messageRole,
-        userStructuredId,
-        agentStructuredId,
-        chatStructuredId,
-        threadInfo,
-        {
-          messageType: message.type,
-          metadata: {
-            timestamp: Date.now(),
-          ...(message.metadata || {})
-        }
-        }
-      );
-      
-      console.log(`[${this.agentId}] Stored message in memory from ${message.fromAgentId} with thread ID ${threadInfo.id}, position ${threadInfo.position}`);
-    } catch (error) {
-      console.error(`[${this.agentId}] Error storing message in memory:`, error);
-    }
-  }
-
-  /**
-   * Generate a simple hash of content for deduplication
-   * @param content The content to hash
-   * @returns A string hash
-   */
-  private async generateContentHash(content: string): Promise<string> {
-    // Simple hash function for quick comparison
-    // For production, consider using a more robust hashing function
-    let hash = 0;
-    for (let i = 0; i < content.length; i++) {
-      const char = content.charCodeAt(i);
-      hash = ((hash << 5) - hash) + char;
-      hash = hash & hash; // Convert to 32bit integer
-    }
-    return String(hash);
-  }
-
-  // Store recent message hashes with timestamps for deduplication
-  private recentMessageHashes: Map<string, number> = new Map();
-
-  /**
-   * Track a recently processed message for deduplication
-   * @param contentHash The hash of the message content
-   */
-  private async trackRecentMessage(contentHash: string): Promise<void> {
-    this.recentMessageHashes.set(contentHash, Date.now());
-    
-    // Periodically clean up old entries (every 100 messages)
-    if (this.recentMessageHashes.size % 100 === 0) {
-      this.cleanupOldHashes();
-    }
-  }
-
-  /**
-   * Check if content was recently processed
-   * @param contentHash The hash to check
-   * @param timeWindowMs Time window in milliseconds
-   * @returns Boolean indicating if this is a duplicate
-   */
-  private async checkRecentDuplicate(contentHash: string, timeWindowMs: number): Promise<boolean> {
-    const lastSeen = this.recentMessageHashes.get(contentHash);
-    if (!lastSeen) return false;
-    
-    const timeSince = Date.now() - lastSeen;
-    return timeSince < timeWindowMs;
-  }
-
-  /**
-   * Clean up old hash entries to prevent memory leaks
-   */
-  private cleanupOldHashes(): void {
-    const now = Date.now();
-    const retentionPeriod = 24 * 60 * 60 * 1000; // 24 hours
-    
-    // Convert Map entries to array to avoid iterator issues
-    Array.from(this.recentMessageHashes.entries()).forEach(([hash, timestamp]) => {
-      if (now - timestamp > retentionPeriod) {
-        this.recentMessageHashes.delete(hash);
-      }
-    });
-  }
-
-  /**
-   * Plan a task with memory context injection
-   */
-  async planTask({
-    goal,
-    tags = [],
-    delegationContextId,
-    additionalContext = {}
-  }: {
-    goal: string;
-    tags?: string[];
-    delegationContextId?: string;
-    additionalContext?: Record<string, any>;
-  }): Promise<Plan> {
-    console.log(`[${this.agentId}] Planning task: ${goal}`);
-    
-    // Create planning context
-    const planningContext: PlanningContext = {
-      goal,
-      tags,
-      agentId: this.agentId,
-      delegationContextId,
-      additionalContext
-    };
-    
-    // Generate plan
-    const plan = await Planner.plan(planningContext);
-    
-    // Record the plan in memory
-    if (this.memoryService) {
-      await this.memoryService.addMemory({
-        type: MemoryType.THOUGHT,
-        content: `Created plan for "${goal}" with ${plan.steps.length} steps.`,
-        metadata: {
-          agentId: this.agentId,
-          delegationContextId: delegationContextId,
-          planTitle: plan.title,
-          stepCount: plan.steps.length
-        },
-        tags: [...tags, 'plan', 'decision']
-      });
-    }
-    
-    return plan;
-  }
-
-  /**
-   * Execute a plan
-   */
-  async executePlan(plan: Plan): Promise<{ success: boolean; results: any[] }> {
-    console.log(`[${this.agentId}] Executing plan: ${plan.title}`);
-    
-    // Execute the plan
-    const result = await Planner.executePlan(plan);
-    
-    // After execution, consolidate the memories related to this task
-    if (plan.context.delegationContextId) {
-      await this.consolidateMemory({ 
-        contextId: plan.context.delegationContextId
-      });
-    }
-    
-    return result;
-  }
-
-  /**
-   * Handle a task handoff message
-   */
-  protected async handleTaskHandoff(message: ExtendedAgentMessage): Promise<void> {
-    try {
-      // Extract task details from message payload
-      const { taskId, goal, context, tags } = message.payload;
-      
-      console.log(`[${this.agentId}] Handling task handoff: ${taskId}`);
-      
-      // Create context with delegation tracking
-      const delegationContextId = message.delegationContextId || `task_${Date.now()}`;
-      
-      // Plan the task with memory context injection
-      const plan = await this.planTask({
-        goal,
-        tags: tags || [],
-        delegationContextId,
-        additionalContext: {
-          ...context,
-          parentTaskId: message.correlationId,
-          originAgentId: message.metadata?.originAgentId || message.fromAgentId,
-          handoffFromAgent: message.fromAgentId
-        }
-      });
-      
-      // Execute the plan
-      const result = await this.executePlan(plan);
-      
-      // Send response back to the sender
-      await MessageRouter.sendResponse(message, {
-        taskId,
-        status: result.success ? 'completed' : 'failed',
-        result: result.results
-      });
-    } catch (error) {
-      console.error(`[${this.agentId}] Error handling task handoff:`, error);
-      
-      // Send error response
-      await MessageRouter.sendResponse(message, {
-        status: 'failed',
-        error: error instanceof Error ? error.message : String(error)
-      });
-    }
-  }
-
-  /**
-   * Handle a question message
-   */
-  protected async handleQuestion(message: ExtendedAgentMessage): Promise<void> {
-    try {
-      // Extract question from payload
-      const { question } = message.payload;
-      
-      console.log(`[${this.agentId}] Answering question: ${question}`);
-      
-      // This would typically use the LLM to generate a response
-      // For now, just echo back a placeholder response
-      const answer = `Placeholder answer to: ${question}`;
-      
-      // Send response back to the sender
-      await MessageRouter.sendResponse(message, {
-        answer,
-        confidence: 0.8
-      });
-    } catch (error) {
-      console.error(`[${this.agentId}] Error answering question:`, error);
-      
-      // Send error response
-      await MessageRouter.sendResponse(message, {
-        status: 'failed',
-        error: error instanceof Error ? error.message : String(error)
-      });
-    }
-  }
-
-  /**
-   * Process a result message
-   */
-  protected async processResult(message: ExtendedAgentMessage): Promise<void> {
-    // This would typically integrate the result into ongoing work
-    console.log(`[${this.agentId}] Processing result from ${message.fromAgentId}: ${JSON.stringify(message.payload)}`);
-  }
-
-  /**
-   * Send a message to another agent
-   */
-  async sendMessage(
-    toAgentId: string,
-    type: MessageType,
-    payload: any,
-    options: {
-      correlationId?: string,
-      delegationContextId?: string,
-      metadata?: Record<string, any>
-    } = {}
-  ): Promise<void> {
-    await MessageRouter.sendMessage({
-      fromAgentId: this.agentId,
-      toAgentId,
-      type,
-      payload,
-      timestamp: Date.now(),
-      correlationId: options.correlationId,
-      delegationContextId: options.delegationContextId,
-      metadata: options.metadata
-    });
-  }
-
-  /**
-   * Ask a question to another agent
-   */
-  async askQuestion(
-    toAgentId: string,
-    question: string,
-    context?: any,
-    delegationContextId?: string
-  ): Promise<any> {
-    const correlationId = `ask_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
-    
-    // Send the question as a message
-    await this.sendMessage(toAgentId, 'ask', { question, context }, {
-      correlationId,
-      delegationContextId
-    });
-    
-    // In a real implementation, would wait for response
-    // This would typically use a promise and callback registration
-    // For now, just return a placeholder
-    return {
-      status: 'sent',
-      correlationId,
-      note: 'Response would be processed asynchronously in a real implementation'
-    };
-  }
-
-  /**
-   * Get unread messages from the inbox
-   */
-  getMessages(options: {
-    unreadOnly?: boolean,
-    fromAgent?: string,
-    messageType?: MessageType,
-    limit?: number
-  } = {}): AgentMessage[] {
-    let messages = [...this.messageInbox];
-    
-    // Filter by sender if specified
-    if (options.fromAgent) {
-      messages = messages.filter(msg => msg.fromAgentId === options.fromAgent);
-    }
-    
-    // Filter by message type if specified
-    if (options.messageType) {
-      messages = messages.filter(msg => msg.type === options.messageType);
-    }
-    
-    // Limit results if specified
-    if (options.limit && options.limit > 0) {
-      messages = messages.slice(0, options.limit);
-    }
-    
-    return messages;
-  }
-
-  /**
-   * Clear the message inbox
-   */
-  clearInbox(): void {
-    this.messageInbox = [];
-  }
-
-  /**
-   * Get agent ID
-   */
-  getAgentId(): string {
-    return this.agentId;
-  }
-
-  /**
-   * Check if agent is initialized
-   */
-  isInitialized(): boolean {
-    return this.initialized;
-  }
-
-  /**
-   * Get agent's current health status
-   */
-  getHealthStatus(): any {
-    return AgentHealthChecker.getStatus(this.agentId);
-  }
-
-  /**
-   * Reset the agent's health status
-   */
-  resetHealth(): void {
-    AgentHealthChecker.resetHealthStatus(this.agentId);
-    console.log(`Reset health status for agent ${this.agentId}`);
-  }
-
-  /**
-   * Shutdown the agent and all its managers
-   */
-  async shutdown(): Promise<void> {
-    try {
-      console.log(`Shutting down agent ${this.agentId}...`);
-      
-      // Reset agent state to ensure it's not taking new tasks
-      if (AgentHealthChecker.getStatus(this.agentId)) {
-        AgentHealthChecker.reportFailure(this.agentId, 'Agent shutting down');
-      }
-      
-      // Cancel scheduled memory pruning
-      if (this.memoryPruningTimer) {
-        clearInterval(this.memoryPruningTimer);
-        this.memoryPruningTimer = null;
-      }
-      
-      // Cancel scheduled memory consolidation
-      if (this.memoryConsolidationTimer) {
-        clearInterval(this.memoryConsolidationTimer);
-        this.memoryConsolidationTimer = null;
-      }
-      
-      // Run final memory pruning and consolidation
-      if (this.memoryService) {
-        await this.pruneMemory();
-        await this.consolidateMemory();
-      }
-      
-      // Shutdown all managers
-      const managerEntries = Array.from(this.managers.entries());
-      for (const [name, manager] of managerEntries) {
+  async getHealth(): Promise<{
+    status: 'healthy' | 'degraded' | 'unhealthy';
+    message?: string;
+    managerHealth?: Record<string, {
+      status: 'healthy' | 'degraded' | 'unhealthy';
+      message?: string;
+    }>;
+  }> {
+    // Get health status from all managers
+    const managerHealthPromises = Array.from(this.managers.entries()).map(
+      async ([type, manager]) => {
         try {
-          console.log(`[${this.agentId}] Shutting down manager: ${name}`);
-          await manager.shutdown();
+          const health = await manager.getHealth();
+          return [type, health] as const;
         } catch (error) {
-          console.error(`[${this.agentId}] Error shutting down manager ${name}:`, error);
-          // Continue with other managers
+          return [
+            type, 
+            { 
+              status: 'unhealthy' as const,
+              message: `Failed to get health: ${error}`
+            }
+          ] as const;
         }
       }
-      
-      this.initialized = false;
-      console.log(`Agent ${this.agentId} shutdown complete`);
-    } catch (error) {
-      console.error(`Error during agent ${this.agentId} shutdown:`, error);
-    }
-  }
-
-  /**
-   * Check if agent has permission to use a specific tool
-   */
-  hasToolPermission(toolName: string): boolean {
-    return this.toolPermissions.includes(toolName);
-  }
-
-  /**
-   * Plan and execute a task with proper planning and execution management
-   * This method will preferentially use a planning manager if available
-   */
-  async planAndExecute(goal: string, options: any = {}): Promise<any> {
-    // Check if we have a planning manager
-    const planningManager = this.getManager<any>('planning');
-    if (planningManager && typeof planningManager.planAndExecute === 'function') {
-      return await planningManager.planAndExecute(goal, options);
-    }
+    );
     
-    // Fall back to legacy implementation
-    if (!this.initialized) {
-      const initSuccess = await this.initialize();
-      if (!initSuccess) {
-        return {
-          success: false,
-          error: `Failed to initialize agent ${this.agentId} for task execution`
-        };
-      }
-    }
+    const managerHealthResults = await Promise.all(managerHealthPromises);
+    const managerHealth: Record<string, {
+      status: 'healthy' | 'degraded' | 'unhealthy';
+      message?: string;
+    }> = Object.fromEntries(managerHealthResults);
     
-    try {
-      console.log(`[${this.agentId}] Planning and executing task: ${goal.substring(0, 50)}...`);
-      
-      // Create a plan for the task
-      const plan = await this.planTask({
-        goal,
-        tags: options.tags || [],
-        delegationContextId: options.delegationContextId,
-        additionalContext: options.additionalContext || {}
-      });
-      
-      // Execute the plan
-      const executionResult = await this.executePlan(plan);
+    // Determine overall agent health based on manager health
+    const healthStatuses = Object.values(managerHealth).map(h => h.status);
+    let overallStatus: 'healthy' | 'degraded' | 'unhealthy' = 'healthy';
+    
+    if (healthStatuses.includes('unhealthy')) {
+      overallStatus = 'unhealthy';
+    } else if (healthStatuses.includes('degraded')) {
+      overallStatus = 'degraded';
+    }
       
       return {
-        success: true,
-        plan,
-        results: executionResult.results,
-        metadata: {
-          agentId: this.agentId,
-          executionTime: new Date().toISOString()
-        }
-      };
-    } catch (error) {
-      console.error(`[${this.agentId}] Error in planAndExecute:`, error);
-      return {
-        success: false,
-        error: `Execution error: ${error instanceof Error ? error.message : String(error)}`
-      };
-    }
+      status: overallStatus,
+      message: `Agent ${this.getAgentId()} is ${overallStatus}`,
+      managerHealth
+    };
   }
 }
