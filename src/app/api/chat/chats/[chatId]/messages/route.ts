@@ -2,16 +2,7 @@ import { NextResponse } from 'next/server';
 import { getMemoryServices } from '../../../../../../server/memory/services';
 import { MemoryType } from '../../../../../../server/memory/config';
 import { getChatService } from '../../../../../../server/memory/services/chat-service';
-
-// Define the expected metadata interface
-interface MessageMetadata {
-  role?: string;
-  userId?: string;
-  chatId?: string;
-  timestamp?: string;
-  isInternalMessage?: boolean;
-  [key: string]: any; // Allow additional properties
-}
+import { MessageMetadata } from '../../../../../../types/metadata';
 
 /**
  * GET handler - get messages for a specific chat

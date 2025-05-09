@@ -1,8 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getMemoryServices } from '../../../../server/memory/services';
 import { MemoryType } from '../../../../server/memory/config';
+import { BaseMetadata } from '../../../../types/metadata';
 
 export const runtime = 'nodejs';
+
+// Define the interface for flagged memory metadata
+interface FlaggedMetadata extends BaseMetadata {
+  user?: string;
+  flaggedBy?: string;
+  flaggedAt?: string;
+  flagged?: boolean;
+  deleted?: boolean;
+  deletedAt?: string;
+}
 
 /**
  * API endpoint to fetch flagged messages from memory
@@ -75,16 +86,21 @@ export async function GET(request: NextRequest) {
     const memoryEntries = searchResults.map(result => result.point);
     
     // Format the response
-    const messages = memoryEntries.map(record => ({
-      id: record.id,
-      content: record.payload?.text || '',
-      type: (record as any).type || 'unknown',
-      timestamp: record.payload?.timestamp || new Date().toISOString(),
-      tags: record.payload?.metadata?.tags || [],
-      user: record.payload?.metadata?.user,
-      flaggedBy: record.payload?.metadata?.flaggedBy,
-      flaggedAt: record.payload?.metadata?.flaggedAt,
-    }));
+    const messages = memoryEntries.map(record => {
+      // Cast the metadata to our enhanced type for proper type checking
+      const metadata = record.payload?.metadata as FlaggedMetadata;
+      
+      return {
+        id: record.id,
+        content: record.payload?.text || '',
+        type: (record as any).type || 'unknown',
+        timestamp: record.payload?.timestamp || new Date().toISOString(),
+        tags: metadata?.tags || [],
+        user: metadata?.user,
+        flaggedBy: metadata?.flaggedBy,
+        flaggedAt: metadata?.flaggedAt,
+      };
+    });
     
     return NextResponse.json({
       success: true,
@@ -139,7 +155,7 @@ export async function DELETE(request: NextRequest) {
             deleted: true,
             flagged: false,
             deletedAt: new Date().toISOString()
-          }
+          } as FlaggedMetadata
         })
       )
     );

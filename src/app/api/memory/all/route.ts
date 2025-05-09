@@ -1,9 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getMemoryServices } from '../../../../server/memory/services';
 import { MemoryType, MemoryErrorCode, COLLECTION_NAMES } from '../../../../server/memory/config';
+import { DocumentMetadata, BaseMetadata } from '../../../../types/metadata';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+
+// Define flagged metadata interface for type safety
+interface FlaggedMetadata extends BaseMetadata {
+  user?: string;
+  flaggedBy?: string;
+  flaggedAt?: string;
+  flagged?: boolean;
+  deleted?: boolean;
+  deletedAt?: string;
+}
 
 /**
  * API endpoint to fetch all memories from Chloe's knowledge base
@@ -326,17 +337,27 @@ function formatMemory(record: any) {
     // Determine type from record or metadata
     const type = record.type || metadata.type || 'unknown';
     
+    // Apply appropriate typing based on memory type
+    let typedMetadata: any;
+    if (type === MemoryType.DOCUMENT) {
+      typedMetadata = metadata as DocumentMetadata;
+    } else if (metadata.flagged === true) {
+      typedMetadata = metadata as FlaggedMetadata;
+    } else {
+      typedMetadata = metadata;
+    }
+    
     // Check if this is a memory_edit record
-    const isMemoryEdit = type === 'memory_edits' || metadata.original_memory_id;
+    const isMemoryEdit = type === 'memory_edits' || typedMetadata.original_memory_id;
     
     // Extract versioning fields or use defaults
-    const originalMemoryId = metadata.original_memory_id;
-    const editType = metadata.edit_type || 'update';
-    const editorType = metadata.editor_type || 'system';
-    const editorId = metadata.editor_id;
-    const diffSummary = metadata.diff_summary;
-    const current = metadata.current === true;
-    const previousVersionId = metadata.previous_version_id;
+    const originalMemoryId = typedMetadata.original_memory_id;
+    const editType = typedMetadata.edit_type || 'update';
+    const editorType = typedMetadata.editor_type || 'system';
+    const editorId = typedMetadata.editor_id;
+    const diffSummary = typedMetadata.diff_summary;
+    const current = typedMetadata.current === true;
+    const previousVersionId = typedMetadata.previous_version_id;
     
     // If this is a memory_edit, log additional info for debugging
     if (isMemoryEdit) {
@@ -350,13 +371,13 @@ function formatMemory(record: any) {
       created: timestamp,
       timestamp: timestamp,
       type: type,
-      category: metadata.category || metadata.tag || type || 'unknown',
-      source: metadata.source || 'system',
-      importance: metadata.importance || 'medium',
-      tags: Array.isArray(metadata.tags) ? metadata.tags : [],
+      category: typedMetadata.category || typedMetadata.tag || type || 'unknown',
+      source: typedMetadata.source || 'system',
+      importance: typedMetadata.importance || 'medium',
+      tags: Array.isArray(typedMetadata.tags) ? typedMetadata.tags : [],
       // Include all original metadata to preserve version information and other details
       metadata: {
-        ...metadata,
+        ...typedMetadata,
         // Add explicit version info to metadata if this is a memory_edit
         ...(isMemoryEdit ? {
           isMemoryEdit: true, 

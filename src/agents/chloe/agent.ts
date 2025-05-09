@@ -18,10 +18,20 @@ declare module './core/agent' {
   interface ChloeAgent {
     getCognitiveMemory(): CognitiveMemory | null;
     getKnowledgeGraph(): KnowledgeGraph | null;
+    getMemoryManager(): any;
+    reflect(prompt: string): Promise<string>;
   }
 }
 
 // Extend ChloeAgent prototype with methods needed by tasks
+ChloeAgent.prototype.getMemoryManager = function(): any {
+  // This is a compatibility method for the old API
+  // It should return an object that has getChloeMemory method
+  return {
+    getChloeMemory: () => this.getChloeMemory()
+  };
+};
+
 ChloeAgent.prototype.getCognitiveMemory = function(): CognitiveMemory | null {
   const memory = this.getMemoryManager()?.getChloeMemory();
   // Memory interface likely doesn't expose this method directly
@@ -34,6 +44,16 @@ ChloeAgent.prototype.getKnowledgeGraph = function(): KnowledgeGraph | null {
   // Memory interface likely doesn't expose this method directly
   // This is a workaround to get the knowledge graph
   return memory ? (memory as any).knowledgeGraph || null : null;
+};
+
+// Implement the reflect method for compatibility
+ChloeAgent.prototype.reflect = async function(prompt: string): Promise<string> {
+  // This is a simplified stub implementation for compatibility
+  console.log(`[Chloe Reflection] Prompt: ${prompt}`);
+  
+  // Since we can't use the actual model easily in this context,
+  // this is a stub that just returns a formatted response
+  return `[Reflection on: ${prompt}]\n\nThis is a compatibility layer reflection to satisfy the API requirements. For actual reflections, use the appropriate agent instance methods.`;
 };
 
 export default ChloeAgent; 

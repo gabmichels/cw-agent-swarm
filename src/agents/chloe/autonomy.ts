@@ -5,6 +5,7 @@ import { initializeAutonomy } from './scheduler';
 import { getMemoryServices } from '../../server/memory/services';
 import { AutonomySystem } from '../../lib/shared/types/agentTypes';
 import { MemoryType, ImportanceLevel } from '../../server/memory/config';
+import { MessageMetadata } from '../../types/metadata';
 
 /**
  * Initialize Chloe's full autonomy system with:
@@ -154,8 +155,9 @@ export async function getRecentChatMessages(options: {
     // Convert to expected format
     return results.map(result => {
       const payload = result.point.payload as any;
+      const metadata = payload.metadata as MessageMetadata;
       return {
-        role: payload.role || 'user',
+        role: metadata?.role?.toString() || 'user',
         content: payload.content || payload.text || '',
         timestamp: payload.timestamp || new Date().toISOString()
       };
