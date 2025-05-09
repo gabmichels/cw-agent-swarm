@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getMemoryServices } from '../../../../server/memory/services';
 import { MemoryType } from '../../../../server/memory/config';
-import fs from 'fs';
-import path from 'path';
+import { MessageMetadata } from '../../../../types/metadata';
+import * as fs from 'fs';
+import * as path from 'path';
 
 // Mark as server-side only
 export const runtime = 'nodejs';
@@ -96,19 +97,21 @@ export async function POST(req: NextRequest) {
         metadata: result.point.payload?.metadata || {}
       }));
       
-      const userMessages = allMessages.filter(msg => 
-        msg.metadata && msg.metadata.userId === userId
-      );
+      // Cast metadata to MessageMetadata to access its fields properly
+      const userMessages = allMessages.filter(msg => {
+        const messageMetadata = msg.metadata as MessageMetadata;
+        return messageMetadata?.userId && messageMetadata.userId.toString() === userId;
+      });
 
       console.log(`Found ${userMessages.length} messages for user ${userId}`);
 
       // Count messages with attachments
-      const messagesWithAttachments = userMessages.filter(msg => 
-        msg.metadata && 
-        msg.metadata.attachments && 
-        Array.isArray(msg.metadata.attachments) && 
-        msg.metadata.attachments.length > 0
-      );
+      const messagesWithAttachments = userMessages.filter(msg => {
+        const messageMetadata = msg.metadata as MessageMetadata;
+        return messageMetadata?.attachments && 
+               Array.isArray(messageMetadata.attachments) && 
+               messageMetadata.attachments.length > 0;
+      });
 
       console.log(`${messagesWithAttachments.length} messages have attachments`);
 
@@ -116,19 +119,23 @@ export async function POST(req: NextRequest) {
       for (const msg of messagesWithAttachments) {
         try {
           // Create updated metadata without attachments
-          const updatedMetadata = { ...msg.metadata };
-          delete updatedMetadata.attachments;
+          const messageMetadata = msg.metadata as MessageMetadata;
+          const updatedMetadata = { ...messageMetadata };
           
-          // Remove vision response references
-          if (updatedMetadata.visionResponseFor) {
-            delete updatedMetadata.visionResponseFor;
+          // Create a new object without attachments
+          const { attachments, ...metadataWithoutAttachments } = updatedMetadata;
+          
+          // Additional type handling for custom fields
+          const customMetadata = updatedMetadata as any;
+          if (customMetadata.visionResponseFor) {
+            delete customMetadata.visionResponseFor;
           }
           
           // Update the memory with the new metadata
           await memoryService.updateMemory({
             id: msg.id,
             type: MemoryType.MESSAGE,
-            metadata: updatedMetadata
+            metadata: metadataWithoutAttachments
           });
           
           successCount++;

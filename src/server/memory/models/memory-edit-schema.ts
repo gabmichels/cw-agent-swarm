@@ -3,47 +3,14 @@
  */
 import { MemoryType } from '../config';
 import { BaseMemorySchema } from './base-schema';
-import { BaseMetadata } from '../../../types/metadata';
-
-/**
- * Edit types
- */
-export type EditType = 'create' | 'update' | 'delete';
-
-/**
- * Editor types
- */
-export type EditorType = 'agent' | 'system' | 'human';
-
-/**
- * Memory edit metadata schema for tracking changes to memory
- */
-export interface MemoryEditMetadataSchema extends BaseMetadata {
-  // Link to the original memory being edited
-  original_memory_id: string;
-  original_type: MemoryType;
-  original_timestamp: string;
-  
-  // Edit information
-  edit_type: EditType;
-  editor_type: EditorType;
-  editor_id?: string;
-  diff_summary?: string;
-  
-  // Version tracking
-  current: boolean;
-  previous_version_id?: string;
-  
-  // Special flag to prevent recursion
-  _skip_logging?: boolean;
-}
+import { MemoryEditMetadata, EditType, EditorType } from '../../../types/metadata';
 
 /**
  * Memory edit schema
  */
 export interface MemoryEditSchema extends BaseMemorySchema {
   type: MemoryType.MEMORY_EDIT;
-  metadata: MemoryEditMetadataSchema;
+  metadata: MemoryEditMetadata;
 }
 
 /**

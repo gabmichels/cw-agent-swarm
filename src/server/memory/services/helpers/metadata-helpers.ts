@@ -29,7 +29,8 @@ import {
   TenantContext,
   PerformanceDirectives,
   MetadataSource,
-  MessageType
+  MessageType,
+  CognitiveMemoryMetadata
 } from '../../../../types/metadata';
 import { MessageRole } from '../../../../agents/chloe/types/state';
 import { ImportanceLevel, MemoryImportanceLevel } from '../../../../constants/memory';
@@ -728,4 +729,36 @@ function generateRandomString(length: number): string {
     result += chars.charAt(randomIndex);
   }
   return result;
+}
+
+/**
+ * Create cognitive memory metadata
+ */
+export function createCognitiveMemoryMetadata(
+  options: Partial<CognitiveMemoryMetadata> = {}
+): CognitiveMemoryMetadata {
+  return {
+    schemaVersion: CURRENT_SCHEMA_VERSION,
+    decayFactor: 1.0,
+    retrievalCount: 0,
+    emotions: ['neutral'],
+    ...options
+  };
+}
+
+/**
+ * Update metadata with decay information
+ */
+export function updateWithDecayInfo<T extends Partial<BaseMetadata>>(
+  metadata: T,
+  decayFactor: number,
+  retrievalCount: number
+): T & BaseMetadata {
+  return {
+    ...metadata,
+    schemaVersion: metadata.schemaVersion || CURRENT_SCHEMA_VERSION,
+    decayFactor,
+    retrievalCount,
+    last_used: new Date().toISOString()
+  } as T & BaseMetadata;
 } 

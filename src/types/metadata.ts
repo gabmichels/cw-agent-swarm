@@ -481,4 +481,61 @@ export enum MetadataField {
   PARENT_TASK_ID = 'parentTaskId',
   SUBTASK_IDS = 'subtaskIds',
   BLOCKED_BY = 'blockedBy'
+}
+
+/**
+ * Edit types for memory version history
+ */
+export type EditType = 'create' | 'update' | 'delete';
+
+/**
+ * Editor types for memory version history
+ */
+export type EditorType = 'agent' | 'system' | 'human';
+
+/**
+ * Memory edit metadata for tracking the history and version control of memories
+ */
+export interface MemoryEditMetadata extends BaseMetadata {
+  // Link to the original memory being edited
+  original_memory_id: string;
+  original_type: string;
+  original_timestamp: string;
+  
+  // Edit information
+  edit_type: EditType;
+  editor_type: EditorType;
+  editor_id?: string;
+  diff_summary?: string;
+  
+  // Version tracking
+  current: boolean;
+  previous_version_id?: string;
+  
+  // Special flag to prevent recursion
+  _skip_logging?: boolean;
+}
+
+/**
+ * Memory emotion type for cognitive memory
+ */
+export type MemoryEmotion = 'neutral' | 'positive' | 'negative' | 'surprise' | 'fear' | 'joy' | 'sadness' | 'anger';
+
+/**
+ * Cognitive memory specific metadata
+ * Extends BaseMetadata with memory decay and emotional context fields
+ */
+export interface CognitiveMemoryMetadata extends BaseMetadata {
+  // Decay and retrieval tracking
+  decayFactor?: number;
+  retrievalCount?: number;
+  lastRetrieved?: string;
+  
+  // Emotional context
+  emotions?: MemoryEmotion[];
+  
+  // Episodic memory fields
+  episodeId?: string;
+  sequence?: number;
+  criticalityLevel?: 'critical' | null;
 } 

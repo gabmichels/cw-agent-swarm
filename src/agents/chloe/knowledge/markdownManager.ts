@@ -6,8 +6,6 @@ import { logger } from '@/lib/logging';
 import { ImportanceLevel, MemorySource } from '../../../constants/memory';
 import { getMemoryServices } from '../../../server/memory/services';
 import { MemoryType } from '../../../server/memory/config';
-import { syncMarkdownWithGraph } from './markdownGraphIntegration';
-import { DocumentMetadataSchema } from '../../../server/memory/models/document-schema';
 import { extractTags } from '../../../utils/tagExtractor';
 
 // Cache file path

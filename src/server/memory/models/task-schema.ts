@@ -3,8 +3,9 @@
  */
 import { MemoryType } from '../config';
 import { BaseMemorySchema } from './base-schema';
-import { BaseMetadata, TaskStatus, TaskPriority } from '../../../types/metadata';
+import { TaskMetadata, TaskStatus, TaskPriority } from '../../../types/metadata';
 import { MemoryImportanceLevel } from '../../../constants/memory';
+import { EntityNamespace, EntityType, createEnumStructuredId } from '../../../types/structured-id';
 
 /**
  * Task schema for storing objectives and goals
@@ -16,32 +17,10 @@ export interface TaskSchema extends BaseMemorySchema {
 
 /**
  * Task-specific metadata
+ * Extends TaskMetadata directly since we've unified the base interfaces
  */
-export interface TaskMetadataSchema extends BaseMetadata {
-  // Task status and priority
-  status: TaskStatus;
-  priority: TaskPriority;
-  
-  // Task timing
-  dueDate?: string;
-  startDate?: string;
-  completedDate?: string;
-  
-  // Task assignment
-  assignedTo?: string;
-  createdBy?: string;
-  
-  // Task relationships
-  parentTaskId?: string;
-  subtaskIds?: string[];
-  dependsOn?: string[];
-  blockedBy?: string[];
-  
-  // Task category and metadata
-  category?: string;
-  estimatedDuration?: string;
-  actualDuration?: string;
-  progress?: number; // 0-100
+export interface TaskMetadataSchema extends TaskMetadata {
+  // No additional fields needed as TaskMetadata already contains everything
 }
 
 /**
@@ -52,6 +31,8 @@ export const TASK_DEFAULTS: Partial<TaskSchema> = {
   metadata: {
     schemaVersion: "1.0.0",
     status: TaskStatus.PENDING,
-    priority: TaskPriority.MEDIUM
+    priority: TaskPriority.MEDIUM,
+    title: "Untitled Task",
+    createdBy: createEnumStructuredId(EntityNamespace.SYSTEM, EntityType.USER, 'system')
   }
 }; 

@@ -6,20 +6,21 @@
 
 import { MemoryType } from "../../config/types";
 import { getMemoryServices } from "..";
-import { BaseMetadata } from "../../../../types/metadata";
+import { BaseMetadata, MessageMetadata, MessageRole, ThreadInfo } from "../../../../types/metadata";
+import { createEnumStructuredId, EntityNamespace, EntityType } from "../../../../types/structured-id";
 
 /**
  * Extended metadata schema for message memories that includes additional properties
+ * Extends MessageMetadata directly for consistency with the unified metadata interfaces
  */
-export interface MessageMetadataSchema extends BaseMetadata {
+export interface MessageMetadataSchema extends MessageMetadata {
+  // Additional properties specific to helper functions
   messageId?: string;
   flaggedUnreliable?: boolean;
   flaggedUnreliableAt?: string;
   unreliabilityReason?: string;
   excludeFromRetrieval?: boolean;
   confidence?: number;
-  source?: string;
-  role?: string;
 }
 
 /**
@@ -108,20 +109,37 @@ export async function flagAsUnreliable(
       // If message doesn't exist in memory yet, create a new entry with unreliable flag
       console.log('Creating new memory entry with unreliable flag');
       
+      // Create default thread info
+      const threadInfo: ThreadInfo = {
+        id: 'system-flagged',
+        position: 0
+      };
+      
+      // Create structured IDs
+      const systemUserId = createEnumStructuredId(EntityNamespace.SYSTEM, EntityType.USER, 'system');
+      const systemAgentId = createEnumStructuredId(EntityNamespace.SYSTEM, EntityType.AGENT, 'system');
+      const systemChatId = createEnumStructuredId(EntityNamespace.SYSTEM, EntityType.CHAT, 'flagged-content');
+      
       // Add as a new memory with unreliable flag
       const result = await memoryService.addMemory({
         type: MemoryType.MESSAGE,
         content: content,
         metadata: {
           schemaVersion: '1.0.0',
+          // Required MessageMetadata fields
+          role: MessageRole.SYSTEM,
+          userId: systemUserId,
+          agentId: systemAgentId,
+          chatId: systemChatId,
+          thread: threadInfo,
+          // Flagging specific fields
+          messageId: messageId,
           flaggedUnreliable: true,
           flaggedUnreliableAt: new Date().toISOString(),
           unreliabilityReason: 'user_flagged',
           excludeFromRetrieval: true,
           confidence: 0,
-          source: 'user_flagged',
-          role: 'system',
-          messageId: messageId
+          source: 'user_flagged'
         } as MessageMetadataSchema
       });
       

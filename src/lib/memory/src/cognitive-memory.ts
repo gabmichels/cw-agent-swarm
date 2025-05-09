@@ -4,7 +4,8 @@ import { EnhancedMemory, MemoryEntry } from './enhanced-memory';
 import { ImportanceLevel, MemorySource } from '../../../constants/memory';
 import { MemoryType as StandardMemoryType } from '../../../server/memory/config/types';
 import { SearchResult } from '../../../server/memory/services/search/types';
-import { BaseMemorySchema } from '../../../server/memory/models';
+import { BaseMetadata, CognitiveMemoryMetadata, MemoryEmotion } from '../../../types/metadata';
+import { createCognitiveMemoryMetadata, updateWithDecayInfo } from '../../../server/memory/services/helpers/metadata-helpers';
 
 /**
  * CognitiveMemory System
@@ -18,19 +19,7 @@ import { BaseMemorySchema } from '../../../server/memory/models';
  * - Memory reconsolidation
  */
 
-// Extended memory types
-export type MemoryEmotion = 'neutral' | 'positive' | 'negative' | 'surprise' | 'fear' | 'joy' | 'sadness' | 'anger';
-
-// Define the memory metadata interface
-export interface MemoryMetadataSchema {
-  schemaVersion: string;
-  decayFactor?: number;
-  retrievalCount?: number;
-  importance?: ImportanceLevel;
-  emotions?: MemoryEmotion[];
-  tags?: string[];
-  [key: string]: unknown;
-}
+// Extended memory types (use the type from metadata.ts)
 
 export interface EpisodicMemory extends MemoryEntry {
   episodeId: string;
@@ -98,7 +87,7 @@ export class CognitiveMemory extends EnhancedMemory {
    */
   async addEpisodicMemory(
     content: string,
-    metadata: Record<string, any> = {},
+    metadata: Partial<CognitiveMemoryMetadata> = {},
     emotions: MemoryEmotion[] = ['neutral']
   ): Promise<string> {
     try {
@@ -114,17 +103,17 @@ export class CognitiveMemory extends EnhancedMemory {
       // Calculate importance
       const importance = metadata.importance || this.calculateImportance(content, emotions);
       
-      // Create extended metadata
-      const episodicMetadata = {
-        ...metadata,
+      // Create extended metadata using the helper function
+      const episodicMetadata = createCognitiveMemoryMetadata({
         episodeId,
         sequence,
         emotions,
         importance,
-        retrievalCount: 0,
-        decayFactor: 1.0, // Start with no decay
-        type: 'episodic'
-      };
+        source: "episodic",
+        tags: metadata.tags || [],
+        timestamp: new Date().toISOString(),
+        ...metadata
+      });
       
       // Add to memory
       const memoryId = await super.addMemory(content, episodicMetadata, StandardMemoryType.DOCUMENT);
@@ -234,7 +223,7 @@ export class CognitiveMemory extends EnhancedMemory {
         const memoryId = memory.id;
         
         // Get current decay factor with proper typing
-        const metadata = memory.payload.metadata as MemoryMetadataSchema;
+        const metadata = memory.payload.metadata as CognitiveMemoryMetadata;
         const decayFactor = metadata.decayFactor ?? 1.0;
         const retrievalCount = metadata.retrievalCount ?? 0;
         
@@ -247,20 +236,26 @@ export class CognitiveMemory extends EnhancedMemory {
         
         // Apply forgetting curve - delete low importance memories that have decayed significantly
         if (String(importanceValue) === ImportanceLevel.LOW && currentDecayFactor > 0.85) {
-          // Delete the memory
-          await memoryService.deleteMemory({
-            id: memoryId,
-            type: StandardMemoryType.DOCUMENT
-          });
-          console.log(`Removed decayed memory: ${memoryId}`);
-        } else {
-          // Update the memory with new decay factor
+          // Delete the memory, using proper deletion approach with is_deleted flag
           await memoryService.updateMemory({
             id: memoryId,
             type: StandardMemoryType.DOCUMENT,
             metadata: {
-              decayFactor: currentDecayFactor 
+              is_deleted: true,
+              deletion_time: new Date().toISOString()
             }
+          });
+          console.log(`Marked decayed memory as deleted: ${memoryId}`);
+        } else {
+          // Update the memory with new decay factor using helper function
+          await memoryService.updateMemory({
+            id: memoryId,
+            type: StandardMemoryType.DOCUMENT,
+            metadata: updateWithDecayInfo(
+              { schemaVersion: metadata.schemaVersion || '1.0.0' },
+              currentDecayFactor,
+              retrievalCount
+            )
           });
           consolidatedCount++;
         }
@@ -407,15 +402,20 @@ export class CognitiveMemory extends EnhancedMemory {
    */
   async reconsolidateMemory(memoryId: string, newContent: string): Promise<boolean> {
     try {
-      // In a real implementation, we would need a function to update memory content directly
-      // For now, we'll just log what we would do
-      console.log(`Memory ${memoryId} would be reconsolidated with new content: ${newContent}`);
+      // Get memory services
+      const { memoryService } = await getMemoryServices();
       
-      // In production, we would:
-      // 1. Retrieve the existing memory
-      // 2. Merge old content with new content
-      // 3. Create new embedding
-      // 4. Update the memory record
+      // Use proper memory service update functionality with helper function
+      await memoryService.updateMemory({
+        id: memoryId,
+        type: StandardMemoryType.DOCUMENT,
+        content: newContent,
+        metadata: updateWithDecayInfo(
+          { schemaVersion: '1.0.0' },
+          1.0, // Reset decay factor to full strength
+          1    // Increment retrieval count
+        )
+      });
       
       return true;
     } catch (error) {
