@@ -97,10 +97,39 @@ export interface BaseManager {
 }
 
 /**
+ * BaseManager.ts - Base manager implementation
+ * 
+ * This file provides the base manager implementation that all managers should extend.
+ */
+
+export abstract class BaseManager {
+  protected agent: AgentBase;
+  protected type: string;
+  protected initialized: boolean = false;
+
+  constructor(agent: AgentBase, type: string) {
+    this.agent = agent;
+    this.type = type;
+  }
+
+  getType(): string {
+    return this.type;
+  }
+
+  isInitialized(): boolean {
+    return this.initialized;
+  }
+
+  getAgent(): AgentBase {
+    return this.agent;
+  }
+}
+
+/**
  * Abstract implementation of the BaseManager interface
  * Provides common functionality for concrete manager implementations
  */
-export abstract class AbstractBaseManager implements BaseManager {
+export abstract class AbstractBaseManager extends BaseManager implements BaseManager {
   /** Unique identifier for this manager instance */
   protected managerId: string;
   
@@ -119,7 +148,8 @@ export abstract class AbstractBaseManager implements BaseManager {
    * @param managerType Type of manager
    * @param config Manager configuration
    */
-  constructor(managerId: string, managerType: string, config: ManagerConfig) {
+  constructor(agent: AgentBase, managerId: string, managerType: string, config: ManagerConfig) {
+    super(agent, managerType);
     this.managerId = managerId;
     this.managerType = managerType;
     this.config = {

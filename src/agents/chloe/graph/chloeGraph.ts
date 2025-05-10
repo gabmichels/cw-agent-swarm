@@ -1,12 +1,13 @@
 /**
- * Implementation of an advanced LangGraph-style architecture for Chloe's planning system.
- * This is a more sophisticated implementation inspired by LangGraph / LangChain, 
- * but without the external dependencies.
+ * LangGraph.ts - Advanced LangGraph-style architecture for planning
+ * 
+ * This file provides an implementation of a LangGraph-style architecture
+ * for planning and execution.
  */
 
 import { ChatOpenAI } from "@langchain/openai";
 import { BaseMessage } from "@langchain/core/messages";
-import { ChloeMemory } from "../memory";
+import { AgentMemory } from "../memory";
 import { TaskLogger } from "../task-logger";
 import { ActionNode, StateGraph } from "../langchain/graph";
 import * as fs from 'fs';
@@ -25,22 +26,22 @@ import {
 } from "./nodes";
 
 /**
- * ChloeGraph - A state graph implementation for Chloe's planning and execution system.
+ * LangGraph - A state graph implementation for Chloe's planning and execution system.
  * This provides a more structured way to organize the planning workflow, 
  * with clear state transitions and node functionality.
  */
-export interface ChloeGraphOptions {
+export interface LangGraphOptions {
   model: ChatOpenAI;
-  memory: ChloeMemory;
+  memory: AgentMemory;
   taskLogger: TaskLogger;
   tools?: Record<string, any>;
   dryRun?: boolean;
 }
 
-export class ChloeGraph {
+export class LangGraph {
   // Core components
   private model: ChatOpenAI;
-  private memory: ChloeMemory;
+  private memory: AgentMemory;
   private taskLogger: TaskLogger;
   
   // The state graph that defines the planning workflow
@@ -56,9 +57,9 @@ export class ChloeGraph {
   private logsDir: string;
   
   /**
-   * Create a new ChloeGraph instance
+   * Create a new LangGraph instance
    */
-  constructor(options: ChloeGraphOptions) {
+  constructor(options: LangGraphOptions) {
     this.model = options.model;
     this.memory = options.memory;
     this.taskLogger = options.taskLogger;
@@ -67,7 +68,7 @@ export class ChloeGraph {
     this.logsDir = path.join(process.cwd(), 'logs', 'executions');
     
     if (this.dryRun) {
-      this.taskLogger.logAction('ChloeGraph initialized in DRY RUN mode');
+      this.taskLogger.logAction('LangGraph initialized in DRY RUN mode');
     }
     
     // Build the planning graph
@@ -305,10 +306,10 @@ export class ChloeGraph {
 }
 
 /**
- * Helper function to create a new ChloeGraph instance
+ * Helper function to create a new LangGraph instance
  */
-export function createChloeGraph(options: ChloeGraphOptions): ChloeGraph {
-  return new ChloeGraph(options);
+export function createLangGraph(options: LangGraphOptions): LangGraph {
+  return new LangGraph(options);
 }
 
 // Re-export types from nodes

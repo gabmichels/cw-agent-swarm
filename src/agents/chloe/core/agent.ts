@@ -1,21 +1,34 @@
 /**
- * Simplified ChloeAgent - Core implementation for Chloe marketing agent
- * Implements the agent using the enhanced AgentBase with manager support
+ * agent.ts - Core agent implementation
+ * 
+ * This file provides the core agent implementation that can be used
+ * by any agent in the system.
  */
 
+import { AbstractAgentBase } from '../../shared/base/AgentBase';
+import { AgentBaseConfig } from '../../shared/base/types';
+import { BaseManager } from '../../shared/base/managers/BaseManager';
+import { ManagerAdapter } from '../../shared/base/managers/ManagerAdapter';
 import { ChatOpenAI } from '@langchain/openai';
-import { AgentBase, AgentBaseConfig, AgentCapabilityLevel } from '../../shared/base/AgentBase';
-import { TaskLogger } from '../task-logger';
-import { ManagerConfig } from '../../shared/base/managers/BaseManager';
+import { TaskLogger } from './taskLogger';
+import { IAgentMemory } from '../../shared/memory/types';
+import { IManager } from '../../../lib/shared/types/agentTypes';
 
-// Define default system prompt
-const DEFAULT_SYSTEM_PROMPT = "You are Chloe, CMO of Crowd Wisdom. You provide marketing expertise and strategy.";
+// Local manager implementations
+import { PlanningManager as LocalPlanningManager, PlanWithSteps } from './planningManager';
+import { MemoryManager as LocalMemoryManager } from './memoryManager';
+import { ToolManager as LocalToolManager } from './toolManager';
+
+const DEFAULT_SYSTEM_PROMPT = "You are an AI agent. You provide expertise and assistance.";
 
 /**
- * Options for creating a Chloe agent
+ * Options for creating an agent
  */
-export interface ChloeAgentOptions {
-  config?: Partial<AgentBaseConfig & { department?: string }>;
+export interface AgentOptions {
+  systemPrompt?: string;
+  memory?: IAgentMemory;
+  taskLogger?: TaskLogger;
+  config?: Partial<AgentBaseConfig>;
 }
 
 /**
@@ -25,7 +38,7 @@ export interface PlanAndExecuteResult {
   success: boolean;
   message?: string;
   error?: string;
-  plan?: any;
+  plan?: PlanWithSteps;
 }
 
 /**
@@ -36,230 +49,142 @@ export interface PlanAndExecuteOptions {
 }
 
 /**
- * Reflection manager interface
+ * Core agent implementation
  */
-export interface ReflectionManager {
-  createReflection(topic: string): Promise<string>;
-  getReflections(limit?: number): Promise<any[]>;
-  runEnhancedWeeklyReflection(): Promise<string>;
-  runWeeklyReflection(): Promise<string>;
-}
-
-/**
- * Planning manager interface
- */
-export interface PlanningManager {
-  createPlan(goal: string, options?: any): Promise<any>;
-  executePlan(plan: any): Promise<any>;
-  getStats(): Promise<any>;
-}
-
-/**
- * Knowledge gaps manager interface
- */
-export interface KnowledgeGapsManager {
-  identifyGaps(): Promise<string[]>;
-  fillGap(gap: string): Promise<boolean>;
-  getStats(): Promise<any>;
-}
-
-/**
- * Tool manager interface
- */
-export interface ToolManager {
-  getAvailableTools(): string[];
-  executeTool(toolName: string, params: any): Promise<any>;
-  getToolUsageStats(): Promise<any>;
-}
-
-/**
- * Scheduler interface
- */
-export interface Scheduler {
-  getScheduledTasks(): any[];
-  runTaskNow(taskId: string): Promise<boolean>;
-  setTaskEnabled(taskId: string, enabled: boolean): Promise<boolean>;
-}
-
-/**
- * Autonomy system interface
- */
-export interface AutonomySystem {
-  scheduler: Scheduler;
-  getScheduledTasks(): any[];
-  runTask(taskId: string): Promise<any>;
-  toggleTask(taskId: string, enabled: boolean): Promise<boolean>;
-}
-
-/**
- * Simplified ChloeAgent that extends AgentBase
- */
-export class ChloeAgent extends AgentBase {
+export class Agent extends AbstractAgentBase {
+  private planningManager: LocalPlanningManager;
+  private memoryManager: LocalMemoryManager;
+  private toolManager: LocalToolManager;
   private taskLogger: TaskLogger;
-  private department: string;
-  
+  private model: ChatOpenAI;
+
   /**
-   * Create a new Chloe agent
+   * Create a new agent
    */
-  constructor(options: ChloeAgentOptions = {}) {
-    // Base configuration
-    const chloeConfig: AgentBaseConfig = {
-      agentId: 'chloe',
-      name: 'Chloe',
-      description: 'CMO of Crowd Wisdom focused on marketing strategy',
-      systemPrompt: DEFAULT_SYSTEM_PROMPT,
-      model: process.env.OPENAI_MODEL_NAME || 'gpt-4o',
-      temperature: 0.7,
-      maxTokens: 4000,
-      capabilities: {
-        skills: {}, // Will be populated
-        domains: ['marketing', 'growth', 'strategy'],
-        roles: ['cmo', 'advisor', 'strategist']
-      },
-      managers: {
-        // Enable specific managers with Chloe's configuration
-        memory: {
-          enabled: true,
-          // Memory manager specific config
-          enableAutoPruning: true,
-          pruningIntervalMs: 300000, // 5 minutes
-          maxShortTermEntries: 100,
-          relevanceThreshold: 0.2,
-          enableAutoConsolidation: true
-        },
-        planning: {
-          enabled: true,
-          // Planning manager specific config
-        },
-        scheduler: {
-          enabled: true,
-          // Scheduler manager specific config
-        },
-        knowledge: {
-          enabled: true,
-          // Knowledge manager specific config
-        },
-        reflection: {
-          enabled: true,
-          // Reflection manager specific config
-        },
-        tools: {
-          enabled: true,
-          // Tools manager specific config
-        }
-      }
-    };
+  constructor(config: AgentBaseConfig) {
+    super(config);
     
-    // Initialize base agent
-    super({
-      config: chloeConfig,
-      capabilityLevel: AgentCapabilityLevel.ADVANCED,
-      toolPermissions: [
-        'web_search', 'document_creation', 'social_media_analysis'
-      ]
+    // Initialize core components
+    this.taskLogger = new TaskLogger();
+    this.model = new ChatOpenAI({
+      modelName: 'gpt-4',
+      temperature: 0.7
     });
     
-    // Initialize basic properties
-    this.department = options.config?.department || 'marketing';
-    this.taskLogger = new TaskLogger();
+    // Initialize managers in dependency order
+    this.memoryManager = new LocalMemoryManager({
+      agentId: this.getAgentId(),
+      logger: this.taskLogger
+    });
+    
+    this.toolManager = new LocalToolManager({
+      agentId: this.getAgentId(),
+      logger: this.taskLogger,
+      model: this.model,
+      memory: this.memoryManager.getChloeMemory()!
+    });
+    
+    this.planningManager = new LocalPlanningManager({
+      agentId: this.getAgentId(),
+      memory: this.memoryManager.getChloeMemory()!,
+      model: this.model,
+      taskLogger: this.taskLogger
+    });
+    
+    // Register managers with adapters
+    this.registerManager(new ManagerAdapter(this.memoryManager, this, 'memory'));
+    this.registerManager(new ManagerAdapter(this.toolManager, this, 'tools'));
+    this.registerManager(new ManagerAdapter(this.planningManager, this, 'planning'));
   }
-  
+
   /**
    * Initialize the agent
    */
   async initialize(): Promise<boolean> {
-    try {
-      // Initialize the base agent
-      const baseInitialized = await super.initialize();
-      if (!baseInitialized) return false;
-      
-      // Initialize the task logger
-      await this.taskLogger.initialize();
-
-      return true;
-    } catch (error) {
-      console.error('Failed to initialize ChloeAgent:', error);
-      return false;
-    }
-  }
-  
-  /**
-   * Get the task logger
-   */
-  getTaskLogger(): TaskLogger {
-    return this.taskLogger;
-  }
-  
-  /**
-   * Get model
-   */
-  getModel(): ChatOpenAI | null {
-    return this.model;
+    console.log(`[${this.getAgentId()}] Initializing agent`);
+    
+    // Initialize all registered managers
+    const managerInitResults = await Promise.all(
+      this.getManagers().map(manager => manager.initialize())
+    );
+    
+    // Check if all managers initialized successfully
+    return managerInitResults.every(result => result === true);
   }
 
   /**
-   * Execute a plan (now using planning manager)
+   * Shutdown the agent
    */
-  async planAndExecute(goal: string, options?: PlanAndExecuteOptions): Promise<PlanAndExecuteResult> {
-    return await super.planAndExecute(goal, options) as PlanAndExecuteResult;
+  async shutdown(): Promise<void> {
+    console.log(`[${this.getAgentId()}] Shutting down agent`);
+    
+    // Shutdown all registered managers
+    await Promise.all(
+      this.getManagers().map(manager => manager.shutdown())
+    );
+  }
+
+  /**
+   * Get the agent's ID
+   */
+  getAgentId(): string {
+    return this.config.id.toString();
   }
   
   /**
-   * Get the Chloe memory (through memory manager)
+   * Get the agent's name
    */
-  getChloeMemory(): any {
-    const memoryManager = this.getManager('memory');
-    return memoryManager;
+  getName(): string {
+    return this.config.name;
+  }
+  
+  /**
+   * Get the agent's configuration
+   */
+  getConfig(): AgentBaseConfig {
+    return this.config;
+  }
+  
+  /**
+   * Update the agent's configuration
+   */
+  updateConfig(config: Partial<AgentBaseConfig>): void {
+    this.config = { ...this.config, ...config };
+  }
+  
+  /**
+   * Get the agent's memory
+   */
+  getMemory(): IAgentMemory | null {
+    return this.memoryManager.getChloeMemory();
   }
   
   /**
    * Notification function
    */
   notify(message: string): void {
-    console.log(`[Chloe Notification] ${message}`);
+    console.log(`[Agent Notification] ${message}`);
   }
 
   /**
-   * Get memory for the agent (for compatibility with methods that expect getMemory)
+   * Get the agent's memory manager
    */
-  getMemory(): any {
-    return this.getChloeMemory();
-  }
-
-  /**
-   * Get the agent's autonomy system (through scheduler manager)
-   */
-  getAutonomySystem(): AutonomySystem | null {
-    const schedulerManager = this.getManager('scheduler');
-    return schedulerManager as unknown as AutonomySystem;
-  }
-
-  /**
-   * Get the agent's reflection manager
-   */
-  getReflectionManager(): ReflectionManager | null {
-    return this.getManager('reflection') as unknown as ReflectionManager;
-  }
-
-  /**
-   * Get the agent's planning manager
-   */
-  getPlanningManager(): PlanningManager | null {
-    return this.getManager('planning') as unknown as PlanningManager;
-  }
-
-  /**
-   * Get the agent's knowledge gaps manager
-   */
-  getKnowledgeGapsManager(): KnowledgeGapsManager | null {
-    return this.getManager('knowledge') as unknown as KnowledgeGapsManager;
+  getMemoryManager(): LocalMemoryManager {
+    return this.memoryManager;
   }
 
   /**
    * Get the agent's tool manager
    */
-  getToolManager(): ToolManager | null {
-    return this.getManager('tools') as unknown as ToolManager;
+  getToolManager(): LocalToolManager {
+    return this.toolManager;
+  }
+
+  /**
+   * Get the agent's planning manager
+   */
+  getPlanningManager(): LocalPlanningManager {
+    return this.planningManager;
   }
 
   /**
@@ -271,7 +196,7 @@ export class ChloeAgent extends AgentBase {
       return await (schedulerManager as any).scheduleTask(task);
     }
     
-    console.log(`[Chloe] Scheduling task: ${JSON.stringify(task)}`);
+    console.log(`[Agent] Scheduling task: ${JSON.stringify(task)}`);
     return true;
   }
 
@@ -284,7 +209,7 @@ export class ChloeAgent extends AgentBase {
       return await (schedulerManager as any).getTasksWithTag(tag);
     }
     
-    console.log(`[Chloe] Getting tasks with tag: ${tag}`);
+    console.log(`[Agent] Getting tasks with tag: ${tag}`);
     return [];
   }
 
@@ -297,7 +222,7 @@ export class ChloeAgent extends AgentBase {
       return await (schedulerManager as any).queueTask(task);
     }
     
-    console.log(`[Chloe] Queuing task: ${JSON.stringify(task)}`);
+    console.log(`[Agent] Queuing task: ${JSON.stringify(task)}`);
     return true;
   }
 
@@ -310,7 +235,7 @@ export class ChloeAgent extends AgentBase {
       return await (schedulerManager as any).runDailyTasks();
     }
     
-    console.log(`[Chloe] Running daily tasks`);
+    console.log(`[Agent] Running daily tasks`);
     return { success: true };
   }
 
@@ -323,7 +248,7 @@ export class ChloeAgent extends AgentBase {
       return await (reflectionManager as any).runWeeklyReflection();
     }
     
-    console.log(`[Chloe] Running weekly reflection`);
+    console.log(`[Agent] Running weekly reflection`);
     return "Weekly reflection completed";
   }
 
@@ -336,7 +261,7 @@ export class ChloeAgent extends AgentBase {
       return await (memoryManager as any).summarizeConversation(options);
     }
     
-    console.log(`[Chloe] Summarizing conversation with max ${options.maxEntries || 'all'} entries`);
+    console.log(`[Agent] Summarizing conversation with max ${options.maxEntries || 'all'} entries`);
     return "Conversation summary placeholder";
   }
   
@@ -345,7 +270,7 @@ export class ChloeAgent extends AgentBase {
    */
   async sendDailySummaryToDiscord(): Promise<boolean> {
     // This could be implemented through a notification manager in the future
-    console.log(`[Chloe] Sending daily summary to Discord`);
+    console.log(`[Agent] Sending daily summary to Discord`);
     return true;
   }
 }

@@ -1,181 +1,190 @@
 /**
  * Planning Manager Interface
  * 
- * This file defines the planning manager interface that provides planning capabilities
+ * This file defines the planning manager interface that provides planning services
  * for agents. It extends the base manager interface with planning-specific functionality.
  */
 
-import type { BaseManager } from '../../../../agents/shared/base/managers/BaseManager';
+import type { BaseManager, ManagerConfig } from '../../../../agents/shared/base/managers/BaseManager';
+import type { AgentBase } from '../../../../agents/shared/base/AgentBase';
 
 /**
  * Configuration options for planning managers
  */
-export interface PlanningManagerConfig {
+export interface PlanningManagerConfig extends ManagerConfig {
   /** Whether this manager is enabled */
   enabled: boolean;
   
-  /** Default planning model to use */
-  defaultModelName?: string;
+  /** Whether to enable automatic goal planning */
+  enableAutoPlanning?: boolean;
   
-  /** Maximum steps in a plan */
-  maxSteps?: number;
+  /** Interval for automatic planning in milliseconds */
+  planningIntervalMs?: number;
   
-  /** Whether to validate plans before execution */
-  validatePlans?: boolean;
+  /** Maximum number of concurrent plans */
+  maxConcurrentPlans?: number;
   
-  /** Whether to allow plan revisions during execution */
-  allowRevisions?: boolean;
+  /** Minimum confidence threshold for plan execution */
+  minConfidenceThreshold?: number;
   
-  /** Default timeout for planning in milliseconds */
-  planningTimeoutMs?: number;
+  /** Whether to enable plan adaptation */
+  enablePlanAdaptation?: boolean;
   
-  /** Whether to use structured planning format */
-  useStructuredFormat?: boolean;
+  /** Maximum number of plan adaptation attempts */
+  maxAdaptationAttempts?: number;
   
-  /** Whether to save plans to memory */
-  savePlansToMemory?: boolean;
+  /** Whether to enable plan validation */
+  enablePlanValidation?: boolean;
+  
+  /** Whether to enable plan optimization */
+  enablePlanOptimization?: boolean;
 }
 
 /**
- * Planning context interface
- */
-export interface PlanningContext {
-  /** Goal or objective of the plan */
-  goal: string;
-  
-  /** Available information */
-  information?: string;
-  
-  /** Constraints to consider */
-  constraints?: string[];
-  
-  /** Criteria for success */
-  successCriteria?: string[];
-  
-  /** Available tools */
-  availableTools?: string[];
-  
-  /** Maximum steps allowed */
-  maxSteps?: number;
-  
-  /** Deadline for completion */
-  deadline?: Date;
-  
-  /** Priority level */
-  priority?: 'low' | 'medium' | 'high' | 'critical';
-  
-  /** Additional context */
-  additionalContext?: Record<string, unknown>;
-}
-
-/**
- * Plan step interface
- */
-export interface PlanStep {
-  /** Step ID */
-  id: string;
-  
-  /** Step number (1-based) */
-  stepNumber: number;
-  
-  /** Step description */
-  description: string;
-  
-  /** Expected outcome */
-  expectedOutcome?: string;
-  
-  /** Tool to use (if any) */
-  tool?: string;
-  
-  /** Tool parameters (if using a tool) */
-  parameters?: Record<string, unknown>;
-  
-  /** Whether this step is complete */
-  complete: boolean;
-  
-  /** Step execution result */
-  result?: {
-    success: boolean;
-    output?: string;
-    error?: string;
-  };
-  
-  /** Estimated duration in seconds */
-  estimatedDurationSec?: number;
-  
-  /** Actual duration in seconds */
-  actualDurationSec?: number;
-  
-  /** Additional step metadata */
-  metadata?: Record<string, unknown>;
-}
-
-/**
- * Plan interface
+ * Plan structure
  */
 export interface Plan {
-  /** Plan ID */
+  /** Unique identifier for this plan */
   id: string;
   
-  /** Creation timestamp */
-  createdAt: Date;
+  /** Plan name */
+  name: string;
   
-  /** Plan context */
-  context: PlanningContext;
+  /** Plan description */
+  description: string;
+  
+  /** Plan goals */
+  goals: string[];
   
   /** Plan steps */
   steps: PlanStep[];
   
-  /** Current step number (1-based) */
-  currentStepNumber: number;
+  /** Plan status */
+  status: 'pending' | 'in_progress' | 'completed' | 'failed' | 'adapted';
   
-  /** Whether the plan is complete */
-  complete: boolean;
+  /** Plan priority (0-1) */
+  priority: number;
   
-  /** Whether the plan succeeded */
-  succeeded?: boolean;
+  /** Plan confidence (0-1) */
+  confidence: number;
   
-  /** Fail reason if plan failed */
-  failReason?: string;
+  /** When this plan was created */
+  createdAt: Date;
   
-  /** Plan start time */
-  startedAt?: Date;
+  /** When this plan was last updated */
+  updatedAt: Date;
   
-  /** Plan completion time */
-  completedAt?: Date;
+  /** Additional metadata */
+  metadata: Record<string, unknown>;
+}
+
+/**
+ * Plan step structure
+ */
+export interface PlanStep {
+  /** Unique identifier for this step */
+  id: string;
   
-  /** Revision history */
-  revisions?: Array<{
-    timestamp: Date;
-    reason: string;
-    previousSteps: PlanStep[];
-  }>;
+  /** Step name */
+  name: string;
   
-  /** Plan execution summary */
-  summary?: string;
+  /** Step description */
+  description: string;
   
-  /** Additional plan metadata */
+  /** Step status */
+  status: 'pending' | 'in_progress' | 'completed' | 'failed';
+  
+  /** Step dependencies */
+  dependencies: string[];
+  
+  /** Step actions */
+  actions: PlanAction[];
+  
+  /** Step priority (0-1) */
+  priority: number;
+  
+  /** When this step was created */
+  createdAt: Date;
+  
+  /** When this step was last updated */
+  updatedAt: Date;
+}
+
+/**
+ * Plan action structure
+ */
+export interface PlanAction {
+  /** Unique identifier for this action */
+  id: string;
+  
+  /** Action name */
+  name: string;
+  
+  /** Action description */
+  description: string;
+  
+  /** Action type */
+  type: string;
+  
+  /** Action parameters */
+  parameters: Record<string, unknown>;
+  
+  /** Action status */
+  status: 'pending' | 'in_progress' | 'completed' | 'failed';
+  
+  /** When this action was created */
+  createdAt: Date;
+  
+  /** When this action was last updated */
+  updatedAt: Date;
+}
+
+/**
+ * Options for plan creation
+ */
+export interface PlanCreationOptions {
+  /** Plan name */
+  name: string;
+  
+  /** Plan description */
+  description: string;
+  
+  /** Plan goals */
+  goals: string[];
+  
+  /** Plan priority (0-1) */
+  priority?: number;
+  
+  /** Additional metadata */
   metadata?: Record<string, unknown>;
 }
 
 /**
- * Plan revision request interface
+ * Result of plan creation
  */
-export interface PlanRevisionRequest {
-  /** Plan ID to revise */
-  planId: string;
+export interface PlanCreationResult {
+  /** Whether the operation was successful */
+  success: boolean;
   
-  /** Reason for revision */
-  reason: string;
+  /** Created plan */
+  plan?: Plan;
   
-  /** Step to revise from (inclusive) */
-  fromStep: number;
+  /** Error message if unsuccessful */
+  error?: string;
+}
+
+/**
+ * Result of plan execution
+ */
+export interface PlanExecutionResult {
+  /** Whether the operation was successful */
+  success: boolean;
   
-  /** Updated context (optional) */
-  updatedContext?: Partial<PlanningContext>;
+  /** Updated plan */
+  plan?: Plan;
   
-  /** New information to consider */
-  newInformation?: string;
+  /** Error message if unsuccessful */
+  error?: string;
 }
 
 /**
@@ -183,45 +192,66 @@ export interface PlanRevisionRequest {
  */
 export interface PlanningManager extends BaseManager {
   /**
-   * Create a plan for the given context
-   * @param context The planning context
-   * @returns Promise resolving to the created plan
+   * Create a new plan
+   * @param options Plan creation options
+   * @returns Promise resolving to the creation result
    */
-  createPlan(context: PlanningContext): Promise<Plan>;
+  createPlan(options: PlanCreationOptions): Promise<PlanCreationResult>;
   
   /**
    * Get a plan by ID
-   * @param planId The plan ID to retrieve
-   * @returns Promise resolving to the plan or null if not found
+   * @param planId Plan ID
+   * @returns Promise resolving to the plan
    */
   getPlan(planId: string): Promise<Plan | null>;
   
   /**
-   * Execute a plan
-   * @param planId The plan ID to execute
-   * @returns Promise resolving to the executed plan
+   * Get all plans
+   * @returns Promise resolving to all plans
    */
-  executePlan(planId: string): Promise<Plan>;
+  getAllPlans(): Promise<Plan[]>;
   
   /**
-   * Execute the next step of a plan
-   * @param planId The plan ID to execute the next step for
+   * Update a plan
+   * @param planId Plan ID
+   * @param updates Plan updates
    * @returns Promise resolving to the updated plan
    */
-  executeNextStep(planId: string): Promise<Plan>;
+  updatePlan(planId: string, updates: Partial<Plan>): Promise<Plan | null>;
   
   /**
-   * Revise a plan
-   * @param revisionRequest The plan revision request
-   * @returns Promise resolving to the revised plan
+   * Delete a plan
+   * @param planId Plan ID
+   * @returns Promise resolving to whether the deletion was successful
    */
-  revisePlan(revisionRequest: PlanRevisionRequest): Promise<Plan>;
+  deletePlan(planId: string): Promise<boolean>;
   
   /**
-   * Abort a plan
-   * @param planId The plan ID to abort
-   * @param reason The reason for aborting
-   * @returns Promise resolving to true if aborted successfully
+   * Execute a plan
+   * @param planId Plan ID
+   * @returns Promise resolving to the execution result
    */
-  abortPlan(planId: string, reason: string): Promise<boolean>;
+  executePlan(planId: string): Promise<PlanExecutionResult>;
+  
+  /**
+   * Adapt a plan
+   * @param planId Plan ID
+   * @param reason Adaptation reason
+   * @returns Promise resolving to the adapted plan
+   */
+  adaptPlan(planId: string, reason: string): Promise<Plan | null>;
+  
+  /**
+   * Validate a plan
+   * @param planId Plan ID
+   * @returns Promise resolving to whether the plan is valid
+   */
+  validatePlan(planId: string): Promise<boolean>;
+  
+  /**
+   * Optimize a plan
+   * @param planId Plan ID
+   * @returns Promise resolving to the optimized plan
+   */
+  optimizePlan(planId: string): Promise<Plan | null>;
 } 

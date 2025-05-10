@@ -1,4 +1,11 @@
 /**
+ * AgentMemory.ts - Core memory system for agents
+ * 
+ * This file provides the core memory system implementation that can be used
+ * by any agent in the system.
+ */
+
+/**
  * Chloe Agent Memory System 
  * 
  * Integrated with the standardized memory system
@@ -51,9 +58,22 @@ import { DocumentSource } from '../../types/metadata';
 import { RerankerService } from './services/reranker';
 // Import PII redaction functionality
 import { redactSensitiveData, RedactionResult, PIIType } from '../../lib/pii/redactor';
-// Add the import at the top of the file, after the other imports
+// Import memory services and types
 import { COLLECTION_CONFIGS as COLLECTIONS } from '../../server/memory/config/collections';
-
+import { MemoryService } from '../../server/memory/services/memory/memory-service';
+import { SearchService } from '../../server/memory/services/search/search-service';
+import { TaskLogger } from './task-logger';
+import { 
+  AddMemoryParams,
+  DeleteMemoryParams,
+  GetMemoryParams,
+  MemoryResult,
+  SearchMemoryParams,
+  UpdateMemoryParams
+} from '../../server/memory/services/memory/types';
+import { BaseMemorySchema, MemoryPoint } from '../../server/memory/models/base-schema';
+import { SearchOptions as SearchServiceOptions, SearchResult } from '../../server/memory/services/search/types';
+                                                                          
 // Define pattern for detecting brand information
 const BRAND_PATTERN = /\b(brand|company|organization)\s+(mission|vision|values|identity|info|information)\b/i;
 
@@ -108,19 +128,43 @@ export interface ChloeMemoryOptions {
 }
 
 /**
- * Class to manage Chloe's memories with tagging and importance levels
+ * Options for creating an agent memory instance
  */
-export class ChloeMemory {
+export interface AgentMemoryOptions {
+  memoryService: MemoryService;
+  searchService: SearchService;
+  taskLogger: TaskLogger;
+  agentId?: string;
+}
+
+interface SearchOptions {
+  limit?: number;
+  filters?: Record<string, any>;
+  sort?: {
+    field: string;
+    direction: 'asc' | 'desc';
+  };
+  types?: MemoryType[];
+}
+
+/**
+ * Core memory system for agents
+ */
+export class AgentMemory {
+  private memoryService: MemoryService;
+  private searchService: SearchService;
+  private taskLogger: TaskLogger;
   private agentId: string;
   private initialized: boolean = false;
   private memoryStore: { entries: MemoryEntry[] } = { entries: [] }; // Add simple local memory store
   private rerankerService: RerankerService | null = null;
-  private memoryService: any;
-  private searchService: any;
   private static lastTimestamp: Date | null = null;
 
-  constructor(options?: ChloeMemoryOptions) {
-    this.agentId = options?.agentId || 'chloe';
+  constructor(options: AgentMemoryOptions) {
+    this.memoryService = options.memoryService;
+    this.searchService = options.searchService;
+    this.taskLogger = options.taskLogger;
+    this.agentId = options.agentId || 'chloe';
     
     // Initialize reranker service
     if (typeof window === 'undefined') {
@@ -207,13 +251,13 @@ export class ChloeMemory {
       
       // Ensure unique timestamp for proper ordering
       const currentTimestamp = new Date();
-      if (ChloeMemory.lastTimestamp && 
-          currentTimestamp.getTime() - ChloeMemory.lastTimestamp.getTime() < 10) {
+      if (AgentMemory.lastTimestamp && 
+          currentTimestamp.getTime() - AgentMemory.lastTimestamp.getTime() < 10) {
         currentTimestamp.setMilliseconds(
           currentTimestamp.getMilliseconds() + 20
         );
       }
-      ChloeMemory.lastTimestamp = currentTimestamp;
+      AgentMemory.lastTimestamp = currentTimestamp;
       
       // Create structured IDs - these will be needed for standardized metadata
       const userId = createUserId("default");
@@ -436,9 +480,9 @@ export class ChloeMemory {
       if (typeof window === 'undefined' && this.memoryService) {
         try {
           // Replace getMemories with search method
-          const results = await this.memoryService.search({
+          const results = await this.memoryService.searchMemories({
             type,
-            metadata: filter,
+            filter: filter,
             limit
           });
           
@@ -559,9 +603,9 @@ export class ChloeMemory {
         };
         
         // Replace getMemories with search method
-        const results = await this.memoryService.search({
+        const results = await this.memoryService.searchMemories({
           type: MemoryType.THOUGHT,
-          metadata: filter,
+          filter: filter,
           limit
         });
         
@@ -677,10 +721,11 @@ export class ChloeMemory {
       // Use server-side memory service
       if (typeof window === 'undefined' && this.searchService) {
         const results = await this.searchService.search('', {
-          metadata: {
+          types: [MemoryType.DOCUMENT],
+          limit: limit,
+          filter: {
             "category": "insight"
-          },
-          limit: limit
+          }
         });
         
         insights = this.convertRecordsToMemoryEntries(
@@ -1984,24 +2029,30 @@ export class ChloeMemory {
       // Get most recently modified memories from standardized system
       if (typeof window === 'undefined' && this.memoryService) {
         // Use StandardMemoryType.DOCUMENT directly
-        const results = await this.memoryService.search({
+        const results = await this.memoryService.searchMemories({
           type: MemoryType.DOCUMENT,
-          sort: {
-            field: "last_modified",
-            direction: "desc"
-          },
           limit
         });
         
         if (results && results.length > 0) {
+          // Sort by last_modified in descending order, fallback to payload.timestamp
+          const sortedResults = results.sort((a, b) => {
+            const aTime = (a.payload.metadata && 'last_modified' in a.payload.metadata && a.payload.metadata.last_modified)
+              ? new Date((a.payload.metadata as Record<string, unknown>).last_modified as string).getTime()
+              : new Date(a.payload.timestamp).getTime();
+            const bTime = (b.payload.metadata && 'last_modified' in b.payload.metadata && b.payload.metadata.last_modified)
+              ? new Date((b.payload.metadata as Record<string, unknown>).last_modified as string).getTime()
+              : new Date(b.payload.timestamp).getTime();
+            return bTime - aTime;
+          });
           // Convert to memory entries
           return this.convertRecordsToMemoryEntries(
-            results.map((mem: any) => ({
+            sortedResults.map(mem => ({
               id: mem.id,
               text: mem.payload.text,
               timestamp: mem.payload.timestamp,
               type: mem.payload.type,
-              metadata: mem.payload.metadata || {}
+              metadata: mem.payload.metadata as unknown as Record<string, unknown> // Double cast to satisfy type checker
             }))
           );
         }
@@ -2090,5 +2141,35 @@ export class ChloeMemory {
       ));
       return null;
     }
+  }
+
+  async search<T extends BaseMemorySchema>(query: string, options: SearchOptions = {}): Promise<SearchResult<T>[]> {
+    const searchOptions: SearchServiceOptions = {
+      limit: options.limit,
+      filter: options.filters,
+      types: options.types,
+      sort: options.sort ? {
+        field: options.sort.field,
+        direction: options.sort.direction
+      } : undefined
+    };
+    return this.searchService.search(query, searchOptions);
+  }
+
+  async searchByType<T extends BaseMemorySchema>(type: MemoryType, query: string, options: SearchOptions = {}): Promise<SearchResult<T>[]> {
+    const searchOptions: SearchServiceOptions = {
+      limit: options.limit,
+      filter: options.filters,
+      types: [type],
+      sort: options.sort ? {
+        field: options.sort.field,
+        direction: options.sort.direction
+      } : undefined
+    };
+    return this.searchService.search(query, searchOptions);
+  }
+
+  async searchMemories<T extends BaseMemorySchema>(params: SearchMemoryParams): Promise<MemoryPoint<T>[]> {
+    return this.memoryService.searchMemories(params);
   }
 }

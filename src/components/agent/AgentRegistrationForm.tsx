@@ -7,6 +7,7 @@ import AgentPersonaForm from './AgentPersonaForm';
 import AgentCapabilityManager from './AgentCapabilityManager';
 import { CapabilityLevel } from '@/agents/shared/capability-system';
 import './wizard.css';
+import { AgentStatus } from '@/server/memory/schema/agent';
 
 // Custom extensions to standard types
 interface ExtendedAgentParameters extends AgentParameters {
@@ -77,7 +78,7 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
   const [formData, setFormData] = useState<ExtendedAgentRegistrationRequest>({
     name: '',
     description: '',
-    status: 'available',
+    status: AgentStatus.AVAILABLE,
     capabilities: [],
     parameters: {
       model: process.env.NEXT_PUBLIC_DEFAULT_MODEL || '',
@@ -415,9 +416,10 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
               onChange={handleChange}
               className="wizard-select"
             >
-              <option value="available">Available</option>
-              <option value="unavailable">Unavailable</option>
-              <option value="maintenance">Maintenance</option>
+              <option value={AgentStatus.AVAILABLE}>Available</option>
+              <option value={AgentStatus.BUSY}>Busy</option>
+              <option value={AgentStatus.MAINTENANCE}>Maintenance</option>
+              <option value={AgentStatus.OFFLINE}>Offline</option>
             </select>
           </div>
         </div>

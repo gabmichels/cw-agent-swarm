@@ -15,6 +15,7 @@ import { AgentMonitor } from '../monitoring/AgentMonitor';
 import { AgentHealthChecker } from './AgentHealthChecker';
 import { CapabilityRegistry, CapabilityType, CapabilityLevel, Capability } from './CapabilityRegistry';
 import * as crypto from 'crypto';
+import { AgentStatus, AgentCapability } from '../../../server/memory/schema/agent';
 
 // Agent registry entry
 export interface RegisteredAgent {
@@ -131,7 +132,7 @@ export class AgentCoordinator {
    */
   registerAgent(
     agent: AgentBase, 
-    capabilities: string[], 
+    capabilities: AgentCapability[], 
     domain: string, 
     quota: number = 5,
     options?: {
@@ -151,7 +152,7 @@ export class AgentCoordinator {
       capabilities,
       domain,
       reliability: 1.0, // Start with perfect reliability
-      status: 'available',
+      status: AgentStatus.AVAILABLE,
       lastActive: new Date()
     });
     
@@ -167,8 +168,8 @@ export class AgentCoordinator {
       
       capabilities.forEach(cap => {
         // Use provided level or default to STANDARD
-        capabilityLevels[cap] = (options?.capabilityLevels && options.capabilityLevels[cap]) 
-          ? options.capabilityLevels[cap] 
+        capabilityLevels[cap.id] = (options?.capabilityLevels && options.capabilityLevels[cap.id]) 
+          ? options.capabilityLevels[cap.id] 
           : CapabilityLevel.INTERMEDIATE;
       });
       
@@ -183,7 +184,7 @@ export class AgentCoordinator {
       );
     }
     
-    console.log(`Registered agent ${agentId} with capabilities: ${capabilities.join(', ')} and quota: ${quota}`);
+    console.log(`Registered agent ${agentId} with capabilities: ${capabilities.map(c => c.id).join(', ')} and quota: ${quota}`);
   }
   
   /**
