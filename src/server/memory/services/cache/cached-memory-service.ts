@@ -12,7 +12,7 @@ import { MemoryType } from '../../config';
 /**
  * Configuration for cached memory service
  */
-export interface CachedMemoryServiceConfig {
+interface CachedMemoryServiceConfig {
   /**
    * Cache TTL for each memory type in milliseconds
    * Default TTL is used if not specified for a type
@@ -63,7 +63,12 @@ export class CachedMemoryService {
   ) {
     this.memoryService = memoryService;
     this.cache = cache;
-    this.config = { ...DEFAULT_CONFIG, ...config };
+    this.config = {
+      defaultTtl: 300000, // 5 minutes
+      enableLogging: false,
+      cacheTtl: {},
+      ...config
+    };
     
     this.log('CachedMemoryService initialized with EnhancedMemoryService');
   }
@@ -79,7 +84,6 @@ export class CachedMemoryService {
   ): Promise<MemoryPoint<T> | null> {
     const cacheKey = this.getMemoryCacheKey(params.id, params.type);
     
-    // Try to get from cache first
     try {
       const cachedItem = await this.cache.get<MemoryPoint<T>>(cacheKey);
       if (cachedItem) {
@@ -88,33 +92,34 @@ export class CachedMemoryService {
       }
     } catch (error) {
       this.log(`Error retrieving from cache: ${error instanceof Error ? error.message : String(error)}`);
-      // Continue to fetch from service if cache fails
     }
     
-    // Not in cache, get from service
     this.log(`Cache miss for memory: ${params.id} (${params.type})`);
     const memory = await this.memoryService.getMemory<T>(params);
     
-    // If found, store in cache
     if (memory) {
       try {
         const ttl = this.getTtlForMemoryType(params.type);
         const priority = this.getPriorityForMemoryType(params.type);
+        const tags = [
+          `memory:${params.id}`,
+          `type:${params.type}`,
+          'memory'
+        ];
+        
+        if (params.collection) {
+          tags.push(`collection:${params.collection}`);
+        }
         
         await this.cache.set(cacheKey, memory, {
           ttl,
           priority,
-          tags: [
-            `memory:${params.id}`,
-            `type:${params.type}`,
-            'memory'
-          ]
+          tags
         });
         
         this.log(`Cached memory: ${params.id} (${params.type}) for ${ttl}ms`);
       } catch (error) {
         this.log(`Error caching memory: ${error instanceof Error ? error.message : String(error)}`);
-        // Continue even if we can't cache
       }
     }
     
@@ -177,21 +182,54 @@ export class CachedMemoryService {
   async updateMemory<T extends BaseMemorySchema>(
     params: UpdateMemoryParams<T>
   ): Promise<boolean> {
-    // Update in memory service
     const success = await this.memoryService.updateMemory<T>(params);
     
     if (success) {
-      // Invalidate cache
       try {
-        const cacheKey = this.getMemoryCacheKey(params.id, params.type);
-        await this.cache.delete(cacheKey);
+        // Invalidate by memory ID and type
+        const memoryTags = [
+          `memory:${params.id}`,
+          `type:${params.type}`,
+          'memory'
+        ];
+        
+        if (params.collection) {
+          memoryTags.push(`collection:${params.collection}`);
+        }
+        
+        // Also invalidate any related memories if specified
+        if (params.relatedMemoryIds?.length) {
+          memoryTags.push(...params.relatedMemoryIds.map(id => `memory:${id}`));
+        }
+        
+        for (const tag of memoryTags) {
+          await this.cache.invalidateByTag(tag);
+        }
+        
         this.log(`Invalidated cache for updated memory: ${params.id} (${params.type})`);
         
-        // Optionally, we could refresh the cache here by fetching and storing the updated item
-        // But for now, we'll just invalidate and let it be fetched on next get
+        // Optionally refresh the cache with updated memory
+        const updatedMemory = await this.memoryService.getMemory<T>({
+          id: params.id,
+          type: params.type,
+          collection: params.collection
+        });
+        
+        if (updatedMemory) {
+          const cacheKey = this.getMemoryCacheKey(params.id, params.type);
+          const ttl = this.getTtlForMemoryType(params.type);
+          const priority = this.getPriorityForMemoryType(params.type);
+          
+          await this.cache.set(cacheKey, updatedMemory, {
+            ttl,
+            priority,
+            tags: memoryTags
+          });
+          
+          this.log(`Refreshed cache for updated memory: ${params.id} (${params.type})`);
+        }
       } catch (error) {
-        this.log(`Error invalidating cache: ${error instanceof Error ? error.message : String(error)}`);
-        // Continue even if we can't invalidate cache
+        this.log(`Error handling cache for update: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
     
@@ -205,18 +243,33 @@ export class CachedMemoryService {
    * @returns Success status
    */
   async deleteMemory(params: DeleteMemoryParams): Promise<boolean> {
-    // Delete from memory service
     const success = await this.memoryService.deleteMemory(params);
     
     if (success) {
-      // Invalidate cache
       try {
-        const cacheKey = this.getMemoryCacheKey(params.id, params.type);
-        await this.cache.delete(cacheKey);
+        // Invalidate by memory ID and type
+        const memoryTags = [
+          `memory:${params.id}`,
+          `type:${params.type}`,
+          'memory'
+        ];
+        
+        if (params.collection) {
+          memoryTags.push(`collection:${params.collection}`);
+        }
+        
+        // Also invalidate any related memories if specified
+        if (params.relatedMemoryIds?.length) {
+          memoryTags.push(...params.relatedMemoryIds.map(id => `memory:${id}`));
+        }
+        
+        for (const tag of memoryTags) {
+          await this.cache.invalidateByTag(tag);
+        }
+        
         this.log(`Invalidated cache for deleted memory: ${params.id} (${params.type})`);
       } catch (error) {
-        this.log(`Error invalidating cache: ${error instanceof Error ? error.message : String(error)}`);
-        // Continue even if we can't invalidate cache
+        this.log(`Error handling cache for delete: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
     
@@ -232,9 +285,32 @@ export class CachedMemoryService {
   async searchMemories<T extends BaseMemorySchema>(
     params: SearchMemoryParams
   ): Promise<MemoryPoint<T>[]> {
-    // Search queries are not cached due to their dynamic nature
-    // Always pass through to the underlying service
-    return this.memoryService.searchMemories<T>(params);
+    // For search operations, we don't cache results directly
+    // Instead, we rely on individual memory caching
+    const results = await this.memoryService.searchMemories<T>(params);
+    
+    // Cache individual memories from search results
+    for (const memory of results) {
+      try {
+        const cacheKey = this.getMemoryCacheKey(memory.id, memory.payload.type);
+        const ttl = this.getTtlForMemoryType(memory.payload.type);
+        const priority = this.getPriorityForMemoryType(memory.payload.type);
+        
+        await this.cache.set(cacheKey, memory, {
+          ttl,
+          priority,
+          tags: [
+            `memory:${memory.id}`,
+            `type:${memory.payload.type}`,
+            'memory'
+          ]
+        });
+      } catch (error) {
+        this.log(`Error caching search result: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+    
+    return results;
   }
   
   /**

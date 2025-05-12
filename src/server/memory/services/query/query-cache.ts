@@ -116,92 +116,85 @@ export class QueryCache {
   
   /**
    * Get cached query results
-   * @param params Query parameters
+   * @param key Cache key
    * @returns Cached results or undefined if not found
    */
-  async getCachedResults<T extends BaseMemorySchema>(
-    params: QueryParams
-  ): Promise<QueryResponse<T> | undefined> {
-    const cacheKey = this.getCacheKey(params);
-    const collectionCache = this.queryEntries.get(params.collection);
-    
-    if (!collectionCache) {
-      return undefined;
-    }
-    
-    const entry = collectionCache.get(cacheKey);
+  async get<T extends BaseMemorySchema>(key: string): Promise<QueryResponse<T> | undefined> {
+    const entry = await this.cache.get<QueryCacheEntry<T>>(key);
     if (!entry) {
       return undefined;
     }
-    
+
     // Check if entry has expired
     if (Date.now() > entry.expiresAt) {
-      collectionCache.delete(cacheKey);
+      await this.cache.delete(key);
       return undefined;
     }
-    
+
     // If partial results are enabled, check if we can use them
     if (this.config.enablePartialResults && entry.isPartial) {
-      const fullResults = await this.getFullResults<T>(params);
+      const fullResults = await this.getFullResults<T>(entry.params);
       if (fullResults) {
         // Update cache with full results
-        await this.cacheResults(params, fullResults, false);
+        await this.set(key, fullResults, entry.params);
         return fullResults;
       }
     }
-    
-    return entry.results as QueryResponse<T>;
+
+    // Always return the full QueryResponse object
+    return entry.results;
   }
   
   /**
-   * Cache query results
-   * @param params Query parameters
+   * Set cached query results
+   * @param key Cache key
    * @param results Query results to cache
-   * @param isPartial Whether these are partial results
+   * @param params Original query parameters
+   * @param ttl Optional TTL in seconds
    */
-  async cacheResults<T extends BaseMemorySchema>(
-    params: QueryParams,
+  async set<T extends BaseMemorySchema>(
+    key: string,
     results: QueryResponse<T>,
-    isPartial: boolean = false
+    params: QueryParams,
+    ttl?: number
   ): Promise<void> {
-    const cacheKey = this.getCacheKey(params);
-    const ttl = this.getTtlForQuery(params);
+    const cacheTtl = ttl || this.getTtlForQuery(params);
     
     // Create cache entry
     const entry: QueryCacheEntry<T> = {
       results,
       createdAt: Date.now(),
-      expiresAt: Date.now() + ttl,
+      expiresAt: Date.now() + (cacheTtl * 1000),
       tags: this.getTagsForQuery(params),
       params,
-      isPartial
+      isPartial: false
     };
-    
+
     // Get or create collection cache
     let collectionCache = this.queryEntries.get(params.collection);
     if (!collectionCache) {
       collectionCache = new Map();
       this.queryEntries.set(params.collection, collectionCache);
     }
-    
+
     // Store in collection cache
-    collectionCache.set(cacheKey, entry);
-    
+    collectionCache.set(key, entry);
+
     // Store in main cache
-    await this.cache.set(cacheKey, entry, {
-      ttl,
+    await this.cache.set(key, entry, {
+      ttl: cacheTtl * 1000,
       priority: CachePriority.MEDIUM,
       tags: Array.from(entry.tags)
     });
-    
+
     // Enforce collection cache size limit
     if (collectionCache.size > this.config.maxQueriesPerCollection) {
       const oldestKey = Array.from(collectionCache.entries())
         .sort((a, b) => a[1].createdAt - b[1].createdAt)[0][0];
       collectionCache.delete(oldestKey);
     }
-    
-    this.log(`Cached ${isPartial ? 'partial' : 'full'} results for query: ${params.query}`);
+
+    this.log(`Cached results for query: ${params.query}`);
   }
   
   /**
@@ -333,5 +326,14 @@ export class QueryCache {
     if (this.config.enableLogging) {
       console.log(`[QueryCache] ${message}`);
     }
+  }
+
+  /**
+   * Generate a cache key for query parameters
+   * @param params Query parameters
+   * @returns Cache key
+   */
+  generateKey(params: QueryParams): string {
+    return this.getCacheKey(params);
   }
 } 

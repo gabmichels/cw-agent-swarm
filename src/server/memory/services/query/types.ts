@@ -8,6 +8,7 @@
 import { StructuredId } from '../../../../utils/ulid';
 import { FilterCondition } from '../filters/types';
 import { MemoryType } from '../../config';
+import { BaseMemorySchema } from '../../models/base-schema';
 
 /**
  * Query parameters for optimized memory retrieval
@@ -176,7 +177,7 @@ export interface IQueryOptimizer {
    * @param strategy Optional optimization strategy to use
    * @returns Query response with results
    */
-  query<T = Record<string, unknown>>(
+  query<T extends BaseMemorySchema = BaseMemorySchema>(
     params: QueryParams,
     strategy?: QueryOptimizationStrategy
   ): Promise<QueryResponse<T>>;
@@ -222,4 +223,16 @@ export enum QueryErrorCode {
   EMBEDDING_FAILED = 'QUERY_EMBEDDING_FAILED',
   FILTER_ERROR = 'QUERY_FILTER_ERROR',
   OPTIMIZATION_FAILED = 'QUERY_OPTIMIZATION_FAILED'
+}
+
+/**
+ * Search results from vector database
+ */
+export interface SearchResults {
+  matches: Array<{
+    id: string;
+    score: number;
+    payload: Record<string, unknown>;
+  }>;
+  totalCount: number;
 } 

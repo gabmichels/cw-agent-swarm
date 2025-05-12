@@ -11,6 +11,7 @@ import { Result } from '../../../../lib/errors/base';
 import { FilterOperator } from '../filters/types';
 import { BaseMemoryEntity, Schema } from '../../schema/types';
 import { StructuredId } from '../../../../utils/ulid';
+import { SearchResults } from '../query/types';
 
 /**
  * Filter condition for a field
@@ -390,6 +391,17 @@ export interface IVectorDatabaseClient {
   
   /**
    * Search points by vector similarity
+   */
+  search(
+    collectionName: string,
+    vector: number[],
+    limit: number,
+    filter?: Record<string, unknown>,
+    scoreThreshold?: number
+  ): Promise<SearchResults>;
+  
+  /**
+   * Search points by vector similarity (legacy method)
    */
   searchPoints(
     collectionName: string,

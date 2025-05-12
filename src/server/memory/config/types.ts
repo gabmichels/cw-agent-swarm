@@ -194,4 +194,24 @@ export enum ExtendedMemorySource {
   WEB = 'web',
   EXTERNAL = 'external',
   FILE = 'file'
-} 
+}
+
+/**
+ * Source categorization for memory entries
+ */
+export enum MemorySourceType {
+  USER = 'user',
+  AGENT = 'agent',
+  SYSTEM = 'system',
+  TOOL = 'tool',
+  INTEGRATION = 'integration',
+  EXTERNAL = 'external',
+  INFERENCE = 'inference',
+  ANALYSIS = 'analysis',
+  REFLECTION = 'reflection',
+  OTHER = 'other',
+  FILE = "FILE"
+}
+
+// Backward compatibility alias
+export { MemorySourceType as MemorySource }; 

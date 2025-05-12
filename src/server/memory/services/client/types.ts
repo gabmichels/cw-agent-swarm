@@ -55,6 +55,9 @@ export interface SearchQuery {
   
   // Score threshold (0-1)
   scoreThreshold?: number;
+
+  // Whether to include deleted points in results
+  includeDeleted?: boolean;
 }
 
 /**

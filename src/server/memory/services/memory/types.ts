@@ -39,6 +39,9 @@ export interface GetMemoryParams {
   
   // Whether to include vector in response
   includeVector?: boolean;
+
+  // Optional collection name
+  collection?: string;
 }
 
 /**
@@ -62,6 +65,12 @@ export interface UpdateMemoryParams<T extends BaseMemorySchema> {
   
   // Whether to preserve existing embedding
   preserveEmbedding?: boolean;
+
+  // Optional collection name
+  collection?: string;
+
+  // Optional related memory IDs for cache invalidation
+  relatedMemoryIds?: string[];
 }
 
 /**
@@ -76,6 +85,12 @@ export interface DeleteMemoryParams {
   
   // Whether to perform hard deletion
   hardDelete?: boolean;
+
+  // Optional collection name
+  collection?: string;
+
+  // Optional related memory IDs for cache invalidation
+  relatedMemoryIds?: string[];
 }
 
 /**

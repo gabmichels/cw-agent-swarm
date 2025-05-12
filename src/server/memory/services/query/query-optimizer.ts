@@ -5,7 +5,7 @@
  */
 
 import { AppError } from '../../../../lib/errors/base';
-import { StructuredId } from '../../../../utils/ulid';
+import { StructuredId, IdGenerator } from '../../../../utils/ulid';
 import { QdrantFilterBuilder } from '../filters/filter-builder';
 import { FilterCondition } from '../filters/types';
 import { IVectorDatabaseClient } from '../base/types';
@@ -16,25 +16,14 @@ import {
   QueryOptimizerConfig, 
   QueryParams, 
   QueryResponse,
-  QueryResultItem
+  QueryResultItem,
+  SearchResults
 } from './types';
 import { QueryCache } from './query-cache';
 import { CacheManager } from '../cache/types';
 import { BaseMemorySchema } from '../../models/base-schema';
-import { QdrantFilter } from '../filters/types';
+import { QdrantFilter, FilterConditions, CompositeFilter } from '../filters/types';
 import { QueryPerformanceMonitor } from './query-performance';
-
-/**
- * Search results interface for vector database
- */
-interface SearchResults {
-  matches: Array<{
-    id: string;
-    score: number;
-    payload: Record<string, unknown>;
-  }>;
-  totalCount: number;
-}
 
 /**
  * Default configuration for the query optimizer
@@ -73,8 +62,8 @@ export class QueryOptimizer implements IQueryOptimizer {
    * @param config Configuration options
    */
   constructor(
-    private readonly vectorDb: any, // TODO: Add proper type
-    private readonly filterBuilder: any, // TODO: Add proper type
+    private readonly vectorDb: IVectorDatabaseClient,
+    private readonly filterBuilder: QdrantFilterBuilder,
     private readonly embeddingService: { embedText(text: string): Promise<number[]> },
     private readonly cacheManager: CacheManager,
     private readonly config: QueryOptimizerConfig = DEFAULT_CONFIG
@@ -99,75 +88,53 @@ export class QueryOptimizer implements IQueryOptimizer {
    * @param strategy Optional optimization strategy
    * @returns Query response
    */
-  async query<T = Record<string, unknown>>(
-    params: QueryParams,
-    strategy?: QueryOptimizationStrategy
-  ): Promise<QueryResponse<T>> {
+  public async query<T extends BaseMemorySchema = BaseMemorySchema>(params: QueryParams, strategy: QueryOptimizationStrategy = this.config.defaultStrategy): Promise<QueryResponse<T>> {
     const startTime = Date.now();
-    const mergedParams = this.mergeQueryDefaults(params);
-    const selectedStrategy = strategy || this.determineStrategy(params.query);
-    
+    const cacheKey = this.queryCache.generateKey(params);
+
     try {
-      // Check cache first
-      const cachedResults = await this.queryCache.getCachedResults<BaseMemorySchema>(mergedParams);
-      if (cachedResults) {
-        const endTime = Date.now();
-        this.performanceMonitor.recordMetrics(mergedParams, cachedResults, {
-          executionTimeMs: endTime - startTime,
-          cacheStatus: 'hit',
-          resultCount: cachedResults.results.length,
-          strategy: selectedStrategy,
-          memoryUsageBytes: this.estimateMemoryUsage(cachedResults)
-        });
-        
-        return cachedResults as unknown as QueryResponse<T>;
+      // Check cache first if enabled
+      if (this.config.enableCaching) {
+        const cachedResults = await this.queryCache.get<T>(cacheKey);
+        if (cachedResults) {
+          // If cachedResults is an array, wrap it in a QueryResponse object
+          if (Array.isArray(cachedResults)) {
+            return {
+              results: cachedResults,
+              totalMatches: cachedResults.length,
+              truncated: false,
+              executionTimeMs: 0
+            };
+          }
+          return cachedResults;
+        }
       }
-      
-      // Execute query with performance monitoring
-      const results = await this.executeQueryWithStrategy<T>(mergedParams, selectedStrategy);
-      const endTime = Date.now();
-      
-      // Record performance metrics
-      this.performanceMonitor.recordMetrics(mergedParams, results, {
-        executionTimeMs: endTime - startTime,
-        cacheStatus: 'miss',
-        resultCount: results.results.length,
-        strategy: selectedStrategy,
-        memoryUsageBytes: this.estimateMemoryUsage(results)
-      });
-      
-      // Cache results
-      await this.queryCache.cacheResults(mergedParams, results as unknown as QueryResponse<BaseMemorySchema>);
-      
-      // Analyze performance and suggest optimizations
-      const analysis = this.performanceMonitor.analyzeQuery(mergedParams);
-      if (analysis.bottlenecks.length > 0) {
-        console.warn('[QueryOptimizer] Performance bottlenecks detected:', {
-          query: mergedParams.query,
-          bottlenecks: analysis.bottlenecks,
-          suggestions: analysis.suggestions
-        });
+
+      // Execute query with strategy
+      const results = await this.executeQueryWithStrategy<T>(params, strategy);
+
+      // Cache results if enabled
+      if (this.config.enableCaching) {
+        await this.queryCache.set(cacheKey, results, params);
       }
-      
       return results;
     } catch (error) {
-      const endTime = Date.now();
-      
-      // Record error metrics
-      this.performanceMonitor.recordMetrics(mergedParams, {
-        results: [],
-        totalMatches: 0,
-        truncated: false,
-        executionTimeMs: endTime - startTime
-      }, {
-        executionTimeMs: endTime - startTime,
-        cacheStatus: 'miss',
-        resultCount: 0,
-        strategy: selectedStrategy,
-        memoryUsageBytes: 0
-      });
-      
-      throw error;
+      // Preserve timeout errors
+      if (error instanceof AppError && error.code === QueryErrorCode.EXECUTION_TIMEOUT) {
+        throw error;
+      }
+      // Pass through known AppErrors
+      if (error instanceof AppError) {
+        if (error.code === QueryErrorCode.FILTER_ERROR) {
+          throw error;
+        }
+      }
+      // Handle optimization errors
+      if (error instanceof Error && error.message.includes('DB error')) {
+        throw new AppError(QueryErrorCode.OPTIMIZATION_FAILED, 'QUERY_OPTIMIZATION_FAILED');
+      }
+      // Wrap other errors
+      throw new AppError(QueryErrorCode.OPTIMIZATION_FAILED, `Query execution failed: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
   
@@ -177,64 +144,73 @@ export class QueryOptimizer implements IQueryOptimizer {
    * @param strategy Optimization strategy
    * @returns Query response
    */
-  private async executeQueryWithStrategy<T>(
-    params: QueryParams,
-    strategy: QueryOptimizationStrategy
-  ): Promise<QueryResponse<T>> {
+  private async executeQueryWithStrategy<T extends BaseMemorySchema>(params: QueryParams, strategy: QueryOptimizationStrategy): Promise<QueryResponse<T>> {
     const startTime = Date.now();
-    
+    let timeoutHandle: NodeJS.Timeout | undefined;
+    let timedOut = false;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutHandle = setTimeout(() => {
+        timedOut = true;
+        reject(new AppError(
+          `TIMEOUT_ERROR: Query execution timed out after ${this.config.timeoutMs}ms`,
+          QueryErrorCode.EXECUTION_TIMEOUT
+        ));
+      }, this.config.timeoutMs);
+    });
+
     try {
       // Generate embeddings
       const embeddings = await this.embeddingService.embedText(params.query);
       
-      // Build filters
-      const filters = this.filterBuilder.buildFilters(params.filters);
+      // Build filters with proper typing
+      let vectorDbFilter: Record<string, unknown>;
+      if (params.filters) {
+        const qdrantFilter = this.filterBuilder.build(params.filters as FilterConditions<T> | CompositeFilter<T>);
+        // Convert QdrantFilter to Record<string, unknown> safely
+        vectorDbFilter = JSON.parse(JSON.stringify(qdrantFilter)) as Record<string, unknown>;
+      } else {
+        vectorDbFilter = {};
+      }
       
       // Apply optimization strategy
       const optimizedParams = this.applyOptimizationStrategy(
         params,
         embeddings,
-        filters,
+        vectorDbFilter as QdrantFilter | undefined,
         strategy
       );
       
-      // Execute query
-      const searchResults = await this.vectorDb.search(
+      // Execute query with timeout protection
+      const searchPromise = this.vectorDb.search(
         params.collection,
         embeddings,
         optimizedParams.limit,
-        filters,
+        (optimizedParams.filter as Record<string, unknown>) || {},
         optimizedParams.scoreThreshold
       );
       
-      // Format results
+      const searchResults = await Promise.race([searchPromise, timeoutPromise]);
+      
+      // Format results with proper typing
       const results: QueryResponse<T> = {
-        results: searchResults.matches.map((match: { id: string; score: number; payload: Record<string, unknown> }) => ({
-          id: match.id,
+        results: searchResults.matches.map(match => ({
+          id: IdGenerator.parse(match.id) || IdGenerator.generate('memory'),
           text: match.payload.text as string,
           score: match.score,
           metadata: match.payload as T
         })),
         totalMatches: searchResults.totalCount,
-        truncated: searchResults.totalCount > (params.limit ?? 0),
+        truncated: searchResults.totalCount > optimizedParams.limit,
         executionTimeMs: Date.now() - startTime
       };
       
-      // Check timeout
-      if (results.executionTimeMs > 5000) { // 5 second timeout
-        throw new AppError(
-          QueryErrorCode.EXECUTION_TIMEOUT,
-          `Query execution timed out after ${results.executionTimeMs}ms`
-        );
-      }
-      
       return results;
     } catch (error: unknown) {
-      if (error instanceof AppError) throw error;
-      throw new AppError(
-        QueryErrorCode.OPTIMIZATION_FAILED,
-        `Query execution failed: ${error instanceof Error ? error.message : 'Unknown error'}`
-      );
+      if (error instanceof AppError && error.code === QueryErrorCode.EXECUTION_TIMEOUT) {
+        throw error;
+      }
+      // Wrap other errors
+      throw new AppError(QueryErrorCode.OPTIMIZATION_FAILED, `Query execution failed: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
   
@@ -398,46 +374,87 @@ export class QueryOptimizer implements IQueryOptimizer {
     strategy: QueryOptimizationStrategy
   ): {
     limit: number;
-    filter?: QdrantFilter;
+    filter: QdrantFilter | undefined;
     scoreThreshold: number;
   } {
-    // Initialize with default values to ensure they're never undefined
+    // Initialize with default values
     let limit = params.limit ?? this.config.defaultLimit;
     let scoreThreshold = params.minScore ?? this.config.defaultMinScore;
     
+    // Apply strategy-specific optimizations
     switch (strategy) {
       case QueryOptimizationStrategy.HIGH_QUALITY:
-        // Increase results to get better quality with higher threshold
-        limit = Math.ceil(limit * 1.5);
-        scoreThreshold = Math.max(0.7, scoreThreshold); // Higher threshold
+        // Increase results and threshold for better quality
+        limit = Math.min(Math.ceil(limit * 1.5), 50); // Cap at 50 results
+        scoreThreshold = Math.max(0.7, scoreThreshold);
+        // Add stricter filter conditions if available
+        if (filter) {
+          filter = {
+            ...filter,
+            must: [
+              ...(filter.must || []),
+              { key: 'score', range: { gte: scoreThreshold } }
+            ]
+          };
+        }
         break;
         
       case QueryOptimizationStrategy.HIGH_SPEED:
         // Optimize for speed with tighter limits
-        limit = Math.min(limit, 20); // Cap at 20 for speed
-        scoreThreshold = Math.min(0.5, scoreThreshold); // Lower threshold
+        limit = Math.min(limit, 20);
+        scoreThreshold = Math.min(0.5, scoreThreshold);
+        // Simplify filter conditions if available
+        if (filter && filter.must && filter.must.length > 2) {
+          filter = {
+            ...filter,
+            must: filter.must.slice(0, 2) // Keep only the most important conditions
+          };
+        }
         break;
         
       case QueryOptimizationStrategy.CONTEXT_AWARE:
         // Dynamic adjustment based on embedding characteristics
-        // This is a simplified implementation; production systems would
-        // have more sophisticated logic based on embedding statistics
         const embeddingMagnitude = Math.sqrt(
           embedding.reduce((sum, val) => sum + val * val, 0)
         );
         
-        if (embeddingMagnitude > 1) {
-          // More specific query, use higher threshold
+        if (embeddingMagnitude > 1.2) {
+          // More specific query, use higher threshold and smaller limit
           scoreThreshold = Math.max(0.65, scoreThreshold);
-        } else {
+          limit = Math.min(limit, 15);
+          // Add strict filter conditions
+          if (filter) {
+            filter = {
+              ...filter,
+              must: [
+                ...(filter.must || []),
+                { key: 'score', range: { gte: scoreThreshold } }
+              ]
+            };
+          }
+        } else if (embeddingMagnitude < 0.8) {
           // Less specific query, use lower threshold but more results
           scoreThreshold = Math.min(0.55, scoreThreshold);
-          limit = Math.ceil(limit * 1.2);
+          limit = Math.min(Math.ceil(limit * 1.2), 30);
+          // Simplify filter conditions
+          if (filter && filter.must && filter.must.length > 1) {
+            filter = {
+              ...filter,
+              must: filter.must.slice(0, 1) // Keep only the most important condition
+            };
+          }
+        } else {
+          // Balanced approach for medium specificity
+          scoreThreshold = Math.max(0.6, Math.min(0.7, scoreThreshold));
+          limit = Math.min(Math.ceil(limit * 1.1), 25);
         }
         break;
         
       // BALANCED is the default, use the parameters as provided
       default:
+        // Ensure reasonable defaults for balanced strategy
+        limit = Math.min(Math.max(limit, 5), 30); // Between 5 and 30 results
+        scoreThreshold = Math.max(0.6, Math.min(0.8, scoreThreshold)); // Between 0.6 and 0.8
         break;
     }
     

@@ -73,7 +73,7 @@ export class VectorDatabaseAdapter implements IVectorDatabaseClient {
     collectionName: string,
     vector: number[],
     limit: number = 10,
-    filter?: Record<string, any>,
+    filter?: Record<string, unknown>,
     scoreThreshold?: number
   ): Promise<SearchResults> {
     const results = await this.client.searchPoints(collectionName, {
