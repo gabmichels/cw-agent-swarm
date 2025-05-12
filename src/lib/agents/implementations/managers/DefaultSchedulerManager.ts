@@ -19,7 +19,7 @@ import {
   SchedulerEvent,
   SchedulerMetrics
 } from '../../../agents/base/managers/SchedulerManager';
-import type { AgentBase } from '../../../../agents/shared/base/AgentBase';
+import type { AgentBase } from '../../../../agents/shared/base/AgentBase.interface';
 import { BaseManager } from '../../../../agents/shared/base/managers/BaseManager';
 import { AbstractBaseManager } from '../../../../agents/shared/base/managers/BaseManager';
 

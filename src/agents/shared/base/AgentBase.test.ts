@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { AbstractAgentBase } from './AgentBase';
+import { AbstractAgentBase } from './AbstractAgentBase';
 import { AbstractBaseManager, ManagerConfig } from './managers/BaseManager';
 import type { AgentBaseConfig } from './types';
 import { AgentStatus } from '../../../server/memory/schema/agent';
 import { createAgentId, IdGenerator, IdPrefix } from '../../../utils/ulid';
-import { AgentBase } from './AgentBase';
+import type { AgentBase } from './AgentBase.interface';
+import type { BaseManager } from './managers/BaseManager';
 
 // Create a minimal mock agent that implements AgentBase
 const mockAgent: AgentBase = {
@@ -14,7 +15,7 @@ const mockAgent: AgentBase = {
   updateConfig: () => {},
   initialize: async () => true,
   shutdown: async () => {},
-  registerManager: (manager) => manager,
+  registerManager: <T extends BaseManager>(manager: T): T => manager,
   getManager: () => undefined,
   getManagers: () => [],
   isEnabled: () => true,
@@ -25,7 +26,21 @@ const mockAgent: AgentBase = {
   getHealth: async () => ({ status: 'healthy' }),
   getSchedulerManager: () => undefined,
   initializeManagers: async () => {},
-  shutdownManagers: async () => {}
+  shutdownManagers: async () => {},
+  addMemory: async () => undefined,
+  searchMemories: async () => [],
+  getRecentMemories: async () => [],
+  consolidateMemories: async () => {},
+  pruneMemories: async () => {},
+  createPlan: async () => ({ success: true }),
+  getPlan: async () => null,
+  getAllPlans: async () => [],
+  updatePlan: async () => null,
+  deletePlan: async () => true,
+  executePlan: async () => ({ success: true }),
+  adaptPlan: async () => null,
+  validatePlan: async () => true,
+  optimizePlan: async () => null
 };
 
 class MockManager extends AbstractBaseManager {
