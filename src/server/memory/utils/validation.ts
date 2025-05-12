@@ -4,6 +4,7 @@
 import { ValidationResult, MemoryType } from '../config';
 import { createValidationError } from './error-handler';
 import { AddMemoryParams, DeleteMemoryParams, GetMemoryParams, UpdateMemoryParams } from '../services/memory/types';
+import { EditorType } from '@/types/metadata';
 
 /**
  * Validates that a value is not null or undefined
@@ -311,6 +312,43 @@ export function validateDeleteMemoryParams(params: DeleteMemoryParams): Validati
   // Type validation
   if (params.type && !Object.values(MemoryType).includes(params.type)) {
     errors.push({ field: 'type', message: `Invalid memory type: ${params.type}` });
+  }
+  
+  return {
+    valid: errors.length === 0,
+    errors: errors.length > 0 ? errors : undefined
+  };
+}
+
+/**
+ * Validate parameters for rolling back a memory
+ */
+export function validateRollbackMemoryParams(params: {
+  id: string;
+  versionId: string;
+  type?: MemoryType;
+  editorType?: EditorType;
+  editorId?: string;
+}): ValidationResult {
+  const errors = [];
+  
+  // Required fields
+  if (!params.id) {
+    errors.push({ field: 'id', message: 'Memory ID is required' });
+  }
+  
+  if (!params.versionId) {
+    errors.push({ field: 'versionId', message: 'Version ID is required' });
+  }
+  
+  // Type validation if provided
+  if (params.type && !Object.values(MemoryType).includes(params.type)) {
+    errors.push({ field: 'type', message: `Invalid memory type: ${params.type}` });
+  }
+  
+  // Editor type validation if provided
+  if (params.editorType && !['system', 'user', 'agent'].includes(params.editorType)) {
+    errors.push({ field: 'editorType', message: `Invalid editor type: ${params.editorType}` });
   }
   
   return {

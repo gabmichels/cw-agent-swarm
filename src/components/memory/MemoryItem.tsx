@@ -2,9 +2,10 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Tag, Info, Calendar, Clock, ChevronDown, ChevronUp, Edit, RefreshCw, RotateCcw, Sparkles } from 'lucide-react';
 import { MemoryType } from '../../server/memory/config/types';
 import { BaseMemorySchema } from '../../server/memory/models/base-schema';
-import useMemory from '../../hooks/useMemory';
+import useMemory from '@/hooks/useMemory';
 import ReactMarkdown from 'react-markdown';
 import { BaseMetadata, MemoryEditMetadata } from '../../types/metadata';
+import { Toaster, toast } from 'react-hot-toast';
 
 // Import dialog components directly from source file
 import * as DialogPrimitive from "@radix-ui/react-dialog";
@@ -83,21 +84,6 @@ const Button: React.FC<React.ButtonHTMLAttributes<HTMLButtonElement> & {
   );
 };
 
-// Create simple alert function instead of using toast to reduce dependencies
-const toast = (props: { title?: string; description?: string; variant?: 'default' | 'destructive' }) => {
-  // Log to console
-  console.log(`Toast: ${props.title} - ${props.description}`);
-  
-  // Use browser alert for now
-  if (props.title && props.description) {
-    alert(`${props.title}: ${props.description}`);
-  } else if (props.title) {
-    alert(props.title);
-  } else if (props.description) {
-    alert(props.description);
-  }
-};
-
 // Define UI-specific metadata extensions to handle custom UI fields
 interface ExtendedUIMetadata extends BaseMetadata {
   // UI-specific tags and display fields
@@ -166,6 +152,7 @@ const MemoryItem: React.FC<MemoryItemProps> = ({
   const [isLoadingVersion, setIsLoadingVersion] = useState(false);
   const [isRegeneratingTags, setIsRegeneratingTags] = useState(false);
   const [regenerateDialogOpen, setRegenerateDialogOpen] = useState(false);
+  const [isRollingBack, setIsRollingBack] = useState(false);
   
   // Cast the metadata to our extended UI-specific interface
   const uiMetadata = memory.payload?.metadata as ExtendedUIMetadata;
@@ -458,22 +445,18 @@ const MemoryItem: React.FC<MemoryItemProps> = ({
 
   // Handle tag regeneration
   const handleRegenerateTags = async () => {
-    console.log("DEBUG: handleRegenerateTags called");
-    
     if (!memory.payload?.text) {
       console.error("Cannot regenerate tags: missing content");
-      toast({
-        title: "Error",
-        description: "Cannot regenerate tags: memory has no content",
-        variant: "destructive"
+      toast.error("Cannot regenerate tags: memory has no content", {
+        duration: 5000
       });
       return;
     }
-    
-    console.log("DEBUG: Starting tag regeneration for:", memory.id);
-    console.log("DEBUG: Content length:", memory.payload.text.length);
-    setIsRegeneratingTags(true);
-    
+
+    const toastId = toast.loading('Regenerating tags...', {
+      duration: 5000
+    });
+
     try {
       // Perform client-side tag generation
       console.log("DEBUG: Performing client-side tag generation");
@@ -518,292 +501,366 @@ const MemoryItem: React.FC<MemoryItemProps> = ({
       onTagUpdate(memory.id, generatedTags);
       
       // Show success message
-      toast({
-        title: "Tags regenerated",
-        description: `Generated ${generatedTags.length} tags using client-side processing`,
-        variant: "default"
+      toast.success(`Generated ${generatedTags.length} tags using client-side processing`, { 
+        id: toastId,
+        duration: 3000
       });
     } catch (error) {
-      console.error('DEBUG: Error in handleRegenerateTags:', error);
-      
-      // Generate fallback tags
-      const fallbackTags = ["generated", "fallback", "tags", "memory", "content"];
-      
-      // Update with fallback tags
-      onTagUpdate(memory.id, fallbackTags);
-      
-      toast({
-        title: "Using fallback tags",
-        description: "Generated basic tags due to an error",
-        variant: "default"
+      console.error('Error regenerating tags:', error);
+      toast.error("Generated basic tags due to an error", { 
+        id: toastId,
+        duration: 5000
       });
     } finally {
       setIsRegeneratingTags(false);
     }
   };
 
+  // Handle rolling back to a version
+  const handleRollback = async (versionId: string) => {
+    if (!versionId || isRollingBack) return;
+    
+    const toastId = toast.loading('Rolling back memory...', {
+      duration: 5000
+    });
+    
+    try {
+      setIsRollingBack(true);
+      
+      // Call the rollback API
+      const response = await fetch('/api/memory/rollback', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          id: memory.id,
+          versionId,
+          type: memory.payload?.type,
+          editorType: 'user'
+        })
+      });
+      
+      const result = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(result.error?.message || 'Failed to rollback memory');
+      }
+      
+      // Show success message
+      toast.success('Successfully rolled back memory', { 
+        id: toastId,
+        duration: 3000
+      });
+      
+      // Refresh the memory data
+      const updatedMemory = await getMemory(memory.id);
+      if (updatedMemory) {
+        // Update the memory in the parent component
+        onTagUpdate?.(updatedMemory.id, updatedMemory.payload?.metadata?.tags || []);
+      }
+      
+      // Reset version selection
+      setSelectedVersion(null);
+      
+    } catch (error) {
+      console.error('Error rolling back memory:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to rollback memory', { 
+        id: toastId,
+        duration: 5000
+      });
+    } finally {
+      setIsRollingBack(false);
+    }
+  };
+
   return (
-    <div className="rounded-lg shadow-sm bg-gray-800 border border-gray-700 overflow-hidden">
-      {/* Memory Header - Simplified */}
-      <div 
-        className="flex flex-col cursor-pointer"
-        onClick={toggleExpanded}
-      >
-        {/* Header Row */}
-        <div className="flex items-center justify-between p-2 bg-gray-900">
-          <div className="flex items-center space-x-2">
-            <div className="text-xs font-semibold px-1.5 py-0.5 rounded-sm" 
-                 style={{
-                   backgroundColor: memoryType ? getTypeColor(memoryType).bg : '#1e293b',
-                   color: memoryType ? getTypeColor(memoryType).text : '#94a3b8'
-                 }}>
-              {memoryType || 'unknown'}
+    <>
+      <Toaster position="bottom-right" />
+      <div className="rounded-lg shadow-sm bg-gray-800 border border-gray-700 overflow-hidden">
+        {/* Memory Header - Simplified */}
+        <div 
+          className="flex flex-col cursor-pointer"
+          onClick={toggleExpanded}
+        >
+          {/* Header Row */}
+          <div className="flex items-center justify-between p-2 bg-gray-900">
+            <div className="flex items-center space-x-2">
+              <div className="text-xs font-semibold px-1.5 py-0.5 rounded-sm" 
+                   style={{
+                     backgroundColor: memoryType ? getTypeColor(memoryType).bg : '#1e293b',
+                     color: memoryType ? getTypeColor(memoryType).text : '#94a3b8'
+                   }}>
+                {memoryType || 'unknown'}
+              </div>
+              <div className="text-xs text-gray-400 flex items-center gap-1">
+                <Clock className="h-3 w-3" />
+                <span>{formattedTimestamp}</span>
+              </div>
             </div>
-            <div className="text-xs text-gray-400 flex items-center gap-1">
-              <Clock className="h-3 w-3" />
-              <span>{formattedTimestamp}</span>
+            
+            {/* Expand/Collapse Button */}
+            <div>
+              {expanded ? (
+                <ChevronUp className="h-4 w-4 text-gray-400" />
+              ) : (
+                <ChevronDown className="h-4 w-4 text-gray-400" />
+              )}
             </div>
           </div>
           
-          {/* Expand/Collapse Button */}
-          <div>
-            {expanded ? (
-              <ChevronUp className="h-4 w-4 text-gray-400" />
-            ) : (
-              <ChevronDown className="h-4 w-4 text-gray-400" />
+          {/* Message Content - Just the text in a nice format */}
+          <div className={`p-3 text-gray-200 ${!expanded ? 'max-h-60 overflow-hidden relative' : ''}`}>
+            {!expanded && (
+              <div className="absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-gray-800 to-transparent" />
             )}
+            <ReactMarkdown className="prose prose-invert prose-sm max-w-none prose-headings:text-white prose-p:text-gray-200 prose-strong:text-blue-300 prose-a:text-blue-400 prose-code:text-emerald-300 prose-pre:bg-gray-900 prose-pre:text-gray-200">
+              {memory.payload?.text || 'No content available'}
+            </ReactMarkdown>
           </div>
         </div>
         
-        {/* Message Content - Just the text in a nice format */}
-        <div className={`p-3 text-gray-200 ${!expanded ? 'max-h-60 overflow-hidden relative' : ''}`}>
-          {!expanded && (
-            <div className="absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-gray-800 to-transparent" />
-          )}
-          <ReactMarkdown className="prose prose-invert prose-sm max-w-none prose-headings:text-white prose-p:text-gray-200 prose-strong:text-blue-300 prose-a:text-blue-400 prose-code:text-emerald-300 prose-pre:bg-gray-900 prose-pre:text-gray-200">
-            {memory.payload?.text || 'No content available'}
-          </ReactMarkdown>
-        </div>
-      </div>
-      
-      {/* Memory Expanded Content */}
-      {expanded && (
-        <div className="p-3 border-t border-gray-700 bg-gray-900">
-          {/* Raw JSON Structure */}
-          <div className="whitespace-pre-wrap text-gray-300 font-mono text-xs mb-4 p-3 bg-gray-950 rounded-md overflow-auto max-h-96">
-            {(() => {
-              try {
-                // Format the entire memory object as JSON
-                return JSON.stringify({
-                  id: memory.id,
-                  type: memoryType,
-                  timestamp: memory.payload?.timestamp,
-                  payload: memory.payload
-                }, null, 2);
-              } catch (e) {
-                // Fallback for any serialization errors
-                return `Error displaying memory structure: ${e instanceof Error ? e.message : 'Unknown error'}`;
-              }
-            })()}
-          </div>
-          
-          {/* Tags Section */}
-          <div className="mb-4">
-            <div className="flex items-center justify-between mb-1">
-              <div className="flex items-center">
-                <Tag className="h-4 w-4 text-gray-400 mr-1" />
-                <span className="text-sm font-medium text-gray-300">Tags</span>
-              </div>
-              
-              {/* ALWAYS show regenerate button */}
-              <button
-                className="flex items-center text-sm bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-md transition-colors font-medium"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  console.log("DEBUG: Regenerate tags button clicked directly");
-                  // Use updated function that handles all cases internally
-                  handleRegenerateTags();
-                }}
-                disabled={isRegeneratingTags}
-              >
-                {isRegeneratingTags ? (
-                  <>
-                    <RefreshCw className="h-4 w-4 mr-1.5 animate-spin" />
-                    Processing...
-                  </>
-                ) : (
-                  <>
-                    <Sparkles className="h-4 w-4 mr-1.5" />
-                    Regenerate Tags
-                  </>
-                )}
-              </button>
-            </div>
-            
-            {/* Display manual tags */}
-            <div className="flex flex-wrap gap-1 mb-2 max-h-40 overflow-y-auto p-1">
-              {manualTags.length > 0 ? (
-                manualTags.map((tag, index) => (
-                  <span key={index} className="bg-gray-700 text-gray-200 text-xs px-2.5 py-0.5 rounded-full">
-                    {tag}
-                  </span>
-                ))
-              ) : (
-                <span className="text-xs text-gray-500 italic">No tags</span>
-              )}
-            </div>
-          </div>
-          
-          {/* Memory Metadata */}
-          {memory.payload?.metadata && Object.keys(memory.payload.metadata).length > 0 && (
-            <div className="mb-4">
-              <div className="flex items-center mb-1">
-                <Info className="h-4 w-4 text-gray-400 mr-1" />
-                <span className="text-sm font-medium text-gray-300">Metadata</span>
-              </div>
-              
-              <div className="grid grid-cols-2 gap-2 text-xs bg-gray-800 p-2 rounded">
-                {Object.entries(memory.payload.metadata as unknown as Record<string, unknown>)
-                  .filter(([key]) => !['suggestedTags', 'tags', 'related_versions'].includes(key))
-                  .map(([key, value]) => (
-                    <div key={key} className="flex">
-                      <div className="font-medium text-gray-400 mr-1">{key}:</div>
-                      <div className="text-gray-300">
-                        {typeof value === 'object' 
-                          ? JSON.stringify(value).substring(0, 50) 
-                          : String(value).substring(0, 50)}
-                      </div>
-                    </div>
-                  ))
+        {/* Memory Expanded Content */}
+        {expanded && (
+          <div className="p-3 border-t border-gray-700 bg-gray-900">
+            {/* Raw JSON Structure */}
+            <div className="whitespace-pre-wrap text-gray-300 font-mono text-xs mb-4 p-3 bg-gray-950 rounded-md overflow-auto max-h-96">
+              {(() => {
+                try {
+                  // Format the entire memory object as JSON
+                  return JSON.stringify({
+                    id: memory.id,
+                    type: memoryType,
+                    timestamp: memory.payload?.timestamp,
+                    payload: memory.payload
+                  }, null, 2);
+                } catch (e) {
+                  // Fallback for any serialization errors
+                  return `Error displaying memory structure: ${e instanceof Error ? e.message : 'Unknown error'}`;
                 }
-              </div>
+              })()}
             </div>
-          )}
-          
-          {/* Memory History Toggle */}
-          <div className="mt-3">
-            <button 
-              onClick={(e) => {
-                e.stopPropagation();
-                setHistoryExpanded(!historyExpanded);
-              }}
-              className="flex items-center text-xs text-blue-400 hover:text-blue-300 transition-colors"
-            >
-              {historyExpanded ? (
-                <>
-                  <ChevronUp className="h-3 w-3 mr-1" />
-                  Hide Version History
-                </>
-              ) : (
-                <>
-                  <ChevronDown className="h-3 w-3 mr-1" />
-                  Show Version History
-                </>
-              )}
-            </button>
             
-            {/* Memory History Content */}
-            {historyExpanded && (
-              <div className="mt-2 border-t border-gray-700 pt-2">
-                {isLoadingHistory ? (
-                  <div className="text-center py-2">
-                    <RefreshCw className="h-4 w-4 animate-spin inline mr-1" />
-                    <span className="text-xs text-gray-400">Loading history...</span>
-                  </div>
-                ) : memoryHistory.length === 0 ? (
-                  <div className="text-xs text-gray-500 italic">No version history available</div>
-                ) : (
-                  <div className="space-y-2">
-                    <div className="text-xs font-medium text-gray-300">Version History:</div>
-                    
-                    {/* Current Version */}
-                    <div 
-                      className={`text-xs p-2 rounded ${selectedVersion?.id === currentVersion.id ? 'bg-blue-900 border border-blue-700' : 'bg-gray-800 hover:bg-gray-700 cursor-pointer border border-gray-700'}`}
-                      onClick={() => handleSelectVersion(currentVersion)}
-                    >
-                      <div className="flex justify-between mb-1">
-                        <span className="font-medium text-gray-300">Current Version</span>
-                        <span className="text-gray-400">{formatHistoryDate(currentVersion.timestamp)}</span>
-                      </div>
-                    </div>
-                    
-                    {/* Previous versions */}
-                    {memoryHistory.map((historyItem) => (
-                      <div
-                        key={historyItem.id}
-                        className={`text-xs p-2 rounded ${selectedVersion?.id === historyItem.id ? 'bg-blue-900 border border-blue-700' : 'bg-gray-800 hover:bg-gray-700 cursor-pointer border border-gray-700'}`}
-                        onClick={() => handleSelectVersion({
-                          id: historyItem.id,
-                          type: historyItem.payload?.type || 'unknown',
-                          timestamp: historyItem.payload?.timestamp?.toString() || '',
-                        })}
-                      >
-                        <div className="flex justify-between mb-1">
-                          <span className="font-medium text-gray-300">
-                            {historyItem.payload?.metadata?.edit_type === 'create' ? 'Created' : 
-                             historyItem.payload?.metadata?.edit_type === 'update' ? 'Updated' : 
-                             historyItem.payload?.metadata?.edit_type === 'delete' ? 'Deleted' : 
-                             'Edit'}
-                          </span>
-                          <span className="text-gray-400">{formatHistoryDate(historyItem.payload?.timestamp?.toString() || '')}</span>
-                        </div>
-                        
-                        {historyItem.payload?.metadata?.diff_summary && (
-                          <div className="text-gray-400 text-xs mt-1 italic">
-                            {historyItem.payload.metadata.diff_summary}
-                          </div>
-                        )}
-                        
-                        {historyItem.payload?.metadata?.editor_type && (
-                          <div className="text-xs text-gray-500 mt-1">
-                            By: {historyItem.payload.metadata.editor_type} 
-                            {historyItem.payload.metadata.editor_id ? ` (${historyItem.payload.metadata.editor_id})` : ''}
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-          
-          {/* Selected Version Display */}
-          {selectedVersion && (
-            <div className="mt-4 pt-3 border-t border-gray-700">
-              <div className="flex justify-between items-center mb-2">
-                <div className="text-xs font-medium text-gray-300">
-                  {selectedVersion.id === currentVersion.id ? 'Current Version' : 'Historical Version'}
+            {/* Tags Section */}
+            <div className="mb-4">
+              <div className="flex items-center justify-between mb-1">
+                <div className="flex items-center">
+                  <Tag className="h-4 w-4 text-gray-400 mr-1" />
+                  <span className="text-sm font-medium text-gray-300">Tags</span>
                 </div>
                 
-                <button 
-                  onClick={resetToCurrentVersion}
-                  className="flex items-center text-xs text-blue-400 hover:text-blue-300 transition-colors"
+                {/* ALWAYS show regenerate button */}
+                <button
+                  className="flex items-center text-sm bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-md transition-colors font-medium"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    console.log("DEBUG: Regenerate tags button clicked directly");
+                    // Use updated function that handles all cases internally
+                    handleRegenerateTags();
+                  }}
+                  disabled={isRegeneratingTags}
                 >
-                  <RotateCcw className="h-3 w-3 mr-1" />
-                  Back to Current
+                  {isRegeneratingTags ? (
+                    <>
+                      <RefreshCw className="h-4 w-4 mr-1.5 animate-spin" />
+                      Processing...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="h-4 w-4 mr-1.5" />
+                      Regenerate Tags
+                    </>
+                  )}
                 </button>
               </div>
               
-              {isLoadingVersion ? (
-                <div className="text-center py-2">
-                  <RefreshCw className="h-4 w-4 animate-spin inline mr-1" />
-                  <span className="text-xs text-gray-400">Loading version content...</span>
+              {/* Display manual tags */}
+              <div className="flex flex-wrap gap-1 mb-2 max-h-40 overflow-y-auto p-1">
+                {manualTags.length > 0 ? (
+                  manualTags.map((tag, index) => (
+                    <span key={index} className="bg-gray-700 text-gray-200 text-xs px-2.5 py-0.5 rounded-full">
+                      {tag}
+                    </span>
+                  ))
+                ) : (
+                  <span className="text-xs text-gray-500 italic">No tags</span>
+                )}
+              </div>
+            </div>
+            
+            {/* Memory Metadata */}
+            {memory.payload?.metadata && Object.keys(memory.payload.metadata).length > 0 && (
+              <div className="mb-4">
+                <div className="flex items-center mb-1">
+                  <Info className="h-4 w-4 text-gray-400 mr-1" />
+                  <span className="text-sm font-medium text-gray-300">Metadata</span>
                 </div>
-              ) : (
-                <div className="bg-gray-950 p-3 rounded font-mono text-xs whitespace-pre-wrap text-gray-300">
-                  {selectedVersion.error ? (
-                    <div className="text-red-400">{selectedVersion.text}</div>
+                
+                <div className="grid grid-cols-2 gap-2 text-xs bg-gray-800 p-2 rounded">
+                  {Object.entries(memory.payload.metadata as unknown as Record<string, unknown>)
+                    .filter(([key]) => !['suggestedTags', 'tags', 'related_versions'].includes(key))
+                    .map(([key, value]) => (
+                      <div key={key} className="flex">
+                        <div className="font-medium text-gray-400 mr-1">{key}:</div>
+                        <div className="text-gray-300">
+                          {typeof value === 'object' 
+                            ? JSON.stringify(value).substring(0, 50) 
+                            : String(value).substring(0, 50)}
+                        </div>
+                      </div>
+                    ))
+                  }
+                </div>
+              </div>
+            )}
+            
+            {/* Memory History Toggle */}
+            <div className="mt-3">
+              <button 
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setHistoryExpanded(!historyExpanded);
+                }}
+                className="flex items-center text-xs text-blue-400 hover:text-blue-300 transition-colors"
+              >
+                {historyExpanded ? (
+                  <>
+                    <ChevronUp className="h-3 w-3 mr-1" />
+                    Hide Version History
+                  </>
+                ) : (
+                  <>
+                    <ChevronDown className="h-3 w-3 mr-1" />
+                    Show Version History
+                  </>
+                )}
+              </button>
+              
+              {/* Memory History Content */}
+              {historyExpanded && (
+                <div className="mt-2 border-t border-gray-700 pt-2">
+                  {isLoadingHistory ? (
+                    <div className="text-center py-2">
+                      <RefreshCw className="h-4 w-4 animate-spin inline mr-1" />
+                      <span className="text-xs text-gray-400">Loading history...</span>
+                    </div>
+                  ) : memoryHistory.length === 0 ? (
+                    <div className="text-xs text-gray-500 italic">No version history available</div>
                   ) : (
-                    selectedVersion.text || 'No content available'
+                    <div className="space-y-2">
+                      <div className="text-xs font-medium text-gray-300">Version History:</div>
+                      
+                      {/* Current Version */}
+                      <div 
+                        className={`text-xs p-2 rounded ${selectedVersion?.id === currentVersion.id ? 'bg-blue-900 border border-blue-700' : 'bg-gray-800 hover:bg-gray-700 cursor-pointer border border-gray-700'}`}
+                        onClick={() => handleSelectVersion(currentVersion)}
+                      >
+                        <div className="flex justify-between mb-1">
+                          <span className="font-medium text-gray-300">Current Version</span>
+                          <span className="text-gray-400">{formatHistoryDate(currentVersion.timestamp)}</span>
+                        </div>
+                      </div>
+                      
+                      {/* Previous versions */}
+                      {memoryHistory.map((historyItem) => (
+                        <div
+                          key={historyItem.id}
+                          className={`text-xs p-2 rounded ${selectedVersion?.id === historyItem.id ? 'bg-blue-900 border border-blue-700' : 'bg-gray-800 hover:bg-gray-700 cursor-pointer border border-gray-700'}`}
+                        >
+                          <div 
+                            className="flex justify-between mb-1"
+                            onClick={() => handleSelectVersion({
+                              id: historyItem.id,
+                              type: historyItem.payload?.type || 'unknown',
+                              timestamp: historyItem.payload?.timestamp?.toString() || '',
+                            })}
+                          >
+                            <span className="font-medium text-gray-300">
+                              {historyItem.payload?.metadata?.edit_type === 'create' ? 'Created' : 
+                               historyItem.payload?.metadata?.edit_type === 'update' ? 'Updated' : 
+                               historyItem.payload?.metadata?.edit_type === 'delete' ? 'Deleted' : 
+                               'Edit'}
+                            </span>
+                            <span className="text-gray-400">{formatHistoryDate(historyItem.payload?.timestamp?.toString() || '')}</span>
+                          </div>
+                          
+                          {historyItem.payload?.metadata?.diff_summary && (
+                            <div className="text-gray-400 text-xs mt-1 italic">
+                              {historyItem.payload.metadata.diff_summary}
+                            </div>
+                          )}
+                          
+                          {/* Add rollback button for non-current versions */}
+                          {historyItem.id !== memory.id && (
+                            <div className="mt-2 flex justify-end">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleRollback(historyItem.id);
+                                }}
+                                disabled={isRollingBack}
+                                className={`text-xs px-2 py-1 rounded ${
+                                  isRollingBack 
+                                    ? 'bg-gray-700 text-gray-400 cursor-not-allowed' 
+                                    : 'bg-blue-600 hover:bg-blue-700 text-white'
+                                }`}
+                              >
+                                {isRollingBack ? (
+                                  <>
+                                    <RefreshCw className="h-3 w-3 animate-spin inline mr-1" />
+                                    Rolling back...
+                                  </>
+                                ) : (
+                                  'Rollback to this version'
+                                )}
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
                   )}
                 </div>
               )}
             </div>
-          )}
-        </div>
-      )}
-    </div>
+            
+            {/* Selected Version Display */}
+            {selectedVersion && (
+              <div className="mt-4 pt-3 border-t border-gray-700">
+                <div className="flex justify-between items-center mb-2">
+                  <div className="text-xs font-medium text-gray-300">
+                    {selectedVersion.id === currentVersion.id ? 'Current Version' : 'Historical Version'}
+                  </div>
+                  
+                  <button 
+                    onClick={resetToCurrentVersion}
+                    className="flex items-center text-xs text-blue-400 hover:text-blue-300 transition-colors"
+                  >
+                    <RotateCcw className="h-3 w-3 mr-1" />
+                    Back to Current
+                  </button>
+                </div>
+                
+                {isLoadingVersion ? (
+                  <div className="text-center py-2">
+                    <RefreshCw className="h-4 w-4 animate-spin inline mr-1" />
+                    <span className="text-xs text-gray-400">Loading version content...</span>
+                  </div>
+                ) : (
+                  <div className="bg-gray-950 p-3 rounded font-mono text-xs whitespace-pre-wrap text-gray-300">
+                    {selectedVersion.error ? (
+                      <div className="text-red-400">{selectedVersion.text}</div>
+                    ) : (
+                      selectedVersion.text || 'No content available'
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </>
   );
 };
 

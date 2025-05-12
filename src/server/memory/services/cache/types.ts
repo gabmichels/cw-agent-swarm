@@ -130,6 +130,13 @@ export interface CacheManager {
    * @returns Current cache statistics
    */
   getStats(): Promise<CacheStats>;
+  
+  /**
+   * Get all tags for a cache entry
+   * @param key Cache key
+   * @returns Set of tags or undefined if entry doesn't exist
+   */
+  getTags(key: string): Promise<Set<string> | undefined>;
 }
 
 /**
@@ -165,4 +172,127 @@ export interface InMemoryCacheConfig {
    * Default: false
    */
   enableLogging?: boolean;
+}
+
+/**
+ * Cache warming strategy types
+ */
+export enum CacheWarmingStrategy {
+  FREQUENT_ACCESS = 'frequent_access',
+  RECENT_ACCESS = 'recent_access',
+  GRAPH_RELATED = 'graph_related',
+  TIME_BASED = 'time_based',
+  PATTERN_BASED = 'pattern_based'
+}
+
+/**
+ * Cache warming trigger types
+ */
+export enum CacheWarmingTrigger {
+  ACCESS_PATTERN = 'access_pattern',
+  SCHEDULED = 'scheduled',
+  STARTUP = 'startup',
+  MANUAL = 'manual'
+}
+
+/**
+ * Cache warming configuration
+ */
+export interface CacheWarmingConfig {
+  /**
+   * Whether cache warming is enabled
+   */
+  enabled: boolean;
+  
+  /**
+   * Strategies to use for warming
+   */
+  strategies: CacheWarmingStrategy[];
+  
+  /**
+   * Triggers that activate warming
+   */
+  triggers: CacheWarmingTrigger[];
+  
+  /**
+   * Maximum number of items to warm per strategy
+   */
+  maxItemsPerStrategy: number;
+  
+  /**
+   * Time window for recent access strategy (in ms)
+   */
+  recentAccessWindow: number;
+  
+  /**
+   * Minimum access count for frequent access strategy
+   */
+  minAccessCount: number;
+  
+  /**
+   * Schedule for time-based warming (cron expression)
+   */
+  warmingSchedule?: string;
+  
+  /**
+   * Whether to warm on startup
+   */
+  warmOnStartup: boolean;
+}
+
+/**
+ * Cache warming result
+ */
+export interface CacheWarmingResult {
+  /**
+   * Strategy used for warming
+   */
+  strategy: CacheWarmingStrategy;
+  
+  /**
+   * Number of items warmed
+   */
+  itemsWarmed: number;
+  
+  /**
+   * Time taken to warm (in ms)
+   */
+  timeTaken: number;
+  
+  /**
+   * Any errors that occurred
+   */
+  errors?: Error[];
+}
+
+/**
+ * Cache warming interface
+ */
+export interface ICacheWarmer {
+  /**
+   * Initialize the cache warmer
+   */
+  initialize(): Promise<void>;
+  
+  /**
+   * Start cache warming
+   * @param strategy Optional specific strategy to use
+   */
+  warmCache(strategy?: CacheWarmingStrategy): Promise<CacheWarmingResult[]>;
+  
+  /**
+   * Stop cache warming
+   */
+  stopWarming(): Promise<void>;
+  
+  /**
+   * Get warming statistics
+   */
+  getWarmingStats(): Promise<{
+    lastWarmed: Date;
+    totalItemsWarmed: number;
+    averageTimePerItem: number;
+    strategiesUsed: CacheWarmingStrategy[];
+    errors: Error[];
+  }>;
 } 

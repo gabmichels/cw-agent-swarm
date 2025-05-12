@@ -350,4 +350,17 @@ export class InMemoryCacheManager implements CacheManager {
       console.log(`[InMemoryCache] ${message}`);
     }
   }
+  
+  /**
+   * Get all tags for a cache entry
+   * @param key Cache key
+   * @returns Set of tags or undefined if entry doesn't exist
+   */
+  async getTags(key: string): Promise<Set<string> | undefined> {
+    const entry = this.cache.get(key);
+    if (!entry) {
+      return undefined;
+    }
+    return entry.tags;
+  }
 } 

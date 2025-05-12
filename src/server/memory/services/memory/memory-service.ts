@@ -2,14 +2,15 @@
  * Memory service implementation
  */
 import { v4 as uuidv4 } from 'uuid';
-import { DEFAULTS, MemoryErrorCode, MemoryType } from '../../config';
+import { DEFAULTS, MemoryType } from '../../config';
 import { COLLECTION_CONFIGS as COLLECTIONS, MEMORY_EDIT_COLLECTION } from '../../config/collections';
 import { BaseMemorySchema, MemoryPoint, MemorySearchResult } from '../../models';
-import { handleMemoryError, validateAddMemoryParams, validateGetMemoryParams, validateUpdateMemoryParams, validateDeleteMemoryParams } from '../../utils';
+import { handleMemoryError, validateAddMemoryParams, validateGetMemoryParams, validateUpdateMemoryParams, validateDeleteMemoryParams, validateRollbackMemoryParams } from '../../utils';
 import { IMemoryClient, SearchQuery } from '../client/types';
 import { EmbeddingService } from '../client/embedding-service';
 import { AddMemoryParams, DeleteMemoryParams, GetMemoryParams, MemoryResult, SearchMemoryParams, UpdateMemoryParams } from './types';
-import { MemoryEditMetadata } from '../../../../types/metadata';
+import { MemoryEditMetadata, EditorType } from '../../../../types/metadata';
+import { MemoryErrorCode } from '@/lib/errors/types';
 
 /**
  * Memory service options
@@ -47,7 +48,7 @@ export class MemoryService {
         return {
           success: false,
           error: {
-            code: MemoryErrorCode.VALIDATION_ERROR,
+            code: MemoryErrorCode.VALIDATION_FAILED,
             message: validation.errors?.[0]?.message || 'Invalid parameters'
           }
         };
@@ -375,6 +376,173 @@ export class MemoryService {
     } catch (error) {
       console.error('Error getting memory history:', error);
       throw handleMemoryError(error, 'getMemoryHistory');
+    }
+  }
+
+  /**
+   * Rollback a memory to a specific version
+   */
+  async rollbackMemory<T extends BaseMemorySchema>(params: {
+    id: string;
+    versionId: string;
+    type?: MemoryType;
+    editorType?: EditorType;
+    editorId?: string;
+  }): Promise<MemoryResult> {
+    try {
+      // Validate parameters
+      const validation = validateRollbackMemoryParams(params);
+      if (!validation.valid) {
+        return {
+          success: false,
+          error: {
+            code: MemoryErrorCode.VALIDATION_FAILED,
+            message: validation.errors?.[0]?.message || 'Invalid parameters'
+          }
+        };
+      }
+
+      // Get the current memory to determine type if not provided
+      let memoryType = params.type;
+      if (!memoryType) {
+        const currentMemory = await this.getMemory<T>({ 
+          id: params.id,
+          type: MemoryType.MESSAGE // Default type for initial lookup
+        });
+        if (!currentMemory) {
+          return {
+            success: false,
+            error: {
+              code: MemoryErrorCode.NOT_FOUND,
+              message: `Memory not found: ${params.id}`
+            }
+          };
+        }
+        memoryType = currentMemory.payload.type as MemoryType;
+      }
+
+      // Get the version history with optimized query
+      const history = await this.getMemoryHistory<T>({
+        id: params.id,
+        type: memoryType,
+        limit: 100 // Get enough history to find the version
+      });
+
+      // Find the target version
+      const targetVersion = history.find(v => v.id === params.versionId);
+      if (!targetVersion) {
+        return {
+          success: false,
+          error: {
+            code: MemoryErrorCode.NOT_FOUND,
+            message: `Version not found: ${params.versionId}`
+          }
+        };
+      }
+
+      // Validate that we're not trying to rollback to the current version
+      if (targetVersion.id === params.id) {
+        return {
+          success: false,
+          error: {
+            code: MemoryErrorCode.INVALID_OPERATION,
+            message: 'Cannot rollback to current version'
+          }
+        };
+      }
+
+      // Get the current memory to create edit metadata
+      const currentMemory = await this.getMemory<T>({ 
+        id: params.id,
+        type: memoryType
+      });
+      if (!currentMemory) {
+        return {
+          success: false,
+          error: {
+            code: MemoryErrorCode.NOT_FOUND,
+            message: `Current memory not found: ${params.id}`
+          }
+        };
+      }
+
+      // Create edit metadata for the rollback
+      const editMetadata: MemoryEditMetadata = {
+        schemaVersion: '1.0.0',
+        original_memory_id: params.id,
+        original_type: memoryType,
+        original_timestamp: currentMemory.payload.timestamp,
+        edit_type: 'update',
+        editor_type: params.editorType || 'system',
+        editor_id: params.editorId,
+        diff_summary: `Rolled back to version from ${new Date(targetVersion.payload.timestamp).toLocaleString()}`,
+        current: true,
+        previous_version_id: currentMemory.id,
+        _skip_logging: false
+      };
+
+      // Create a new edit record
+      const editResult = await this.addMemory<T>({
+        type: MemoryType.MEMORY_EDIT,
+        content: targetVersion.payload.text,
+        metadata: editMetadata,
+        payload: {
+          ...targetVersion.payload,
+          metadata: editMetadata
+        }
+      });
+
+      if (!editResult.success) {
+        return {
+          success: false,
+          error: {
+            code: MemoryErrorCode.TRANSACTION_FAILED,
+            message: 'Failed to create edit record for rollback'
+          }
+        };
+      }
+
+      // Update the current memory with the rolled back content
+      const updateResult = await this.updateMemory<T>({
+        id: params.id,
+        type: memoryType,
+        content: targetVersion.payload.text,
+        metadata: {
+          ...currentMemory.payload.metadata,
+          current: true,
+          last_rollback: {
+            version_id: params.versionId,
+            timestamp: this.getTimestamp().toString(),
+            editor_type: params.editorType || 'system',
+            editor_id: params.editorId
+          }
+        }
+      });
+
+      if (!updateResult) {
+        return {
+          success: false,
+          error: {
+            code: MemoryErrorCode.TRANSACTION_FAILED,
+            message: 'Failed to update memory with rolled back content'
+          }
+        };
+      }
+
+      return {
+        success: true,
+        id: params.id
+      };
+    } catch (error) {
+      console.error('Error rolling back memory:', error);
+      const memoryError = handleMemoryError(error, 'rollbackMemory');
+      return {
+        success: false,
+        error: {
+          code: memoryError.code,
+          message: memoryError.message
+        }
+      };
     }
   }
 } 
