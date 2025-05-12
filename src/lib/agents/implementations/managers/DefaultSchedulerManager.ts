@@ -20,6 +20,8 @@ import {
   SchedulerMetrics
 } from '../../../agents/base/managers/SchedulerManager';
 import type { AgentBase } from '../../../../agents/shared/base/AgentBase';
+import { BaseManager } from '../../../../agents/shared/base/managers/BaseManager';
+import { AbstractBaseManager } from '../../../../agents/shared/base/managers/BaseManager';
 
 /**
  * Error class for scheduling-related errors
@@ -39,14 +41,13 @@ class SchedulingError extends Error {
 /**
  * Default implementation of the SchedulerManager interface
  */
-export class DefaultSchedulerManager implements SchedulerManager {
-  private readonly managerId: string;
-  private readonly managerType = 'scheduler';
-  private config: SchedulerManagerConfig;
-  private agent: AgentBase;
+export class DefaultSchedulerManager extends AbstractBaseManager implements SchedulerManager {
+  protected readonly managerId: string;
+  protected readonly managerType = 'scheduler';
+  protected config: SchedulerManagerConfig;
   private tasks: Map<string, ScheduledTask> = new Map();
-  private initialized = false;
   private schedulingTimer: NodeJS.Timeout | null = null;
+  public readonly type = this.managerType;
 
   /**
    * Create a new DefaultSchedulerManager instance
@@ -55,9 +56,9 @@ export class DefaultSchedulerManager implements SchedulerManager {
    * @param config - Configuration options
    */
   constructor(agent: AgentBase, config: Partial<SchedulerManagerConfig> = {}) {
-    this.managerId = `scheduler-manager-${uuidv4()}`;
-    this.agent = agent;
-    this.config = {
+    const managerId = `scheduler-manager-${uuidv4()}`;
+    const managerType = 'scheduler';
+    super(managerId, managerType, agent, {
       enabled: config.enabled ?? true,
       enableAutoScheduling: config.enableAutoScheduling ?? true,
       schedulingIntervalMs: config.schedulingIntervalMs ?? 60000, // 1 minute
@@ -68,7 +69,10 @@ export class DefaultSchedulerManager implements SchedulerManager {
       maxRetryAttempts: config.maxRetryAttempts ?? 3,
       enableTaskTimeouts: config.enableTaskTimeouts ?? true,
       defaultTaskTimeoutMs: config.defaultTaskTimeoutMs ?? 300000 // 5 minutes
-    };
+    });
+    this.managerId = managerId;
+    this.managerType = managerType;
+    this.config = this.getConfig();
   }
 
   /**
@@ -151,8 +155,9 @@ export class DefaultSchedulerManager implements SchedulerManager {
    * Enable or disable the manager
    */
   setEnabled(enabled: boolean): boolean {
+    const wasEnabled = this.config.enabled;
     this.config.enabled = enabled;
-    return this.config.enabled;
+    return wasEnabled !== enabled;  // Return true if state changed
   }
 
   /**
@@ -161,7 +166,12 @@ export class DefaultSchedulerManager implements SchedulerManager {
   async reset(): Promise<boolean> {
     console.log(`[${this.managerId}] Resetting ${this.managerType} manager`);
     this.tasks.clear();
-    return true;
+    this.initialized = false;
+    if (this.schedulingTimer) {
+      clearInterval(this.schedulingTimer);
+      this.schedulingTimer = null;
+    }
+    return await this.initialize();  // Re-initialize after reset
   }
 
   /**
@@ -203,6 +213,27 @@ export class DefaultSchedulerManager implements SchedulerManager {
       status: 'healthy',
       message: 'Scheduler manager is healthy',
       metrics: stats
+    };
+  }
+
+  /**
+   * Get manager status information
+   */
+  async getStatus(): Promise<{
+    id: string;
+    type: string;
+    enabled: boolean;
+    initialized: boolean;
+    [key: string]: unknown;
+  }> {
+    return {
+      id: this.managerId,
+      type: this.managerType,
+      enabled: this.config.enabled,
+      initialized: this.initialized,
+      taskCount: this.tasks.size,
+      runningTasks: (await this.getRunningTasks()).length,
+      pendingTasks: (await this.getPendingTasks()).length
     };
   }
 
@@ -972,5 +1003,12 @@ export class DefaultSchedulerManager implements SchedulerManager {
 
     // TODO: Implement event unsubscription
     return true;
+  }
+
+  /**
+   * Check if the manager is initialized
+   */
+  isInitialized(): boolean {
+    return this.initialized;
   }
 } 

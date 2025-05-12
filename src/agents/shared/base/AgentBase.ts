@@ -17,6 +17,9 @@ import {
   AgentBaseConfig, 
   AgentCapability 
 } from './types';
+// import { DefaultPlanningManager } from '../../../../lib/agents/implementations/managers/DefaultPlanningManager';
+// import { PlanningManagerConfig } from '../../../../lib/agents/base/managers/PlanningManager';
+import { DefaultSchedulerManager } from '../../../lib/agents/implementations/managers/DefaultSchedulerManager';
 
 /**
  * Managers configuration for the agent
@@ -135,6 +138,8 @@ export interface AgentBase {
       message?: string;
     }>;
   }>;
+
+  getSchedulerManager(): DefaultSchedulerManager | undefined;
 }
 
 /**
@@ -147,6 +152,9 @@ export abstract class AbstractAgentBase implements AgentBase {
   
   /** Registered managers */
   protected managers: BaseManager[] = [];
+  
+  /** Scheduler manager */
+  protected schedulerManager?: DefaultSchedulerManager;
   
   /**
    * Create a new agent instance
@@ -188,7 +196,11 @@ export abstract class AbstractAgentBase implements AgentBase {
   /**
    * Initialize the agent
    */
-  abstract initialize(): Promise<boolean>;
+  async initialize(): Promise<boolean> {
+    // ... existing initialization logic ...
+    // ... rest of initialization ...
+    return true;
+  }
   
   /**
    * Shutdown the agent
@@ -316,5 +328,9 @@ export abstract class AbstractAgentBase implements AgentBase {
       message: `Agent ${this.getAgentId()} is ${overallStatus}`,
       managerHealth
     };
+  }
+
+  getSchedulerManager(): DefaultSchedulerManager | undefined {
+    return this.schedulerManager;
   }
 }

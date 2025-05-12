@@ -18,6 +18,18 @@ import {
   PlanExecutionResult
 } from '../../../agents/base/managers/PlanningManager';
 import type { AgentBase } from '../../../../agents/shared/base/AgentBase';
+import { AdaptationMetricsCalculatorImpl } from '../../../../server/planning/metrics/AdaptationMetrics';
+import { OptimizationMetricsCalculatorImpl } from '../../../../server/planning/metrics/OptimizationMetrics';
+import { ValidationMetricsCalculatorImpl } from '../../../../server/planning/metrics/ValidationMetrics';
+import { calculateTotalTime, calculateResourceUsage, calculateReliabilityScore } from '../../../../server/planning/utils/PlanMetricsCalculator';
+import { DefaultTimeOptimizationStrategy } from '../../../../server/planning/strategies/TimeOptimizationStrategy';
+import { DefaultResourceOptimizationStrategy } from '../../../../server/planning/strategies/ResourceOptimizationStrategy';
+import { DefaultReliabilityOptimizationStrategy } from '../../../../server/planning/strategies/ReliabilityOptimizationStrategy';
+import { DefaultEfficiencyOptimizationStrategy } from '../../../../server/planning/strategies/EfficiencyOptimizationStrategy';
+import { DefaultDependencyValidator } from '../../../../server/planning/validators/DependencyValidator';
+import { DefaultResourceValidator } from '../../../../server/planning/validators/ResourceValidator';
+import { DefaultPlanValidator } from '../../../../server/planning/validators/PlanValidator';
+import { AbstractBaseManager } from '../../../../agents/shared/base/managers/BaseManager';
 
 /**
  * Error class for planning-related errors
@@ -37,14 +49,20 @@ class PlanningError extends Error {
 /**
  * Default implementation of the PlanningManager interface
  */
-export class DefaultPlanningManager implements PlanningManager {
-  private readonly managerId: string;
-  private readonly managerType = 'planning';
-  private config: PlanningManagerConfig;
-  private agent: AgentBase;
+export class DefaultPlanningManager extends AbstractBaseManager implements PlanningManager {
   private plans: Map<string, Plan> = new Map();
-  private initialized = false;
+  protected initialized = false;
   private planningTimer: NodeJS.Timeout | null = null;
+  private adaptationMetrics = new AdaptationMetricsCalculatorImpl(calculateTotalTime);
+  private optimizationMetrics = new OptimizationMetricsCalculatorImpl(calculateTotalTime, calculateResourceUsage, calculateReliabilityScore);
+  private validationMetrics = new ValidationMetricsCalculatorImpl();
+  private timeStrategy = new DefaultTimeOptimizationStrategy();
+  private resourceStrategy = new DefaultResourceOptimizationStrategy();
+  private reliabilityStrategy = new DefaultReliabilityOptimizationStrategy();
+  private efficiencyStrategy = new DefaultEfficiencyOptimizationStrategy();
+  private dependencyValidator = new DefaultDependencyValidator();
+  private resourceValidator = new DefaultResourceValidator();
+  private planValidator = new DefaultPlanValidator();
 
   /**
    * Create a new DefaultPlanningManager instance
@@ -53,19 +71,34 @@ export class DefaultPlanningManager implements PlanningManager {
    * @param config - Configuration options
    */
   constructor(agent: AgentBase, config: Partial<PlanningManagerConfig> = {}) {
-    this.managerId = `planning-manager-${uuidv4()}`;
-    this.agent = agent;
-    this.config = {
-      enabled: config.enabled ?? true,
-      enableAutoPlanning: config.enableAutoPlanning ?? true,
-      planningIntervalMs: config.planningIntervalMs ?? 300000, // 5 minutes
-      maxConcurrentPlans: config.maxConcurrentPlans ?? 5,
-      minConfidenceThreshold: config.minConfidenceThreshold ?? 0.7,
-      enablePlanAdaptation: config.enablePlanAdaptation ?? true,
-      maxAdaptationAttempts: config.maxAdaptationAttempts ?? 3,
-      enablePlanValidation: config.enablePlanValidation ?? true,
-      enablePlanOptimization: config.enablePlanOptimization ?? true
-    };
+    super(
+      `planning-manager-${uuidv4()}`,
+      'planning',
+      agent,
+      {
+        enabled: config.enabled ?? true,
+        enableAutoPlanning: config.enableAutoPlanning ?? true,
+        planningIntervalMs: config.planningIntervalMs ?? 300000, // 5 minutes
+        maxConcurrentPlans: config.maxConcurrentPlans ?? 5,
+        minConfidenceThreshold: config.minConfidenceThreshold ?? 0.7,
+        enablePlanAdaptation: config.enablePlanAdaptation ?? true,
+        maxAdaptationAttempts: config.maxAdaptationAttempts ?? 3,
+        enablePlanValidation: config.enablePlanValidation ?? true,
+        enablePlanOptimization: config.enablePlanOptimization ?? true
+      }
+    );
+    this.plans = new Map();
+    this.planningTimer = null;
+    this.adaptationMetrics = new AdaptationMetricsCalculatorImpl(calculateTotalTime);
+    this.optimizationMetrics = new OptimizationMetricsCalculatorImpl(calculateTotalTime, calculateResourceUsage, calculateReliabilityScore);
+    this.validationMetrics = new ValidationMetricsCalculatorImpl();
+    this.timeStrategy = new DefaultTimeOptimizationStrategy();
+    this.resourceStrategy = new DefaultResourceOptimizationStrategy();
+    this.reliabilityStrategy = new DefaultReliabilityOptimizationStrategy();
+    this.efficiencyStrategy = new DefaultEfficiencyOptimizationStrategy();
+    this.dependencyValidator = new DefaultDependencyValidator();
+    this.resourceValidator = new DefaultResourceValidator();
+    this.planValidator = new DefaultPlanValidator();
   }
 
   /**
@@ -79,7 +112,7 @@ export class DefaultPlanningManager implements PlanningManager {
    * Get the manager type
    */
   getType(): string {
-    return this.managerType;
+    return this.type;
   }
 
   /**
@@ -111,7 +144,7 @@ export class DefaultPlanningManager implements PlanningManager {
    * Initialize the manager
    */
   async initialize(): Promise<boolean> {
-    console.log(`[${this.managerId}] Initializing ${this.managerType} manager`);
+    console.log(`[${this.managerId}] Initializing ${this.type} manager`);
     
     // Setup auto-planning if enabled
     if (this.config.enableAutoPlanning) {
@@ -126,7 +159,7 @@ export class DefaultPlanningManager implements PlanningManager {
    * Shutdown the manager and release resources
    */
   async shutdown(): Promise<void> {
-    console.log(`[${this.managerId}] Shutting down ${this.managerType} manager`);
+    console.log(`[${this.managerId}] Shutting down ${this.type} manager`);
     
     // Clear timers
     if (this.planningTimer) {
@@ -156,7 +189,7 @@ export class DefaultPlanningManager implements PlanningManager {
    * Reset the manager to its initial state
    */
   async reset(): Promise<boolean> {
-    console.log(`[${this.managerId}] Resetting ${this.managerType} manager`);
+    console.log(`[${this.managerId}] Resetting ${this.type} manager`);
     this.plans.clear();
     return true;
   }
@@ -188,7 +221,7 @@ export class DefaultPlanningManager implements PlanningManager {
     }
     
     // Degraded if too many concurrent plans
-    if (stats.activePlans > (this.config.maxConcurrentPlans ?? 5)) {
+    if (stats.activePlans > (this.config.maxConcurrentPlans as number ?? 5)) {
       return {
         status: 'degraded',
         message: 'Too many concurrent plans',
@@ -421,7 +454,7 @@ export class DefaultPlanningManager implements PlanningManager {
 
     // Check if we've exceeded adaptation attempts
     const adaptationCount = (plan.metadata.adaptationCount as number) ?? 0;
-    if (adaptationCount >= (this.config.maxAdaptationAttempts ?? 3)) {
+    if (adaptationCount >= (this.config.maxAdaptationAttempts as number ?? 3)) {
       throw new PlanningError(
         'Maximum adaptation attempts exceeded',
         'MAX_ADAPTATIONS_EXCEEDED'
@@ -556,7 +589,7 @@ export class DefaultPlanningManager implements PlanningManager {
       } catch (error) {
         console.error(`[${this.managerId}] Error during auto-planning:`, error);
       }
-    }, this.config.planningIntervalMs);
+    }, this.config.planningIntervalMs as number ?? 300000);
   }
 
   /**
@@ -566,7 +599,7 @@ export class DefaultPlanningManager implements PlanningManager {
     const activePlans = Array.from(this.plans.values())
       .filter(p => p.status === 'in_progress');
     
-    if (activePlans.length >= (this.config.maxConcurrentPlans ?? 5)) {
+    if (activePlans.length >= (this.config.maxConcurrentPlans as number ?? 5)) {
       return;
     }
 
@@ -618,4 +651,6 @@ export class DefaultPlanningManager implements PlanningManager {
       avgPlanConfidence: allPlans.length > 0 ? totalConfidence / allPlans.length : 0
     };
   }
+
+  public isInitialized(): boolean { return this.initialized; }
 } 

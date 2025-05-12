@@ -139,16 +139,22 @@ export abstract class AbstractBaseManager extends BaseManager implements BaseMan
   /** Manager configuration */
   protected config: ManagerConfig;
   
-  /** Reference to the parent agent */
-  protected agent!: AgentBase;
+  /** Whether the manager is initialized */
+  protected initialized: boolean = false;
   
   /**
    * Create a new manager instance
    * @param managerId Unique ID for this manager
    * @param managerType Type of manager
+   * @param agent The agent this manager belongs to
    * @param config Manager configuration
    */
-  constructor(agent: AgentBase, managerId: string, managerType: string, config: ManagerConfig) {
+  constructor(
+    managerId: string,
+    managerType: string,
+    agent: AgentBase,
+    config: ManagerConfig
+  ) {
     super(agent, managerType);
     this.managerId = managerId;
     this.managerType = managerType;
@@ -157,43 +163,30 @@ export abstract class AbstractBaseManager extends BaseManager implements BaseMan
       enabled: config.enabled ?? true
     };
   }
-  
+
   /**
-   * Set the agent this manager belongs to
-   * @param agent The agent instance
-   */
-  setAgent(agent: AgentBase): void {
-    this.agent = agent;
-  }
-  
-  /**
-   * Get the unique ID of this manager
-   * @returns The manager ID
+   * Get the manager's unique identifier
    */
   getId(): string {
     return this.managerId;
   }
-  
+
   /**
-   * Get the manager type
-   * @returns The manager type string
+   * Get the manager's type
    */
   getType(): string {
     return this.managerType;
   }
-  
+
   /**
-   * Get the manager configuration
-   * @returns The current manager configuration
+   * Get the manager's configuration
    */
   getConfig<T extends ManagerConfig>(): T {
     return this.config as T;
   }
-  
+
   /**
    * Update the manager configuration
-   * @param config The configuration updates to apply
-   * @returns The updated configuration
    */
   updateConfig<T extends ManagerConfig>(config: Partial<T>): T {
     this.config = {
@@ -202,59 +195,67 @@ export abstract class AbstractBaseManager extends BaseManager implements BaseMan
     };
     return this.config as T;
   }
-  
+
   /**
-   * Get the associated agent instance
-   * @returns The agent instance this manager belongs to
+   * Check if the manager is initialized
    */
-  getAgent(): AgentBase {
-    return this.agent;
+  isInitialized(): boolean {
+    return this.initialized;
   }
-  
+
   /**
-   * Initialize the manager
-   * @returns Promise resolving to true if initialization succeeds
-   */
-  async initialize(): Promise<boolean> {
-    console.log(`[${this.managerId}] Initializing ${this.managerType} manager`);
-    return true;
-  }
-  
-  /**
-   * Shutdown the manager and release resources
-   * @returns Promise that resolves when shutdown is complete
-   */
-  async shutdown(): Promise<void> {
-    console.log(`[${this.managerId}] Shutting down ${this.managerType} manager`);
-  }
-  
-  /**
-   * Check if the manager is currently enabled
-   * @returns Whether the manager is enabled
+   * Check if the manager is enabled
    */
   isEnabled(): boolean {
     return this.config.enabled;
   }
-  
+
   /**
    * Enable or disable the manager
-   * @param enabled Whether to enable or disable
-   * @returns The updated enabled state
    */
   setEnabled(enabled: boolean): boolean {
+    const wasEnabled = this.config.enabled;
     this.config.enabled = enabled;
-    return this.config.enabled;
+    return wasEnabled !== enabled;  // Return true if state changed
   }
-  
+
+  /**
+   * Initialize the manager
+   */
+  abstract initialize(): Promise<boolean>;
+
+  /**
+   * Shut down the manager and release resources
+   */
+  abstract shutdown(): Promise<void>;
+
   /**
    * Reset the manager to its initial state
-   * @returns Promise resolving to true if reset succeeds
    */
   async reset(): Promise<boolean> {
-    console.log(`[${this.managerId}] Resetting ${this.managerType} manager`);
-    return true;
+    await this.shutdown();
+    const success = await this.initialize();
+    return success;
   }
-  
+
+  /**
+   * Get manager status information
+   */
+  async getStatus(): Promise<{
+    id: string;
+    type: string;
+    enabled: boolean;
+    initialized: boolean;
+    [key: string]: unknown;
+  }> {
+    return {
+      id: this.managerId,
+      type: this.managerType,
+      enabled: this.isEnabled(),
+      initialized: this.isInitialized()
+    };
+  }
+
   /**
    * Get manager health status
    * @returns The current health status
