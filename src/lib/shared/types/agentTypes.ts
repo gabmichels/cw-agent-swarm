@@ -4,7 +4,6 @@
 import { ChatOpenAI } from '@langchain/openai';
 import { StateGraph } from '@langchain/langgraph';
 import { TaskLogger } from '../../../agents/chloe/task-logger';
-import { ChloeMemory } from '../../../agents/chloe/memory';
 import { MemoryManager } from '../../../agents/chloe/core/memoryManager';
 import { ToolManager } from '../../../agents/chloe/core/toolManager';
 import { PlanningManager } from '../../../agents/chloe/core/planningManager';
@@ -13,7 +12,9 @@ import { Notifier } from '../../../agents/chloe/notifiers';
 import { KnowledgeGapsManager } from '@/agents/chloe/core/knowledgeGapsManager';
 import { ImportanceLevel, MemoryType as BaseMemoryType, MemorySource as BaseMemorySource } from '../../../constants/memory';
 import { MemoryType as StandardMemoryType } from '../../../server/memory/config';
-import { MessageRole, TaskStatus } from '../../../agents/chloe/types/state';
+import { MessageRole } from '../../../agents/chloe/types/state';
+import { TaskStatus } from '../../../constants/task';
+import type { AgentMemory } from '../../../agents/chloe/memory';
 
 // ============= CORE INTERFACES =============
 
@@ -137,14 +138,14 @@ export interface MemoryManagerOptions extends BaseManagerOptions {
 export interface ToolManagerOptions extends BaseManagerOptions {
   logger?: TaskLogger;
   model: ChatOpenAI;
-  memory: ChloeMemory;
+  memory: AgentMemory;
 }
 
 /**
  * Options for initializing the planning manager
  */
 export interface PlanningManagerOptions extends BaseManagerOptions {
-  memory: ChloeMemory;
+  memory: AgentMemory;
   model: ChatOpenAI;
   taskLogger: TaskLogger;
   autonomySystem?: AutonomySystem;
@@ -155,7 +156,7 @@ export interface PlanningManagerOptions extends BaseManagerOptions {
  * Options for initializing the reflection manager
  */
 export interface ReflectionManagerOptions extends BaseManagerOptions {
-  memory: ChloeMemory;
+  memory: AgentMemory;
   model: ChatOpenAI;
   taskLogger: TaskLogger;
   notifyFunction?: NotifyFunction;
@@ -165,7 +166,7 @@ export interface ReflectionManagerOptions extends BaseManagerOptions {
  * Options for initializing the thought manager
  */
 export interface ThoughtManagerOptions extends BaseManagerOptions {
-  memory: ChloeMemory;
+  memory: AgentMemory;
   model: ChatOpenAI;
   taskLogger: TaskLogger;
 }
@@ -174,7 +175,7 @@ export interface ThoughtManagerOptions extends BaseManagerOptions {
  * Options for initializing the market scanner manager
  */
 export interface MarketScannerManagerOptions extends BaseManagerOptions {
-  memory: ChloeMemory;
+  memory: AgentMemory;
   model: ChatOpenAI;
   taskLogger: TaskLogger;
   notifyFunction?: NotifyFunction;
@@ -184,7 +185,7 @@ export interface MarketScannerManagerOptions extends BaseManagerOptions {
  * Options for initializing the knowledge gaps manager
  */
 export interface KnowledgeGapsManagerOptions extends BaseManagerOptions {
-  memory: ChloeMemory;
+  memory: AgentMemory;
   openaiApiKey: string;
   logger: TaskLogger;
   notifyFunction: NotifyFunction;
@@ -193,9 +194,9 @@ export interface KnowledgeGapsManagerOptions extends BaseManagerOptions {
 // ============= MEMORY TYPES =============
 
 /**
- * Options for configuring the ChloeMemory system.
+ * Options for configuring the AgentMemory system.
  */
-export interface ChloeMemoryOptions {
+export interface AgentMemoryOptions {
   namespace?: string;
   collectionName?: string;
   useOpenAI?: boolean;
@@ -623,4 +624,69 @@ export function isSuccessfulToolExecution(result: ToolExecutionResult): result i
  */
 export function isFailedToolExecution(result: ToolExecutionResult): result is ToolExecutionResult & { success: false } {
   return result.success === false;
+}
+
+// Type guards for plan steps
+export function isPlanStep(step: unknown): step is PlanStep {
+  return (
+    typeof step === 'object' &&
+    step !== null &&
+    'id' in step &&
+    'description' in step &&
+    'status' in step &&
+    Object.values(TaskStatus).includes((step as PlanStep).status)
+  );
+}
+
+export function isExtendedPlanStep(step: unknown): step is ExtendedPlanStep {
+  return (
+    isPlanStep(step) &&
+    'type' in step &&
+    'parameters' in step &&
+    Array.isArray((step as ExtendedPlanStep).dependencies)
+  );
+}
+
+export function isPlanWithSteps(plan: unknown): plan is PlanWithSteps {
+  return (
+    typeof plan === 'object' &&
+    plan !== null &&
+    'goal' in plan &&
+    'steps' in plan &&
+    'reasoning' in plan &&
+    Array.isArray((plan as PlanWithSteps).steps) &&
+    (plan as PlanWithSteps).steps.every(isPlanStep)
+  );
+}
+
+// Extended plan step type definition
+export interface ExtendedPlanStep extends Omit<PlanStep, 'status'> {
+  type: string;
+  status: TaskStatus;
+  parameters: Record<string, unknown>;
+  dependencies: string[];
+  estimatedTime?: number;
+  priority?: number;
+  retryCount?: number;
+  validationRules?: string[];
+  fallbackOptions?: PlanStep[];
+}
+
+// Update type references
+export interface ChloeAgent {
+  initialize(): Promise<void>;
+  getModel(): any;
+  getMemory(): AgentMemory | null;
+  getTaskLogger(): TaskLogger | null;
+  notify(message: string): void;
+  planAndExecute(goal: string, options: any): Promise<any>;
+  runDailyTasks?: () => Promise<void>;
+  runWeeklyReflection?: () => Promise<string>;
+  getReflectionManager?: () => any;
+  getPlanningManager?: () => any;
+  getKnowledgeGapsManager?: () => any;
+  getToolManager?: () => any;
+  getTasksWithTag?: (tag: string) => Promise<any[]>;
+  queueTask?: (task: any) => Promise<any>;
+  scheduleTask?: (task: any) => void;
 } 
