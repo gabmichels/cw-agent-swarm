@@ -33,6 +33,34 @@ export {
   createKnowledgeManagerConfig
 } from '../knowledge/config/KnowledgeManagerConfigSchema';
 
+// Export scheduler manager configuration
+export {
+  SchedulerManagerConfigSchema,
+  SchedulerManagerPresets,
+  createSchedulerManagerConfig
+} from '../scheduler/config/SchedulerManagerConfigSchema';
+
+// Export reflection manager configuration
+export {
+  ReflectionManagerConfigSchema,
+  ReflectionManagerPresets,
+  createReflectionManagerConfig
+} from '../reflection/config/ReflectionManagerConfigSchema';
+
+// Export input processor configuration
+export {
+  InputProcessorConfigSchema,
+  InputProcessorPresets,
+  createInputProcessorConfig
+} from '../input/config/InputProcessorConfigSchema';
+
+// Export output processor configuration
+export {
+  OutputProcessorConfigSchema,
+  OutputProcessorPresets,
+  createOutputProcessorConfig
+} from '../output/config/OutputProcessorConfigSchema';
+
 // Export factory and validation utilities from the core configuration system
 export {
   createConfigFactory,

@@ -20,8 +20,8 @@ import {
   SchedulerMetrics
 } from '../../../agents/base/managers/SchedulerManager';
 import type { AgentBase } from '../../../../agents/shared/base/AgentBase.interface';
-import { BaseManager } from '../../../../agents/shared/base/managers/BaseManager';
 import { AbstractBaseManager } from '../../../../agents/shared/base/managers/BaseManager';
+import { createSchedulerManagerConfig } from '../../../../agents/shared/scheduler/config/SchedulerManagerConfigSchema';
 
 /**
  * Error class for scheduling-related errors
@@ -58,18 +58,17 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
   constructor(agent: AgentBase, config: Partial<SchedulerManagerConfig> = {}) {
     const managerId = `scheduler-manager-${uuidv4()}`;
     const managerType = 'scheduler';
-    super(managerId, managerType, agent, {
-      enabled: config.enabled ?? true,
-      enableAutoScheduling: config.enableAutoScheduling ?? true,
-      schedulingIntervalMs: config.schedulingIntervalMs ?? 60000, // 1 minute
-      maxConcurrentTasks: config.maxConcurrentTasks ?? 10,
-      enableTaskPrioritization: config.enableTaskPrioritization ?? true,
-      enableTaskDependencies: config.enableTaskDependencies ?? true,
-      enableTaskRetries: config.enableTaskRetries ?? true,
-      maxRetryAttempts: config.maxRetryAttempts ?? 3,
-      enableTaskTimeouts: config.enableTaskTimeouts ?? true,
-      defaultTaskTimeoutMs: config.defaultTaskTimeoutMs ?? 300000 // 5 minutes
-    });
+    
+    // Create validated configuration using the factory
+    const schedulerConfig = createSchedulerManagerConfig(
+      // If presetName is provided in config.preset, use it, otherwise use custom config
+      config.preset as any || config,
+      // Apply additional overrides
+      config.preset ? config : {}
+    );
+    
+    super(managerId, managerType, agent, schedulerConfig);
+    
     this.managerId = managerId;
     this.managerType = managerType;
     this.config = this.getConfig();
