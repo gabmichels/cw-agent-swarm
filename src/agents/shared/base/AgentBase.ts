@@ -256,7 +256,7 @@ export abstract class AbstractAgentBase implements AgentBase {
       this.config.capabilities.push(capability);
     }
   }
-  
+
   /**
    * Disable a capability
    * @param capabilityId The ID of the capability to disable

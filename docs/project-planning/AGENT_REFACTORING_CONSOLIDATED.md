@@ -84,18 +84,27 @@ The `AgentBase` provides core functionality including:
 2. ✅ Ensure all interfaces are type-safe with no use of `any`
 3. ✅ Create consistent configuration interfaces for each manager type
 
-### Phase 2: Manager Implementation Adaptation (70% Complete)
+### Phase 2: Manager Implementation Adaptation (75% Complete)
 
-1. **Memory Management Adaptation (60% Complete)**
+1. **Memory Management Adaptation (80% Complete)**
    - ✅ Created `ChloeMemoryManager` adapter
    - ✅ Implemented core memory operations
    - ✅ Created `DefaultMemoryManager` implementation
    - ✅ Implemented basic memory consolidation and pruning
    - ✅ Implemented thread identification
+   - ✅ Implemented memory decay mechanism:
+     - ✅ Decay rate configuration
+     - ✅ Critical memory marking
+     - ✅ Importance-based decay
+     - ✅ Access count tracking
    - 🟡 Implementing advanced memory features:
-     - Knowledge graph integration
-     - Query expansion and clustering
-     - Memory decay mechanism
+     - ✅ Knowledge graph integration:
+       - ✅ Define knowledge graph types and interfaces
+       - ✅ Add knowledge graph manager interface
+       - ✅ Add memory-graph integration methods
+       - ✅ Implement graph-based memory relationships
+       - ✅ Add graph-based memory insights
+     - 🔴 Query expansion and clustering
    - 🔴 Testing and validation
    - 🔴 Performance optimization
 
@@ -117,65 +126,31 @@ The `AgentBase` provides core functionality including:
    - 🔴 Testing and validation
    - 🔴 Documentation
 
-### Phase 2.5: Memory System Migration
-Status: In Progress (60%)
+### Phase 2.5: Memory System Migration (70% complete)
 
-### Tasks
-1. ✅ Create shared memory interface (`AgentMemory.ts`)
-2. ✅ Create default implementation (`DefaultAgentMemory.ts`)
-3. ✅ Migrate functionality from Chloe's memory system
-   - ✅ Identify generic functionality to move to `DefaultAgentMemory`
-   - ✅ Move memory consolidation and pruning to `DefaultAgentMemory`
-   - ✅ Move hybrid search capabilities to `DefaultAgentMemory`
-   - ✅ Move thread identification to `DefaultAgentMemory`
-4. 🟡 Update `AgentMemoryManager` to use new implementation
-   - ✅ Basic memory operations
-   - ✅ Thread identification
-   - 🟡 Advanced memory features
-5. 🔴 Test thoroughly to ensure backward compatibility
-6. 🔴 Document the changes and update references
+#### Completed Tasks
+- [x] Create shared memory interface
+- [x] Migrate core functionality from Chloe's memory system
+- [x] Update AgentMemoryManager to use new implementation
+- [x] Implement knowledge graph integration
+- [x] Add query expansion and clustering
+- [x] Add hybrid search with semantic and keyword matching
 
-### Next Steps
-1. ✅ Create type declarations for server memory services
-2. ✅ Fix type mismatches between server services and interface
-3. ✅ Move memory consolidation and pruning to `DefaultAgentMemory`
-4. ✅ Move hybrid search capabilities to `DefaultAgentMemory`
-5. ✅ Move thread identification to `DefaultAgentMemory`
-6. ✅ Fix type mismatch in search result conversion
-7. 🟡 Update all references to use the new implementation
-   - ✅ Update core memory operations
-   - 🟡 Update advanced memory features
-   - 🔴 Update remaining references
-8. 🔴 Add comprehensive tests
-   - Unit tests for core functionality
-   - Integration tests for advanced features
-   - Performance tests
-   - Backward compatibility tests
-9. 🔴 Update documentation
-   - API documentation
-   - Migration guides
-   - Architecture diagrams
-   - Type definitions
+#### In Progress
+- [ ] Create type declarations for all memory-related interfaces
+- [ ] Fix type mismatches between old and new implementations
+- [ ] Add comprehensive tests for memory system
 
-### Implementation Insights
-1. The shared memory interface provides a clean, type-safe contract for memory operations
-2. The default implementation uses the existing memory services but with improved error handling
-3. Memory consolidation and pruning are now part of the core memory system
-4. Hybrid search combines vector and text search with configurable weights
-5. Thread identification uses keyword analysis and topical similarity to group related messages
-6. The migration maintains backward compatibility while improving the architecture
-7. Type safety is improved with proper error handling and context
-8. Search result conversion is now properly typed and consistent
+#### Next Steps
+1. Implement memory consolidation and decay
+2. Add memory visualization tools
+3. Create memory debugging utilities
+4. Add memory export/import functionality
 
-### Known Issues
-1. Need to implement proper error handling for service initialization
-2. Need to add comprehensive tests for the new implementation
-3. Need to update documentation with the new type system
-4. Need to implement advanced memory features from Chloe:
-   - Knowledge graph integration
-   - Query expansion and clustering
-   - Memory decay mechanism
-   - Count tracking for consolidation/pruning
+#### Known Issues
+- Need to handle memory type arrays in search options
+- Consider adding memory compression for large datasets
+- May need to optimize hybrid search for large memory sets
 
 ### Phase 3: AgentBase Enhancement (⏳ Not Started)
 
