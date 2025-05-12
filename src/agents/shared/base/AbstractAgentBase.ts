@@ -17,6 +17,27 @@ import type { ManagersConfig } from './ManagersConfig.interface';
 import { DefaultSchedulerManager } from '../../../lib/agents/implementations/managers/DefaultSchedulerManager';
 import type { MemoryManager } from './managers/MemoryManager';
 import type { PlanningManager, PlanCreationOptions, PlanCreationResult, Plan, PlanExecutionResult } from '../../../lib/agents/base/managers/PlanningManager';
+import type { 
+  ToolManager, 
+  Tool, 
+  ToolExecutionResult, 
+  ToolUsageMetrics,
+  ToolFallbackRule
+} from '../../../lib/agents/base/managers/ToolManager';
+import type {
+  KnowledgeManager,
+  KnowledgeEntry,
+  KnowledgeSearchResult,
+  KnowledgeSearchOptions,
+  KnowledgeGap
+} from '../../../lib/agents/base/managers/KnowledgeManager';
+import type {
+  SchedulerManager,
+  ScheduledTask,
+  TaskCreationOptions,
+  TaskCreationResult,
+  TaskExecutionResult
+} from '../../../lib/agents/base/managers/SchedulerManager';
 
 /**
  * Abstract implementation of the AgentBase interface
@@ -360,5 +381,316 @@ export abstract class AbstractAgentBase implements AgentBase {
     if (!planningManager) throw new Error('PlanningManager not registered');
     if (!planningManager.isInitialized()) throw new Error('PlanningManager not initialized');
     return planningManager.optimizePlan(planId);
+  }
+
+  /**
+   * Register a new tool via the registered ToolManager
+   */
+  async registerTool(tool: Tool): Promise<Tool> {
+    const toolManager = this.getManager<ToolManager>('tools');
+    if (!toolManager) throw new Error('ToolManager not registered');
+    if (!toolManager.isInitialized()) throw new Error('ToolManager not initialized');
+    return toolManager.registerTool(tool);
+  }
+
+  /**
+   * Unregister a tool via the registered ToolManager
+   */
+  async unregisterTool(toolId: string): Promise<boolean> {
+    const toolManager = this.getManager<ToolManager>('tools');
+    if (!toolManager) throw new Error('ToolManager not registered');
+    if (!toolManager.isInitialized()) throw new Error('ToolManager not initialized');
+    return toolManager.unregisterTool(toolId);
+  }
+
+  /**
+   * Get a tool by ID via the registered ToolManager
+   */
+  async getTool(toolId: string): Promise<Tool | null> {
+    const toolManager = this.getManager<ToolManager>('tools');
+    if (!toolManager) throw new Error('ToolManager not registered');
+    if (!toolManager.isInitialized()) throw new Error('ToolManager not initialized');
+    return toolManager.getTool(toolId);
+  }
+
+  /**
+   * Get tools via the registered ToolManager
+   */
+  async getTools(filter?: {
+    enabled?: boolean;
+    categories?: string[];
+    capabilities?: string[];
+    experimental?: boolean;
+  }): Promise<Tool[]> {
+    const toolManager = this.getManager<ToolManager>('tools');
+    if (!toolManager) throw new Error('ToolManager not registered');
+    if (!toolManager.isInitialized()) throw new Error('ToolManager not initialized');
+    return toolManager.getTools(filter);
+  }
+
+  /**
+   * Enable or disable a tool via the registered ToolManager
+   */
+  async setToolEnabled(toolId: string, enabled: boolean): Promise<Tool> {
+    const toolManager = this.getManager<ToolManager>('tools');
+    if (!toolManager) throw new Error('ToolManager not registered');
+    if (!toolManager.isInitialized()) throw new Error('ToolManager not initialized');
+    return toolManager.setToolEnabled(toolId, enabled);
+  }
+
+  /**
+   * Execute a tool via the registered ToolManager
+   */
+  async executeTool(
+    toolId: string,
+    params: unknown,
+    options?: {
+      context?: unknown;
+      timeoutMs?: number;
+      retries?: number;
+      useFallbacks?: boolean;
+    }
+  ): Promise<ToolExecutionResult> {
+    const toolManager = this.getManager<ToolManager>('tools');
+    if (!toolManager) throw new Error('ToolManager not registered');
+    if (!toolManager.isInitialized()) throw new Error('ToolManager not initialized');
+    return toolManager.executeTool(toolId, params, options);
+  }
+
+  /**
+   * Get tool metrics via the registered ToolManager
+   */
+  async getToolMetrics(toolId?: string): Promise<ToolUsageMetrics[]> {
+    const toolManager = this.getManager<ToolManager>('tools');
+    if (!toolManager) throw new Error('ToolManager not registered');
+    if (!toolManager.isInitialized()) throw new Error('ToolManager not initialized');
+    return toolManager.getToolMetrics(toolId);
+  }
+
+  /**
+   * Find best tool for a task via the registered ToolManager
+   */
+  async findBestToolForTask(taskDescription: string, context?: unknown): Promise<Tool | null> {
+    const toolManager = this.getManager<ToolManager>('tools');
+    if (!toolManager) throw new Error('ToolManager not registered');
+    if (!toolManager.isInitialized()) throw new Error('ToolManager not initialized');
+    return toolManager.findBestToolForTask(taskDescription, context);
+  }
+
+  /**
+   * Load knowledge via the registered KnowledgeManager
+   */
+  async loadKnowledge(): Promise<void> {
+    const knowledgeManager = this.getManager<KnowledgeManager>('knowledge');
+    if (!knowledgeManager) throw new Error('KnowledgeManager not registered');
+    if (!knowledgeManager.isInitialized()) throw new Error('KnowledgeManager not initialized');
+    return knowledgeManager.loadKnowledge();
+  }
+
+  /**
+   * Search knowledge via the registered KnowledgeManager
+   */
+  async searchKnowledge(query: string, options?: KnowledgeSearchOptions): Promise<KnowledgeSearchResult[]> {
+    const knowledgeManager = this.getManager<KnowledgeManager>('knowledge');
+    if (!knowledgeManager) throw new Error('KnowledgeManager not registered');
+    if (!knowledgeManager.isInitialized()) throw new Error('KnowledgeManager not initialized');
+    return knowledgeManager.searchKnowledge(query, options);
+  }
+
+  /**
+   * Add a knowledge entry via the registered KnowledgeManager
+   */
+  async addKnowledgeEntry(entry: Omit<KnowledgeEntry, 'id' | 'timestamp'>): Promise<KnowledgeEntry> {
+    const knowledgeManager = this.getManager<KnowledgeManager>('knowledge');
+    if (!knowledgeManager) throw new Error('KnowledgeManager not registered');
+    if (!knowledgeManager.isInitialized()) throw new Error('KnowledgeManager not initialized');
+    return knowledgeManager.addKnowledgeEntry(entry);
+  }
+
+  /**
+   * Get a knowledge entry via the registered KnowledgeManager
+   */
+  async getKnowledgeEntry(id: string): Promise<KnowledgeEntry | null> {
+    const knowledgeManager = this.getManager<KnowledgeManager>('knowledge');
+    if (!knowledgeManager) throw new Error('KnowledgeManager not registered');
+    if (!knowledgeManager.isInitialized()) throw new Error('KnowledgeManager not initialized');
+    return knowledgeManager.getKnowledgeEntry(id);
+  }
+
+  /**
+   * Update a knowledge entry via the registered KnowledgeManager
+   */
+  async updateKnowledgeEntry(id: string, updates: Partial<KnowledgeEntry>): Promise<KnowledgeEntry> {
+    const knowledgeManager = this.getManager<KnowledgeManager>('knowledge');
+    if (!knowledgeManager) throw new Error('KnowledgeManager not registered');
+    if (!knowledgeManager.isInitialized()) throw new Error('KnowledgeManager not initialized');
+    return knowledgeManager.updateKnowledgeEntry(id, updates);
+  }
+
+  /**
+   * Delete a knowledge entry via the registered KnowledgeManager
+   */
+  async deleteKnowledgeEntry(id: string): Promise<boolean> {
+    const knowledgeManager = this.getManager<KnowledgeManager>('knowledge');
+    if (!knowledgeManager) throw new Error('KnowledgeManager not registered');
+    if (!knowledgeManager.isInitialized()) throw new Error('KnowledgeManager not initialized');
+    return knowledgeManager.deleteKnowledgeEntry(id);
+  }
+
+  /**
+   * Get knowledge entries via the registered KnowledgeManager
+   */
+  async getKnowledgeEntries(options?: {
+    category?: string;
+    tags?: string[];
+    source?: string;
+    verified?: boolean;
+    limit?: number;
+    offset?: number;
+  }): Promise<KnowledgeEntry[]> {
+    const knowledgeManager = this.getManager<KnowledgeManager>('knowledge');
+    if (!knowledgeManager) throw new Error('KnowledgeManager not registered');
+    if (!knowledgeManager.isInitialized()) throw new Error('KnowledgeManager not initialized');
+    return knowledgeManager.getKnowledgeEntries(options);
+  }
+
+  /**
+   * Identify knowledge gaps via the registered KnowledgeManager
+   */
+  async identifyKnowledgeGaps(): Promise<KnowledgeGap[]> {
+    const knowledgeManager = this.getManager<KnowledgeManager>('knowledge');
+    if (!knowledgeManager) throw new Error('KnowledgeManager not registered');
+    if (!knowledgeManager.isInitialized()) throw new Error('KnowledgeManager not initialized');
+    return knowledgeManager.identifyKnowledgeGaps();
+  }
+
+  /**
+   * Get a knowledge gap via the registered KnowledgeManager
+   */
+  async getKnowledgeGap(id: string): Promise<KnowledgeGap | null> {
+    const knowledgeManager = this.getManager<KnowledgeManager>('knowledge');
+    if (!knowledgeManager) throw new Error('KnowledgeManager not registered');
+    if (!knowledgeManager.isInitialized()) throw new Error('KnowledgeManager not initialized');
+    return knowledgeManager.getKnowledgeGap(id);
+  }
+
+  /**
+   * Create a task via the registered SchedulerManager
+   */
+  async createTask(options: TaskCreationOptions): Promise<TaskCreationResult> {
+    const schedulerManager = this.getManager<SchedulerManager>('scheduler');
+    if (!schedulerManager) throw new Error('SchedulerManager not registered');
+    if (!schedulerManager.isInitialized()) throw new Error('SchedulerManager not initialized');
+    return schedulerManager.createTask(options);
+  }
+
+  /**
+   * Get a task via the registered SchedulerManager
+   */
+  async getTask(taskId: string): Promise<ScheduledTask | null> {
+    const schedulerManager = this.getManager<SchedulerManager>('scheduler');
+    if (!schedulerManager) throw new Error('SchedulerManager not registered');
+    if (!schedulerManager.isInitialized()) throw new Error('SchedulerManager not initialized');
+    return schedulerManager.getTask(taskId);
+  }
+
+  /**
+   * Get all tasks via the registered SchedulerManager
+   */
+  async getAllTasks(): Promise<ScheduledTask[]> {
+    const schedulerManager = this.getManager<SchedulerManager>('scheduler');
+    if (!schedulerManager) throw new Error('SchedulerManager not registered');
+    if (!schedulerManager.isInitialized()) throw new Error('SchedulerManager not initialized');
+    return schedulerManager.getAllTasks();
+  }
+
+  /**
+   * Update a task via the registered SchedulerManager
+   */
+  async updateTask(taskId: string, updates: Partial<ScheduledTask>): Promise<ScheduledTask | null> {
+    const schedulerManager = this.getManager<SchedulerManager>('scheduler');
+    if (!schedulerManager) throw new Error('SchedulerManager not registered');
+    if (!schedulerManager.isInitialized()) throw new Error('SchedulerManager not initialized');
+    return schedulerManager.updateTask(taskId, updates);
+  }
+
+  /**
+   * Delete a task via the registered SchedulerManager
+   */
+  async deleteTask(taskId: string): Promise<boolean> {
+    const schedulerManager = this.getManager<SchedulerManager>('scheduler');
+    if (!schedulerManager) throw new Error('SchedulerManager not registered');
+    if (!schedulerManager.isInitialized()) throw new Error('SchedulerManager not initialized');
+    return schedulerManager.deleteTask(taskId);
+  }
+
+  /**
+   * Execute a task via the registered SchedulerManager
+   */
+  async executeTask(taskId: string): Promise<TaskExecutionResult> {
+    const schedulerManager = this.getManager<SchedulerManager>('scheduler');
+    if (!schedulerManager) throw new Error('SchedulerManager not registered');
+    if (!schedulerManager.isInitialized()) throw new Error('SchedulerManager not initialized');
+    return schedulerManager.executeTask(taskId);
+  }
+
+  /**
+   * Cancel a task via the registered SchedulerManager
+   */
+  async cancelTask(taskId: string): Promise<boolean> {
+    const schedulerManager = this.getManager<SchedulerManager>('scheduler');
+    if (!schedulerManager) throw new Error('SchedulerManager not registered');
+    if (!schedulerManager.isInitialized()) throw new Error('SchedulerManager not initialized');
+    return schedulerManager.cancelTask(taskId);
+  }
+
+  /**
+   * Get due tasks via the registered SchedulerManager
+   */
+  async getDueTasks(): Promise<ScheduledTask[]> {
+    const schedulerManager = this.getManager<SchedulerManager>('scheduler');
+    if (!schedulerManager) throw new Error('SchedulerManager not registered');
+    if (!schedulerManager.isInitialized()) throw new Error('SchedulerManager not initialized');
+    return schedulerManager.getDueTasks();
+  }
+
+  /**
+   * Get running tasks via the registered SchedulerManager
+   */
+  async getRunningTasks(): Promise<ScheduledTask[]> {
+    const schedulerManager = this.getManager<SchedulerManager>('scheduler');
+    if (!schedulerManager) throw new Error('SchedulerManager not registered');
+    if (!schedulerManager.isInitialized()) throw new Error('SchedulerManager not initialized');
+    return schedulerManager.getRunningTasks();
+  }
+
+  /**
+   * Get pending tasks via the registered SchedulerManager
+   */
+  async getPendingTasks(): Promise<ScheduledTask[]> {
+    const schedulerManager = this.getManager<SchedulerManager>('scheduler');
+    if (!schedulerManager) throw new Error('SchedulerManager not registered');
+    if (!schedulerManager.isInitialized()) throw new Error('SchedulerManager not initialized');
+    return schedulerManager.getPendingTasks();
+  }
+
+  /**
+   * Get failed tasks via the registered SchedulerManager
+   */
+  async getFailedTasks(): Promise<ScheduledTask[]> {
+    const schedulerManager = this.getManager<SchedulerManager>('scheduler');
+    if (!schedulerManager) throw new Error('SchedulerManager not registered');
+    if (!schedulerManager.isInitialized()) throw new Error('SchedulerManager not initialized');
+    return schedulerManager.getFailedTasks();
+  }
+
+  /**
+   * Retry a task via the registered SchedulerManager
+   */
+  async retryTask(taskId: string): Promise<TaskExecutionResult> {
+    const schedulerManager = this.getManager<SchedulerManager>('scheduler');
+    if (!schedulerManager) throw new Error('SchedulerManager not registered');
+    if (!schedulerManager.isInitialized()) throw new Error('SchedulerManager not initialized');
+    return schedulerManager.retryTask(taskId);
   }
 }

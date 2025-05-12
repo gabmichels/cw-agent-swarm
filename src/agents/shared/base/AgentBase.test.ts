@@ -40,7 +40,42 @@ const mockAgent: AgentBase = {
   executePlan: async () => ({ success: true }),
   adaptPlan: async () => null,
   validatePlan: async () => true,
-  optimizePlan: async () => null
+  optimizePlan: async () => null,
+  
+  // Tool Manager delegations
+  registerTool: async () => ({ id: 'mock-tool', name: 'Mock Tool', description: 'Mock tool', enabled: true, execute: async () => ({}) }),
+  unregisterTool: async () => true,
+  getTool: async () => null,
+  getTools: async () => [],
+  setToolEnabled: async () => ({ id: 'mock-tool', name: 'Mock Tool', description: 'Mock tool', enabled: true, execute: async () => ({}) }),
+  executeTool: async () => ({ toolId: 'mock-tool', success: true, durationMs: 0, startedAt: new Date() }),
+  getToolMetrics: async () => [],
+  findBestToolForTask: async () => null,
+  
+  // Knowledge Manager delegations
+  loadKnowledge: async () => {},
+  searchKnowledge: async () => [],
+  addKnowledgeEntry: async () => ({ id: 'mock-entry', title: 'Mock Entry', content: 'Mock content', source: 'test', timestamp: new Date() }),
+  getKnowledgeEntry: async () => null,
+  updateKnowledgeEntry: async () => ({ id: 'mock-entry', title: 'Mock Entry', content: 'Mock content', source: 'test', timestamp: new Date() }),
+  deleteKnowledgeEntry: async () => true,
+  getKnowledgeEntries: async () => [],
+  identifyKnowledgeGaps: async () => [],
+  getKnowledgeGap: async () => null,
+  
+  // Scheduler Manager delegations
+  createTask: async () => ({ success: true }),
+  getTask: async () => null,
+  getAllTasks: async () => [],
+  updateTask: async () => null,
+  deleteTask: async () => true,
+  executeTask: async () => ({ success: true }),
+  cancelTask: async () => true,
+  getDueTasks: async () => [],
+  getRunningTasks: async () => [],
+  getPendingTasks: async () => [],
+  getFailedTasks: async () => [],
+  retryTask: async () => ({ success: true })
 };
 
 class MockManager extends AbstractBaseManager {
