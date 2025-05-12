@@ -3,6 +3,8 @@
  */
 import { MemoryFilter, SortOptions } from '../../config';
 import { BaseMemorySchema, MemoryPoint, MemorySearchResult } from '../../models';
+import { IEmbeddingService } from '../base/types';
+import { EmbeddingResult } from './embedding-service';
 
 /**
  * Memory client options for initialization
@@ -133,4 +135,128 @@ export interface IMemoryClient {
   
   // Utility methods
   getPointCount(collectionName: string, filter?: MemoryFilter): Promise<number>;
+}
+
+/**
+ * Embedding cache configuration
+ */
+export interface EmbeddingCacheConfig {
+  // Maximum number of embeddings to cache
+  maxSize: number;
+  
+  // Time-to-live for cached embeddings (in milliseconds)
+  ttlMs: number;
+  
+  // Whether to enable precomputation
+  enablePrecomputation: boolean;
+  
+  // Batch size for precomputation
+  precomputationBatchSize: number;
+  
+  // Minimum confidence threshold for cache hits
+  minConfidenceThreshold: number;
+}
+
+/**
+ * Enhanced embedding service interface
+ */
+export interface IEnhancedEmbeddingService extends IEmbeddingService {
+  /**
+   * Get embedding with caching
+   */
+  getEmbeddingWithCache(text: string, options?: {
+    forceRefresh?: boolean;
+    minConfidence?: number;
+  }): Promise<EmbeddingResult>;
+  
+  /**
+   * Generate batch embeddings with optimization
+   */
+  getBatchEmbeddingsOptimized(texts: string[], options?: {
+    batchSize?: number;
+    parallel?: boolean;
+    useCache?: boolean;
+  }): Promise<EmbeddingResult[]>;
+  
+  /**
+   * Precompute embeddings for a set of texts
+   */
+  precomputeEmbeddings(texts: string[], options?: {
+    priority?: 'low' | 'normal' | 'high';
+    callback?: (progress: number) => void;
+  }): Promise<void>;
+  
+  /**
+   * Get cache statistics
+   */
+  getCacheStats(): Promise<{
+    hits: number;
+    misses: number;
+    size: number;
+    hitRate: number;
+    averageLatency: number;
+  }>;
+  
+  /**
+   * Clear the embedding cache
+   */
+  clearCache(): Promise<void>;
+  
+  /**
+   * Update cache configuration
+   */
+  updateCacheConfig(config: Partial<EmbeddingCacheConfig>): Promise<void>;
+}
+
+/**
+ * Operation queue priority levels
+ */
+export type OperationPriority = 'low' | 'normal' | 'high';
+
+/**
+ * Operation queue item
+ */
+export interface OperationQueueItem<T = any> {
+  id: string;
+  payload: T;
+  priority: OperationPriority;
+  enqueuedAt: number;
+  execute: () => Promise<any>;
+}
+
+/**
+ * Operation queue statistics
+ */
+export interface OperationQueueStats {
+  size: number;
+  processing: number;
+  completed: number;
+  failed: number;
+  averageWaitTime: number;
+  averageProcessingTime: number;
+  rateLimit: number;
+}
+
+/**
+ * Operation queue configuration
+ */
+export interface OperationQueueConfig {
+  maxConcurrent: number;
+  rateLimit: number; // operations per second
+  batchSize: number;
+  healthCheckIntervalMs: number;
+}
+
+/**
+ * Operation queue interface
+ */
+export interface IOperationQueue<T = any> {
+  enqueue(item: OperationQueueItem<T>): Promise<void>;
+  dequeue(): Promise<OperationQueueItem<T> | undefined>;
+  processNext(): Promise<void>;
+  processBatch(): Promise<void>;
+  getStats(): OperationQueueStats;
+  updateConfig(config: Partial<OperationQueueConfig>): void;
+  clear(): void;
+  on(event: 'completed' | 'failed' | 'health', callback: (data: any) => void): void;
 } 
