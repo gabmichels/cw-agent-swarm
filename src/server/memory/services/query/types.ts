@@ -7,52 +7,44 @@
 
 import { StructuredId } from '../../../../utils/ulid';
 import { FilterCondition } from '../filters/types';
+import { MemoryType } from '../../config';
 
 /**
  * Query parameters for optimized memory retrieval
  */
 export interface QueryParams {
   /**
-   * Query text to search for
+   * The query text
    */
   query: string;
   
   /**
-   * Collection to search in
+   * The collection to query
    */
   collection: string;
   
   /**
-   * Optional filter conditions to apply
+   * Optional memory type to filter by
    */
-  filters?: FilterCondition<unknown>[];
+  type?: MemoryType;
   
   /**
-   * Maximum number of results to return
-   * @default 10
+   * Optional filters to apply
+   */
+  filters?: Record<string, unknown>;
+  
+  /**
+   * Optional limit on number of results
    */
   limit?: number;
   
   /**
-   * Minimum similarity score (0.0 to 1.0)
-   * @default 0.6
+   * Optional minimum similarity score
    */
   minScore?: number;
   
   /**
-   * Whether to include the score in the results
-   * @default true
-   */
-  includeScore?: boolean;
-  
-  /**
-   * Whether to include metadata in the results
-   * @default true
-   */
-  includeMetadata?: boolean;
-  
-  /**
-   * Optional partition key to limit search to a specific segment
+   * Optional partition key for sharding
    */
   partitionKey?: string;
 }

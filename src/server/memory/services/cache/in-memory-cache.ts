@@ -2,6 +2,7 @@
  * In-memory cache implementation
  */
 import { CacheManager, CacheEntryOptions, CacheStats, CachePriority, InMemoryCacheConfig } from './types';
+import { AdaptiveTtlStrategy, PriorityEvictionStrategy } from './optimization-strategies';
 
 /**
  * Internal cache entry with metadata
@@ -62,6 +63,8 @@ export class InMemoryCacheManager implements CacheManager {
   private cache: Map<string, CacheEntry<any>> = new Map();
   private config: Required<InMemoryCacheConfig>;
   private pruneIntervalId: NodeJS.Timeout | null = null;
+  private adaptiveTtl: AdaptiveTtlStrategy;
+  private evictionStrategy: PriorityEvictionStrategy;
   
   // Statistics
   private hitCount = 0;
@@ -76,11 +79,18 @@ export class InMemoryCacheManager implements CacheManager {
   constructor(config?: InMemoryCacheConfig) {
     this.config = { ...DEFAULT_CONFIG, ...config };
     
+    // Initialize optimization strategies
+    this.adaptiveTtl = new AdaptiveTtlStrategy(this);
+    this.evictionStrategy = new PriorityEvictionStrategy(this, this.config.maxSize);
+    
     if (this.config.autoPrune) {
       this.startPruneInterval();
     }
     
-    this.log('InMemoryCacheManager initialized');
+    // Start adaptive TTL adjustments
+    this.adaptiveTtl.start();
+    
+    this.log('InMemoryCacheManager initialized with optimization strategies');
   }
   
   /**
@@ -125,19 +135,22 @@ export class InMemoryCacheManager implements CacheManager {
   async set<T>(key: string, value: T, options?: CacheEntryOptions): Promise<void> {
     // Check if we need to evict entries due to size constraints
     if (this.cache.size >= this.config.maxSize && !this.cache.has(key)) {
-      this.evictEntries();
+      await this.evictionStrategy.checkAndEvict();
     }
     
+    // Get adaptive TTL based on cache performance and entry priority
+    const adaptiveOptions = await this.adaptiveTtl.getAdaptiveTtl(key, options);
+    
     const now = Date.now();
-    const ttl = options?.ttl ?? this.config.defaultTtl;
+    const ttl = adaptiveOptions.ttl ?? this.config.defaultTtl;
     const expiresAt = ttl > 0 ? now + ttl : 0;
     
     const entry: CacheEntry<T> = {
       value,
       createdAt: now,
       expiresAt,
-      priority: options?.priority ?? CachePriority.MEDIUM,
-      tags: new Set(options?.tags ?? []),
+      priority: adaptiveOptions.priority ?? CachePriority.MEDIUM,
+      tags: new Set(adaptiveOptions.tags ?? []),
       lastAccessed: now,
       accessCount: 0
     };
@@ -275,6 +288,9 @@ export class InMemoryCacheManager implements CacheManager {
       clearInterval(this.pruneIntervalId);
       this.pruneIntervalId = null;
     }
+    
+    // Stop adaptive TTL adjustments
+    this.adaptiveTtl.stop();
     
     this.cache.clear();
     this.log('InMemoryCacheManager destroyed');

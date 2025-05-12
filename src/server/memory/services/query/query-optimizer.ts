@@ -18,6 +18,11 @@ import {
   QueryResponse,
   QueryResultItem
 } from './types';
+import { QueryCache } from './query-cache';
+import { CacheManager } from '../cache/types';
+import { BaseMemorySchema } from '../../models/base-schema';
+import { QdrantFilter } from '../filters/types';
+import { QueryPerformanceMonitor } from './query-performance';
 
 /**
  * Search results interface for vector database
@@ -44,16 +49,11 @@ const DEFAULT_CONFIG: QueryOptimizerConfig = {
 };
 
 /**
- * Implementation of the IQueryOptimizer interface
+ * Query optimizer
  */
 export class QueryOptimizer implements IQueryOptimizer {
-  /**
-   * Cached query results: collection -> queryHash -> results
-   */
-  private queryCache: Map<string, Map<string, {
-    results: QueryResponse<any>,
-    timestamp: number
-  }>> = new Map();
+  private queryCache: QueryCache;
+  private performanceMonitor: QueryPerformanceMonitor;
   
   /**
    * Query patterns for optimization
@@ -65,144 +65,189 @@ export class QueryOptimizer implements IQueryOptimizer {
   ]);
   
   /**
-   * Constructor
-   * 
+   * Create a new query optimizer
    * @param vectorDb Vector database client
    * @param filterBuilder Filter builder for query conditions
    * @param embeddingService Service for creating embeddings
+   * @param cacheManager Cache manager instance
    * @param config Configuration options
    */
   constructor(
-    private readonly vectorDb: IVectorDatabaseClient,
-    private readonly filterBuilder: QdrantFilterBuilder,
+    private readonly vectorDb: any, // TODO: Add proper type
+    private readonly filterBuilder: any, // TODO: Add proper type
     private readonly embeddingService: { embedText(text: string): Promise<number[]> },
+    private readonly cacheManager: CacheManager,
     private readonly config: QueryOptimizerConfig = DEFAULT_CONFIG
-  ) {}
+  ) {
+    this.queryCache = new QueryCache(cacheManager, {
+      defaultTtl: config.cacheTtlSeconds * 1000,
+      enableLogging: true
+    });
+    this.performanceMonitor = new QueryPerformanceMonitor({
+      enableDetailedMetrics: true,
+      alertThresholds: {
+        maxExecutionTimeMs: 2000, // 2 seconds
+        minCacheHitRate: 0.7,
+        maxMemoryUsageBytes: 52428800 // 50MB
+      }
+    });
+  }
   
   /**
-   * Execute an optimized query against the memory system
-   * 
+   * Execute a query with optimization
    * @param params Query parameters
-   * @param strategy Optional optimization strategy to use
-   * @returns Query response with results
+   * @param strategy Optional optimization strategy
+   * @returns Query response
    */
   async query<T = Record<string, unknown>>(
     params: QueryParams,
     strategy?: QueryOptimizationStrategy
   ): Promise<QueryResponse<T>> {
-    // Validate input
-    if (!params.query || typeof params.query !== 'string') {
-      throw new AppError(
-        'Invalid query parameter',
-        QueryErrorCode.INVALID_QUERY,
-        { providedQuery: params.query }
-      );
-    }
-    
-    if (!params.collection || typeof params.collection !== 'string') {
-      throw new AppError(
-        'Invalid collection parameter',
-        QueryErrorCode.COLLECTION_NOT_FOUND,
-        { providedCollection: params.collection }
-      );
-    }
-    
-    // Merge defaults with provided params
+    const startTime = Date.now();
     const mergedParams = this.mergeQueryDefaults(params);
-    
-    // Determine optimization strategy
     const selectedStrategy = strategy || this.determineStrategy(params.query);
     
-    // Check cache if enabled
-    if (this.config.enableCaching) {
-      const cachedResults = this.getCachedResults<T>(mergedParams, selectedStrategy);
+    try {
+      // Check cache first
+      const cachedResults = await this.queryCache.getCachedResults<BaseMemorySchema>(mergedParams);
       if (cachedResults) {
-        return cachedResults;
+        const endTime = Date.now();
+        this.performanceMonitor.recordMetrics(mergedParams, cachedResults, {
+          executionTimeMs: endTime - startTime,
+          cacheStatus: 'hit',
+          resultCount: cachedResults.results.length,
+          strategy: selectedStrategy,
+          memoryUsageBytes: this.estimateMemoryUsage(cachedResults)
+        });
+        
+        return cachedResults as unknown as QueryResponse<T>;
       }
+      
+      // Execute query with performance monitoring
+      const results = await this.executeQueryWithStrategy<T>(mergedParams, selectedStrategy);
+      const endTime = Date.now();
+      
+      // Record performance metrics
+      this.performanceMonitor.recordMetrics(mergedParams, results, {
+        executionTimeMs: endTime - startTime,
+        cacheStatus: 'miss',
+        resultCount: results.results.length,
+        strategy: selectedStrategy,
+        memoryUsageBytes: this.estimateMemoryUsage(results)
+      });
+      
+      // Cache results
+      await this.queryCache.cacheResults(mergedParams, results as unknown as QueryResponse<BaseMemorySchema>);
+      
+      // Analyze performance and suggest optimizations
+      const analysis = this.performanceMonitor.analyzeQuery(mergedParams);
+      if (analysis.bottlenecks.length > 0) {
+        console.warn('[QueryOptimizer] Performance bottlenecks detected:', {
+          query: mergedParams.query,
+          bottlenecks: analysis.bottlenecks,
+          suggestions: analysis.suggestions
+        });
+      }
+      
+      return results;
+    } catch (error) {
+      const endTime = Date.now();
+      
+      // Record error metrics
+      this.performanceMonitor.recordMetrics(mergedParams, {
+        results: [],
+        totalMatches: 0,
+        truncated: false,
+        executionTimeMs: endTime - startTime
+      }, {
+        executionTimeMs: endTime - startTime,
+        cacheStatus: 'miss',
+        resultCount: 0,
+        strategy: selectedStrategy,
+        memoryUsageBytes: 0
+      });
+      
+      throw error;
     }
-    
-    // Set timeout if configured
-    const timeoutPromise = this.createTimeout();
+  }
+  
+  /**
+   * Execute a query with given parameters and optimization strategy
+   * @param params Query parameters
+   * @param strategy Optimization strategy
+   * @returns Query response
+   */
+  private async executeQueryWithStrategy<T>(
+    params: QueryParams,
+    strategy: QueryOptimizationStrategy
+  ): Promise<QueryResponse<T>> {
+    const startTime = Date.now();
     
     try {
-      // Start timing execution
-      const startTime = Date.now();
+      // Generate embeddings
+      const embeddings = await this.embeddingService.embedText(params.query);
       
-      // Generate embedding for the query
-      const embedding = await this.embeddingService.embedText(params.query);
-      
-      // Build optimized filter
-      const filter = params.filters 
-        ? this.filterBuilder.build(params.filters)
-        : undefined;
+      // Build filters
+      const filters = this.filterBuilder.buildFilters(params.filters);
       
       // Apply optimization strategy
       const optimizedParams = this.applyOptimizationStrategy(
-        mergedParams,
-        embedding,
-        filter,
-        selectedStrategy
+        params,
+        embeddings,
+        filters,
+        strategy
       );
       
       // Execute query
-      const searchResults = await Promise.race([
-        this.search(
-          params.collection,
-          embedding,
-          optimizedParams.limit,
-          optimizedParams.filter,
-          optimizedParams.scoreThreshold
-        ),
-        timeoutPromise
-      ]);
-      
-      // Calculate execution time
-      const executionTime = Date.now() - startTime;
+      const searchResults = await this.vectorDb.search(
+        params.collection,
+        embeddings,
+        optimizedParams.limit,
+        filters,
+        optimizedParams.scoreThreshold
+      );
       
       // Format results
-      const response: QueryResponse<T> = {
-        results: searchResults.matches.map(match => ({
-          id: match.id as unknown as StructuredId, // Type conversion for compatibility
+      const results: QueryResponse<T> = {
+        results: searchResults.matches.map((match: { id: string; score: number; payload: Record<string, unknown> }) => ({
+          id: match.id,
           text: match.payload.text as string,
           score: match.score,
-          metadata: match.payload as unknown as T
+          metadata: match.payload as T
         })),
         totalMatches: searchResults.totalCount,
-        truncated: searchResults.totalCount > (mergedParams.limit ?? 0),
-        executionTimeMs: executionTime
+        truncated: searchResults.totalCount > (params.limit ?? 0),
+        executionTimeMs: Date.now() - startTime
       };
       
-      // Cache results if enabled
-      if (this.config.enableCaching) {
-        this.cacheResults(mergedParams, selectedStrategy, response);
-      }
-      
-      return response;
-    } catch (error) {
-      // Handle timeout error
-      if (error === 'TIMEOUT') {
+      // Check timeout
+      if (results.executionTimeMs > 5000) { // 5 second timeout
         throw new AppError(
-          `Query execution timed out after ${this.config.timeoutMs}ms`,
           QueryErrorCode.EXECUTION_TIMEOUT,
-          { 
-            query: params.query,
-            collection: params.collection,
-            timeoutMs: this.config.timeoutMs
-          }
+          `Query execution timed out after ${results.executionTimeMs}ms`
         );
       }
       
-      // Handle other errors
+      return results;
+    } catch (error: unknown) {
+      if (error instanceof AppError) throw error;
       throw new AppError(
-        `Failed to execute query: ${error instanceof Error ? error.message : String(error)}`,
         QueryErrorCode.OPTIMIZATION_FAILED,
-        {
-          query: params.query,
-          collection: params.collection,
-          strategy: selectedStrategy
-        }
+        `Query execution failed: ${error instanceof Error ? error.message : 'Unknown error'}`
       );
     }
+  }
+  
+  /**
+   * Estimate memory usage of query results
+   * @param response Query response
+   * @returns Estimated memory usage in bytes
+   */
+  private estimateMemoryUsage(response: QueryResponse<unknown>): number {
+    return response.results.reduce((total: number, result: unknown) => {
+      const resultSize = JSON.stringify(result).length;
+      return total + resultSize;
+    }, 0);
   }
   
   /**
@@ -293,12 +338,7 @@ export class QueryOptimizer implements IQueryOptimizer {
    * @returns Whether the operation was successful
    */
   async clearCache(collection?: string): Promise<boolean> {
-    if (collection) {
-      this.queryCache.delete(collection);
-    } else {
-      this.queryCache.clear();
-    }
-    
+    await this.queryCache.clearCache(collection);
     return true;
   }
   
@@ -344,30 +384,22 @@ export class QueryOptimizer implements IQueryOptimizer {
     return {
       ...params,
       limit: params.limit ?? this.config.defaultLimit,
-      minScore: params.minScore ?? this.config.defaultMinScore,
-      includeScore: params.includeScore ?? true,
-      includeMetadata: params.includeMetadata ?? true
+      minScore: params.minScore ?? this.config.defaultMinScore
     };
   }
   
   /**
    * Apply optimization strategy to query parameters
-   * 
-   * @param params Query parameters
-   * @param embedding Query embedding
-   * @param filter Compiled filter condition
-   * @param strategy Optimization strategy
-   * @returns Optimized parameters for the vector database
    */
   private applyOptimizationStrategy(
     params: QueryParams,
     embedding: number[],
-    filter: any,
+    filter: QdrantFilter | undefined,
     strategy: QueryOptimizationStrategy
   ): {
-    limit: number,
-    filter: any,
-    scoreThreshold: number
+    limit: number;
+    filter?: QdrantFilter;
+    scoreThreshold: number;
   } {
     // Initialize with default values to ensure they're never undefined
     let limit = params.limit ?? this.config.defaultLimit;
@@ -417,103 +449,6 @@ export class QueryOptimizer implements IQueryOptimizer {
   }
   
   /**
-   * Get cached results for a query
-   * 
-   * @param params Query parameters
-   * @param strategy Optimization strategy
-   * @returns Cached results or undefined if not found
-   */
-  private getCachedResults<T>(
-    params: QueryParams,
-    strategy: QueryOptimizationStrategy
-  ): QueryResponse<T> | undefined {
-    if (!this.config.enableCaching) {
-      return undefined;
-    }
-    
-    const collectionCache = this.queryCache.get(params.collection);
-    if (!collectionCache) {
-      return undefined;
-    }
-    
-    const queryHash = this.hashQuery(params, strategy);
-    const cachedItem = collectionCache.get(queryHash);
-    if (!cachedItem) {
-      return undefined;
-    }
-    
-    // Check if cache has expired
-    const now = Date.now();
-    if (now - cachedItem.timestamp > this.config.cacheTtlSeconds * 1000) {
-      collectionCache.delete(queryHash);
-      return undefined;
-    }
-    
-    return cachedItem.results as QueryResponse<T>;
-  }
-  
-  /**
-   * Cache results for a query
-   * 
-   * @param params Query parameters
-   * @param strategy Optimization strategy
-   * @param results Query results
-   */
-  private cacheResults<T>(
-    params: QueryParams,
-    strategy: QueryOptimizationStrategy,
-    results: QueryResponse<T>
-  ): void {
-    if (!this.config.enableCaching) {
-      return;
-    }
-    
-    // Get or create collection cache
-    let collectionCache = this.queryCache.get(params.collection);
-    if (!collectionCache) {
-      collectionCache = new Map();
-      this.queryCache.set(params.collection, collectionCache);
-    }
-    
-    // Cache the results
-    const queryHash = this.hashQuery(params, strategy);
-    collectionCache.set(queryHash, {
-      results,
-      timestamp: Date.now()
-    });
-    
-    // Limit cache size (simple LRU-like approach)
-    if (collectionCache.size > 100) {
-      const oldestKey = Array.from(collectionCache.entries())
-        .sort((a, b) => a[1].timestamp - b[1].timestamp)[0][0];
-        
-      collectionCache.delete(oldestKey);
-    }
-  }
-  
-  /**
-   * Create a simple hash for a query (for cache key)
-   * 
-   * @param params Query parameters
-   * @param strategy Optimization strategy
-   * @returns Hash string
-   */
-  private hashQuery(
-    params: QueryParams,
-    strategy: QueryOptimizationStrategy
-  ): string {
-    // Basic hash function for query + params
-    const queryStr = params.query.toLowerCase().trim();
-    const filtersStr = params.filters 
-      ? JSON.stringify(params.filters)
-      : '';
-    const limitStr = params.limit?.toString() || '';
-    const minScoreStr = params.minScore?.toString() || '';
-    
-    return `${queryStr}|${filtersStr}|${limitStr}|${minScoreStr}|${strategy}|${params.partitionKey || ''}`;
-  }
-  
-  /**
    * Create a timeout promise
    * 
    * @returns Promise that rejects after timeout
@@ -524,7 +459,12 @@ export class QueryOptimizer implements IQueryOptimizer {
     }
     
     return new Promise((_, reject) => {
-      setTimeout(() => reject('TIMEOUT'), this.config.timeoutMs);
+      setTimeout(() => {
+        reject(new AppError(
+          QueryErrorCode.EXECUTION_TIMEOUT,
+          `Query execution timed out after ${this.config.timeoutMs}ms`
+        ));
+      }, this.config.timeoutMs);
     });
   }
 } 
