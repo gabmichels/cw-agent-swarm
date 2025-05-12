@@ -140,6 +140,9 @@ export interface AgentBase {
   }>;
 
   getSchedulerManager(): DefaultSchedulerManager | undefined;
+
+  initializeManagers(): Promise<void>;
+  shutdownManagers(): Promise<void>;
 }
 
 /**
@@ -151,7 +154,7 @@ export abstract class AbstractAgentBase implements AgentBase {
   protected config: AgentBaseConfig;
   
   /** Registered managers */
-  protected managers: BaseManager[] = [];
+  protected managers: Map<string, BaseManager> = new Map();
   
   /** Scheduler manager */
   protected schedulerManager?: DefaultSchedulerManager;
@@ -211,11 +214,7 @@ export abstract class AbstractAgentBase implements AgentBase {
    * Register a manager with this agent
    */
   registerManager<T extends BaseManager>(manager: T): T {
-    const existingManager = this.managers.find(m => m.getType() === manager.getType());
-    if (existingManager) {
-      this.managers = this.managers.filter(m => m.getType() !== manager.getType());
-    }
-    this.managers.push(manager);
+    this.managers.set(manager.getType(), manager);
     return manager;
   }
   
@@ -223,14 +222,14 @@ export abstract class AbstractAgentBase implements AgentBase {
    * Get a registered manager by type
    */
   getManager<T extends BaseManager>(managerType: string): T | undefined {
-    return this.managers.find(manager => manager.getType() === managerType) as T | undefined;
+    return this.managers.get(managerType) as T | undefined;
   }
   
   /**
    * Get all registered managers
    */
   getManagers(): BaseManager[] {
-    return this.managers;
+    return Array.from(this.managers.values());
   }
   
   /**
@@ -290,7 +289,7 @@ export abstract class AbstractAgentBase implements AgentBase {
     }>;
   }> {
     // Get health status from all managers
-    const managerHealthPromises = this.managers.map(
+    const managerHealthPromises = Array.from(this.managers.values()).map(
       async manager => {
         try {
           const health = await manager.getHealth();
@@ -332,5 +331,21 @@ export abstract class AbstractAgentBase implements AgentBase {
 
   getSchedulerManager(): DefaultSchedulerManager | undefined {
     return this.schedulerManager;
+  }
+
+  async initializeManagers(): Promise<void> {
+    for (const manager of Array.from(this.managers.values())) {
+      if (typeof manager.initialize === 'function') {
+        await manager.initialize();
+      }
+    }
+  }
+
+  async shutdownManagers(): Promise<void> {
+    for (const manager of Array.from(this.managers.values())) {
+      if (typeof manager.shutdown === 'function') {
+        await manager.shutdown();
+      }
+    }
   }
 }
