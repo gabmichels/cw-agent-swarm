@@ -63,6 +63,13 @@ interface MemoryFilter {
   must_not?: FilterCondition[];
 }
 
+export interface GetMemoriesParams {
+  types?: MemoryType[];
+  limit?: number;
+  offset?: number;
+  agentId?: string;
+}
+
 /**
  * React hook for accessing the standardized memory system
  * Provides functions for CRUD operations on memories
@@ -81,15 +88,9 @@ export default function useMemory(
   });
 
   /**
-   * Get memories with optional type filtering
+   * Get memories with optional type filtering and agent scoping
    */
-  const getMemories = useCallback(async (
-    params: { 
-      types?: MemoryType[], 
-      limit?: number, 
-      offset?: number 
-    } = {}
-  ) => {
+  const getMemories = useCallback(async (params: GetMemoriesParams = {}) => {
     setState(prev => ({ ...prev, isLoading: true, error: null }));
     
     try {
@@ -106,6 +107,10 @@ export default function useMemory(
       
       if (params.offset) {
         queryParams.append('offset', params.offset.toString());
+      }
+
+      if (params.agentId) {
+        queryParams.append('agentId', params.agentId);
       }
       
       console.log(`Fetching memories from API with params: ${queryParams.toString()}`);
@@ -137,6 +142,13 @@ export default function useMemory(
       return [];
     }
   }, []);
+
+  /**
+   * Get memories for a specific agent
+   */
+  const getAgentMemories = useCallback(async (agentId: string, params: Omit<GetMemoriesParams, 'agentId'> = {}) => {
+    return getMemories({ ...params, agentId });
+  }, [getMemories]);
 
   /**
    * Search memories using the hybrid search API
@@ -372,6 +384,7 @@ export default function useMemory(
   return {
     ...state,
     getMemories,
+    getAgentMemories,
     searchMemories,
     getMemory,
     addMemory,

@@ -3,12 +3,13 @@
  */
 import { v4 as uuidv4 } from 'uuid';
 import { DEFAULTS, MemoryErrorCode, MemoryType } from '../../config';
-import { COLLECTION_CONFIGS as COLLECTIONS } from '../../config/collections';
+import { COLLECTION_CONFIGS as COLLECTIONS, MEMORY_EDIT_COLLECTION } from '../../config/collections';
 import { BaseMemorySchema, MemoryPoint, MemorySearchResult } from '../../models';
 import { handleMemoryError, validateAddMemoryParams, validateGetMemoryParams, validateUpdateMemoryParams, validateDeleteMemoryParams } from '../../utils';
-import { IMemoryClient } from '../client/types';
+import { IMemoryClient, SearchQuery } from '../client/types';
 import { EmbeddingService } from '../client/embedding-service';
 import { AddMemoryParams, DeleteMemoryParams, GetMemoryParams, MemoryResult, SearchMemoryParams, UpdateMemoryParams } from './types';
+import { MemoryEditMetadata } from '../../../../types/metadata';
 
 /**
  * Memory service options
@@ -274,9 +275,6 @@ export class MemoryService {
   
   /**
    * Get version history for a memory
-   * 
-   * @param params History request parameters
-   * @returns Array of memory versions
    */
   async getMemoryHistory<T extends BaseMemorySchema>(params: {
     id: string;
@@ -316,42 +314,64 @@ export class MemoryService {
       if (!currentMemory) {
         return [];
       }
-      
-      // For now, return a mock implementation
-      // In a real implementation, this would fetch from a history table/collection
-      
-      // Create a mock history entry older than the current one
-      const mockOlderVersion: MemoryPoint<T> = {
-        id: params.id,
-        vector: [],
-        payload: {
-          ...currentMemory.payload,
-          text: `Previous version of: ${currentMemory.payload.text?.substring(0, 50)}...`,
-          timestamp: (parseInt(currentMemory.payload.timestamp) - 86400000).toString(), // 1 day earlier
-          metadata: {
-            ...currentMemory.payload.metadata,
-            version: 1,
-            edited: false
-          }
-        } as any
+
+      // Get all memory edits for this memory
+      const searchQuery: SearchQuery = {
+        filter: {
+          'metadata.original_memory_id': params.id
+        },
+        limit: params.limit || 10,
+        sort: {
+          field: 'payload.timestamp',
+          direction: 'desc'
+        }
       };
-      
-      // Current memory becomes the latest version
-      const currentVersion: MemoryPoint<T> = {
-        ...currentMemory,
-        payload: {
-          ...currentMemory.payload,
-          metadata: {
-            ...currentMemory.payload.metadata,
-            version: 2,
-            edited: true
-          }
-        } as any
-      };
-      
-      // Return history with limit
-      const limit = params.limit || 10;
-      return [mockOlderVersion, currentVersion].slice(0, limit);
+
+      const editRecords = await this.client.searchPoints(
+        MEMORY_EDIT_COLLECTION.name,
+        searchQuery
+      );
+
+      // Convert edit records to memory points
+      const history: MemoryPoint<T>[] = editRecords.map(edit => {
+        const metadata = edit.payload.metadata as MemoryEditMetadata;
+        return {
+          id: edit.id,
+          vector: (edit as any).vector || [],
+          payload: {
+            ...edit.payload,
+            type: metadata.original_type as MemoryType || memoryType,
+            timestamp: edit.payload.timestamp,
+            metadata: {
+              ...metadata,
+              isMemoryEdit: true,
+              edit_type: metadata.edit_type || 'update',
+              editor_type: metadata.editor_type || 'system',
+              editor_id: metadata.editor_id,
+              diff_summary: metadata.diff_summary,
+              current: metadata.current || false,
+              previous_version_id: metadata.previous_version_id
+            }
+          } as any
+        };
+      });
+
+      // Add current memory as the latest version if it exists
+      if (currentMemory) {
+        history.unshift({
+          ...currentMemory,
+          payload: {
+            ...currentMemory.payload,
+            metadata: {
+              ...currentMemory.payload.metadata,
+              isMemoryEdit: false,
+              current: true
+            }
+          } as any
+        });
+      }
+
+      return history;
     } catch (error) {
       console.error('Error getting memory history:', error);
       throw handleMemoryError(error, 'getMemoryHistory');

@@ -176,69 +176,83 @@ export class MemoryError extends Error {
 }
 
 /**
+ * Memory consolidation configuration
+ */
+export interface MemoryConsolidationConfig {
+  enabled: boolean;
+  consolidationInterval: number; // in milliseconds
+  minMemoriesForConsolidation: number;
+  maxConsolidationBatchSize: number;
+  importanceThreshold: number;
+  relationshipThreshold: number;
+  maxInferredRelationships: number;
+}
+
+/**
  * Memory decay configuration
  */
 export interface MemoryDecayConfig {
-  /** Base decay rate per day (0-1) */
+  enabled: boolean;
   baseDecayRate: number;
-  
-  /** Decay rate multipliers by memory type */
-  typeDecayRates: Partial<Record<MemoryType, number>>;
-  
-  /** Minimum importance level to prevent decay */
-  criticalImportanceLevel: ImportanceLevel;
-  
-  /** Number of days before decay starts */
-  decayStartDays: number;
-  
-  /** Maximum decay rate (0-1) */
-  maxDecayRate: number;
-  
-  /** Minimum decay rate (0-1) */
+  importanceDecayFactor: number;
+  typeDecayFactors: Record<MemoryType, number>;
   minDecayRate: number;
+  maxDecayRate: number;
+  criticalMemoryThreshold: number;
+  decayInterval: number; // in milliseconds
+  decayStartDays: number; // Number of days before decay starts
+}
+
+/**
+ * Memory consolidation statistics
+ */
+export interface MemoryConsolidationStats {
+  totalMemoriesConsolidated: number;
+  newRelationshipsInferred: number;
+  strategicInsightsGenerated: number;
+  lastConsolidationTime: number;
+  averageConsolidationTime: number;
+  consolidationErrors: number;
 }
 
 /**
  * Memory decay statistics
  */
 export interface MemoryDecayStats {
-  /** Total memories processed */
-  totalProcessed: number;
-  
-  /** Memories marked as critical */
-  criticalMemories: number;
-  
-  /** Memories that decayed */
-  decayedMemories: number;
-  
-  /** Average decay rate applied */
+  totalMemoriesDecayed: number;
+  criticalMemoriesProtected: number;
   averageDecayRate: number;
-  
-  /** Last decay calculation timestamp */
-  lastDecayCalculation: Date;
+  typeDecayRates: Record<MemoryType, number>;
+  lastDecayTime: number;
+  decayErrors: number;
 }
 
 /**
- * Memory decay calculation result
+ * Strategic insight
  */
-export interface MemoryDecayResult {
-  /** Memory ID */
+export interface StrategicInsight {
   id: string;
-  
-  /** New importance level after decay */
-  newImportance: ImportanceLevel;
-  
-  /** Decay rate applied */
-  decayRate: number;
-  
-  /** Whether memory was marked as critical */
-  isCritical: boolean;
-  
-  /** Number of days since last access */
-  daysSinceLastAccess: number;
-  
-  /** Number of times accessed */
-  accessCount: number;
+  type: 'pattern' | 'relationship' | 'trend' | 'anomaly';
+  description: string;
+  confidence: number;
+  relatedMemories: string[];
+  createdAt: number;
+  lastUpdated: number;
+  importance: number;
+}
+
+/**
+ * Memory relationship
+ */
+export interface MemoryRelationship {
+  sourceId: string;
+  targetId: string;
+  type: 'similar' | 'related' | 'contradicts' | 'supports' | 'depends_on';
+  strength: number;
+  confidence: number;
+  metadata: Record<string, unknown>;
+  createdAt: number;
+  lastUpdated: number;
 }
 
 /**
@@ -336,6 +350,7 @@ export interface QueryClusteringConfig {
   minKeywords: number;
   maxClusters: number;
   categories: string[][];
+  generateDynamicCategories?: (memories: MemoryEntry[]) => Promise<string[][]>;
 }
 
 /**

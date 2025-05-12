@@ -7,25 +7,32 @@
 
 import { AgentMemory } from '../../shared/memory/AgentMemory';
 import { MemoryType, ImportanceLevel, MemorySource } from '../../../constants/memory';
-import { 
-  MemoryEntry, 
-  MemorySearchOptions, 
-  MemoryStats,
+import {
+  MemoryEntry,
+  MemorySearchOptions,
+  SearchResult,
   MemoryService,
   SearchService,
-  SearchResult,
   MemoryError,
   BaseMemorySchema,
   KnowledgeEdge,
   KnowledgeEdgeType,
-  KnowledgeGraphManager,
   KnowledgeNode,
-  KnowledgeNodeType
+  KnowledgeNodeType,
+  MemoryConsolidationConfig,
+  MemoryDecayConfig,
+  MemoryConsolidationStats,
+  MemoryDecayStats,
+  StrategicInsight,
+  MemoryRelationship,
+  EnhancedSearchOptions,
+  QueryExpansionConfig,
+  QueryClusteringConfig,
+  MemoryStats
 } from '../../shared/memory/types';
 import { handleError } from '../../../errors/errorHandler';
 import { getMemoryServices } from '../../../../server/memory/services';
-import { MemoryDecayConfig, MemoryDecayResult, MemoryDecayStats } from '../../shared/memory/types';
-import { KnowledgeGraphManager as KnowledgeGraphManagerImport } from './KnowledgeGraphManager';
+import { KnowledgeGraphManager } from './KnowledgeGraphManager';
 
 /**
  * Hybrid search options
@@ -36,36 +43,14 @@ interface HybridSearchOptions extends MemorySearchOptions {
   normalizeScores?: boolean;
 }
 
-/**
- * Query expansion configuration
- */
-interface QueryExpansionConfig {
-  enabled: boolean;
-  maxExpansions: number;
-  minQueryLength: number;
-  expansionMap: Record<string, string[]>;
-}
-
-/**
- * Query clustering configuration
- */
-interface QueryClusteringConfig {
-  enabled: boolean;
-  minKeywords: number;
-  maxClusters: number;
-  categories: string[][];
-}
-
-/**
- * Enhanced search options
- */
-interface EnhancedSearchOptions extends MemorySearchOptions {
-  semanticWeight?: number;
-  keywordWeight?: number;
-  expandQuery?: boolean;
-  requireAllKeywords?: boolean;
-  minRelevanceScore?: number;
-  useQueryClusters?: boolean;
+// Add this interface locally for the result of calculateMemoryDecay
+interface MemoryDecayResult {
+  id: string;
+  newImportance: ImportanceLevel;
+  decayRate: number;
+  isCritical: boolean;
+  daysSinceLastAccess: number;
+  accessCount: number;
 }
 
 /**
@@ -86,44 +71,88 @@ export class DefaultAgentMemory implements AgentMemory {
   private queryExpansionConfig: QueryExpansionConfig;
   private queryClusteringConfig: QueryClusteringConfig;
 
+  private readonly consolidationConfig: MemoryConsolidationConfig = {
+    enabled: true,
+    consolidationInterval: 1000 * 60 * 60, // 1 hour
+    minMemoriesForConsolidation: 10,
+    maxConsolidationBatchSize: 100,
+    importanceThreshold: 0.7,
+    relationshipThreshold: 0.6,
+    maxInferredRelationships: 50
+  };
+
+  private consolidationStats: MemoryConsolidationStats = {
+    totalMemoriesConsolidated: 0,
+    newRelationshipsInferred: 0,
+    strategicInsightsGenerated: 0,
+    lastConsolidationTime: 0,
+    averageConsolidationTime: 0,
+    consolidationErrors: 0
+  };
+
+  private strategicInsights: Map<string, StrategicInsight> = new Map();
+  private memoryRelationships: Map<string, MemoryRelationship[]> = new Map();
+  private consolidationTimer?: NodeJS.Timeout;
+  private decayTimer?: NodeJS.Timeout;
+
   constructor(agentId: string) {
     this.agentId = agentId;
     this.decayConfig = this.getDefaultDecayConfig();
     this.decayStats = this.getDefaultDecayStats();
-    this.knowledgeGraph = new KnowledgeGraphManagerImport();
+    this.knowledgeGraph = new KnowledgeGraphManager();
     this.queryExpansionConfig = {
       enabled: true,
       maxExpansions: 3,
       minQueryLength: 15,
       expansionMap: {
         // Business concepts
-        'mission': ['purpose', 'goal', 'aim', 'objective', 'vision'],
-        'vision': ['mission', 'future', 'goal', 'aim', 'aspiration'],
-        'values': ['principles', 'ethics', 'beliefs', 'culture', 'philosophy'],
-        'strategy': ['plan', 'approach', 'roadmap', 'method', 'framework'],
-        'brand': ['identity', 'image', 'reputation', 'presence', 'persona'],
-        'customer': ['user', 'client', 'audience', 'consumer', 'buyer'],
-        'market': ['industry', 'sector', 'niche', 'segment', 'domain'],
-        'product': ['service', 'offering', 'solution', 'tool', 'application'],
-        'competitors': ['competition', 'rivals', 'alternatives', 'market players'],
-        'metrics': ['kpis', 'measurements', 'analytics', 'indicators', 'performance'],
-        'growth': ['increase', 'expansion', 'scaling', 'development', 'advancement'],
+        'mission': ['purpose', 'goal', 'aim', 'objective', 'vision', 'strategy', 'direction'],
+        'vision': ['mission', 'future', 'goal', 'aim', 'aspiration', 'direction', 'outlook'],
+        'values': ['principles', 'ethics', 'beliefs', 'culture', 'philosophy', 'standards', 'guidelines'],
+        'strategy': ['plan', 'approach', 'roadmap', 'method', 'framework', 'tactic', 'initiative'],
+        'brand': ['identity', 'image', 'reputation', 'presence', 'persona', 'voice', 'style'],
+        'customer': ['user', 'client', 'audience', 'consumer', 'buyer', 'stakeholder', 'end-user'],
+        'market': ['industry', 'sector', 'niche', 'segment', 'domain', 'space', 'landscape'],
+        'product': ['service', 'offering', 'solution', 'tool', 'application', 'platform', 'system'],
+        'competitors': ['competition', 'rivals', 'alternatives', 'market players', 'opposition'],
+        'metrics': ['kpis', 'measurements', 'analytics', 'indicators', 'performance', 'statistics'],
+        'growth': ['increase', 'expansion', 'scaling', 'development', 'advancement', 'progress'],
         
         // Onboarding/documentation concepts
-        'onboarding': ['introduction', 'setup', 'getting started', 'orientation'],
-        'documentation': ['docs', 'guides', 'help', 'instructions', 'manuals'],
-        'resources': ['assets', 'tools', 'materials', 'utilities'],
-        'section': ['part', 'segment', 'component', 'module', 'portion'],
+        'onboarding': ['introduction', 'setup', 'getting started', 'orientation', 'training', 'integration'],
+        'documentation': ['docs', 'guides', 'help', 'instructions', 'manuals', 'reference', 'tutorials'],
+        'resources': ['assets', 'tools', 'materials', 'utilities', 'capabilities', 'features'],
+        'section': ['part', 'segment', 'component', 'module', 'portion', 'chapter', 'division'],
         
         // Marketing concepts
-        'marketing': ['promotion', 'advertising', 'campaigns', 'outreach'],
-        'audience': ['users', 'customers', 'clients', 'demographic', 'target market'],
-        'content': ['material', 'media', 'assets', 'posts', 'articles'],
-        'acquisition': ['growth', 'user acquisition', 'customer acquisition', 'lead generation'],
-        'retention': ['loyalty', 'churn reduction', 'customer retention', 'engagement'],
-        'engagement': ['interaction', 'participation', 'activity', 'involvement'],
-        'conversion': ['sales', 'sign-ups', 'leads', 'purchases', 'transactions'],
-        'funnel': ['pipeline', 'journey', 'process', 'stages', 'flow']
+        'marketing': ['promotion', 'advertising', 'campaigns', 'outreach', 'communication', 'messaging'],
+        'audience': ['users', 'customers', 'clients', 'demographic', 'target market', 'segments'],
+        'content': ['material', 'media', 'assets', 'posts', 'articles', 'publications', 'creations'],
+        'acquisition': ['growth', 'user acquisition', 'customer acquisition', 'lead generation', 'conversion'],
+        'retention': ['loyalty', 'churn reduction', 'customer retention', 'engagement', 'satisfaction'],
+        'engagement': ['interaction', 'participation', 'activity', 'involvement', 'connection', 'response'],
+        'conversion': ['sales', 'sign-ups', 'leads', 'purchases', 'transactions', 'registrations'],
+        'funnel': ['pipeline', 'journey', 'process', 'stages', 'flow', 'pathway', 'progression'],
+
+        // Technical concepts
+        'implementation': ['development', 'coding', 'programming', 'building', 'creation', 'construction'],
+        'architecture': ['structure', 'design', 'framework', 'system', 'organization', 'layout'],
+        'integration': ['connection', 'linking', 'combining', 'unification', 'incorporation', 'merging'],
+        'deployment': ['release', 'launch', 'rollout', 'distribution', 'installation', 'setup'],
+        'maintenance': ['support', 'upkeep', 'servicing', 'management', 'operation', 'administration'],
+        'security': ['protection', 'safety', 'privacy', 'defense', 'safeguarding', 'authentication'],
+        'performance': ['speed', 'efficiency', 'optimization', 'throughput', 'response time', 'latency'],
+        'scalability': ['growth', 'expansion', 'capacity', 'elasticity', 'flexibility', 'adaptability'],
+
+        // Project management concepts
+        'planning': ['scheduling', 'organization', 'preparation', 'arrangement', 'coordination'],
+        'execution': ['implementation', 'carrying out', 'performance', 'completion', 'delivery'],
+        'monitoring': ['tracking', 'observation', 'supervision', 'oversight', 'surveillance'],
+        'evaluation': ['assessment', 'analysis', 'review', 'appraisal', 'examination'],
+        'improvement': ['enhancement', 'optimization', 'refinement', 'upgrading', 'advancement'],
+        'collaboration': ['cooperation', 'teamwork', 'partnership', 'alliance', 'coordination'],
+        'communication': ['interaction', 'exchange', 'dialogue', 'correspondence', 'conversation'],
+        'leadership': ['guidance', 'direction', 'management', 'supervision', 'administration']
       }
     };
     this.queryClusteringConfig = {
@@ -131,39 +160,161 @@ export class DefaultAgentMemory implements AgentMemory {
       minKeywords: 3,
       maxClusters: 5,
       categories: [
-        ['mission', 'vision', 'purpose', 'goals', 'values', 'beliefs'],
-        ['strategy', 'plan', 'roadmap', 'approach', 'method', 'execution'],
-        ['customers', 'users', 'audience', 'clients', 'demographics', 'personas'],
-        ['product', 'service', 'offering', 'solution', 'features', 'benefits'],
-        ['metrics', 'kpis', 'measurements', 'performance', 'analytics', 'data'],
-        ['marketing', 'promotion', 'advertising', 'communication', 'messaging'],
-        ['resources', 'assets', 'tools', 'materials', 'documentation']
-      ]
+        // Business & Strategy
+        ['mission', 'vision', 'purpose', 'goals', 'values', 'beliefs', 'strategy', 'direction'],
+        // Product & Development
+        ['product', 'service', 'offering', 'solution', 'features', 'benefits', 'implementation', 'development'],
+        // Customer & Market
+        ['customers', 'users', 'audience', 'clients', 'demographics', 'personas', 'market', 'industry'],
+        // Performance & Metrics
+        ['metrics', 'kpis', 'measurements', 'performance', 'analytics', 'data', 'statistics', 'results'],
+        // Marketing & Communication
+        ['marketing', 'promotion', 'advertising', 'communication', 'messaging', 'content', 'campaigns'],
+        // Technical & Operations
+        ['implementation', 'architecture', 'integration', 'deployment', 'maintenance', 'security'],
+        // Project Management
+        ['planning', 'execution', 'monitoring', 'evaluation', 'improvement', 'collaboration'],
+        // Resources & Documentation
+        ['resources', 'assets', 'tools', 'materials', 'documentation', 'guides', 'help']
+      ],
+      // Dynamic category generation based on memory content
+      generateDynamicCategories: async (memories: MemoryEntry[]): Promise<string[][]> => {
+        const dynamicCategories: string[][] = [];
+        const keywordFrequency = new Map<string, number>();
+        
+        // Extract keywords from memories
+        for (const memory of memories) {
+          const keywords = this.extractKeyTerms(memory.content);
+          for (const keyword of keywords) {
+            keywordFrequency.set(keyword, (keywordFrequency.get(keyword) || 0) + 1);
+          }
+        }
+        
+        // Find common keyword pairs
+        const keywordPairs = new Map<string, number>();
+        for (const memory of memories) {
+          const keywords = this.extractKeyTerms(memory.content);
+          for (let i = 0; i < keywords.length; i++) {
+            for (let j = i + 1; j < keywords.length; j++) {
+              const pair = [keywords[i], keywords[j]].sort().join('|');
+              keywordPairs.set(pair, (keywordPairs.get(pair) || 0) + 1);
+            }
+          }
+        }
+        
+        // Create categories from frequent keyword pairs
+        const minPairFrequency = 2;
+        // Convert Map entries to array for iteration
+        const pairEntries = Array.from(keywordPairs.entries());
+        for (const [pair, frequency] of pairEntries) {
+          if (frequency >= minPairFrequency) {
+            const keywords = pair.split('|');
+            // Only add if both keywords are frequent enough
+            const freq0 = keywordFrequency.get(keywords[0]) || 0;
+            const freq1 = keywordFrequency.get(keywords[1]) || 0;
+            if (freq0 >= minPairFrequency && freq1 >= minPairFrequency) {
+              dynamicCategories.push(keywords);
+            }
+          }
+        }
+        
+        return dynamicCategories;
+      }
     };
   }
 
   private getDefaultDecayConfig(): MemoryDecayConfig {
     return {
-      baseDecayRate: 0.1, // 10% decay per day
-      typeDecayRates: {
-        [MemoryType.MESSAGE]: 1.2, // Messages decay 20% faster
-        [MemoryType.DOCUMENT]: 0.8, // Documents decay 20% slower
-        [MemoryType.THOUGHT]: 1.0, // Thoughts decay at base rate
+      enabled: true,
+      baseDecayRate: 0.1,
+      importanceDecayFactor: 0.5,
+      typeDecayFactors: {
+        // Core Types
+        [MemoryType.MESSAGE]: 0.8,
+        [MemoryType.DOCUMENT]: 0.6,
+        [MemoryType.THOUGHT]: 0.7,
+        [MemoryType.REFLECTION]: 0.9,
+        [MemoryType.INSIGHT]: 0.95,
+        [MemoryType.TASK]: 0.5,
+        [MemoryType.CHAT]: 0.8,
+        // Knowledge Types
+        [MemoryType.FACT]: 0.4,
+        [MemoryType.KNOWLEDGE]: 0.3,
+        [MemoryType.SYSTEM_LEARNING]: 0.2,
+        [MemoryType.IDEA]: 0.6,
+        [MemoryType.SUMMARY]: 0.5,
+        // Decision Types
+        [MemoryType.DECISION]: 0.8,
+        [MemoryType.FEEDBACK]: 0.7,
+        // Agent Interaction Types
+        [MemoryType.AGENT_MESSAGE]: 0.6,
+        [MemoryType.AGENT_REQUEST]: 0.7,
+        [MemoryType.AGENT_RESPONSE]: 0.6,
+        [MemoryType.AGENT_TASK]: 0.5,
+        [MemoryType.AGENT_KNOWLEDGE]: 0.4,
+        [MemoryType.AGENT_COLLABORATION]: 0.5,
+        // System Types
+        [MemoryType.SYSTEM_EVENT]: 0.3,
+        [MemoryType.SYSTEM_COMMAND]: 0.2,
+        [MemoryType.SYSTEM_STATUS]: 0.3,
+        [MemoryType.SYSTEM_ERROR]: 0.1,
+        // Version Control Types
+        [MemoryType.MEMORY_EDIT]: 0.1,
+        // Other
+        [MemoryType.UNKNOWN]: 0.5
       },
-      criticalImportanceLevel: ImportanceLevel.HIGH,
-      decayStartDays: 7, // Start decay after 7 days
-      maxDecayRate: 0.5, // Maximum 50% decay per day
-      minDecayRate: 0.01, // Minimum 1% decay per day
+      minDecayRate: 0.01,
+      maxDecayRate: 0.5,
+      decayStartDays: 7,
+      criticalMemoryThreshold: 0.8,
+      decayInterval: 1000 * 60 * 60 * 24 // 1 day
     };
   }
 
   private getDefaultDecayStats(): MemoryDecayStats {
+    const typeDecayRates: Record<MemoryType, number> = {
+      // Core Types
+      [MemoryType.MESSAGE]: 0,
+      [MemoryType.DOCUMENT]: 0,
+      [MemoryType.THOUGHT]: 0,
+      [MemoryType.REFLECTION]: 0,
+      [MemoryType.INSIGHT]: 0,
+      [MemoryType.TASK]: 0,
+      [MemoryType.CHAT]: 0,
+      // Knowledge Types
+      [MemoryType.FACT]: 0,
+      [MemoryType.KNOWLEDGE]: 0,
+      [MemoryType.SYSTEM_LEARNING]: 0,
+      [MemoryType.IDEA]: 0,
+      [MemoryType.SUMMARY]: 0,
+      // Decision Types
+      [MemoryType.DECISION]: 0,
+      [MemoryType.FEEDBACK]: 0,
+      // Agent Interaction Types
+      [MemoryType.AGENT_MESSAGE]: 0,
+      [MemoryType.AGENT_REQUEST]: 0,
+      [MemoryType.AGENT_RESPONSE]: 0,
+      [MemoryType.AGENT_TASK]: 0,
+      [MemoryType.AGENT_KNOWLEDGE]: 0,
+      [MemoryType.AGENT_COLLABORATION]: 0,
+      // System Types
+      [MemoryType.SYSTEM_EVENT]: 0,
+      [MemoryType.SYSTEM_COMMAND]: 0,
+      [MemoryType.SYSTEM_STATUS]: 0,
+      [MemoryType.SYSTEM_ERROR]: 0,
+      // Version Control Types
+      [MemoryType.MEMORY_EDIT]: 0,
+      // Other
+      [MemoryType.UNKNOWN]: 0
+    };
+
     return {
-      totalProcessed: 0,
-      criticalMemories: 0,
-      decayedMemories: 0,
+      totalMemoriesDecayed: 0,
+      criticalMemoriesProtected: 0,
       averageDecayRate: 0,
-      lastDecayCalculation: new Date(),
+      typeDecayRates,
+      lastDecayTime: 0,
+      decayErrors: 0
     };
   }
 
@@ -185,6 +336,8 @@ export class DefaultAgentMemory implements AgentMemory {
       // Build initial graph from existing memories
       const memories = await this.memoryService.getAllMemories();
       await this.knowledgeGraph.buildGraphFromMemory(memories, []);
+
+      await this.startMemoryManagement();
 
       return true;
     } catch (error) {
@@ -1090,23 +1243,11 @@ export class DefaultAgentMemory implements AgentMemory {
    * Calculate overlap between two sets of keywords
    */
   private calculateKeywordOverlap(keywords1: string[], keywords2: string[]): number {
-    if (keywords1.length === 0 || keywords2.length === 0) {
-      return 0;
-    }
-    
-    const set1 = new Set(keywords1);
-    const set2 = new Set(keywords2);
-    
-    // Count overlapping keywords
-    let overlap = 0;
-    for (const keyword of Array.from(set1)) {
-      if (set2.has(keyword)) {
-        overlap++;
-      }
-    }
-    
-    // Return overlap ratio
-    return overlap / Math.max(set1.size, set2.size);
+    const set1 = new Set(keywords1.map(k => k.toLowerCase()));
+    const set2 = new Set(keywords2.map(k => k.toLowerCase()));
+    const intersection = Array.from(set1).filter(x => set2.has(x));
+    const union = Array.from(new Set([...Array.from(set1), ...Array.from(set2)]));
+    return union.length === 0 ? 0 : intersection.length / union.length;
   }
 
   /**
@@ -1196,7 +1337,7 @@ export class DefaultAgentMemory implements AgentMemory {
     let decayRate = this.decayConfig.baseDecayRate;
 
     // Apply type-specific multiplier
-    const typeMultiplier = this.decayConfig.typeDecayRates[memory.type] || 1.0;
+    const typeMultiplier = this.decayConfig.typeDecayFactors[memory.type] || 1.0;
     decayRate *= typeMultiplier;
 
     // Apply importance-based adjustment
@@ -1235,28 +1376,66 @@ export class DefaultAgentMemory implements AgentMemory {
       await this.initialize();
     }
 
+    const typeDecayRates: Record<MemoryType, number> = {
+      // Core Types
+      [MemoryType.MESSAGE]: 0,
+      [MemoryType.DOCUMENT]: 0,
+      [MemoryType.THOUGHT]: 0,
+      [MemoryType.REFLECTION]: 0,
+      [MemoryType.INSIGHT]: 0,
+      [MemoryType.TASK]: 0,
+      [MemoryType.CHAT]: 0,
+      // Knowledge Types
+      [MemoryType.FACT]: 0,
+      [MemoryType.KNOWLEDGE]: 0,
+      [MemoryType.SYSTEM_LEARNING]: 0,
+      [MemoryType.IDEA]: 0,
+      [MemoryType.SUMMARY]: 0,
+      // Decision Types
+      [MemoryType.DECISION]: 0,
+      [MemoryType.FEEDBACK]: 0,
+      // Agent Interaction Types
+      [MemoryType.AGENT_MESSAGE]: 0,
+      [MemoryType.AGENT_REQUEST]: 0,
+      [MemoryType.AGENT_RESPONSE]: 0,
+      [MemoryType.AGENT_TASK]: 0,
+      [MemoryType.AGENT_KNOWLEDGE]: 0,
+      [MemoryType.AGENT_COLLABORATION]: 0,
+      // System Types
+      [MemoryType.SYSTEM_EVENT]: 0,
+      [MemoryType.SYSTEM_COMMAND]: 0,
+      [MemoryType.SYSTEM_STATUS]: 0,
+      [MemoryType.SYSTEM_ERROR]: 0,
+      // Version Control Types
+      [MemoryType.MEMORY_EDIT]: 0,
+      // Other
+      [MemoryType.UNKNOWN]: 0
+    };
+
     const stats: MemoryDecayStats = {
-      totalProcessed: 0,
-      criticalMemories: 0,
-      decayedMemories: 0,
+      totalMemoriesDecayed: 0,
+      criticalMemoriesProtected: 0,
       averageDecayRate: 0,
-      lastDecayCalculation: new Date(),
+      typeDecayRates,
+      lastDecayTime: 0,
+      decayErrors: 0
     };
 
     try {
       // Get all memories
       const memories = await this.memoryService.getAllMemories();
-      stats.totalProcessed = memories.length;
+      stats.totalMemoriesDecayed = memories.length;
 
       let totalDecayRate = 0;
       let decayedCount = 0;
+      let protectedCount = 0;
 
       // Process each memory
       for (const memory of memories) {
         const result = await this.calculateMemoryDecay(memory.id);
         
         if (result.isCritical) {
-          stats.criticalMemories++;
+          stats.criticalMemoriesProtected++;
           continue;
         }
 
@@ -1274,12 +1453,19 @@ export class DefaultAgentMemory implements AgentMemory {
 
           totalDecayRate += result.decayRate;
           decayedCount++;
-          stats.decayedMemories++;
+          stats.totalMemoriesDecayed++;
         }
       }
 
       // Calculate average decay rate
       stats.averageDecayRate = decayedCount > 0 ? totalDecayRate / decayedCount : 0;
+
+      // Update type-specific decay rates
+      for (const type of Object.values(MemoryType)) {
+        const typeMemories = memories.filter(m => m.type === type);
+        const typeDecayed = typeMemories.filter(m => m.importance !== ImportanceLevel.CRITICAL).length;
+        stats.typeDecayRates[type] = typeDecayed / (typeMemories.length || 1);
+      }
 
       // Update stats
       this.decayStats = stats;
@@ -1308,7 +1494,7 @@ export class DefaultAgentMemory implements AgentMemory {
 
     await this.memoryService.updateMemory({
       id: memoryId,
-      importance: this.decayConfig.criticalImportanceLevel,
+      importance: ImportanceLevel.CRITICAL,
       metadata: {
         ...memory.metadata,
         critical: true,
@@ -1409,11 +1595,46 @@ export class DefaultAgentMemory implements AgentMemory {
   }
 
   /**
+   * Get recent memories
+   */
+  private async getRecentMemories(limit: number = 50): Promise<MemoryEntry[]> {
+    try {
+      if (!this.initialized) {
+        await this.initialize();
+      }
+
+      // Get memories sorted by timestamp using searchMemories
+      const memories = await this.memoryService.searchMemories({
+        limit,
+        filter: {
+          sortBy: 'timestamp',
+          sortOrder: 'desc'
+        }
+      });
+
+      return memories;
+    } catch (error) {
+      console.error('Error getting recent memories:', error);
+      return [];
+    }
+  }
+
+  /**
    * Create multiple query variants to capture different aspects of a complex query
    */
-  private createQueryClusters(query: string, queryKeywords: string[]): string[] {
+  private async createQueryClusters(query: string, queryKeywords: string[]): Promise<string[]> {
     if (!this.queryClusteringConfig.enabled || queryKeywords.length < this.queryClusteringConfig.minKeywords) {
       return [query];
+    }
+    
+    // Get recent memories for dynamic category generation
+    const recentMemories = await this.getRecentMemories(50); // Get last 50 memories
+    
+    // Generate dynamic categories if we have enough memories
+    let allCategories = [...this.queryClusteringConfig.categories];
+    if (recentMemories.length >= 10 && this.queryClusteringConfig.generateDynamicCategories) {
+      const dynamicCategories = await this.queryClusteringConfig.generateDynamicCategories(recentMemories);
+      allCategories = [...allCategories, ...dynamicCategories];
     }
     
     // Group similar keywords together to create focused sub-queries
@@ -1421,7 +1642,7 @@ export class DefaultAgentMemory implements AgentMemory {
     const usedKeywords = new Set<string>();
     
     // Assign keywords to clusters based on categories
-    for (const category of this.queryClusteringConfig.categories) {
+    for (const category of allCategories) {
       const matchingKeywords = queryKeywords.filter(kw => 
         !usedKeywords.has(kw) && 
         category.some(cat => kw.includes(cat) || cat.includes(kw))
@@ -1488,7 +1709,7 @@ export class DefaultAgentMemory implements AgentMemory {
       
       // If using clusters, create sub-queries for different aspects
       const queryVariants = useQueryClusters 
-        ? this.createQueryClusters(query, queryKeywords)
+        ? await this.createQueryClusters(query, queryKeywords)
         : [queryForSearch];
       
       // Step 1: Get candidate memories using semantic search for each query variant
@@ -1724,6 +1945,428 @@ export class DefaultAgentMemory implements AgentMemory {
       console.error('Error getting best memories:', error);
       // Fallback to standard method
       return this.search(query, { limit, type: options.types?.[0] });
+    }
+  }
+
+  private async startMemoryManagement(): Promise<void> {
+    if (this.consolidationConfig.enabled) {
+      this.consolidationTimer = setInterval(
+        () => this.runMemoryConsolidation(),
+        this.consolidationConfig.consolidationInterval
+      );
+    }
+
+    if (this.decayConfig.enabled) {
+      this.decayTimer = setInterval(
+        () => this.runMemoryDecay(),
+        this.decayConfig.decayInterval
+      );
+    }
+  }
+
+  private async stopMemoryManagement(): Promise<void> {
+    if (this.consolidationTimer) {
+      clearInterval(this.consolidationTimer);
+    }
+    if (this.decayTimer) {
+      clearInterval(this.decayTimer);
+    }
+  }
+
+  private async runMemoryConsolidation(): Promise<void> {
+    const startTime = Date.now();
+    try {
+      const memories = await this.memoryService.getAllMemories();
+      if (memories.length < this.consolidationConfig.minMemoriesForConsolidation) {
+        return;
+      }
+
+      // Process memories in batches
+      for (let i = 0; i < memories.length; i += this.consolidationConfig.maxConsolidationBatchSize) {
+        const batch = memories.slice(i, i + this.consolidationConfig.maxConsolidationBatchSize);
+        await this.consolidateMemoryBatch(batch);
+      }
+
+      // Update knowledge graph
+      await this.knowledgeGraph.buildGraphFromMemory(memories, []);
+
+      // Generate strategic insights
+      await this.generateStrategicInsights(memories);
+
+      // Update stats
+      const endTime = Date.now();
+      const consolidationTime = endTime - startTime;
+      this.consolidationStats.lastConsolidationTime = endTime;
+      this.consolidationStats.averageConsolidationTime = 
+        (this.consolidationStats.averageConsolidationTime * this.consolidationStats.totalMemoriesConsolidated + consolidationTime) /
+        (this.consolidationStats.totalMemoriesConsolidated + 1);
+      this.consolidationStats.totalMemoriesConsolidated += memories.length;
+
+    } catch (error) {
+      this.consolidationStats.consolidationErrors++;
+      this.handleError(error as Error);
+    }
+  }
+
+  private async consolidateMemoryBatch(memories: MemoryEntry[]): Promise<void> {
+    // Infer relationships between memories
+    const relationships = await this.inferMemoryRelationships(memories);
+    
+    // Update relationship map
+    for (const rel of relationships) {
+      const existingRels = this.memoryRelationships.get(rel.sourceId) || [];
+      this.memoryRelationships.set(rel.sourceId, [...existingRels, rel]);
+      
+      // Add bidirectional relationship
+      const reverseRel: MemoryRelationship = {
+        ...rel,
+        sourceId: rel.targetId,
+        targetId: rel.sourceId
+      };
+      const existingReverseRels = this.memoryRelationships.get(rel.targetId) || [];
+      this.memoryRelationships.set(rel.targetId, [...existingReverseRels, reverseRel]);
+    }
+
+    this.consolidationStats.newRelationshipsInferred += relationships.length;
+  }
+
+  private async inferMemoryRelationships(memories: MemoryEntry[]): Promise<MemoryRelationship[]> {
+    const relationships: MemoryRelationship[] = [];
+    const processedPairs = new Set<string>();
+
+    for (let i = 0; i < memories.length; i++) {
+      const source = memories[i];
+      
+      for (let j = i + 1; j < memories.length; j++) {
+        const target = memories[j];
+        const pairKey = `${source.id}-${target.id}`;
+        
+        if (processedPairs.has(pairKey)) continue;
+        processedPairs.add(pairKey);
+
+        // Skip if either memory is too old or low importance
+        if (source.importance !== ImportanceLevel.CRITICAL ||
+            target.importance !== ImportanceLevel.CRITICAL) {
+          continue;
+        }
+
+        // Calculate relationship strength and type
+        const { strength, type, confidence } = await this.calculateRelationshipMetrics(source, target);
+        
+        if (strength >= this.consolidationConfig.relationshipThreshold) {
+          relationships.push({
+            sourceId: source.id,
+            targetId: target.id,
+            type,
+            strength,
+            confidence,
+            metadata: {},
+            createdAt: Date.now(),
+            lastUpdated: Date.now()
+          });
+        }
+
+        if (relationships.length >= this.consolidationConfig.maxInferredRelationships) {
+          return relationships;
+        }
+      }
+    }
+
+    return relationships;
+  }
+
+  private async calculateRelationshipMetrics(
+    source: MemoryEntry,
+    target: MemoryEntry
+  ): Promise<{ strength: number; type: MemoryRelationship['type']; confidence: number }> {
+    // Calculate semantic similarity
+    const semanticScore = await this.calculateSemanticSimilarity(source.content, target.content);
+    
+    // Calculate keyword overlap (extract keywords from content)
+    const sourceKeywords = this.extractKeyTerms(source.content);
+    const targetKeywords = this.extractKeyTerms(target.content);
+    const keywordScore = this.calculateKeywordOverlap(sourceKeywords, targetKeywords);
+    
+    // Calculate type compatibility
+    const typeScore = source.type === target.type ? 1 : 0.5;
+    
+    // Calculate importance compatibility (convert enums to numbers for arithmetic)
+    const importanceValueSource = this.getImportanceValue(source.importance);
+    const importanceValueTarget = this.getImportanceValue(target.importance);
+    const importanceScore = 1 - Math.abs(importanceValueSource - importanceValueTarget);
+    
+    // Combine scores with weights
+    const strength = (
+      semanticScore * 0.4 +
+      keywordScore * 0.3 +
+      typeScore * 0.2 +
+      importanceScore * 0.1
+    );
+
+    // Determine relationship type based on scores
+    let type: MemoryRelationship['type'] = 'related';
+    if (semanticScore > 0.8) type = 'similar';
+    if (semanticScore < 0.2) type = 'contradicts';
+    if (keywordScore > 0.7 && typeScore > 0.8) type = 'supports';
+    if (importanceScore > 0.8 && typeScore > 0.8) type = 'depends_on';
+
+    // Calculate confidence based on score stability
+    const confidence = Math.min(
+      (semanticScore + keywordScore + typeScore + importanceScore) / 4,
+      1
+    );
+
+    return { strength, type, confidence };
+  }
+
+  private async generateStrategicInsights(memories: MemoryEntry[]): Promise<void> {
+    // Group memories by type and importance
+    const groupedMemories = new Map<MemoryType, MemoryEntry[]>();
+    for (const memory of memories) {
+      const group = groupedMemories.get(memory.type) || [];
+      group.push(memory);
+      groupedMemories.set(memory.type, group);
+    }
+
+    // Generate insights for each group
+    for (const [type, groupMemories] of Array.from(groupedMemories.entries())) {
+      if (groupMemories.length < 3) continue;
+
+      // Look for patterns
+      const patterns = await this.findMemoryPatterns(groupMemories);
+      for (const pattern of patterns) {
+        const insight: StrategicInsight = {
+          id: crypto.randomUUID(),
+          type: 'pattern',
+          description: pattern.description,
+          confidence: pattern.confidence,
+          relatedMemories: pattern.memoryIds,
+          createdAt: Date.now(),
+          lastUpdated: Date.now(),
+          importance: pattern.importance
+        };
+        this.strategicInsights.set(insight.id, insight);
+        this.consolidationStats.strategicInsightsGenerated++;
+      }
+
+      // Look for trends
+      const trends = await this.findMemoryTrends(groupMemories);
+      for (const trend of trends) {
+        const insight: StrategicInsight = {
+          id: crypto.randomUUID(),
+          type: 'trend',
+          description: trend.description,
+          confidence: trend.confidence,
+          relatedMemories: trend.memoryIds,
+          createdAt: Date.now(),
+          lastUpdated: Date.now(),
+          importance: trend.importance
+        };
+        this.strategicInsights.set(insight.id, insight);
+        this.consolidationStats.strategicInsightsGenerated++;
+      }
+    }
+  }
+
+  private async findMemoryPatterns(memories: MemoryEntry[]): Promise<Array<{
+    description: string;
+    confidence: number;
+    memoryIds: string[];
+    importance: number;
+  }>> {
+    const patterns: Array<{
+      description: string;
+      confidence: number;
+      memoryIds: string[];
+      importance: number;
+    }> = [];
+
+    // Group memories by content similarity
+    const groups = new Map<string, MemoryEntry[]>();
+    for (const memory of memories) {
+      let addedToGroup = false;
+      for (const [_, group] of Array.from(groups.entries())) {
+        const similarity = await this.calculateSemanticSimilarity(
+          memory.content,
+          group[0].content
+        );
+        if (similarity > 0.8) {
+          group.push(memory);
+          addedToGroup = true;
+          break;
+        }
+      }
+      if (!addedToGroup) {
+        groups.set(crypto.randomUUID(), [memory]);
+      }
+    }
+
+    // Generate pattern insights for each group
+    for (const [_, group] of Array.from(groups.entries())) {
+      if (group.length < 3) continue;
+
+      const pattern = {
+        description: `Found ${group.length} similar memories about "${group[0].content.slice(0, 50)}..."`,
+        confidence: Math.min(group.length / 10, 1),
+        memoryIds: group.map(m => m.id),
+        importance: group.reduce((sum, m) => sum + this.getImportanceValue(m.importance), 0) / group.length
+      };
+      patterns.push(pattern);
+    }
+
+    return patterns;
+  }
+
+  private async findMemoryTrends(memories: MemoryEntry[]): Promise<Array<{
+    description: string;
+    confidence: number;
+    memoryIds: string[];
+    importance: number;
+  }>> {
+    const trends: Array<{
+      description: string;
+      confidence: number;
+      memoryIds: string[];
+      importance: number;
+    }> = [];
+
+    // Sort memories by creation time
+    const sortedMemories = [...memories].sort((a, b) => 
+      a.createdAt.getTime() - b.createdAt.getTime()
+    );
+    
+    // Look for temporal patterns
+    const timeWindows = new Map<number, MemoryEntry[]>();
+    const windowSize = 1000 * 60 * 60 * 24 * 7; // 1 week
+    
+    for (const memory of sortedMemories) {
+      const window = Math.floor(memory.createdAt.getTime() / windowSize);
+      const group = timeWindows.get(window) || [];
+      group.push(memory);
+      timeWindows.set(window, group);
+    }
+
+    // Generate trend insights
+    for (const [window, group] of Array.from(timeWindows.entries())) {
+      if (group.length < 3) continue;
+
+      const trend = {
+        description: `Found ${group.length} memories in a week about "${group[0].content.slice(0, 50)}..."`,
+        confidence: Math.min(group.length / 10, 1),
+        memoryIds: group.map(m => m.id),
+        importance: group.reduce((sum, m) => sum + this.getImportanceValue(m.importance), 0) / group.length
+      };
+      trends.push(trend);
+    }
+
+    return trends;
+  }
+
+  private async runMemoryDecay(): Promise<void> {
+    const startTime = Date.now();
+    try {
+      const memories = await this.memoryService.getAllMemories();
+      let totalDecayRate = 0;
+      let decayedCount = 0;
+      let protectedCount = 0;
+
+      for (const memory of memories) {
+        // Skip critical memories
+        if (memory.importance === ImportanceLevel.CRITICAL) {
+          protectedCount++;
+          continue;
+        }
+
+        // Calculate decay rate based on memory type and importance
+        const importanceValue = this.getImportanceValue(memory.importance);
+        const typeFactor = this.decayConfig.typeDecayFactors[memory.type] || 1;
+        const importanceFactor = 1 - (importanceValue * this.decayConfig.importanceDecayFactor);
+        const decayRate = Math.min(
+          Math.max(
+            this.decayConfig.baseDecayRate * typeFactor * importanceFactor,
+            this.decayConfig.minDecayRate
+          ),
+          this.decayConfig.maxDecayRate
+        );
+
+        // Apply decay
+        const newImportanceValue = Math.max(0, importanceValue - decayRate);
+        const newImportanceLevel = this.getImportanceLevel(newImportanceValue);
+        if (newImportanceLevel !== memory.importance) {
+          await this.memoryService.updateMemory({
+            id: memory.id,
+            importance: newImportanceLevel
+          });
+          decayedCount++;
+          totalDecayRate += decayRate;
+        }
+      }
+
+      // Update decay stats
+      this.decayStats.lastDecayTime = startTime;
+      this.decayStats.totalMemoriesDecayed += decayedCount;
+      this.decayStats.criticalMemoriesProtected += protectedCount;
+      this.decayStats.averageDecayRate = totalDecayRate / (decayedCount || 1);
+
+      // Update type-specific decay rates
+      for (const type of Object.values(MemoryType)) {
+        const typeMemories = memories.filter(m => m.type === type);
+        const typeDecayed = typeMemories.filter(m => m.importance !== ImportanceLevel.CRITICAL).length;
+        this.decayStats.typeDecayRates[type] = typeDecayed / (typeMemories.length || 1);
+      }
+
+    } catch (error) {
+      this.decayStats.decayErrors++;
+      handleError(error as Error);
+    }
+  }
+
+  public async getMemoryStats(): Promise<{
+    consolidation: MemoryConsolidationStats;
+    decay: MemoryDecayStats;
+    insights: StrategicInsight[];
+    relationships: MemoryRelationship[];
+  }> {
+    return {
+      consolidation: { ...this.consolidationStats },
+      decay: { ...this.decayStats },
+      insights: Array.from(this.strategicInsights.values()),
+      relationships: Array.from(this.memoryRelationships.values()).flat()
+    };
+  }
+
+  private handleError(error: Error): void {
+    // Implement error handling logic
+  }
+
+  private async calculateSemanticSimilarity(text1: string, text2: string): Promise<number> {
+    // Use the search service to calculate semantic similarity
+    const results = await this.searchService.search<MemoryEntry>(text1, {
+      limit: 1,
+      minScore: 0
+    });
+
+    if (results.length === 0) return 0;
+
+    // Find the result that matches text2
+    const match = results.find(r => r.content === text2);
+    return match ? match.score : 0;
+  }
+
+  private getImportanceLevel(importance: number): ImportanceLevel {
+    if (importance >= 0.8) return ImportanceLevel.CRITICAL;
+    if (importance >= 0.6) return ImportanceLevel.HIGH;
+    if (importance >= 0.4) return ImportanceLevel.MEDIUM;
+    return ImportanceLevel.LOW;
+  }
+
+  private getImportanceValue(level: ImportanceLevel): number {
+    switch (level) {
+      case ImportanceLevel.CRITICAL: return 0.8;
+      case ImportanceLevel.HIGH: return 0.6;
+      case ImportanceLevel.MEDIUM: return 0.4;
+      case ImportanceLevel.LOW: return 0.2;
+      default: return 0.2;
     }
   }
 } 

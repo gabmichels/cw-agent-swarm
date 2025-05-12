@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { AlertCircleIcon, Filter, X, Tag, Info, RefreshCw, ChevronDown, Loader2, Search, Hash, Settings, Menu, Bug } from 'lucide-react';
+import { AlertCircleIcon, Filter, X, Tag, Info, RefreshCw, ChevronDown, Loader2, Search, Hash, Settings, Menu, Bug, User } from 'lucide-react';
 import MemoryItemComponent from '../memory/MemoryItem';
-import { MemoryType } from '../../server/memory/config';
+import { MemoryType, isValidMemoryType } from '../../lib/constants/memory';
 import { BaseMemorySchema, MemoryPoint } from '../../server/memory/models';
 import { SearchResult } from '../../server/memory/services/search/types';
 import useMemory from '../../hooks/useMemory';
 import useMemorySearch from '../../hooks/useMemorySearch';
+import AgentMemoryStats from '../memory/AgentMemoryStats';
+import { BaseMetadata } from '../../types/metadata';
 
 // Memory property path constants
 const PROPERTY_PATHS = {
@@ -61,21 +63,6 @@ const API_ENDPOINTS = {
   MEMORY_HISTORY: (memoryId: string) => `/api/memory/history/${memoryId}`,
 };
 
-// Legacy memory types to include in dropdowns
-const LEGACY_MEMORY_TYPES = [
-  "reflection",
-  "fact",
-  "insight",
-  "system_learning",
-  "decision",
-  "feedback",
-  "knowledge",
-  "unknown",
-  "chat",
-  "idea",
-  "summary"
-];
-
 // Define types for the debug result
 interface SuspectedMessage {
   id: string;
@@ -101,20 +88,93 @@ interface ExtendedMemoryItem extends MemoryPoint<BaseMemorySchema> {
   type?: string;
 }
 
+// Add new interfaces for agent support
+interface AgentInfo {
+  id: string;
+  name: string;
+}
+
 // Interface for MemoryTab component props
 interface MemoryTabProps {
-  isLoadingMemories?: boolean;
-  allMemories?: ExtendedMemoryItem[];
-  onRefresh?: () => void;
+  selectedAgentId?: string;
+  availableAgents: AgentInfo[];
+  onAgentChange?: (agentId: string) => void;
+  showAllMemories?: boolean;
+  onViewChange?: (showAll: boolean) => void;
+}
+
+// Update the MemoryEntry interface to include all necessary properties
+interface MemoryEntry {
+  id: string;
+  type: MemoryType;
+  content?: string;
+  text?: string;
+  created?: string;
+  timestamp?: string;
+  payload?: {
+    text?: string;
+    type?: string;
+    timestamp?: string;
+    metadata?: {
+      context?: string;
+      tags?: string[];
+      [key: string]: any;
+    };
+    [key: string]: any;
+  };
+  metadata?: {
+    context?: string;
+    tags?: string[];
+    [key: string]: any;
+  };
+  isMemoryEdit?: boolean;
+  importance?: number;
+  source?: string;
 }
 
 const MemoryTab: React.FC<MemoryTabProps> = ({
-  isLoadingMemories: externalLoading,
-  allMemories: externalMemories,
-  onRefresh: externalRefresh
+  selectedAgentId = '',
+  availableAgents = [],
+  onAgentChange,
+  showAllMemories = false,
+  onViewChange
 }) => {
+  const [localSelectedAgentId, setLocalSelectedAgentId] = useState(selectedAgentId);
+  const [localShowAllMemories, setLocalShowAllMemories] = useState(showAllMemories);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showFilters, setShowFilters] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
+  const [memories, setMemories] = useState<MemoryEntry[]>([]);
+  
+  const { getAgentMemories } = useMemory();
+  
+  useEffect(() => {
+    const loadMemories = async () => {
+      if (!localSelectedAgentId && !localShowAllMemories) return;
+      
+      setIsLoading(true);
+      setError(null);
+      
+      try {
+        const agentMemories = await getAgentMemories(
+          localSelectedAgentId,
+          { limit: 100 }
+        );
+        setMemories(agentMemories);
+      } catch (err) {
+        console.error('Error loading memories:', err);
+        setError(err instanceof Error ? err : new Error(String(err)));
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    
+    loadMemories();
+  }, [localSelectedAgentId, localShowAllMemories, getAgentMemories]);
+
   // Use standardized memory hooks
-  const { memories, isLoading: isLoadingMemoryHook, error, totalCount, getMemories } = useMemory();
+  const { isLoading: isLoadingMemoryHook, error: memoryHookError, totalCount, getMemories } = useMemory();
   const { 
     results: searchResults,
     loading: isSearching,
@@ -126,9 +186,8 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
   const [isChecking, setIsChecking] = useState(false);
   const [debugResult, setDebugResult] = useState<DebugResult | null>(null);
   const [selectedTagFilter, setSelectedTagFilter] = useState<string>('');
-  const [searchQuery, setSearchQuery] = useState<string>('');
   const [memoryCount, setMemoryCount] = useState<number>(0);
-  const [selectedTypes, setSelectedTypes] = useState<string[]>([]);
+  const [selectedTypes, setSelectedTypes] = useState<MemoryType[]>([]);
   const [typeMenuOpen, setTypeMenuOpen] = useState<boolean>(false);
   const typeMenuRef = useRef<HTMLDivElement>(null);
   const [showDebug, setShowDebug] = useState<boolean>(false);
@@ -136,35 +195,12 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
   const [showDebugInfo, setShowDebugInfo] = useState<boolean>(false);
 
   // Derive loading and memory states, preferring hook values but falling back to props
-  const isLoadingMemories = isLoadingMemoryHook || externalLoading || false;
-  const allMemories = useMemo(() => {
-    // Always prefer memory hook data if available
-    if (memories && memories.length > 0) {
-      console.log(`Using ${memories.length} memories from hook`);
-      return memories;
-    }
-    
-    // Fall back to external memories if provided
-    if (externalMemories && externalMemories.length > 0) {
-      console.log(`Using ${externalMemories.length} external memories`);
-      return externalMemories;
-    }
-    
-    console.log('No memories available from any source');
-    return [];
-  }, [memories, externalMemories]);
+  const isLoadingMemories = isLoadingMemoryHook || isLoading || false;
 
   // All possible memory types as strings - use the enum values
   const MEMORY_TYPES: string[] = useMemo(() => {
-    // Use a Set to eliminate duplicates
-    const typeSet = new Set<string>([
-      ...Object.values(MemoryType),
-      // Add legacy or additional types that might still be in the system
-      ...LEGACY_MEMORY_TYPES
-    ]);
-    
-    // Convert to array and sort
-    return Array.from(typeSet).sort();
+    // Use the MemoryType enum values
+    return Object.values(MemoryType).sort();
   }, []);
 
   // Close dropdown when clicking outside
@@ -183,53 +219,51 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
 
   // Load memories when component mounts
   useEffect(() => {
-    if (!externalMemories) {
+    if (!memories) {
       handleRefresh();
     }
   }, []);
 
-  // All possible memory types
-  const memoryTypes = useMemo(() => {
-    const typeSet = new Set<string>();
-    if (allMemories && Array.isArray(allMemories)) {
-      allMemories.forEach(memory => {
-        if (!memory) return;
-        
-        // Cast to any to avoid TypeScript errors during property access
-        const memoryObj = memory as any;
-        
-        // Check each property safely using our constants
-        if (memoryObj.payload?.type && typeof memoryObj.payload.type === 'string') {
-          typeSet.add(memoryObj.payload.type);
-        }
-        
-        if (typeof memoryObj.kind === 'string') {
-          typeSet.add(memoryObj.kind);
-        }
-        
-        if (memoryObj.metadata?.type && typeof memoryObj.metadata.type === 'string') {
-          typeSet.add(memoryObj.metadata.type);
-        }
-        
-        if (memoryObj.payload?.metadata?.category && 
-            typeof memoryObj.payload.metadata.category === 'string') {
-          typeSet.add(memoryObj.payload.metadata.category);
-        }
-        
-        if (typeof memoryObj.type === 'string') {
-          typeSet.add(memoryObj.type);
-        }
-      });
+  // Get unique memory types for filtering
+  const availableMemoryTypes = useMemo(() => {
+    const types = new Set<MemoryType>();
+    memories.forEach(memory => {
+      if (isValidMemoryType(memory.type)) {
+        types.add(memory.type as MemoryType);
+      }
+    });
+    return Array.from(types).sort();
+  }, [memories]);
+
+  // Filter memories based on selected types and search query
+  const displayedMemories = useMemo(() => {
+    let filtered = memories;
+
+    // Apply type filtering
+    if (selectedTypes.length > 0) {
+      filtered = filtered.filter(memory => 
+        selectedTypes.includes(memory.type as MemoryType)
+      );
     }
-    return Array.from(typeSet).sort();
-  }, [allMemories]);
+
+    // Apply search filtering
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      filtered = filtered.filter(memory =>
+        (memory.content?.toLowerCase().includes(query) ?? false) ||
+        memory.type.toLowerCase().includes(query)
+      );
+    }
+
+    return filtered;
+  }, [memories, selectedTypes, searchQuery]);
 
   // Create typeCount map for displaying memory type counts
   const typeCount = useMemo(() => {
     const counts: Record<string, number> = {};
     
-    if (allMemories && Array.isArray(allMemories)) {
-      allMemories.forEach(memory => {
+    if (memories && Array.isArray(memories)) {
+      memories.forEach(memory => {
         // Make sure memory is a valid object before accessing properties
         if (!memory) return;
         
@@ -257,14 +291,14 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
     }
     
     return counts;
-  }, [allMemories]);
+  }, [memories]);
 
   // Log memory data when it changes
   useEffect(() => {
     console.log('MemoryTab: allMemories updated', {
-      count: allMemories?.length || 0,
-      isArray: Array.isArray(allMemories),
-      firstThree: allMemories && allMemories.length > 0 ? allMemories.slice(0, 3).map(m => {
+      count: memories?.length || 0,
+      isArray: Array.isArray(memories),
+      firstThree: memories && memories.length > 0 ? memories.slice(0, 3).map(m => {
         // Cast to any to safely access properties
         const mem = m as any;
         return {
@@ -278,14 +312,14 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
       }) : [],
     });
     
-    setMemoryCount(allMemories?.length || 0);
-  }, [allMemories]);
+    setMemoryCount(memories?.length || 0);
+  }, [memories]);
 
   // Extract all unique tags from memories
   const allTags = useMemo(() => {
     const tagSet = new Set<string>();
-    if (allMemories && Array.isArray(allMemories)) {
-      allMemories.forEach(memory => {
+    if (memories && Array.isArray(memories)) {
+      memories.forEach(memory => {
         // Cast to any to safely access properties
         const mem = memory as any;
         if (mem && mem.payload?.metadata?.tags && Array.isArray(mem.payload.metadata.tags)) {
@@ -296,7 +330,7 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
       });
     }
     return Array.from(tagSet).sort();
-  }, [allMemories]);
+  }, [memories]);
 
   // Update the memory initialization useEffect to force a load on mount
   useEffect(() => {
@@ -312,7 +346,7 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
     if (memories.length > 0) {
       console.log(`Memory hook has ${memories.length} items loaded`);
       // Force the allMemories state to update if it's empty but the hook has memories
-      if (allMemories.length === 0) {
+      if (memories.length === 0) {
         console.log("Updating allMemories from memory hook");
         // No need to set state - this will use the derived value logic
       }
@@ -324,7 +358,7 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
     // First, log the status of data sources
     console.log("Computing filtered memories:", {
       searchResultsCount: searchResults?.length || 0,
-      allMemoriesCount: allMemories?.length || 0,
+      allMemoriesCount: memories?.length || 0,
       hasSearchQuery: !!searchQuery,
       selectedTypesCount: selectedTypes.length,
       hasTagFilter: !!selectedTagFilter
@@ -336,19 +370,19 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
       return searchResults as any[];
     }
     
-    if (!allMemories || !Array.isArray(allMemories) || allMemories.length === 0) {
+    if (!memories || !Array.isArray(memories) || memories.length === 0) {
       console.warn("No memories available for filtering");
       return [];
     }
     
-    console.log(`Starting with ${allMemories.length} total memories`);
+    console.log(`Starting with ${memories.length} total memories`);
     
     // First, filter out memory_edit records - we'll display these as versions of their originals
     // But keep them if explicitly showing memory_edits type
-    const memoryEditType = MemoryType.MEMORY_EDIT as string;
-    let filtered = selectedTypes.includes(memoryEditType) || selectedTypes.includes('memory_edit')
-      ? allMemories 
-      : allMemories.filter(memory => {
+    const memoryEditType = MemoryType.MEMORY_EDIT;
+    let filtered = selectedTypes.includes(memoryEditType) || selectedTypes.includes(MemoryType.MEMORY_EDIT)
+      ? memories 
+      : memories.filter(memory => {
           // Cast to any to safely access properties
           const memoryObj = memory as any;
           return !(
@@ -390,42 +424,15 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
         // Cast to any to safely access properties
         const memoryObj = memory as any;
         
-        // Check for type in all possible locations
-        let types: string[] = [];
+        // Get the type with safe property access
+        let type = MemoryType.UNKNOWN;
         
-        // Standard payload.type
-        if (memoryObj.payload?.type && typeof memoryObj.payload.type === 'string') {
-          types.push(memoryObj.payload.type);
+        if (memoryObj.type && typeof memoryObj.type === 'string') {
+          // Validate the type is a valid MemoryType
+          type = isValidMemoryType(memoryObj.type) ? memoryObj.type : MemoryType.UNKNOWN;
         }
         
-        // Legacy kind property
-        if (typeof memoryObj.kind === 'string') {
-          types.push(memoryObj.kind);
-        }
-        
-        // Metadata type
-        if (memoryObj.metadata?.type && typeof memoryObj.metadata.type === 'string') {
-          types.push(memoryObj.metadata.type);
-        }
-        
-        // Category in metadata
-        if (memoryObj.payload?.metadata?.category && 
-            typeof memoryObj.payload.metadata.category === 'string') {
-          types.push(memoryObj.payload.metadata.category);
-        }
-        
-        // Root level type property
-        if (typeof memoryObj.type === 'string') {
-          types.push(memoryObj.type);
-        }
-        
-        // If no type found, default to unknown
-        if (types.length === 0) {
-          types.push(PROPERTY_PATHS.MEMORY_TYPES.UNKNOWN);
-        }
-        
-        // Check if any of the memory's types match any selected type
-        return selectedTypes.some(selectedType => types.includes(selectedType));
+        return selectedTypes.includes(type);
       });
     }
     
@@ -501,14 +508,26 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
     });
     
     return filtered;
-  }, [allMemories, selectedTypes, selectedTagFilter, searchQuery, searchResults]);
+  }, [memories, selectedTypes, selectedTagFilter, searchQuery, searchResults]);
 
-  const toggleTypeSelection = (type: string) => {
-    if (selectedTypes.includes(type)) {
-      setSelectedTypes(selectedTypes.filter(t => t !== type));
-    } else {
-      setSelectedTypes([...selectedTypes, type]);
-    }
+  // Handle type filter changes
+  const handleTypeFilterChange = (type: MemoryType) => {
+    setSelectedTypes(prev => {
+      if (prev.includes(type)) {
+        return prev.filter(t => t !== type);
+      }
+      return [...prev, type];
+    });
+  };
+
+  // Handle search query changes
+  const handleSearchChange = (query: string) => {
+    setSearchQuery(query);
+  };
+
+  // Handle filter visibility toggle
+  const toggleFilters = () => {
+    setShowFilters(prev => !prev);
   };
 
   const checkIncorrectReflections = async () => {
@@ -546,11 +565,6 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
 
   const handleRefresh = () => {
     console.log("Forcing memory refresh");
-    if (externalRefresh) {
-      externalRefresh();
-    }
-    
-    // Always call getMemories with a larger limit to make sure we get data
     getMemories({
       limit: 200
     });
@@ -738,8 +752,8 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
         const typeCounts: Record<string, number> = {};
         
         // Count by types
-        if (allMemories && Array.isArray(allMemories)) {
-          allMemories.forEach(memory => {
+        if (memories && Array.isArray(memories)) {
+          memories.forEach(memory => {
             if (!memory) return;
             
             // Get the memory type
@@ -760,7 +774,7 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
         
         result = {
           counts: {
-            total: allMemories?.length || 0,
+            total: memories?.length || 0,
             byType: typeCounts
           },
           collections: ['local-memory-only'],
@@ -835,26 +849,14 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
     performHybridSearch(searchQuery);
   };
 
-  // Handle search input change
-  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const newQuery = e.target.value;
-    setSearchQuery(newQuery);
-    
-    // Clear search results if the query is empty
-    if (!newQuery.trim()) {
-      clearSearch();
-    }
-  };
-
   // Update the beginning of the component to log when memories are loaded
   useEffect(() => {
     console.log("Memory state updated:", {
       memoryCount: memories.length,
-      externalCount: externalMemories?.length || 0,
-      allMemoriesCount: allMemories?.length || 0,
+      allMemoriesCount: memories?.length || 0,
       sampleMemory: memories.length > 0 ? memories[0] : null
     });
-  }, [memories, externalMemories, allMemories]);
+  }, [memories]);
 
   // Add safeStringify as a helper function at the component level, before the extractMemoryText function
   // For safe stringify with circular reference handling
@@ -1040,449 +1042,189 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
     console.log("Debug info toggled:", !showDebugInfo);
   };
 
-  return (
-    <div className="bg-gray-800 text-white p-4 space-y-4">
-      {/* Header with refresh button */}
-      <div className="flex justify-between items-center mb-4">
-        <h2 className="text-xl font-bold flex items-center gap-2">
-          Memory System
-          <span className="text-sm font-normal text-gray-400">
-            ({memoryCount} items)
-          </span>
-        </h2>
-        
-        <div className="flex gap-2">
-          <button 
-            className="flex items-center gap-1 text-xs px-2 py-1 rounded bg-gray-700 hover:bg-gray-600 text-white"
-            onClick={handleRefresh}
-            disabled={isLoadingMemories}
-          >
-            {isLoadingMemories ? (
-              <Loader2 size={14} className="animate-spin" />
-            ) : (
-              <RefreshCw size={14} />
-            )}
-            Refresh
-          </button>
-          
-          <button
-            className="flex items-center gap-1 text-xs px-2 py-1 rounded bg-gray-700 hover:bg-gray-600 text-white"
-            onClick={handleDebugClick}
-          >
-            <Bug size={14} />
-            Debug
-          </button>
-          
-          <button 
-            className={`flex items-center gap-1 text-xs px-2 py-1 rounded ${showDebugInfo ? 'bg-yellow-600' : 'bg-gray-700'} hover:bg-gray-600 text-white`}
-            onClick={toggleDebugInfo}
-          >
-            <Info size={14} />
-            Raw Data
-          </button>
-          
-          <button 
-            className="flex items-center gap-1 text-xs px-2 py-1 rounded bg-gray-700 hover:bg-gray-600 text-white"
-            onClick={checkAllMemoryTypes}
-            disabled={isChecking}
-          >
-            {isChecking ? (
-              <Loader2 size={14} className="animate-spin" />
-            ) : (
-              <Settings size={14} />
-            )}
-            Status
-          </button>
-        </div>
-      </div>
-      
-      {/* Search and filters */}
+  // Update memory loading to handle agent scope
+  useEffect(() => {
+    console.log("Loading memories with agent scope:", {
+      selectedAgentId: localSelectedAgentId,
+      showAllMemories: localShowAllMemories
+    });
+
+    const loadMemories = async () => {
+      if (localShowAllMemories) {
+        await getMemories({ limit: 200 });
+      } else if (localSelectedAgentId) {
+        await getAgentMemories(localSelectedAgentId, { limit: 200 });
+      }
+    };
+
+    loadMemories();
+  }, [localSelectedAgentId, localShowAllMemories, getMemories, getAgentMemories]);
+
+  // Handle agent selection change
+  const handleAgentChange = (agentId: string) => {
+    setLocalSelectedAgentId(agentId);
+    if (onAgentChange) {
+      onAgentChange(agentId);
+    }
+  };
+
+  // Handle view mode change
+  const handleViewChange = (showAll: boolean) => {
+    setLocalShowAllMemories(showAll);
+    if (onViewChange) {
+      onViewChange(showAll);
+    }
+  };
+
+  // Render memory type filter
+  const renderTypeFilter = () => (
+    <div className="flex flex-wrap gap-2 mb-4">
+      {availableMemoryTypes.map(type => (
+        <button
+          key={type}
+          onClick={() => handleTypeFilterChange(type)}
+          className={`px-3 py-1 rounded-full text-sm ${
+            selectedTypes.includes(type)
+              ? 'bg-blue-500 text-white'
+              : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+          }`}
+        >
+          {type}
+        </button>
+      ))}
+    </div>
+  );
+
+  // Render memory list
+  const renderMemoryList = () => {
+    if (isLoading) {
+      return <div className="text-center py-4">Loading memories...</div>;
+    }
+
+    if (error) {
+      return <div className="text-center py-4 text-red-500">{error.message}</div>;
+    }
+
+    if (displayedMemories.length === 0) {
+      return <div className="text-center py-4">No memories found</div>;
+    }
+
+    return (
       <div className="space-y-4">
-        {/* Search form */}
-        <form onSubmit={handleSearch} className="flex gap-2">
-          <div className="relative flex-grow">
-              <input
-                type="text"
-                value={searchQuery}
-              onChange={handleSearchChange}
-              placeholder="Search memories..."
-              className="w-full px-3 py-2 bg-gray-700 border border-gray-600 text-white rounded-md pl-9"
-              />
-            <div className="absolute left-3 top-2.5 text-gray-400">
-              <Search size={16} />
-            </div>
-            </div>
-            
-          <button
-            type="submit"
-            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 flex items-center gap-2"
-            disabled={isSearching}
-          >
-            {isSearching ? <Loader2 size={16} className="animate-spin" /> : 'Search'}
-          </button>
-        </form>
-        
-        {/* Filters section */}
-        <div className="flex flex-wrap gap-2 mb-4 items-center">
-          <div className="flex items-center gap-1 text-gray-400">
-            <Filter size={14} />
-            <span className="text-sm">Filters:</span>
-            </div>
-            
-          {/* Type filter */}
-          <div className="relative" ref={typeMenuRef}>
-              <button
-              className="flex items-center gap-1 text-xs px-2 py-1 rounded bg-gray-700 hover:bg-gray-600 text-white"
-                onClick={() => setTypeMenuOpen(!typeMenuOpen)}
-            >
-              Type ({selectedTypes.length || 'All'})
-              <ChevronDown size={14} />
-              </button>
-              
-              {typeMenuOpen && (
-              <div className="absolute z-10 mt-1 bg-gray-800 border border-gray-700 rounded-md shadow-lg p-2 max-h-60 overflow-y-auto w-64">
-                <div className="space-y-1">
-                    {MEMORY_TYPES.map((type, index) => (
-                      <div 
-                        key={`filter-${type}-${index}`} 
-                        className="flex items-center gap-2 px-2 py-1 hover:bg-gray-700 rounded cursor-pointer"
-                        onClick={() => toggleTypeSelection(type)}
-                      >
-                        <input 
-                          type="checkbox" 
-                          checked={selectedTypes.includes(type)} 
-                          onChange={() => {}} 
-                          className="h-4 w-4"
-                        />
-                      <span className="text-sm text-white">{type}</span>
-                      </div>
-                    ))}
-                  </div>
+        {displayedMemories.map(memory => (
+          <div key={memory.id} className="bg-gray-800 rounded-lg overflow-hidden">
+            <div className="p-4">
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-sm text-gray-400">
+                  {memory.type}
+                </div>
+                <div className="text-sm text-gray-400">
+                  {memory.created || memory.timestamp ? 
+                    new Date(memory.created || memory.timestamp || '').toLocaleString() : 
+                    'No timestamp'}
+                </div>
+              </div>
+              <div className="text-gray-200 whitespace-pre-wrap">
+                {memory.content || memory.text || memory.payload?.text || ''}
+              </div>
+              {memory.payload?.metadata?.context && (
+                <div className="mt-2 text-sm text-gray-400">
+                  Context: {memory.payload.metadata.context}
+                </div>
+              )}
+              {memory.importance && (
+                <div className="mt-1 text-sm text-gray-400">
+                  Importance: {memory.importance}
+                </div>
+              )}
+              {memory.source && (
+                <div className="mt-1 text-sm text-gray-400">
+                  Source: {memory.source}
                 </div>
               )}
             </div>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  return (
+    <div className="flex flex-col h-full bg-gray-900 text-white">
+      {/* Agent selection and view controls */}
+      <div className="flex items-center justify-between p-4 border-b border-gray-700">
+        <div className="flex items-center gap-4">
+          <select
+            value={localSelectedAgentId}
+            onChange={(e) => {
+              setLocalSelectedAgentId(e.target.value);
+              onAgentChange?.(e.target.value);
+            }}
+            className="bg-gray-800 text-white px-3 py-2 rounded border border-gray-700 focus:outline-none focus:border-blue-500"
+          >
+            <option value="">All Agents</option>
+            {availableAgents.map(agent => (
+              <option key={agent.id} value={agent.id}>
+                {agent.name}
+              </option>
+            ))}
+          </select>
           
-          {/* Tag filter */}
-          {allTags.length > 0 && (
-            <div className="relative">
-              <select
-                value={selectedTagFilter}
-                onChange={(e) => setSelectedTagFilter(e.target.value)}
-                className="text-xs px-2 py-1 rounded bg-gray-700 hover:bg-gray-600 text-white cursor-pointer"
-              >
-                <option value="">Tag (All)</option>
-                {allTags.map(tag => (
-                  <option key={tag} value={tag}>{tag}</option>
-                ))}
-              </select>
-            </div>
-          )}
-            
-            {/* Clear filters button */}
-          {(selectedTypes.length > 0 || selectedTagFilter || searchQuery) && (
-              <button 
-              className="flex items-center gap-1 text-xs px-2 py-1 rounded bg-red-800 hover:bg-red-700 text-white"
-                onClick={clearFilters}
-              >
-              <X size={14} />
-              Clear Filters
-              </button>
-            )}
+          <button
+            onClick={() => {
+              setLocalShowAllMemories(!localShowAllMemories);
+              onViewChange?.(!localShowAllMemories);
+            }}
+            className={`px-3 py-2 rounded flex items-center gap-2 ${
+              localShowAllMemories 
+                ? 'bg-blue-600 hover:bg-blue-700' 
+                : 'bg-gray-700 hover:bg-gray-600'
+            }`}
+          >
+            <User className="w-4 h-4" />
+            {localShowAllMemories ? 'All Memories' : 'Agent Memories'}
+          </button>
         </div>
         
-        {/* Memory type counts - update styling */}
-        <div className="flex flex-wrap gap-2 mb-4">
-          {Object.entries(typeCount).map(([type, count], index) => (
-            <div 
-              key={`${type}-${index}`} 
-              className={`px-2 py-1 text-xs rounded-md flex items-center gap-1 cursor-pointer ${
-                selectedTypes.includes(type) 
-                  ? 'bg-blue-800 border border-blue-700' 
-                  : 'bg-gray-700 border border-gray-600'
-              }`}
-              onClick={() => toggleTypeSelection(type)}
-            >
-              <Hash size={12} />
-              <span>{type}</span>
-              <span className="font-semibold">({count})</span>
-            </div>
-          ))}
+        <div className="flex items-center gap-2">
+          <div className="relative">
+            <input
+              type="text"
+              placeholder="Search memories..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="bg-gray-800 text-white pl-10 pr-4 py-2 rounded border border-gray-700 focus:outline-none focus:border-blue-500 w-64"
+            />
+            <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2" />
+          </div>
+          
+          <button
+            onClick={() => setShowFilters(!showFilters)}
+            className={`p-2 rounded ${
+              showFilters 
+                ? 'bg-blue-600 hover:bg-blue-700' 
+                : 'bg-gray-700 hover:bg-gray-600'
+            }`}
+          >
+            <Filter className="w-4 h-4" />
+          </button>
         </div>
       </div>
       
-      {/* Debug panel */}
-      {showDebug && (
-        <div className="bg-gray-700 border border-gray-600 rounded-md p-4 my-4">
-          <div className="flex justify-between items-center mb-2">
-            <h3 className="font-medium flex items-center gap-2 text-white">
-              <AlertCircleIcon size={16} className="text-yellow-500" />
-              Debug Tools
-            </h3>
-            <button
-              className="text-gray-400 hover:text-gray-200"
-              onClick={toggleDebug}
-            >
-              <X size={16} />
-            </button>
-          </div>
-          
-          <div className="space-y-2">
-            <button
-              className="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 flex items-center gap-2"
-              onClick={checkIncorrectReflections}
-              disabled={isChecking}
-            >
-              {isChecking ? <Loader2 size={14} className="animate-spin" /> : 'Check Memories'}
-            </button>
-            
-            {debugResult && (
-              <div className="mt-2 space-y-2 text-gray-300">
-                <div className="text-sm">
-                  <strong>Status:</strong> {debugResult.status}
-                </div>
-                <div className="text-sm">
-                  <strong>Message:</strong> {debugResult.message}
-                </div>
-                <div className="text-sm">
-                  <strong>Total Messages:</strong> {debugResult.totalMessages}
-                </div>
-                <div className="text-sm">
-                  <strong>Suspected Issues:</strong> {debugResult.suspectedReflectionCount}
-                </div>
-          
-          {debugResult.suspectedMessages && debugResult.suspectedMessages.length > 0 && (
-            <div className="mt-2">
-                    <h4 className="font-medium text-sm mb-1 text-white">Suspicious Messages:</h4>
-                    <ul className="space-y-2">
-                      {debugResult.suspectedMessages.map((msg) => (
-                        <li key={msg.id} className="bg-gray-800 p-2 rounded border border-gray-600 text-sm">
-                          <div><strong>ID:</strong> {msg.id}</div>
-                          <div><strong>Date:</strong> {new Date(msg.timestamp).toLocaleString()}</div>
-                          <div className="mt-1 text-xs bg-gray-900 p-1 rounded whitespace-pre-wrap">{msg.text}</div>
-                  </li>
-                ))}
-                    </ul>
-                  </div>
-                )}
-                
-                {debugResult.error && (
-                  <div className="text-red-400 text-sm">
-                    <strong>Error:</strong> {debugResult.error}
-                  </div>
-                )}
-            </div>
-          )}
-          </div>
-        </div>
-      )}
-      
-      {/* Loading indicator */}
-      {isLoadingMemories && (
-        <div className="flex justify-center items-center py-10">
-          <Loader2 className="h-8 w-8 animate-spin text-blue-400" />
-        </div>
-      )}
-      
-      {/* Memories list */}
-      {!isLoadingMemories && filteredMemories.length === 0 && (
-        <div className="text-center py-10 bg-gray-700 rounded-lg border border-gray-600 my-4">
-          <div className="mb-4 text-gray-300">
-            {allMemories.length === 0 ? (
-              <>
-                <div className="text-xl mb-2">No memories could be loaded</div>
-                <div className="text-sm text-gray-400 mb-4">
-                  This may be due to missing collections or a connection issue
-                </div>
-              </>
-            ) : (
-              <>
-                <div className="text-xl mb-2">No memories match your filters</div>
-                <div className="text-sm text-gray-400">
-                  Try adjusting your search terms or filters
-                </div>
-              </>
-            )}
-          </div>
-          
-          <button 
-            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 flex items-center gap-2 mx-auto"
-            onClick={handleRefresh}
-          >
-            <RefreshCw size={16} />
-            Retry Loading Memories
-          </button>
-          
-          {(selectedTypes.length > 0 || selectedTagFilter || searchQuery) && (
-            <button 
-              className="px-4 py-2 mt-3 bg-gray-600 text-white rounded-md hover:bg-gray-500 flex items-center gap-2 mx-auto"
-              onClick={clearFilters}
-            >
-              <X size={16} />
-              Clear All Filters
-            </button>
-          )}
-        </div>
-      )}
-      
-        <div className="space-y-4">
-        {Array.isArray(filteredMemories) ? filteredMemories.map((memory, index) => {
-          // Skip null or invalid memories
-          if (!memory) {
-            console.warn(`Skipping null memory at index ${index}`);
-            return null;
-          }
-          
-          try {
-            // Generate a stable key - use the memory ID if available
-            const key = memory.id || `memory-${index}-${Math.random().toString(36).substring(7)}`;
-            
-            // For better debugging - log the complete memory object for the first item
-            if (index === 0) {
-              console.log("Full memory object structure:", memory);
-            }
-            
-            // Update the text content extraction
-            let textContent = extractMemoryText(memory);
-            
-            // Determine type from various possible locations
-            let typeInfo = "unknown";
-            if (memory.payload?.type && typeof memory.payload.type === 'string') {
-              typeInfo = memory.payload.type;
-            } else if (typeof memory.kind === 'string') {
-              typeInfo = memory.kind;
-            } else if (memory.metadata?.type && typeof memory.metadata.type === 'string') {
-              typeInfo = memory.metadata.type;
-            } else if (memory.type && typeof memory.type === 'string') {
-              typeInfo = memory.type;
-            } else if (memory.payload?.metadata?.category && typeof memory.payload.metadata.category === 'string') {
-              typeInfo = memory.payload.metadata.category;
-            }
-            
-            // Create timestamp from various possible locations
-            let timestamp = '';
-            if (memory.payload?.timestamp) {
-              timestamp = memory.payload.timestamp;
-            } else if (memory.timestamp) {
-              timestamp = memory.timestamp;
-            } else if (memory.created_at) {
-              timestamp = memory.created_at;
-            } else if (memory.payload?.created_at) {
-              timestamp = memory.payload.created_at;
-            } else if (memory.point?.payload?.timestamp) {
-              // Qdrant specific path
-              timestamp = memory.point.payload.timestamp;
-            }
-            
-            // Handle numerical timestamps (Unix timestamps)
-            if (timestamp && !isNaN(Number(timestamp))) {
-              // If it's a 13-digit timestamp (milliseconds), use as is
-              // If it's a 10-digit timestamp (seconds), multiply by 1000 to get ms
-              const timeMs = String(timestamp).length >= 13 ? 
-                Number(timestamp) : Number(timestamp) * 1000;
-              timestamp = new Date(timeMs).toISOString();
-            }
-            
-            // Build metadata object from various possible locations
-            let metadata = {};
-            if (memory.payload?.metadata && typeof memory.payload.metadata === 'object') {
-              metadata = memory.payload.metadata;
-            } else if (memory.metadata && typeof memory.metadata === 'object') {
-              metadata = memory.metadata;
-            }
-            
-            // Make sure we have a minimal valid structure for MemoryItem with richer content detection
-            const enhancedMemory = {
-              ...memory,
-              id: memory.id || memory.point?.id || `generated-id-${index}`,
-              // Ensure vector exists
-              vector: memory.vector || [],
-              // Build a rich payload with all possible content sources
-              payload: {
-                // Start with existing payload if any
-                ...(memory.payload || {}),
-                // If this is a Qdrant point object, include its payload data
-                ...(memory.point?.payload ? memory.point.payload : {}),
-                // Ensure text exists with the extracted content - provide the DIRECT text content
-                text: (() => {
-                  // Check if this is point.payload.text structure
-                  const memAny = memory as any;
-                  if (memAny.point?.payload?.text) {
-                    return memAny.point.payload.text;
-                  }
-                  
-                  // Otherwise try to use the existing textContent or textContent extraction
-                  return textContent;
-                })(),
-                // Ensure type exists
-                type: typeInfo,
-                // NEVER override timestamp if it already exists in payload
-                timestamp: memory.payload?.timestamp || 
-                          memory.point?.payload?.timestamp || 
-                          timestamp || '',
-                // Ensure metadata exists
-                metadata: {
-                  ...(metadata || {}),
-                  ...(memory.point?.payload?.metadata || {})
-                }
-              }
-            };
-            
-            // Better debug info with full structure
-            if (index < 2) { // Only log first two items to avoid console spam
-              const originalTimestamp = memory.payload?.timestamp || (memory as any).timestamp || '';
-              console.log(`Memory[${index}]:`, {
-                id: enhancedMemory.id, 
-                type: enhancedMemory.payload.type,
-                hasText: !!enhancedMemory.payload.text,
-                textPreview: enhancedMemory.payload.text?.substring(0, 30) + (enhancedMemory.payload.text?.length > 30 ? '...' : ''),
-                originalTimestamp,
-                enhancedTimestamp: enhancedMemory.payload.timestamp,
-                didTimestampChange: originalTimestamp !== enhancedMemory.payload.timestamp
-              });
-            }
-            
-            // Include debug info if enabled
-            if (showDebugInfo) {
-              return (
-                <div key={key} className="bg-gray-900 border border-gray-700 rounded-lg p-4 mb-4 font-mono text-xs">
-                  <div className="flex justify-between items-center mb-2">
-                    <div className="font-bold text-blue-400">
-                      Memory Debug - ID: {memory.id || 'unknown'} - Type: {typeInfo}
-                    </div>
-                    <div className="text-gray-500">Index: {index}</div>
-                  </div>
-                  <pre className="whitespace-pre-wrap overflow-auto max-h-96 bg-gray-950 p-4 rounded border border-gray-800">
-                    {(() => {
-                      try {
-                        return safeStringify(memory);
-                      } catch (error) {
-                        return `Error stringifying memory: ${error}`;
-                      }
-                    })()}
-                  </pre>
-                </div>
-              );
-            }
-            
-            return (
-              <MemoryItemComponent
-                key={key}
-                memory={enhancedMemory}
-                onTagUpdate={handleTagUpdate}
-                onTagSuggestionRemove={handleTagRejection}
-                regenerateTagsForMemory={regenerateTagsForMemory}
-              />
-            );
-          } catch (error) {
-            console.error(`Error rendering memory at index ${index}:`, error, memory);
-            return null;
-          }
-        }) : (
-          <div className="text-center py-10 text-gray-400">
-            No valid memory array found
+      {/* Main content area */}
+      <div className="flex-1 overflow-hidden flex">
+        {/* Left sidebar with stats */}
+        {localSelectedAgentId && (
+          <div className="w-80 border-r border-gray-700 overflow-y-auto">
+            <AgentMemoryStats agentId={localSelectedAgentId} className="m-4" />
           </div>
         )}
+        
+        {/* Memory list */}
+        <div className="flex-1 overflow-y-auto p-4">
+          {renderMemoryList()}
         </div>
+      </div>
     </div>
   );
 };
