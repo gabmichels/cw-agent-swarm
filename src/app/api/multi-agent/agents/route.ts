@@ -120,26 +120,96 @@ export async function POST(request: Request) {
     
     // Create agent data for storage
     console.log('Preparing agent data for storage...');
-    const agentData: AgentMemoryEntity = {
-      id,
-      name: agent.name,
-      description: agent.description,
-      status: agent.status || AgentStatus.ACTIVE,
-      capabilities: agent.capabilities,
-      parameters: agent.parameters || {},
-      metadata: agent.metadata || {},
-      content: `${agent.name} - ${agent.description} - ${agent.capabilities.map(c => c.name).join(', ')}`,
-      embedding: [],
-      createdAt: agent.createdAt,
-      updatedAt: agent.updatedAt
+    
+    // Helper function to convert API agent capabilities to schema-compatible format
+    const convertCapabilities = (capabilities: typeof agent.capabilities): AgentMemoryEntity['capabilities'] => {
+      return capabilities.map(cap => ({
+        id: cap.id || `capability_${cap.name.toLowerCase().replace(/\s+/g, '_')}`,
+        name: cap.name,
+        description: cap.description,
+        version: '1.0.0', // Default version for API-created capabilities
+        parameters: {}
+      }));
     };
     
-        // Get embedding for the agent content
+    // Helper function to create schema-compatible parameters
+    const createSchemaParameters = (): AgentMemoryEntity['parameters'] => {
+      return {
+        model: agent.parameters?.model || 'gpt-3.5-turbo',
+        temperature: agent.parameters?.temperature || 0.7,
+        maxTokens: agent.parameters?.maxTokens || 1024,
+        tools: [], // Convert string[] to AgentTool[]
+        customInstructions: agent.parameters?.systemPrompt
+      };
+    };
+    
+    // Helper function to create schema-compatible metadata
+    const createSchemaMetadata = (): AgentMemoryEntity['metadata'] => {
+      // Start with required fields with defaults
+      const baseMetadata = {
+        tags: agent.metadata?.tags || [],
+        domain: agent.metadata?.domain || [],
+        specialization: agent.metadata?.specialization || [],
+        performanceMetrics: agent.metadata?.performanceMetrics || {
+          successRate: 0,
+          averageResponseTime: 0,
+          taskCompletionRate: 0
+        },
+        version: agent.metadata?.version || '1.0.0',
+        isPublic: agent.metadata?.isPublic || false
+      };
+      
+      // Add any custom fields from the agent metadata but exclude ones we've already added
+      const { tags, domain, specialization, performanceMetrics, version, isPublic, ...customMetadata } = agent.metadata || {};
+      
+      // Return combined metadata
+      return {
+        ...baseMetadata,
+        ...customMetadata
+      } as AgentMemoryEntity['metadata'];
+    };
+    
+    // Map agent status from API to schema enum
+    const mapStatus = (status?: string): AgentStatus => {
+      if (!status) return AgentStatus.AVAILABLE;
+      
+      switch (status) {
+        case 'available': return AgentStatus.AVAILABLE;
+        case 'unavailable': return AgentStatus.OFFLINE;
+        case 'maintenance': return AgentStatus.MAINTENANCE;
+        default: return AgentStatus.AVAILABLE;
+      }
+    };
+    
+    // Create properly formatted agent data that conforms to the schema
+    const agentData = {
+      id, // This will be handled by the service
+      name: agent.name,
+      description: agent.description || '',
+      createdBy: 'api', 
+      capabilities: convertCapabilities(agent.capabilities),
+      parameters: createSchemaParameters(),
+      status: mapStatus(agent.status),
+      lastActive: new Date(),
+      chatIds: [],
+      teamIds: [],
+      metadata: createSchemaMetadata(),
+      content: `${agent.name} - ${agent.description} - ${agent.capabilities.map(c => c.name).join(', ')}`,
+      type: 'agent', // Required for base memory schema
+      createdAt: agent.createdAt,
+      updatedAt: agent.updatedAt,
+      schemaVersion: '1.0' // Required by AgentMemoryEntity
+    };
+    
+    // We need to use this as unknown first to satisfy TypeScript
+    const typedAgentData = agentData as unknown as AgentMemoryEntity;
+    
+    // Get embedding for the agent content
     console.log('Generating agent embedding...');
     const embeddingService = services.embeddingService;
     
     try {
-        const embeddingResult = await embeddingService.getEmbedding(agentData.content);
+        const embeddingResult = await embeddingService.getEmbedding(typedAgentData.content);
         
       // Validate embedding
       if (!Array.isArray(embeddingResult.embedding) || embeddingResult.embedding.length === 0) {
@@ -153,11 +223,11 @@ export async function POST(request: Request) {
       console.log(`Successfully generated embedding with ${embeddingResult.embedding.length} dimensions`);
       
       // Add the embedding to the agent data
-      agentData.embedding = embeddingResult.embedding;
+      (typedAgentData as any).embedding = embeddingResult.embedding;
           
       // Store using our agent service (which handles UUID conversion)
       console.log('Storing agent in Qdrant...');
-      const result = await agentService.createAgent(agentData);
+      const result = await agentService.createAgent(typedAgentData);
             
             if (result.isError) {
         console.error('Failed to store agent in Qdrant:', result.error);
@@ -287,8 +357,8 @@ export async function GET(request: Request) {
       // Fall back to using agentService
       console.log('Falling back to agent memory service...');
       
-      // Create agent service with proper schema initialization
-      const agentService = createAgentMemoryService(memoryService);
+      // Create agent service
+      const agentService = new DefaultAgentMemoryService(client);
       
       // Get all agents
       console.log('Calling agentService.getAgents()...');
