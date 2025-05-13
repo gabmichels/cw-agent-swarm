@@ -1,6 +1,7 @@
 /**
  * Constants related to proxy.ts chat handling
  */
+import { getCurrentUser } from '../lib/user';
 
 /**
  * Content patterns to identify internal messages
@@ -92,5 +93,5 @@ export const METADATA_KEYS = {
  */
 export const DEBUG_CONSTANTS = {
   DEV_SHOW_INTERNAL_MESSAGES_KEY: 'DEV_SHOW_INTERNAL_MESSAGES',
-  DEFAULT_USER_ID: 'gab',
+  DEFAULT_USER_ID: getCurrentUser().id,
 }; 

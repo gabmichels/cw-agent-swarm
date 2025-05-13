@@ -18,6 +18,7 @@ import { generateChatId } from '../../../utils/uuid';
 import { getChatService } from '../../../server/memory/services/chat-service';
 import { getOrCreateThreadInfo, createResponseThreadInfo } from './thread/helper';
 import { AgentService } from '../../../services/AgentService';
+import { getCurrentUser } from '../../../lib/user';
 
 // In-memory cache and in-flight request tracking
 const responseCache = new Map<string, {
@@ -56,9 +57,9 @@ function normalizeMessage(message: string): string {
   return message.trim();
 }
 
-// Create a cache key from message and userId
-function createCacheKey(message: string, userId: string = 'gab'): string {
-  return `${userId}:${normalizeMessage(message)}`;
+// Function to create a cache key for messages
+function createCacheKey(message: string, userId: string = getCurrentUser().id): string {
+  return `${userId}:${message.substring(0, 50)}`;
 }
 
 // Memory service status check
@@ -126,7 +127,8 @@ export async function loadChatHistoryFromQdrant(specificUserId?: string, specifi
     
     // Group by user id
     const messagesByUser = new Map<string, any[]>();
-    const defaultUserId = 'gab';  // Default user ID for the application
+    const defaultUser = getCurrentUser();
+    const defaultUserId = defaultUser.id;  // Default user ID from the User model
     const defaultChatId = 'chat-default'; // Default chat ID
     
     // The actual chatId to filter by
@@ -455,7 +457,8 @@ let agent = null;
 export async function POST(req: Request) {
   try {
     // Parse the JSON request
-    const { message, userId = 'gab', memoryDisabled, attachments = [], visionResponseFor, agentId = '', chatId = '' } = await req.json();
+    const defaultUser = getCurrentUser();
+    const { message, userId = defaultUser.id, memoryDisabled, attachments = [], visionResponseFor, agentId = '', chatId = '' } = await req.json();
     
     // Generate a default chat ID if none is provided
     const effectiveChatId = chatId || `chat-${userId}-${agentId || 'default'}`;

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getChatService } from '../../../../server/memory/services/chat-service';
 import { ChatType } from '../../../../server/memory/models/chat-collection';
+import { getCurrentUser } from '../../../../lib/user';
 
 /**
  * POST handler - spawn a new chat session
@@ -8,7 +9,8 @@ import { ChatType } from '../../../../server/memory/models/chat-collection';
 export async function POST(request: Request) {
   try {
     // Get parameters from request
-    const { userId = 'gab', agentId = '', title, description } = await request.json();
+    const defaultUser = getCurrentUser();
+    const { userId = defaultUser.id, agentId = '', title, description } = await request.json();
     
     // Validate agentId
     if (!agentId) {
