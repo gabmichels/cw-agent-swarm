@@ -507,8 +507,41 @@ export class DefaultPlanRecoverySystem implements PlanRecoverySystem {
       timestamp: Date;
     }>;
   }>> {
-    // Implementation will be added in subsequent sections
-    throw new PlanRecoveryError('Method not implemented', 'NOT_IMPLEMENTED');
+    if (!this.initialized) {
+      throw new PlanRecoveryError('Recovery system not initialized', 'NOT_INITIALIZED');
+    }
+
+    // Find all failures for this plan
+    const planFailures = Array.from(this.failures.values())
+      .filter(failure => failure.planId === planId);
+    
+    // Build recovery history for each failure
+    const history = [];
+    
+    for (const failure of planFailures) {
+      // Get results for this failure
+      const results = this.recoveryResults.get(failure.id) || [];
+      
+      // Create recovery action records by combining actions with results
+      const recoveryActions = failure.previousRecoveryActions?.map((action, index) => ({
+        action,
+        result: results[index] || {
+          success: false,
+          action,
+          message: 'No result recorded',
+          durationMs: 0
+        },
+        timestamp: new Date(failure.timestamp.getTime() + (index * 60000)) // Approximate timestamps
+      })) || [];
+      
+      // Add to history
+      history.push({
+        failure,
+        recoveryActions
+      });
+    }
+    
+    return history;
   }
 
   /**
@@ -531,8 +564,129 @@ export class DefaultPlanRecoverySystem implements PlanRecoverySystem {
       usageCount: number;
     }>;
   }> {
-    // Implementation will be added in subsequent sections
-    throw new PlanRecoveryError('Method not implemented', 'NOT_IMPLEMENTED');
+    if (!this.initialized) {
+      throw new PlanRecoveryError('Recovery system not initialized', 'NOT_INITIALIZED');
+    }
+
+    // Get all failures, filtered by time range if specified
+    let failures = Array.from(this.failures.values());
+    
+    if (timeRange) {
+      failures = failures.filter(failure => 
+        failure.timestamp >= timeRange.start && 
+        failure.timestamp <= timeRange.end
+      );
+    }
+    
+    const totalFailures = failures.length;
+    
+    if (totalFailures === 0) {
+      // Return empty statistics
+      return {
+        totalFailures: 0,
+        failuresByCategory: {} as Record<PlanFailureCategory, number>,
+        failuresBySeverity: {} as Record<PlanFailureSeverity, number>,
+        recoverySuccessRate: 0,
+        averageRecoveryAttempts: 0,
+        mostCommonFailures: [],
+        mostEffectiveRecoveryActions: []
+      };
+    }
+    
+    // Initialize category and severity counters
+    const failuresByCategory: Record<string, number> = {};
+    const failuresBySeverity: Record<string, number> = {};
+    
+    // Initialize category success tracking
+    const categorySuccessCount: Record<string, number> = {};
+    const categoryTotalCount: Record<string, number> = {};
+    
+    // Initialize action type tracking
+    const actionTypeSuccessCount: Record<string, number> = {};
+    const actionTypeTotalCount: Record<string, number> = {};
+    
+    // Track total recovery attempts and successes
+    let totalRecoveryAttempts = 0;
+    let totalRecoverySuccesses = 0;
+    
+    // Process each failure
+    for (const failure of failures) {
+      // Count by category
+      const category = failure.category;
+      failuresByCategory[category] = (failuresByCategory[category] || 0) + 1;
+      categoryTotalCount[category] = (categoryTotalCount[category] || 0) + 1;
+      
+      // Count by severity
+      const severity = failure.severity;
+      failuresBySeverity[severity] = (failuresBySeverity[severity] || 0) + 1;
+      
+      // Count recovery attempts
+      totalRecoveryAttempts += failure.recoveryAttempts;
+      
+      // Get results for this failure
+      const results = this.recoveryResults.get(failure.id) || [];
+      const successfulResults = results.filter(result => result.success);
+      
+      // Count successful recoveries
+      if (successfulResults.length > 0) {
+        totalRecoverySuccesses += 1;
+        categorySuccessCount[category] = (categorySuccessCount[category] || 0) + 1;
+      }
+      
+      // Track action types
+      for (const result of results) {
+        const actionType = result.action.type;
+        actionTypeTotalCount[actionType] = (actionTypeTotalCount[actionType] || 0) + 1;
+        
+        if (result.success) {
+          actionTypeSuccessCount[actionType] = (actionTypeSuccessCount[actionType] || 0) + 1;
+        }
+      }
+    }
+    
+    // Calculate recovery success rate
+    const recoverySuccessRate = totalFailures > 0 
+      ? totalRecoverySuccesses / totalFailures 
+      : 0;
+    
+    // Calculate average recovery attempts
+    const averageRecoveryAttempts = totalFailures > 0 
+      ? totalRecoveryAttempts / totalFailures 
+      : 0;
+    
+    // Calculate most common failures
+    const mostCommonFailures = Object.entries(categoryTotalCount)
+      .map(([category, count]) => ({
+        category: category as PlanFailureCategory,
+        count,
+        recoverySuccessRate: count > 0 
+          ? (categorySuccessCount[category] || 0) / count
+          : 0
+      }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5);
+    
+    // Calculate most effective recovery actions
+    const mostEffectiveRecoveryActions = Object.entries(actionTypeTotalCount)
+      .map(([actionType, usageCount]) => ({
+        actionType: actionType as PlanRecoveryActionType,
+        successRate: usageCount > 0
+          ? (actionTypeSuccessCount[actionType] || 0) / usageCount 
+          : 0,
+        usageCount
+      }))
+      .sort((a, b) => b.successRate - a.successRate || b.usageCount - a.usageCount)
+      .slice(0, 5);
+    
+    return {
+      totalFailures,
+      failuresByCategory: failuresByCategory as Record<PlanFailureCategory, number>,
+      failuresBySeverity: failuresBySeverity as Record<PlanFailureSeverity, number>,
+      recoverySuccessRate,
+      averageRecoveryAttempts,
+      mostCommonFailures,
+      mostEffectiveRecoveryActions
+    };
   }
 
   /**
