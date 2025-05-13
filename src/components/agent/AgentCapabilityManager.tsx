@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { PlusCircle, ChevronDown, ChevronUp } from 'lucide-react';
 import { 
   CapabilityType, 
   CapabilityLevel, 
@@ -7,420 +8,483 @@ import {
   defaultCapabilities
 } from '../../agents/shared/capability-system';
 
-interface AgentCapability {
+interface Capability {
   id: string;
   name: string;
-  description?: string;
+  description: string;
   type: CapabilityType;
-  level: CapabilityLevel;
-}
-
-interface AgentCapabilitySet {
-  skills: Record<string, CapabilityLevel>;
-  domains: string[];
-  roles: string[];
-  tags?: string[];
+  level?: CapabilityLevel;
 }
 
 interface AgentCapabilityManagerProps {
-  initialCapabilities?: AgentCapabilitySet;
-  onChange: (capabilities: AgentCapabilitySet) => void;
+  initialCapabilities?: {
+    skills: Record<string, CapabilityLevel>;
+    domains: string[];
+    roles: string[];
+    tags?: string[];
+  };
+  onChange: (capabilities: {
+    skills: Record<string, CapabilityLevel>;
+    domains: string[];
+    roles: string[];
+    tags?: string[];
+  }) => void;
 }
 
-/**
- * Component for managing agent capabilities
- */
+const DEFAULT_CAPABILITIES: Capability[] = [
+  { id: 'skill.problem_solving', name: 'Problem Solving', description: 'Ability to analyze and solve complex problems', type: CapabilityType.SKILL },
+  { id: 'skill.creative_thinking', name: 'Creative Thinking', description: 'Ability to come up with novel ideas and solutions', type: CapabilityType.SKILL },
+  { id: 'skill.research', name: 'Research', description: 'Ability to find and synthesize information', type: CapabilityType.SKILL },
+  { id: 'skill.communication', name: 'Communication', description: 'Ability to clearly communicate ideas and information', type: CapabilityType.SKILL },
+  { id: 'skill.critical_thinking', name: 'Critical Thinking', description: 'Ability to evaluate information and make reasoned judgments', type: CapabilityType.SKILL },
+  { id: 'domain.marketing', name: 'Marketing', description: 'Knowledge of marketing principles and strategies', type: CapabilityType.DOMAIN },
+  { id: 'domain.finance', name: 'Finance', description: 'Knowledge of financial principles and analysis', type: CapabilityType.DOMAIN },
+  { id: 'domain.technology', name: 'Technology', description: 'Knowledge of technology trends and applications', type: CapabilityType.DOMAIN },
+  { id: 'domain.hr', name: 'HR', description: 'Knowledge of human resources principles and practices', type: CapabilityType.DOMAIN },
+  { id: 'domain.sales', name: 'Sales', description: 'Knowledge of sales principles and techniques', type: CapabilityType.DOMAIN },
+  { id: 'role.assistant', name: 'Assistant', description: 'Acts as a helpful assistant', type: CapabilityType.ROLE },
+  { id: 'role.advisor', name: 'Advisor', description: 'Provides expert advice and recommendations', type: CapabilityType.ROLE },
+  { id: 'role.researcher', name: 'Researcher', description: 'Conducts comprehensive research and analysis', type: CapabilityType.ROLE },
+  { id: 'role.analyst', name: 'Analyst', description: 'Analyzes data and provides insights', type: CapabilityType.ROLE },
+  { id: 'role.strategist', name: 'Strategist', description: 'Develops strategic plans and initiatives', type: CapabilityType.ROLE },
+];
+
 const AgentCapabilityManager: React.FC<AgentCapabilityManagerProps> = ({
-  initialCapabilities,
-  onChange
-}) => {
-  // Default empty capability set
-  const emptyCapabilitySet: AgentCapabilitySet = {
+  initialCapabilities = {
     skills: {},
     domains: [],
     roles: [],
-    tags: []
-  };
-
-  // State for capability management
-  const [capabilities, setCapabilities] = useState<AgentCapabilitySet>(
-    initialCapabilities || emptyCapabilitySet
-  );
-  const [activeTab, setActiveTab] = useState<CapabilityType>(CapabilityType.SKILL);
-  const [newCapability, setNewCapability] = useState<Partial<AgentCapability>>({
+    tags: [],
+  },
+  onChange
+}) => {
+  const [capabilities, setCapabilities] = useState({
+    skills: initialCapabilities.skills || {},
+    domains: initialCapabilities.domains || [],
+    roles: initialCapabilities.roles || [],
+    tags: initialCapabilities.tags || []
+  });
+  
+  const [selectedCapabilities, setSelectedCapabilities] = useState<Capability[]>([]);
+  const [showCapabilitySelector, setShowCapabilitySelector] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [isAddingCustom, setIsAddingCustom] = useState(false);
+  const [customCapability, setCustomCapability] = useState({
     id: '',
     name: '',
     description: '',
-    type: activeTab,
-    level: CapabilityLevel.INTERMEDIATE
+    type: CapabilityType.SKILL
   });
-  const [selectedTemplate, setSelectedTemplate] = useState('');
-
-  // Convert capabilities to a flat list for display
-  const [capabilityList, setCapabilityList] = useState<AgentCapability[]>([]);
-
-  // Update capabilities when initialCapabilities changes
+  
+  // Initialize selected capabilities from initial values
   useEffect(() => {
-    if (initialCapabilities && Object.keys(initialCapabilities).length > 0) {
-      setCapabilities(initialCapabilities);
-    }
-  }, [initialCapabilities]);
-
-  // Update the capability list when capabilities change
-  useEffect(() => {
-    const list: AgentCapability[] = [];
-
-    // Add skills
-    Object.entries(capabilities.skills).forEach(([id, level]) => {
-      // Extract name from ID (format: type.name)
-      const nameParts = id.split('.');
-      const name = nameParts.length > 1 ? nameParts[1] : id;
-      
-      list.push({
-        id,
-        name,
-        type: CapabilityType.SKILL,
-        level
-      });
-    });
-
-    // Add domains
-    capabilities.domains.forEach(domain => {
-      list.push({
-        id: `${CapabilityType.DOMAIN}.${domain}`,
-        name: domain,
-        type: CapabilityType.DOMAIN,
-        level: CapabilityLevel.INTERMEDIATE // Default level for domains
-      });
-    });
-
-    // Add roles
-    capabilities.roles.forEach(role => {
-      list.push({
-        id: `${CapabilityType.ROLE}.${role}`,
-        name: role,
-        type: CapabilityType.ROLE,
-        level: CapabilityLevel.INTERMEDIATE // Default level for roles
-      });
-    });
-
-    // Add tags
-    capabilities.tags?.forEach(tag => {
-      list.push({
-        id: `${CapabilityType.TAG}.${tag}`,
-        name: tag,
-        type: CapabilityType.TAG,
-        level: CapabilityLevel.INTERMEDIATE // Default level for tags
-      });
-    });
-
-    setCapabilityList(list);
-  }, [capabilities]);
-
-  // Update parent component when capabilities change - with deep comparison to prevent unnecessary updates
-  useEffect(() => {
-    // Stringify for deep comparison
-    const currentCapabilitiesString = JSON.stringify(capabilities);
-    const initialCapabilitiesString = JSON.stringify(initialCapabilities || emptyCapabilitySet);
-    
-    // Only call onChange if capabilities actually changed from initial value
-    if (currentCapabilitiesString !== initialCapabilitiesString) {
-      onChange(capabilities);
-    }
-  }, [capabilities, onChange, initialCapabilities, emptyCapabilitySet]);
-
-  // Update new capability type when active tab changes
-  useEffect(() => {
-    setNewCapability(prev => ({
-      ...prev,
-      type: activeTab
+    const skills = Object.entries(initialCapabilities.skills || {}).map(([id, level]) => ({
+      id,
+      name: id.split('.')[1] || id,
+      description: `Skill level: ${level}`,
+      type: CapabilityType.SKILL,
+      level
     }));
-  }, [activeTab]);
-
-  // Add a new capability
-  const handleAddCapability = () => {
-    if (!newCapability.name) return;
-
-    const name = newCapability.name.trim().toLowerCase().replace(/\s+/g, '_');
-    const type = newCapability.type || CapabilityType.SKILL;
-    const level = newCapability.level || CapabilityLevel.INTERMEDIATE;
-    const id = newCapability.id || `${type}.${name}`;
-
-    const updatedCapabilities = { ...capabilities };
-
-    switch (type) {
-      case CapabilityType.SKILL:
-        updatedCapabilities.skills = {
-          ...updatedCapabilities.skills,
-          [id]: level
+    
+    const domains = (initialCapabilities.domains || []).map(domain => ({
+      id: `domain.${domain.toLowerCase().replace(/\s+/g, '_')}`,
+      name: domain,
+      description: `Domain knowledge: ${domain}`,
+      type: CapabilityType.DOMAIN
+    }));
+    
+    const roles = (initialCapabilities.roles || []).map(role => ({
+      id: `role.${role.toLowerCase().replace(/\s+/g, '_')}`,
+      name: role,
+      description: `Role: ${role}`,
+      type: CapabilityType.ROLE
+    }));
+    
+    setSelectedCapabilities([...skills, ...domains, ...roles]);
+  }, [initialCapabilities]);
+  
+  // Notify parent component when capabilities change
+  useEffect(() => {
+    onChange(capabilities);
+  }, [capabilities, onChange]);
+  
+  // Filter capabilities based on search term
+  const filteredCapabilities = DEFAULT_CAPABILITIES.filter(cap => {
+    const isAlreadySelected = selectedCapabilities.some(selected => selected.id === cap.id);
+    if (isAlreadySelected) return false;
+    
+    if (!searchTerm) return true;
+    
+    return (
+      cap.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      cap.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      cap.id.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+  });
+  
+  // Add capability
+  const addCapability = (capability: Capability) => {
+    setSelectedCapabilities(prev => [...prev, capability]);
+    
+    // Update the capabilities object based on the type
+    if (capability.type === CapabilityType.SKILL) {
+      setCapabilities(prev => ({
+        ...prev,
+        skills: {
+          ...prev.skills,
+          [capability.id]: capability.level || CapabilityLevel.BASIC
+        }
+      }));
+    } else if (capability.type === CapabilityType.DOMAIN) {
+      setCapabilities(prev => ({
+        ...prev,
+        domains: [...prev.domains, capability.name]
+      }));
+    } else if (capability.type === CapabilityType.ROLE) {
+      setCapabilities(prev => ({
+        ...prev,
+        roles: [...prev.roles, capability.name]
+      }));
+    } else if (capability.type === CapabilityType.TAG) {
+      setCapabilities(prev => ({
+        ...prev,
+        tags: [...(prev.tags || []), capability.name]
+      }));
+    }
+    
+    // Reset custom capability form if adding custom
+    if (isAddingCustom) {
+      setCustomCapability({
+        id: '',
+        name: '',
+        description: '',
+        type: CapabilityType.SKILL
+      });
+      setIsAddingCustom(false);
+    }
+    
+    // Close capability selector after adding
+    setShowCapabilitySelector(false);
+  };
+  
+  // Remove capability
+  const handleRemoveCapability = (capability: Capability) => {
+    setSelectedCapabilities(prev => prev.filter(cap => cap.id !== capability.id));
+    
+    // Update the capabilities object based on the type
+    if (capability.type === CapabilityType.SKILL) {
+      setCapabilities(prev => {
+        const newSkills = { ...prev.skills };
+        delete newSkills[capability.id];
+        return {
+          ...prev,
+          skills: newSkills
         };
-        break;
-      case CapabilityType.DOMAIN:
-        if (!updatedCapabilities.domains.includes(name)) {
-          updatedCapabilities.domains = [...updatedCapabilities.domains, name];
-        }
-        break;
-      case CapabilityType.ROLE:
-        if (!updatedCapabilities.roles.includes(name)) {
-          updatedCapabilities.roles = [...updatedCapabilities.roles, name];
-        }
-        break;
-      case CapabilityType.TAG:
-        if (!updatedCapabilities.tags?.includes(name)) {
-          updatedCapabilities.tags = [...(updatedCapabilities.tags || []), name];
-        }
-        break;
+      });
+    } else if (capability.type === CapabilityType.DOMAIN) {
+      setCapabilities(prev => ({
+        ...prev,
+        domains: prev.domains.filter(domain => domain !== capability.name)
+      }));
+    } else if (capability.type === CapabilityType.ROLE) {
+      setCapabilities(prev => ({
+        ...prev,
+        roles: prev.roles.filter(role => role !== capability.name)
+      }));
+    } else if (capability.type === CapabilityType.TAG) {
+      setCapabilities(prev => ({
+        ...prev,
+        tags: (prev.tags || []).filter(tag => tag !== capability.name)
+      }));
     }
-
-    setCapabilities(updatedCapabilities);
-    
-    // Reset new capability form
-    setNewCapability({
-      id: '',
-      name: '',
-      description: '',
-      type: activeTab,
-      level: CapabilityLevel.INTERMEDIATE
-    });
   };
-
-  // Remove a capability
-  const handleRemoveCapability = (capability: AgentCapability) => {
-    const { id, type, name } = capability;
-    const updatedCapabilities = { ...capabilities };
-
-    switch (type) {
-      case CapabilityType.SKILL:
-        const { [id]: _, ...remainingSkills } = updatedCapabilities.skills;
-        updatedCapabilities.skills = remainingSkills;
-        break;
-      case CapabilityType.DOMAIN:
-        updatedCapabilities.domains = updatedCapabilities.domains.filter(d => d !== name);
-        break;
-      case CapabilityType.ROLE:
-        updatedCapabilities.roles = updatedCapabilities.roles.filter(r => r !== name);
-        break;
-      case CapabilityType.TAG:
-        updatedCapabilities.tags = updatedCapabilities.tags?.filter(t => t !== name);
-        break;
-    }
-
-    setCapabilities(updatedCapabilities);
-  };
-
+  
   // Update capability level
-  const handleUpdateLevel = (capability: AgentCapability, level: CapabilityLevel) => {
-    if (capability.type !== CapabilityType.SKILL) return;
-
-    const updatedCapabilities = { ...capabilities };
-    updatedCapabilities.skills = {
-      ...updatedCapabilities.skills,
-      [capability.id]: level
-    };
-
-    setCapabilities(updatedCapabilities);
-  };
-
-  // Load a template
-  const handleTemplateChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const template = e.target.value;
-    setSelectedTemplate(template);
+  const handleUpdateLevel = (capability: Capability, level: CapabilityLevel) => {
+    setSelectedCapabilities(prev =>
+      prev.map(cap =>
+        cap.id === capability.id ? { ...cap, level } : cap
+      )
+    );
     
-    if (!template) {
-      setCapabilities(emptyCapabilitySet);
+    // Update the skills object
+    setCapabilities(prev => ({
+      ...prev,
+      skills: {
+        ...prev.skills,
+        [capability.id]: level
+      }
+    }));
+  };
+  
+  // Handle adding custom capability
+  const handleAddCustomCapability = () => {
+    // Validate required fields
+    if (!customCapability.name) {
+      alert('Please enter a name for the custom capability');
       return;
     }
     
-    // Load a predefined template
-    switch (template) {
-      case 'marketing':
-        setCapabilities(defaultCapabilities.marketingAgent);
-        break;
-      case 'developer':
-        setCapabilities(defaultCapabilities.developerAgent);
-        break;
-      case 'researcher':
-        setCapabilities(defaultCapabilities.researchAgent);
-        break;
-      case 'chloe':
-        setCapabilities({
-          skills: {
-            'skill.marketing_strategy': CapabilityLevel.ADVANCED,
-            'skill.growth_optimization': CapabilityLevel.EXPERT,
-            'skill.viral_marketing': CapabilityLevel.ADVANCED,
-            'skill.low_budget_acquisition': CapabilityLevel.EXPERT,
-            'skill.content_marketing': CapabilityLevel.ADVANCED,
-            'skill.analytics': CapabilityLevel.INTERMEDIATE
-          },
-          domains: ['marketing', 'growth', 'strategy'],
-          roles: ['cmo', 'advisor', 'strategist'],
-          tags: ['startup', 'user-acquisition', 'viral']
-        });
-        break;
+    // Generate ID based on type and name
+    const id = `${customCapability.type}.${customCapability.name.toLowerCase().replace(/\s+/g, '_')}`;
+    
+    const newCapability = {
+      ...customCapability,
+      id,
+      level: customCapability.type === CapabilityType.SKILL ? CapabilityLevel.BASIC : undefined
+    };
+    
+    addCapability(newCapability);
+  };
+  
+  // Helper for displaying capability level
+  const getCapabilityLevelDisplay = (level: CapabilityLevel | undefined) => {
+    switch (level) {
+      case CapabilityLevel.BASIC:
+        return 'Basic';
+      case CapabilityLevel.INTERMEDIATE:
+        return 'Intermediate';
+      case CapabilityLevel.ADVANCED:
+        return 'Advanced';
       default:
-        setCapabilities(emptyCapabilitySet);
+        return 'Not specified';
     }
   };
-
+  
+  // Helper for displaying capability level as percentage
+  const getCapabilityLevelPercentage = (level: CapabilityLevel | undefined) => {
+    switch (level) {
+      case CapabilityLevel.BASIC:
+        return 20;
+      case CapabilityLevel.INTERMEDIATE:
+        return 40;
+      case CapabilityLevel.ADVANCED:
+        return 60;
+      default:
+        return 0;
+    }
+  };
+  
+  // Group selected capabilities by type
+  const capabilityTypes = [CapabilityType.SKILL, CapabilityType.DOMAIN, CapabilityType.ROLE, CapabilityType.TAG];
+  
+  const groupedCapabilities = selectedCapabilities.reduce<Record<string, Capability[]>>(
+    (acc, capability) => {
+      const type = capability.type;
+      if (!acc[type]) {
+        acc[type] = [];
+      }
+      acc[type].push(capability);
+      return acc;
+    },
+    {} as Record<string, Capability[]>
+  );
+  
+  const capabilityList = selectedCapabilities.sort((a, b) => a.name.localeCompare(b.name));
+  
   return (
-    <div className="bg-gray-800 rounded-lg p-6 my-4">
-      <h2 className="text-xl font-semibold mb-4">Agent Capabilities</h2>
+    <div>
+      <h2 className="wizard-panel-title">Agent Capabilities</h2>
+      <p className="text-sm text-gray-400 mb-4">
+        Define your agent's skills, knowledge domains, and roles
+      </p>
       
-      {/* Template Selector */}
+      {/* Capability Selector */}
       <div className="mb-6">
-        <label className="block text-sm font-medium mb-2">Capability Template</label>
-        <select 
-          value={selectedTemplate} 
-          onChange={handleTemplateChange}
-          className="w-full bg-gray-700 border border-gray-600 rounded p-2"
-        >
-          <option value="">Custom Capabilities</option>
-          <option value="marketing">Marketing Expert</option>
-          <option value="developer">Developer</option>
-          <option value="researcher">Researcher</option>
-          <option value="chloe">Chloe (CMO)</option>
-        </select>
-      </div>
-      
-      {/* Capability Type Tabs */}
-      <div className="mb-4">
-        <nav className="flex space-x-2 border-b border-gray-700">
-          {Object.values(CapabilityType).map(type => (
-            <button
-              key={type}
-              onClick={() => setActiveTab(type)}
-              className={`py-2 px-4 ${activeTab === type 
-                ? 'bg-blue-600 text-white' 
-                : 'text-gray-300 hover:text-white hover:bg-gray-700'
-              }`}
-            >
-              {type.charAt(0).toUpperCase() + type.slice(1)}s
-            </button>
-          ))}
-        </nav>
-      </div>
-      
-      {/* Add New Capability Form */}
-      <div className="mb-6 bg-gray-700 p-4 rounded">
-        <h3 className="text-md font-medium mb-3">Add New {activeTab.charAt(0).toUpperCase() + activeTab.slice(1)}</h3>
-        
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
-          <div>
-            <label className="block text-sm mb-1">Name</label>
-            <input
-              type="text"
-              value={newCapability.name}
-              onChange={(e) => setNewCapability({ ...newCapability, name: e.target.value })}
-              className="w-full bg-gray-600 border border-gray-500 rounded p-2"
-              placeholder={`Enter ${activeTab} name`}
-            />
-          </div>
-          
-          {activeTab === CapabilityType.SKILL && (
-            <div>
-              <label className="block text-sm mb-1">Proficiency Level</label>
-              <select
-                value={newCapability.level}
-                onChange={(e) => setNewCapability({ ...newCapability, level: e.target.value as CapabilityLevel })}
-                className="w-full bg-gray-600 border border-gray-500 rounded p-2"
-              >
-                <option value={CapabilityLevel.BASIC}>Basic</option>
-                <option value={CapabilityLevel.INTERMEDIATE}>Intermediate</option>
-                <option value={CapabilityLevel.ADVANCED}>Advanced</option>
-                <option value={CapabilityLevel.EXPERT}>Expert</option>
-              </select>
-            </div>
-          )}
-          
-          <div>
-            <label className="block text-sm mb-1">Description (optional)</label>
-            <input
-              type="text"
-              value={newCapability.description}
-              onChange={(e) => setNewCapability({ ...newCapability, description: e.target.value })}
-              className="w-full bg-gray-600 border border-gray-500 rounded p-2"
-              placeholder="Brief description"
-            />
-          </div>
-        </div>
-        
         <button
-          onClick={handleAddCapability}
-          disabled={!newCapability.name}
-          className="bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded disabled:opacity-50"
+          onClick={() => setShowCapabilitySelector(!showCapabilitySelector)}
+          className="flex items-center gap-2 px-3 py-2 bg-blue-600 rounded hover:bg-blue-700"
         >
-          Add {activeTab.charAt(0).toUpperCase() + activeTab.slice(1)}
+          <PlusCircle size={16} />
+          Add Capability
+          {showCapabilitySelector ? (
+            <ChevronUp size={16} />
+          ) : (
+            <ChevronDown size={16} />
+          )}
         </button>
-      </div>
-      
-      {/* Capability List */}
-      <div>
-        <h3 className="text-md font-medium mb-3">Current Capabilities</h3>
         
-        {capabilityList.length === 0 ? (
-          <p className="text-gray-400 text-sm mb-4">No capabilities added yet.</p>
-        ) : (
-          <div className="space-y-3">
-            {capabilityList
-              .filter(cap => cap.type === activeTab)
-              .map(capability => (
-                <div 
-                  key={capability.id} 
-                  className="bg-gray-700 p-3 rounded flex flex-col md:flex-row md:items-center justify-between"
-                >
-                  <div className="flex-grow">
-                    <div className="flex items-center mb-1">
-                      <h4 className="font-medium">{capability.name}</h4>
-                      <span className="text-xs text-gray-400 ml-2">{capability.id}</span>
+        {showCapabilitySelector && (
+          <div className="mt-3 p-4 bg-gray-700 rounded">
+            <div className="mb-4">
+              <input
+                type="text"
+                placeholder="Search capabilities..."
+                className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded focus:outline-none focus:border-blue-500"
+                value={searchTerm}
+                onChange={e => setSearchTerm(e.target.value)}
+              />
+            </div>
+            
+            {!isAddingCustom ? (
+              <>
+                <div className="max-h-64 overflow-y-auto mb-4">
+                  {filteredCapabilities.length === 0 ? (
+                    <div className="text-center py-3 text-gray-400">
+                      No matching capabilities found
                     </div>
-                    {capability.description && (
-                      <p className="text-sm text-gray-300">{capability.description}</p>
-                    )}
-                  </div>
-                  
-                  {capability.type === CapabilityType.SKILL && (
-                    <div className="mt-2 md:mt-0 md:ml-4 flex flex-col w-full md:w-40">
-                      <div className="flex justify-between mb-1">
-                        <span className="text-xs">{getCapabilityLevelDisplay(capability.level)}</span>
-                        <div className="flex">
-                          {Object.values(CapabilityLevel).map(level => (
-                            <button
-                              key={level}
-                              onClick={() => handleUpdateLevel(capability, level)}
-                              className={`w-6 h-6 rounded-full mx-0.5 ${
-                                capability.level === level 
-                                  ? 'bg-blue-500' 
-                                  : 'bg-gray-600 hover:bg-gray-500'
-                              }`}
-                              title={getCapabilityLevelDisplay(level)}
-                            />
-                          ))}
-                        </div>
-                      </div>
-                      <div className="bg-gray-600 rounded-full h-2">
-                        <div 
-                          className="bg-blue-500 h-2 rounded-full" 
-                          style={{ width: `${getCapabilityLevelPercentage(capability.level)}%` }}
-                        ></div>
-                      </div>
-                    </div>
+                  ) : (
+                    <ul className="space-y-2">
+                      {filteredCapabilities.map(capability => (
+                        <li
+                          key={capability.id}
+                          className="p-2 bg-gray-800 rounded cursor-pointer hover:bg-gray-750"
+                          onClick={() => addCapability(capability)}
+                        >
+                          <div className="flex items-start">
+                            <div>
+                              <div className="font-medium">{capability.name}</div>
+                              <div className="text-xs text-gray-400">
+                                {capability.description}
+                              </div>
+                              <div className="text-xs text-gray-500 mt-1">
+                                Type: {capability.type}
+                              </div>
+                            </div>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
                   )}
-                  
-                  <button
-                    onClick={() => handleRemoveCapability(capability)}
-                    className="mt-2 md:mt-0 md:ml-2 text-red-400 hover:text-red-300"
-                    title="Remove capability"
+                </div>
+                
+                <button
+                  onClick={() => setIsAddingCustom(true)}
+                  className="text-sm text-blue-400 hover:text-blue-300"
+                >
+                  + Add custom capability
+                </button>
+              </>
+            ) : (
+              <div className="space-y-3 mb-4">
+                <h3 className="font-medium">Add Custom Capability</h3>
+                
+                <div>
+                  <label className="block text-sm font-medium mb-1">
+                    Capability Type
+                  </label>
+                  <select
+                    value={customCapability.type}
+                    onChange={e => setCustomCapability({ ...customCapability, type: e.target.value as CapabilityType })}
+                    className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded focus:outline-none focus:border-blue-500"
                   >
-                    Remove
+                    <option value={CapabilityType.SKILL}>Skill</option>
+                    <option value={CapabilityType.DOMAIN}>Domain</option>
+                    <option value={CapabilityType.ROLE}>Role</option>
+                    <option value={CapabilityType.TAG}>Tag</option>
+                  </select>
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium mb-1">
+                    Name
+                  </label>
+                  <input
+                    type="text"
+                    value={customCapability.name}
+                    onChange={e => setCustomCapability({ ...customCapability, name: e.target.value })}
+                    className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded focus:outline-none focus:border-blue-500"
+                    placeholder="Enter capability name"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium mb-1">
+                    Description
+                  </label>
+                  <textarea
+                    value={customCapability.description}
+                    onChange={e => setCustomCapability({ ...customCapability, description: e.target.value })}
+                    className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded focus:outline-none focus:border-blue-500"
+                    placeholder="Enter capability description"
+                    rows={2}
+                  />
+                </div>
+                
+                <div className="flex justify-end gap-2 pt-2">
+                  <button
+                    onClick={() => setIsAddingCustom(false)}
+                    className="px-3 py-1 bg-gray-600 rounded hover:bg-gray-500"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleAddCustomCapability}
+                    className="px-3 py-1 bg-blue-600 rounded hover:bg-blue-700"
+                  >
+                    Add
                   </button>
                 </div>
-              ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+      
+      {/* Selected Capabilities */}
+      <div className="mb-6">
+        <h3 className="text-md font-medium mb-3">Selected Capabilities</h3>
+        
+        {selectedCapabilities.length === 0 ? (
+          <div className="p-4 bg-gray-700 rounded text-center text-gray-400">
+            No capabilities selected. Add some capabilities using the button above.
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {capabilityList.map(capability => (
+              <div 
+                key={capability.id} 
+                className="p-3 bg-gray-700 rounded flex flex-col md:flex-row md:items-center justify-between"
+              >
+                <div className="flex-1">
+                  <div className="font-medium">{capability.name}</div>
+                  <div className="text-xs text-gray-400">{capability.description}</div>
+                  <div className="text-xs text-gray-500 mt-1">Type: {capability.type}</div>
+                </div>
+                
+                {capability.type === CapabilityType.SKILL && (
+                  <div className="mt-2 md:mt-0 md:ml-4 flex flex-col w-full md:w-40">
+                    <div className="flex justify-between mb-1">
+                      <span className="text-xs">{getCapabilityLevelDisplay(capability.level)}</span>
+                      <div className="flex">
+                        {Object.values(CapabilityLevel).map(level => (
+                          <button
+                            key={level}
+                            onClick={() => handleUpdateLevel(capability, level)}
+                            className={`w-6 h-6 rounded-full mx-0.5 ${
+                              capability.level === level 
+                                ? 'bg-blue-500' 
+                                : 'bg-gray-600 hover:bg-gray-500'
+                            }`}
+                            title={getCapabilityLevelDisplay(level)}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                    <div className="bg-gray-600 rounded-full h-2">
+                      <div 
+                        className="bg-blue-500 h-2 rounded-full" 
+                        style={{ width: `${getCapabilityLevelPercentage(capability.level)}%` }}
+                      ></div>
+                    </div>
+                  </div>
+                )}
+                
+                <button
+                  onClick={() => handleRemoveCapability(capability)}
+                  className="mt-2 md:mt-0 md:ml-2 text-red-400 hover:text-red-300"
+                  title="Remove capability"
+                >
+                  Remove
+                </button>
+              </div>
+            ))}
           </div>
         )}
       </div>
       
       {/* Capability Summary */}
-      <div className="mt-6 bg-gray-700 p-4 rounded">
+      <div>
         <h3 className="text-md font-medium mb-3">Capability Summary</h3>
         <div className="text-sm">
           <p><span className="font-medium">Skills:</span> {Object.keys(capabilities.skills).length}</p>

@@ -1,215 +1,262 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { AgentMonitor } from '@/agents/shared/monitoring/AgentMonitor';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { AgentService } from '@/services/AgentService';
+import { Plus, Info, Settings, RefreshCw, Network } from 'lucide-react';
+import AgentSettings from '@/components/agent/AgentSettings';
+import AgentRelationshipVisualizer from '@/components/agent/AgentRelationshipVisualizer';
+import { AgentType } from '@/constants/agent';
 
-type AgentLog = {
-  agentId: string;
-  taskId: string;
-  eventType: string;
-  timestamp: number;
-  status?: string;
-  delegationContextId?: string;
-  toolUsed?: string;
-};
+interface Agent {
+  id: string;
+  name: string;
+  description: string;
+  status: string;
+  capabilities: Array<{
+    id: string;
+    name: string;
+    description: string;
+  }>;
+  createdAt: Date;
+}
 
-export default function AgentsDashboard() {
-  const [logs, setLogs] = useState<AgentLog[]>([]);
-  const [agents, setAgents] = useState<string[]>([]);
-  const [metrics, setMetrics] = useState<any>(null);
-  const [delegationChains, setDelegationChains] = useState<string[]>([]);
-
-  // Refresh data every 2 seconds
+export default function AgentsPage() {
+  const router = useRouter();
+  const [agents, setAgents] = useState<Agent[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
+  const [showCapabilities, setShowCapabilities] = useState<string | null>(null);
+  const [showRelationships, setShowRelationships] = useState<boolean>(false);
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+  
+  const loadAgents = async () => {
+    setLoading(true);
+    setError(null);
+    
+    try {
+      const allAgents = await AgentService.getAllAgents();
+      setAgents(allAgents);
+    } catch (err) {
+      setError('Failed to load agents. Please try again.');
+      console.error('Error loading agents:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+  
   useEffect(() => {
-    const fetchData = () => {
-      const rawLogs = AgentMonitor.getLogs();
-      setLogs(rawLogs);
-      
-      // Fix for Set iteration issue - convert to Array
-      const uniqueAgentsSet = new Set(rawLogs.map(log => log.agentId));
-      setAgents(Array.from(uniqueAgentsSet));
-      
-      setMetrics(AgentMonitor.getActivityMetrics());
-      
-      // Fix for Set iteration issue - convert to Array
-      const uniqueDelegationContextsSet = new Set(
-        rawLogs.map(l => l.delegationContextId).filter(Boolean)
-      );
-      setDelegationChains(Array.from(uniqueDelegationContextsSet) as string[]);
-    };
-
-    // Initial fetch
-    fetchData();
-
-    // Set up interval for real-time updates
-    const intervalId = setInterval(fetchData, 2000);
-
-    // Cleanup on unmount
-    return () => clearInterval(intervalId);
+    loadAgents();
   }, []);
-
+  
+  const handleCreateAgent = () => {
+    router.push('/agents/create');
+  };
+  
+  const getStatusColor = (status: string) => {
+    switch (status.toLowerCase()) {
+      case 'available':
+        return 'bg-green-500';
+      case 'busy':
+        return 'bg-yellow-500';
+      case 'maintenance':
+        return 'bg-blue-500';
+      case 'offline':
+        return 'bg-gray-500';
+      default:
+        return 'bg-gray-500';
+    }
+  };
+  
+  // Format agents for the relationship visualizer
+  const formatAgentsForVisualizer = () => {
+    return agents.map(agent => ({
+      id: agent.id,
+      name: agent.name,
+      type: agent.capabilities.some(cap => cap.name.toLowerCase().includes('marketing')) 
+        ? AgentType.SPECIALIST 
+        : AgentType.ASSISTANT,
+      capabilities: agent.capabilities.map(cap => cap.id),
+      domains: agent.capabilities
+        .filter(cap => cap.id.startsWith('domain.'))
+        .map(cap => cap.id.replace('domain.', '')),
+      roles: agent.capabilities
+        .filter(cap => cap.id.startsWith('role.'))
+        .map(cap => cap.id.replace('role.', ''))
+    }));
+  };
+  
+  const handleAgentClick = (agentId: string) => {
+    setSelectedAgentId(agentId);
+    // Scroll to the agent card
+    const agentCard = document.getElementById(`agent-card-${agentId}`);
+    if (agentCard) {
+      agentCard.scrollIntoView({ behavior: 'smooth' });
+      
+      // Highlight the card temporarily
+      agentCard.classList.add('bg-blue-900');
+      setTimeout(() => {
+        agentCard.classList.remove('bg-blue-900');
+      }, 1500);
+    }
+  };
+  
   return (
-    <div className="p-6 bg-gray-900 text-gray-100 min-h-screen">
-      <div className="flex justify-between items-center mb-8">
-        <h1 className="text-3xl font-bold">Agent Monitor Dashboard</h1>
-        
-        <div className="flex space-x-4">
-          <Link href="/agents/register" className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded text-white font-medium flex items-center">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
-            </svg>
-            Register Chloe
-          </Link>
-        </div>
-      </div>
-
-      {/* Multi-Agent System Integration Banner */}
-      <div className="bg-gradient-to-r from-blue-900 to-indigo-900 rounded-lg p-6 mb-8 shadow-md">
-        <h2 className="text-xl font-bold mb-2">Multi-Agent System Integration</h2>
-        <p className="mb-4">Register Chloe in our new multi-agent architecture to remove hardcoded values and enable dynamic agent-to-chat relationships.</p>
-        <div className="flex flex-wrap gap-2">
-          <Link href="/agents/register" className="bg-white text-blue-900 hover:bg-blue-100 px-4 py-2 rounded font-medium">
-            Register Chloe Now
-          </Link>
-          <Link href="/docs/multi-agent" className="bg-transparent text-white border border-white hover:bg-white/10 px-4 py-2 rounded font-medium">
-            Learn More
-          </Link>
-        </div>
-      </div>
-
-      {/* Overview Metrics */}
-      <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-        <div className="bg-gray-800 rounded-lg p-4 shadow">
-          <h3 className="text-gray-400 text-sm font-medium">Active Agents</h3>
-          <p className="text-2xl font-semibold">{agents.length}</p>
-        </div>
-        <div className="bg-gray-800 rounded-lg p-4 shadow">
-          <h3 className="text-gray-400 text-sm font-medium">Total Events</h3>
-          <p className="text-2xl font-semibold">{logs.length}</p>
-        </div>
-        <div className="bg-gray-800 rounded-lg p-4 shadow">
-          <h3 className="text-gray-400 text-sm font-medium">Success Rate</h3>
-          <p className="text-2xl font-semibold">
-            {metrics ? `${metrics.successRate}%` : 'Loading...'}
+    <div className="max-w-6xl mx-auto py-6 px-4">
+      <div className="flex justify-between items-center mb-6">
+        <div>
+          <h1 className="text-3xl font-bold">Agents</h1>
+          <p className="text-gray-600 dark:text-gray-300">
+            View and manage your AI agents
           </p>
         </div>
-        <div className="bg-gray-800 rounded-lg p-4 shadow">
-          <h3 className="text-gray-400 text-sm font-medium">Delegation Chains</h3>
-          <p className="text-2xl font-semibold">{delegationChains.length}</p>
+        
+        <div className="flex items-center space-x-2">
+          <button
+            onClick={() => setShowRelationships(!showRelationships)}
+            className={`flex items-center gap-2 px-3 py-2 ${
+              showRelationships ? 'bg-blue-600' : 'bg-gray-700'
+            } rounded hover:bg-blue-700`}
+            title="Show agent relationships"
+          >
+            <Network size={16} />
+            {showRelationships ? 'Hide Relationships' : 'Show Relationships'}
+          </button>
+          
+          <button
+            onClick={loadAgents}
+            className="flex items-center gap-2 px-3 py-2 bg-gray-700 rounded hover:bg-gray-600"
+            disabled={loading}
+          >
+            <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
+            Refresh
+          </button>
+          
+          <button
+            onClick={handleCreateAgent}
+            className="flex items-center gap-2 px-3 py-2 bg-blue-600 rounded hover:bg-blue-700"
+          >
+            <Plus size={16} />
+            Create Agent
+          </button>
         </div>
-      </section>
-
-      {/* Active Agents */}
-      <section className="mb-8">
-        <h2 className="text-xl font-semibold mb-4">Active Agents</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {agents.map(agent => {
-            const agentLogs = logs.filter(log => log.agentId === agent);
-            const lastActive = agentLogs.length > 0 
-              ? new Date(Math.max(...agentLogs.map(l => l.timestamp))).toLocaleTimeString()
-              : 'N/A';
-            
-            return (
-              <div key={agent} className="bg-gray-800 rounded-lg p-4 border border-gray-700">
-                <h3 className="font-semibold text-lg">{agent}</h3>
-                <div className="mt-2 text-sm text-gray-400">
-                  <div className="flex justify-between">
-                    <span>Events:</span>
-                    <span>{agentLogs.length}</span>
+      </div>
+      
+      {error && (
+        <div className="mb-4 p-3 bg-red-500 bg-opacity-20 text-red-400 rounded">
+          {error}
+        </div>
+      )}
+      
+      {/* Relationship Visualizer */}
+      {showRelationships && agents.length > 1 && (
+        <AgentRelationshipVisualizer
+          agents={formatAgentsForVisualizer()}
+          currentAgentId={selectedAgentId || undefined}
+          onAgentClick={handleAgentClick}
+        />
+      )}
+      
+      {loading ? (
+        <div className="flex justify-center py-12">
+          <div className="animate-pulse flex flex-col items-center">
+            <div className="w-12 h-12 rounded-full border-4 border-t-blue-500 border-r-transparent border-b-blue-500 border-l-transparent animate-spin"></div>
+            <p className="mt-4 text-gray-400">Loading agents...</p>
+          </div>
+        </div>
+      ) : agents.length === 0 ? (
+        <div className="bg-gray-800 rounded-lg p-8 text-center">
+          <h2 className="text-xl font-semibold mb-2">No agents found</h2>
+          <p className="text-gray-400 mb-6">
+            You don't have any agents yet. Create your first agent to get started.
+          </p>
+          <button
+            onClick={handleCreateAgent}
+            className="px-4 py-2 bg-blue-600 rounded hover:bg-blue-700"
+          >
+            Create Agent
+          </button>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {agents.map(agent => (
+            <div 
+              key={agent.id} 
+              id={`agent-card-${agent.id}`}
+              className="bg-gray-800 rounded-lg overflow-hidden shadow-lg transition-colors duration-300"
+            >
+              <div className="p-5">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <h2 className="text-xl font-semibold">{agent.name}</h2>
+                    <div className="flex items-center mt-1">
+                      <span 
+                        className={`w-2 h-2 rounded-full mr-2 ${getStatusColor(agent.status)}`}
+                      ></span>
+                      <span className="text-sm text-gray-400 capitalize">{agent.status}</span>
+                    </div>
                   </div>
-                  <div className="flex justify-between">
-                    <span>Last Active:</span>
-                    <span>{lastActive}</span>
+                  <div className="flex space-x-1">
+                    <button
+                      onClick={() => setShowCapabilities(showCapabilities === agent.id ? null : agent.id)}
+                      className="p-2 rounded hover:bg-gray-700"
+                      title="View capabilities"
+                    >
+                      <Info size={18} />
+                    </button>
+                    <div className="p-2 rounded hover:bg-gray-700">
+                      <AgentSettings
+                        agentId={agent.id}
+                        agentName={agent.name}
+                      />
+                    </div>
                   </div>
                 </div>
-              </div>
-            );
-          })}
-        </div>
-      </section>
-
-      {/* Recent Delegation Chains */}
-      {delegationChains.length > 0 && (
-        <section className="mb-8">
-          <h2 className="text-xl font-semibold mb-4">Recent Delegation Chains</h2>
-          <div className="bg-gray-800 rounded-lg border border-gray-700">
-            <ul className="divide-y divide-gray-700">
-              {delegationChains.slice(0, 5).map(ctx => {
-                const chainLogs = logs.filter(l => l.delegationContextId === ctx);
-                const initiatedBy = chainLogs[0]?.agentId || 'Unknown';
-                const startTime = new Date(chainLogs[0]?.timestamp || 0).toLocaleTimeString();
                 
-                return (
-                  <li key={ctx} className="p-3 hover:bg-gray-750">
-                    <div className="flex justify-between">
-                      <div>
-                        <span className="font-medium text-blue-400">{ctx}</span>
-                        <div className="text-sm text-gray-400">Initiated by: {initiatedBy}</div>
-                      </div>
-                      <div className="text-sm text-gray-500">{startTime}</div>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-        </section>
-      )}
-
-      {/* Recent Events */}
-      <section className="mb-8">
-        <h2 className="text-xl font-semibold mb-4">Recent Events</h2>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm text-left">
-            <thead className="text-xs text-gray-400 uppercase bg-gray-800">
-              <tr>
-                <th className="px-4 py-3">Agent</th>
-                <th className="px-4 py-3">Event</th>
-                <th className="px-4 py-3">Task</th>
-                <th className="px-4 py-3">Tool</th>
-                <th className="px-4 py-3">Status</th>
-                <th className="px-4 py-3">Time</th>
-              </tr>
-            </thead>
-            <tbody>
-              {logs.slice(-20).reverse().map((log, idx) => (
-                <tr key={idx} className="bg-gray-800 border-b border-gray-700">
-                  <td className="px-4 py-2 font-medium whitespace-nowrap">{log.agentId}</td>
-                  <td className="px-4 py-2">
-                    <span className={`
-                      px-2 py-0.5 rounded text-xs
-                      ${log.eventType === 'task_start' || log.eventType === 'task_end' ? 'bg-blue-900 text-blue-300' : ''}
-                      ${log.eventType === 'tool_start' || log.eventType === 'tool_end' ? 'bg-purple-900 text-purple-300' : ''}
-                      ${log.eventType === 'error' ? 'bg-red-900 text-red-300' : ''}
-                      ${log.eventType === 'delegation' ? 'bg-green-900 text-green-300' : ''}
-                      ${log.eventType === 'message' ? 'bg-yellow-900 text-yellow-300' : ''}
-                    `}>
-                      {log.eventType}
-                    </span>
-                  </td>
-                  <td className="px-4 py-2 font-mono text-xs text-gray-300">{log.taskId}</td>
-                  <td className="px-4 py-2">{log.toolUsed || 'n/a'}</td>
-                  <td className="px-4 py-2">
-                    {log.status && (
-                      <span className={`
-                        px-2 py-0.5 rounded text-xs
-                        ${log.status === 'success' ? 'bg-green-900 text-green-300' : ''}
-                        ${log.status === 'failure' ? 'bg-red-900 text-red-300' : ''}
-                      `}>
-                        {log.status}
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-4 py-2 text-gray-400">
-                    {new Date(log.timestamp).toLocaleTimeString()}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                <p className="mt-3 text-gray-400 text-sm line-clamp-2">
+                  {agent.description || 'No description available.'}
+                </p>
+                
+                {showCapabilities === agent.id && (
+                  <div className="mt-4 p-3 bg-gray-700 rounded">
+                    <h3 className="text-sm font-medium mb-2">Capabilities ({agent.capabilities.length})</h3>
+                    <ul className="text-xs space-y-1 max-h-32 overflow-y-auto">
+                      {agent.capabilities.length > 0 ? (
+                        agent.capabilities.map(cap => (
+                          <li key={cap.id} className="flex items-start">
+                            <span className="inline-block w-2 h-2 rounded-full bg-blue-500 mt-1.5 mr-2"></span>
+                            <div>
+                              <span className="font-medium">{cap.name}</span>
+                              {cap.description && (
+                                <p className="text-gray-400 mt-0.5">{cap.description}</p>
+                              )}
+                            </div>
+                          </li>
+                        ))
+                      ) : (
+                        <li className="text-gray-400">No capabilities defined</li>
+                      )}
+                    </ul>
+                  </div>
+                )}
+              </div>
+              
+              <div className="bg-gray-700 p-4 flex justify-between items-center">
+                <div className="text-xs text-gray-400">
+                  Created: {new Date(agent.createdAt).toLocaleDateString()}
+                </div>
+                <button
+                  onClick={() => router.push(`/chat?agent=${agent.id}`)}
+                  className="px-3 py-1 bg-blue-600 text-sm rounded hover:bg-blue-700"
+                >
+                  Chat with Agent
+                </button>
+              </div>
+            </div>
+          ))}
         </div>
-      </section>
+      )}
     </div>
   );
 } 

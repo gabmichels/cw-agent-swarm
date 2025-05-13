@@ -1,14 +1,48 @@
 import { AgentRegistry } from '../lib/agents/registry';
 
+interface AgentProfile {
+  id: string;
+  name: string;
+  description: string;
+  status: 'available' | 'unavailable' | 'maintenance';
+  capabilities: Array<{
+    id: string;
+    name: string;
+    description: string;
+  }>;
+  parameters: Record<string, any>;
+  metadata: Record<string, any>;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 export class AgentService {
   /**
-   * Get an agent instance by ID
+   * Get an agent instance by ID using the API
    * @param agentId The agent ID to retrieve
-   * @returns The agent instance or null if not found
+   * @returns The agent profile or null if not found
    */
-  static async getAgent(agentId: string): Promise<any> {
+  static async getAgent(agentId: string): Promise<AgentProfile | null> {
     try {
-      return await AgentRegistry.getAgent(agentId);
+      // First try the registry (for backward compatibility)
+      const agent = await AgentRegistry.getAgent(agentId);
+      if (agent) return agent;
+      
+      // If not in registry, try the API
+      const response = await fetch(`/api/multi-agent/agents/${agentId}`);
+      
+      if (!response.ok) {
+        if (response.status === 404) {
+          console.log(`Agent ${agentId} not found`);
+          return null;
+        }
+        
+        const error = await response.json();
+        throw new Error(error.error || `Failed to fetch agent ${agentId}`);
+      }
+      
+      const data = await response.json();
+      return data.agent;
     } catch (error) {
       console.error(`Error retrieving agent ${agentId}:`, error);
       return null;
@@ -17,13 +51,41 @@ export class AgentService {
   
   /**
    * Get all registered agent IDs
-   * @returns Array of agent IDs
+   * @returns Array of agent profiles
    */
   static async getAgentIds(): Promise<string[]> {
     try {
+      // Try to get agents from the API first
+      const agents = await this.getAllAgents();
+      if (agents.length > 0) {
+        return agents.map(agent => agent.id);
+      }
+      
+      // Fallback to registry for backward compatibility  
       return await AgentRegistry.getAgentIds();
     } catch (error) {
       console.error('Error retrieving agent IDs:', error);
+      return [];
+    }
+  }
+  
+  /**
+   * Get all registered agents
+   * @returns Array of agent profiles
+   */
+  static async getAllAgents(): Promise<AgentProfile[]> {
+    try {
+      const response = await fetch('/api/multi-agent/agents');
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to fetch agents');
+      }
+      
+      const data = await response.json();
+      return data.agents || [];
+    } catch (error) {
+      console.error('Error retrieving agents:', error);
       return [];
     }
   }
@@ -51,22 +113,84 @@ export class AgentService {
       throw new Error(`Agent with ID ${agentId} not found`);
     }
     
-    // Ensure agent is initialized
-    if (!agent.initialized && typeof agent.initialize === 'function') {
-      console.log(`Initializing agent ${agentId} on first message processing`);
-      await agent.initialize();
+    // Use API to process message
+    try {
+      const response = await fetch(`/api/multi-agent/agents/${agentId}/process`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          message,
+          options
+        })
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || `Failed to process message with agent ${agentId}`);
+      }
+      
+      return await response.json();
+    } catch (error) {
+      console.error(`Error processing message with agent ${agentId}:`, error);
+      throw error;
     }
-    
-    return agent.processMessage(message, options);
   }
   
   /**
    * Register a new agent in the system
-   * @param agentId The unique identifier for the agent
-   * @param agent The agent instance to register
+   * @param agentData The agent data to register
    */
-  static async registerAgent(agentId: string, agent: any): Promise<void> {
-    await AgentRegistry.registerAgent(agentId, agent);
+  static async registerAgent(agentData: any): Promise<AgentProfile> {
+    try {
+      const response = await fetch('/api/multi-agent/agents', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(agentData)
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to register agent');
+      }
+      
+      const data = await response.json();
+      return data.agent;
+    } catch (error) {
+      console.error('Error registering agent:', error);
+      throw error;
+    }
+  }
+  
+  /**
+   * Update an existing agent
+   * @param agentId The ID of the agent to update
+   * @param updates The updates to apply
+   */
+  static async updateAgent(agentId: string, updates: any): Promise<AgentProfile> {
+    try {
+      const response = await fetch(`/api/multi-agent/agents/${agentId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(updates)
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || `Failed to update agent ${agentId}`);
+      }
+      
+      const data = await response.json();
+      return data.agent;
+    } catch (error) {
+      console.error(`Error updating agent ${agentId}:`, error);
+      throw error;
+    }
   }
   
   /**
@@ -75,68 +199,23 @@ export class AgentService {
    */
   static async deleteAgent(agentId: string): Promise<void> {
     try {
-      // 1. Get reference to the agent to be deleted
-      const agent = await AgentRegistry.getAgent(agentId);
+      // Call the API to delete the agent
+      const response = await fetch(`/api/multi-agent/agents/${agentId}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
       
-      if (!agent) {
-        throw new Error(`Agent with ID ${agentId} not found`);
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || `Failed to delete agent ${agentId}`);
       }
-      
-      // 2. Delete agent-related data
-      
-      // 2.1 Delete agent chat history
-      await this.deleteAgentChatHistory(agentId);
-      
-      // 2.2 Delete agent memories
-      await this.deleteAgentMemories(agentId);
-      
-      // 2.3 Delete agent knowledge
-      await this.deleteAgentKnowledge(agentId);
-      
-      // 3. Remove agent from registry
-      await AgentRegistry.removeAgent(agentId);
       
       console.log(`Successfully deleted agent: ${agentId}`);
     } catch (error) {
       console.error(`Failed to delete agent: ${error}`);
       throw error;
     }
-  }
-  
-  /**
-   * Deletes all chat history associated with an agent
-   */
-  private static async deleteAgentChatHistory(agentId: string): Promise<void> {
-    console.log(`Deleting chat history for agent: ${agentId}`);
-    // Implement based on your chat history storage system
-    // This might involve database operations or file system operations
-    
-    // For example:
-    // await db.collection('messages').where('agentId', '==', agentId).delete();
-  }
-  
-  /**
-   * Deletes all memories associated with an agent
-   */
-  private static async deleteAgentMemories(agentId: string): Promise<void> {
-    console.log(`Deleting memories for agent: ${agentId}`);
-    // Implement based on your memory storage system
-    
-    // For example:
-    // await db.collection('memories').where('agentId', '==', agentId).delete();
-    // Or, if the agent has a memory manager:
-    // await agent.memoryManager.clearAllMemories();
-  }
-  
-  /**
-   * Deletes all knowledge files associated with an agent
-   */
-  private static async deleteAgentKnowledge(agentId: string): Promise<void> {
-    console.log(`Deleting knowledge for agent: ${agentId}`);
-    // Implement based on your knowledge storage system
-    
-    // For example:
-    // Delete all files in the agent's knowledge directory
-    // await fs.rm(`data/knowledge/agents/${agentId}`, { recursive: true, force: true });
   }
 } 

@@ -6,6 +6,17 @@
   padding: 0 1rem;
 }
 
+/* Error styling */
+.wizard-input-error {
+  border-color: #dc2626 !important;
+}
+
+.wizard-error-text {
+  color: #ef4444;
+  font-size: 0.875rem;
+  margin-top: 0.25rem;
+}
+
 .wizard-step-indicator {
   display: flex;
   justify-content: space-between;

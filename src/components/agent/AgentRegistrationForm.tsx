@@ -5,6 +5,8 @@ import SystemPromptEditor from './SystemPromptEditor';
 import KnowledgeUploader from './KnowledgeUploader';
 import AgentPersonaForm from './AgentPersonaForm';
 import AgentCapabilityManager from './AgentCapabilityManager';
+import AgentTemplateSelector, { AgentTemplate, AGENT_TEMPLATES } from './AgentTemplateSelector';
+import ManagerConfigPanel, { AgentManagersConfig } from './ManagerConfigPanel';
 import { CapabilityLevel } from '@/agents/shared/capability-system';
 import './wizard.css';
 import { AgentStatus } from '@/server/memory/schema/agent';
@@ -59,10 +61,12 @@ interface ExtendedAgentRegistrationRequest extends Omit<AgentRegistrationRequest
 
 // Wizard steps
 enum FormStep {
-  INFO_AND_PROMPT = 0,
-  PERSONA = 1,
-  KNOWLEDGE = 2, 
-  CAPABILITIES = 3
+  TEMPLATE = 0,
+  INFO_AND_PROMPT = 1,
+  PERSONA = 2,
+  KNOWLEDGE = 3, 
+  CAPABILITIES = 4,
+  MANAGERS = 5
 }
 
 const STORAGE_KEY = 'agent_registration_form_data';
@@ -72,7 +76,7 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
   isSubmitting
 }) => {
   const router = useRouter();
-  const [currentStep, setCurrentStep] = useState<FormStep>(FormStep.INFO_AND_PROMPT);
+  const [currentStep, setCurrentStep] = useState<FormStep>(FormStep.TEMPLATE);
   
   // Use extended type for formData
   const [formData, setFormData] = useState<ExtendedAgentRegistrationRequest>({
@@ -99,6 +103,14 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
       isPublic: true
     }
   });
+
+  // Add validation state
+  const [formErrors, setFormErrors] = useState<{
+    name?: string;
+    description?: string;
+    systemPrompt?: string;
+    capabilities?: string;
+  }>({});
 
   // Form section states
   const [systemPrompt, setSystemPrompt] = useState('');
@@ -127,6 +139,14 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
     tags: []
   });
   
+  const [managersConfig, setManagersConfig] = useState<AgentManagersConfig>({
+    memoryManager: { enabled: true },
+    planningManager: { enabled: true },
+    toolManager: { enabled: true },
+    knowledgeManager: { enabled: true },
+    schedulerManager: { enabled: true }
+  });
+  
   // Load saved form data from localStorage on initial render
   useEffect(() => {
     const savedData = localStorage.getItem(STORAGE_KEY);
@@ -142,6 +162,7 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
         if (parsedData.knowledgeData) setKnowledgeData(parsedData.knowledgeData);
         if (parsedData.personaData) setPersonaData(parsedData.personaData);
         if (parsedData.agentCapabilities) setAgentCapabilities(parsedData.agentCapabilities);
+        if (parsedData.managersConfig) setManagersConfig(parsedData.managersConfig);
         if (parsedData.currentStep !== undefined) setCurrentStep(parsedData.currentStep);
       } catch (error) {
         console.error('Error loading saved form data:', error);
@@ -157,11 +178,12 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
       knowledgeData,
       personaData,
       agentCapabilities,
+      managersConfig,
       currentStep
     };
     
     localStorage.setItem(STORAGE_KEY, JSON.stringify(dataToSave));
-  }, [formData, systemPrompt, knowledgeData, personaData, agentCapabilities, currentStep]);
+  }, [formData, systemPrompt, knowledgeData, personaData, agentCapabilities, managersConfig, currentStep]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -276,10 +298,138 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
     }
   }, [agentCapabilities]);
 
+  // Handle selecting a template
+  const handleTemplateSelect = (template: AgentTemplate) => {
+    // Update form data based on selected template
+    setFormData(prevData => ({
+      ...prevData,
+      name: template.name,
+      description: template.description,
+      status: AgentStatus.AVAILABLE,
+      capabilities: Object.entries(template.capabilities.skills).map(([id, level]) => ({
+        id,
+        name: id.split('.')[1] || id,
+        description: `Capability level: ${level}`,
+        version: '1.0'
+      })),
+      parameters: {
+        ...prevData.parameters,
+        model: template.parameters.model,
+        temperature: template.parameters.temperature,
+        maxTokens: template.parameters.maxTokens,
+        tools: template.parameters.tools,
+      },
+      metadata: {
+        ...prevData.metadata,
+        domain: template.capabilities.domains,
+        specialization: template.capabilities.roles,
+        tags: template.capabilities.tags,
+      }
+    }));
+
+    // Update system prompt
+    setSystemPrompt(template.systemPrompt);
+
+    // Update persona data if available
+    if (template.metadata) {
+      setPersonaData({
+        background: template.metadata.background || '',
+        personality: template.metadata.personality || '',
+        communicationStyle: template.metadata.communicationStyle || '',
+        preferences: ''
+      });
+    }
+
+    // Update capabilities
+    setAgentCapabilities({
+      skills: template.capabilities.skills,
+      domains: template.capabilities.domains,
+      roles: template.capabilities.roles,
+      tags: template.capabilities.tags
+    });
+
+    // Set default managers config based on template
+    setManagersConfig({
+      memoryManager: { 
+        enabled: true,
+        contextWindow: 10,
+        decayRate: 0.1,
+        useChunking: true,
+        usePineconeVectorStorage: false
+      },
+      planningManager: { 
+        enabled: true,
+        planningStrategy: 'adaptive',
+        maxSteps: 5,
+        useRecovery: true,
+        validatePlans: true
+      },
+      toolManager: { enabled: true },
+      knowledgeManager: { enabled: true },
+      schedulerManager: { enabled: true }
+    });
+  };
+
+  // Handle managers configuration changes
+  const handleManagersConfigChange = (config: AgentManagersConfig) => {
+    setManagersConfig(config);
+    
+    // Update form data with managers config
+    setFormData(prevData => ({
+      ...prevData,
+      parameters: {
+        ...prevData.parameters,
+        managersConfig: config
+      }
+    }));
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (currentStep < FormStep.CAPABILITIES) {
+    // Validate form data based on current step
+    const errors: {
+      name?: string;
+      description?: string;
+      systemPrompt?: string;
+      capabilities?: string;
+    } = {};
+    
+    if (currentStep === FormStep.INFO_AND_PROMPT) {
+      if (!formData.name.trim()) {
+        errors.name = 'Agent name is required';
+      }
+      
+      if (!formData.description.trim()) {
+        errors.description = 'Agent description is required';
+      }
+      
+      if (!systemPrompt.trim()) {
+        errors.systemPrompt = 'System prompt is required';
+      }
+    }
+    
+    if (currentStep === FormStep.CAPABILITIES) {
+      const totalCapabilities = 
+        Object.keys(agentCapabilities.skills).length + 
+        agentCapabilities.domains.length + 
+        agentCapabilities.roles.length;
+        
+      if (totalCapabilities === 0) {
+        errors.capabilities = 'At least one capability is required';
+      }
+    }
+    
+    // If there are errors, show them and stop form submission
+    if (Object.keys(errors).length > 0) {
+      setFormErrors(errors);
+      return;
+    }
+    
+    // Clear any previous errors
+    setFormErrors({});
+    
+    if (currentStep < FormStep.MANAGERS) {
       // If not on the last step, move to the next step
       setCurrentStep(prevStep => prevStep + 1);
       return;
@@ -296,8 +446,7 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
         temperature: formData.parameters.temperature,
         maxTokens: formData.parameters.maxTokens,
         tools: formData.parameters.tools,
-        // We'll store systemPrompt in our own field but not include it directly
-        // in the API request since it's not part of the standard parameters
+        managersConfig: managersConfig
       },
       metadata: {
         tags: formData.metadata.tags,
@@ -306,7 +455,6 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
         performanceMetrics: formData.metadata.performanceMetrics,
         version: formData.metadata.version,
         isPublic: formData.metadata.isPublic,
-        // Custom data must be added to a separate field in the API call
       }
     };
     
@@ -321,8 +469,7 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
     };
     
     try {
-      await onSubmit(extendedRequest as any); // Use type assertion for backward compatibility
-      // Clear saved form data after successful submission
+      await onSubmit(extendedRequest as any);
       localStorage.removeItem(STORAGE_KEY);
     } catch (error) {
       console.error("Error submitting form:", error);
@@ -330,13 +477,13 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
   };
 
   const goToNextStep = () => {
-    if (currentStep < FormStep.CAPABILITIES) {
+    if (currentStep < FormStep.MANAGERS) {
       setCurrentStep(prevStep => prevStep + 1);
     }
   };
 
   const goToPreviousStep = () => {
-    if (currentStep > FormStep.INFO_AND_PROMPT) {
+    if (currentStep > FormStep.TEMPLATE) {
       setCurrentStep(prevStep => prevStep - 1);
     }
   };
@@ -352,10 +499,12 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
     return (
       <div className="wizard-step-indicator">
         {[
+          { step: FormStep.TEMPLATE, label: "Template" },
           { step: FormStep.INFO_AND_PROMPT, label: "Agent Info" },
           { step: FormStep.PERSONA, label: "Persona" },
           { step: FormStep.KNOWLEDGE, label: "Knowledge" },
-          { step: FormStep.CAPABILITIES, label: "Capabilities" }
+          { step: FormStep.CAPABILITIES, label: "Capabilities" },
+          { step: FormStep.MANAGERS, label: "Managers" }
         ].map(({ step, label }) => (
           <div 
             key={step} 
@@ -376,12 +525,16 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
         <div className="wizard-progress-bar">
           <div 
             className="wizard-progress-fill"
-            style={{ width: `${(currentStep / 3) * 100}%` }}
+            style={{ width: `${(currentStep / 5) * 100}%` }}
           ></div>
         </div>
       </div>
     );
   };
+
+  const renderTemplateStep = () => (
+    <AgentTemplateSelector onChange={handleTemplateSelect} />
+  );
 
   const renderAgentInfoStep = () => (
     <>
@@ -400,9 +553,10 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
               value={formData.name}
               onChange={handleChange}
               required
-              className="wizard-input"
+              className={`wizard-input ${formErrors.name ? 'wizard-input-error' : ''}`}
               placeholder="Enter agent name"
             />
+            {formErrors.name && <p className="wizard-error-text">{formErrors.name}</p>}
           </div>
           
           <div className="wizard-form-group">
@@ -435,9 +589,10 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
             onChange={handleChange}
             required
             rows={3}
-            className="wizard-input wizard-textarea"
+            className={`wizard-input wizard-textarea ${formErrors.description ? 'wizard-input-error' : ''}`}
             placeholder="Describe the agent's purpose and capabilities"
           />
+          {formErrors.description && <p className="wizard-error-text">{formErrors.description}</p>}
         </div>
       </div>
       
@@ -454,8 +609,30 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
             }
           }));
         }}
+        error={formErrors.systemPrompt}
       />
     </>
+  );
+
+  // Add error display to the capabilities step
+  const renderCapabilitiesStep = () => (
+    <div className="wizard-panel">
+      <AgentCapabilityManager
+        initialCapabilities={agentCapabilities}
+        onChange={handleCapabilityChange}
+      />
+      {formErrors.capabilities && (
+        <p className="wizard-error-text mt-4">{formErrors.capabilities}</p>
+      )}
+    </div>
+  );
+
+  // Render Managers Configuration step
+  const renderManagersStep = () => (
+    <ManagerConfigPanel 
+      initialConfig={managersConfig}
+      onChange={handleManagersConfigChange}
+    />
   );
 
   return (
@@ -463,6 +640,7 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
       {renderStepIndicator()}
       
       <div className="wizard-steps-container">
+        {currentStep === FormStep.TEMPLATE && renderTemplateStep()}
         {currentStep === FormStep.INFO_AND_PROMPT && renderAgentInfoStep()}
         
         {currentStep === FormStep.PERSONA && (
@@ -501,18 +679,14 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
           />
         )}
         
-        {currentStep === FormStep.CAPABILITIES && (
-          <AgentCapabilityManager 
-            initialCapabilities={agentCapabilities}
-            onChange={handleCapabilityChange}
-          />
-        )}
+        {currentStep === FormStep.CAPABILITIES && renderCapabilitiesStep()}
+        {currentStep === FormStep.MANAGERS && renderManagersStep()}
       </div>
       
       <div className="wizard-controls">
         <div className="wizard-controls-inner">
           <div>
-            {currentStep > FormStep.INFO_AND_PROMPT && (
+            {currentStep > FormStep.TEMPLATE && (
               <button
                 type="button"
                 onClick={goToPreviousStep}
@@ -535,7 +709,7 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
             disabled={isSubmitting}
             className="wizard-btn wizard-btn-primary"
           >
-            {currentStep < FormStep.CAPABILITIES 
+            {currentStep < FormStep.MANAGERS 
               ? 'Next' 
               : isSubmitting 
                 ? 'Registering...' 

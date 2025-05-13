@@ -1,7 +1,7 @@
 import React, { useState, useCallback } from 'react';
-import { MinimizeIcon, MaximizeIcon, Search, Trash2 } from 'lucide-react';
+import { MinimizeIcon, MaximizeIcon, Search, Settings } from 'lucide-react';
 import SearchResults from './SearchResults';
-import DeleteAgentDialog from './dialogs/DeleteAgentDialog';
+import AgentSettings from './agent/AgentSettings';
 
 interface TabsNavigationProps {
   selectedTab: string;
@@ -14,8 +14,8 @@ interface TabsNavigationProps {
   searchResults?: any[];
   searchQuery?: string;
   onSelectResult?: (messageId: string) => void;
+  agentId?: string;
   agentName?: string;
-  onDeleteAgent?: () => Promise<void>;
 }
 
 const TabsNavigation: React.FC<TabsNavigationProps> = ({
@@ -29,13 +29,12 @@ const TabsNavigation: React.FC<TabsNavigationProps> = ({
   searchResults = [],
   searchQuery = '',
   onSelectResult,
-  agentName = 'Agent',
-  onDeleteAgent
+  agentId = '',
+  agentName = 'Agent'
 }) => {
   const tabs = ['Chat', 'Tools', 'Tasks', 'Memory', 'Knowledge', 'Social', 'Files'];
   const [searchInputValue, setSearchInputValue] = useState('');
   const [showSearchResults, setShowSearchResults] = useState(false);
-  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
 
   const handleSearch = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
@@ -92,20 +91,6 @@ const TabsNavigation: React.FC<TabsNavigationProps> = ({
       }
     }, 200);
   }, []);
-
-  const handleOpenDeleteDialog = useCallback(() => {
-    setShowDeleteDialog(true);
-  }, []);
-
-  const handleCloseDeleteDialog = useCallback(() => {
-    setShowDeleteDialog(false);
-  }, []);
-
-  const handleConfirmDelete = useCallback(async () => {
-    if (onDeleteAgent) {
-      await onDeleteAgent();
-    }
-  }, [onDeleteAgent]);
 
   return (
     <>
@@ -168,15 +153,15 @@ const TabsNavigation: React.FC<TabsNavigationProps> = ({
             )}
           </div>
           
-          {/* Delete Agent Button */}
-          <button 
-            onClick={handleOpenDeleteDialog}
-            className="p-2 rounded hover:bg-gray-700"
-            aria-label="Delete agent"
-            title="Delete agent"
-          >
-            <Trash2 className="h-5 w-5 text-gray-400 hover:text-red-500" />
-          </button>
+          {/* Agent Settings Button */}
+          {agentId && (
+            <div className="p-2 rounded hover:bg-gray-700">
+              <AgentSettings 
+                agentId={agentId}
+                agentName={agentName}
+              />
+            </div>
+          )}
           
           {/* Fullscreen Button */}
           <button 
@@ -193,14 +178,6 @@ const TabsNavigation: React.FC<TabsNavigationProps> = ({
           </button>
         </div>
       </div>
-      
-      {/* Delete Agent Dialog */}
-      <DeleteAgentDialog 
-        isOpen={showDeleteDialog}
-        onClose={handleCloseDeleteDialog}
-        onConfirmDelete={handleConfirmDelete}
-        agentName={agentName}
-      />
     </>
   );
 };

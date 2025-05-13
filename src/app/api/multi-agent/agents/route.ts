@@ -1,6 +1,10 @@
 import { NextResponse } from 'next/server';
 import { ulid } from 'ulid';
 import { AgentRegistrationRequest, AgentProfile } from '@/lib/multi-agent/types/agent';
+import { createAgentMemoryService } from '@/server/memory/services/multi-agent';
+import { getMemoryServices } from '@/server/memory/services';
+import { AgentFactory } from '@/agents/shared/AgentFactory';
+import { AgentMemoryEntity, AgentStatus } from '@/server/memory/schema/agent';
 
 // Extended type to handle the additional fields from the form
 interface ExtendedAgentRegistrationRequest extends AgentRegistrationRequest {
@@ -87,16 +91,43 @@ export async function POST(request: Request) {
       updatedAt: timestamp
     };
     
-    // TODO: Store agent data in the database
-    // This will be implemented when the database infrastructure is ready
-    // For now, we're just returning a successful response with the created agent
+    // Store agent data in the database
+    const { memoryService } = await getMemoryServices();
+    const agentService = createAgentMemoryService(memoryService);
     
-    // TODO: Process knowledge files and create critical memories
-    console.log('Agent created with extended data:', requestData._extended ? {
-      systemPrompt: requestData._extended.systemPrompt?.substring(0, 50) + '...',
-      knowledgePaths: requestData._extended.knowledgePaths,
-      hasPersona: !!requestData._extended.persona
-    } : 'No extended data');
+    // Create an instance of our DefaultAgent using the factory
+    try {
+      // Create agent using the factory
+      const defaultAgent = AgentFactory.createFromApiProfile(agent);
+      
+      // Initialize the agent
+      await defaultAgent.initialize();
+      
+      // Get the agent data for storing in the database
+      const agentData = defaultAgent.getConfig();
+      
+      // Store agent in the database
+      const result = await agentService.create(agentData);
+      
+      if (result.isError) {
+        return NextResponse.json(
+          { success: false, error: result.error.message },
+          { status: 500 }
+        );
+      }
+      
+      // TODO: In the future, store the agent in a global registry
+      console.log(`Initialized DefaultAgent with ID: ${defaultAgent.getAgentId()}`);
+    } catch (agentError) {
+      console.error('Error initializing DefaultAgent:', agentError);
+      return NextResponse.json(
+        { 
+          success: false, 
+          error: `Failed to initialize agent: ${agentError instanceof Error ? agentError.message : String(agentError)}`
+        },
+        { status: 500 }
+      );
+    }
     
     return NextResponse.json({
       success: true,
@@ -128,15 +159,39 @@ export async function GET(request: Request) {
     const tagsParam = searchParams.get('tags');
     const statusParam = searchParams.get('status');
     
-    // TODO: Implement database query to fetch agents
-    // For now, return a mock empty list since we don't have storage yet
+    // Get agent service
+    const { memoryService } = await getMemoryServices();
+    const agentService = createAgentMemoryService(memoryService);
+    
+    // Get all agents
+    const result = await agentService.findAll();
+    
+    if (result.isError) {
+      return NextResponse.json(
+        { success: false, error: result.error.message },
+        { status: 500 }
+      );
+    }
+    
+    // Convert to simplified agent profile format
+    const agents = result.data.map((agent: AgentMemoryEntity) => ({
+      id: typeof agent.id === 'object' ? agent.id.id : agent.id,
+      name: agent.name,
+      description: agent.description,
+      status: agent.status,
+      capabilities: agent.capabilities,
+      parameters: agent.parameters,
+      metadata: agent.metadata,
+      createdAt: agent.createdAt,
+      updatedAt: agent.updatedAt
+    }));
     
     return NextResponse.json({
       success: true,
-      agents: [],
-      total: 0,
+      agents,
+      total: agents.length,
       page: 1,
-      pageSize: 10
+      pageSize: agents.length
     });
   } catch (error) {
     console.error('Error fetching agents:', error);

@@ -1,4 +1,5 @@
 import { ulid } from 'ulid';
+import type { AgentManagersConfig } from '../../../components/agent/ManagerConfigPanel';
 
 /**
  * Agent capability definition
@@ -18,6 +19,7 @@ export interface AgentParameters {
   maxTokens: number;
   tools: string[];
   systemPrompt?: string;
+  managersConfig?: AgentManagersConfig;
 }
 
 /**

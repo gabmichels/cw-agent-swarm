@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 interface SystemPromptEditorProps {
   initialPrompt?: string;
   onChange: (prompt: string) => void;
+  error?: string;
 }
 
 interface PromptTemplate {
@@ -17,7 +18,8 @@ interface PromptTemplate {
  */
 const SystemPromptEditor: React.FC<SystemPromptEditorProps> = ({
   initialPrompt = '',
-  onChange
+  onChange,
+  error
 }) => {
   const [prompt, setPrompt] = useState(initialPrompt);
   const [showPreview, setShowPreview] = useState(false);
@@ -134,8 +136,9 @@ const SystemPromptEditor: React.FC<SystemPromptEditorProps> = ({
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
           placeholder="Enter the system prompt that defines the agent's behavior and capabilities..."
-          className="w-full bg-gray-700 border border-gray-600 rounded p-3 font-mono text-sm min-h-[200px]"
+          className={`w-full bg-gray-700 border ${error ? 'border-red-500' : 'border-gray-600'} rounded p-3 font-mono text-sm min-h-[200px]`}
         />
+        {error && <p className="mt-1 text-sm text-red-500">{error}</p>}
       </div>
       
       {/* File Upload */}
