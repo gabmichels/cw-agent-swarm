@@ -73,6 +73,7 @@ export {
   MigrationError
 } from '../../../lib/config/migration';
 
+// Export validation utilities
 export {
   validateConfig,
   validateValue,
@@ -81,8 +82,26 @@ export {
   validateBoolean,
   validateArray,
   validateObject,
-  validateEnum
+  validateEnum,
+  validateCrossProperties
 } from '../../../lib/config/validators';
+
+// Export agent configuration orchestration
+export { AgentConfigOrchestrator } from './AgentConfigOrchestrator';
+export type { 
+  ConfigDependency,
+  ConfigVerificationResult,
+  AgentConfigSchema
+} from './AgentConfigOrchestrator';
+
+// Export common configuration dependencies
+export {
+  CommonConfigDependencies,
+  getDependenciesForManagerTypes,
+  getAllDependenciesForManager,
+  getOutgoingDependenciesForManager,
+  getIncomingDependenciesForManager
+} from './CommonConfigDependencies';
 
 // Re-export configuration types
 export type {

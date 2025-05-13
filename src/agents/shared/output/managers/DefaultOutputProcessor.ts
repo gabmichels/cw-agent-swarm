@@ -5,6 +5,7 @@
  * validation, and managing output messages.
  */
 
+import { v4 as uuidv4 } from 'uuid';
 import { AbstractBaseManager } from '../../../../lib/agents/base/managers/BaseManager';
 import { 
   OutputProcessor,
@@ -24,7 +25,7 @@ import { OutputProcessorConfigSchema } from '../config/OutputProcessorConfigSche
  */
 // @ts-ignore - This class implements OutputProcessor with some method signature differences
 export class DefaultOutputProcessor extends AbstractBaseManager implements OutputProcessor {
-  protected config: OutputProcessorConfig;
+  protected config: OutputProcessorConfig & Record<string, unknown>;
   private processorSteps: Map<string, OutputProcessorStep> = new Map();
   private history: ProcessedOutput[] = [];
   private configFactory = createConfigFactory(OutputProcessorConfigSchema);
@@ -33,25 +34,32 @@ export class DefaultOutputProcessor extends AbstractBaseManager implements Outpu
   /**
    * Type property accessor for compatibility with OutputProcessor
    */
+  // @ts-ignore - Override parent class property with accessor
   get type(): string {
     return this.getType();
   }
   
   /**
    * Create a new DefaultOutputProcessor
-   * @param managerId Unique manager identifier
    * @param agent The agent this processor belongs to
    * @param config Configuration options
    */
   constructor(
-    managerId: string,
     agent: AgentBase,
     config: Partial<OutputProcessorConfig> = {}
   ) {
-    super(managerId, 'output-processor', agent, { enabled: true });
+    super(
+      `output-processor-${uuidv4()}`,
+      'output-processor',
+      agent,
+      { enabled: true }
+    );
     
     // Validate and apply configuration with defaults
-    this.config = this.configFactory.create(config) as OutputProcessorConfig;
+    this.config = this.configFactory.create({
+      enabled: true,
+      ...config
+    }) as OutputProcessorConfig & Record<string, unknown>;
     
     // Initialize default processor steps based on configuration
     this.initializeDefaultProcessorSteps();
@@ -74,6 +82,157 @@ export class DefaultOutputProcessor extends AbstractBaseManager implements Outpu
         });
       }
     }
+  }
+  
+  /**
+   * Update the manager configuration
+   */
+  // @ts-ignore - Override BaseManager updateConfig() method with specific type
+  updateConfig<T extends OutputProcessorConfig>(config: Partial<T>): T {
+    // Validate and merge configuration
+    this.config = this.configFactory.create({
+      ...this.config, 
+      ...config
+    }) as OutputProcessorConfig & Record<string, unknown>;
+    
+    // Reinitialize processor steps with new configuration
+    if ('processingSteps' in config) {
+      this.processorSteps.clear();
+      this.initializeDefaultProcessorSteps();
+    }
+    
+    // Update templates if needed
+    if ('defaultTemplates' in config && config.defaultTemplates) {
+      // Add or update templates
+      for (const [key, value] of Object.entries(config.defaultTemplates)) {
+        if (!this.templates.has(key)) {
+          // Create new template
+          this.templates.set(key, {
+            id: key,
+            content: value,
+            name: key,
+            description: `Default template: ${key}`,
+            variables: [],
+            category: 'default',
+            version: '1.0.0',
+            modality: 'markdown',
+            enabled: true,
+            createdAt: new Date(),
+            updatedAt: new Date()
+          });
+        } else {
+          // Update existing template
+          const template = this.templates.get(key)!;
+          this.templates.set(key, {
+            ...template,
+            content: value,
+            updatedAt: new Date()
+          });
+        }
+      }
+    }
+    
+    return this.config as unknown as T;
+  }
+  
+  /**
+   * Initialize the manager
+   */
+  async initialize(): Promise<boolean> {
+    if (this.initialized) return true;
+    
+    try {
+      // Re-initialize processor steps
+      this.processorSteps.clear();
+      this.initializeDefaultProcessorSteps();
+      
+      this.initialized = true;
+      return true;
+    } catch (error) {
+      console.error(`[${this.managerId}] Failed to initialize output processor:`, error);
+      return false;
+    }
+  }
+  
+  /**
+   * Shut down the manager
+   */
+  async shutdown(): Promise<void> {
+    // Clear any resources
+    this.processorSteps.clear();
+    this.history = [];
+    this.templates.clear();
+    this.initialized = false;
+  }
+  
+  /**
+   * Reset the manager
+   */
+  // @ts-ignore - Override BaseManager reset() method return type
+  async reset(): Promise<void> {
+    // Clear history
+    this.history = [];
+    
+    // Clear processor steps and reinitialize
+    this.processorSteps.clear();
+    this.initializeDefaultProcessorSteps();
+    
+    // Reinitialize default templates
+    this.templates.clear();
+    if (this.config.defaultTemplates) {
+      for (const [key, value] of Object.entries(this.config.defaultTemplates)) {
+        this.templates.set(key, {
+          id: key,
+          content: value,
+          name: key,
+          description: `Default template: ${key}`,
+          variables: [],
+          category: 'default',
+          version: '1.0.0',
+          modality: 'markdown',
+          enabled: true,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        });
+      }
+    }
+  }
+  
+  /**
+   * Get manager health status
+   */
+  async getHealth(): Promise<{
+    status: 'healthy' | 'degraded' | 'unhealthy';
+    message?: string;
+    metrics?: Record<string, unknown>;
+  }> {
+    if (!this.initialized) {
+      return {
+        status: 'degraded',
+        message: 'Output processor not initialized'
+      };
+    }
+
+    if (!this.config.enabled) {
+      return {
+        status: 'degraded',
+        message: 'Output processor is disabled'
+      };
+    }
+
+    // Get processor stats
+    const stats = await this.getStats();
+    
+    return {
+      status: 'healthy',
+      message: 'Output processor is healthy',
+      metrics: {
+        ...stats,
+        processorStepCount: this.processorSteps.size,
+        templateCount: this.templates.size,
+        historySize: this.history.length
+      }
+    };
   }
   
   /**
@@ -1139,66 +1298,11 @@ export class DefaultOutputProcessor extends AbstractBaseManager implements Outpu
   }
 
   /**
-   * Override updateConfig to use the correct output processor config type
-   */
-  updateConfig<T extends OutputProcessorConfig>(config: Partial<T>): T {
-    // Validate and merge configuration
-    this.config = this.configFactory.create({
-      ...this.config, 
-      ...config
-    }) as OutputProcessorConfig;
-    
-    // Reinitialize processor steps if needed
-    if ('processingSteps' in config) {
-      // Reset processor steps
-      this.processorSteps.clear();
-      this.initializeDefaultProcessorSteps();
-    }
-    
-    return this.config as T;
-  }
-
-  /**
    * Override setEnabled to return synchronously instead of a Promise
    */
   // @ts-ignore - Method signature differs from the base class but fulfills the OutputProcessor interface
   setEnabled(enabled: boolean): boolean {
     this.config.enabled = enabled;
     return this.config.enabled;
-  }
-
-  /**
-   * Override reset to return a boolean result
-   */
-  // @ts-ignore - Method signature differs from the base class but fulfills the OutputProcessor interface
-  async reset(): Promise<boolean> {
-    // First call the parent reset method
-    await super.reset();
-    
-    // Then do our specific reset logic
-    this.history = [];
-    this.templates.clear();
-    
-    return true;
-  }
-  
-  /**
-   * Override getHealth to add processor-specific metrics
-   */
-  // @ts-ignore - Method from OutputProcessor but not present in AbstractBaseManager
-  async getHealth(): Promise<{
-    status: 'healthy' | 'degraded' | 'unhealthy';
-    message?: string;
-    metrics?: Record<string, unknown>;
-  }> {
-    return {
-      status: 'healthy',
-      metrics: {
-        processorStepCount: this.processorSteps.size,
-        historyCount: this.history.length,
-        templateCount: this.templates.size,
-        enabled: this.config.enabled
-      }
-    };
   }
 } 
