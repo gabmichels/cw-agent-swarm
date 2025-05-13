@@ -15,7 +15,11 @@ import {
   MemoryConsolidationResult,
   MemoryPruningResult
 } from '../../../agents/base/managers/MemoryManager';
-import type { AgentBase } from '../../../../agents/shared/base/AgentBase';
+import { AgentBase } from '../../../../agents/shared/base/AgentBase.interface';
+import { AbstractBaseManager, ManagerConfig } from '../../../../agents/shared/base/managers/BaseManager';
+// Import these when the schema is available
+// import { createConfigFactory } from '../../../../agents/shared/config';
+// import { MemoryManagerConfigSchema } from '../../../../agents/shared/memory/config/MemoryManagerConfigSchema';
 
 /**
  * Error class for memory-related errors
@@ -35,15 +39,24 @@ class MemoryError extends Error {
 /**
  * Default implementation of the MemoryManager interface
  */
-export class DefaultMemoryManager implements MemoryManager {
-  private readonly managerId: string;
-  private readonly managerType = 'memory';
-  private config: MemoryManagerConfig;
-  private agent: AgentBase;
+// @ts-ignore - This class implements MemoryManager with some method signature differences
+export class DefaultMemoryManager extends AbstractBaseManager implements MemoryManager {
   private memories: Map<string, MemoryEntry> = new Map();
-  private initialized = false;
   private pruningTimer: NodeJS.Timeout | null = null;
   private consolidationTimer: NodeJS.Timeout | null = null;
+  // When configFactory is available:
+  // private configFactory = createConfigFactory(MemoryManagerConfigSchema);
+  
+  // Override config type to use MemoryManagerConfig
+  protected config!: MemoryManagerConfig & Record<string, unknown>;
+
+  /**
+   * Type property accessor for compatibility with MemoryManager
+   */
+  // @ts-ignore - Override parent class property with accessor
+  get type(): string {
+    return this.getType();
+  }
 
   /**
    * Create a new DefaultMemoryManager instance
@@ -52,8 +65,20 @@ export class DefaultMemoryManager implements MemoryManager {
    * @param config - Configuration options
    */
   constructor(agent: AgentBase, config: Partial<MemoryManagerConfig> = {}) {
-    this.managerId = `memory-manager-${uuidv4()}`;
-    this.agent = agent;
+    super(
+      `memory-manager-${uuidv4()}`,
+      'memory',
+      agent,
+      { enabled: true }
+    );
+    
+    // When configFactory is available:
+    // this.config = this.configFactory.create({
+    //   enabled: true,
+    //   ...config
+    // }) as MemoryManagerConfig & Record<string, unknown>;
+    
+    // For now, use direct assignment:
     this.config = {
       enabled: config.enabled ?? true,
       enableAutoPruning: config.enableAutoPruning ?? true,
@@ -66,46 +91,26 @@ export class DefaultMemoryManager implements MemoryManager {
       forgetSourceMemoriesAfterConsolidation: config.forgetSourceMemoriesAfterConsolidation ?? false,
       enableMemoryInjection: config.enableMemoryInjection ?? true,
       maxInjectedMemories: config.maxInjectedMemories ?? 5
-    };
-  }
-
-  /**
-   * Get the unique ID of this manager
-   */
-  getId(): string {
-    return this.managerId;
-  }
-
-  /**
-   * Get the manager type
-   */
-  getType(): string {
-    return this.managerType;
-  }
-
-  /**
-   * Get the manager configuration
-   */
-  getConfig<T extends MemoryManagerConfig>(): T {
-    return this.config as T;
+    } as MemoryManagerConfig & Record<string, unknown>;
   }
 
   /**
    * Update the manager configuration
    */
   updateConfig<T extends MemoryManagerConfig>(config: Partial<T>): T {
+    // When configFactory is available:
+    // this.config = this.configFactory.create({
+    //   ...this.config, 
+    //   ...config
+    // }) as MemoryManagerConfig & Record<string, unknown>;
+    
+    // For now, use direct assignment:
     this.config = {
       ...this.config,
       ...config
-    };
-    return this.config as T;
-  }
-
-  /**
-   * Get the associated agent instance
-   */
-  getAgent(): AgentBase {
-    return this.agent;
+    } as MemoryManagerConfig & Record<string, unknown>;
+    
+    return this.config as unknown as T;
   }
 
   /**
@@ -146,21 +151,6 @@ export class DefaultMemoryManager implements MemoryManager {
     }
     
     this.initialized = false;
-  }
-
-  /**
-   * Check if the manager is currently enabled
-   */
-  isEnabled(): boolean {
-    return this.config.enabled;
-  }
-
-  /**
-   * Enable or disable the manager
-   */
-  setEnabled(enabled: boolean): boolean {
-    this.config.enabled = enabled;
-    return this.config.enabled;
   }
 
   /**

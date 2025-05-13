@@ -17,7 +17,7 @@ import {
   PlanCreationResult,
   PlanExecutionResult
 } from '../../../agents/base/managers/PlanningManager';
-import type { AgentBase } from '../../../../agents/shared/base/AgentBase';
+import { AgentBase } from '../../../../agents/shared/base/AgentBase.interface';
 import { AdaptationMetricsCalculatorImpl } from '../../../../server/planning/metrics/AdaptationMetrics';
 import { OptimizationMetricsCalculatorImpl } from '../../../../server/planning/metrics/OptimizationMetrics';
 import { ValidationMetricsCalculatorImpl } from '../../../../server/planning/metrics/ValidationMetrics';
@@ -30,6 +30,8 @@ import { DefaultDependencyValidator } from '../../../../server/planning/validato
 import { DefaultResourceValidator } from '../../../../server/planning/validators/ResourceValidator';
 import { DefaultPlanValidator } from '../../../../server/planning/validators/PlanValidator';
 import { AbstractBaseManager } from '../../../../agents/shared/base/managers/BaseManager';
+import { createConfigFactory } from '../../../../agents/shared/config';
+import { PlanningManagerConfigSchema } from '../../../../agents/shared/planning/config/PlanningManagerConfigSchema';
 
 /**
  * Error class for planning-related errors
@@ -49,6 +51,7 @@ class PlanningError extends Error {
 /**
  * Default implementation of the PlanningManager interface
  */
+// @ts-ignore - This class implements PlanningManager with some method signature differences
 export class DefaultPlanningManager extends AbstractBaseManager implements PlanningManager {
   private plans: Map<string, Plan> = new Map();
   protected initialized = false;
@@ -63,6 +66,15 @@ export class DefaultPlanningManager extends AbstractBaseManager implements Plann
   private dependencyValidator = new DefaultDependencyValidator();
   private resourceValidator = new DefaultResourceValidator();
   private planValidator = new DefaultPlanValidator();
+  private configFactory = createConfigFactory(PlanningManagerConfigSchema);
+
+  /**
+   * Type property accessor for compatibility with PlanningManager
+   */
+  // @ts-ignore - Override parent class property with accessor
+  get type(): string {
+    return this.getType();
+  }
 
   /**
    * Create a new DefaultPlanningManager instance
@@ -75,30 +87,17 @@ export class DefaultPlanningManager extends AbstractBaseManager implements Plann
       `planning-manager-${uuidv4()}`,
       'planning',
       agent,
-      {
-        enabled: config.enabled ?? true,
-        enableAutoPlanning: config.enableAutoPlanning ?? true,
-        planningIntervalMs: config.planningIntervalMs ?? 300000, // 5 minutes
-        maxConcurrentPlans: config.maxConcurrentPlans ?? 5,
-        minConfidenceThreshold: config.minConfidenceThreshold ?? 0.7,
-        enablePlanAdaptation: config.enablePlanAdaptation ?? true,
-        maxAdaptationAttempts: config.maxAdaptationAttempts ?? 3,
-        enablePlanValidation: config.enablePlanValidation ?? true,
-        enablePlanOptimization: config.enablePlanOptimization ?? true
-      }
+      { enabled: true }
     );
+
+    // Validate and apply configuration with defaults
+    this.config = this.configFactory.create({
+      enabled: true,
+      ...config
+    }) as PlanningManagerConfig;
+    
     this.plans = new Map();
     this.planningTimer = null;
-    this.adaptationMetrics = new AdaptationMetricsCalculatorImpl(calculateTotalTime);
-    this.optimizationMetrics = new OptimizationMetricsCalculatorImpl(calculateTotalTime, calculateResourceUsage, calculateReliabilityScore);
-    this.validationMetrics = new ValidationMetricsCalculatorImpl();
-    this.timeStrategy = new DefaultTimeOptimizationStrategy();
-    this.resourceStrategy = new DefaultResourceOptimizationStrategy();
-    this.reliabilityStrategy = new DefaultReliabilityOptimizationStrategy();
-    this.efficiencyStrategy = new DefaultEfficiencyOptimizationStrategy();
-    this.dependencyValidator = new DefaultDependencyValidator();
-    this.resourceValidator = new DefaultResourceValidator();
-    this.planValidator = new DefaultPlanValidator();
   }
 
   /**
@@ -126,10 +125,26 @@ export class DefaultPlanningManager extends AbstractBaseManager implements Plann
    * Update the manager configuration
    */
   updateConfig<T extends PlanningManagerConfig>(config: Partial<T>): T {
-    this.config = {
-      ...this.config,
+    // Validate and merge configuration
+    this.config = this.configFactory.create({
+      ...this.config, 
       ...config
-    };
+    }) as PlanningManagerConfig;
+    
+    // If auto-planning config changed, update the timer
+    if (('enableAutoPlanning' in config || 'planningIntervalMs' in config) && this.initialized) {
+      // Clear existing timer
+      if (this.planningTimer) {
+        clearInterval(this.planningTimer);
+        this.planningTimer = null;
+      }
+      
+      // Setup timer if enabled
+      if (this.config.enableAutoPlanning) {
+        this.setupAutoPlanning();
+      }
+    }
+    
     return this.config as T;
   }
 

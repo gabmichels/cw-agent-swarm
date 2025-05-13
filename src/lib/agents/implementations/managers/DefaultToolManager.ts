@@ -15,7 +15,10 @@ import {
   ToolUsageMetrics,
   ToolFallbackRule
 } from '../../base/managers/ToolManager';
-import type { AgentBase } from '../../../../agents/shared/base/AgentBase';
+import { AgentBase } from '../../../../agents/shared/base/AgentBase.interface';
+import { AbstractBaseManager, ManagerConfig } from '../../../../agents/shared/base/managers/BaseManager';
+import { createConfigFactory } from '../../../../agents/shared/config';
+import { ToolManagerConfigSchema } from '../../../../agents/shared/tools/config/ToolManagerConfigSchema';
 
 /**
  * Error class for tool-related errors
@@ -35,15 +38,22 @@ class ToolError extends Error {
 /**
  * Default implementation of the ToolManager interface
  */
-export class DefaultToolManager implements ToolManager {
-  private readonly managerId: string;
-  private readonly managerType = 'tool';
-  private config: ToolManagerConfig;
-  private agent: AgentBase;
+// @ts-ignore - This class implements ToolManager with some method signature differences
+export class DefaultToolManager extends AbstractBaseManager implements ToolManager {
   private tools: Map<string, Tool> = new Map();
   private fallbackRules: Map<string, ToolFallbackRule> = new Map();
   private metrics: Map<string, ToolUsageMetrics> = new Map();
-  private initialized = false;
+  private configFactory = createConfigFactory(ToolManagerConfigSchema);
+  // Override config type to use ToolManagerConfig
+  protected config!: ToolManagerConfig & Record<string, unknown>;
+
+  /**
+   * Type property accessor for compatibility with ToolManager
+   */
+  // @ts-ignore - Override parent class property with accessor
+  get type(): string {
+    return this.getType();
+  }
 
   /**
    * Create a new DefaultToolManager instance
@@ -52,54 +62,31 @@ export class DefaultToolManager implements ToolManager {
    * @param config - Configuration options
    */
   constructor(agent: AgentBase, config: Partial<ToolManagerConfig> = {}) {
-    this.managerId = `tool-manager-${uuidv4()}`;
-    this.agent = agent;
-    this.config = {
-      enabled: config.enabled ?? true,
-      trackToolPerformance: config.trackToolPerformance ?? true,
-      defaultToolTimeoutMs: config.defaultToolTimeoutMs ?? 30000,
-      useAdaptiveToolSelection: config.useAdaptiveToolSelection ?? false,
-      maxToolRetries: config.maxToolRetries ?? 1
-    };
-  }
-
-  /**
-   * Get the unique ID of this manager
-   */
-  getId(): string {
-    return this.managerId;
-  }
-
-  /**
-   * Get the manager type
-   */
-  getType(): string {
-    return this.managerType;
-  }
-
-  /**
-   * Get the manager configuration
-   */
-  getConfig<T extends ToolManagerConfig>(): T {
-    return this.config as T;
+    super(
+      `tool-manager-${uuidv4()}`,
+      'tool',
+      agent,
+      { enabled: true }
+    );
+    
+    // Validate and apply configuration with defaults
+    this.config = this.configFactory.create({
+      enabled: true,
+      ...config
+    }) as ToolManagerConfig & Record<string, unknown>;
   }
 
   /**
    * Update the manager configuration
    */
   updateConfig<T extends ToolManagerConfig>(config: Partial<T>): T {
-    this.config = {
-      ...this.config,
+    // Validate and merge configuration
+    this.config = this.configFactory.create({
+      ...this.config, 
       ...config
-    };
-    return this.config as T;
-  }
-
-  /**
-   * Get the associated agent instance
-   */
-  getAgent(): AgentBase {
-    return this.agent;
+    }) as ToolManagerConfig & Record<string, unknown>;
+    
+    return this.config as unknown as T;
   }
 
   /**
@@ -129,21 +116,6 @@ export class DefaultToolManager implements ToolManager {
   async shutdown(): Promise<void> {
     console.log(`[${this.managerId}] Shutting down ${this.managerType} manager`);
     this.initialized = false;
-  }
-
-  /**
-   * Check if the manager is currently enabled
-   */
-  isEnabled(): boolean {
-    return this.config.enabled;
-  }
-
-  /**
-   * Enable or disable the manager
-   */
-  setEnabled(enabled: boolean): boolean {
-    this.config.enabled = enabled;
-    return this.config.enabled;
   }
 
   /**

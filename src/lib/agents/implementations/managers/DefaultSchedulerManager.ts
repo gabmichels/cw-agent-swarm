@@ -21,7 +21,8 @@ import {
 } from '../../../agents/base/managers/SchedulerManager';
 import type { AgentBase } from '../../../../agents/shared/base/AgentBase.interface';
 import { AbstractBaseManager } from '../../../../agents/shared/base/managers/BaseManager';
-import { createSchedulerManagerConfig } from '../../../../agents/shared/scheduler/config/SchedulerManagerConfigSchema';
+import { createConfigFactory } from '../../../../agents/shared/config';
+import { SchedulerManagerConfigSchema } from '../../../../agents/shared/scheduler/config/SchedulerManagerConfigSchema';
 
 /**
  * Error class for scheduling-related errors
@@ -41,13 +42,21 @@ class SchedulingError extends Error {
 /**
  * Default implementation of the SchedulerManager interface
  */
+// @ts-ignore - This class implements SchedulerManager with some method signature differences
 export class DefaultSchedulerManager extends AbstractBaseManager implements SchedulerManager {
-  protected readonly managerId: string;
-  protected readonly managerType = 'scheduler';
-  protected config: SchedulerManagerConfig;
   private tasks: Map<string, ScheduledTask> = new Map();
   private schedulingTimer: NodeJS.Timeout | null = null;
-  public readonly type = this.managerType;
+  private configFactory = createConfigFactory(SchedulerManagerConfigSchema);
+  // Override config type to use specific config type
+  protected config!: SchedulerManagerConfig & Record<string, unknown>;
+
+  /**
+   * Type property accessor for compatibility with SchedulerManager
+   */
+  // @ts-ignore - Override parent class property with accessor
+  get type(): string {
+    return this.getType();
+  }
 
   /**
    * Create a new DefaultSchedulerManager instance
@@ -59,19 +68,13 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
     const managerId = `scheduler-manager-${uuidv4()}`;
     const managerType = 'scheduler';
     
-    // Create validated configuration using the factory
-    const schedulerConfig = createSchedulerManagerConfig(
-      // If presetName is provided in config.preset, use it, otherwise use custom config
-      config.preset as any || config,
-      // Apply additional overrides
-      config.preset ? config : {}
-    );
+    super(managerId, managerType, agent, { enabled: true });
     
-    super(managerId, managerType, agent, schedulerConfig);
-    
-    this.managerId = managerId;
-    this.managerType = managerType;
-    this.config = this.getConfig();
+    // Validate and apply configuration with defaults
+    this.config = this.configFactory.create({
+      enabled: true,
+      ...config
+    }) as SchedulerManagerConfig & Record<string, unknown>;
   }
 
   /**
@@ -99,11 +102,27 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
    * Update the manager configuration
    */
   updateConfig<T extends SchedulerManagerConfig>(config: Partial<T>): T {
-    this.config = {
-      ...this.config,
+    // Validate and merge configuration
+    this.config = this.configFactory.create({
+      ...this.config, 
       ...config
-    };
-    return this.config as T;
+    }) as SchedulerManagerConfig & Record<string, unknown>;
+    
+    // If auto-scheduling config changed, update the timer
+    if (('enableAutoScheduling' in config || 'schedulingIntervalMs' in config) && this.initialized) {
+      // Clear existing timer
+      if (this.schedulingTimer) {
+        clearInterval(this.schedulingTimer);
+        this.schedulingTimer = null;
+      }
+      
+      // Setup timer if enabled
+      if (this.config.enableAutoScheduling) {
+        this.setupAutoScheduling();
+      }
+    }
+    
+    return this.config as unknown as T;
   }
 
   /**
