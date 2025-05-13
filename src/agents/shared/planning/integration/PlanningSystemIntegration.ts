@@ -12,6 +12,7 @@ import { DefaultPlanRecoverySystem } from '../recovery/DefaultPlanRecoverySystem
 import { DefaultPlanAdaptationSystem } from '../adaptation/DefaultPlanAdaptationSystem';
 import { DefaultPlanningManager } from '../../../../lib/agents/implementations/managers/DefaultPlanningManager';
 import { PlanCreationOptions, PlanCreationResult, PlanExecutionResult, Plan } from '../../../../lib/agents/base/managers/PlanningManager';
+import { PlanFailureCategory, PlanFailureSeverity } from '../interfaces/PlanRecovery.interface';
 
 /**
  * Enhanced planning manager that integrates recovery and adaptation systems
@@ -114,9 +115,9 @@ export class EnhancedPlanningManager extends DefaultPlanningManager {
           planId,
           message: result.error || 'Plan execution failed',
           category: result.error?.includes('timeout')
-            ? 'timeout' as any
-            : 'unknown' as any,
-          severity: 'medium' as any,
+            ? PlanFailureCategory.TIMEOUT
+            : PlanFailureCategory.UNKNOWN,
+          severity: PlanFailureSeverity.MEDIUM,
           timestamp: new Date()
         });
         

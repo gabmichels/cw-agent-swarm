@@ -325,8 +325,99 @@ export class DefaultPlanRecoverySystem implements PlanRecoverySystem {
     actionType: PlanRecoveryActionType,
     parameters?: Record<string, unknown>
   ): Promise<RecoveryExecutionResult> {
-    // Implementation will be added in subsequent sections
-    throw new PlanRecoveryError('Method not implemented', 'NOT_IMPLEMENTED');
+    if (!this.initialized) {
+      throw new PlanRecoveryError('Recovery system not initialized', 'NOT_INITIALIZED');
+    }
+
+    // Get the failure
+    const failure = this.failures.get(failureId);
+    if (!failure) {
+      throw new PlanRecoveryError(`Failure with ID ${failureId} not found`, 'FAILURE_NOT_FOUND');
+    }
+    
+    // Get recovery actions for this failure
+    const actions = await this.getRecoveryActions(failureId);
+    
+    // Find the requested action type
+    const matchingActions = actions.filter(action => action.type === actionType);
+    if (matchingActions.length === 0) {
+      throw new PlanRecoveryError(
+        `No ${actionType} action available for failure ${failureId}`,
+        'ACTION_NOT_AVAILABLE'
+      );
+    }
+    
+    // Use the highest confidence matching action
+    const selectedAction = matchingActions.sort((a, b) => b.confidence - a.confidence)[0];
+    
+    // Start timing
+    const startTime = Date.now();
+    
+    try {
+      // Find strategies that can handle this action
+      const strategiesArray = Array.from(this.strategies.values());
+      const capableStrategies = strategiesArray.filter(async (strategy) => {
+        const assessment = await strategy.canHandle(failure);
+        return assessment.canHandle;
+      });
+      
+      if (capableStrategies.length === 0) {
+        throw new PlanRecoveryError(
+          `No strategy capable of executing ${actionType} action for failure ${failureId}`,
+          'NO_CAPABLE_STRATEGY'
+        );
+      }
+      
+      // Use the first capable strategy for simplicity
+      // In a more robust implementation, we would select the best strategy
+      const strategy = capableStrategies[0];
+      
+      // Execute the action
+      const result = await strategy.executeRecoveryAction(failure, selectedAction, parameters);
+      
+      // Update failure record
+      failure.recoveryAttempts += 1;
+      if (!failure.previousRecoveryActions) {
+        failure.previousRecoveryActions = [];
+      }
+      failure.previousRecoveryActions.push(selectedAction);
+      this.failures.set(failureId, failure);
+      
+      // Store result
+      if (!this.recoveryResults.has(failureId)) {
+        this.recoveryResults.set(failureId, []);
+      }
+      this.recoveryResults.get(failureId)!.push(result);
+      
+      return {
+        ...result,
+        durationMs: Date.now() - startTime
+      };
+    } catch (error) {
+      // Create failed result
+      const failedResult: RecoveryExecutionResult = {
+        success: false,
+        action: selectedAction,
+        message: error instanceof Error ? error.message : String(error),
+        durationMs: Date.now() - startTime
+      };
+      
+      // Update failure record
+      failure.recoveryAttempts += 1;
+      if (!failure.previousRecoveryActions) {
+        failure.previousRecoveryActions = [];
+      }
+      failure.previousRecoveryActions.push(selectedAction);
+      this.failures.set(failureId, failure);
+      
+      // Store result
+      if (!this.recoveryResults.has(failureId)) {
+        this.recoveryResults.set(failureId, []);
+      }
+      this.recoveryResults.get(failureId)!.push(failedResult);
+      
+      return failedResult;
+    }
   }
 
   /**
@@ -336,8 +427,73 @@ export class DefaultPlanRecoverySystem implements PlanRecoverySystem {
     failureId: string,
     policyId?: string
   ): Promise<RecoveryExecutionResult> {
-    // Implementation will be added in subsequent sections
-    throw new PlanRecoveryError('Method not implemented', 'NOT_IMPLEMENTED');
+    if (!this.initialized) {
+      throw new PlanRecoveryError('Recovery system not initialized', 'NOT_INITIALIZED');
+    }
+
+    // Get the failure
+    const failure = this.failures.get(failureId);
+    if (!failure) {
+      throw new PlanRecoveryError(`Failure with ID ${failureId} not found`, 'FAILURE_NOT_FOUND');
+    }
+    
+    // If a specific policy is specified, use it
+    if (policyId) {
+      const policy = await this.getRecoveryPolicy(policyId);
+      if (!policy) {
+        throw new PlanRecoveryError(`Policy with ID ${policyId} not found`, 'POLICY_NOT_FOUND');
+      }
+      
+      // Check if the policy applies to this failure category
+      if (policy.targetCategories && !policy.targetCategories.includes(failure.category)) {
+        throw new PlanRecoveryError(
+          `Policy ${policyId} does not apply to failures of category ${failure.category}`,
+          'POLICY_NOT_APPLICABLE'
+        );
+      }
+      
+      // Check if we've exceeded maximum recovery attempts
+      if (policy.maxRecoveryAttempts && failure.recoveryAttempts >= policy.maxRecoveryAttempts) {
+        if (policy.escalateAfterMaxAttempts) {
+          // Use fallback action if specified
+          if (policy.fallbackAction) {
+            return this.executeRecovery(failureId, policy.fallbackAction);
+          }
+        }
+        
+        throw new PlanRecoveryError(
+          `Maximum recovery attempts (${policy.maxRecoveryAttempts}) exceeded for failure ${failureId}`,
+          'MAX_ATTEMPTS_EXCEEDED'
+        );
+      }
+      
+      // Find the appropriate action based on attempt number
+      const currentAttempt = failure.recoveryAttempts + 1;
+      const actionSpec = policy.actionSequence.find(
+        action => action.applyWhen?.attemptNumber === currentAttempt
+      );
+      
+      if (actionSpec) {
+        return this.executeRecovery(failureId, actionSpec.type, actionSpec.parameters);
+      }
+    }
+    
+    // If no policy is specified or no action found in policy, use default approach
+    // Get recovery actions for this failure
+    const actions = await this.getRecoveryActions(failureId);
+    
+    if (actions.length === 0) {
+      throw new PlanRecoveryError(
+        `No recovery actions available for failure ${failureId}`,
+        'NO_ACTIONS_AVAILABLE'
+      );
+    }
+    
+    // Take the highest confidence action
+    const bestAction = actions[0];
+    
+    // Execute it
+    return this.executeRecovery(failureId, bestAction.type, bestAction.parameters);
   }
 
   /**
