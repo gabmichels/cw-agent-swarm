@@ -13,6 +13,9 @@ export * from './KnowledgeValidation.interface';
 // Export knowledge graph interfaces
 export * from './KnowledgeGraph.interface';
 
+// Export knowledge gap identification interfaces
+export * from './KnowledgeGapIdentification.interface';
+
 // Re-export related interfaces from KnowledgeManager
 export type { 
   KnowledgeManagerConfig,
