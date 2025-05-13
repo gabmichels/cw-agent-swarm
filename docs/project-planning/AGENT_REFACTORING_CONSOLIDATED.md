@@ -584,6 +584,19 @@ The following roadmap reflects our current progress and remaining work for the a
    - ✅ Added integration with memory and capability systems
    - ✅ Created test suite for permission evaluation scenarios
 
+5. **Advanced Capability Extensions**
+   - ✅ Add knowledge management extensions (100% complete)
+     - ✅ Create knowledge gap identification interfaces (100% complete)
+     - ✅ Define knowledge acquisition and validation interfaces (100% complete)
+     - ✅ Add knowledge prioritization mechanisms (100% complete)
+     - ✅ Implement knowledge graph interfaces (100% complete)
+   - ✅ Enhance planning capabilities in base system (100% complete)
+     - ✅ Add robust recovery interfaces to PlanningManager
+     - ✅ Define standard error classification and handling
+     - ✅ Create plan adaptation strategy interfaces
+     - ✅ Implement DefaultPlanRecoverySystem and DefaultPlanAdaptationSystem
+     - ✅ Create integration with DefaultPlanningManager
+
 #### Tasks and Progress Tracker
 
 | Task | Status | Progress |
@@ -601,9 +614,9 @@ The following roadmap reflects our current progress and remaining work for the a
 | Dynamic capability discovery | ✅ Complete | 100% |
 | Cross-agent permission system | ✅ Complete | 100% |
 
-### Phase 6.5: Chloe-AgentBase Compatibility Layer 🟢 COMPLETE
+### Phase 6.5: Chloe-AgentBase Compatibility Layer 🟡 IN PROGRESS
 
-**Priority: High - Target: September 2024 - 100% Complete**
+**Priority: High - Target: September 2024 - 85% Complete**
 
 > **Note:** This phase focuses on extending the AgentBase architecture to include key capabilities present in Chloe but currently missing from the standard interfaces. Rather than modifying Chloe-specific classes, we'll enhance AgentBase to provide equivalent functionality.
 
@@ -658,10 +671,10 @@ The following roadmap reflects our current progress and remaining work for the a
      - ✅ Define knowledge acquisition and validation interfaces (100% complete)
      - ✅ Add knowledge prioritization mechanisms (100% complete)
      - ✅ Implement knowledge graph interfaces (100% complete)
-   - 🔴 Enhance planning capabilities in base system (0% complete)
-     - 🔴 Add robust recovery interfaces to PlanningManager
-     - 🔴 Define standard error classification and handling
-     - 🔴 Create plan adaptation strategy interfaces
+   - ✅ Enhance planning capabilities in base system (100% complete)
+     - ✅ Add robust recovery interfaces to PlanningManager
+     - ✅ Define standard error classification and handling
+     - ✅ Create plan adaptation strategy interfaces
 
 #### Implementation Progress Update (August 2024)
 
@@ -740,12 +753,12 @@ The implementation of Phase 6.5 is proceeding well, with significant progress in
 |------|---------------|----------------|
 | **Core Architecture** | ⚠️ Partially Compatible | AgentBase has more robust initialization but lacks some advanced features |
 | **Memory System** | ⚠️ Partially Compatible | AgentBase needs additional memory capabilities in standard interfaces |
-| **Planning System** | ✅ Mostly Compatible | Base system needs enhanced recovery mechanisms |
+| **Planning System** | ✅ Compatible | Plan recovery and adaptation systems implemented |
 | **Tool System** | ✅ Mostly Compatible | Minor enhancements needed for error handling |
-| **Reflection System** | ❌ Gap | Standard interfaces need reflection and self-improvement capabilities |
-| **Knowledge Management** | ⚠️ Partially Compatible | Base system needs knowledge graph interfaces |
+| **Reflection System** | ✅ Compatible | Standard interfaces now include reflection and self-improvement capabilities |
+| **Knowledge Management** | ✅ Compatible | Knowledge graph interfaces and implementation complete |
 | **Scheduling System** | ✅ Mostly Compatible | Enhanced recurring task handling needed |
-| **Notification System** | ❌ Gap | Standard interfaces need notification capabilities |
+| **Notification System** | ✅ Compatible | Standard interfaces include notification capabilities |
 
 #### Critical Gaps Identified
 
