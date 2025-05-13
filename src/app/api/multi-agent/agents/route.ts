@@ -5,6 +5,7 @@ import { DefaultAgentMemoryService } from '@/server/memory/services/multi-agent/
 import { getMemoryServices } from '@/server/memory/services';
 import { AgentFactory } from '@/agents/shared/AgentFactory';
 import { AgentMemoryEntity, AgentStatus, agentSchema } from '@/server/memory/schema/agent';
+import { ChatType } from '@/server/memory/models/chat-collection';
 
 // Extended type to handle the additional fields from the form
 interface ExtendedAgentRegistrationRequest extends AgentRegistrationRequest {
@@ -252,6 +253,43 @@ export async function POST(request: Request) {
           }
           
       console.log('Agent verified successfully in Qdrant');
+      
+      // Create a chat for this agent and the current user
+      try {
+        console.log('Creating chat between user and the new agent...');
+        
+        // Default to system user ID if not available in context
+        // In a real-world scenario, you would get this from auth context
+        const currentUserId = 'user_admin';
+        
+        // Get the chat service
+        const { getChatService } = await import('../../../../server/memory/services/chat-service');
+        const chatService = await getChatService();
+        
+        // Create a chat between the user and the new agent
+        const chatSession = await chatService.createChat(currentUserId, agent.id, {
+          title: `Chat with ${agent.name}`,
+          description: `Direct conversation with ${agent.name} - ${agent.description.substring(0, 100)}${agent.description.length > 100 ? '...' : ''}`,
+          type: ChatType.DIRECT,
+          forceNewId: true,
+          metadata: {
+            createdWith: 'agent_creation',
+            agentMetadata: {
+              capabilities: agent.capabilities.map(c => c.name).join(', '),
+              model: agent.parameters?.model
+            }
+          }
+        });
+        
+        if (chatSession) {
+          console.log(`Successfully created chat session with ID: ${chatSession.id}`);
+        } else {
+          console.warn('Failed to create chat session automatically');
+        }
+      } catch (chatError) {
+        // Log the error but don't fail the agent creation just because chat creation failed
+        console.error('Error creating chat for new agent:', chatError);
+      }
       
       // Return success with confirmed persistence
       return NextResponse.json({

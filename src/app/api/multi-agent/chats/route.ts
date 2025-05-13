@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { generateChatId } from '@/lib/multi-agent/types/chat';
-import { ChatCreationRequest, ChatProfile } from '@/lib/multi-agent/types/chat';
+import { ChatCreationRequest, ChatProfile, ChatVisibility } from '@/lib/multi-agent/types/chat';
+import { getChatService } from '@/server/memory/services/chat-service';
+import { ChatType, ChatSession } from '@/server/memory/models/chat-collection';
 
 /**
  * POST /api/multi-agent/chats
@@ -40,29 +42,62 @@ export async function POST(request: Request) {
       );
     }
     
-    // Generate a new chat ID
-    const timestamp = new Date();
-    const id = generateChatId();
+    // Get the user ID from the request or use a default
+    // In a real implementation, this would come from authentication
+    const userId = (requestData.metadata as any).userId || 'default_user';
     
-    // Create chat profile
-    const chat: ChatProfile = {
-      id,
+    // For now, we'll use a dummy agent ID if not specified
+    const agentId = (requestData.metadata as any).agentId || 'default_agent';
+    
+    console.log(`Creating chat between user ${userId} and agent ${agentId}`);
+    
+    // Initialize chat service
+    const chatService = await getChatService();
+    
+    // Determine chat type based on visibility
+    let chatType = ChatType.DIRECT;
+    if (requestData.settings.visibility === ChatVisibility.PUBLIC) {
+      chatType = ChatType.GROUP;
+    }
+    
+    // Create a chat session using the chat service
+    const chatSession = await chatService.createChat(userId, agentId, {
+      title: requestData.name,
+      description: requestData.description,
+      type: chatType,
+      forceNewId: true, // Always create a new chat ID
+      metadata: {
+        ...requestData.metadata,
+        settings: requestData.settings,
+        // Add explicit fields for searchability
+        userId: userId,
+        agentId: agentId
+      }
+    });
+    
+    if (!chatSession) {
+      console.error('Failed to create chat session');
+      return NextResponse.json(
+        { success: false, error: 'Failed to create chat session' },
+        { status: 500 }
+      );
+    }
+    
+    // Return the created chat with the format expected by the front-end
+    const chatResponse: ChatProfile = {
+      id: chatSession.id,
       name: requestData.name,
       description: requestData.description,
       settings: requestData.settings,
       metadata: requestData.metadata,
-      createdAt: timestamp,
-      updatedAt: timestamp
+      createdAt: new Date(chatSession.createdAt),
+      updatedAt: new Date(chatSession.updatedAt)
     };
-    
-    // TODO: Store chat data in the database
-    // This will be implemented when the database infrastructure is ready
-    // For now, we're just returning a successful response with the created chat
     
     return NextResponse.json({
       success: true,
       message: 'Chat created successfully',
-      chat
+      chat: chatResponse
     });
   } catch (error) {
     console.error('Error creating chat:', error);
@@ -86,17 +121,81 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const idParam = searchParams.get('id');
     const nameParam = searchParams.get('name');
-    const participantIdParam = searchParams.get('participantId');
+    const userId = searchParams.get('userId');
+    const agentId = searchParams.get('agentId');
     
-    // TODO: Implement database query to fetch chats
-    // For now, return a mock empty list since we don't have storage yet
+    console.log('Retrieving chats with params:', { idParam, nameParam, userId, agentId });
+    
+    // Initialize chat service
+    const chatService = await getChatService();
+    
+    let chats: ChatSession[] = [];
+    
+    if (idParam) {
+      // Get a specific chat by ID
+      console.log(`Looking up chat by ID: ${idParam}`);
+      const chat = await chatService.getChatById(idParam);
+      console.log('Chat lookup result:', chat ? 'Found' : 'Not found');
+      if (chat) {
+        chats = [chat];
+      }
+    } else if (userId && agentId) {
+      // Get chats between a specific user and agent
+      console.log(`Looking up chats between user ${userId} and agent ${agentId}`);
+      
+      // Try direct lookup first - this is more reliable than using the search service
+      const directLookupChats = await chatService.getChatsByUserAndAgentDirect(userId, agentId);
+      if (directLookupChats && directLookupChats.length > 0) {
+        console.log(`Found ${directLookupChats.length} chats via direct lookup`);
+        chats = directLookupChats;
+      } else {
+        // Fall back to search service
+        console.log('Direct lookup failed, trying search service');
+        chats = await chatService.getChatsByUserAndAgent(userId, agentId);
+        console.log(`Found ${chats.length} chats via search service`);
+      }
+    } else if (userId) {
+      // Get all chats for a user
+      console.log(`Looking up chats for user ${userId}`);
+      chats = await chatService.getChatsByUserId(userId);
+      console.log(`Found ${chats.length} chats for user`);
+    } else if (agentId) {
+      // Get all chats for an agent
+      console.log(`Looking up chats for agent ${agentId}`);
+      chats = await chatService.getChatsByAgentId(agentId);
+      console.log(`Found ${chats.length} chats for agent`);
+    }
+    
+    console.log(`Returning ${chats.length} chats`);
+    
+    // Map to the expected response format
+    const chatProfiles = chats.map(chat => ({
+      id: chat.id,
+      name: chat.metadata?.title || 'Untitled Chat',
+      description: chat.metadata?.description || '',
+      settings: chat.metadata?.settings || {
+        visibility: chat.type === ChatType.GROUP ? ChatVisibility.PUBLIC : ChatVisibility.PRIVATE,
+        allowAnonymousMessages: false,
+        enableBranching: false,
+        recordTranscript: true
+      },
+      metadata: {
+        ...chat.metadata,
+        participants: chat.participants.map(p => ({
+          id: p.id,
+          type: p.type
+        }))
+      },
+      createdAt: new Date(chat.createdAt),
+      updatedAt: new Date(chat.updatedAt)
+    }));
     
     return NextResponse.json({
       success: true,
-      chats: [],
-      total: 0,
+      chats: chatProfiles,
+      total: chatProfiles.length,
       page: 1,
-      pageSize: 10
+      pageSize: chatProfiles.length
     });
   } catch (error) {
     console.error('Error fetching chats:', error);

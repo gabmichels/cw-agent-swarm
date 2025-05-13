@@ -47,7 +47,8 @@ function chatSessionToMemorySchema(chatSession: ChatSession): BaseMemorySchema {
  * This ensures compatibility with Qdrant
  */
 function createDummyVector(size = 1536) {
-  return Array(size).fill(0).map(() => Math.random() * 0.01);
+  // Create a vector with very small random values to minimize impact on searches
+  return Array(size).fill(0).map(() => Math.random() * 0.00001);
 }
 
 /**
@@ -69,10 +70,34 @@ export class ChatService {
       const exists = await client.collectionExists(CHAT_COLLECTION);
       
       if (!exists) {
-        // Create chat sessions collection with appropriate dimensions for vectors
-        await client.createCollection(CHAT_COLLECTION, 1536); // Using standard embedding dimensions
+        console.log(`Chat collection ${CHAT_COLLECTION} does not exist. Creating with 1536 dimensions...`);
         
-        console.log(`Created ${CHAT_COLLECTION} collection`);
+        // Create chat sessions collection with appropriate dimensions for vectors
+        const created = await client.createCollection(CHAT_COLLECTION, 1536); // Using standard embedding dimensions
+        
+        if (created) {
+          console.log(`Created ${CHAT_COLLECTION} collection successfully`);
+        } else {
+          console.error(`Failed to create ${CHAT_COLLECTION} collection`);
+          throw new Error(`Failed to create ${CHAT_COLLECTION} collection`);
+        }
+      } else {
+        console.log(`Chat collection ${CHAT_COLLECTION} already exists`);
+        
+        // Check the vector dimension of the existing collection
+        try {
+          const collectionInfo = await client.getCollectionInfo(CHAT_COLLECTION);
+          const vectorSize = collectionInfo?.config?.params?.vectors?.size;
+          
+          console.log(`Collection ${CHAT_COLLECTION} has vector size: ${vectorSize}`);
+          
+          if (vectorSize !== 1536) {
+            console.warn(`Warning: Chat collection has incorrect vector size: ${vectorSize}, expected: 1536`);
+            console.warn('This may cause issues with storing and retrieving chats');
+          }
+        } catch (infoError) {
+          console.error('Error checking collection info:', infoError);
+        }
       }
       
       this.initialized = true;
@@ -165,7 +190,7 @@ export class ChatService {
     
     try {
       // Generate a proper dimensioned vector (using dummy values)
-      const placeholderVector = createDummyVector();
+      const placeholderVector = createDummyVector(1536);
       
       // Prepare data for storage - use any to bypass type checking
       const payload = {
@@ -178,16 +203,29 @@ export class ChatService {
           chatType: chatSession.type,
           status: chatSession.status,
           participants: chatSession.participants.map(p => p.id).join(','),
-          createdAt: chatSession.createdAt
+          createdAt: chatSession.createdAt,
+          userId: userId,
+          agentId: agentId
         }
       } as any; // Cast to any to bypass type checking
       
       // Store in collection using the client's addPoint method
-      await client.addPoint(CHAT_COLLECTION, {
-        id: chatId,
-        vector: placeholderVector,
-        payload: payload
-      });
+      console.log(`Adding chat to ${CHAT_COLLECTION} with ID ${chatId}`);
+      try {
+        const pointAdded = await client.addPoint(CHAT_COLLECTION, {
+          id: chatId,
+          vector: placeholderVector,
+          payload: payload
+        });
+        
+        if (!pointAdded) {
+          console.error(`Failed to add chat point to ${CHAT_COLLECTION}`);
+        } else {
+          console.log(`Successfully added chat point to ${CHAT_COLLECTION}`);
+        }
+      } catch (pointError) {
+        console.error(`Error adding point to ${CHAT_COLLECTION}:`, pointError);
+      }
     } catch (saveError) {
       console.error(`Error saving chat session: ${saveError}`);
       // We'll still return the chat session even if saving failed
@@ -207,22 +245,29 @@ export class ChatService {
     const { client } = await getMemoryServices();
     
     try {
+      console.log(`Attempting to retrieve chat with ID: ${chatId}`);
+      
       // Use the client's getPoints method to retrieve the chat by ID
       const points = await client.getPoints(CHAT_COLLECTION, [chatId]);
+      console.log(`Qdrant returned ${points.length} points for ID: ${chatId}`);
       
       if (points && points.length > 0) {
         const payload = points[0].payload;
+        console.log(`Found chat with ID ${chatId}. Payload type:`, typeof payload);
         
         // Try to parse the stored chat session
         try {
           // First check if we have text data containing JSON
           if (payload.text) {
             try {
+              console.log('Attempting to parse text field as JSON');
               const parsedData = JSON.parse(payload.text);
               if (parsedData.id && parsedData.type && parsedData.participants) {
+                console.log('Successfully parsed text as ChatSession');
                 return parsedData as ChatSession;
               }
             } catch (e) {
+              console.log('Text field was not valid JSON:', e);
               // Not valid JSON, continue with fallback
             }
           }
@@ -230,39 +275,78 @@ export class ChatService {
           // If metadata contains chatSessionData, use that
           if (payload.metadata && payload.metadata.chatSessionData) {
             try {
-              return JSON.parse(payload.metadata.chatSessionData) as ChatSession;
+              console.log('Attempting to parse chatSessionData in metadata');
+              const parsedSession = JSON.parse(payload.metadata.chatSessionData) as ChatSession;
+              console.log('Successfully parsed chatSessionData');
+              return parsedSession;
             } catch (e) {
+              console.log('chatSessionData was not valid JSON:', e);
               // Not valid JSON, continue with fallback
             }
           }
           
           // Fallback to reconstructing from metadata
           if (payload.metadata) {
-            return {
+            console.log('Reconstructing chat from metadata');
+            
+            // Default participants
+            let participants = [];
+            
+            // Try to parse participants from metadata
+            if (payload.metadata.participants) {
+              if (typeof payload.metadata.participants === 'string') {
+                participants = payload.metadata.participants
+                  .split(',')
+                  .filter(Boolean)
+                  .map(id => ({
+                    id,
+                    type: id === payload.metadata.agentId ? 'agent' : 'user',
+                    joinedAt: payload.metadata.createdAt || payload.timestamp
+                  }));
+              } else if (Array.isArray(payload.metadata.participants)) {
+                participants = payload.metadata.participants;
+              }
+            }
+            
+            // If no participants found but we have userId and agentId, create them
+            if (participants.length === 0 && payload.metadata.userId && payload.metadata.agentId) {
+              participants = [
+                {
+                  id: payload.metadata.userId,
+                  type: 'user',
+                  joinedAt: payload.metadata.createdAt || payload.timestamp
+                },
+                {
+                  id: payload.metadata.agentId,
+                  type: 'agent',
+                  joinedAt: payload.metadata.createdAt || payload.timestamp
+                }
+              ];
+            }
+            
+            const reconstructedChat = {
               id: chatId,
               type: payload.metadata.chatType || ChatType.DIRECT,
               createdAt: payload.metadata.createdAt || payload.timestamp,
               updatedAt: payload.metadata.updatedAt || payload.timestamp,
               status: payload.metadata.status || ChatStatus.ACTIVE,
-              participants: (payload.metadata.participants || '')
-                .split(',')
-                .filter(Boolean)
-                .map(id => ({
-                  id,
-                  type: id === payload.metadata.agentId ? 'agent' : 'user',
-                  joinedAt: payload.metadata.createdAt || payload.timestamp
-                })),
+              participants,
               metadata: payload.metadata
             } as ChatSession;
+            
+            console.log('Successfully reconstructed chat session');
+            return reconstructedChat;
           }
         } catch (error) {
           console.error(`Error parsing chat data for ${chatId}:`, error);
         }
         
         // Last resort: return the raw payload as a chat session
+        console.log('Using raw payload as a last resort');
         return payload as unknown as ChatSession;
       }
       
+      console.log(`No chat found with ID: ${chatId}`);
       return null;
     } catch (error) {
       console.error(`Error retrieving chat ${chatId}:`, error);
@@ -369,6 +453,124 @@ export class ChatService {
       return result.map(item => item.point.payload as unknown as ChatSession);
     } catch (error) {
       console.error(`Error retrieving chats for user ${userId} and agent ${agentId}:`, error);
+      return [];
+    }
+  }
+
+  /**
+   * Get all chats between a specific user and agent using direct lookup
+   * 
+   * This method is more reliable than the search-based approach as it
+   * looks at the metadata directly in each point
+   * 
+   * @param userId User ID
+   * @param agentId Agent ID
+   * @returns Array of chat sessions
+   */
+  async getChatsByUserAndAgentDirect(userId: string, agentId: string): Promise<ChatSession[]> {
+    await this.initialize();
+    const { client } = await getMemoryServices();
+    
+    try {
+      // Using scrollPoints to get all chats and filter them client-side
+      console.log(`Direct lookup: Searching for chats between user ${userId} and agent ${agentId}`);
+      const points = await client.scrollPoints(CHAT_COLLECTION);
+      
+      // Filter the points to find ones with matching userId and agentId in metadata
+      const matchingChats = points.filter(point => {
+        const payload = point.payload as any;
+        
+        // Check in metadata
+        if (payload.metadata) {
+          if (
+            (payload.metadata.userId === userId || payload.metadata.createdBy === userId) &&
+            payload.metadata.agentId === agentId
+          ) {
+            return true;
+          }
+        }
+        
+        // Check in participants
+        if (payload.participants) {
+          const hasUser = payload.participants.some((p: any) => p.id === userId);
+          const hasAgent = payload.participants.some((p: any) => p.id === agentId);
+          if (hasUser && hasAgent) {
+            return true;
+          }
+        }
+        
+        return false;
+      });
+      
+      console.log(`Direct lookup: Found ${matchingChats.length} matching chats`);
+      
+      // Convert to ChatSession objects
+      return matchingChats.map(point => {
+        // Try to parse as a ChatSession
+        try {
+          // Check for raw ChatSession in text field
+          if (point.payload.text) {
+            try {
+              const parsedText = JSON.parse(point.payload.text);
+              if (
+                parsedText.id && 
+                parsedText.type && 
+                parsedText.participants && 
+                Array.isArray(parsedText.participants)
+              ) {
+                return parsedText as ChatSession;
+              }
+            } catch (e) {
+              // Not valid JSON, continue with next approach
+            }
+          }
+          
+          // Check for ChatSession data in metadata
+          if (point.payload.metadata && point.payload.metadata.chatSessionData) {
+            try {
+              return JSON.parse(point.payload.metadata.chatSessionData) as ChatSession;
+            } catch (e) {
+              // Not valid JSON, continue with next approach
+            }
+          }
+          
+          // Reconstruct from parts
+          return {
+            id: point.id,
+            type: point.payload.metadata?.chatType || ChatType.DIRECT,
+            createdAt: point.payload.metadata?.createdAt || point.payload.timestamp,
+            updatedAt: point.payload.metadata?.updatedAt || point.payload.timestamp,
+            status: point.payload.metadata?.status || ChatStatus.ACTIVE,
+            participants: (point.payload.metadata?.participants || '')
+              .split(',')
+              .filter(Boolean)
+              .map((id: string) => ({
+                id,
+                type: id === agentId ? 'agent' : 'user',
+                joinedAt: point.payload.metadata?.createdAt || point.payload.timestamp
+              })),
+            metadata: point.payload.metadata
+          } as ChatSession;
+          
+        } catch (error) {
+          console.error(`Error converting point to ChatSession: ${error}`);
+          // Return a minimal valid ChatSession as fallback
+          return {
+            id: point.id,
+            type: ChatType.DIRECT,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            status: ChatStatus.ACTIVE,
+            participants: [
+              { id: userId, type: 'user', joinedAt: new Date().toISOString() },
+              { id: agentId, type: 'agent', joinedAt: new Date().toISOString() }
+            ],
+            metadata: point.payload.metadata || {}
+          };
+        }
+      });
+    } catch (error) {
+      console.error(`Error in direct lookup for user ${userId} and agent ${agentId}:`, error);
       return [];
     }
   }
