@@ -6,7 +6,8 @@
  */
 
 import { BaseManager, AbstractBaseManager, ManagerConfig } from './BaseManager';
-import { AgentBase } from '../AgentBase';
+import { AgentBase } from '../AgentBase.interface';
+import { ConversationSummarizer } from '../../memory/interfaces/ConversationSummarization.interface';
 
 /**
  * Configuration options for memory managers
@@ -23,12 +24,20 @@ export interface MemoryManagerConfig extends ManagerConfig {
   forgetSourceMemoriesAfterConsolidation?: boolean;
   enableMemoryInjection?: boolean;
   maxInjectedMemories?: number;
+  
+  /* Configuration related to conversation summarization */
+  enableConversationSummarization?: boolean;
+  defaultSummaryLength?: number;
+  defaultSummaryDetailLevel?: 'brief' | 'standard' | 'detailed';
+  extractTopicsFromConversations?: boolean;
+  extractActionItemsFromConversations?: boolean;
+  defaultMaxEntriesForSummarization?: number;
 }
 
 /**
  * Memory manager interface
  */
-export interface MemoryManager extends BaseManager {
+export interface MemoryManager extends BaseManager, ConversationSummarizer {
   /**
    * Add memory content
    * @param content Memory content to store
@@ -76,7 +85,7 @@ export abstract class AbstractMemoryManager extends AbstractBaseManager implemen
   protected memoryConsolidationTimer: NodeJS.Timeout | null = null;
   
   constructor(agent: AgentBase, config: MemoryManagerConfig) {
-    super(`${agent.getAgentId()}-memory-manager`, 'memory', {
+    super(`${agent.getAgentId()}-memory-manager`, 'memory', agent, {
       // Default memory manager configuration
       enableAutoPruning: true,
       pruningIntervalMs: 300000, // 5 minutes
@@ -88,6 +97,15 @@ export abstract class AbstractMemoryManager extends AbstractBaseManager implemen
       forgetSourceMemoriesAfterConsolidation: false,
       enableMemoryInjection: true,
       maxInjectedMemories: 5,
+      
+      // Conversation summarization defaults
+      enableConversationSummarization: true,
+      defaultSummaryLength: 500,
+      defaultSummaryDetailLevel: 'standard',
+      extractTopicsFromConversations: true,
+      extractActionItemsFromConversations: true,
+      defaultMaxEntriesForSummarization: 20,
+      
       ...config
     });
     
@@ -116,13 +134,13 @@ export abstract class AbstractMemoryManager extends AbstractBaseManager implemen
           this.setupMemoryConsolidation();
         }
         
-        await super.initialize();
+        this.initialized = true;
         return true;
       }
       
       // Client-side initialization (limited functionality)
       console.log(`[${this.managerId}] Running in client mode with limited functionality`);
-      await super.initialize();
+      this.initialized = true;
       return true;
     } catch (error) {
       console.error(`[${this.managerId}] Error initializing memory manager:`, error);
@@ -149,7 +167,7 @@ export abstract class AbstractMemoryManager extends AbstractBaseManager implemen
       await this.consolidateMemories();
     }
     
-    await super.shutdown();
+    this.initialized = false;
   }
   
   /**
@@ -202,4 +220,13 @@ export abstract class AbstractMemoryManager extends AbstractBaseManager implemen
   abstract getRecentMemories(limit: number): Promise<any[]>;
   abstract consolidateMemories(): Promise<void>;
   abstract pruneMemories(): Promise<void>;
+  
+  /**
+   * ConversationSummarizer interface implementation
+   * These methods must be implemented by concrete memory manager classes
+   */
+  abstract summarizeConversation(options?: any): Promise<any>;
+  abstract summarizeMultipleConversations(conversationIds: string[], options?: any): Promise<any>;
+  abstract getConversationTopics(conversationId: string, options?: any): Promise<string[]>;
+  abstract extractActionItems(conversationId: string, options?: any): Promise<string[]>;
 } 
