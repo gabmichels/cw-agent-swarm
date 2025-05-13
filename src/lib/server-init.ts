@@ -8,7 +8,7 @@ let initializationPromise: Promise<void> | null = null;
 
 // Keep track of initialization state
 let isInitialized = false;
-let chloeInitAttempted = false;
+let agentInitAttempted = false;
 
 /**
  * Initialize server-side components and singletons
@@ -31,41 +31,46 @@ export async function initializeServer() {
         return;
       }
       
-      // Use a flag to track Chloe initialization attempts within this process
-      if (!chloeInitAttempted) {
-        console.log('Initializing Chloe agent (first attempt)...');
-        chloeInitAttempted = true; // Set flag before initialization
+      // Use a flag to track agent initialization attempts within this process
+      if (!agentInitAttempted) {
+        console.log('Initializing default agent (first attempt)...');
+        agentInitAttempted = true; // Set flag before initialization
         
         try {
-          // Check if global Chloe instance already exists
+          // Check if global agent already exists
           if (global.chloeAgent) {
-            console.log('Chloe agent already exists in global scope, skipping initialization');
+            console.log('Agent already exists in global scope, skipping initialization');
           } else {
             // Check if we should initialize the default agent
-            console.log('Initializing default agent...');
+            console.log('Looking for available agents...');
             
             try {
               // Import AgentService dynamically to ensure it only runs on server
               const { AgentService } = await import('../services/AgentService');
               
-              // Get or create the default agent (currently 'chloe')
+              // Get the default agent (will be the first available one)
               const agent = await AgentService.getDefaultAgent();
               
-              if (agent && !agent.initialized && typeof agent.initialize === 'function') {
-                await agent.initialize();
-                console.log('Default agent initialized successfully');
+              if (agent) {
+                console.log(`Found agent: ${agent.name || agent.id}`);
+                if (!agent.initialized && typeof agent.initialize === 'function') {
+                  await agent.initialize();
+                  console.log('Default agent initialized successfully');
+                } else {
+                  console.log('Default agent already initialized or initialization not needed');
+                }
               } else {
-                console.log('Default agent already initialized or not available');
+                console.log('No agents available for initialization');
               }
             } catch (error) {
-              console.error('Error initializing default agent:', error);
+              console.error('Error finding or initializing default agent:', error);
             }
           }
         } catch (error) {
-          console.error('Error initializing Chloe agent:', error);
+          console.error('Error during agent initialization process:', error);
         }
       } else {
-        console.log('Skipping Chloe initialization - already attempted in this process');
+        console.log('Skipping agent initialization - already attempted in this process');
       }
       
       console.log('Server initialization complete');

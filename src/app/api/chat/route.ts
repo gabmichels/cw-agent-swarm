@@ -36,7 +36,11 @@ async function handler(message: string, options: {
   agentId?: string;
 }) {
   // Get agent ID or use default if not specified
-  const agentId = options.agentId || 'chloe';
+  const agentId = options.agentId || '';
+  
+  if (!agentId) {
+    throw new Error('No agent ID specified and no default agent available');
+  }
   
   try {
     // Process the message using AgentService

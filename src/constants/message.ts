@@ -10,7 +10,7 @@ export enum MessageSender {
   USER = 'user',
   SYSTEM = 'system',
   AGENT = 'agent',
-  CHLOE = 'chloe',
+  ASSISTANT = 'assistant',
   ERROR = 'error',
 }
 

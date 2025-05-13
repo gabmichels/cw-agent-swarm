@@ -65,8 +65,8 @@ export async function GET(req: Request) {
     // Validate chatId parameter
     if (!chatId) {
       console.log('No chatId provided, falling back to compatibility mode');
-      // For backward compatibility, use hardcoded chat ID
-      return getCompatibilityChatHistory('chat-chloe-gab');
+      // For backward compatibility, use a default chat ID
+      return getCompatibilityChatHistory('default-chat');
     }
     
     console.log(`Retrieving chat history for chatId: ${chatId}`);
@@ -150,7 +150,7 @@ async function getCompatibilityChatHistory(chatId: string) {
     const formattedHistory = messageResults.data.map((message: Message) => ({
       id: message.id,
       content: message.content,
-      sender: message.role === 'user' ? 'You' : 'Chloe',
+      sender: message.role === 'user' ? 'You' : (message.metadata?.senderName || 'Agent'),
       timestamp: message.createdAt,
       attachments: message.attachments || []
     }));

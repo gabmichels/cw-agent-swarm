@@ -58,7 +58,7 @@ export function isMessageVisibleInChat(message: Message): boolean {
   // IMPORTANT: Only show legacy messages if they are from expected senders
   // Avoid showing any internal processing messages
   if (message.sender) {
-    const allowedSenders = ['user', 'agent', 'chloe', 'Chloe', 'assistant', 'You'];
+    const allowedSenders = ['user', 'agent', 'assistant', 'You'];
     return allowedSenders.includes(message.sender);
   }
   

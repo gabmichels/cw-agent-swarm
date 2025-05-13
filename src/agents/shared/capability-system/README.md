@@ -101,7 +101,7 @@ registerPredefinedCapabilities(registry);
 ```typescript
 // Option 1: Using registry directly
 registry.registerAgentCapabilities(
-  'chloe',
+  'marketing_agent',
   {
     'skill.marketing_strategy': CapabilityLevel.EXPERT,
     'skill.content_creation': CapabilityLevel.ADVANCED,
@@ -116,7 +116,7 @@ registry.registerAgentCapabilities(
 // Option 2: Using helper function
 import { registerAgentCapabilities } from '../shared/capability-system';
 registerAgentCapabilities(
-  'chloe',
+  'marketing_agent',
   {
     'skill.marketing_strategy': 'expert',
     'skill.content_creation': 'advanced',
@@ -130,7 +130,7 @@ registerAgentCapabilities(
 
 // Register a single capability
 import { registerAgentCapability } from '../shared/capability-system';
-registerAgentCapability('chloe', 'skill.viral_marketing', 'advanced');
+registerAgentCapability('marketing_agent', 'skill.viral_marketing', 'advanced');
 ```
 
 ### Finding Agents with Capabilities

@@ -8,7 +8,7 @@
  * - Result aggregation from sub-agents
  */
 
-import { AgentBase, AgentCapabilityLevel } from '../base/AgentBase';
+import { AgentBase } from '../base/AgentBase.interface';
 import { Plan } from '../planning/Planner';
 import { ExecutionResult } from '../execution/Executor';
 import { AgentMonitor } from '../monitoring/AgentMonitor';
@@ -87,7 +87,7 @@ export class AgentCoordinator {
   
   constructor(options: CoordinatorOptions = {}) {
     this.options = {
-      defaultAgentId: 'chloe',
+      defaultAgentId: 'default',
       enableLoadBalancing: true,
       enableReliabilityTracking: true,
       enableCapabilityMatching: true,
@@ -132,7 +132,7 @@ export class AgentCoordinator {
    */
   registerAgent(
     agent: AgentBase, 
-    capabilities: AgentCapability[], 
+    capabilities: string[], 
     domain: string, 
     quota: number = 5,
     options?: {
@@ -168,8 +168,8 @@ export class AgentCoordinator {
       
       capabilities.forEach(cap => {
         // Use provided level or default to STANDARD
-        capabilityLevels[cap.id] = (options?.capabilityLevels && options.capabilityLevels[cap.id]) 
-          ? options.capabilityLevels[cap.id] 
+        capabilityLevels[cap] = (options?.capabilityLevels && options.capabilityLevels[cap]) 
+          ? options.capabilityLevels[cap] 
           : CapabilityLevel.INTERMEDIATE;
       });
       
@@ -184,7 +184,7 @@ export class AgentCoordinator {
       );
     }
     
-    console.log(`Registered agent ${agentId} with capabilities: ${capabilities.map(c => c.id).join(', ')} and quota: ${quota}`);
+    console.log(`Registered agent ${agentId} with capabilities: ${capabilities.join(', ')} and quota: ${quota}`);
   }
   
   /**
@@ -353,7 +353,36 @@ export class AgentCoordinator {
       }
       
       // Execute the task with delegation context
-      const result = await agent.planAndExecute(request.goal, request.context);
+      // Since agent.planAndExecute may not exist on all agent implementations,
+      // we need to handle this more gracefully
+      let result;
+      
+      // Access planAndExecute as a dynamic property to avoid type errors
+      const dynamicAgent = agent as any;
+      if (typeof dynamicAgent.planAndExecute === 'function') {
+        // Use planAndExecute if the agent supports it
+        result = await dynamicAgent.planAndExecute(request.goal, request.context);
+      } else {
+        // Fall back to a simpler approach if planAndExecute is not available
+        console.warn(`Agent ${agentId} does not implement planAndExecute, using basic execution`);
+        
+        // Try to use other agent methods that might be available
+        if (typeof dynamicAgent.executePlan === 'function' && typeof dynamicAgent.createPlan === 'function') {
+          // If the agent has planning capabilities, use them
+          const planResult = await dynamicAgent.createPlan({ goal: request.goal, context: request.context });
+          if (planResult.planId) {
+            result = await dynamicAgent.executePlan(planResult.planId);
+          } else {
+            throw new Error('Failed to create plan');
+          }
+        } else {
+          // Last resort: Just return a basic result
+          result = { 
+            success: false, 
+            error: `Agent ${agentId} does not support planning and execution` 
+          };
+        }
+      }
       
       // Update delegation result
       const delegation = this.delegations.get(request.taskId);

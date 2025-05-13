@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createAgentMemoryService } from '@/server/memory/services/multi-agent';
 import { getMemoryServices } from '@/server/memory/services';
 import { AgentFactory } from '@/agents/shared/AgentFactory';
+import { agentSchema } from '@/server/memory/schema/agent';
 
 /**
  * POST /api/multi-agent/agents/[agentId]/process
@@ -34,6 +35,11 @@ export async function POST(
     // Get the agent from the memory service
     const { memoryService } = await getMemoryServices();
     const agentService = createAgentMemoryService(memoryService);
+    
+    // Ensure the repository has the schema property set
+    if (agentService.repository && !agentService.repository.schema) {
+      agentService.repository.schema = agentSchema;
+    }
     
     const result = await agentService.getById(agentId);
     

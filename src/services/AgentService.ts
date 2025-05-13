@@ -25,24 +25,34 @@ export class AgentService {
   static async getAgent(agentId: string): Promise<AgentProfile | null> {
     try {
       // First try the registry (for backward compatibility)
-      const agent = await AgentRegistry.getAgent(agentId);
-      if (agent) return agent;
+      try {
+        const agent = await AgentRegistry.getAgent(agentId);
+        if (agent) return agent;
+      } catch (registryError) {
+        console.warn(`Error checking agent registry for ${agentId}:`, registryError);
+        // Continue to try the API
+      }
       
       // If not in registry, try the API
-      const response = await fetch(`/api/multi-agent/agents/${agentId}`);
-      
-      if (!response.ok) {
-        if (response.status === 404) {
-          console.log(`Agent ${agentId} not found`);
+      try {
+        const response = await fetch(`/api/multi-agent/agents/${agentId}`);
+        
+        if (!response.ok) {
+          if (response.status === 404) {
+            console.log(`Agent ${agentId} not found`);
+            return null;
+          }
+          
+          console.warn(`API error for agent ${agentId}: ${response.status} ${response.statusText}`);
           return null;
         }
         
-        const error = await response.json();
-        throw new Error(error.error || `Failed to fetch agent ${agentId}`);
+        const data = await response.json();
+        return data.agent;
+      } catch (apiError) {
+        console.warn(`API fetch error for agent ${agentId}:`, apiError);
+        return null;
       }
-      
-      const data = await response.json();
-      return data.agent;
     } catch (error) {
       console.error(`Error retrieving agent ${agentId}:`, error);
       return null;
@@ -62,7 +72,12 @@ export class AgentService {
       }
       
       // Fallback to registry for backward compatibility  
-      return await AgentRegistry.getAgentIds();
+      try {
+        return await AgentRegistry.getAgentIds();
+      } catch (registryError) {
+        console.warn('Error getting agent IDs from registry:', registryError);
+        return [];
+      }
     } catch (error) {
       console.error('Error retrieving agent IDs:', error);
       return [];
@@ -75,15 +90,20 @@ export class AgentService {
    */
   static async getAllAgents(): Promise<AgentProfile[]> {
     try {
-      const response = await fetch('/api/multi-agent/agents');
-      
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to fetch agents');
+      try {
+        const response = await fetch('/api/multi-agent/agents');
+        
+        if (!response.ok) {
+          console.warn(`API error for getAllAgents: ${response.status} ${response.statusText}`);
+          return [];
+        }
+        
+        const data = await response.json();
+        return data.agents || [];
+      } catch (apiError) {
+        console.warn('API fetch error for getAllAgents:', apiError);
+        return [];
       }
-      
-      const data = await response.json();
-      return data.agents || [];
     } catch (error) {
       console.error('Error retrieving agents:', error);
       return [];
@@ -91,13 +111,27 @@ export class AgentService {
   }
   
   /**
-   * Get the default agent (currently chloe)
-   * @returns The default agent instance
+   * Get the default agent (first available agent)
+   * @returns The default agent instance or null if no agents are available
    */
   static async getDefaultAgent(): Promise<any> {
-    // This is a temporary solution during migration
-    // Eventually this should be configurable or based on user preferences
-    return this.getAgent('chloe');
+    try {
+      // Get all available agents
+      const agents = await this.getAllAgents();
+      
+      // Return the first available agent, or null if none are found
+      if (agents && agents.length > 0) {
+        console.log(`Found default agent: ${agents[0].name || agents[0].id}`);
+        return agents[0];
+      }
+      
+      // No agents available
+      console.log("No agents available");
+      return null;
+    } catch (error) {
+      console.error("Error finding default agent:", error);
+      return null;
+    }
   }
   
   /**

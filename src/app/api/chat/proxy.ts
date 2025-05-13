@@ -127,7 +127,7 @@ export async function loadChatHistoryFromQdrant(specificUserId?: string, specifi
     // Group by user id
     const messagesByUser = new Map<string, any[]>();
     const defaultUserId = 'gab';  // Default user ID for the application
-    const defaultChatId = 'chat-chloe-gab'; // Default chat ID
+    const defaultChatId = 'chat-default'; // Default chat ID
     
     // The actual chatId to filter by
     const targetChatId = specificChatId || defaultChatId;
@@ -236,7 +236,7 @@ function containsImageData(message: string): boolean {
 // Track the last user message ID to maintain thread relationships
 let lastUserMessageId: string | null = null;
 
-async function saveToHistory(userId: string, role: 'user' | 'assistant', content: string, chatId: string = 'chat-chloe-gab', attachments?: any[], visionResponseFor?: string) {
+async function saveToHistory(userId: string, role: 'user' | 'assistant', content: string, chatId: string = 'chat-default', attachments?: any[], visionResponseFor?: string) {
   if (!content || content.trim() === '') return null;
   
   // Create an operation key to track this specific save operation
@@ -304,16 +304,33 @@ async function saveToHistory(userId: string, role: 'user' | 'assistant', content
         
         try {
           const chatService = await getChatService();
-          const assistantAgentId = 'assistant'; // Default agent ID for the memory service
           
-          // Check if the chat already exists
+          // Try to get agent information
+          let assistantName = 'Assistant';
+          let assistantId = 'default-agent';
+          
           try {
-            await chatService.getChatById(chatId);
-          } catch (err) {
-            // If chat doesn't exist, create it with the hardcoded id
-            await chatService.createChat(userId, assistantAgentId, {
-              title: `Chat with ${assistantAgentId}`,
-              description: `Conversation between user ${userId} and agent ${assistantAgentId}`
+            // Get agent info from AgentService
+            const agent = await AgentService.getDefaultAgent();
+            if (agent) {
+              assistantId = agent.id;
+              assistantName = agent.name || 'Assistant';
+            }
+          } catch (agentError) {
+            console.warn('Error getting agent info:', agentError);
+            // Continue with defaults
+          }
+          
+          // Try to get an existing chat first
+          try {
+            chatSession = await chatService.getChatById(chatId);
+            console.log(`Found existing chat session: ${chatId}`);
+          } catch (notFoundError) {
+            // If not found, create a new chat
+            console.log(`Creating new chat session: ${chatId}`);
+            chatSession = await chatService.createChat(userId, assistantId, {
+              title: `Chat with ${assistantName}`,
+              description: `Conversation between user ${userId} and agent ${assistantName}`
             });
           }
           
@@ -323,6 +340,13 @@ async function saveToHistory(userId: string, role: 'user' | 'assistant', content
           console.warn('Error checking/creating chat session:', error);
           // Create a fallback structured ID
           chatStructuredId = createChatId(chatId);
+          
+          // Create a minimal fallback session object to avoid null errors
+          chatSession = {
+            id: chatId,
+            type: 'direct',
+            status: 'active'
+          };
         }
         
         // Create proper thread info based on the message role and previous message
@@ -431,7 +455,10 @@ let agent = null;
 export async function POST(req: Request) {
   try {
     // Parse the JSON request
-    const { message, userId = 'gab', memoryDisabled, attachments = [], visionResponseFor, agentId = 'chloe', chatId = 'chat-chloe-gab' } = await req.json();
+    const { message, userId = 'gab', memoryDisabled, attachments = [], visionResponseFor, agentId = '', chatId = '' } = await req.json();
+    
+    // Generate a default chat ID if none is provided
+    const effectiveChatId = chatId || `chat-${userId}-${agentId || 'default'}`;
     
     // Normalize and validate the message
     const normalizedMessage = normalizeMessage(message);
@@ -478,31 +505,88 @@ export async function POST(req: Request) {
           await initializeMemory();
         }
         
+        // Get a default agent ID if none was specified
+        let effectiveAgentId = agentId;
+        let agentName = 'Agent';
+        
+        if (!effectiveAgentId) {
+          try {
+            // Try to get the default agent
+            const defaultAgent = await AgentService.getDefaultAgent();
+            if (defaultAgent) {
+              effectiveAgentId = defaultAgent.id;
+              agentName = defaultAgent.name || 'Agent';
+              console.log(`Using default agent: ${agentName} (${effectiveAgentId})`);
+            } else {
+              console.error('No agent specified and no default agent available');
+              // Return a proper response object that matches the expected return type
+              return {
+                reply: "I'm sorry, but no agent is available to process your request. Please specify an agent or contact the administrator.",
+                memory: [],
+                thoughts: ["Error: No agent available"],
+                timestamp: new Date().toISOString(),
+                error: 'No agent specified and no default agent available'
+              };
+            }
+          } catch (agentError) {
+            console.error('Error getting default agent:', agentError);
+            // Return a proper response object that matches the expected return type
+            return {
+              reply: "I encountered an error while trying to find an available agent. Please try again later.",
+              memory: [],
+              thoughts: [`Error getting default agent: ${agentError instanceof Error ? agentError.message : String(agentError)}`],
+              timestamp: new Date().toISOString(),
+              error: 'Error getting default agent'
+            };
+          }
+        }
+        
         // Get or create a chat session for this conversation
-        let chatSession;
+        let chatSession: any = null;
         try {
           const chatService = await getChatService();
-          chatSession = await chatService.createChat(userId, agentId, {
-            title: `Chat with ${agentId}`,
-            description: `Conversation between user ${userId} and agent ${agentId}`
-          });
+          // Try to get an existing chat first
+          try {
+            chatSession = await chatService.getChatById(effectiveChatId);
+            console.log(`Found existing chat session: ${effectiveChatId}`);
+          } catch (notFoundError) {
+            // If not found, create a new chat
+            console.log(`Creating new chat session: ${effectiveChatId}`);
+            chatSession = await chatService.createChat(userId, effectiveAgentId, {
+              title: `Chat with ${agentName}`,
+              description: `Conversation between user ${userId} and agent ${agentName}`
+            });
+          }
         } catch (chatError) {
           console.error('Error creating chat session:', chatError);
           // Continue without a chat session - the conversation will still work
           chatSession = {
-            id: `chat-${userId}-${agentId}`,
+            id: effectiveChatId,
             type: 'direct',
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
             status: 'active',
             participants: [
               { id: userId, type: 'user', joinedAt: new Date().toISOString() },
-              { id: agentId, type: 'agent', joinedAt: new Date().toISOString() }
+              { id: effectiveAgentId, type: 'agent', joinedAt: new Date().toISOString() }
             ],
             metadata: {
-              title: `Chat with ${agentId}`,
-              description: `Conversation between user ${userId} and agent ${agentId}`
+              title: `Chat with ${agentName}`,
+              description: `Conversation between user ${userId} and agent ${agentName}`
             }
+          };
+        }
+        
+        // Ensure chatSession is not null at this point
+        if (!chatSession) {
+          chatSession = {
+            id: effectiveChatId,
+            type: 'direct',
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            status: 'active',
+            participants: [],
+            metadata: {}
           };
         }
         
@@ -520,7 +604,7 @@ export async function POST(req: Request) {
         let userMessageId = null;
         if (!memoryDisabled) {
           // Save user message to history
-          const memoryResult = await saveToHistory(userId, 'user', normalizedMessage, chatId, attachments);
+          const memoryResult = await saveToHistory(userId, 'user', normalizedMessage, effectiveChatId, attachments);
           if (memoryResult && memoryResult.id) {
             userMessageId = memoryResult.id;
             console.log(`Saved user message to memory with ID: ${userMessageId}`);
@@ -537,25 +621,25 @@ export async function POST(req: Request) {
         
         try {
           // Get the agent from the registry using our AgentService
-          agent = await getAgentInstance(agentId);
+          agent = await getAgentInstance(effectiveAgentId);
           
           if (!agent) {
-            throw new Error(`Failed to load agent: ${agentId}`);
+            throw new Error(`Failed to load agent: ${effectiveAgentId}`);
           }
           
           // Make sure agent is initialized
           if (agent.initialized === false && typeof agent.initialize === 'function') {
-            console.log(`Initializing agent ${agentId} on first use`);
+            console.log(`Initializing agent ${effectiveAgentId} on first use`);
             await agent.initialize();
           }
         } catch (error: any) {
-          throw new Error(`Error loading agent ${agentId}: ${error.message}`);
+          throw new Error(`Error loading agent ${effectiveAgentId}: ${error.message}`);
         }
         
         // Process the message with the selected agent - with timeout protection
         let chatResponse;
         try {
-          const processPromise = agent.processMessage(message, {
+          const processPromise = agent.processMessage(normalizedMessage, {
             attachments,
             userId,
             // Add the userMessageId to the options so the agent knows not to save this message again
@@ -604,7 +688,7 @@ export async function POST(req: Request) {
         
         // Save reply to history if memory is enabled
         if (!memoryDisabled) {
-          await saveToHistory(userId, 'assistant', reply, chatId, attachments);
+          await saveToHistory(userId, 'assistant', reply, effectiveChatId, attachments);
         }
         
         return {
@@ -612,18 +696,18 @@ export async function POST(req: Request) {
           memory: memories,
           thoughts,
           timestamp,
-          chatId: chatSession?.id || `chat-${userId}-${agentId}`,
+          chatId: chatSession?.id || effectiveChatId,
           chatInfo: chatSession ? {
-            title: chatSession.metadata?.title || `Chat with ${agentId}`,
-            participants: chatSession.participants.map(p => ({
+            title: chatSession.metadata?.title || `Chat with ${agentName}`,
+            participants: chatSession.participants.map((p: { id: string; type: string }) => ({
               id: p.id,
               type: p.type
             }))
           } : {
-            title: `Chat with ${agentId}`,
+            title: `Chat with ${agentName}`,
             participants: [
               { id: userId, type: 'user' },
-              { id: agentId, type: 'agent' }
+              { id: effectiveAgentId, type: 'agent' }
             ]
           }
         };
@@ -692,6 +776,21 @@ export async function GET(req: Request) {
   }
 }
 
-async function getAgentInstance(agentId = 'chloe') {
-  return await AgentService.getAgent(agentId);
+async function getAgentInstance(agentId = '') {
+  // If no agent ID is provided, try to get the default agent
+  if (!agentId) {
+    const defaultAgent = await AgentService.getDefaultAgent();
+    if (!defaultAgent) {
+      throw new Error('No agent ID provided and no default agent available');
+    }
+    return defaultAgent;
+  }
+  
+  // Get the agent with the specified ID
+  const agent = await AgentService.getAgent(agentId);
+  if (!agent) {
+    throw new Error(`Agent with ID ${agentId} not found`);
+  }
+  
+  return agent;
 }

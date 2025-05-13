@@ -97,10 +97,14 @@ interface AgentInfo {
 // Interface for MemoryTab component props
 interface MemoryTabProps {
   selectedAgentId?: string;
-  availableAgents: AgentInfo[];
+  availableAgents?: AgentInfo[];
   onAgentChange?: (agentId: string) => void;
   showAllMemories?: boolean;
   onViewChange?: (showAll: boolean) => void;
+  // Add the required props from the page.tsx usage
+  isLoadingMemories?: boolean;
+  allMemories?: any[];
+  onRefresh?: () => Promise<void>;
 }
 
 // Update the MemoryEntry interface to include all necessary properties
@@ -137,13 +141,16 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
   availableAgents = [],
   onAgentChange,
   showAllMemories = false,
-  onViewChange
+  onViewChange,
+  isLoadingMemories,
+  allMemories,
+  onRefresh
 }) => {
   const [localSelectedAgentId, setLocalSelectedAgentId] = useState(selectedAgentId);
   const [localShowAllMemories, setLocalShowAllMemories] = useState(showAllMemories);
   const [searchQuery, setSearchQuery] = useState('');
   const [showFilters, setShowFilters] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingInternal, setIsLoadingInternal] = useState(false);
   const [error, setError] = useState<Error | null>(null);
   const [memories, setMemories] = useState<MemoryEntry[]>([]);
   
@@ -153,7 +160,7 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
     const loadMemories = async () => {
       if (!localSelectedAgentId && !localShowAllMemories) return;
       
-      setIsLoading(true);
+      setIsLoadingInternal(true);
       setError(null);
       
       try {
@@ -166,7 +173,7 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
         console.error('Error loading memories:', err);
         setError(err instanceof Error ? err : new Error(String(err)));
       } finally {
-        setIsLoading(false);
+        setIsLoadingInternal(false);
       }
     };
     
@@ -194,8 +201,8 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
   const [showRawMemory, setShowRawMemory] = useState<string | null>(null);
   const [showDebugInfo, setShowDebugInfo] = useState<boolean>(false);
 
-  // Derive loading and memory states, preferring hook values but falling back to props
-  const isLoadingMemories = isLoadingMemoryHook || isLoading || false;
+  // Combine loading states from props and internal state
+  const combinedIsLoading = isLoadingMemoryHook || isLoadingInternal || isLoadingMemories || false;
 
   // All possible memory types as strings - use the enum values
   const MEMORY_TYPES: string[] = useMemo(() => {
@@ -1097,7 +1104,7 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
 
   // Render memory list
   const renderMemoryList = () => {
-    if (isLoading) {
+    if (combinedIsLoading) {
       return <div className="text-center py-4">Loading memories...</div>;
     }
 

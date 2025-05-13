@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createAgentMemoryService } from '../../../../../server/memory/services/multi-agent';
 import { getMemoryServices } from '../../../../../server/memory/services';
-import { AgentStatus } from '../../../../../server/memory/schema/agent';
+import { AgentStatus, agentSchema } from '../../../../../server/memory/schema/agent';
 
 export async function GET(
   request: Request,
@@ -19,6 +19,11 @@ export async function GET(
     
     const { memoryService } = await getMemoryServices();
     const agentService = createAgentMemoryService(memoryService);
+    
+    // Ensure the repository has the schema property set
+    if (agentService.repository && !agentService.repository.schema) {
+      agentService.repository.schema = agentSchema;
+    }
     
     const result = await agentService.getById(agentId);
     
@@ -68,6 +73,11 @@ export async function PUT(
     const { memoryService } = await getMemoryServices();
     const agentService = createAgentMemoryService(memoryService);
     
+    // Ensure the repository has the schema property set
+    if (agentService.repository && !agentService.repository.schema) {
+      agentService.repository.schema = agentSchema;
+    }
+    
     const result = await agentService.update(agentId, updateData);
     
     if (result.isError) {
@@ -111,6 +121,11 @@ export async function DELETE(
     
     const { memoryService } = await getMemoryServices();
     const agentService = createAgentMemoryService(memoryService);
+    
+    // Ensure the repository has the schema property set
+    if (agentService.repository && !agentService.repository.schema) {
+      agentService.repository.schema = agentSchema;
+    }
     
     const result = await agentService.delete(agentId);
     
@@ -157,6 +172,11 @@ export async function PATCH(
     
     const { memoryService } = await getMemoryServices();
     const agentService = createAgentMemoryService(memoryService);
+    
+    // Ensure the repository has the schema property set
+    if (agentService.repository && !agentService.repository.schema) {
+      agentService.repository.schema = agentSchema;
+    }
     
     // Handle status update if provided
     if (status) {

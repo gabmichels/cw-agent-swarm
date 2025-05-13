@@ -7,8 +7,10 @@
  * Agent types
  */
 export enum AgentType {
-  CHLOE = 'chloe',
+  DEFAULT = 'default',
   ASSISTANT = 'assistant',
+  SEARCH = 'search',
+  CODE = 'code',
   SPECIALIST = 'specialist',
   EVALUATOR = 'evaluator',
 }

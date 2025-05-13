@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createAgentMemoryService } from '../../../../../../server/memory/services/multi-agent';
 import { getMemoryServices } from '../../../../../../server/memory/services';
 import { IdGenerator } from '../../../../../../utils/ulid';
+import { agentSchema } from '../../../../../../server/memory/schema/agent';
 
 /**
  * GET endpoint to retrieve agent capabilities
@@ -22,6 +23,11 @@ export async function GET(
     
     const { memoryService } = await getMemoryServices();
     const agentService = createAgentMemoryService(memoryService);
+    
+    // Ensure the repository has the schema property set
+    if (agentService.repository && !agentService.repository.schema) {
+      agentService.repository.schema = agentSchema;
+    }
     
     // Get the agent
     const result = await agentService.getById(agentId);
@@ -92,6 +98,11 @@ export async function POST(
     
     const { memoryService } = await getMemoryServices();
     const agentService = createAgentMemoryService(memoryService);
+    
+    // Ensure the repository has the schema property set
+    if (agentService.repository && !agentService.repository.schema) {
+      agentService.repository.schema = agentSchema;
+    }
     
     // Get the agent
     const getResult = await agentService.getById(agentId);
@@ -198,6 +209,11 @@ export async function PUT(
     
     const { memoryService } = await getMemoryServices();
     const agentService = createAgentMemoryService(memoryService);
+    
+    // Ensure the repository has the schema property set
+    if (agentService.repository && !agentService.repository.schema) {
+      agentService.repository.schema = agentSchema;
+    }
     
     // Update agent capabilities
     const result = await agentService.updateAgentCapabilities(agentId, capabilities);

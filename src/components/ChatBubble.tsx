@@ -334,8 +334,8 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
   // Determine the sender display name
   const senderName = message.sender === 'You' || message.sender === 'user' 
     ? 'You' 
-    : message.sender === 'chloe' || message.sender === 'Chloe' || message.sender === 'agent' || message.sender === 'assistant'
-    ? 'Chloe'
+    : message.sender === 'agent' || message.sender === 'assistant'
+    ? 'Assistant'
     : message.sender;
     
   // Handle timestamp display

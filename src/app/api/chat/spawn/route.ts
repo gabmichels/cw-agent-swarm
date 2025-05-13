@@ -7,7 +7,34 @@ import { ChatType } from '../../../../server/memory/models/chat-collection';
  */
 export async function POST(request: Request) {
   try {
-    const { userId = 'gab', agentId = 'chloe', title, description } = await request.json();
+    // Get parameters from request
+    const { userId = 'gab', agentId = '', title, description } = await request.json();
+    
+    // Validate agentId
+    if (!agentId) {
+      try {
+        // Try to get the default agent
+        const { AgentService } = await import('@/services/AgentService');
+        const defaultAgent = await AgentService.getDefaultAgent();
+        
+        if (defaultAgent && defaultAgent.id) {
+          // Use default agent
+          console.log(`Using default agent: ${defaultAgent.name || defaultAgent.id}`);
+        } else {
+          // No default agent available
+          return NextResponse.json({
+            success: false,
+            error: 'No agent ID specified and no default agent available'
+          }, { status: 400 });
+        }
+      } catch (error) {
+        console.error('Error finding default agent:', error);
+        return NextResponse.json({
+          success: false,
+          error: 'Failed to find default agent'
+        }, { status: 500 });
+      }
+    }
     
     // Validate inputs
     if (!userId || !agentId) {

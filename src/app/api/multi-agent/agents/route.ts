@@ -4,7 +4,7 @@ import { AgentRegistrationRequest, AgentProfile } from '@/lib/multi-agent/types/
 import { createAgentMemoryService } from '@/server/memory/services/multi-agent';
 import { getMemoryServices } from '@/server/memory/services';
 import { AgentFactory } from '@/agents/shared/AgentFactory';
-import { AgentMemoryEntity, AgentStatus } from '@/server/memory/schema/agent';
+import { AgentMemoryEntity, AgentStatus, agentSchema } from '@/server/memory/schema/agent';
 
 // Extended type to handle the additional fields from the form
 interface ExtendedAgentRegistrationRequest extends AgentRegistrationRequest {
@@ -161,10 +161,12 @@ export async function GET(request: Request) {
     
     // Get agent service
     const { memoryService } = await getMemoryServices();
+    
+    // Create agent service with proper schema initialization
     const agentService = createAgentMemoryService(memoryService);
     
-    // Get all agents
-    const result = await agentService.findAll();
+    // Get all agents using the search method with empty params to get everything
+    const result = await agentService.search({});
     
     if (result.isError) {
       return NextResponse.json(
@@ -173,8 +175,11 @@ export async function GET(request: Request) {
       );
     }
     
+    // Handle the case where data might be undefined or null
+    const agentData = result.data || [];
+    
     // Convert to simplified agent profile format
-    const agents = result.data.map((agent: AgentMemoryEntity) => ({
+    const agents = agentData.map((agent: AgentMemoryEntity) => ({
       id: typeof agent.id === 'object' ? agent.id.id : agent.id,
       name: agent.name,
       description: agent.description,

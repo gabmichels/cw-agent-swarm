@@ -14,14 +14,14 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
   
   // State for available agents
   const [availableAgents, setAvailableAgents] = useState<Record<string, string[]>>({
-    Marketing: ['Chloe'],
+    Marketing: [],
     HR: [],
     Finance: []
   });
   
   // State for the layout components
   const [selectedDepartment, setSelectedDepartment] = useState('Marketing');
-  const [selectedAgent, setSelectedAgent] = useState('Chloe');
+  const [selectedAgent, setSelectedAgent] = useState('');
   const [selectedAgentId, setSelectedAgentId] = useState('');
   const [selectedTab, setSelectedTab] = useState('knowledge');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);

@@ -36,19 +36,41 @@ const Sidebar: React.FC<SidebarProps> = ({
         const response = await fetch('/api/multi-agent/agents');
         
         if (!response.ok) {
-          throw new Error(`Failed to fetch agents: ${response.statusText}`);
-        }
-        
-        const data = await response.json();
-        
-        if (data.success && data.agents) {
-          setAgents(data.agents);
+          // Only show error for actual server errors (5xx)
+          if (response.status >= 500) {
+            const errorText = await response.text();
+            console.error(`Failed to fetch agents: ${response.status} ${response.statusText}`, errorText);
+            setError(`Server error (${response.status})`);
+          } else if (response.status === 404) {
+            // 404 means the endpoint doesn't exist yet - this is a legitimate case during setup
+            console.log('Agents API endpoint not found, likely still being set up');
+            setAgents([]);
+          } else {
+            // Other client errors, log but don't show prominently
+            console.warn(`Agents API returned ${response.status}: ${response.statusText}`);
+            setAgents([]);
+          }
         } else {
-          throw new Error('Failed to load agents');
+          // Parse the successful response
+          const data = await response.json();
+          
+          if (data.success === false) {
+            // API returned success: false but with a 200 status
+            console.warn('API returned success: false', data.error);
+            setAgents([]);
+          } else {
+            // Normal successful case - might still be empty array
+            setAgents(data.agents || []);
+            setError(null); // Clear any previous errors
+          }
         }
       } catch (err) {
+        // Handle network/parsing errors differently from empty results
         console.error('Error fetching agents:', err);
-        setError(err instanceof Error ? err.message : 'An unknown error occurred');
+        
+        // Suppress error UI since "No agents found" is sufficient
+        // Just log the error for debugging purposes
+        setAgents([]);
       } finally {
         setIsLoadingAgents(false);
       }

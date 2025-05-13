@@ -65,7 +65,16 @@ export type { StructuredId } from '../../../../utils/ulid';
  */
 export function createAgentMemoryService(repository: any) {
   const { AgentMemoryService } = require('../../services/agent-memory-service');
-  return new AgentMemoryService(repository);
+  const { agentSchema } = require('../../schema/agent');
+  
+  const service = new AgentMemoryService(repository);
+  
+  // Ensure the repository has the schema property set
+  if (service.repository && !service.repository.schema) {
+    service.repository.schema = agentSchema;
+  }
+  
+  return service;
 }
 
 /**

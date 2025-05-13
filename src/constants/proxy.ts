@@ -53,9 +53,9 @@ export const USER_ROLES = {
  */
 export const MESSAGE_SOURCES = {
   USER: 'user',
-  SYSTEM: 'system',
-  INTERNAL: 'internal',
-  CHLOE: 'chloe',
+  AGENT: 'agent',
+  ASSISTANT: 'assistant',
+  SYSTEM: 'system'
 };
 
 /**

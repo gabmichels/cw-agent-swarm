@@ -18,14 +18,14 @@ async function runDelegationChainExample() {
   // Clear any existing logs
   AgentMonitor.clear();
   
-  // Create a delegation chain: Chloe -> Researcher -> FactChecker
+  // Create a delegation chain: Coordinator -> Researcher -> FactChecker
   const delegationContextId = `delegation_${crypto.randomUUID()}`;
   
-  // Step 1: Chloe creates a task
-  const chloeTaskId = `task_chloe_${Date.now()}`;
+  // Step 1: Coordinator creates a task
+  const coordinatorTaskId = `task_coordinator_${Date.now()}`;
   AgentMonitor.log({
-    agentId: 'chloe',
-    taskId: chloeTaskId,
+    agentId: 'coordinator',
+    taskId: coordinatorTaskId,
     eventType: 'task_start',
     timestamp: Date.now(),
     delegationContextId,
@@ -37,11 +37,11 @@ async function runDelegationChainExample() {
   // Wait for 100ms to simulate time passing
   await new Promise(resolve => setTimeout(resolve, 100));
   
-  // Step 2: Chloe delegates to Researcher
+  // Step 2: Coordinator delegates to Researcher
   const researcherTaskId = `task_researcher_${Date.now()}`;
   AgentMonitor.log({
-    agentId: 'chloe',
-    taskId: chloeTaskId,
+    agentId: 'coordinator',
+    taskId: coordinatorTaskId,
     eventType: 'delegation',
     timestamp: Date.now(),
     delegationContextId,
@@ -55,7 +55,7 @@ async function runDelegationChainExample() {
   AgentMonitor.log({
     agentId: 'researcher',
     taskId: researcherTaskId,
-    parentTaskId: chloeTaskId,
+    parentTaskId: coordinatorTaskId,
     eventType: 'task_start',
     timestamp: Date.now(),
     delegationContextId,
@@ -116,7 +116,7 @@ async function runDelegationChainExample() {
   AgentMonitor.log({
     agentId: 'researcher',
     taskId: researcherTaskId,
-    parentTaskId: chloeTaskId,
+    parentTaskId: coordinatorTaskId,
     eventType: 'task_end',
     status: 'success',
     timestamp: Date.now(),
@@ -127,10 +127,10 @@ async function runDelegationChainExample() {
     }
   });
   
-  // Step 8: Chloe completes the original task
+  // Step 8: Coordinator completes the original task
   AgentMonitor.log({
-    agentId: 'chloe',
-    taskId: chloeTaskId,
+    agentId: 'coordinator',
+    taskId: coordinatorTaskId,
     eventType: 'task_end',
     status: 'success',
     timestamp: Date.now(),
