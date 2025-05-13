@@ -16,6 +16,9 @@ export * from './KnowledgeGraph.interface';
 // Export knowledge gap identification interfaces
 export * from './KnowledgeGapIdentification.interface';
 
+// Export knowledge prioritization interfaces
+export * from './KnowledgePrioritization.interface';
+
 // Re-export related interfaces from KnowledgeManager
 export type { 
   KnowledgeManagerConfig,
