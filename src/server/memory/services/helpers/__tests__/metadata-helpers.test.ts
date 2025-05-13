@@ -35,7 +35,7 @@ import {
   BaseMetadata,
   ThreadInfo
 } from '../../../../../types/metadata';
-import { MessageRole } from '../../../../../agents/chloe/types/state';
+import { MessageRole } from '../../../../../agents/shared/types/MessageTypes';
 import { ImportanceLevel } from '../../../../../constants/memory';
 import { 
   createUserId, 

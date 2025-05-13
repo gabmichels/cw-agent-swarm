@@ -10,7 +10,7 @@
 
 import { getMemoryServices } from '../../server/memory/services';
 import { MemoryType } from '../../server/memory/config/types';
-import { MemoryImportanceLevel, ImportanceLevel } from '../../constants/memory';
+import { ImportanceLevel } from '../../constants/memory';
 
 // Scoring details interface
 interface ScoringDetails {
@@ -172,7 +172,7 @@ async function reinforceMemoryImportance(memoryId: string, reason?: string) {
       id: memoryId,
       type: MemoryType.DOCUMENT,
       metadata: {
-        importance: MemoryImportanceLevel.HIGH,
+        importance: ImportanceLevel.HIGH,
         reinforced: 1, // Will be added to existing count
         reinforcedAt: new Date().toISOString(),
         reinforceReason: reason || 'manual_reinforcement'
@@ -262,10 +262,10 @@ async function decayMemoryImportance(options: {
       const metadata = memory.payload?.metadata || {};
       
       // Get current importance
-      const currentImportance = metadata.importance || MemoryImportanceLevel.MEDIUM;
+      const currentImportance = metadata.importance || ImportanceLevel.MEDIUM;
       
       // Skip HIGH importance memories - use string comparison instead of enum comparison to avoid type issues
-      if (String(currentImportance) === String(MemoryImportanceLevel.HIGH)) {
+      if (String(currentImportance) === String(ImportanceLevel.HIGH)) {
         stats.exempted++;
         continue;
       }
@@ -284,7 +284,7 @@ async function decayMemoryImportance(options: {
         id: memory.id,
         type: MemoryType.DOCUMENT,
         metadata: {
-          importance: MemoryImportanceLevel.LOW,
+          importance: ImportanceLevel.LOW,
           decayed: 1, // Increment decay count
           decayedAt: new Date().toISOString()
         }
@@ -436,22 +436,22 @@ async function main() {
     {
       content: "The company's marketing strategy focuses on engagement and digital growth for 2024.",
       tags: ["marketing", "strategy", "digital", "growth", "2024"],
-      importance: MemoryImportanceLevel.MEDIUM
+      importance: ImportanceLevel.MEDIUM
     },
     {
       content: "Product launch scheduled for Q2 with a full PR campaign and influencer outreach.",
       tags: ["product", "launch", "PR", "influencer", "Q2"],
-      importance: MemoryImportanceLevel.HIGH
+      importance: ImportanceLevel.HIGH
     },
     {
       content: "Customer research indicates a preference for mobile-first experiences with quick checkout.",
       tags: ["customer", "research", "mobile", "checkout", "experience"],
-      importance: MemoryImportanceLevel.MEDIUM
+      importance: ImportanceLevel.MEDIUM
     },
     {
       content: "Social media analytics show higher engagement on Instagram for our target demographic.",
       tags: ["social", "analytics", "instagram", "engagement", "demographic"],
-      importance: MemoryImportanceLevel.LOW
+      importance: ImportanceLevel.LOW
     }
   ];
   

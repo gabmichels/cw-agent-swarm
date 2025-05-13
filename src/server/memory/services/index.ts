@@ -22,10 +22,16 @@ export * from './search/search-service';
 export * from './query/types';
 export * from './query/query-optimizer';
 
+// Import query optimization types
+import { QueryOptimizationStrategy } from './query/types';
+
 // Filter services - use explicit re-export to avoid ambiguity
 import type { FilterOperator, FilterCondition } from './filters/types';
 export type { FilterOperator, FilterCondition };
 // Do not re-export FilterOptions as it would conflict with the one from search/types
+
+// Import cache manager
+import { DummyCacheManager } from './cache/dummy-cache-manager';
 
 // Service utilities
 import { QdrantMemoryClient } from './client/qdrant-client';
@@ -102,7 +108,16 @@ export async function getMemoryServices() {
     queryOptimizerInstance = new QueryOptimizer(
       vectorDbAdapterInstance,
       filterBuilderInstance,
-      embeddingWrapper
+      embeddingWrapper,
+      new DummyCacheManager(),
+      {
+        defaultStrategy: QueryOptimizationStrategy.BALANCED,
+        defaultLimit: 10,
+        defaultMinScore: 0.6,
+        timeoutMs: 1000,
+        enableCaching: false,
+        cacheTtlSeconds: 300
+      }
     );
     
     // Create EnhancedMemoryService instead of base MemoryService

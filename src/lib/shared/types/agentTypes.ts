@@ -12,7 +12,7 @@ import { Notifier } from '../../../agents/chloe/notifiers';
 import { KnowledgeGapsManager } from '@/agents/chloe/core/knowledgeGapsManager';
 import { ImportanceLevel, MemoryType as BaseMemoryType, MemorySource as BaseMemorySource } from '../../../constants/memory';
 import { MemoryType as StandardMemoryType } from '../../../server/memory/config';
-import { MessageRole } from '../../../agents/chloe/types/state';
+import { MessageRole } from '../../../agents/shared/types/MessageTypes';
 import { TaskStatus } from '../../../constants/task';
 import type { AgentMemory } from '../../../agents/chloe/memory';
 

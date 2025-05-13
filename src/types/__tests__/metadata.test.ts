@@ -23,10 +23,10 @@ import {
   AuthContext,
   TenantContext,
   PerformanceDirectives,
-  MessageAttachment
+  MessageAttachment,
+  MessageRole
 } from '../metadata';
-import { MessageRole } from '../../../src/agents/chloe/types/state';
-import { ImportanceLevel } from '../../../src/constants/memory';
+import { ImportanceLevel } from '../../constants/memory';
 import { createUserId, createAgentId, createChatId } from '../structured-id';
 
 describe('Metadata Types', () => {

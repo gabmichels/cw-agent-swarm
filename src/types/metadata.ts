@@ -8,13 +8,10 @@
 
 import { StructuredId } from './structured-id';
 import { ImportanceLevel } from '../constants/memory';
-import { MessageRole as StandardMessageRole } from '../agents/chloe/types/state';
+import { MessageRole as ImportedMessageRole } from '../agents/shared/types/MessageTypes';
 
-/**
- * Message role enum
- * Reusing existing enum to avoid duplication
- */
-export { StandardMessageRole as MessageRole };
+// Re-export MessageRole for use by other modules
+export { ImportedMessageRole as MessageRole };
 
 /**
  * Message attachment interface
@@ -165,7 +162,7 @@ export enum MessagePriority {
  */
 export interface MessageMetadata extends BaseMetadata {
   // Core message fields
-  role: StandardMessageRole;
+  role: ImportedMessageRole;
   userId: StructuredId;
   agentId: StructuredId;
   chatId: StructuredId;

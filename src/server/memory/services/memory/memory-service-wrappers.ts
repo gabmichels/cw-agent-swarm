@@ -24,7 +24,7 @@ import {
   TaskPriority
 } from '../../../../types/metadata';
 import { StructuredId } from '../../../../types/structured-id';
-import { MessageRole } from '../../../../agents/chloe/types/state';
+import { MessageRole } from '../../../../agents/shared/types/MessageTypes';
 import { MemoryType } from '../../config/types';
 import { ImportanceLevel } from '../../../../constants/memory';
 import { MemoryService } from './memory-service';

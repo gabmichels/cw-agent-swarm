@@ -9,17 +9,45 @@ import { BaseMemorySchema } from '../../models/base-schema';
 import { CacheManager } from '../cache/types';
 import { StructuredId, IdGenerator } from '../../../../utils/ulid';
 import { MemoryType } from '../../config';
-import { MessageRole } from '../../../../agents/chloe/types/state';
+import { MessageRole } from '../../../../agents/shared/types/MessageTypes';
 import { BaseMetadata } from '../../../../types/metadata';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { IVectorDatabaseClient } from '../../services/base/types';
+import { QdrantFilterBuilder } from '../../services/filters/filter-builder';
+
+// Create mock functions with the proper typing that allows mock methods
+const mockSearch = vi.fn();
+const mockSearchPoints = vi.fn();
+const mockGetPoints = vi.fn();
+const mockAddPoint = vi.fn();
+const mockUpdatePoint = vi.fn();
+const mockDeletePoint = vi.fn();
+const mockGetPointCount = vi.fn();
+const mockCollectionExists = vi.fn();
+const mockCreateCollection = vi.fn();
+const mockScrollPoints = vi.fn();
+const mockBuildFilters = vi.fn();
+const mockBuild = vi.fn();
 
 // Mock dependencies
+// @ts-ignore - Mock object doesn't need to implement the full interface
 const mockVectorDb = {
-  search: vi.fn()
+  search: vi.fn(),
+  searchPoints: vi.fn(),
+  getPoints: vi.fn(),
+  addPoint: vi.fn(),
+  updatePoint: vi.fn(),
+  deletePoint: vi.fn(),
+  getPointCount: vi.fn(),
+  collectionExists: vi.fn(),
+  createCollection: vi.fn(),
+  scrollPoints: vi.fn()
 };
 
+// @ts-ignore - Mock object doesn't need to implement the full interface
 const mockFilterBuilder = {
-  buildFilters: vi.fn()
+  buildFilters: vi.fn(),
+  build: vi.fn()
 };
 
 const mockEmbeddingService = {
@@ -54,10 +82,10 @@ describe('QueryOptimizer', () => {
     
     mockEmbeddingService.embedText.mockResolvedValue([0.1, 0.2, 0.3]);
     
-    // Create optimizer instance
+    // @ts-ignore - Mock objects don't need to implement the full interfaces
     optimizer = new QueryOptimizer(
       mockVectorDb,
-      mockFilterBuilder,
+      mockFilterBuilder as unknown as QdrantFilterBuilder,
       mockEmbeddingService,
       mockCacheManager,
       {

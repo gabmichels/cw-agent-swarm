@@ -276,17 +276,15 @@ Related Task: ${item.relatedTaskId || 'N/A'}
       .sort((a, b) => {
         // First sort by importance
         const importanceOrder = {
-          [ImportanceLevel.CRITICAL]: 5,
-          [ImportanceLevel.VERY_HIGH]: 4,
+          [ImportanceLevel.CRITICAL]: 4,
           [ImportanceLevel.HIGH]: 3, 
           [ImportanceLevel.MEDIUM]: 2,
-          [ImportanceLevel.LOW]: 1,
-          [ImportanceLevel.VERY_LOW]: 0
+          [ImportanceLevel.LOW]: 1
         };
         
         const importanceDiff = 
-          importanceOrder[b.importance as keyof typeof importanceOrder] - 
-          importanceOrder[a.importance as keyof typeof importanceOrder];
+          (importanceOrder[b.importance as keyof typeof importanceOrder] || 0) - 
+          (importanceOrder[a.importance as keyof typeof importanceOrder] || 0);
         
         if (importanceDiff !== 0) return importanceDiff;
         

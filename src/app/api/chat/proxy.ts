@@ -13,7 +13,7 @@ import { MemorySource } from '../../../constants/memory';
 import { addMessageMemory } from '../../../server/memory/services/memory/memory-service-wrappers';
 import { createThreadInfo } from '../../../server/memory/services/helpers/metadata-helpers';
 import { createUserId, createAgentId, createChatId } from '../../../types/structured-id';
-import { MessageRole } from '../../../agents/chloe/types/state';
+import { MessageRole } from '../../../agents/shared/types/MessageTypes';
 import { generateChatId } from '../../../utils/uuid';
 import { getChatService } from '../../../server/memory/services/chat-service';
 import { getOrCreateThreadInfo, createResponseThreadInfo } from './thread/helper';

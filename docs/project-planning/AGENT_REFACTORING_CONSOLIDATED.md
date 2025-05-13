@@ -914,6 +914,342 @@ The implementation of Phase 6.5 is proceeding well, with significant progress in
    - Include screen reader support for agent identities
    - Maintain sufficient color contrast for agent indicators
 
+### Phase 8: Chloe Dependency Elimination 🔴 NOT STARTED
+
+**Priority: Critical - Target: October 2024**
+
+> **Note:** This phase is critical to complete the refactoring process. Despite successfully recreating Chloe with the new architecture, we still have numerous dependencies on the original implementation that prevent us from deleting the `agents/chloe` folder.
+
+#### Comprehensive Dependency Audit (Current Status)
+
+A thorough audit of the codebase reveals the following categories of dependencies on the `agents/chloe` folder:
+
+1. **Core Type Dependencies**
+   - `MessageRole` enum (~20 imported locations)
+   - `TaskStatus` enum (~5 imported locations)
+   - Various state-related types and interfaces
+
+2. **Tool Implementation Dependencies**
+   - `codaIntegration` singleton (~12 API routes)
+   - `marketScanner` implementation
+   - Various specialized tools and integrations
+
+3. **Knowledge System Dependencies**
+   - `KnowledgeGraphManager` and related components
+   - Markdown processing utilities
+   - Knowledge management systems
+
+4. **Memory System Dependencies**
+   - `ChloeMemory` and related classes
+   - Memory operation utilities
+   - Memory storage patterns
+
+5. **Scheduler Dependencies**
+   - `ChloeScheduler` and task scheduling system
+   - Scheduler API endpoints
+   - Autonomous scheduling components
+
+6. **Core Agent and Autonomy Dependencies**
+   - `ChloeAgent` implementation and factory
+   - Autonomy initialization and management
+   - Agent task systems
+
+#### Implementation Plan
+
+##### Phase 8.1: Core Type Migration (Week 1)
+
+**Priority: Critical - Target: October 1-5, 2024**
+
+1. **Create Standard Type Replacements**
+   - ✅ Create `MessageRole` enum in `src/agents/shared/types/MessageTypes.ts`
+   - ✅ Create `TaskStatus` enum in `src/agents/shared/types/TaskTypes.ts`
+   - ✅ Create equivalent interfaces for all commonly used Chloe types
+   - ✅ Add proper documentation for all migrated types
+
+2. **Update Import References**
+   - ✅ Update imports of `MessageRole` (~20 locations)
+     - ✅ `src/server/memory/services/helpers/metadata-helpers.ts`
+     - ✅ `src/server/memory/models/message-schema.ts`
+     - ✅ `src/app/api/chat/proxy.ts`
+     - ✅ `src/app/api/chat/thread/fixed/saveToHistory.ts`
+     - ✅ `src/server/memory/services/memory/memory-service-wrappers.ts`
+     - ✅ `src/types/metadata.ts` (with re-export for compatibility)
+     - ✅ `src/lib/memory/storeInternalMessageToMemory.ts`
+     - ✅ `src/server/memory/services/query/query-optimizer.test.ts`
+     - ✅ `src/server/memory/services/helpers/__tests__/metadata-helpers.test.ts`
+     - ✅ `src/types/__tests__/metadata.test.ts`
+   - ✅ Update imports of `TaskStatus` (~10 locations)
+     - ✅ `src/agents/shared/execution/Executor.ts`
+
+3. **Fix ImportanceLevel Issues**
+   - ✅ Remove non-existent `MemoryImportanceLevel` imports
+   - ✅ Replace `MemoryImportanceLevel` with `ImportanceLevel` in all files
+   - ✅ Update implementations to use the correct enum values (`LOW`, `MEDIUM`, `HIGH`, `CRITICAL`)
+   - ✅ Fixed files:
+     - ✅ `src/lib/memory/src/knowledge-graph.ts`
+     - ✅ `src/lib/memory/FeedbackMemoryManager.ts`
+     - ✅ `src/lib/memory/test-memory-utils.ts`
+     - ✅ `src/server/memory/testing/unit/filter-service.test.ts`
+     - ✅ `src/server/memory/testing/unit/qdrant-client.test.ts`
+     - ✅ `src/server/memory/testing/unit/search-service.test.ts`
+
+4. **Type Structure Verification**
+   - ✅ Run TypeScript compiler to verify all types are properly defined and imported
+   - ✅ Resolve `src/server/memory/services/index.ts` issue with `QueryOptimizer` constructor
+     - Created `DummyCacheManager` in `src/server/memory/services/cache/dummy-cache-manager.ts`
+     - Updated `index.ts` to use the dummy cache manager and correct optimization strategy
+   - 🔴 Remaining TypeScript errors (723 in 123 files) are mostly related to:
+     - Test files missing type definitions for test frameworks
+     - ChloeAgent implementation issues in API routes
+     - Missing AgentBase module in shared/base
+     - We've successfully fixed the core import issues for MessageRole, TaskStatus, and ImportanceLevel
+
+##### Phase 8.2: Tool Implementation Migration (Week 2)
+
+**Priority: High - Target: October 8-12, 2024**
+
+1. **Coda Integration Migration**
+   - 🔴 Create `DefaultCodaIntegration` in `src/agents/shared/tools/integrations/coda`
+   - 🔴 Implement all methods from original `codaIntegration`
+   - 🔴 Create proper interfaces and types for Coda operations
+   - 🔴 Add comprehensive test suite for Coda integration
+   - 🔴 Update all API routes to use the new implementation (~12 routes)
+
+2. **Market Scanner Migration**
+   - 🔴 Implement `DefaultMarketScanner` in `src/agents/shared/tools/market`
+   - 🔴 Migrate all functionality from original market scanner
+   - 🔴 Create proper interfaces and types for market scanning
+   - 🔴 Add test coverage for market scanning operations
+   - 🔴 Update API routes to use the new implementation
+
+3. **Other Tool Migrations**
+   - 🔴 Audit remaining tool dependencies
+   - 🔴 Create migration plan for each specialized tool
+   - 🔴 Implement replacements with proper interfaces and tests
+   - 🔴 Update all dependent code to use new implementations
+
+##### Phase 8.3: Knowledge System Migration (Week 3)
+
+**Priority: High - Target: October 15-19, 2024**
+
+1. **Knowledge Graph Manager Migration**
+   - 🔴 Complete and enhance `DefaultKnowledgeGraph` implementation
+   - 🔴 Migrate all functionality from original `KnowledgeGraphManager`
+   - 🔴 Create comprehensive test suite for knowledge graph operations
+   - 🔴 Update all imports to use the new implementation
+
+2. **Markdown Integration**
+   - 🔴 Create `DefaultMarkdownManager` in `src/agents/shared/knowledge/markdown`
+   - 🔴 Implement markdown memory loading functionality
+   - 🔴 Migrate markdown processing utilities
+   - 🔴 Add test coverage for markdown operations
+   - 🔴 Update scripts and tools to use new implementation
+
+3. **Knowledge System Components**
+   - 🔴 Audit remaining knowledge system dependencies
+   - 🔴 Create migration plan for specialized knowledge components
+   - 🔴 Implement replacements with proper interfaces and tests
+   - 🔴 Verify integration with the rest of the system
+
+##### Phase 8.4: Memory System Migration (Week 4)
+
+**Priority: High - Target: October 22-26, 2024**
+
+1. **Memory Implementation**
+   - 🔴 Enhance `DefaultAgentMemory` to match `ChloeMemory` functionality
+   - 🔴 Migrate any remaining memory operations
+   - 🔴 Create comprehensive test suite for memory operations
+   - 🔴 Update all imports to use the new implementation
+
+2. **Memory Utilities**
+   - 🔴 Migrate memory operation utilities
+   - 🔴 Create proper interfaces for memory operations
+   - 🔴 Add test coverage for memory utilities
+   - 🔴 Update dependent code to use new implementations
+
+3. **Memory Pattern Migration**
+   - 🔴 Audit remaining memory system dependencies
+   - 🔴 Create migration plan for specialized memory components
+   - 🔴 Implement replacements with proper interfaces and tests
+   - 🔴 Verify integration with the rest of the system
+
+##### Phase 8.5: Scheduler and Agent Migration (Week 5)
+
+**Priority: High - Target: October 29 - November 2, 2024**
+
+1. **Scheduler System**
+   - 🔴 Complete `DefaultSchedulerManager` implementation to match `ChloeScheduler`
+   - 🔴 Migrate scheduler API endpoints
+   - 🔴 Create proper interfaces for scheduler operations
+   - 🔴 Update all imports to use the new implementation
+
+2. **Agent Integration**
+   - 🔴 Ensure `DefaultAgent` fully replaces `ChloeAgent` functionality
+   - 🔴 Migrate any remaining agent-specific functionality
+   - 🔴 Create proper interfaces for agent operations
+   - 🔴 Update all imports to use the new implementation
+
+3. **Autonomy System**
+   - 🔴 Implement autonomy initialization and management in new architecture
+   - 🔴 Migrate autonomous scheduling components
+   - 🔴 Create proper interfaces for autonomy operations
+   - 🔴 Update dependent code to use new implementations
+
+##### Phase 8.6: Final Dependency Removal and Validation (Week 6)
+
+**Priority: Critical - Target: November 5-9, 2024**
+
+1. **Final Dependency Audit**
+   - 🔴 Run comprehensive audit of all remaining imports from `agents/chloe`
+   - 🔴 Create migration plan for any overlooked components
+   - 🔴 Implement final replacements for all dependencies
+   - 🔴 Verify no import statements reference `agents/chloe`
+
+2. **Configuration Cleanup**
+   - 🔴 Update `tsconfig.json` and `tsconfig.node.json` references
+   - 🔴 Update `package.json` scripts that reference Chloe components
+   - 🔴 Verify all configuration files are updated
+   - 🔴 Test the build process to ensure no references remain
+
+3. **Comprehensive Testing**
+   - 🔴 Run full test suite to verify functionality
+   - 🔴 Conduct integration testing for all migrated components
+   - 🔴 Verify API endpoint functionality
+   - 🔴 Test script execution and scheduled tasks
+   - 🔴 Perform end-to-end testing of all user-facing functionality
+
+4. **Final Validation**
+   - 🔴 Run static analysis tools to verify no references remain
+   - 🔴 Temporarily rename `agents/chloe` folder to verify no runtime dependencies
+   - 🔴 Test the application thoroughly in the renamed state
+   - 🔴 If all tests pass, officially delete the `agents/chloe` folder
+
+#### Detailed Migration Targets
+
+| Component | Scope | Source Location | Target Location | Priority |
+|-----------|-------|----------------|----------------|----------|
+| `MessageRole` enum | 20 files | `agents/chloe/types/state.ts` | `agents/shared/types/MessageTypes.ts` | Critical |
+| `TaskStatus` enum | 5 files | `agents/chloe/types/state.ts` | `agents/shared/types/TaskTypes.ts` | Critical |
+| `codaIntegration` | 12 API routes | `agents/chloe/tools/coda.ts` | `agents/shared/tools/integrations/coda` | High |
+| `marketScanner` | 1 API route | `agents/chloe/tools/marketScanner.ts` | `agents/shared/tools/market` | Medium |
+| `KnowledgeGraphManager` | 5+ files | `agents/chloe/knowledge/graphManager.ts` | `agents/shared/knowledge/graph` | High |
+| `MarkdownManager` | 3+ files | `agents/chloe/knowledge/markdownManager.ts` | `agents/shared/knowledge/markdown` | Medium |
+| `ChloeMemory` | 5+ files | `agents/chloe/memory` | `agents/shared/memory` | High |
+| `ChloeScheduler` | 3 files | `agents/chloe/scheduler` | `agents/shared/scheduler` | Medium |
+| `ChloeAgent` | 10+ files | `agents/chloe/core/agent.ts` | `agents/shared/DefaultAgent.ts` | Critical |
+
+#### Verification Process
+
+To ensure it's safe to delete the `agents/chloe` folder, we will implement a rigorous verification process:
+
+1. **Static Analysis**
+   - Run static code analysis to detect any remaining imports
+   - Check for string references to `agents/chloe` path
+   - Verify configuration files no longer reference the folder
+
+2. **Build Verification**
+   - Ensure the application builds without errors
+   - Check for any TypeScript compilation issues
+   - Verify no runtime errors during startup
+
+3. **Runtime Testing**
+   - Run all unit tests to ensure functionality
+   - Conduct integration testing for critical paths
+   - Test all API endpoints and UI functionality
+   - Verify scheduled tasks and batch operations
+
+4. **Temporary Renaming**
+   - Temporarily rename the `agents/chloe` folder (e.g., to `_agents_chloe_old`)
+   - Run the full application and verify no runtime errors
+   - Test all functionality in this state for 48 hours
+   - If successful, proceed with permanent deletion
+
+5. **Post-Deletion Verification**
+   - After deletion, run a full build and test cycle
+   - Verify all functionality remains intact
+   - Document the successful migration
+   - Update documentation to reflect the new architecture
+
+#### Success Criteria
+
+The following criteria must be met before the `agents/chloe` folder can be deleted:
+
+1. **Import Elimination**
+   - No code imports from the `agents/chloe` folder
+   - No string references to the folder path
+   - No configuration files referencing the folder
+
+2. **Functional Equivalence**
+   - All functionality previously provided by `agents/chloe` is available in the new architecture
+   - All API endpoints continue to function correctly
+   - All scripts and scheduled tasks run successfully
+   - All user-facing features work as expected
+
+3. **Testing Success**
+   - All unit tests pass
+   - All integration tests pass
+   - End-to-end tests verify critical functionality
+   - Performance benchmarks show no degradation
+
+4. **Documentation**
+   - Migration is fully documented
+   - New architecture is properly documented
+   - Component locations and interfaces are clearly specified
+   - Usage examples are provided for migrated components
+
+#### Risk Mitigation
+
+To mitigate risks during this critical phase:
+
+1. **Backup Strategy**
+   - Create a full backup of the codebase before beginning
+   - Maintain the backup throughout the migration process
+   - Keep a copy of the `agents/chloe` folder for reference
+
+2. **Phased Approach**
+   - Migrate components in logical groups
+   - Test thoroughly after each phase
+   - Maintain detailed logs of changes
+   - Be prepared to roll back if issues arise
+
+3. **Communication Plan**
+   - Keep all team members informed of progress
+   - Document all migration decisions
+   - Provide clear guidance on new component locations
+   - Schedule regular status updates
+
+4. **Fallback Strategy**
+   - If critical issues arise, be prepared to revert changes
+   - Maintain ability to restore the original `agents/chloe` folder
+   - Have contingency plans for partial rollbacks
+   - Document all issues for future resolution
+
+#### Resource Requirements
+
+This phase will require dedicated resources to ensure success:
+
+1. **Personnel**
+   - Lead developer(s) familiar with both architectures
+   - QA resources for thorough testing
+   - DevOps support for build and configuration updates
+   - Documentation resources for updating references
+
+2. **Infrastructure**
+   - Test environment that mirrors production
+   - CI/CD pipeline for automated testing
+   - Code analysis tools for dependency checking
+   - Collaboration tools for tracking progress
+
+3. **Time Allocation**
+   - Dedicated focus time for developers
+   - Scheduled testing windows
+   - Regular progress reviews
+   - Buffer time for addressing unexpected issues
+
+#### Conclusion
+
+Phase 8 represents the final step in our agent architecture refactoring journey. By systematically eliminating all dependencies on the original `agents/chloe` implementation, we will complete the transition to our new, flexible, extensible framework. This phase requires careful planning, thorough testing, and meticulous attention to detail to ensure a successful outcome. Upon completion, we will have a clean, modular agent architecture that supports multiple agents with different capabilities while maintaining all the functionality from the original implementation.
+
 ## Implementation Guidelines
 
 ```typescript

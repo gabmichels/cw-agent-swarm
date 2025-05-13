@@ -27,7 +27,7 @@ import {
   EntityType,
   StructuredId
 } from '../../types/structured-id';
-import { MessageRole } from '../../agents/chloe/types/state';
+import { MessageRole } from '../../agents/shared/types/MessageTypes';
 
 /**
  * Store an internal message to memory with proper metadata and typing

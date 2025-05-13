@@ -16,7 +16,7 @@ import { generateMemoryPoint } from '../utils/test-data-generator';
 import { BaseMemorySchema, MemoryPoint, MemorySearchResult } from '../../models';
 import { EnhancedMemoryService } from '../../services/multi-agent/enhanced-memory-service';
 import { MemoryContext, MemoryContextGroup, SearchResult, TypedMemoryContextGroup } from '../../services/search/types';
-import { MemoryImportanceLevel } from '../../../../constants/memory';
+import { ImportanceLevel } from '../../../../constants/memory';
 
 // Define extended interfaces for type assertion
 interface ExtendedSearchService extends SearchService {
@@ -317,7 +317,7 @@ describe('SearchService - Basic Functions', () => {
         content: 'search result 1',
         metadata: {
           schemaVersion: '1.0.0',
-          importance: MemoryImportanceLevel.HIGH
+          importance: ImportanceLevel.HIGH
         }
       });
       

@@ -4,7 +4,7 @@
 import { MemoryType } from '../config';
 import { BaseMemorySchema } from './base-schema';
 import { TaskMetadata, TaskStatus, TaskPriority } from '../../../types/metadata';
-import { MemoryImportanceLevel } from '../../../constants/memory';
+import { ImportanceLevel } from '../../../constants/memory';
 import { EntityNamespace, EntityType, createEnumStructuredId } from '../../../types/structured-id';
 
 /**

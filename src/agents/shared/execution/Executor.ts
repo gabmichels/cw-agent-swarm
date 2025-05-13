@@ -14,7 +14,7 @@ import { PlanStep } from '../../../lib/shared/types/agentTypes';
 import { ToolRouter, ToolResult } from '../tools/ToolRouter';
 import { AgentMonitor } from '../monitoring/AgentMonitor';
 import { TaskStatus as ConstantsTaskStatus } from '../../../constants/task';
-import { TaskStatus } from '../../../agents/chloe/types/state';
+import { TaskStatus } from '../../../agents/shared/types/TaskTypes';
 
 // Execution status enum
 export enum ExecutionStatus {

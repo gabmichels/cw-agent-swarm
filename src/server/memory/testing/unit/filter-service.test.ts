@@ -11,7 +11,7 @@ import { MemoryType } from '../../config/types';
 import { BaseMemorySchema, MemoryPoint } from '../../models';
 import { FilterOptions, SearchResult } from '../../services/search/types';
 import { EnhancedMemoryService } from '../../services/multi-agent/enhanced-memory-service';
-import { MemoryImportanceLevel } from '../../../../constants/memory';
+import { ImportanceLevel } from '../../../../constants/memory';
 
 describe('SearchService - Filter Method', () => {
   let searchService: SearchService;
@@ -21,7 +21,7 @@ describe('SearchService - Filter Method', () => {
   let mockEmbeddingService: MockEmbeddingService;
   
   // Create test data
-  const createMemoryResult = (id: string, type: MemoryType, tags: string[] = [], importance: MemoryImportanceLevel = MemoryImportanceLevel.MEDIUM) => ({
+  const createMemoryResult = (id: string, type: MemoryType, tags: string[] = [], importance: ImportanceLevel = ImportanceLevel.MEDIUM) => ({
     point: {
       id,
       vector: [],
@@ -45,10 +45,10 @@ describe('SearchService - Filter Method', () => {
   // Mock implementation for the filter method
   const mockFilterImplementation = (options: FilterOptions = {}): Promise<SearchResult<BaseMemorySchema>[]> => {
     // Create some test results
-    const msgResult1 = createMemoryResult('msg-1', MemoryType.MESSAGE, ['important', 'work'], MemoryImportanceLevel.HIGH);
+    const msgResult1 = createMemoryResult('msg-1', MemoryType.MESSAGE, ['important', 'work'], ImportanceLevel.HIGH);
     const msgResult2 = createMemoryResult('msg-2', MemoryType.MESSAGE, ['casual']);
     const docResult1 = createMemoryResult('doc-1', MemoryType.DOCUMENT, ['work', 'reference']);
-    const docResult2 = createMemoryResult('doc-2', MemoryType.DOCUMENT, ['project', 'proposal'], MemoryImportanceLevel.HIGH);
+    const docResult2 = createMemoryResult('doc-2', MemoryType.DOCUMENT, ['project', 'proposal'], ImportanceLevel.HIGH);
     const thoughtResult1 = createMemoryResult('thought-1', MemoryType.THOUGHT, ['idea', 'feature']);
     
     let results = [msgResult1, msgResult2, docResult1, docResult2, thoughtResult1];
@@ -185,7 +185,7 @@ describe('SearchService - Filter Method', () => {
     // Filter memories with high importance
     const results = await searchService.filter({
       filter: {
-        'metadata.importance': MemoryImportanceLevel.HIGH
+        'metadata.importance': ImportanceLevel.HIGH
       }
     });
     
@@ -194,7 +194,7 @@ describe('SearchService - Filter Method', () => {
     
     // Verify all results have the correct importance
     for (const result of results) {
-      expect(result.point.payload.metadata.importance).toBe(MemoryImportanceLevel.HIGH);
+      expect(result.point.payload.metadata.importance).toBe(ImportanceLevel.HIGH);
     }
     
     // Verify IDs of found memories
@@ -249,7 +249,7 @@ describe('SearchService - Filter Method', () => {
     // Filter for high importance work-related memories
     const results = await searchService.filter({
       filter: {
-        'metadata.importance': MemoryImportanceLevel.HIGH,
+        'metadata.importance': ImportanceLevel.HIGH,
         'metadata.tags': {
           $in: ['work']
         }
@@ -261,7 +261,7 @@ describe('SearchService - Filter Method', () => {
     expect(results[0].point.id).toBe('msg-1');
     
     // Verify properties
-    expect(results[0].point.payload.metadata.importance).toBe(MemoryImportanceLevel.HIGH);
+    expect(results[0].point.payload.metadata.importance).toBe(ImportanceLevel.HIGH);
     expect(results[0].point.payload.metadata.tags).toContain('work');
   });
   

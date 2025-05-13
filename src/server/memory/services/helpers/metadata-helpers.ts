@@ -32,8 +32,8 @@ import {
   MessageType,
   CognitiveMemoryMetadata
 } from '../../../../types/metadata';
-import { MessageRole } from '../../../../agents/chloe/types/state';
-import { ImportanceLevel, MemoryImportanceLevel } from '../../../../constants/memory';
+import { MessageRole } from '../../../../agents/shared/types/MessageTypes';
+import { ImportanceLevel } from '../../../../constants/memory';
 import {
   StructuredId,
   createStructuredId,

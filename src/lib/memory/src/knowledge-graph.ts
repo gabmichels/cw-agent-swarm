@@ -1,7 +1,7 @@
 import { getMemoryServices } from '../../../server/memory/services';
 import { MemoryType as StandardMemoryType } from '../../../server/memory/config/types';
 import { BaseMemorySchema } from '../../../server/memory/models';
-import { MemoryImportanceLevel } from '../../../constants/memory';
+import { ImportanceLevel } from '../../../constants/memory';
 import { ulid } from 'ulid';
 
 /**
@@ -59,7 +59,7 @@ export interface NodeMetadataSchema {
   nodeType: NodeType;
   label: string;
   namespace: string;
-  importance: MemoryImportanceLevel | number;
+  importance: ImportanceLevel | number;
   source?: string;
   confidence?: number;
   properties?: Record<string, string | number | boolean | null>;
@@ -238,13 +238,11 @@ export class KnowledgeGraph implements IKnowledgeGraph {
   /**
    * Convert numeric importance (0-1) to an ImportanceLevel enum value
    */
-  private convertImportanceToLevel(importance: number): MemoryImportanceLevel {
-    if (importance < 0.2) return MemoryImportanceLevel.VERY_LOW;
-    if (importance < 0.4) return MemoryImportanceLevel.LOW;
-    if (importance < 0.6) return MemoryImportanceLevel.MEDIUM;
-    if (importance < 0.8) return MemoryImportanceLevel.HIGH;
-    if (importance < 0.95) return MemoryImportanceLevel.VERY_HIGH;
-    return MemoryImportanceLevel.CRITICAL;
+  private convertImportanceToLevel(importance: number): ImportanceLevel {
+    if (importance < 0.3) return ImportanceLevel.LOW;
+    if (importance < 0.6) return ImportanceLevel.MEDIUM;
+    if (importance < 0.9) return ImportanceLevel.HIGH;
+    return ImportanceLevel.CRITICAL;
   }
   
   /**
@@ -368,7 +366,7 @@ export class KnowledgeGraph implements IKnowledgeGraph {
             created: new Date(metadata.created as string),
             lastUpdated: new Date(metadata.lastUpdated as string),
               importance: typeof metadata.importance === 'number' ? metadata.importance : 
-              (metadata.importance ? this.importanceLevelToNumber(metadata.importance as MemoryImportanceLevel) : 0.5),
+              (metadata.importance ? this.importanceLevelToNumber(metadata.importance as ImportanceLevel) : 0.5),
               metadata: metadata,
             source: metadata.source as string | undefined,
             confidence: metadata.confidence as number | undefined,
@@ -419,14 +417,12 @@ export class KnowledgeGraph implements IKnowledgeGraph {
   /**
    * Convert ImportanceLevel to a numeric value
    */
-  private importanceLevelToNumber(level: MemoryImportanceLevel): number {
+  private importanceLevelToNumber(level: ImportanceLevel): number {
     switch(level) {
-      case MemoryImportanceLevel.VERY_LOW: return 0.1;
-      case MemoryImportanceLevel.LOW: return 0.3;
-      case MemoryImportanceLevel.MEDIUM: return 0.5;
-      case MemoryImportanceLevel.HIGH: return 0.7;
-      case MemoryImportanceLevel.VERY_HIGH: return 0.9;
-      case MemoryImportanceLevel.CRITICAL: return 1.0;
+      case ImportanceLevel.LOW: return 0.2;
+      case ImportanceLevel.MEDIUM: return 0.5;
+      case ImportanceLevel.HIGH: return 0.8;
+      case ImportanceLevel.CRITICAL: return 1.0;
       default: return 0.5;
     }
   }

@@ -4,7 +4,7 @@
 import { MemoryType } from '../config';
 import { BaseMemorySchema } from './base-schema';
 import { MessageMetadata } from '../../../types/metadata';
-import { MessageRole } from '../../../agents/chloe/types/state';
+import { MessageRole } from '../../../agents/shared/types/MessageTypes';
 import { 
   IdPrefix, 
   createStructuredId, 
