@@ -52,10 +52,10 @@ export class DefaultMemoryManager extends AbstractBaseManager implements MemoryM
 
   /**
    * Type property accessor for compatibility with MemoryManager
+   * Use _managerType from the parent class instead of a conflicting property
    */
-  // @ts-ignore - Override parent class property with accessor
   get type(): string {
-    return this.getType();
+    return this._managerType;
   }
 
   /**

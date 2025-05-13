@@ -1,4 +1,4 @@
-# Chloe's Preferences
+# Kleo's Preferences
 
 Work Style:
 - Rapid experiments over long planning.

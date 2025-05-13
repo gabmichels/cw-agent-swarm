@@ -53,9 +53,8 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
   /**
    * Type property accessor for compatibility with SchedulerManager
    */
-  // @ts-ignore - Override parent class property with accessor
   get type(): string {
-    return this.getType();
+    return this._managerType;
   }
 
   /**

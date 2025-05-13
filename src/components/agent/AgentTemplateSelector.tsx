@@ -15,6 +15,7 @@ export interface AgentTemplate {
     domains: string[];
     roles: string[];
     tags: string[];
+    descriptions?: Record<string, string>;
   };
   parameters: {
     model: string;
@@ -32,6 +33,32 @@ export interface AgentTemplate {
 // Built-in templates
 const AGENT_TEMPLATES: AgentTemplate[] = [
   {
+    id: 'custom-agent',
+    name: 'Custom Agent',
+    description: 'Start from scratch and manually configure all agent settings.',
+    type: AgentType.CUSTOM,
+    mode: AgentMode.FLEXIBLE,
+    systemPrompt: '',
+    capabilities: {
+      skills: {},
+      domains: [],
+      roles: [],
+      tags: [],
+      descriptions: {}
+    },
+    parameters: {
+      model: process.env.NEXT_PUBLIC_DEFAULT_MODEL || 'gpt-4',
+      temperature: 0.7,
+      maxTokens: 2000,
+      tools: []
+    },
+    metadata: {
+      background: '',
+      personality: '',
+      communicationStyle: ''
+    }
+  },
+  {
     id: 'general-assistant',
     name: 'General Assistant',
     description: 'A versatile assistant that can help with a wide range of tasks.',
@@ -47,7 +74,8 @@ const AGENT_TEMPLATES: AgentTemplate[] = [
       },
       domains: ['general'],
       roles: ['assistant'],
-      tags: ['versatile', 'helpful', 'balanced']
+      tags: ['versatile', 'helpful', 'balanced'],
+      descriptions: {}
     },
     parameters: {
       model: 'gpt-4',
@@ -76,7 +104,8 @@ const AGENT_TEMPLATES: AgentTemplate[] = [
       },
       domains: ['marketing', 'business'],
       roles: ['specialist', 'advisor'],
-      tags: ['marketing', 'growth', 'strategy']
+      tags: ['marketing', 'growth', 'strategy'],
+      descriptions: {}
     },
     parameters: {
       model: 'gpt-4',
@@ -106,7 +135,8 @@ const AGENT_TEMPLATES: AgentTemplate[] = [
       },
       domains: ['technology', 'software', 'computer science'],
       roles: ['developer', 'advisor'],
-      tags: ['technical', 'coding', 'development']
+      tags: ['technical', 'coding', 'development'],
+      descriptions: {}
     },
     parameters: {
       model: 'gpt-4',
@@ -136,7 +166,8 @@ const AGENT_TEMPLATES: AgentTemplate[] = [
       },
       domains: ['academia', 'research', 'science'],
       roles: ['researcher', 'analyst'],
-      tags: ['research', 'analysis', 'academic']
+      tags: ['research', 'analysis', 'academic'],
+      descriptions: {}
     },
     parameters: {
       model: 'gpt-4',
@@ -187,7 +218,41 @@ const AgentTemplateSelector: React.FC<AgentTemplateSelectorProps> = ({
       
       {/* Template List */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-        {AGENT_TEMPLATES.map(template => (
+        {/* Custom Agent Template - Special styling */}
+        <div 
+          key="custom-agent"
+          className={`p-4 border-2 border-dashed rounded cursor-pointer transition-colors ${
+            selectedTemplate === 'custom-agent' 
+              ? 'border-blue-500 bg-gray-700' 
+              : 'border-gray-600 bg-gray-800 hover:bg-gray-750'
+          }`}
+          onClick={() => handleTemplateChange('custom-agent')}
+        >
+          <div className="flex items-start">
+            <div className="flex-1">
+              <h3 className="font-medium flex items-center">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1 text-blue-400" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
+                </svg>
+                Custom Agent
+              </h3>
+              <p className="text-xs text-gray-400 mt-1">Start from scratch and manually configure all agent settings.</p>
+              <div className="flex flex-wrap mt-2 gap-2">
+                <span className="px-2 py-0.5 bg-blue-900 text-blue-200 rounded text-xs">
+                  Manual Configuration
+                </span>
+              </div>
+            </div>
+            <div className="ml-2">
+              <div className={`w-5 h-5 rounded-full ${
+                selectedTemplate === 'custom-agent' ? 'bg-blue-500' : 'bg-gray-600'
+              }`}></div>
+            </div>
+          </div>
+        </div>
+        
+        {/* Regular predefined templates */}
+        {AGENT_TEMPLATES.filter(template => template.id !== 'custom-agent').map(template => (
           <div 
             key={template.id}
             className={`p-4 border rounded cursor-pointer transition-colors ${

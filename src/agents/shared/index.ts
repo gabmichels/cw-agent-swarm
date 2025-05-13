@@ -54,4 +54,4 @@ export type {
   DelegationRequest,
   DelegationResult,
   CoordinatorOptions
-} from './coordination/AgentCoordinator'; 
+} from './coordination/AgentCoordinator';

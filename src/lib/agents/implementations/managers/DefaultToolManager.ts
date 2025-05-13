@@ -49,10 +49,10 @@ export class DefaultToolManager extends AbstractBaseManager implements ToolManag
 
   /**
    * Type property accessor for compatibility with ToolManager
+   * Use _managerType from the parent class to avoid infinite recursion
    */
-  // @ts-ignore - Override parent class property with accessor
   get type(): string {
-    return this.getType();
+    return this._managerType;
   }
 
   /**

@@ -33,10 +33,10 @@ export class DefaultOutputProcessor extends AbstractBaseManager implements Outpu
   
   /**
    * Type property accessor for compatibility with OutputProcessor
+   * Use managerType property to avoid infinite recursion
    */
-  // @ts-ignore - Override parent class property with accessor
   get type(): string {
-    return this.getType();
+    return this.managerType;
   }
   
   /**

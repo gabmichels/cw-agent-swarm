@@ -6,7 +6,7 @@
  * to all manager types.
  */
 
-import type { AgentBase } from '../AgentBase';
+import type { AgentBase } from '../AgentBase.interface';
 
 /**
  * Manager configuration interface
@@ -104,16 +104,17 @@ export interface BaseManager {
 
 export abstract class BaseManager {
   protected agent: AgentBase;
-  protected type: string;
+  // Rename to avoid conflicts with potential getter-only 'type' properties in derived classes
+  protected _managerType: string;
   protected initialized: boolean = false;
 
   constructor(agent: AgentBase, type: string) {
     this.agent = agent;
-    this.type = type;
+    this._managerType = type;
   }
 
   getType(): string {
-    return this.type;
+    return this._managerType;
   }
 
   isInitialized(): boolean {

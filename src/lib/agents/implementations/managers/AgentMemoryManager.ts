@@ -15,7 +15,7 @@ import {
   MemoryPruningResult
 } from '../../../agents/base/managers/MemoryManager';
 import { AbstractBaseManager } from '../../../agents/base/managers/BaseManager';
-import type { AgentBase } from '../../../../agents/shared/base/AgentBase';
+import type { AgentBase } from '../../../../agents/shared/base/AgentBase.interface';
 import { DefaultAgentMemory } from '../memory/DefaultAgentMemory';
 import { MemoryType, ImportanceLevel, MemorySource } from '../../../../lib/constants/memory';
 import { QdrantMemoryClient } from '../../../../server/memory/services/client/qdrant-client';
@@ -42,7 +42,6 @@ class MemoryError extends Error {
  * Adapter implementation of MemoryManager for agents
  */
 export class AgentMemoryManager extends AbstractBaseManager {
-  protected readonly type = 'memory';
   protected config: MemoryManagerConfig;
   protected initialized = false;
   private memory: DefaultAgentMemory | null = null;
@@ -85,9 +84,12 @@ export class AgentMemoryManager extends AbstractBaseManager {
 
   /**
    * Get the manager type
+   * Use managerType property to avoid infinite recursion
+   * instead of calling this.getType() which would cause an infinite loop
    */
   getType(): string {
-    return this.type;
+    // AbstractBaseManager uses managerType
+    return this.managerType;
   }
 
   /**

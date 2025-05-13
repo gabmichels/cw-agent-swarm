@@ -132,11 +132,13 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
     domains: string[];
     roles: string[];
     tags: string[];
+    descriptions?: Record<string, string>;
   }>({
     skills: {},
     domains: [],
     roles: [],
-    tags: []
+    tags: [],
+    descriptions: {}
   });
   
   const [managersConfig, setManagersConfig] = useState<AgentManagersConfig>({
@@ -256,31 +258,58 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
     domains: string[];
     roles: string[];
     tags?: string[];
+    descriptions?: Record<string, string>;
   }) => {
     // Prevent infinite updates by checking if values actually changed
     const isEqual = (
       JSON.stringify(capabilities.skills) === JSON.stringify(agentCapabilities.skills) &&
       JSON.stringify(capabilities.domains) === JSON.stringify(agentCapabilities.domains) &&
       JSON.stringify(capabilities.roles) === JSON.stringify(agentCapabilities.roles) &&
-      JSON.stringify(capabilities.tags) === JSON.stringify(agentCapabilities.tags)
+      JSON.stringify(capabilities.tags) === JSON.stringify(agentCapabilities.tags) &&
+      JSON.stringify(capabilities.descriptions) === JSON.stringify(agentCapabilities.descriptions)
     );
     
     // Only update state if capabilities have actually changed
     if (!isEqual) {
       const safeCapabilities = {
         ...capabilities,
-        tags: capabilities.tags || []
+        tags: capabilities.tags || [],
+        descriptions: capabilities.descriptions || {}
       };
       
       setAgentCapabilities(safeCapabilities);
       
       // Convert capabilities to the format expected by the API
-      const mappedCapabilities: AgentCapability[] = Object.entries(safeCapabilities.skills).map(([id, level]) => ({
-        id,
-        name: id.split('.')[1] || id,
-        description: `Capability level: ${level}`,
-        version: '1.0'
-      }));
+      const mappedCapabilities: AgentCapability[] = Object.entries(safeCapabilities.skills).map(([id, level]) => {
+        const description = safeCapabilities.descriptions?.[id] || '';
+        return {
+          id,
+          name: id.split('.')[1] || id,
+          description: description
+        };
+      });
+      
+      // Add domain capabilities
+      safeCapabilities.domains.forEach(domain => {
+        const id = `domain.${domain.toLowerCase().replace(/\s+/g, '_')}`;
+        const description = safeCapabilities.descriptions?.[id] || '';
+        mappedCapabilities.push({
+          id,
+          name: domain,
+          description: description
+        });
+      });
+      
+      // Add role capabilities
+      safeCapabilities.roles.forEach(role => {
+        const id = `role.${role.toLowerCase().replace(/\s+/g, '_')}`;
+        const description = safeCapabilities.descriptions?.[id] || '';
+        mappedCapabilities.push({
+          id,
+          name: role,
+          description: description
+        });
+      });
       
       // Use functional state update to avoid dependency on current formData
       setFormData(prevFormData => ({
@@ -300,7 +329,66 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
 
   // Handle selecting a template
   const handleTemplateSelect = (template: AgentTemplate) => {
-    // Update form data based on selected template
+    // If custom agent template is selected, reset the form to defaults
+    if (template.id === 'custom-agent') {
+      setFormData({
+        name: '',
+        description: '',
+        status: AgentStatus.AVAILABLE,
+        capabilities: [],
+        parameters: {
+          model: process.env.NEXT_PUBLIC_DEFAULT_MODEL || 'gpt-4',
+          temperature: 0.7,
+          maxTokens: 2000,
+          tools: []
+        },
+        metadata: {
+          tags: [],
+          domain: [],
+          specialization: [],
+          performanceMetrics: {
+            successRate: 0,
+            averageResponseTime: 0,
+            taskCompletionRate: 0
+          },
+          version: '1.0',
+          isPublic: true
+        }
+      });
+
+      // Clear system prompt
+      setSystemPrompt('');
+
+      // Reset persona data
+      setPersonaData({
+        background: '',
+        personality: '',
+        communicationStyle: '',
+        preferences: ''
+      });
+
+      // Reset capabilities
+      setAgentCapabilities({
+        skills: {},
+        domains: [],
+        roles: [],
+        tags: [],
+        descriptions: {}
+      });
+
+      // Set default managers config
+      setManagersConfig({
+        memoryManager: { enabled: true },
+        planningManager: { enabled: true },
+        toolManager: { enabled: true },
+        knowledgeManager: { enabled: true },
+        schedulerManager: { enabled: true }
+      });
+      
+      return;
+    }
+
+    // For predefined templates, update form data based on selected template
     setFormData(prevData => ({
       ...prevData,
       name: template.name,
@@ -309,8 +397,7 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
       capabilities: Object.entries(template.capabilities.skills).map(([id, level]) => ({
         id,
         name: id.split('.')[1] || id,
-        description: `Capability level: ${level}`,
-        version: '1.0'
+        description: `Capability level: ${level}`
       })),
       parameters: {
         ...prevData.parameters,
@@ -345,7 +432,8 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
       skills: template.capabilities.skills,
       domains: template.capabilities.domains,
       roles: template.capabilities.roles,
-      tags: template.capabilities.tags
+      tags: template.capabilities.tags,
+      descriptions: template.capabilities.descriptions || {}
     });
 
     // Set default managers config based on template
@@ -453,7 +541,7 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
         domain: formData.metadata.domain,
         specialization: formData.metadata.specialization,
         performanceMetrics: formData.metadata.performanceMetrics,
-        version: formData.metadata.version,
+        version: '1.0',
         isPublic: formData.metadata.isPublic,
       }
     };
@@ -470,9 +558,13 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
     
     try {
       await onSubmit(extendedRequest as any);
+      // Only remove from storage if submission succeeds
       localStorage.removeItem(STORAGE_KEY);
+      router.push('/agents');
     } catch (error) {
       console.error("Error submitting form:", error);
+      // Show an error message to the user
+      alert("Agent creation failed. Your form data has been preserved so you can try again. Error: " + (error instanceof Error ? error.message : "Unknown error"));
     }
   };
 
@@ -533,7 +625,32 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
   };
 
   const renderTemplateStep = () => (
-    <AgentTemplateSelector onChange={handleTemplateSelect} />
+    <>
+      <div className="wizard-panel mb-4">
+        <h2 className="wizard-panel-title">Agent Template</h2>
+        <p className="text-gray-400 text-sm mb-4">
+          Choose a template to configure your agent with predefined settings, or start from scratch with the Custom Agent option.
+        </p>
+        
+        <div className="bg-blue-900/30 border border-blue-800 rounded-lg p-4 mb-6">
+          <div className="flex items-start">
+            <div className="flex-shrink-0 mt-0.5">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-blue-400" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+              </svg>
+            </div>
+            <div className="ml-3">
+              <h3 className="text-sm font-medium text-blue-400">Custom Agent Creation</h3>
+              <p className="text-xs text-gray-300 mt-1">
+                Select the "Custom Agent" template to create an agent from scratch. You'll be able to define all aspects of your agent including capabilities, personality, and system prompt.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <AgentTemplateSelector onChange={handleTemplateSelect} />
+    </>
   );
 
   const renderAgentInfoStep = () => (
@@ -617,6 +734,11 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
   // Add error display to the capabilities step
   const renderCapabilitiesStep = () => (
     <div className="wizard-panel">
+      <h2 className="wizard-panel-title">Agent Capabilities</h2>
+      <p className="text-sm text-gray-400 mb-4">
+        Define your agent's skills, knowledge domains, and roles
+      </p>
+      
       <AgentCapabilityManager
         initialCapabilities={agentCapabilities}
         onChange={handleCapabilityChange}
@@ -629,10 +751,35 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
 
   // Render Managers Configuration step
   const renderManagersStep = () => (
-    <ManagerConfigPanel 
-      initialConfig={managersConfig}
-      onChange={handleManagersConfigChange}
-    />
+    <>
+      <div className="wizard-panel mb-4">
+        <h2 className="wizard-panel-title">Agent Managers Configuration</h2>
+        <p className="text-gray-400 text-sm mb-4">
+          Configure the managers that control different aspects of the agent's behavior.
+        </p>
+        
+        <div className="bg-blue-900/30 border border-blue-800 rounded-lg p-4 mb-6">
+          <div className="flex items-start">
+            <div className="flex-shrink-0 mt-0.5">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-blue-400" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+              </svg>
+            </div>
+            <div className="ml-3">
+              <h3 className="text-sm font-medium text-blue-400">Default Managers</h3>
+              <p className="text-xs text-gray-300 mt-1">
+                All agents come with Memory, Planning, Tool, Knowledge, and Scheduler managers by default. You can configure their behavior or disable specific managers based on your agent's needs.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <ManagerConfigPanel 
+        initialConfig={managersConfig}
+        onChange={handleManagersConfigChange}
+      />
+    </>
   );
 
   return (

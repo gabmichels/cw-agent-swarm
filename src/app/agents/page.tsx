@@ -30,7 +30,7 @@ export default function AgentsPage() {
   const [showCapabilities, setShowCapabilities] = useState<string | null>(null);
   const [showRelationships, setShowRelationships] = useState<boolean>(false);
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
-  
+
   const loadAgents = async () => {
     setLoading(true);
     setError(null);
@@ -68,7 +68,7 @@ export default function AgentsPage() {
         return 'bg-gray-500';
     }
   };
-  
+      
   // Format agents for the relationship visualizer
   const formatAgentsForVisualizer = () => {
     return agents.map(agent => ({
@@ -93,7 +93,7 @@ export default function AgentsPage() {
     const agentCard = document.getElementById(`agent-card-${agentId}`);
     if (agentCard) {
       agentCard.scrollIntoView({ behavior: 'smooth' });
-      
+
       // Highlight the card temporarily
       agentCard.classList.add('bg-blue-900');
       setTimeout(() => {
@@ -101,7 +101,7 @@ export default function AgentsPage() {
       }, 1500);
     }
   };
-  
+
   return (
     <div className="max-w-6xl mx-auto py-6 px-4">
       <div className="flex justify-between items-center mb-6">
@@ -142,7 +142,7 @@ export default function AgentsPage() {
           </button>
         </div>
       </div>
-      
+
       {error && (
         <div className="mb-4 p-3 bg-red-500 bg-opacity-20 text-red-400 rounded">
           {error}
@@ -163,7 +163,7 @@ export default function AgentsPage() {
           <div className="animate-pulse flex flex-col items-center">
             <div className="w-12 h-12 rounded-full border-4 border-t-blue-500 border-r-transparent border-b-blue-500 border-l-transparent animate-spin"></div>
             <p className="mt-4 text-gray-400">Loading agents...</p>
-          </div>
+        </div>
         </div>
       ) : agents.length === 0 ? (
         <div className="bg-gray-800 rounded-lg p-8 text-center">
@@ -195,7 +195,7 @@ export default function AgentsPage() {
                         className={`w-2 h-2 rounded-full mr-2 ${getStatusColor(agent.status)}`}
                       ></span>
                       <span className="text-sm text-gray-400 capitalize">{agent.status}</span>
-                    </div>
+        </div>
                   </div>
                   <div className="flex space-x-1">
                     <button
@@ -226,19 +226,19 @@ export default function AgentsPage() {
                         agent.capabilities.map(cap => (
                           <li key={cap.id} className="flex items-start">
                             <span className="inline-block w-2 h-2 rounded-full bg-blue-500 mt-1.5 mr-2"></span>
-                            <div>
+                      <div>
                               <span className="font-medium">{cap.name}</span>
                               {cap.description && (
                                 <p className="text-gray-400 mt-0.5">{cap.description}</p>
                               )}
-                            </div>
-                          </li>
+                    </div>
+                  </li>
                         ))
                       ) : (
                         <li className="text-gray-400">No capabilities defined</li>
                       )}
-                    </ul>
-                  </div>
+            </ul>
+          </div>
                 )}
               </div>
               
@@ -254,7 +254,7 @@ export default function AgentsPage() {
                 </button>
               </div>
             </div>
-          ))}
+              ))}
         </div>
       )}
     </div>

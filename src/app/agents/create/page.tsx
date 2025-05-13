@@ -5,6 +5,22 @@ import { useRouter } from 'next/navigation';
 import AgentRegistrationForm from '@/components/agent/AgentRegistrationForm';
 import { AgentRegistrationRequest } from '@/lib/multi-agent/types/agent';
 
+// Helper function to construct proper API URLs
+function getApiUrl(path: string): string {
+  // Determine if we're running in a browser
+  const isBrowser = typeof window !== 'undefined';
+  
+  // Get the base URL from the browser if available, otherwise use a default
+  const baseUrl = isBrowser 
+    ? `${window.location.protocol}//${window.location.host}`
+    : 'http://localhost:3000'; // Default for server-side
+
+  // Ensure path starts with a slash
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  
+  return `${baseUrl}${normalizedPath}`;
+}
+
 export default function CreateAgentPage() {
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -16,7 +32,7 @@ export default function CreateAgentPage() {
       console.log('Creating agent with data:', data);
       
       // Submit agent registration
-      const response = await fetch('/api/multi-agent/agents', {
+      const response = await fetch(getApiUrl('/api/multi-agent/agents'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'

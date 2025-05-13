@@ -5,6 +5,22 @@ import { useRouter } from 'next/navigation';
 import { AgentProfile } from '@/lib/multi-agent/types/agent';
 import { ChatProfile } from '@/lib/multi-agent/types/chat';
 
+// Helper function to construct proper API URLs
+function getApiUrl(path: string): string {
+  // Determine if we're running in a browser
+  const isBrowser = typeof window !== 'undefined';
+  
+  // Get the base URL from the browser if available, otherwise use a default
+  const baseUrl = isBrowser 
+    ? `${window.location.protocol}//${window.location.host}`
+    : 'http://localhost:3000'; // Default for server-side
+
+  // Ensure path starts with a slash
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  
+  return `${baseUrl}${normalizedPath}`;
+}
+
 interface SidebarProps {
   isSidebarOpen: boolean;
   isSidebarPinned: boolean;
@@ -33,7 +49,7 @@ const Sidebar: React.FC<SidebarProps> = ({
       setIsLoadingAgents(true);
       
       try {
-        const response = await fetch('/api/multi-agent/agents');
+        const response = await fetch(getApiUrl('/api/multi-agent/agents'));
         
         if (!response.ok) {
           // Only show error for actual server errors (5xx)
@@ -85,7 +101,7 @@ const Sidebar: React.FC<SidebarProps> = ({
       setIsLoadingChats(true);
       
       try {
-        const response = await fetch('/api/multi-agent/chats');
+        const response = await fetch(getApiUrl('/api/multi-agent/chats'));
         
         if (!response.ok) {
           throw new Error(`Failed to fetch chats: ${response.statusText}`);

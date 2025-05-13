@@ -1,5 +1,21 @@
 import { AgentRegistry } from '../lib/agents/registry';
 
+// Helper function to construct proper API URLs
+function getApiUrl(path: string): string {
+  // Determine if we're running in a browser
+  const isBrowser = typeof window !== 'undefined';
+  
+  // Get the base URL from the browser if available, otherwise use a default
+  const baseUrl = isBrowser 
+    ? `${window.location.protocol}//${window.location.host}`
+    : 'http://localhost:3000'; // Default for server-side
+
+  // Ensure path starts with a slash
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  
+  return `${baseUrl}${normalizedPath}`;
+}
+
 interface AgentProfile {
   id: string;
   name: string;
@@ -35,7 +51,7 @@ export class AgentService {
       
       // If not in registry, try the API
       try {
-        const response = await fetch(`/api/multi-agent/agents/${agentId}`);
+        const response = await fetch(getApiUrl(`/api/multi-agent/agents/${agentId}`));
         
         if (!response.ok) {
           if (response.status === 404) {
@@ -91,7 +107,7 @@ export class AgentService {
   static async getAllAgents(): Promise<AgentProfile[]> {
     try {
       try {
-        const response = await fetch('/api/multi-agent/agents');
+        const response = await fetch(getApiUrl('/api/multi-agent/agents'));
         
         if (!response.ok) {
           console.warn(`API error for getAllAgents: ${response.status} ${response.statusText}`);
@@ -149,7 +165,7 @@ export class AgentService {
     
     // Use API to process message
     try {
-      const response = await fetch(`/api/multi-agent/agents/${agentId}/process`, {
+      const response = await fetch(getApiUrl(`/api/multi-agent/agents/${agentId}/process`), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -178,7 +194,7 @@ export class AgentService {
    */
   static async registerAgent(agentData: any): Promise<AgentProfile> {
     try {
-      const response = await fetch('/api/multi-agent/agents', {
+      const response = await fetch(getApiUrl('/api/multi-agent/agents'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -206,7 +222,7 @@ export class AgentService {
    */
   static async updateAgent(agentId: string, updates: any): Promise<AgentProfile> {
     try {
-      const response = await fetch(`/api/multi-agent/agents/${agentId}`, {
+      const response = await fetch(getApiUrl(`/api/multi-agent/agents/${agentId}`), {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json'
@@ -234,7 +250,7 @@ export class AgentService {
   static async deleteAgent(agentId: string): Promise<void> {
     try {
       // Call the API to delete the agent
-      const response = await fetch(`/api/multi-agent/agents/${agentId}`, {
+      const response = await fetch(getApiUrl(`/api/multi-agent/agents/${agentId}`), {
         method: 'DELETE',
         headers: {
           'Content-Type': 'application/json'

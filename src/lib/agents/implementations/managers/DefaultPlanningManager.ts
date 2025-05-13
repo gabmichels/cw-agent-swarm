@@ -70,10 +70,11 @@ export class DefaultPlanningManager extends AbstractBaseManager implements Plann
 
   /**
    * Type property accessor for compatibility with PlanningManager
+   * Use _managerType from the parent class instead of calling getType(),
+   * which was causing infinite recursion
    */
-  // @ts-ignore - Override parent class property with accessor
   get type(): string {
-    return this.getType();
+    return this._managerType;
   }
 
   /**
@@ -111,7 +112,7 @@ export class DefaultPlanningManager extends AbstractBaseManager implements Plann
    * Get the manager type
    */
   getType(): string {
-    return this.type;
+    return this.managerType;
   }
 
   /**

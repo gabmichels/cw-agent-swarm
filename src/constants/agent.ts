@@ -13,6 +13,7 @@ export enum AgentType {
   CODE = 'code',
   SPECIALIST = 'specialist',
   EVALUATOR = 'evaluator',
+  CUSTOM = 'custom',
 }
 
 /**
@@ -22,6 +23,7 @@ export enum AgentMode {
   AUTONOMOUS = 'autonomous',
   SUPERVISED = 'supervised',
   COLLABORATIVE = 'collaborative',
+  FLEXIBLE = 'flexible',
 }
 
 /**

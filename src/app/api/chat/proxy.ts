@@ -555,7 +555,7 @@ export async function POST(req: Request) {
             chatSession = await chatService.createChat(userId, effectiveAgentId, {
               title: `Chat with ${agentName}`,
               description: `Conversation between user ${userId} and agent ${agentName}`
-            });
+          });
           }
         } catch (chatError) {
           console.error('Error creating chat session:', chatError);

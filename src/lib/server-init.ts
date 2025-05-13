@@ -54,8 +54,8 @@ export async function initializeServer() {
               if (agent) {
                 console.log(`Found agent: ${agent.name || agent.id}`);
                 if (!agent.initialized && typeof agent.initialize === 'function') {
-                  await agent.initialize();
-                  console.log('Default agent initialized successfully');
+                await agent.initialize();
+                console.log('Default agent initialized successfully');
                 } else {
                   console.log('Default agent already initialized or initialization not needed');
                 }

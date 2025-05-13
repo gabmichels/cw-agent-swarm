@@ -13,6 +13,12 @@ interface PromptTemplate {
   description?: string;
 }
 
+interface ExamplePrompt {
+  title: string;
+  description: string;
+  prompt: string;
+}
+
 /**
  * Component for editing system prompts with templates
  */
@@ -24,6 +30,7 @@ const SystemPromptEditor: React.FC<SystemPromptEditorProps> = ({
   const [prompt, setPrompt] = useState(initialPrompt);
   const [showPreview, setShowPreview] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState('');
+  const [showExamples, setShowExamples] = useState(false);
   // Store previous initialPrompt to detect changes
   const prevInitialPromptRef = useRef(initialPrompt);
 
@@ -52,6 +59,72 @@ const SystemPromptEditor: React.FC<SystemPromptEditorProps> = ({
       name: 'Researcher',
       description: 'Academic researcher focused on thorough analysis',
       prompt: 'You are a highly skilled research assistant with expertise across multiple academic disciplines. Your primary function is to help with research-related tasks including literature reviews, methodology development, data analysis, and academic writing. You maintain high standards of academic integrity, providing balanced perspectives on complex topics and citing reputable sources where possible. You excel at breaking down complex research questions into manageable components, suggesting appropriate methodologies, and synthesizing information from diverse sources. You communicate with precision and clarity, avoiding unnecessary jargon while maintaining technical accuracy. You acknowledge limitations in current research and highlight areas where more investigation is needed.'
+    }
+  ];
+
+  // Example prompts for custom agents
+  const examplePrompts: ExamplePrompt[] = [
+    {
+      title: "Basic Task-Oriented Assistant",
+      description: "A simple framework for a focused assistant with clear boundaries",
+      prompt: `You are a helpful assistant with expertise in [SPECIFIC DOMAIN].
+Your primary goal is to [MAIN OBJECTIVE].
+
+When interacting with users:
+- Prioritize clarity and accuracy in your responses
+- Focus on providing practical, actionable information
+- Acknowledge when you don't know something rather than guessing
+- Maintain a [TONE: professional/friendly/technical] communication style
+
+Your expertise includes: [LIST SPECIFIC KNOWLEDGE AREAS]
+You should avoid: [LIST BOUNDARIES OR LIMITATIONS]`
+    },
+    {
+      title: "Expert Professional Persona",
+      description: "Detailed prompt for creating a specialized professional agent",
+      prompt: `You are [NAME], a [PROFESSION] with [X YEARS] of experience in [INDUSTRY/FIELD].
+
+EXPERTISE:
+- Deep knowledge of [SPECIFIC AREA 1]
+- Specialized understanding of [SPECIFIC AREA 2]
+- Practical experience with [SPECIFIC AREA 3]
+
+COMMUNICATION STYLE:
+- You communicate in a [TONE: authoritative but approachable/technical but clear/etc.]
+- You explain complex concepts by [APPROACH TO EXPLANATIONS]
+- When appropriate, you use [METAPHORS/EXAMPLES/CASE STUDIES] to illustrate points
+
+APPROACH:
+- When giving advice, you consider [KEY FACTORS]
+- You prioritize [SPECIFIC VALUES OR PRINCIPLES]
+- You acknowledge limitations by [HOW TO HANDLE UNCERTAINTY]
+
+BOUNDARIES:
+- You do not provide [TYPE OF ADVICE TO AVOID]
+- When asked about topics outside your expertise, you [HOW TO RESPOND]`
+    },
+    {
+      title: "Specialized Tool Agent",
+      description: "Prompt for an agent designed to help with specific tools or processes",
+      prompt: `You are a specialized assistant focused on helping users with [SPECIFIC TOOL/PROCESS/METHODOLOGY].
+
+Your primary functions are:
+1. Guiding users through [SPECIFIC PROCESSES]
+2. Troubleshooting common issues with [TOOL/SYSTEM]
+3. Providing best practices for [SPECIFIC USE CASES]
+
+When helping users:
+- Ask clarifying questions when their requirements are unclear
+- Provide step-by-step instructions that are easy to follow
+- Include examples of correct usage when relevant
+- Offer alternatives when appropriate
+
+You have deep knowledge of:
+- [FEATURE/ASPECT 1] and how to leverage it effectively
+- [FEATURE/ASPECT 2] including advanced configurations
+- Common pitfalls and how to avoid them
+
+You should reference official documentation when appropriate, but translate technical concepts into practical advice.`
     }
   ];
 
@@ -99,6 +172,13 @@ const SystemPromptEditor: React.FC<SystemPromptEditorProps> = ({
     reader.readAsText(file);
   };
 
+  // Copy example prompt to clipboard and to editor
+  const copyExamplePrompt = (examplePrompt: string) => {
+    navigator.clipboard.writeText(examplePrompt).then(() => {
+      setPrompt(examplePrompt);
+    });
+  };
+
   return (
     <div className="bg-gray-800 rounded-lg p-6 my-4">
       <h2 className="text-xl font-semibold mb-4">System Prompt</h2>
@@ -124,7 +204,55 @@ const SystemPromptEditor: React.FC<SystemPromptEditorProps> = ({
             {templates.find(t => t.id === selectedTemplate)?.description}
           </p>
         )}
+        
+        {/* Link to examples when custom prompt is selected */}
+        {!selectedTemplate && (
+          <button 
+            onClick={() => setShowExamples(!showExamples)}
+            className="mt-2 text-sm text-blue-400 hover:text-blue-300 flex items-center"
+          >
+            {showExamples ? 'Hide Example Prompts' : 'Show Example Prompts'} 
+            <svg 
+              xmlns="http://www.w3.org/2000/svg" 
+              className={`ml-1 h-4 w-4 transition-transform ${showExamples ? 'rotate-180' : ''}`} 
+              viewBox="0 0 20 20" 
+              fill="currentColor"
+            >
+              <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 011.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+            </svg>
+          </button>
+        )}
       </div>
+      
+      {/* Example Prompts Section */}
+      {showExamples && (
+        <div className="mb-6 space-y-4">
+          <h3 className="text-md font-medium">Example Prompt Templates</h3>
+          <p className="text-sm text-gray-400">
+            Select any example below to use as a starting point for your custom agent.
+          </p>
+          
+          <div className="space-y-3">
+            {examplePrompts.map((example, index) => (
+              <div key={index} className="bg-gray-700 p-3 rounded border border-gray-600">
+                <div className="flex justify-between">
+                  <h4 className="font-medium text-sm">{example.title}</h4>
+                  <button 
+                    onClick={() => copyExamplePrompt(example.prompt)}
+                    className="text-xs bg-blue-600 hover:bg-blue-700 px-2 py-1 rounded"
+                  >
+                    Use This Template
+                  </button>
+                </div>
+                <p className="text-xs text-gray-400 mt-1">{example.description}</p>
+                <div className="mt-2 text-xs bg-gray-800 p-2 rounded max-h-24 overflow-y-auto">
+                  <pre className="whitespace-pre-wrap font-mono text-gray-300">{example.prompt}</pre>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       
       {/* Prompt Editor */}
       <div className="mb-4">

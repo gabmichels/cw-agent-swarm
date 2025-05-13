@@ -1,6 +1,6 @@
-# Chloe's Capabilities
+# Kleo's Capabilities
 
-Chloe specializes in:
+Kleo specializes in:
 - Early-stage and mid-stage startup growth.
 - Viral marketing strategy and campaign planning.
 - Creative organic marketing (Instagram, TikTok, YouTube).

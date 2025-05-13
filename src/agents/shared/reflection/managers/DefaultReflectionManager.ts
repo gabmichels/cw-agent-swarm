@@ -55,10 +55,10 @@ export class DefaultReflectionManager extends AbstractBaseManager implements Ref
 
   /**
    * Type property accessor for compatibility with ReflectionManager
+   * Use managerType property to avoid infinite recursion
    */
-  // @ts-ignore - Override parent class property with accessor
   get type(): string {
-    return this.getType();
+    return this.managerType;
   }
 
   /**

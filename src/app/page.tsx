@@ -1493,18 +1493,18 @@ For detailed instructions, see the Debug panel.`,
             // If this fails, try the direct chat history endpoint immediately
             console.log("Falling back to chat history API after memory fetch failed");
             try {
-              const chatResponse = await fetch('/api/chat/history');
-              if (chatResponse.ok) {
-                const historyData = await chatResponse.json();
-                console.log("Chat history API response:", historyData);
-                
-                if (historyData?.history?.length > 0) {
-                  console.log(`Retrieved ${historyData.history.length} messages from chat history API`);
-                  // Use the history data directly
-                  memoryMessages = historyData.history;
-                } else {
-                  console.warn("Chat history API returned no messages");
-                }
+            const chatResponse = await fetch('/api/chat/history');
+            if (chatResponse.ok) {
+              const historyData = await chatResponse.json();
+              console.log("Chat history API response:", historyData);
+              
+              if (historyData?.history?.length > 0) {
+                console.log(`Retrieved ${historyData.history.length} messages from chat history API`);
+                // Use the history data directly
+                memoryMessages = historyData.history;
+              } else {
+                console.warn("Chat history API returned no messages");
+              }
               }
             } catch (fallbackError) {
               console.error("Error fetching fallback chat history:", fallbackError);
