@@ -510,7 +510,9 @@ export class QdrantMemoryClient implements IMemoryClient {
       
       // Search with vector - ensure vector is always defined before calling search
       if (!vector) {
-        throw new Error('No vector or query provided for search');
+        // Create a proper dummy vector with the right dimensionality
+        vector = new Array(DEFAULTS.DIMENSIONS).fill(0).map(() => Math.random() * 0.01);
+        console.log(`Using dummy vector with ${vector.length} dimensions for search`);
       }
       
       try {

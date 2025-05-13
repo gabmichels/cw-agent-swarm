@@ -43,6 +43,14 @@ function chatSessionToMemorySchema(chatSession: ChatSession): BaseMemorySchema {
 }
 
 /**
+ * Create a dummy embedding vector with the correct dimensions
+ * This ensures compatibility with Qdrant
+ */
+function createDummyVector(size = 1536) {
+  return Array(size).fill(0).map(() => Math.random() * 0.01);
+}
+
+/**
  * Chat service class for managing chat sessions
  */
 export class ChatService {
@@ -61,8 +69,8 @@ export class ChatService {
       const exists = await client.collectionExists(CHAT_COLLECTION);
       
       if (!exists) {
-        // Create chat sessions collection with appropriate dimensions for placeholder vectors
-        await client.createCollection(CHAT_COLLECTION, 4); // Using a small dimension for metadata
+        // Create chat sessions collection with appropriate dimensions for vectors
+        await client.createCollection(CHAT_COLLECTION, 1536); // Using standard embedding dimensions
         
         console.log(`Created ${CHAT_COLLECTION} collection`);
       }
@@ -156,8 +164,8 @@ export class ChatService {
     );
     
     try {
-      // Generate a placeholder vector (just using zeros since we don't need semantic search for chats)
-      const placeholderVector = [0, 0, 0, 0];
+      // Generate a proper dimensioned vector (using dummy values)
+      const placeholderVector = createDummyVector();
       
       // Prepare data for storage - use any to bypass type checking
       const payload = {

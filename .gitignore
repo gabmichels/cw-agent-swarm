@@ -7,6 +7,26 @@
 
 # testing
 /coverage
+/test-output/
+*-test.js
+*-test.ts
+*test-*.js
+*test-*.ts
+direct-qdrant-test.js
+hardcode-uuid.js
+test-agent-api.js
+simple-api-test.js
+*-test.package.json
+
+# debug output
+*-debug-*.json
+*-debug.json
+*-payload.json
+*-created.json
+*-retrieved.json
+*-verified.json
+*-list.json
+*-point.json
 
 # next.js
 /.next/

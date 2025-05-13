@@ -27,7 +27,8 @@ export type {
 } from '../../schema/chat';
 
 // Export services
-export { AgentMemoryService } from '../../services/agent-memory-service';
+// Use our new agent service implementation with UUID compatibility
+export * from './agent-service';
 export { ChatMemoryService } from '../../services/chat-memory-service';
 export type { MessageQueryOptions } from '../../services/chat-memory-service';
 
@@ -63,18 +64,15 @@ export type { StructuredId } from '../../../../utils/ulid';
  * @param repository The repository to use
  * @returns A new agent memory service
  */
-export function createAgentMemoryService(repository: any) {
-  const { AgentMemoryService } = require('../../services/agent-memory-service');
-  const { agentSchema } = require('../../schema/agent');
+export async function createAgentMemoryService(repository: any) {
+  const { DefaultAgentMemoryService } = require('./agent-service');
+  const { getMemoryServices } = require('../../services');
   
-  const service = new AgentMemoryService(repository);
+  // Get the memory client from services
+  const services = await getMemoryServices();
   
-  // Ensure the repository has the schema property set
-  if (service.repository && !service.repository.schema) {
-    service.repository.schema = agentSchema;
-  }
-  
-  return service;
+  // Create new service with memory client
+  return new DefaultAgentMemoryService(services.memoryClient);
 }
 
 /**
