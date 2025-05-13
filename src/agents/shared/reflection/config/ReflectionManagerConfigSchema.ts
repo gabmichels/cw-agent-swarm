@@ -6,7 +6,10 @@
  */
 
 import { ConfigSchema } from '../../../../lib/config/types';
-import { ReflectionManagerConfig } from '../../../../lib/agents/base/managers/ReflectionManager';
+import { 
+  ReflectionManagerConfig, 
+  ImprovementAreaType 
+} from '../../../../lib/agents/base/managers/ReflectionManager';
 
 /**
  * Schema for reflection manager configuration
@@ -100,6 +103,34 @@ export const ReflectionManagerConfigSchema: ConfigSchema<ReflectionManagerConfig
     type: 'boolean',
     default: true,
     description: 'Whether to persist reflections across sessions'
+  },
+  enablePeriodicReflections: {
+    type: 'boolean',
+    default: true,
+    description: 'Whether to enable periodic reflections'
+  },
+  periodicReflectionSchedule: {
+    type: 'string',
+    default: '0 0 * * *', // Default: Every day at midnight (cron expression)
+    description: 'Default periodic reflection schedule (cron expression or interval)'
+  },
+  enableSelfImprovement: {
+    type: 'boolean',
+    default: true,
+    description: 'Whether to enable self-improvement capabilities'
+  },
+  defaultImprovementAreas: {
+    type: 'array',
+    items: {
+      type: 'enum',
+      enum: Object.values(ImprovementAreaType)
+    },
+    default: [
+      ImprovementAreaType.KNOWLEDGE,
+      ImprovementAreaType.SKILL,
+      ImprovementAreaType.PROCESS
+    ],
+    description: 'Default improvement areas to focus on'
   }
 };
 
@@ -120,7 +151,16 @@ export const ReflectionManagerPresets = {
     adaptiveBehavior: true,
     adaptationRate: 0.4,
     metricsToTrack: ['success', 'efficiency', 'satisfaction', 'errors', 'custom'],
-    persistReflections: true
+    persistReflections: true,
+    enablePeriodicReflections: true,
+    periodicReflectionSchedule: '0 */4 * * *', // Every 4 hours
+    enableSelfImprovement: true,
+    defaultImprovementAreas: [
+      ImprovementAreaType.KNOWLEDGE,
+      ImprovementAreaType.SKILL,
+      ImprovementAreaType.PROCESS,
+      ImprovementAreaType.PERFORMANCE
+    ]
   },
   
   // Preset for agents that need to be responsive
@@ -136,7 +176,14 @@ export const ReflectionManagerPresets = {
     adaptiveBehavior: true,
     adaptationRate: 0.2,
     metricsToTrack: ['success', 'satisfaction', 'errors'],
-    persistReflections: true
+    persistReflections: true,
+    enablePeriodicReflections: true,
+    periodicReflectionSchedule: '0 0 * * *', // Once a day at midnight
+    enableSelfImprovement: true,
+    defaultImprovementAreas: [
+      ImprovementAreaType.PERFORMANCE,
+      ImprovementAreaType.COMMUNICATION
+    ]
   },
   
   // Preset for agents with minimal self-reflection
@@ -152,7 +199,10 @@ export const ReflectionManagerPresets = {
     adaptiveBehavior: false,
     adaptationRate: 0.1,
     metricsToTrack: ['errors'],
-    persistReflections: false
+    persistReflections: false,
+    enablePeriodicReflections: false,
+    enableSelfImprovement: false,
+    defaultImprovementAreas: []
   },
   
   // Preset for error-focused learning
@@ -168,7 +218,34 @@ export const ReflectionManagerPresets = {
     adaptiveBehavior: true,
     adaptationRate: 0.5,
     metricsToTrack: ['errors', 'efficiency'],
-    persistReflections: true
+    persistReflections: true,
+    enablePeriodicReflections: true,
+    periodicReflectionSchedule: '0 */12 * * *', // Twice a day
+    enableSelfImprovement: true,
+    defaultImprovementAreas: [
+      ImprovementAreaType.PROCESS,
+      ImprovementAreaType.PERFORMANCE
+    ]
+  },
+  
+  // New preset for continuous improvement agents
+  CONTINUOUS_IMPROVER: {
+    reflectionFrequency: {
+      interval: 3600000,       // 1 hour
+      afterEachInteraction: true,
+      afterErrors: true,
+      minIntervalMs: 60000     // 1 minute
+    },
+    reflectionDepth: 'deep',
+    maxHistoryItems: 300,
+    adaptiveBehavior: true,
+    adaptationRate: 0.6,
+    metricsToTrack: ['success', 'efficiency', 'satisfaction', 'errors', 'custom'],
+    persistReflections: true,
+    enablePeriodicReflections: true,
+    periodicReflectionSchedule: '0 */2 * * *', // Every 2 hours
+    enableSelfImprovement: true,
+    defaultImprovementAreas: Object.values(ImprovementAreaType)
   }
 };
 
@@ -206,6 +283,14 @@ export function createReflectionManagerConfig(
     metricsToTrack: ['success', 'efficiency', 'satisfaction', 'errors'],
     improvementGoals: [],
     persistReflections: true,
+    enablePeriodicReflections: true,
+    periodicReflectionSchedule: '0 0 * * *', // Every day at midnight
+    enableSelfImprovement: true,
+    defaultImprovementAreas: [
+      ImprovementAreaType.KNOWLEDGE,
+      ImprovementAreaType.SKILL,
+      ImprovementAreaType.PROCESS
+    ],
     ...presetConfig,
     ...overrides
   } as ReflectionManagerConfig;

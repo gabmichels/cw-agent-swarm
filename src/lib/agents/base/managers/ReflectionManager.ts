@@ -8,6 +8,22 @@
 
 import type { BaseManager, ManagerConfig } from './BaseManager';
 import type { AgentBase } from '../../../../agents/shared/base/AgentBase.interface';
+import type { 
+  ImprovementAreaType,
+  ImprovementPriority,
+  LearningOutcomeType,
+  SelfImprovementPlan,
+  LearningActivity,
+  LearningOutcome,
+  ImprovementProgressReport,
+  SelfImprovement
+} from '../../../../agents/shared/reflection/interfaces/SelfImprovement.interface';
+import type {
+  PeriodicTask,
+  PeriodicTaskType,
+  PeriodicTaskStatus,
+  PeriodicTaskResult
+} from '../../../../agents/shared/tasks/PeriodicTaskRunner.interface';
 
 /**
  * Configuration options for reflection managers
@@ -51,12 +67,27 @@ export interface ReflectionManagerConfig extends ManagerConfig {
   
   /** Whether to persist reflections across sessions */
   persistReflections: boolean;
+  
+  /** Whether to enable periodic reflections */
+  enablePeriodicReflections: boolean;
+  
+  /** Default periodic reflection schedule (cron expression or interval) */
+  periodicReflectionSchedule?: string;
+  
+  /** Whether to enable self-improvement capabilities */
+  enableSelfImprovement: boolean;
+  
+  /** Default improvement areas to focus on */
+  defaultImprovementAreas?: ImprovementAreaType[];
 }
+
+// Export existing types
+export * from '../../../../agents/shared/reflection/interfaces/SelfImprovement.interface';
 
 /**
  * Reflection trigger types
  */
-export type ReflectionTrigger = 'scheduled' | 'error' | 'interaction' | 'manual';
+export type ReflectionTrigger = 'scheduled' | 'error' | 'interaction' | 'manual' | 'periodic';
 
 /**
  * Reflection insight interface
@@ -339,9 +370,29 @@ export interface PerformanceMetrics {
 }
 
 /**
+ * Periodic reflection task
+ */
+export interface PeriodicReflectionTask extends PeriodicTask {
+  /** Reflection-specific parameters */
+  parameters: {
+    /** Reflection depth for this task */
+    depth?: 'light' | 'standard' | 'deep';
+    
+    /** Areas to focus on */
+    focusAreas?: string[];
+    
+    /** Specific strategies to apply */
+    strategies?: string[];
+    
+    /** Additional context information */
+    context?: Record<string, unknown>;
+  };
+}
+
+/**
  * Reflection manager interface
  */
-export interface ReflectionManager extends BaseManager {
+export interface ReflectionManager extends BaseManager, SelfImprovement {
   /**
    * Create a new reflection
    * @param reflection The reflection data to create
@@ -579,4 +630,96 @@ export interface ReflectionManager extends BaseManager {
     averageReflectionFrequencyMs?: number;
     topInsightTags?: Array<{tag: string; count: number}>;
   }>;
+  
+  /**
+   * Schedule a periodic reflection
+   * 
+   * @param schedule When to run the reflection (cron expression or interval)
+   * @param options Additional options for the reflection
+   * @returns The created periodic reflection task
+   */
+  schedulePeriodicReflection(
+    schedule: string,
+    options: {
+      name?: string;
+      depth?: 'light' | 'standard' | 'deep';
+      focusAreas?: string[];
+      strategies?: string[];
+      context?: Record<string, unknown>;
+    }
+  ): Promise<PeriodicReflectionTask>;
+  
+  /**
+   * Get a periodic reflection task by ID
+   * 
+   * @param taskId ID of the task to retrieve
+   * @returns The task or null if not found
+   */
+  getPeriodicReflectionTask(
+    taskId: string
+  ): Promise<PeriodicReflectionTask | null>;
+  
+  /**
+   * Update a periodic reflection task
+   * 
+   * @param taskId ID of the task to update
+   * @param updates Updates to apply
+   * @returns Updated task
+   */
+  updatePeriodicReflectionTask(
+    taskId: string,
+    updates: Partial<Omit<PeriodicReflectionTask, 'id' | 'createdAt' | 'updatedAt'>>
+  ): Promise<PeriodicReflectionTask>;
+  
+  /**
+   * List periodic reflection tasks
+   * 
+   * @param options Filter options
+   * @returns Matching tasks
+   */
+  listPeriodicReflectionTasks(
+    options?: {
+      enabled?: boolean;
+      status?: PeriodicTaskStatus[];
+      sortBy?: 'nextRunTime' | 'lastRunTime' | 'name';
+      sortDirection?: 'asc' | 'desc';
+    }
+  ): Promise<PeriodicReflectionTask[]>;
+  
+  /**
+   * Execute a periodic reflection task immediately
+   * 
+   * @param taskId ID of the task to run
+   * @param options Run options
+   * @returns Task execution result
+   */
+  runPeriodicReflectionTask(
+    taskId: string,
+    options?: {
+      updateNextRunTime?: boolean;
+      context?: Record<string, unknown>;
+    }
+  ): Promise<PeriodicTaskResult>;
+  
+  /**
+   * Enable or disable a periodic reflection task
+   * 
+   * @param taskId ID of the task to update
+   * @param enabled Whether task should be enabled
+   * @returns Updated task
+   */
+  setPeriodicReflectionTaskEnabled(
+    taskId: string,
+    enabled: boolean
+  ): Promise<PeriodicReflectionTask>;
+  
+  /**
+   * Delete a periodic reflection task
+   * 
+   * @param taskId ID of the task to delete
+   * @returns Whether deletion was successful
+   */
+  deletePeriodicReflectionTask(
+    taskId: string
+  ): Promise<boolean>;
 } 
