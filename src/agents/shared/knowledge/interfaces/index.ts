@@ -10,6 +10,9 @@ export * from './KnowledgeAcquisition.interface';
 // Export knowledge validation interfaces
 export * from './KnowledgeValidation.interface';
 
+// Export knowledge graph interfaces
+export * from './KnowledgeGraph.interface';
+
 // Re-export related interfaces from KnowledgeManager
 export type { 
   KnowledgeManagerConfig,
