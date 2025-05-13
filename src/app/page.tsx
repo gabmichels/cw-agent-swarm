@@ -1433,6 +1433,7 @@ For detailed instructions, see the Debug panel.`,
         
         // Try to get agent info from the AgentService first
         let agentExists = false;
+        let agentName = "";
         
         try {
           // Import AgentService dynamically 
@@ -1444,11 +1445,23 @@ For detailed instructions, see the Debug panel.`,
           if (agent) {
             console.log(`Successfully verified agent ${selectedAgent} exists`);
             agentExists = true;
+            agentName = agent.name || selectedAgent;
           } else {
             console.log(`Agent ${selectedAgent} not found, showing empty chat`);
+            
+            // Try to get all agents to find the name
+            const allAgents = await AgentService.getAllAgents();
+            const foundAgent = allAgents.find(a => a.id === selectedAgent);
+            
+            if (foundAgent) {
+              agentName = foundAgent.name;
+            } else {
+              agentName = selectedAgent;
+            }
+            
             setMessages([{
-              sender: selectedAgent,
-              content: `Hello! I'm ${selectedAgent}. Let's start a new conversation.`,
+              sender: agentName,
+              content: `Hello! I'm ${agentName}. Let's start a new conversation.`,
               timestamp: new Date()
             }]);
             setIsLoading(false);
@@ -1564,8 +1577,8 @@ For detailed instructions, see the Debug panel.`,
           console.log("No history found, setting welcome message");
           // Set welcome message instead of empty array
           setMessages([{
-            sender: selectedAgent,
-            content: `Hello! I'm ${selectedAgent}. Let's start a new conversation.`,
+            sender: agentName || selectedAgent,
+            content: `Hello! I'm ${agentName || selectedAgent.split('_')[0]}. Let's start a new conversation.`,
             timestamp: new Date()
           }]);
         }
@@ -1574,7 +1587,7 @@ For detailed instructions, see the Debug panel.`,
         // Set welcome message on error instead of empty array
         setMessages([{
           sender: selectedAgent,
-          content: `Hello! I'm ${selectedAgent}. Let's start a new conversation.`,
+          content: `Hello! I'm ${selectedAgent.split('_')[0]}. Let's start a new conversation.`,
           timestamp: new Date()
         }]);
       } finally {

@@ -5,9 +5,11 @@ import { AgentStatus, agentSchema } from '../../../../../server/memory/schema/ag
 
 export async function GET(
   request: Request,
-  { params }: { params: { agentId: string } }
+  context: { params: { agentId: string } }
 ) {
   try {
+    // Next.js requires awaiting the params object itself before accessing properties
+    const params = await context.params;
     const agentId = params.agentId;
     
     if (!agentId) {
@@ -17,15 +19,31 @@ export async function GET(
       );
     }
     
-    const { memoryService } = await getMemoryServices();
-    const agentService = createAgentMemoryService(memoryService);
+    // Get memory services first
+    const services = await getMemoryServices();
+    
+    if (!services || !services.client) {
+      console.error('Memory services or memory client is undefined');
+      return NextResponse.json(
+        { error: 'Memory service initialization failed' },
+        { status: 500 }
+      );
+    }
+    
+    // Create agent service with the memory client
+    const agentService = await createAgentMemoryService({ memoryClient: services.client });
+    
+    // Log some info for debugging
+    console.log(`Fetching agent with ID: ${agentId}`);
+    console.log(`Memory client initialized: ${!!services.client}`);
+    console.log(`Agent service initialized: ${!!agentService}`);
     
     // Ensure the repository has the schema property set
     if (agentService.repository && !agentService.repository.schema) {
       agentService.repository.schema = agentSchema;
     }
     
-    const result = await agentService.getById(agentId);
+    const result = await agentService.getAgent(agentId);
     
     if (result.isError) {
       return NextResponse.json(
@@ -43,7 +61,15 @@ export async function GET(
     
     return NextResponse.json({ agent: result.data });
   } catch (error) {
-    console.error(`Error fetching agent ${params.agentId}:`, error);
+    let errorAgentId = 'unknown';
+    try {
+      const params = await context.params;
+      errorAgentId = params?.agentId || 'unknown';
+    } catch (e) {
+      // Ignore params error in error handler
+    }
+    
+    console.error(`Error fetching agent ${errorAgentId}:`, error);
     
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Unknown error' },
@@ -54,9 +80,11 @@ export async function GET(
 
 export async function PUT(
   request: Request,
-  { params }: { params: { agentId: string } }
+  context: { params: { agentId: string } }
 ) {
   try {
+    // Next.js requires awaiting the params object itself before accessing properties
+    const params = await context.params;
     const agentId = params.agentId;
     const updateData = await request.json();
     
@@ -70,15 +98,29 @@ export async function PUT(
     // Set update timestamp
     updateData.updatedAt = new Date();
     
-    const { memoryService } = await getMemoryServices();
-    const agentService = createAgentMemoryService(memoryService);
+    // Make sure the agent ID is properly set in the update data
+    updateData.id = agentId;
+    
+    // Get memory services first
+    const services = await getMemoryServices();
+    
+    if (!services || !services.client) {
+      return NextResponse.json(
+        { error: 'Memory service initialization failed' },
+        { status: 500 }
+      );
+    }
+    
+    // Create agent service with the memory client
+    const agentService = await createAgentMemoryService({ memoryClient: services.client });
     
     // Ensure the repository has the schema property set
     if (agentService.repository && !agentService.repository.schema) {
       agentService.repository.schema = agentSchema;
     }
     
-    const result = await agentService.update(agentId, updateData);
+    // Use updateAgent with the complete agent data
+    const result = await agentService.updateAgent(updateData);
     
     if (result.isError) {
       return NextResponse.json(
@@ -96,7 +138,15 @@ export async function PUT(
     
     return NextResponse.json({ agent: result.data });
   } catch (error) {
-    console.error(`Error updating agent ${params.agentId}:`, error);
+    let errorAgentId = 'unknown';
+    try {
+      const params = await context.params;
+      errorAgentId = params?.agentId || 'unknown';
+    } catch (e) {
+      // Ignore params error in error handler
+    }
+    
+    console.error(`Error updating agent ${errorAgentId}:`, error);
     
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Unknown error' },
@@ -107,9 +157,11 @@ export async function PUT(
 
 export async function DELETE(
   request: Request,
-  { params }: { params: { agentId: string } }
+  context: { params: { agentId: string } }
 ) {
   try {
+    // Next.js requires awaiting the params object itself before accessing properties
+    const params = await context.params;
     const agentId = params.agentId;
     
     if (!agentId) {
@@ -119,15 +171,25 @@ export async function DELETE(
       );
     }
     
-    const { memoryService } = await getMemoryServices();
-    const agentService = createAgentMemoryService(memoryService);
+    // Get memory services first
+    const services = await getMemoryServices();
+    
+    if (!services || !services.client) {
+      return NextResponse.json(
+        { error: 'Memory service initialization failed' },
+        { status: 500 }
+      );
+    }
+    
+    // Create agent service with the memory client
+    const agentService = await createAgentMemoryService({ memoryClient: services.client });
     
     // Ensure the repository has the schema property set
     if (agentService.repository && !agentService.repository.schema) {
       agentService.repository.schema = agentSchema;
     }
     
-    const result = await agentService.delete(agentId);
+    const result = await agentService.deleteAgent(agentId);
     
     if (result.isError) {
       return NextResponse.json(
@@ -145,7 +207,15 @@ export async function DELETE(
     
     return NextResponse.json({ success: true, message: 'Agent deleted successfully' });
   } catch (error) {
-    console.error(`Error deleting agent ${params.agentId}:`, error);
+    let errorAgentId = 'unknown';
+    try {
+      const params = await context.params;
+      errorAgentId = params?.agentId || 'unknown';
+    } catch (e) {
+      // Ignore params error in error handler
+    }
+    
+    console.error(`Error deleting agent ${errorAgentId}:`, error);
     
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Unknown error' },
@@ -156,9 +226,11 @@ export async function DELETE(
 
 export async function PATCH(
   request: Request,
-  { params }: { params: { agentId: string } }
+  context: { params: { agentId: string } }
 ) {
   try {
+    // Next.js requires awaiting the params object itself before accessing properties
+    const params = await context.params;
     const agentId = params.agentId;
     const patchData = await request.json();
     const { status, capabilities } = patchData;
@@ -170,13 +242,36 @@ export async function PATCH(
       );
     }
     
-    const { memoryService } = await getMemoryServices();
-    const agentService = createAgentMemoryService(memoryService);
+    // Get memory services first
+    const services = await getMemoryServices();
+    
+    if (!services || !services.client) {
+      return NextResponse.json(
+        { error: 'Memory service initialization failed' },
+        { status: 500 }
+      );
+    }
+    
+    // Create agent service with the memory client
+    const agentService = await createAgentMemoryService({ memoryClient: services.client });
     
     // Ensure the repository has the schema property set
     if (agentService.repository && !agentService.repository.schema) {
       agentService.repository.schema = agentSchema;
     }
+    
+    // First, get the current agent data
+    const currentAgentResult = await agentService.getAgent(agentId);
+    
+    if (currentAgentResult.isError || !currentAgentResult.data) {
+      return NextResponse.json(
+        { error: currentAgentResult.isError ? currentAgentResult.error.message : 'Agent not found' },
+        { status: currentAgentResult.isError ? 500 : 404 }
+      );
+    }
+    
+    // Create update data from current agent
+    const updateData = { ...currentAgentResult.data };
     
     // Handle status update if provided
     if (status) {
@@ -188,55 +283,46 @@ export async function PATCH(
         );
       }
       
-      const statusResult = await agentService.updateAgentStatus(agentId, status);
-      
-      if (statusResult.isError) {
-        return NextResponse.json(
-          { error: statusResult.error.message },
-          { status: 500 }
-        );
-      }
-      
-      if (!statusResult.data) {
-        return NextResponse.json(
-          { error: 'Agent not found' },
-          { status: 404 }
-        );
-      }
+      // Update status in the update data
+      updateData.status = status;
     }
     
     // Handle capabilities update if provided
     if (capabilities && Array.isArray(capabilities)) {
-      const capabilitiesResult = await agentService.updateAgentCapabilities(agentId, capabilities);
-      
-      if (capabilitiesResult.isError) {
-        return NextResponse.json(
-          { error: capabilitiesResult.error.message },
-          { status: 500 }
-        );
-      }
-      
-      if (!capabilitiesResult.data) {
-        return NextResponse.json(
-          { error: 'Agent not found' },
-          { status: 404 }
-        );
-      }
+      updateData.capabilities = capabilities;
     }
     
-    // Get the updated agent
-    const result = await agentService.getById(agentId);
+    // Set timestamps
+    updateData.updatedAt = new Date();
     
-    if (result.isError || !result.data) {
+    // Use updateAgent with the complete agent data
+    const result = await agentService.updateAgent(updateData);
+    
+    if (result.isError) {
       return NextResponse.json(
-        { error: result.isError ? result.error.message : 'Agent not found' },
-        { status: result.isError ? 500 : 404 }
+        { error: result.error.message },
+        { status: 500 }
+      );
+    }
+    
+    if (!result.data) {
+      return NextResponse.json(
+        { error: 'Agent not found' },
+        { status: 404 }
       );
     }
     
     return NextResponse.json({ agent: result.data });
   } catch (error) {
-    console.error(`Error patching agent ${params.agentId}:`, error);
+    let errorAgentId = 'unknown';
+    try {
+      const params = await context.params;
+      errorAgentId = params?.agentId || 'unknown';
+    } catch (e) {
+      // Ignore params error in error handler
+    }
+    
+    console.error(`Error patching agent ${errorAgentId}:`, error);
     
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Unknown error' },

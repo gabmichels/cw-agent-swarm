@@ -143,9 +143,16 @@ const Sidebar: React.FC<SidebarProps> = ({
     router.push(`/chat/${chatId}`);
   };
   
-  // Navigate to agent detail
+  // Handle agent selection in the main interface
   const handleAgentClick = (agentId: string) => {
-    router.push(`/agents/${agentId}`);
+    // Set the selected agent in the main interface
+    setSelectedAgent(agentId);
+    
+    // Also navigate to the home page if we're not already there
+    // to ensure the chat interface is shown
+    if (window.location.pathname !== '/') {
+      router.push('/');
+    }
   };
 
   return (

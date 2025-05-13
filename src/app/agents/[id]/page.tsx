@@ -20,18 +20,50 @@ const AgentDetailPage: React.FC = () => {
       setIsLoading(true);
       
       try {
-        const response = await fetch(`/api/multi-agent/agents?id=${agentId}`);
+        // First try to fetch the agent with the exact ID
+        let response = await fetch(`/api/multi-agent/agents?id=${agentId}`);
         
         if (!response.ok) {
           throw new Error(`Failed to fetch agent details: ${response.statusText}`);
         }
         
-        const data = await response.json();
+        let data = await response.json();
         
+        // Check if agent was found
         if (data.agents && data.agents.length > 0) {
           setAgent(data.agents[0]);
         } else {
-          throw new Error('Agent not found');
+          // If no agent found, try to get all agents and find it by ID
+          // This is a fallback in case the API has issues with direct ID queries
+          console.log('Agent not found with direct ID query, trying to retrieve all agents...');
+          response = await fetch('/api/multi-agent/agents');
+          
+          if (!response.ok) {
+            throw new Error(`Failed to fetch agents list: ${response.statusText}`);
+          }
+          
+          data = await response.json();
+          
+          if (data.agents && data.agents.length > 0) {
+            // Try to find the agent by ID, handling different ID formats
+            const foundAgent = data.agents.find((a: any) => {
+              // Compare raw IDs
+              if (a.id === agentId) return true;
+              
+              // Also try ID extraction if agent ID is in a different format
+              // Some DB formats might store ID as an object with an id property
+              const extractedId = typeof a.id === 'object' && a.id !== null ? a.id.id : a.id;
+              return extractedId === agentId;
+            });
+            
+            if (foundAgent) {
+              setAgent(foundAgent as AgentProfile);
+            } else {
+              throw new Error('Agent not found in the system');
+            }
+          } else {
+            throw new Error('No agents found in the system');
+          }
         }
       } catch (err) {
         console.error('Error fetching agent details:', err);

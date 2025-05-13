@@ -33,6 +33,8 @@ const SystemPromptEditor: React.FC<SystemPromptEditorProps> = ({
   const [showExamples, setShowExamples] = useState(false);
   // Store previous initialPrompt to detect changes
   const prevInitialPromptRef = useRef(initialPrompt);
+  // Track internal changes to avoid update loops
+  const isInternalChangeRef = useRef(false);
 
   // Available templates
   const templates: PromptTemplate[] = [
@@ -128,21 +130,21 @@ You should reference official documentation when appropriate, but translate tech
     }
   ];
 
-  // Update initialPrompt when it changes from parent
+  // Update prompt when initialPrompt changes from parent
   useEffect(() => {
     if (initialPrompt !== prevInitialPromptRef.current) {
+      isInternalChangeRef.current = true;
       setPrompt(initialPrompt);
       prevInitialPromptRef.current = initialPrompt;
     }
   }, [initialPrompt]);
 
-  // Update parent when prompt changes, but only if different from initialPrompt
+  // Update parent when prompt changes, but only if it's from user input
   useEffect(() => {
-    // Only call onChange if prompt actually differs from the initialPrompt
-    // This prevents infinite update loops
-    if (prompt !== prevInitialPromptRef.current) {
+    if (prompt !== prevInitialPromptRef.current && !isInternalChangeRef.current) {
       onChange(prompt);
     }
+    isInternalChangeRef.current = false;
   }, [prompt, onChange]);
 
   // Load a template
@@ -155,6 +157,8 @@ You should reference official documentation when appropriate, but translate tech
     const template = templates.find(t => t.id === templateId);
     if (template) {
       setPrompt(template.prompt);
+      // Update ref to prevent onChange from being called
+      prevInitialPromptRef.current = template.prompt;
     }
   };
 
@@ -167,6 +171,8 @@ You should reference official documentation when appropriate, but translate tech
     reader.onload = (event) => {
       const content = event.target?.result as string;
       setPrompt(content);
+      // Update ref to prevent onChange from being called
+      prevInitialPromptRef.current = content;
     };
     
     reader.readAsText(file);
@@ -176,7 +182,14 @@ You should reference official documentation when appropriate, but translate tech
   const copyExamplePrompt = (examplePrompt: string) => {
     navigator.clipboard.writeText(examplePrompt).then(() => {
       setPrompt(examplePrompt);
+      // Update ref to prevent onChange from being called
+      prevInitialPromptRef.current = examplePrompt;
     });
+  };
+
+  // Handle direct textarea changes
+  const handlePromptChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setPrompt(e.target.value);
   };
 
   return (
@@ -262,7 +275,7 @@ You should reference official documentation when appropriate, but translate tech
         </div>
         <textarea
           value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
+          onChange={handlePromptChange}
           placeholder="Enter the system prompt that defines the agent's behavior and capabilities..."
           className={`w-full bg-gray-700 border ${error ? 'border-red-500' : 'border-gray-600'} rounded p-3 font-mono text-sm min-h-[200px]`}
         />

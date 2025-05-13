@@ -61,18 +61,22 @@ export type { StructuredId } from '../../../../utils/ulid';
 
 /**
  * Helper function to create a new agent memory service instance
- * @param repository The repository to use
+ * @param memoryService The memory service to use
  * @returns A new agent memory service
  */
-export async function createAgentMemoryService(repository: any) {
+export async function createAgentMemoryService(memoryService: any) {
   const { DefaultAgentMemoryService } = require('./agent-service');
-  const { getMemoryServices } = require('../../services');
   
-  // Get the memory client from services
-  const services = await getMemoryServices();
+  // Check if memoryService has a memoryClient property
+  const memoryClient = memoryService?.memoryClient;
+  
+  if (!memoryClient) {
+    console.error("No memory client available in the provided memoryService");
+    throw new Error("Memory client is required to create agent memory service");
+  }
   
   // Create new service with memory client
-  return new DefaultAgentMemoryService(services.memoryClient);
+  return new DefaultAgentMemoryService(memoryClient);
 }
 
 /**
