@@ -63,23 +63,34 @@ export type ConfigSchema<T extends Record<string, unknown>> = {
 };
 
 /**
- * Options for configuration validation
+ * Cross-property validation definition
+ */
+export interface CrossPropertyValidation<T extends Record<string, unknown>> {
+  /** Properties involved in this validation */
+  properties: Array<keyof T>;
+  
+  /** Validation function that checks the relationship between properties */
+  validate: (config: Partial<T>) => boolean;
+  
+  /** Error message to display when validation fails */
+  message?: string;
+}
+
+/**
+ * Validation options
  */
 export interface ValidationOptions {
-  /** Whether to throw on validation error */
+  /** Whether to throw an error if validation fails */
   throwOnError?: boolean;
   
-  /** Whether to apply defaults for missing properties */
+  /** Whether to apply default values to missing properties */
   applyDefaults?: boolean;
   
-  /** Whether to remove additional properties not in schema */
+  /** Whether to remove properties not defined in the schema */
   removeAdditional?: boolean;
   
-  /** Whether to allow undefined values for non-required properties */
-  allowUndefined?: boolean;
-  
-  /** Whether to show trace in errors for easier debugging */
-  showTrace?: boolean;
+  /** Cross-property validations to run */
+  crossValidations?: CrossPropertyValidation<any>[];
 }
 
 /**
@@ -179,4 +190,94 @@ export interface PresetProvider<T extends Record<string, unknown>> {
    * @returns Whether the preset exists
    */
   hasPreset(presetName: string): boolean;
+}
+
+/**
+ * Configuration schema with version information
+ */
+export type VersionedConfigSchema<T extends Record<string, unknown>> = ConfigSchema<T> & {
+  /** Version of this schema */
+  version: {
+    type: 'string';
+    required: true;
+    default?: string;
+    description: string;
+  };
+}
+
+/**
+ * Configuration migration function
+ */
+export type MigrationFunction<T extends Record<string, unknown>> = (
+  config: Partial<T>, 
+  fromVersion: string, 
+  toVersion: string
+) => Partial<T>;
+
+/**
+ * Configuration migration definition
+ */
+export interface ConfigMigration<T extends Record<string, unknown>> {
+  /** From version */
+  fromVersion: string;
+  
+  /** To version */
+  toVersion: string;
+  
+  /** Migration function */
+  migrate: MigrationFunction<T>;
+  
+  /** Optional description of the migration */
+  description?: string;
+}
+
+/**
+ * Migration manager interface
+ */
+export interface MigrationManager<T extends Record<string, unknown>> {
+  /**
+   * Register a migration
+   * @param migration Migration to register
+   * @returns The migration manager
+   */
+  registerMigration(migration: ConfigMigration<T>): MigrationManager<T>;
+  
+  /**
+   * Get available migrations
+   * @returns Array of registered migrations
+   */
+  getMigrations(): ConfigMigration<T>[];
+  
+  /**
+   * Migrate a configuration from one version to another
+   * @param config Configuration to migrate
+   * @param fromVersion Source version
+   * @param toVersion Target version (defaults to latest)
+   * @returns Migrated configuration
+   */
+  migrateConfig(
+    config: Partial<T>, 
+    fromVersion: string, 
+    toVersion?: string
+  ): Partial<T>;
+  
+  /**
+   * Check if a migration path exists
+   * @param fromVersion Source version
+   * @param toVersion Target version
+   * @returns Whether a migration path exists
+   */
+  canMigrate(fromVersion: string, toVersion: string): boolean;
+  
+  /**
+   * Get the latest schema version
+   * @returns The latest version
+   */
+  getLatestVersion(): string;
+  
+  /**
+   * Set the latest schema version
+   * @param version The new latest version
+   */
+  setLatestVersion(version: string): void;
 } 

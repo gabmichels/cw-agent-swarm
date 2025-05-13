@@ -11,13 +11,15 @@ import {
   ConfigPatternError,
   ConfigEnumError,
   ConfigMissingPropertyError,
-  ValidationError
+  ValidationError,
+  ConfigDependencyError
 } from './errors';
 import {
   ConfigPropertySchema,
   ConfigSchema,
   ValidationOptions,
-  ValidationResult
+  ValidationResult,
+  CrossPropertyValidation
 } from './types';
 
 /**
@@ -363,6 +365,40 @@ export function validateValue(
 }
 
 /**
+ * Validate dependencies between configuration properties
+ */
+export function validateCrossProperties<T extends Record<string, unknown>>(
+  config: Partial<T>,
+  crossValidations: CrossPropertyValidation<T>[] = [],
+  options: ValidationOptions = {}
+): ValidationError[] {
+  const errors: ValidationError[] = [];
+  
+  if (!crossValidations || crossValidations.length === 0) {
+    return errors;
+  }
+  
+  for (const validation of crossValidations) {
+    try {
+      const valid = validation.validate(config);
+      if (!valid) {
+        errors.push(new ConfigDependencyError(
+          validation.message || 'Cross-property validation failed',
+          validation.properties.join(', ')
+        ));
+      }
+    } catch (error) {
+      errors.push(new ValidationError(
+        `Error during cross-property validation: ${error instanceof Error ? error.message : String(error)}`,
+        validation.properties.join(', ')
+      ));
+    }
+  }
+  
+  return errors;
+}
+
+/**
  * Validate a configuration object against a schema
  */
 export function validateConfig<T extends Record<string, unknown>>(
@@ -404,6 +440,12 @@ export function validateConfig<T extends Record<string, unknown>>(
         errors.push(error);
       }
     }
+  }
+  
+  // Validate cross-property dependencies if specified
+  if (options.crossValidations && options.crossValidations.length > 0) {
+    const crossErrors = validateCrossProperties(config, options.crossValidations, options);
+    errors.push(...crossErrors);
   }
   
   // Remove additional properties if specified

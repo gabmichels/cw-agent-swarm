@@ -67,6 +67,12 @@ export {
   ConfigDefaultsProvider
 } from '../../../lib/config/factory';
 
+// Export migration utilities
+export {
+  ConfigMigrationManager,
+  MigrationError
+} from '../../../lib/config/migration';
+
 export {
   validateConfig,
   validateValue,
@@ -87,5 +93,10 @@ export type {
   ValidationOptions,
   ValidationResult,
   UpdateStrategy,
-  PresetProvider
+  PresetProvider,
+  CrossPropertyValidation,
+  ConfigMigration,
+  MigrationFunction,
+  MigrationManager,
+  VersionedConfigSchema
 } from '../../../lib/config/types'; 

@@ -227,4 +227,22 @@ export class ConfigEnumError extends ValidationError {
     // Ensures proper prototype chain for instanceof checks
     Object.setPrototypeOf(this, ConfigEnumError.prototype);
   }
+}
+
+/**
+ * Error for cross-property dependency validation
+ */
+export class ConfigDependencyError extends ValidationError {
+  /**
+   * Create a new dependency error
+   * @param message Error message
+   * @param properties Properties involved in the dependency
+   */
+  constructor(
+    message: string,
+    public readonly properties: string
+  ) {
+    super(message, properties);
+    this.name = 'ConfigDependencyError';
+  }
 } 

@@ -12,7 +12,9 @@ import {
   ValidationResult,
   ConfigValidator,
   DefaultsProvider,
-  UpdateStrategy
+  UpdateStrategy,
+  VersionedConfigSchema,
+  MigrationManager
 } from './types';
 
 import { 
@@ -24,6 +26,8 @@ import {
   ConfigValidationError,
   ValidationError
 } from './errors';
+
+import { ConfigMigrationManager } from './migration';
 
 /**
  * Default provider implementation
@@ -64,59 +68,90 @@ export class ConfigDefaultsProvider<T extends Record<string, unknown>> implement
 }
 
 /**
- * Configuration factory for creating validated configurations
+ * Configuration factory implementation
  */
 export class ConfigFactory<T extends Record<string, unknown>> implements ConfigValidator<T> {
   private defaultsProvider: DefaultsProvider<T>;
+  private migrationManager?: MigrationManager<T>;
+  private isVersioned: boolean = false;
+  private currentVersion: string = '1.0.0';
   
-  constructor(private schema: ConfigSchema<T>) {
+  /**
+   * Create a new configuration factory
+   * @param schema Configuration schema
+   * @param migrationManager Optional migration manager for versioned configs
+   */
+  constructor(
+    private schema: ConfigSchema<T>,
+    migrationManager?: MigrationManager<T>
+  ) {
     this.defaultsProvider = new ConfigDefaultsProvider<T>(schema);
-  }
-  
-  /**
-   * Set a custom defaults provider
-   */
-  setDefaultsProvider(provider: DefaultsProvider<T>): void {
-    this.defaultsProvider = provider;
-  }
-  
-  /**
-   * Get the defaults provider
-   */
-  getDefaultsProvider(): DefaultsProvider<T> {
-    return this.defaultsProvider;
-  }
-  
-  /**
-   * Get the schema
-   */
-  getSchema(): ConfigSchema<T> {
-    return this.schema;
-  }
-  
-  /**
-   * Create a new configuration
-   */
-  create(config: Partial<T>, options: ValidationOptions = {}): T {
-    // Apply defaults first
-    const withDefaults = this.applyDefaults(config);
+    this.migrationManager = migrationManager;
     
-    // Validate
-    const result = this.validate(withDefaults, options);
-    
-    if (!result.valid) {
-      if (options.throwOnError !== false) {
-        throw new ConfigValidationError(
-          'Configuration validation failed',
-          result.errors as ValidationError[]
-        );
+    // Check if this is a versioned schema
+    const versionedSchema = schema as VersionedConfigSchema<T>;
+    if (versionedSchema.version) {
+      this.isVersioned = true;
+      if (versionedSchema.version.default) {
+        this.currentVersion = versionedSchema.version.default;
       }
       
-      // Return partial config if validation failed but throwing is disabled
-      return withDefaults as T;
+      // Set latest version in migration manager if provided
+      if (this.migrationManager && this.currentVersion) {
+        this.migrationManager.setLatestVersion(this.currentVersion);
+      }
+    }
+  }
+  
+  /**
+   * Create a validated configuration
+   */
+  create(config: Partial<T> = {}, options: ValidationOptions = {}): T {
+    // Apply defaults
+    const withDefaults = this.applyDefaults(config);
+    
+    // Handle versioned configuration
+    if (this.isVersioned && this.migrationManager) {
+      const versionedConfig = withDefaults as Partial<T> & { version?: string };
+      
+      // If config has version and it's not current, migrate it
+      if (versionedConfig.version && versionedConfig.version !== this.currentVersion) {
+        const fromVersion = versionedConfig.version;
+        const migrated = this.migrationManager.migrateConfig(
+          versionedConfig,
+          fromVersion,
+          this.currentVersion
+        );
+        
+        // Set current version
+        (migrated as any).version = this.currentVersion;
+        
+        // Validate migrated config
+        return this.validateAndFinalize(migrated, options);
+      }
+      
+      // Ensure version is set
+      if (!versionedConfig.version) {
+        (versionedConfig as any).version = this.currentVersion;
+      }
     }
     
-    return result.config as T;
+    // Validate and return
+    return this.validateAndFinalize(withDefaults, options);
+  }
+  
+  /**
+   * Validate a configuration
+   */
+  validate(config: Partial<T>, options: ValidationOptions = {}): ValidationResult {
+    return validateConfig(config, this.schema, options);
+  }
+  
+  /**
+   * Apply defaults to a configuration
+   */
+  applyDefaults(config: Partial<T>): Partial<T> {
+    return this.defaultsProvider.applyDefaults(config);
   }
   
   /**
@@ -170,17 +205,69 @@ export class ConfigFactory<T extends Record<string, unknown>> implements ConfigV
   }
   
   /**
-   * Validate a configuration
+   * Serialize configuration to JSON string
    */
-  validate(config: Partial<T>, options: ValidationOptions = {}): ValidationResult {
-    return validateConfig<T>(config, this.schema, options);
+  serialize(config: T): string {
+    return JSON.stringify(config);
   }
   
   /**
-   * Apply defaults to a configuration
+   * Deserialize configuration from JSON string
    */
-  applyDefaults(config: Partial<T>): Partial<T> {
-    return this.defaultsProvider.applyDefaults(config);
+  deserialize(json: string, options: ValidationOptions = {}): T {
+    try {
+      const parsed = JSON.parse(json);
+      return this.create(parsed, options);
+    } catch (error) {
+      throw new Error(`Failed to deserialize configuration: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  
+  /**
+   * Set the migration manager
+   */
+  setMigrationManager(migrationManager: MigrationManager<T>): void {
+    this.migrationManager = migrationManager;
+    
+    // Set latest version
+    if (this.isVersioned && this.currentVersion) {
+      this.migrationManager.setLatestVersion(this.currentVersion);
+    }
+  }
+  
+  /**
+   * Get the schema of this factory
+   */
+  getSchema(): ConfigSchema<T> {
+    return this.schema;
+  }
+  
+  /**
+   * Get the current schema version
+   */
+  getCurrentVersion(): string | undefined {
+    return this.isVersioned ? this.currentVersion : undefined;
+  }
+  
+  /**
+   * Validate and finalize a configuration
+   * @private
+   */
+  private validateAndFinalize(config: Partial<T>, options: ValidationOptions = {}): T {
+    const result = this.validate(config, {
+      throwOnError: true,
+      applyDefaults: true,
+      ...options
+    });
+    
+    if (!result.valid || !result.config) {
+      throw new ConfigValidationError(
+        'Configuration validation failed',
+        result.errors as ValidationError[]
+      );
+    }
+    
+    return result.config as T;
   }
   
   /**
@@ -219,10 +306,14 @@ export class ConfigFactory<T extends Record<string, unknown>> implements ConfigV
 }
 
 /**
- * Create a new configuration factory
+ * Create a configuration factory
+ * @param schema Configuration schema
+ * @param migrationManager Optional migration manager
+ * @returns Configuration factory
  */
 export function createConfigFactory<T extends Record<string, unknown>>(
-  schema: ConfigSchema<T>
+  schema: ConfigSchema<T>,
+  migrationManager?: MigrationManager<T>
 ): ConfigFactory<T> {
-  return new ConfigFactory<T>(schema);
+  return new ConfigFactory<T>(schema, migrationManager);
 } 

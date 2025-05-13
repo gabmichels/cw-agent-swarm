@@ -6,8 +6,8 @@
  * with reflection-specific functionality.
  */
 
-import type { BaseManager, ManagerConfig } from '../../../../agents/shared/base/managers/BaseManager';
-import type { AgentBase } from '../../../../agents/shared/base/AgentBase';
+import type { BaseManager, ManagerConfig } from './BaseManager';
+import type { AgentBase } from '../../../../agents/shared/base/AgentBase.interface';
 
 /**
  * Configuration options for reflection managers
@@ -17,44 +17,92 @@ export interface ReflectionManagerConfig extends ManagerConfig {
   enabled: boolean;
   
   /** Reflection frequency settings */
-  reflectionFrequency?: {
-    /** How often to perform reflections (in ms or after N events) */
-    interval?: number;
+  reflectionFrequency: {
+    /** How often to perform reflections (in ms) */
+    interval: number;
     
     /** Whether to reflect after each interaction */
-    afterEachInteraction?: boolean;
+    afterEachInteraction: boolean;
     
     /** Whether to reflect after errors */
-    afterErrors?: boolean;
+    afterErrors: boolean;
     
-    /** Minimum time between reflections in milliseconds */
-    minIntervalMs?: number;
+    /** Minimum time between reflections (in ms) */
+    minIntervalMs: number;
   };
   
   /** Reflection depth/thoroughness level */
-  reflectionDepth?: 'light' | 'standard' | 'deep';
+  reflectionDepth: 'light' | 'standard' | 'deep';
   
   /** Maximum reflection history items to maintain */
-  maxHistoryItems?: number;
+  maxHistoryItems: number;
   
   /** Whether to adapt behavior based on reflections */
-  adaptiveBehavior?: boolean;
+  adaptiveBehavior: boolean;
   
   /** How aggressively to change behavior based on reflections (0-1) */
-  adaptationRate?: number;
+  adaptationRate: number;
   
   /** Metrics to track for reflection */
-  metricsToTrack?: Array<'success' | 'efficiency' | 'satisfaction' | 'errors' | 'custom'>;
+  metricsToTrack: string[];
   
   /** Self-improvement goals */
-  improvementGoals?: string[];
+  improvementGoals: string[];
   
   /** Whether to persist reflections across sessions */
-  persistReflections?: boolean;
+  persistReflections: boolean;
 }
 
 /**
- * Reflection interface - represents a single reflection/insight
+ * Reflection trigger types
+ */
+export type ReflectionTrigger = 'scheduled' | 'error' | 'interaction' | 'manual';
+
+/**
+ * Reflection insight interface
+ */
+export interface ReflectionInsight {
+  /** Unique identifier */
+  id: string;
+  
+  /** ID of the reflection that generated this insight */
+  reflectionId: string;
+  
+  /** When the insight was generated */
+  timestamp: Date;
+  
+  /** Type of insight */
+  type: 'learning' | 'improvement' | 'pattern' | 'feedback';
+  
+  /** Insight content */
+  content: string;
+  
+  /** Confidence level (0-1) */
+  confidence: number;
+  
+  /** Additional metadata */
+  metadata: Record<string, unknown>;
+}
+
+/**
+ * Reflection result interface
+ */
+export interface ReflectionResult {
+  /** Whether reflection succeeded */
+  success: boolean;
+  
+  /** Reflection ID if successful */
+  id: string;
+  
+  /** Generated insights */
+  insights: ReflectionInsight[];
+  
+  /** Result message */
+  message: string;
+}
+
+/**
+ * Reflection record
  */
 export interface Reflection {
   /** Unique ID for the reflection */
@@ -63,44 +111,20 @@ export interface Reflection {
   /** When the reflection was created */
   timestamp: Date;
   
-  /** Type of reflection */
-  type: 'error-analysis' | 'performance-review' | 'strategy-adjustment' | 
-        'self-evaluation' | 'knowledge-gap' | 'behavior-pattern' | 'custom';
+  /** What triggered the reflection */
+  trigger: ReflectionTrigger;
   
-  /** Reflection content/insight */
-  content: string;
+  /** Additional context for the reflection */
+  context: Record<string, unknown>;
   
-  /** Confidence in this reflection (0-1) */
-  confidence: number;
+  /** Reflection depth used */
+  depth: 'light' | 'standard' | 'deep';
   
-  /** Severity or importance level */
-  severity: 'low' | 'medium' | 'high';
+  /** IDs of insights generated from this reflection */
+  insights: string[];
   
-  /** Context that led to this reflection */
-  context?: {
-    /** Associated task or conversation IDs */
-    relatedIds?: string[];
-    
-    /** Source of the reflection trigger */
-    source?: 'error' | 'user-feedback' | 'performance-metric' | 'scheduled' | 'manual';
-    
-    /** Raw data that triggered the reflection */
-    triggerData?: unknown;
-  };
-  
-  /** Associated metrics */
-  metrics?: Record<string, number>;
-  
-  /** Tags for categorization */
-  tags?: string[];
-  
-  /** Action items derived from this reflection */
-  actionItems?: Array<{
-    description: string;
-    priority: 'low' | 'medium' | 'high';
-    status: 'pending' | 'in-progress' | 'completed' | 'rejected';
-    assignedTo?: string;
-  }>;
+  /** Metrics at the time of reflection */
+  metrics: Record<string, number>;
 }
 
 /**
@@ -218,8 +242,8 @@ export interface ReflectionStrategy {
   /** Strategy description */
   description: string;
   
-  /** Type of reflection this strategy is used for */
-  reflectionType: Reflection['type'];
+  /** Trigger type this strategy is used for */
+  triggerType: ReflectionTrigger;
   
   /** When to apply this strategy */
   triggerConditions: Array<{
@@ -340,38 +364,25 @@ export interface ReflectionManager extends BaseManager {
    * @returns Promise resolving to matching reflections
    */
   listReflections(options?: {
-    types?: Reflection['type'][];
+    trigger?: ReflectionTrigger[];
     fromDate?: Date;
     toDate?: Date;
-    minConfidence?: number;
-    tags?: string[];
     limit?: number;
     offset?: number;
-    sortBy?: 'timestamp' | 'confidence' | 'severity';
+    sortBy?: 'timestamp' | 'trigger';
     sortDirection?: 'asc' | 'desc';
   }): Promise<Reflection[]>;
   
   /**
    * Perform a reflection based on recent events and performance
-   * @param options Reflection options
-   * @returns Promise resolving to the created reflections
+   * @param trigger What triggered the reflection
+   * @param context Additional context for the reflection
+   * @returns Promise resolving to the reflection result
    */
-  reflect(options?: {
-    /** Force reflection even if interval hasn't elapsed */
-    force?: boolean;
-    
-    /** Focus area for this reflection */
-    focusArea?: string;
-    
-    /** Specific context to reflect on */
-    context?: unknown;
-    
-    /** Reflections types to generate */
-    types?: Reflection['type'][];
-    
-    /** Reflection depth/thoroughness */
-    depth?: ReflectionManagerConfig['reflectionDepth'];
-  }): Promise<Reflection[]>;
+  reflect(
+    trigger: ReflectionTrigger,
+    context?: Record<string, unknown>
+  ): Promise<ReflectionResult>;
   
   /**
    * Create an improvement action
@@ -449,7 +460,7 @@ export interface ReflectionManager extends BaseManager {
    * @returns Promise resolving to matching strategies
    */
   listReflectionStrategies(options?: {
-    reflectionType?: Reflection['type'][];
+    trigger?: ReflectionTrigger[];
     enabled?: boolean;
     sortBy?: 'priority' | 'name';
     sortDirection?: 'asc' | 'desc';
