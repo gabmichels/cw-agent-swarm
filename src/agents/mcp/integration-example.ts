@@ -1,37 +1,22 @@
 /**
  * integration-example.ts
  * 
- * Example demonstrating how to integrate the MCP with existing agents like Chloe
- * to route tasks based on capabilities and health.
+ * Simplified example demonstrating how to use MCP to route tasks
+ * based on capabilities and health.
  */
 
-import { ChloeCoordinator } from '../chloe/ChloeCoordinator';
-import { MCPRuntime, PlannedTask, TaskResult } from './MCPRuntime';
+import { MCPRuntime, PlannedTask, SubAgent, TaskResult } from './MCPRuntime';
 import { initializeMCP } from './index';
 
 /**
- * Example of updating Chloe's delegation to use MCP
+ * Example of using MCP to route tasks
  */
-async function chloeWithMCPExample(): Promise<void> {
+async function mcpRoutingExample(): Promise<void> {
   try {
-    // 1. Initialize the MCP (this registers all agents)
+    // 1. Initialize the MCP (this registers all available agents)
     await initializeMCP();
-
-    // 2. Create or get Chloe instance
-    const chloe = new ChloeCoordinator({
-      config: {
-        agentId: 'chloe',
-        name: 'Chloe',
-        description: 'Chloe Coordinator Agent',
-        model: 'gpt-4',
-        temperature: 0.7
-      }
-    });
     
-    // 3. Initialize Chloe
-    await chloe.initialize();
-    
-    // 4. Define a task for Chloe to delegate
+    // 2. Define a task for MCP to route
     const researchTask: PlannedTask = {
       id: `task-${Date.now()}`,
       title: 'Research quantum computing advances',
@@ -42,19 +27,53 @@ async function chloeWithMCPExample(): Promise<void> {
       roles: ['researcher']
     };
     
-    console.log(`Delegating task: ${researchTask.title}`);
+    console.log(`MCP routing task: ${researchTask.title}`);
     
-    // 5. Execute the task via MCP instead of directly
-    try {
-      // OLD WAY (direct delegation to specific agent)
-      // const result = await chloe.delegateTask('research-agent-1', researchTask.description);
+    // 3. Find the best agent for this task through MCP
+    const selectedAgent = MCPRuntime.routeTask(researchTask);
+    
+    if (selectedAgent) {
+      console.log(`Task routed to agent: ${selectedAgent.id}`);
+      console.log(`Agent capabilities: ${selectedAgent.capabilities.join(', ')}`);
       
-      // NEW WAY (using MCP for routing based on capabilities)
-      const result = await MCPRuntime.executeViaMCP(researchTask);
+      try {
+        // 4. Execute the task via MCP
+        const result = await MCPRuntime.executeViaMCP(researchTask);
+        console.log('Task executed successfully via MCP:', result);
+      } catch (error) {
+        console.error('Error executing task via MCP:', error);
+      }
+    } else {
+      console.log('No suitable agent found for this task');
       
-      console.log('Task executed successfully via MCP:', result);
-    } catch (error) {
-      console.error('Error executing task via MCP:', error);
+      // 5. Register a dynamic agent to handle this specific task
+      console.log('Registering a dynamic agent for this task...');
+      
+      const dynamicAgent: SubAgent = {
+        id: `dynamic-agent-${Date.now()}`,
+        name: 'Dynamic Research Agent',
+        description: 'Dynamically created agent for research tasks',
+        capabilities: ['research', 'web_search'],
+        roles: ['researcher'],
+        tags: ['research', 'dynamic'],
+        execute: async (task: PlannedTask): Promise<TaskResult> => {
+          console.log(`[Dynamic Agent] Executing task: ${task.title}`);
+          // This would normally call another agent implementation
+          return {
+            success: true,
+            message: `Completed research on ${task.title}`,
+            data: { result: `Simulated research results for ${task.description}` }
+          };
+        }
+      };
+      
+      // Register the dynamic agent with MCP
+      MCPRuntime.registerAgent(dynamicAgent);
+      console.log(`Registered dynamic agent with id: ${dynamicAgent.id}`);
+      
+      // Try routing again
+      const retryResult = await MCPRuntime.executeViaMCP(researchTask);
+      console.log('Task executed with dynamic agent:', retryResult);
     }
     
     // 6. Example: Getting agent health and status
@@ -66,18 +85,15 @@ async function chloeWithMCPExample(): Promise<void> {
     console.log(`Registered Agents (${allAgents.length}):`, 
       allAgents.map(a => `${a.id} (${a.status})`));
   } catch (error) {
-    console.error('Error in MCP integration example:', error);
+    console.error('Error in MCP example:', error);
   }
 }
 
 /**
- * Example of routing a task based on capabilities
+ * Example of tasks with different capabilities
  */
-async function taskRoutingExample(): Promise<void> {
+async function taskCapabilityExample(): Promise<void> {
   try {
-    // First make sure MCP is initialized
-    await initializeMCP();
-    
     // Define tasks with different capability requirements
     const tasks: PlannedTask[] = [
       {
@@ -108,16 +124,12 @@ async function taskRoutingExample(): Promise<void> {
       if (agent) {
         console.log(`- Task routed to agent: ${agent.id}`);
         console.log(`- Agent capabilities: ${agent.capabilities.join(', ')}`);
-        
-        // Execute the task if desired
-        // const result = await MCPRuntime.executeViaMCP(task);
-        // console.log(`- Task result:`, result);
       } else {
         console.log(`- No suitable agent found for task with capabilities: ${task.capabilities?.join(', ')}`);
       }
     }
   } catch (error) {
-    console.error('Error in task routing example:', error);
+    console.error('Error in task capability example:', error);
   }
 }
 
@@ -128,8 +140,8 @@ if (require.main === module) {
   console.log('Running MCP integration examples...');
   
   // Run examples
-  chloeWithMCPExample().then(() => {
-    return taskRoutingExample();
+  mcpRoutingExample().then(() => {
+    return taskCapabilityExample();
   }).then(() => {
     console.log('Examples completed');
   }).catch(error => {

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { KnowledgeGraphManager } from '../../../../agents/chloe/knowledge/graphManager';
-import { KnowledgeNodeType, KnowledgeEdgeType } from '../../../../agents/chloe/knowledge/graph';
+import { KnowledgeGraphManager } from '../../../../lib/agents/implementations/memory/KnowledgeGraphManager';
+import { KnowledgeNodeType, KnowledgeEdgeType, KnowledgeNode, KnowledgeEdge } from '../../../../lib/agents/shared/memory/types';
 
 /**
  * API endpoint for visualizing the knowledge graph
@@ -15,25 +15,24 @@ export async function GET(request: NextRequest) {
     const tags = searchParams.getAll('tag');
     
     // Get singleton instance of the knowledge graph
-    // In a real implementation, you would get this from your dependency injection system
     const graphManager = new KnowledgeGraphManager();
+    await graphManager.initialize();
     
-    // Get all nodes and edges
-    const allNodes = await graphManager.getAllNodes();
-    const allEdges = await graphManager.getAllEdges();
+    // Get visualization data
+    const { nodes: allNodes, edges: allEdges } = graphManager.getGraphVisualizationData();
     
     // Apply filters
     let filteredNodes = allNodes;
     
     // Filter by node type
     if (nodeTypes.length > 0) {
-      filteredNodes = filteredNodes.filter(node => nodeTypes.includes(node.type));
+      filteredNodes = filteredNodes.filter(node => nodeTypes.includes(node.type as KnowledgeNodeType));
     }
     
     // Filter by tag
     if (tags.length > 0) {
       filteredNodes = filteredNodes.filter(node => 
-        node.tags && node.tags.some(tag => tags.includes(tag))
+        node.tags && node.tags.some((tag: string) => tags.includes(tag))
       );
     }
     
@@ -47,11 +46,11 @@ export async function GET(request: NextRequest) {
     
     // Filter by edge type
     if (edgeTypes.length > 0) {
-      filteredEdges = filteredEdges.filter(edge => edgeTypes.includes(edge.type));
+      filteredEdges = filteredEdges.filter(edge => edgeTypes.includes(edge.type as KnowledgeEdgeType));
     }
     
     // Format for visualization (compatible with common graph visualization libraries)
-    const formattedNodes = filteredNodes.map(node => ({
+    const formattedNodes = filteredNodes.map((node: KnowledgeNode) => ({
       id: node.id,
       label: node.label,
       title: node.description || node.label,
@@ -63,7 +62,7 @@ export async function GET(request: NextRequest) {
       }
     }));
     
-    const formattedEdges = filteredEdges.map(edge => ({
+    const formattedEdges = filteredEdges.map((edge: KnowledgeEdge) => ({
       id: `${edge.from}-${edge.to}-${edge.type}`,
       from: edge.from,
       to: edge.to,
@@ -74,8 +73,7 @@ export async function GET(request: NextRequest) {
       width: edge.strength ? Math.max(1, Math.min(5, edge.strength * 5)) : 1,
       metadata: {
         type: edge.type,
-        strength: edge.strength,
-        createdAt: edge.createdAt
+        strength: edge.strength
       }
     }));
     

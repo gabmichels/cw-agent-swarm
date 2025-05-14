@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { codaIntegration } from '../../../../agents/chloe/tools/coda';
+import { codaIntegration } from '../../../../agents/shared/tools/integrations/coda';
 import axios from 'axios';
 
 // Mark as server-side only

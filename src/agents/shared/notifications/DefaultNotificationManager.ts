@@ -20,6 +20,7 @@ import {
   ChannelConfig,
   NotificationPriority
 } from './interfaces/NotificationManager.interface';
+import { DiscordNotificationChannel, DiscordChannelConfig } from './channels/DiscordChannel';
 
 /**
  * Error types for notification operations
@@ -59,6 +60,9 @@ export class DefaultNotificationManager implements NotificationManager {
   private actionHandlers: Map<NotificationActionType, NotificationActionHandler> = new Map();
   private config: NotificationManagerConfig | null = null;
   
+  // Channel implementations
+  private discordChannel: DiscordNotificationChannel | null = null;
+  
   /**
    * Check if manager is initialized, throw error if not
    */
@@ -82,6 +86,11 @@ export class DefaultNotificationManager implements NotificationManager {
     if (config.channels) {
       for (const channelConfig of config.channels) {
         this.channels.set(channelConfig.type, channelConfig);
+        
+        // Initialize specific channel implementations
+        if (channelConfig.type === NotificationChannel.DISCORD) {
+          await this.initializeDiscordChannel(channelConfig);
+        }
       }
     } else {
       // Register default UI channel if no channels provided
@@ -104,75 +113,156 @@ export class DefaultNotificationManager implements NotificationManager {
   }
   
   /**
+   * Initialize Discord channel if configured
+   */
+  private async initializeDiscordChannel(channelConfig: ChannelConfig): Promise<boolean> {
+    try {
+      // Cast to unknown first to satisfy TypeScript
+      const discordConfig = channelConfig.config as unknown as DiscordChannelConfig;
+      
+      if (!discordConfig.token || !discordConfig.channelId) {
+        console.error('Discord channel configuration missing token or channelId');
+        return false;
+      }
+      
+      this.discordChannel = new DiscordNotificationChannel(discordConfig);
+      const initialized = await this.discordChannel.initialize();
+      
+      if (!initialized) {
+        console.error('Failed to initialize Discord channel');
+        this.discordChannel = null;
+        return false;
+      }
+      
+      console.log('Discord notification channel initialized successfully');
+      return true;
+    } catch (error) {
+      console.error('Error initializing Discord channel:', error);
+      this.discordChannel = null;
+      return false;
+    }
+  }
+  
+  /**
    * Send a notification
    */
   async sendNotification(options: NotificationOptions): Promise<string> {
     this.ensureInitialized();
     
-    const id = uuidv4();
-    const now = new Date();
-    
-    // Set default values
-    const channels = options.channels || [NotificationChannel.UI];
-    const priority = options.priority || NotificationPriority.MEDIUM;
-    
-    // Calculate expiration if TTL provided
-    let expiresAt: Date | undefined = undefined;
-    if (options.ttl) {
-      expiresAt = new Date(now.getTime() + options.ttl);
-    } else if (this.config?.defaultTtl) {
-      expiresAt = new Date(now.getTime() + this.config.defaultTtl);
-    }
-    
-    // Process actions if any
-    let actions: NotificationAction[] | undefined = undefined;
-    if (options.actions && options.actions.length > 0) {
-      actions = options.actions.map(action => ({
-        ...action,
-        id: uuidv4() // Generate ID for each action
-      }));
-    }
+    // Create notification ID
+    const notificationId = uuidv4();
     
     // Create notification object
     const notification: Notification = {
-      id,
+      id: notificationId,
       title: options.title,
       content: options.content,
-      priority,
-      channels,
+      priority: options.priority || NotificationPriority.MEDIUM,
+      channels: options.channels || [NotificationChannel.UI],
       senderId: this.config?.defaultSenderId || 'system',
       recipientIds: options.recipientIds,
       status: NotificationStatus.PENDING,
-      createdAt: now,
-      expiresAt,
-      actions,
+      createdAt: new Date(),
+      actions: options.actions?.map(action => ({
+        ...action,
+        id: uuidv4()
+      })) || [],
       category: options.category,
       tags: options.tags,
       groupId: options.groupId,
       parentId: options.parentId,
-      data: options.data,
-      metadata: {}
+      data: options.data
     };
     
     // Store notification
-    this.notifications.set(id, notification);
+    this.notifications.set(notificationId, notification);
     
-    // Set to sending status
-    notification.status = NotificationStatus.SENDING;
-    notification.sentAt = new Date();
+    // Send to all specified channels
+    const sentToChannels: NotificationChannel[] = [];
     
-    // In a full implementation, we would actually send through channels
-    // For now, we'll just simulate successful delivery
-    setTimeout(() => {
-      if (this.notifications.has(id)) {
-        const notif = this.notifications.get(id)!;
-        notif.status = NotificationStatus.DELIVERED;
-        notif.deliveredAt = new Date();
-        this.notifications.set(id, notif);
+    // Track successful deliveries
+    let delivered = false;
+    
+    // Process each channel
+    for (const channelType of notification.channels) {
+      const channelConfig = this.channels.get(channelType);
+      
+      // Skip disabled or non-existing channels
+      if (!channelConfig || !channelConfig.enabled) {
+        continue;
       }
-    }, 100);
+      
+      try {
+        let channelDelivered = false;
+        
+        // Send to the appropriate channel
+        switch (channelType) {
+          case NotificationChannel.DISCORD:
+            channelDelivered = await this.sendToDiscordChannel(notification, options.channelOptions?.discord);
+            break;
+            
+          case NotificationChannel.UI:
+            // UI notifications are stored in the map and would be retrieved by UI components
+            channelDelivered = true;
+            break;
+            
+          // Add cases for other channels as they are implemented
+            
+          default:
+            console.warn(`Channel type ${channelType} not implemented`);
+            continue;
+        }
+        
+        if (channelDelivered) {
+          sentToChannels.push(channelType);
+          delivered = true;
+        }
+      } catch (error) {
+        console.error(`Error sending to channel ${channelType}:`, error);
+      }
+    }
     
-    return id;
+    // Update notification status
+    notification.sentAt = new Date();
+    notification.status = delivered ? NotificationStatus.DELIVERED : NotificationStatus.FAILED;
+    
+    // If delivered, update notification
+    if (delivered) {
+      notification.deliveredAt = new Date();
+    }
+    
+    return notificationId;
+  }
+  
+  /**
+   * Send notification to Discord channel
+   */
+  private async sendToDiscordChannel(
+    notification: Notification,
+    options?: unknown
+  ): Promise<boolean> {
+    if (!this.discordChannel) {
+      console.warn('Discord channel not initialized');
+      return false;
+    }
+    
+    try {
+      // Cast options to the expected type
+      const discordOptions = options as {
+        mention?: string;
+        embeds?: any[];
+        files?: any[];
+      } | undefined;
+      
+      return await this.discordChannel.send(
+        notification.title,
+        notification.content,
+        discordOptions
+      );
+    } catch (error) {
+      console.error('Error sending to Discord channel:', error);
+      return false;
+    }
   }
   
   /**
@@ -509,10 +599,13 @@ export class DefaultNotificationManager implements NotificationManager {
       return true;
     }
     
-    // Clear all data
-    this.notifications.clear();
-    this.initialized = false;
+    // Shutdown all channel implementations
+    if (this.discordChannel) {
+      await this.discordChannel.shutdown();
+      this.discordChannel = null;
+    }
     
+    this.initialized = false;
     return true;
   }
 } 

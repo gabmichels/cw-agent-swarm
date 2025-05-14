@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createMarketScanner } from '../../../agents/chloe/tools/marketScanner';
+import { createMarketScanner } from '../../../agents/shared/tools/market';
 
 export const dynamic = 'force-dynamic';
 

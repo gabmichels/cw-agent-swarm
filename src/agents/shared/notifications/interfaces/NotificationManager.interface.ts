@@ -27,6 +27,7 @@ export enum NotificationChannel {
   TEAMS = 'teams',           // Microsoft Teams integration
   SYSTEM = 'system',         // System notification
   AGENT = 'agent',           // Direct agent-to-agent notification
+  DISCORD = 'discord',       // Discord integration
   CUSTOM = 'custom'          // Custom channel
 }
 

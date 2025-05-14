@@ -21,7 +21,7 @@ import {
 import { KnowledgeGraph } from '../KnowledgeGraph';
 import { KnowledgeGraphService } from '../KnowledgeGraphService';
 import { logger } from '../../logging';
-import { KnowledgeGraphManager } from '../../../agents/chloe/knowledge/graphManager';
+import { KnowledgeGraphManager } from '../../agents/implementations/memory/KnowledgeGraphManager';
 
 // Initialize OpenAI client
 const openai = new OpenAI({
@@ -495,8 +495,37 @@ export class KnowledgeFlaggingService {
   private getKnowledgeGraphManager(): KnowledgeGraphManager {
     if (!this.knowledgeGraphManager) {
       this.knowledgeGraphManager = new KnowledgeGraphManager();
+      this.knowledgeGraphManager.initialize();
     }
     return this.knowledgeGraphManager;
+  }
+
+  /**
+   * Synchronize tags to a graph node
+   * This is a custom implementation since the new KnowledgeGraphManager doesn't have this method
+   */
+  private async syncTagsToGraph(itemId: string, tags: string[]): Promise<void> {
+    try {
+      const graphManager = this.getKnowledgeGraphManager();
+      const nodeId = `memory-${itemId}`;
+      
+      // Get the node if it exists
+      const node = await graphManager.getNode(nodeId);
+      if (!node) {
+        logger.warn(`Node ${nodeId} not found for tag synchronization`);
+        return;
+      }
+      
+      // Update the node with tags
+      await graphManager.updateNode(nodeId, {
+        ...node,
+        tags: tags
+      });
+      
+      logger.info(`Successfully synchronized ${tags.length} tags to node ${nodeId}`);
+    } catch (error) {
+      logger.error(`Error synchronizing tags to graph:`, error);
+    }
   }
 
   /**
@@ -525,21 +554,7 @@ export class KnowledgeFlaggingService {
       // If there are tags in the metadata, sync them to the graph node
       if (item.metadata?.tags && Array.isArray(item.metadata.tags)) {
         try {
-          const graphManager = this.getKnowledgeGraphManager();
-          
-          // Create a memory-like object with id and tags
-          const memoryObject = {
-            id: itemId,
-            tags: item.metadata.tags,
-            metadata: {
-              flaggedItemId: id,
-              ...item.metadata
-            }
-          };
-          
-          // Sync tags to the graph
-          await graphManager.syncTagsToGraph(memoryObject);
-          logger.info(`Synced ${item.metadata.tags.length} tags to graph node ${itemId}`);
+          await this.syncTagsToGraph(itemId, item.metadata.tags);
         } catch (tagSyncError) {
           logger.error(`Error syncing tags to graph for item ${id}:`, tagSyncError);
           // Continue processing even if tag sync fails

@@ -17,8 +17,7 @@
     },
     "typeRoots": [
       "./node_modules/@types",
-      "./src/types",
-      "./src/agents/chloe/types"
+      "./src/types"
     ]
   },
   "include": [

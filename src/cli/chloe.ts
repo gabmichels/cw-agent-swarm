@@ -10,7 +10,7 @@ dotenv.config();
 import { Command } from 'commander';
 import { ChloeAgent } from '../agents/chloe/core/agent';
 import { initializeChloeAutonomy, diagnoseAutonomySystem } from '../agents/chloe/autonomy';
-import { notifyDiscord } from '../agents/chloe/notifiers';
+import { notifyDiscord } from '../agents/shared/notifications/utils';
 
 // Define interfaces for CLI options
 interface NotificationOptions {
