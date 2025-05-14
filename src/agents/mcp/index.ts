@@ -10,9 +10,11 @@
 // Export values
 export { MCPRuntime } from './MCPRuntime';
 export { registerSubAgents, getRegisteredAgents, bootstrapAgentSystem } from './bootstrapAgents';
+export { loadAndRegisterAgents, registerNewAgent, updateAgentRegistration, deregisterAgent } from './databaseAgentRegistration';
 
 // Export types
-export type { PlannedTask, TaskResult, SubAgent, AgentRegistration } from './MCPRuntime';
+export type { SubAgent, PlannedTask, TaskResult, AgentRegistration } from './MCPRuntime';
+export type { AgentHealthStatus } from '../shared/coordination/AgentHealthChecker';
 
 // Import here to use in the exported function below
 import { MCPRuntime } from './MCPRuntime';
@@ -31,6 +33,10 @@ export async function initializeMCP(): Promise<void> {
     // Bootstrap the agent system - register all agents
     const { bootstrapAgentSystem } = await import('./bootstrapAgents');
     await bootstrapAgentSystem();
+    
+    // Load and register agents from the database
+    const { loadAndRegisterAgents } = await import('./databaseAgentRegistration');
+    await loadAndRegisterAgents();
     
     console.log('MCP initialization complete.');
   } catch (error) {

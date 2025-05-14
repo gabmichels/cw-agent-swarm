@@ -254,6 +254,22 @@ export async function POST(request: Request) {
           
       console.log('Agent verified successfully in Qdrant');
       
+      // Register the agent with MCP
+      try {
+        console.log('Registering agent with Multi-Agent Control Plane (MCP)...');
+        
+        // Import MCP registration functions
+        const { registerNewAgent } = await import('../../../../agents/mcp');
+        
+        // Register the new agent with MCP
+        registerNewAgent(agent);
+        
+        console.log(`Successfully registered agent ${agent.name} (${agent.id}) with MCP`);
+      } catch (mcpError) {
+        console.warn('Warning: Failed to register agent with MCP:', mcpError);
+        // Don't fail the overall request if MCP registration fails
+      }
+      
       // Create a chat for this agent and the current user
       try {
         console.log('Creating chat between user and the new agent...');
