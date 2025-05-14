@@ -1,45 +1,31 @@
+import { codaIntegration } from '../../../../agents/shared/tools/integrations/coda';
 import { NextRequest, NextResponse } from 'next/server';
-import { codaIntegration } from '../../../../agents/chloe/tools/coda';
 
 // Mark as server-side only
 export const runtime = 'nodejs';
 
+/**
+ * API endpoint to read a Coda doc
+ */
 export async function POST(request: NextRequest) {
   try {
-    // Get docId from the request body
-    const { docId } = await request.json();
+    const body = await request.json();
+    const { docId } = body;
     
     if (!docId) {
-      return NextResponse.json(
-        { success: false, error: 'Document ID is required' },
-        { status: 400 }
-      );
+      return NextResponse.json({ 
+        error: 'Missing required field: docId must be provided' 
+      }, { status: 400 });
     }
     
-    try {
-      const docContent = await codaIntegration.readDoc(docId);
-      
-      return NextResponse.json({
-        success: true,
-        content: docContent
-      });
-    } catch (error) {
-      if (error instanceof Error && error.message.includes('disabled')) {
-        return NextResponse.json(
-          { success: false, error: 'Coda integration is not enabled. Check your API key.' },
-          { status: 500 }
-        );
-      }
-      throw error; // Re-throw for the outer catch
-    }
+    const docContent = await codaIntegration.readDoc(docId);
+    
+    return NextResponse.json({ success: true, content: docContent });
   } catch (error) {
-    console.error('Error reading Coda document:', error);
-    return NextResponse.json(
-      { 
-        success: false, 
-        error: error instanceof Error ? error.message : 'Unknown error' 
-      },
-      { status: 500 }
-    );
+    console.error('Error reading Coda doc:', error);
+    return NextResponse.json({ 
+      error: 'Failed to read Coda doc',
+      details: error instanceof Error ? error.message : String(error)
+    }, { status: 500 });
   }
 } 

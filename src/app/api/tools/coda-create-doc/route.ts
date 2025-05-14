@@ -1,46 +1,31 @@
+import { codaIntegration } from '../../../../agents/shared/tools/integrations/coda';
 import { NextRequest, NextResponse } from 'next/server';
-import { codaIntegration } from '../../../../agents/chloe/tools/coda';
 
 // Mark as server-side only
 export const runtime = 'nodejs';
 
+/**
+ * API endpoint to create a new Coda doc
+ */
 export async function POST(request: NextRequest) {
   try {
-    // Get title and content from the request body
-    const { title, content } = await request.json();
+    const body = await request.json();
+    const { title, content } = body;
     
     if (!title || !content) {
-      return NextResponse.json(
-        { success: false, error: 'Title and content are required' },
-        { status: 400 }
-      );
+      return NextResponse.json({ 
+        error: 'Missing required fields: title and content must be provided' 
+      }, { status: 400 });
     }
     
-    try {
-      const docId = await codaIntegration.createDoc(title, content);
-      
-      return NextResponse.json({
-        success: true,
-        docId: docId,
-        message: 'Document created successfully'
-      });
-    } catch (error) {
-      if (error instanceof Error && error.message.includes('disabled')) {
-        return NextResponse.json(
-          { success: false, error: 'Coda integration is not enabled. Check your API key.' },
-          { status: 500 }
-        );
-      }
-      throw error; // Re-throw for the outer catch
-    }
+    const docId = await codaIntegration.createDoc(title, content);
+    
+    return NextResponse.json({ success: true, docId });
   } catch (error) {
-    console.error('Error creating Coda document:', error);
-    return NextResponse.json(
-      { 
-        success: false, 
-        error: error instanceof Error ? error.message : 'Unknown error' 
-      },
-      { status: 500 }
-    );
+    console.error('Error creating Coda doc:', error);
+    return NextResponse.json({ 
+      error: 'Failed to create Coda doc',
+      details: error instanceof Error ? error.message : String(error)
+    }, { status: 500 });
   }
 } 

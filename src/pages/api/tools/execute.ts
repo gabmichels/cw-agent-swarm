@@ -1,6 +1,7 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import { getMemoryServices } from '../../../server/memory/services';
 import { MemoryType } from '../../../server/memory/config';
+import defaultApifyManager from '../../../agents/shared/tools/integrations/apify';
 
 // Define the tools memory type
 const TOOLS_MEMORY_TYPE = 'tool';
@@ -22,27 +23,34 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     // Execute the tool based on the tool name
     let result;
-    switch (tool) {
-      case 'clear_chat':
-        result = await clearChatHistory(params);
-        break;
-      case 'clear_images':
-        result = await clearImages(params);
-        break;
-      case 'reset_all':
-        result = await resetAllData(params);
-        break;
-      case 'refresh_config':
-        result = await refreshConfiguration(params);
-        break;
-      case 'test_agent':
-        result = await testAgent(params);
-        break;
-      case 'clear_markdown_cache':
-        result = await clearMarkdownCache(params);
-        break;
-      default:
-        return res.status(400).json({ success: false, error: `Unknown tool: ${tool}` });
+    
+    // Check if this is an Apify tool
+    if (tool.startsWith('apify-')) {
+      result = await executeApifyTool(tool, params);
+    } else {
+      // Execute standard tools
+      switch (tool) {
+        case 'clear_chat':
+          result = await clearChatHistory(params);
+          break;
+        case 'clear_images':
+          result = await clearImages(params);
+          break;
+        case 'reset_all':
+          result = await resetAllData(params);
+          break;
+        case 'refresh_config':
+          result = await refreshConfiguration(params);
+          break;
+        case 'test_agent':
+          result = await testAgent(params);
+          break;
+        case 'clear_markdown_cache':
+          result = await clearMarkdownCache(params);
+          break;
+        default:
+          return res.status(400).json({ success: false, error: `Unknown tool: ${tool}` });
+      }
     }
 
     // If a memoryId was provided, update the memory with the result
@@ -73,6 +81,100 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       success: false, 
       error: error instanceof Error ? error.message : 'Unknown error executing tool' 
     });
+  }
+}
+
+/**
+ * Execute an Apify tool
+ */
+async function executeApifyTool(toolName: string, params: any) {
+  try {
+    console.log(`Executing Apify tool: ${toolName}`, params);
+    
+    switch (toolName) {
+      case 'apify-actor-discovery':
+        const discoverResult = await defaultApifyManager.discoverActors(
+          params.query || '',
+          {
+            category: params.category,
+            limit: params.limit || 5,
+            minRating: params.minRating || 3.5,
+            sortBy: params.sortBy || 'popularity'
+          }
+        );
+        
+        return {
+          success: true,
+          actors: discoverResult,
+          count: discoverResult.length
+        };
+        
+      case 'apify-actor-info':
+        const actorInfo = await defaultApifyManager.getActorInfo(params.actorId);
+        
+        return {
+          success: true,
+          actor: actorInfo
+        };
+        
+      case 'apify-suggest-actors':
+        const suggestedActors = await defaultApifyManager.suggestActorsForTask(
+          params.taskDescription,
+          params.limit || 3
+        );
+        
+        return {
+          success: true,
+          actors: suggestedActors,
+          count: suggestedActors.length
+        };
+        
+      case 'apify-dynamic-run':
+        const runResult = await defaultApifyManager.dynamicRunActor(
+          params.actorId,
+          params.input,
+          {
+            actorId: params.actorId,
+            input: params.input,
+            label: params.label,
+            dryRun: params.dryRun
+          }
+        );
+        
+        return {
+          success: true,
+          result: runResult
+        };
+        
+      default:
+        // Check if this is a dynamically registered Apify actor tool
+        if (toolName.startsWith('apify-dynamic-')) {
+          const actorId = toolName.replace('apify-dynamic-', '');
+          
+          const runResult = await defaultApifyManager.dynamicRunActor(
+            actorId,
+            params,
+            {
+              actorId: actorId,
+              input: params,
+              dryRun: false
+            }
+          );
+          
+          return {
+            success: true,
+            result: runResult
+          };
+        }
+        
+        throw new Error(`Unknown Apify tool: ${toolName}`);
+    }
+  } catch (error) {
+    console.error('Error executing Apify tool:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error executing Apify tool'
+    };
   }
 }
 
