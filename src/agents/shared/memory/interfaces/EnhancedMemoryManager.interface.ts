@@ -8,6 +8,7 @@
 import { MemoryManager, MemoryEntry, MemoryManagerConfig } from '../../../../lib/agents/base/managers/MemoryManager';
 import { CognitiveMemory, CognitivePatternType, CognitiveReasoningType, MemoryAssociation, MemorySynthesis, MemoryReasoning, FindAssociationsOptions, MemorySynthesisOptions, MemoryReasoningOptions } from './CognitiveMemory.interface';
 import { ConversationSummarizer, ConversationSummaryOptions, ConversationSummaryResult } from './ConversationSummarization.interface';
+import { MemoryVersion, MemoryChangeType, MemoryDiff, RollbackOptions, RollbackResult, BatchHistoryOptions, BatchHistoryResult } from './MemoryVersionHistory.interface';
 
 /**
  * Enhanced memory manager configuration
@@ -33,6 +34,15 @@ export interface EnhancedMemoryManagerConfig extends MemoryManagerConfig {
   
   /** Interval for automatic association discovery in milliseconds */
   autoAssociationIntervalMs?: number;
+  
+  /** Whether to enable memory version history */
+  enableVersionHistory?: boolean;
+  
+  /** Maximum number of versions to keep per memory (0 = unlimited) */
+  maxVersionsPerMemory?: number;
+  
+  /** Whether to create versions automatically on memory updates */
+  autoCreateVersions?: boolean;
 }
 
 /**
@@ -76,6 +86,18 @@ export interface EnhancedMemoryEntry extends MemoryEntry {
   
   /** When this memory was last cognitively processed */
   lastCognitiveProcessingTime?: Date;
+  
+  /** Version history information */
+  versions?: {
+    /** Current version ID */
+    currentVersionId?: string;
+    
+    /** Number of available versions */
+    versionCount?: number;
+    
+    /** When this memory was last versioned */
+    lastVersionedAt?: Date;
+  };
 }
 
 /**
@@ -194,4 +216,86 @@ export interface EnhancedMemoryManager extends MemoryManager, CognitiveMemory, C
       maxConcurrent?: number;
     }
   ): Promise<EnhancedMemoryEntry[]>;
+  
+  /**
+   * Create a new version of a memory
+   * 
+   * @param memoryId ID of the memory
+   * @param content Current content of the memory
+   * @param changeType Type of change
+   * @param metadata Additional metadata
+   * @returns Promise resolving to the created version
+   */
+  createMemoryVersion(
+    memoryId: string,
+    content: string,
+    changeType: MemoryChangeType,
+    metadata?: Record<string, unknown>
+  ): Promise<MemoryVersion>;
+  
+  /**
+   * Get all versions of a memory
+   * 
+   * @param memoryId ID of the memory
+   * @param options Query options
+   * @returns Promise resolving to memory versions
+   */
+  getMemoryVersions(
+    memoryId: string,
+    options?: {
+      limit?: number;
+      offset?: number;
+      sortDirection?: 'asc' | 'desc';
+    }
+  ): Promise<MemoryVersion[]>;
+  
+  /**
+   * Get a specific version of a memory
+   * 
+   * @param memoryId ID of the memory
+   * @param versionId ID of the version
+   * @returns Promise resolving to the memory version
+   */
+  getMemoryVersion(
+    memoryId: string,
+    versionId: string
+  ): Promise<MemoryVersion | null>;
+  
+  /**
+   * Roll back a memory to a previous version
+   * 
+   * @param memoryId ID of the memory to roll back
+   * @param options Rollback options
+   * @returns Promise resolving to rollback result
+   */
+  rollbackMemoryToVersion(
+    memoryId: string,
+    options: RollbackOptions
+  ): Promise<RollbackResult>;
+  
+  /**
+   * Compare two versions of a memory
+   * 
+   * @param memoryId ID of the memory
+   * @param firstVersionId ID of the first version
+   * @param secondVersionId ID of the second version
+   * @returns Promise resolving to the difference between versions
+   */
+  compareMemoryVersions(
+    memoryId: string,
+    firstVersionId: string,
+    secondVersionId: string
+  ): Promise<MemoryDiff>;
+  
+  /**
+   * Perform batch operations on memory history
+   * 
+   * @param operation Operation to perform ('rollback', 'delete', etc.)
+   * @param options Batch operation options
+   * @returns Promise resolving to batch operation result
+   */
+  batchMemoryHistoryOperation(
+    operation: string,
+    options: BatchHistoryOptions
+  ): Promise<BatchHistoryResult>;
 } 

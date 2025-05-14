@@ -13,6 +13,8 @@ import { CognitiveMemory, CognitivePatternType, CognitiveReasoningType, FindAsso
 import { ConversationSummarizer, ConversationSummaryOptions, ConversationSummaryResult } from '../interfaces/ConversationSummarization.interface';
 import { DefaultConversationSummarizer } from '../summarization/DefaultConversationSummarizer';
 import { MemoryEntry, MemorySearchOptions, MemoryConsolidationResult, MemoryPruningResult } from '../../../../lib/agents/base/managers/MemoryManager';
+import { MemoryVersionHistory, MemoryChangeType, MemoryVersion, MemoryDiff, RollbackOptions, RollbackResult, BatchHistoryOptions, BatchHistoryResult } from '../interfaces/MemoryVersionHistory.interface';
+import { DefaultMemoryVersionHistory } from '../history/DefaultMemoryVersionHistory';
 
 /**
  * Error class for enhanced memory manager
@@ -34,6 +36,7 @@ export class DefaultEnhancedMemoryManager extends DefaultMemoryManager implement
   protected syntheses: Map<string, MemorySynthesis> = new Map();
   protected reasonings: Map<string, MemoryReasoning> = new Map();
   protected enhancedMemories: Map<string, EnhancedMemoryEntry> = new Map();
+  protected versionHistory: MemoryVersionHistory;
 
   /**
    * Create a new DefaultEnhancedMemoryManager
@@ -46,23 +49,25 @@ export class DefaultEnhancedMemoryManager extends DefaultMemoryManager implement
     config: Partial<EnhancedMemoryManagerConfig> = {}
   ) {
     // Initialize the base memory manager
-    super(
-      agent,
-      {
-        ...config,
-        // Ensure these properties are present
-        enableCognitiveMemory: config.enableCognitiveMemory ?? true,
-        enableConversationSummarization: config.enableConversationSummarization ?? true,
-        maxAssociationsPerMemory: config.maxAssociationsPerMemory ?? 20,
-        enableAutoAssociationDiscovery: config.enableAutoAssociationDiscovery ?? false,
-        autoAssociationMinScore: config.autoAssociationMinScore ?? 0.7,
-        autoAssociationPatternTypes: config.autoAssociationPatternTypes ?? [
-          CognitivePatternType.TEMPORAL,
-          CognitivePatternType.CAUSAL
-        ],
-        autoAssociationIntervalMs: config.autoAssociationIntervalMs ?? 3600000 // 1 hour
-      }
-    );
+    const enhancedConfig: Partial<EnhancedMemoryManagerConfig> = {
+      ...config,
+      // Ensure these properties are present
+      enableCognitiveMemory: config.enableCognitiveMemory ?? true,
+      enableConversationSummarization: config.enableConversationSummarization ?? true,
+      maxAssociationsPerMemory: config.maxAssociationsPerMemory ?? 20,
+      enableAutoAssociationDiscovery: config.enableAutoAssociationDiscovery ?? false,
+      autoAssociationMinScore: config.autoAssociationMinScore ?? 0.7,
+      autoAssociationPatternTypes: config.autoAssociationPatternTypes ?? [
+        CognitivePatternType.TEMPORAL,
+        CognitivePatternType.CAUSAL
+      ],
+      autoAssociationIntervalMs: config.autoAssociationIntervalMs ?? 3600000, // 1 hour
+      enableVersionHistory: config.enableVersionHistory ?? true,
+      maxVersionsPerMemory: config.maxVersionsPerMemory ?? 10,
+      autoCreateVersions: config.autoCreateVersions ?? true
+    };
+    
+    super(agent, enhancedConfig);
 
     // Initialize the conversation summarizer
     this.conversationSummarizer = new DefaultConversationSummarizer({
@@ -71,6 +76,14 @@ export class DefaultEnhancedMemoryManager extends DefaultMemoryManager implement
         maxEntries: 20,
         maxLength: 500
       }
+    });
+    
+    // Initialize the version history manager
+    this.versionHistory = new DefaultMemoryVersionHistory({
+      memoryManager: this,
+      maxVersionsPerMemory: config.maxVersionsPerMemory ?? 10,
+      autoCreateVersions: config.autoCreateVersions ?? true,
+      logger: (message, data) => console.log(`[VersionHistory] ${message}`, data)
     });
   }
 
@@ -155,8 +168,193 @@ export class DefaultEnhancedMemoryManager extends DefaultMemoryManager implement
     return super['config'] as EnhancedMemoryManagerConfig;
   }
 
-  // #region Cognitive Memory Methods
+  // Override the addMemory method to capture versions
+  async addMemory(content: string, metadata?: Record<string, unknown>): Promise<MemoryEntry> {
+    // Call the parent implementation to add the memory
+    const memory = await super.addMemory(content, metadata);
+    
+    // Check if version history is enabled
+    const config = this.getEnhancedConfig();
+    if (config.enableVersionHistory && config.autoCreateVersions) {
+      try {
+        // Create initial version for this memory
+        await this.versionHistory.createVersion(
+          memory.id,
+          content,
+          MemoryChangeType.CREATED,
+          { ...metadata, createdAt: memory.createdAt }
+        );
+      } catch (error) {
+        console.error('Error creating memory version:', error);
+      }
+    }
+    
+    return memory;
+  }
 
+  // #region Memory Version History Methods
+
+  /**
+   * Create a new version of a memory
+   * 
+   * @param memoryId ID of the memory
+   * @param content Current content of the memory
+   * @param changeType Type of change
+   * @param metadata Additional metadata
+   * @returns Promise resolving to the created version
+   */
+  async createMemoryVersion(
+    memoryId: string,
+    content: string,
+    changeType: MemoryChangeType = MemoryChangeType.UPDATED,
+    metadata?: Record<string, unknown>
+  ): Promise<MemoryVersion> {
+    const config = this.getEnhancedConfig();
+    if (!config.enableVersionHistory) {
+      throw new EnhancedMemoryError('Version history is disabled', 'VERSION_HISTORY_DISABLED');
+    }
+    
+    // Verify that the memory exists
+    await this.verifyMemoryExists(memoryId);
+    
+    // Create the version
+    return this.versionHistory.createVersion(memoryId, content, changeType, metadata);
+  }
+  
+  /**
+   * Get all versions of a memory
+   * 
+   * @param memoryId ID of the memory
+   * @param options Query options
+   * @returns Promise resolving to memory versions
+   */
+  async getMemoryVersions(
+    memoryId: string,
+    options?: {
+      limit?: number;
+      offset?: number;
+      sortDirection?: 'asc' | 'desc';
+    }
+  ): Promise<MemoryVersion[]> {
+    const config = this.getEnhancedConfig();
+    if (!config.enableVersionHistory) {
+      throw new EnhancedMemoryError('Version history is disabled', 'VERSION_HISTORY_DISABLED');
+    }
+    
+    // Verify that the memory exists
+    await this.verifyMemoryExists(memoryId);
+    
+    // Get the versions
+    return this.versionHistory.getVersions(memoryId, options);
+  }
+  
+  /**
+   * Get a specific version of a memory
+   * 
+   * @param memoryId ID of the memory
+   * @param versionId ID of the version
+   * @returns Promise resolving to the memory version
+   */
+  async getMemoryVersion(
+    memoryId: string,
+    versionId: string
+  ): Promise<MemoryVersion | null> {
+    const config = this.getEnhancedConfig();
+    if (!config.enableVersionHistory) {
+      throw new EnhancedMemoryError('Version history is disabled', 'VERSION_HISTORY_DISABLED');
+    }
+    
+    // Verify that the memory exists
+    await this.verifyMemoryExists(memoryId);
+    
+    // Get the version
+    return this.versionHistory.getVersion(memoryId, versionId);
+  }
+  
+  /**
+   * Roll back a memory to a previous version
+   * 
+   * @param memoryId ID of the memory to roll back
+   * @param options Rollback options
+   * @returns Promise resolving to rollback result
+   */
+  async rollbackMemoryToVersion(
+    memoryId: string,
+    options: RollbackOptions
+  ): Promise<RollbackResult> {
+    const config = this.getEnhancedConfig();
+    if (!config.enableVersionHistory) {
+      throw new EnhancedMemoryError('Version history is disabled', 'VERSION_HISTORY_DISABLED');
+    }
+    
+    // Verify that the memory exists
+    await this.verifyMemoryExists(memoryId);
+    
+    // Roll back to the version
+    return this.versionHistory.rollbackToVersion(memoryId, options);
+  }
+  
+  /**
+   * Compare two versions of a memory
+   * 
+   * @param memoryId ID of the memory
+   * @param firstVersionId ID of the first version
+   * @param secondVersionId ID of the second version
+   * @returns Promise resolving to the difference between versions
+   */
+  async compareMemoryVersions(
+    memoryId: string,
+    firstVersionId: string,
+    secondVersionId: string
+  ): Promise<MemoryDiff> {
+    const config = this.getEnhancedConfig();
+    if (!config.enableVersionHistory) {
+      throw new EnhancedMemoryError('Version history is disabled', 'VERSION_HISTORY_DISABLED');
+    }
+    
+    // Verify that the memory exists
+    await this.verifyMemoryExists(memoryId);
+    
+    // Compare the versions
+    return this.versionHistory.compareVersions(memoryId, firstVersionId, secondVersionId);
+  }
+  
+  /**
+   * Perform batch operations on memory history
+   * 
+   * @param operation Operation to perform ('rollback', 'delete', etc.)
+   * @param options Batch operation options
+   * @returns Promise resolving to batch operation result
+   */
+  async batchMemoryHistoryOperation(
+    operation: string,
+    options: BatchHistoryOptions
+  ): Promise<BatchHistoryResult> {
+    const config = this.getEnhancedConfig();
+    if (!config.enableVersionHistory) {
+      throw new EnhancedMemoryError('Version history is disabled', 'VERSION_HISTORY_DISABLED');
+    }
+    
+    // Verify that all memories exist
+    for (const memoryId of options.memoryIds) {
+      try {
+        await this.verifyMemoryExists(memoryId);
+      } catch (error) {
+        throw new EnhancedMemoryError(
+          `Memory ${memoryId} not found in batch operation`,
+          'MEMORY_NOT_FOUND'
+        );
+      }
+    }
+    
+    // Perform the batch operation
+    return this.versionHistory.batchHistoryOperation(operation, options);
+  }
+  
+  // #endregion Memory Version History Methods
+  
+  // #region Cognitive Memory Methods
+  
   /**
    * Create an association between two memories
    * 
