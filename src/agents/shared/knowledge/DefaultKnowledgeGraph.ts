@@ -471,19 +471,281 @@ export class DefaultKnowledgeGraph implements KnowledgeGraph {
     return true;
   }
 
-  // Placeholder implementations for remaining required methods
-  // These will be implemented in subsequent steps
-
+  /**
+   * Traverse the graph
+   * 
+   * @param options Traversal options
+   * @returns Promise resolving to traversal result containing nodes and edges
+   */
   async traverse(options: KnowledgeGraphTraversalOptions): Promise<{ nodes: KnowledgeNode[]; edges: KnowledgeEdge[] }> {
     this.ensureInitialized();
-    // Basic implementation - will be enhanced in future iterations
-    return { nodes: [], edges: [] };
+    
+    // Validate start node exists
+    const startNode = await this.getNode(options.startNodeId);
+    if (!startNode) {
+      throw new NodeNotFoundError(options.startNodeId);
+    }
+    
+    // Use defaults if not specified
+    const maxDepth = options.maxDepth ?? 3;
+    const minStrength = options.minStrength ?? 0;
+    const limit = options.limit ?? 100;
+    const strategy = options.strategy ?? 'breadth-first';
+    const direction = options.direction ?? 'both';
+    
+    // Nodes and edges we've visited
+    const visitedNodeIds = new Set<string>([options.startNodeId]);
+    const collectedNodes: KnowledgeNode[] = [startNode];
+    const collectedEdges: KnowledgeEdge[] = [];
+    
+    // For tracking search state
+    type QueueItem = {
+      nodeId: string;
+      depth: number;
+      cumulativeStrength: number;
+      path: string[];
+    };
+    
+    // Initialize queue with start node
+    let queue: QueueItem[] = [
+      { 
+        nodeId: options.startNodeId, 
+        depth: 0, 
+        cumulativeStrength: 1, 
+        path: [options.startNodeId] 
+      }
+    ];
+    
+    // Filter function for edge types
+    const matchesEdgeType = (edge: KnowledgeEdge): boolean => {
+      return !options.edgeTypes?.length || options.edgeTypes.includes(edge.type);
+    };
+    
+    // Filter function for node types
+    const matchesNodeType = (node: KnowledgeNode): boolean => {
+      return !options.nodeTypes?.length || options.nodeTypes.includes(node.type);
+    };
+    
+    // Process the queue until it's empty or we've reached the limit
+    while (queue.length > 0 && collectedNodes.length < limit) {
+      let current: QueueItem;
+      
+      // Select next node based on traversal strategy
+      if (strategy === 'depth-first') {
+        current = queue.pop()!;
+      } else if (strategy === 'best-first') {
+        // Sort by cumulative strength and take the strongest
+        queue.sort((a, b) => b.cumulativeStrength - a.cumulativeStrength);
+        current = queue.shift()!;
+      } else {
+        // Default: breadth-first
+        current = queue.shift()!;
+      }
+      
+      // Skip if we're beyond max depth
+      if (current.depth >= maxDepth) {
+        continue;
+      }
+      
+      // Get connected edges based on direction
+      const connectedEdges = await this.getEdges(current.nodeId, direction);
+      
+      // Filter edges by type and strength
+      const relevantEdges = connectedEdges.filter(edge => 
+        matchesEdgeType(edge) && (edge.strength ?? 1) >= minStrength
+      );
+      
+      // Process each edge and connected node
+      for (const edge of relevantEdges) {
+        // Determine the target node ID based on traversal direction
+        const targetNodeId = edge.from === current.nodeId ? edge.to : edge.from;
+        
+        // Skip if we've already visited this node
+        if (visitedNodeIds.has(targetNodeId)) {
+          continue;
+        }
+        
+        // Get the target node
+        const targetNode = await this.getNode(targetNodeId);
+        if (!targetNode) {
+          continue; // Skip if node doesn't exist
+        }
+        
+        // Skip if node type doesn't match
+        if (!matchesNodeType(targetNode)) {
+          continue;
+        }
+        
+        // Add to visited set to avoid cycles
+        visitedNodeIds.add(targetNodeId);
+        
+        // Collect the node and edge
+        collectedNodes.push(targetNode);
+        collectedEdges.push(edge);
+        
+        // Calculate new cumulative strength
+        const edgeStrength = edge.strength ?? 1;
+        const newCumulativeStrength = current.cumulativeStrength * edgeStrength;
+        
+        // Add to queue for further exploration
+        queue.push({
+          nodeId: targetNodeId,
+          depth: current.depth + 1,
+          cumulativeStrength: newCumulativeStrength,
+          path: [...current.path, targetNodeId]
+        });
+      }
+    }
+    
+    return {
+      nodes: collectedNodes,
+      edges: collectedEdges
+    };
   }
 
+  /**
+   * Find paths between nodes
+   * 
+   * @param options Path finding options
+   * @returns Promise resolving to found paths
+   */
   async findPaths(options: PathFindingOptions): Promise<KnowledgeGraphPath[]> {
     this.ensureInitialized();
-    // Basic implementation - will be enhanced in future iterations
-    return [];
+    
+    // Validate start and target nodes exist
+    const startNode = await this.getNode(options.startNodeId);
+    if (!startNode) {
+      throw new NodeNotFoundError(options.startNodeId);
+    }
+    
+    const targetNode = await this.getNode(options.targetNodeId);
+    if (!targetNode) {
+      throw new NodeNotFoundError(options.targetNodeId);
+    }
+    
+    // Use defaults if not specified
+    const maxLength = options.maxLength ?? 5;
+    const minStrength = options.minStrength ?? 0;
+    const maxPaths = options.maxPaths ?? 5;
+    const algorithm = options.algorithm ?? 'shortest';
+    const direction = options.direction ?? 'both';
+    
+    // Data structures for path finding
+    const paths: KnowledgeGraphPath[] = [];
+    
+    // For tracking search state
+    type PathItem = {
+      nodeId: string;
+      path: string[];
+      edges: KnowledgeEdge[];
+      length: number;
+      totalStrength: number;
+    };
+    
+    // Queue for breadth-first search
+    const queue: PathItem[] = [
+      {
+        nodeId: options.startNodeId,
+        path: [options.startNodeId],
+        edges: [],
+        length: 0,
+        totalStrength: 1
+      }
+    ];
+    
+    // Filter function for edge types
+    const matchesEdgeType = (edge: KnowledgeEdge): boolean => {
+      return !options.edgeTypes?.length || options.edgeTypes.includes(edge.type);
+    };
+    
+    // Process the queue until it's empty or we've found enough paths
+    while (queue.length > 0 && paths.length < maxPaths) {
+      // Get the next item based on the algorithm
+      let current: PathItem;
+      
+      if (algorithm === 'shortest') {
+        // Sort by path length (ascending)
+        queue.sort((a, b) => a.length - b.length);
+        current = queue.shift()!;
+      } else if (algorithm === 'strongest') {
+        // Sort by total strength (descending)
+        queue.sort((a, b) => b.totalStrength - a.totalStrength);
+        current = queue.shift()!;
+      } else {
+        // All paths - breadth-first for completeness
+        current = queue.shift()!;
+      }
+      
+      // If we've reached the target, add this path to the results
+      if (current.nodeId === options.targetNodeId) {
+        // Only add this path if it's within the maxLength limit
+        if (current.length <= maxLength) {
+          paths.push({
+            id: `path-${paths.length}`,
+            edges: current.edges,
+            length: current.length,
+            totalStrength: current.totalStrength,
+            metadata: {
+              pathNodes: current.path
+            }
+          });
+        }
+        
+        // For shortest path algorithm, we can stop after finding the first path
+        if (algorithm === 'shortest' && paths.length >= 1) {
+          break;
+        }
+        
+        continue;
+      }
+      
+      // Skip if we're beyond or at max path length
+      if (current.length >= maxLength) {
+        continue;
+      }
+      
+      // Get connected edges based on direction
+      const connectedEdges = await this.getEdges(current.nodeId, direction);
+      
+      // Filter edges by type and strength
+      const relevantEdges = connectedEdges.filter(edge => 
+        matchesEdgeType(edge) && (edge.strength ?? 1) >= minStrength
+      );
+      
+      // Process each edge and connected node
+      for (const edge of relevantEdges) {
+        // Determine the target node ID based on traversal direction
+        const nextNodeId = edge.from === current.nodeId ? edge.to : edge.from;
+        
+        // Skip if we've already visited this node in the current path (avoid cycles)
+        if (current.path.includes(nextNodeId)) {
+          continue;
+        }
+        
+        // Calculate new total strength
+        const edgeStrength = edge.strength ?? 1;
+        const newTotalStrength = current.totalStrength * edgeStrength;
+        
+        // Add to queue for further exploration
+        queue.push({
+          nodeId: nextNodeId,
+          path: [...current.path, nextNodeId],
+          edges: [...current.edges, edge],
+          length: current.length + 1,
+          totalStrength: newTotalStrength
+        });
+      }
+    }
+    
+    // Sort paths based on the algorithm
+    if (algorithm === 'shortest') {
+      paths.sort((a, b) => a.length - b.length);
+    } else if (algorithm === 'strongest') {
+      paths.sort((a, b) => b.totalStrength - a.totalStrength);
+    }
+    
+    // Limit to maxPaths
+    return paths.slice(0, maxPaths);
   }
 
   /**

@@ -35,6 +35,11 @@ export interface KnowledgeEntry {
    * Optional file path for file-based knowledge
    */
   filePath?: string;
+  
+  /**
+   * Last modified timestamp for tracking changes
+   */
+  lastModified?: string;
 }
 
 /**

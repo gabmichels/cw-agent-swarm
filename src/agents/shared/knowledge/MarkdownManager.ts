@@ -57,6 +57,18 @@ export interface MarkdownManagerOptions {
    * @default false
    */
   syncWithGraph?: boolean;
+  
+  /**
+   * Path to cache file
+   * @default "data/cache/markdown-cache.json"
+   */
+  cacheFilePath?: string;
+  
+  /**
+   * Path to initialization flag file
+   * @default "data/cache/markdown-initialized.flag"
+   */
+  initFlagPath?: string;
 }
 
 /**
@@ -79,6 +91,16 @@ export interface MarkdownLoadingStats {
   errors: number;
   
   /**
+   * Number of files that were unchanged
+   */
+  unchangedFiles: number;
+  
+  /**
+   * Number of duplicates skipped
+   */
+  duplicatesSkipped: number;
+  
+  /**
    * Paths that were processed
    */
   paths: string[];
@@ -87,6 +109,36 @@ export interface MarkdownLoadingStats {
    * Time taken in milliseconds
    */
   timeTakenMs: number;
+}
+
+/**
+ * Configuration for markdown parsing
+ */
+export interface MarkdownParsingOptions {
+  /**
+   * Split into multiple sections at h1 headers
+   */
+  splitSections?: boolean;
+  
+  /**
+   * Maximum tags to extract from content
+   */
+  maxTags?: number;
+  
+  /**
+   * Default importance level
+   */
+  defaultImportance?: string;
+  
+  /**
+   * Additional tags to include
+   */
+  additionalTags?: string[];
+  
+  /**
+   * Maximum length for individual sections
+   */
+  maxSectionLength?: number;
 }
 
 /**
@@ -103,6 +155,8 @@ export class MarkdownManager {
   private watcher: any; // chokidar watcher
   private isWatching: boolean = false;
   private fileCache: Map<string, { lastModified: number, memoryIds: string[] }> = new Map();
+  private cacheFilePath: string;
+  private initFlagPath: string;
   
   /**
    * Create a new markdown manager
@@ -116,12 +170,57 @@ export class MarkdownManager {
       logger.info(`[MarkdownManager] ${message}`, data ? data : '');
     });
     this.syncWithGraph = options.syncWithGraph !== undefined ? options.syncWithGraph : false;
+    this.cacheFilePath = options.cacheFilePath || path.join(process.cwd(), 'data/cache/markdown-cache.json');
+    this.initFlagPath = options.initFlagPath || path.join(process.cwd(), 'data/cache/markdown-initialized.flag');
+    
+    // Load cache on initialization
+    this.loadCache().catch(error => {
+      this.logFunction('Error loading cache', { error: String(error) });
+    });
+  }
+  
+  /**
+   * Load cache from disk
+   */
+  private async loadCache(): Promise<void> {
+    try {
+      const cacheDir = path.dirname(this.cacheFilePath);
+      await fs.mkdir(cacheDir, { recursive: true });
+      
+      try {
+        const data = await fs.readFile(this.cacheFilePath, 'utf-8');
+        const cache = JSON.parse(data);
+        this.fileCache = new Map(Object.entries(cache));
+        this.logFunction('Loaded markdown cache', { entries: this.fileCache.size });
+      } catch (error) {
+        // If file doesn't exist, that's fine - we'll create it
+        this.logFunction('No existing cache found, starting fresh');
+      }
+    } catch (error) {
+      this.logFunction('Error loading cache', { error: String(error) });
+    }
+  }
+  
+  /**
+   * Save cache to disk
+   */
+  private async saveCache(): Promise<void> {
+    try {
+      const cacheDir = path.dirname(this.cacheFilePath);
+      await fs.mkdir(cacheDir, { recursive: true });
+      
+      const cache = Object.fromEntries(this.fileCache);
+      await fs.writeFile(this.cacheFilePath, JSON.stringify(cache, null, 2));
+      this.logFunction('Saved markdown cache', { entries: this.fileCache.size });
+    } catch (error) {
+      this.logFunction('Error saving cache', { error: String(error) });
+    }
   }
   
   /**
    * Get the directories to load markdown files from
    */
-  private getDirectories(): string[] {
+  public getDirectories(): string[] {
     // If custom paths are provided, use those instead
     if (this.customKnowledgePaths && this.customKnowledgePaths.length > 0) {
       return this.customKnowledgePaths;
@@ -140,20 +239,47 @@ export class MarkdownManager {
   /**
    * Load markdown files from all directories
    */
-  async loadMarkdownFiles(): Promise<MarkdownLoadingStats> {
+  async loadMarkdownFiles(options: {
+    force?: boolean;
+    checkForDuplicates?: boolean;
+    parsingOptions?: MarkdownParsingOptions;
+  } = {}): Promise<MarkdownLoadingStats> {
     const startTime = Date.now();
     const stats: MarkdownLoadingStats = {
       filesLoaded: 0,
       memoriesCreated: 0,
       errors: 0,
+      unchangedFiles: 0,
+      duplicatesSkipped: 0,
       paths: [],
       timeTakenMs: 0
     };
+    
+    // Check if we've already initialized once during this server session
+    if (!options.force) {
+      try {
+        // Check for the flag file's existence
+        const initFlagExists = await fs.access(this.initFlagPath)
+          .then(() => true)
+          .catch(() => false);
+          
+        if (initFlagExists) {
+          this.logFunction('Markdown already initialized this session. Skipping ingestion.');
+          
+          stats.timeTakenMs = Date.now() - startTime;
+          return stats;
+        }
+      } catch (error) {
+        // Ignore errors and continue with ingestion
+        this.logFunction('Error checking initialization flag, proceeding with ingestion');
+      }
+    }
     
     try {
       const directories = this.getDirectories();
       stats.paths = directories;
       
+      this.logFunction('=== Starting Markdown Ingestion ===');
       this.logFunction('Loading markdown files from directories', { directories });
       
       for (const dir of directories) {
@@ -163,8 +289,30 @@ export class MarkdownManager {
           
           for (const filePath of markdownFiles) {
             try {
-              await this.processMarkdownFile(filePath);
+              // Check if file has been modified since last processing
+              const fileStats = await fs.stat(filePath);
+              const lastModified = fileStats.mtimeMs;
+              
+              // Check cache to see if the file has been modified
+              const cachedFile = this.fileCache.get(filePath);
+              if (!options.force && cachedFile && cachedFile.lastModified === lastModified) {
+                // Skip unchanged file
+                stats.unchangedFiles++;
+                continue;
+              }
+              
+              // Process the file
+              const fileResult = await this.processMarkdownFile(filePath, options.parsingOptions);
+              
+              // Update stats
               stats.filesLoaded++;
+              stats.memoriesCreated += fileResult.memoryIds.length;
+              
+              // Update file cache
+              this.fileCache.set(filePath, { 
+                lastModified, 
+                memoryIds: fileResult.memoryIds 
+              });
             } catch (error) {
               stats.errors++;
               this.logFunction(`Error processing markdown file ${filePath}`, { error: String(error) });
@@ -176,7 +324,25 @@ export class MarkdownManager {
         }
       }
       
+      // Save the cache
+      await this.saveCache();
+      
+      // After successful ingestion, create the initialization flag file
+      try {
+        // Ensure the directory exists
+        const flagDir = path.dirname(this.initFlagPath);
+        await fs.mkdir(flagDir, { recursive: true });
+        
+        // Write the current timestamp to the flag file
+        await fs.writeFile(this.initFlagPath, new Date().toISOString());
+        this.logFunction('Created initialization flag');
+      } catch (error) {
+        this.logFunction(`Warning: Could not create initialization flag: ${String(error)}`);
+      }
+      
       stats.timeTakenMs = Date.now() - startTime;
+      this.logFunction('=== Markdown Ingestion Complete ===', stats);
+      
       return stats;
     } catch (error) {
       this.logFunction('Error loading markdown files', { error: String(error) });
@@ -216,26 +382,19 @@ export class MarkdownManager {
   /**
    * Process a markdown file and add it to memory
    */
-  private async processMarkdownFile(filePath: string): Promise<string[]> {
+  private async processMarkdownFile(
+    filePath: string, 
+    parsingOptions?: MarkdownParsingOptions
+  ): Promise<{ memoryIds: string[] }> {
     try {
       const content = await fs.readFile(filePath, 'utf-8');
-      const stats = await fs.stat(filePath);
-      const lastModified = stats.mtimeMs;
+      const relativePath = path.relative(process.cwd(), filePath);
       
-      // Check cache to see if the file has been modified
-      const cachedFile = this.fileCache.get(filePath);
-      if (cachedFile && cachedFile.lastModified === lastModified) {
-        // Return existing memory IDs
-        return cachedFile.memoryIds;
-      }
-      
-      // Remove existing memories for this file
-      if (cachedFile) {
-        await this.removeMemoriesForFile(filePath);
-      }
+      // Remove existing memories for this file if any
+      await this.removeMemoriesForFile(filePath);
       
       // Convert markdown to memory entries
-      const entries = await this.markdownToMemoryEntries(filePath, content);
+      const entries = await this.markdownToMemoryEntries(filePath, content, parsingOptions);
       
       // Add each entry to memory
       const memoryIds: string[] = [];
@@ -247,7 +406,8 @@ export class MarkdownManager {
             source: entry.source,
             tags: entry.tags,
             importance: entry.importance,
-            filePath: path.relative(process.cwd(), filePath)
+            filePath: relativePath,
+            lastModified: new Date().toISOString()
           });
           
           memoryIds.push(result.id);
@@ -257,19 +417,27 @@ export class MarkdownManager {
       }
       
       // Update cache
-      this.fileCache.set(filePath, { lastModified, memoryIds });
+      const fileStats = await fs.stat(filePath);
+      this.fileCache.set(filePath, { 
+        lastModified: fileStats.mtimeMs, 
+        memoryIds 
+      });
       
-      return memoryIds;
+      return { memoryIds };
     } catch (error) {
       this.logFunction(`Error processing markdown file ${filePath}`, { error: String(error) });
-      return [];
+      return { memoryIds: [] };
     }
   }
   
   /**
    * Convert markdown content to memory entries
    */
-  private async markdownToMemoryEntries(filePath: string, content: string): Promise<Array<{
+  private async markdownToMemoryEntries(
+    filePath: string, 
+    content: string,
+    options?: MarkdownParsingOptions
+  ): Promise<Array<{
     title: string;
     content: string;
     type: string;
@@ -277,31 +445,91 @@ export class MarkdownManager {
     importance: string;
     source: string;
   }>> {
-    // Get filename as title, removing extension
-    const filename = path.basename(filePath, '.md');
-    const title = filename.charAt(0).toUpperCase() + filename.slice(1);
+    const defaultTitle = path.basename(filePath, '.md');
+    const formattedTitle = defaultTitle.charAt(0).toUpperCase() + defaultTitle.slice(1);
+    
+    // Default options
+    const {
+      splitSections = false,
+      maxTags = 15,
+      defaultImportance = 'critical',
+      additionalTags = [],
+      maxSectionLength = 8000
+    } = options || {};
     
     // Extract tags using the tag extractor
-    let tags: string[] = [];
+    let tags: string[] = [...additionalTags];
     try {
-      const result = await extractTags(content, { maxTags: 15 });
+      const result = await extractTags(content, { maxTags });
       
       if (result.success && result.tags.length > 0) {
-        tags = result.tags.map(tag => tag.text);
+        tags = [...tags, ...result.tags.map(tag => tag.text)];
       }
     } catch (error) {
       this.logFunction(`Failed to extract tags with AI: ${error}`);
     }
     
-    // Create a single entry for the entire file
-    return [{
-      title,
-      content,
+    // If not splitting into sections, create a single entry for the whole file
+    if (!splitSections) {
+      return [{
+        title: formattedTitle,
+        content,
+        type: 'document',
+        tags,
+        importance: defaultImportance,
+        source: 'markdown'
+      }];
+    }
+    
+    // Split the content into sections based on h1 headers
+    const sections: Array<{title: string, content: string}> = [];
+    const h1Regex = /^# (.+)$/gm;
+    let lastIndex = 0;
+    let match;
+    
+    while ((match = h1Regex.exec(content)) !== null) {
+      if (lastIndex > 0) {
+        const sectionContent = content.substring(lastIndex, match.index).trim();
+        if (sectionContent) {
+          sections.push({
+            title: sections.length > 0 ? sections[sections.length - 1].title : formattedTitle,
+            content: sectionContent
+          });
+        }
+      }
+      lastIndex = match.index;
+      sections.push({
+        title: match[1].trim(),
+        content: ''
+      });
+    }
+    
+    // Add the last section
+    if (lastIndex > 0) {
+      const sectionContent = content.substring(lastIndex).trim();
+      if (sectionContent) {
+        sections.push({
+          title: sections.length > 0 ? sections[sections.length - 1].title : formattedTitle,
+          content: sectionContent
+        });
+      }
+    } else {
+      // No sections found, use the whole content
+      sections.push({
+        title: formattedTitle,
+        content
+      });
+    }
+    
+    // Convert sections to memory entries
+    return sections.map(section => ({
+      title: section.title,
+      content: section.content.substring(0, maxSectionLength),
       type: 'document',
       tags,
-      importance: 'critical',
+      importance: defaultImportance,
       source: 'markdown'
-    }];
+    }));
   }
   
   /**
@@ -338,21 +566,42 @@ export class MarkdownManager {
     try {
       const directories = this.getDirectories();
       
-      // Create a watcher for all directories
-      this.watcher = watch(directories, {
+      // Make sure the directories exist
+      for (const dir of directories) {
+        try {
+          await fs.mkdir(path.join(process.cwd(), dir), { recursive: true });
+        } catch (error) {
+          this.logFunction(`Error creating directory ${dir}`, { error: String(error) });
+        }
+      }
+      
+      // Create a watcher for all directories with improved settings
+      this.watcher = watch(directories.map(dir => path.join(process.cwd(), dir)), {
         persistent: true,
         ignoreInitial: true,
         ignorePermissionErrors: true,
         awaitWriteFinish: {
           stabilityThreshold: 1000,
           pollInterval: 100
-        }
+        },
+        usePolling: true,
+        interval: 1000
       });
       
       // Setup change event handlers
-      this.watcher.on('add', (filePath: string) => this.handleFileChange(filePath));
-      this.watcher.on('change', (filePath: string) => this.handleFileChange(filePath));
+      this.watcher.on('add', (filePath: string) => this.handleFileChange(filePath, 'add'));
+      this.watcher.on('change', (filePath: string) => this.handleFileChange(filePath, 'change'));
       this.watcher.on('unlink', (filePath: string) => this.handleFileDelete(filePath));
+      
+      // Add ready event
+      this.watcher.on('ready', () => {
+        this.logFunction('Markdown watcher ready', { directories });
+      });
+      
+      // Add error handling
+      this.watcher.on('error', (error: Error) => {
+        this.logFunction('Error in file watcher', { error: error.message });
+      });
       
       this.isWatching = true;
       this.logFunction('Started watching markdown files', { directories });
@@ -380,18 +629,21 @@ export class MarkdownManager {
   /**
    * Handle file change events
    */
-  private async handleFileChange(filePath: string): Promise<void> {
+  private async handleFileChange(filePath: string, eventType: 'add' | 'change'): Promise<void> {
     if (!filePath.toLowerCase().endsWith('.md')) return;
     
     try {
       const relativePath = path.relative(process.cwd(), filePath);
       
       // Process the file
-      await this.processMarkdownFile(filePath);
+      const result = await this.processMarkdownFile(filePath);
       
-      this.logFunction('Processed change event', { filePath: relativePath });
+      this.logFunction(`Processed ${eventType} event`, { 
+        filePath: relativePath,
+        entriesAdded: result.memoryIds.length
+      });
     } catch (error) {
-      this.logFunction('Error handling file change', { 
+      this.logFunction(`Error handling ${eventType} event`, { 
         filePath, 
         error: String(error) 
       });
@@ -416,6 +668,92 @@ export class MarkdownManager {
         filePath, 
         error: String(error) 
       });
+    }
+  }
+  
+  /**
+   * Clear all markdown caches
+   */
+  async clearCache(): Promise<void> {
+    try {
+      this.fileCache.clear();
+      await this.saveCache();
+      
+      // Also remove the initialization flag
+      try {
+        await fs.unlink(this.initFlagPath);
+      } catch (error) {
+        // Ignore if the file doesn't exist
+      }
+      
+      this.logFunction('Cleared markdown cache');
+    } catch (error) {
+      this.logFunction('Error clearing markdown cache', { error: String(error) });
+    }
+  }
+  
+  /**
+   * Test file watcher by creating a test file
+   * This is for development testing only
+   */
+  async testFileWatcher(): Promise<boolean> {
+    try {
+      // Create test directory if it doesn't exist
+      const testDir = path.join(process.cwd(), 'data', 'knowledge', 'test');
+      await fs.mkdir(testDir, { recursive: true });
+      
+      // Create a random filename to avoid cache hits
+      const randomId = Math.floor(Math.random() * 10000);
+      const testFilePath = path.join(testDir, `test-file-${randomId}.md`);
+      const relativePath = path.relative(process.cwd(), testFilePath);
+      
+      // Create test content
+      const testContent = `# Test Markdown File ${randomId}
+
+This is a test file created at ${new Date().toISOString()}.
+
+## Test Section
+
+This file should be detected by the markdown watcher.
+`;
+      
+      this.logFunction(`Creating test file at: ${relativePath}`);
+      
+      // Write the file
+      await fs.writeFile(testFilePath, testContent, 'utf-8');
+      this.logFunction(`Test file created successfully`);
+      
+      // After 5 seconds, update the file to test change detection
+      setTimeout(async () => {
+        try {
+          this.logFunction(`Updating test file: ${relativePath}`);
+          await fs.writeFile(
+            testFilePath, 
+            testContent + `\n\n## Updated Section\n\nThis file was updated at ${new Date().toISOString()}.\n`,
+            'utf-8'
+          );
+          this.logFunction(`Test file updated successfully`);
+          
+          // After another 5 seconds, delete the file to test delete detection
+          setTimeout(async () => {
+            try {
+              this.logFunction(`Deleting test file: ${relativePath}`);
+              await fs.unlink(testFilePath);
+              this.logFunction(`Test file deleted successfully`);
+            } catch (deleteError) {
+              this.logFunction(`Error deleting test file: ${String(deleteError)}`);
+            }
+          }, 5000);
+          
+        } catch (updateError) {
+          this.logFunction(`Error updating test file: ${String(updateError)}`);
+        }
+      }, 5000);
+      
+      return true;
+    } catch (error) {
+      this.logFunction(`Error testing file watcher: ${String(error)}`);
+      return false;
     }
   }
 } 

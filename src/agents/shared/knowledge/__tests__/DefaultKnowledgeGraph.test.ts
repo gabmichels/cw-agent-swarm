@@ -688,4 +688,276 @@ describe('DefaultKnowledgeGraph', () => {
       expect(stats.density).toBeCloseTo(2/(3*2));
     });
   });
+  
+  describe('Graph Traversal Operations', () => {
+    beforeEach(async () => {
+      // Clear the graph
+      await graph.clear();
+      
+      // Create a test network of nodes
+      const nodeA = await graph.addNode({
+        label: 'Node A',
+        type: KnowledgeNodeType.CONCEPT
+      });
+      
+      const nodeB = await graph.addNode({
+        label: 'Node B',
+        type: KnowledgeNodeType.CONCEPT
+      });
+      
+      const nodeC = await graph.addNode({
+        label: 'Node C',
+        type: KnowledgeNodeType.CONCEPT
+      });
+      
+      const nodeD = await graph.addNode({
+        label: 'Node D',
+        type: KnowledgeNodeType.ENTITY
+      });
+      
+      const nodeE = await graph.addNode({
+        label: 'Node E',
+        type: KnowledgeNodeType.TASK
+      });
+      
+      // Add edges
+      await graph.addEdge({
+        from: nodeA,
+        to: nodeB,
+        type: KnowledgeEdgeType.RELATED_TO,
+        strength: 0.9
+      });
+      
+      await graph.addEdge({
+        from: nodeB,
+        to: nodeC,
+        type: KnowledgeEdgeType.DEPENDS_ON,
+        strength: 0.8
+      });
+      
+      await graph.addEdge({
+        from: nodeA,
+        to: nodeD,
+        type: KnowledgeEdgeType.LEADS_TO,
+        strength: 0.7
+      });
+      
+      await graph.addEdge({
+        from: nodeC,
+        to: nodeE,
+        type: KnowledgeEdgeType.PART_OF,
+        strength: 0.6
+      });
+      
+      await graph.addEdge({
+        from: nodeD,
+        to: nodeE,
+        type: KnowledgeEdgeType.SUPPORTS,
+        strength: 0.5
+      });
+    });
+    
+    it('should traverse the graph using breadth-first search', async () => {
+      const result = await graph.traverse({
+        startNodeId: (await graph.findNodes('Node A'))[0].id,
+        strategy: 'breadth-first',
+        maxDepth: 2
+      });
+      
+      // Should find the starting node plus its direct connections
+      expect(result.nodes.length).toBeGreaterThanOrEqual(3);
+      expect(result.edges.length).toBeGreaterThanOrEqual(2);
+      
+      // Verify breadth-first behavior by checking for B and D
+      // (direct connections to A) before others
+      const nodeLabels = result.nodes.map(n => n.label);
+      expect(nodeLabels).toContain('Node A');
+      expect(nodeLabels).toContain('Node B');
+      expect(nodeLabels).toContain('Node D');
+    });
+    
+    it('should respect node type filters', async () => {
+      const result = await graph.traverse({
+        startNodeId: (await graph.findNodes('Node A'))[0].id,
+        nodeTypes: [KnowledgeNodeType.ENTITY],
+        maxDepth: 2
+      });
+      
+      // Should only include Entity type nodes plus the start node
+      expect(result.nodes.length).toBe(2);
+      expect(result.nodes.map(n => n.label)).toContain('Node A');
+      expect(result.nodes.map(n => n.label)).toContain('Node D');
+    });
+    
+    it('should respect edge type filters', async () => {
+      const result = await graph.traverse({
+        startNodeId: (await graph.findNodes('Node A'))[0].id,
+        edgeTypes: [KnowledgeEdgeType.LEADS_TO],
+        maxDepth: 2
+      });
+      
+      // Should only follow LEADS_TO edges
+      expect(result.nodes.length).toBe(2);
+      expect(result.nodes.map(n => n.label)).toContain('Node A');
+      expect(result.nodes.map(n => n.label)).toContain('Node D');
+    });
+    
+    it('should respect the maxDepth parameter', async () => {
+      const result = await graph.traverse({
+        startNodeId: (await graph.findNodes('Node A'))[0].id,
+        maxDepth: 3
+      });
+      
+      // With depth 3, should reach all 5 nodes
+      expect(result.nodes.length).toBe(5);
+    });
+    
+    it('should use best-first search when specified', async () => {
+      const result = await graph.traverse({
+        startNodeId: (await graph.findNodes('Node A'))[0].id,
+        strategy: 'best-first',
+        maxDepth: 2
+      });
+      
+      // Should prioritize higher strength edges
+      const nodeLabels = result.nodes.map(n => n.label);
+      expect(nodeLabels).toContain('Node B'); // Highest strength edge from A
+    });
+  });
+  
+  describe('Path Finding Operations', () => {
+    beforeEach(async () => {
+      // Clear the graph
+      await graph.clear();
+      
+      // Create test nodes
+      const nodeA = await graph.addNode({
+        label: 'Node A',
+        type: KnowledgeNodeType.CONCEPT
+      });
+      
+      const nodeB = await graph.addNode({
+        label: 'Node B',
+        type: KnowledgeNodeType.CONCEPT
+      });
+      
+      const nodeC = await graph.addNode({
+        label: 'Node C',
+        type: KnowledgeNodeType.CONCEPT
+      });
+      
+      const nodeD = await graph.addNode({
+        label: 'Node D',
+        type: KnowledgeNodeType.CONCEPT
+      });
+      
+      const nodeE = await graph.addNode({
+        label: 'Node E',
+        type: KnowledgeNodeType.CONCEPT
+      });
+      
+      // Create multiple possible paths
+      await graph.addEdge({
+        from: nodeA,
+        to: nodeB,
+        type: KnowledgeEdgeType.RELATED_TO,
+        strength: 0.9
+      });
+      
+      await graph.addEdge({
+        from: nodeB,
+        to: nodeE,
+        type: KnowledgeEdgeType.RELATED_TO,
+        strength: 0.8
+      });
+      
+      await graph.addEdge({
+        from: nodeA,
+        to: nodeC,
+        type: KnowledgeEdgeType.RELATED_TO,
+        strength: 0.7
+      });
+      
+      await graph.addEdge({
+        from: nodeC,
+        to: nodeD,
+        type: KnowledgeEdgeType.RELATED_TO,
+        strength: 0.6
+      });
+      
+      await graph.addEdge({
+        from: nodeD,
+        to: nodeE,
+        type: KnowledgeEdgeType.RELATED_TO,
+        strength: 0.5
+      });
+    });
+    
+    it('should find the shortest path between nodes', async () => {
+      const nodeA = (await graph.findNodes('Node A'))[0];
+      const nodeE = (await graph.findNodes('Node E'))[0];
+      
+      const paths = await graph.findPaths({
+        startNodeId: nodeA.id,
+        targetNodeId: nodeE.id,
+        algorithm: 'shortest'
+      });
+      
+      expect(paths.length).toBeGreaterThan(0);
+      
+      // The shortest path should be A -> B -> E (length 2)
+      const shortestPath = paths[0];
+      expect(shortestPath.length).toBe(2);
+      expect(shortestPath.edges.length).toBe(2);
+    });
+    
+    it('should find the strongest path between nodes', async () => {
+      const nodeA = (await graph.findNodes('Node A'))[0];
+      const nodeE = (await graph.findNodes('Node E'))[0];
+      
+      const paths = await graph.findPaths({
+        startNodeId: nodeA.id,
+        targetNodeId: nodeE.id,
+        algorithm: 'strongest'
+      });
+      
+      expect(paths.length).toBeGreaterThan(0);
+      
+      // The strongest path should be A -> B -> E
+      // (0.9 × 0.8 = 0.72 versus A -> C -> D -> E = 0.7 × 0.6 × 0.5 = 0.21)
+      const strongestPath = paths[0];
+      expect(strongestPath.totalStrength).toBeCloseTo(0.72, 2);
+    });
+    
+    it('should find multiple paths when algorithm is "all"', async () => {
+      const nodeA = (await graph.findNodes('Node A'))[0];
+      const nodeE = (await graph.findNodes('Node E'))[0];
+      
+      const paths = await graph.findPaths({
+        startNodeId: nodeA.id,
+        targetNodeId: nodeE.id,
+        algorithm: 'all',
+        maxPaths: 5
+      });
+      
+      // Should find both paths: A->B->E and A->C->D->E
+      expect(paths.length).toBe(2);
+    });
+    
+    it('should respect maxLength parameter', async () => {
+      const nodeA = (await graph.findNodes('Node A'))[0];
+      const nodeE = (await graph.findNodes('Node E'))[0];
+      
+      const paths = await graph.findPaths({
+        startNodeId: nodeA.id,
+        targetNodeId: nodeE.id,
+        algorithm: 'all',
+        maxLength: 2
+      });
+      
+      // Should only find the path with length <= 2 (A->B->E)
+      expect(paths.length).toBe(1);
+      expect(paths[0].length).toBeLessThanOrEqual(2);
+    });
+  });
 }); 
