@@ -1,3 +1,4 @@
+import { describe, it, expect } from 'vitest';
 import { AdaptationMetricsCalculatorImpl } from '../AdaptationMetrics';
 import { PlanWithSteps } from '../../../../lib/shared/types/agentTypes';
 import { TaskStatus } from '../../../../constants/task';

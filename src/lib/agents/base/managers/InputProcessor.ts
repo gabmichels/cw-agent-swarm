@@ -5,8 +5,8 @@
  * for agents. It extends the base manager interface with input-specific functionality.
  */
 
-import type { BaseManager, ManagerConfig } from '../../../../agents/shared/base/managers/BaseManager';
-import type { AgentBase } from '../../../../agents/shared/base/AgentBase';
+import type { BaseManager, ManagerConfig } from './BaseManager';
+import type { AgentBase } from '../AgentBase';
 
 /**
  * Configuration options for input processors

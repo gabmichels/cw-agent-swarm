@@ -5,44 +5,45 @@
  * RSS feeds to extract market signals.
  */
 
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { DefaultRssProcessor, RssProcessorError } from '../DefaultRssProcessor';
 import { MarketSignal } from '../../../MarketScanner.interface';
 import { RssSource } from '../../../interfaces/MarketSource.interface';
 
 // Mock the external dependencies
-jest.mock('rss-parser', () => {
-  return jest.fn().mockImplementation(() => ({
-    parseURL: jest.fn(),
+vi.mock('rss-parser', () => {
+  return vi.fn().mockImplementation(() => ({
+    parseURL: vi.fn(),
   }));
 });
 
-jest.mock('../../../../../../../lib/logging', () => ({
+vi.mock('../../../../../../../lib/logging', () => ({
   logger: {
-    info: jest.fn(),
-    warn: jest.fn(),
-    error: jest.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
   },
 }));
 
 // Mock the global fetch function
-global.fetch = jest.fn();
+global.fetch = vi.fn();
 
 describe('DefaultRssProcessor', () => {
   let processor: DefaultRssProcessor;
   
   beforeEach(() => {
     // Reset all mocks before each test
-    jest.clearAllMocks();
+    vi.clearAllMocks();
     processor = new DefaultRssProcessor();
   });
   
   describe('testFeed', () => {
     it('should return true for valid RSS feed', async () => {
       // Mock the fetch response
-      (global.fetch as jest.Mock).mockResolvedValueOnce({
+      (global.fetch as any).mockResolvedValueOnce({
         ok: true,
         headers: {
-          get: jest.fn().mockReturnValue('application/xml'),
+          get: vi.fn().mockReturnValue('application/xml'),
         },
       });
       
@@ -54,7 +55,7 @@ describe('DefaultRssProcessor', () => {
     
     it('should return false for invalid response', async () => {
       // Mock a failed fetch response
-      (global.fetch as jest.Mock).mockResolvedValueOnce({
+      (global.fetch as any).mockResolvedValueOnce({
         ok: false,
         status: 404,
       });
@@ -66,7 +67,7 @@ describe('DefaultRssProcessor', () => {
     
     it('should return false on network error', async () => {
       // Mock network error
-      (global.fetch as jest.Mock).mockRejectedValueOnce(new Error('Network error'));
+      (global.fetch as any).mockRejectedValueOnce(new Error('Network error'));
       
       const result = await processor.testFeed('https://example.com/error.xml');
       
@@ -77,7 +78,7 @@ describe('DefaultRssProcessor', () => {
   describe('processSource', () => {
     it('should process a valid RSS source', async () => {
       // Mock the testFeed method
-      jest.spyOn(processor, 'testFeed').mockResolvedValueOnce(true);
+      vi.spyOn(processor, 'testFeed').mockResolvedValueOnce(true);
       
       // Mock the parser.parseURL method - using the imported mock
       const mockFeed = {
@@ -101,7 +102,7 @@ describe('DefaultRssProcessor', () => {
       
       // Setup the mock parser within the RssParser mock
       const mockRssParser = require('rss-parser');
-      const mockParseURL = jest.fn().mockResolvedValueOnce(mockFeed);
+      const mockParseURL = vi.fn().mockResolvedValueOnce(mockFeed);
       mockRssParser.mockImplementation(() => ({
         parseURL: mockParseURL,
       }));
@@ -121,7 +122,7 @@ describe('DefaultRssProcessor', () => {
         },
       ];
       
-      jest.spyOn(processor, 'processFeedContent').mockResolvedValueOnce(mockSignals);
+      vi.spyOn(processor, 'processFeedContent').mockResolvedValueOnce(mockSignals);
       
       const source: RssSource = {
         id: 'test-source',
@@ -142,7 +143,7 @@ describe('DefaultRssProcessor', () => {
     
     it('should throw error for invalid RSS feed', async () => {
       // Mock the testFeed method to return false
-      jest.spyOn(processor, 'testFeed').mockResolvedValueOnce(false);
+      vi.spyOn(processor, 'testFeed').mockResolvedValueOnce(false);
       
       const source: RssSource = {
         id: 'invalid-source',
@@ -158,12 +159,12 @@ describe('DefaultRssProcessor', () => {
     
     it('should handle parser errors gracefully', async () => {
       // Mock the testFeed method to return true
-      jest.spyOn(processor, 'testFeed').mockResolvedValueOnce(true);
+      vi.spyOn(processor, 'testFeed').mockResolvedValueOnce(true);
       
       // Setup the mock parser to throw an error
       const mockRssParser = require('rss-parser');
       mockRssParser.mockImplementation(() => ({
-        parseURL: jest.fn().mockRejectedValueOnce(new Error('Parse error')),
+        parseURL: vi.fn().mockRejectedValueOnce(new Error('Parse error')),
       }));
       
       const source: RssSource = {
@@ -199,14 +200,14 @@ describe('DefaultRssProcessor', () => {
       // Set up the RSS parser mock
       const mockRssParser = require('rss-parser');
       mockRssParser.mockImplementation(() => ({
-        parseURL: jest.fn().mockResolvedValueOnce(mockFeed),
+        parseURL: vi.fn().mockResolvedValueOnce(mockFeed),
       }));
       
       // Make sure testFeed returns true
-      jest.spyOn(processor, 'testFeed').mockResolvedValueOnce(true);
+      vi.spyOn(processor, 'testFeed').mockResolvedValueOnce(true);
       
       // Don't mock processFeedContent to test actual implementation
-      const processFeedContentSpy = jest.spyOn(processor, 'processFeedContent');
+      const processFeedContentSpy = vi.spyOn(processor, 'processFeedContent');
       
       const source: RssSource = {
         id: 'html-test',
@@ -243,11 +244,11 @@ describe('DefaultRssProcessor', () => {
       // Set up the RSS parser mock
       const mockRssParser = require('rss-parser');
       mockRssParser.mockImplementation(() => ({
-        parseURL: jest.fn().mockResolvedValueOnce(mockFeed),
+        parseURL: vi.fn().mockResolvedValueOnce(mockFeed),
       }));
       
       // Make sure testFeed returns true
-      jest.spyOn(processor, 'testFeed').mockResolvedValueOnce(true);
+      vi.spyOn(processor, 'testFeed').mockResolvedValueOnce(true);
       
       const source: RssSource = {
         id: 'long-test',

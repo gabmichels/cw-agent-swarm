@@ -4,6 +4,7 @@
  * Tests to verify the KnowledgeGapIdentification interface contract.
  */
 
+import { describe, it, expect, beforeEach } from 'vitest';
 import { 
   KnowledgeGapIdentification,
   KnowledgeGap,
@@ -461,7 +462,7 @@ describe('KnowledgeGapIdentification Interface', () => {
     await gapIdentification.initialize();
   });
   
-  test('should detect gaps in conversation', async () => {
+  it('should detect gaps in conversation', async () => {
     const result = await gapIdentification.detectGapsInConversation('Test conversation');
     
     expect(result).toBeDefined();
@@ -471,7 +472,7 @@ describe('KnowledgeGapIdentification Interface', () => {
     expect(result.stats).toBeDefined();
   });
   
-  test('should register knowledge gap manually', async () => {
+  it('should register knowledge gap manually', async () => {
     const gapData = {
       topic: 'Manual Gap',
       description: 'A manually registered gap',
@@ -497,7 +498,7 @@ describe('KnowledgeGapIdentification Interface', () => {
     expect(gap?.importance).toBe(8);
   });
   
-  test('should update knowledge gap status', async () => {
+  it('should update knowledge gap status', async () => {
     const result = await gapIdentification.detectGapsInConversation('Test conversation');
     const gapId = result.gaps[0].id;
     
@@ -514,7 +515,7 @@ describe('KnowledgeGapIdentification Interface', () => {
     expect(updatedGap?.status).toBe(KnowledgeGapStatus.IN_PROGRESS);
   });
   
-  test('should generate learning priorities', async () => {
+  it('should generate learning priorities', async () => {
     // Register gap first
     const result = await gapIdentification.detectGapsInConversation('Test conversation');
     const gapId = result.gaps[0].id;
@@ -528,7 +529,7 @@ describe('KnowledgeGapIdentification Interface', () => {
     expect(priorities[0].score).toBeGreaterThan(0);
   });
   
-  test('should get knowledge gap statistics', async () => {
+  it('should get knowledge gap statistics', async () => {
     // Register gap first
     await gapIdentification.detectGapsInConversation('Test conversation');
     
@@ -542,7 +543,7 @@ describe('KnowledgeGapIdentification Interface', () => {
     expect(stats.topPriorities).toBeDefined();
   });
   
-  test('should generate knowledge gap report', async () => {
+  it('should generate knowledge gap report', async () => {
     // Register gap first
     await gapIdentification.detectGapsInConversation('Test conversation');
     

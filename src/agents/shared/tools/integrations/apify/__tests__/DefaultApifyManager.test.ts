@@ -5,20 +5,21 @@
  * integration with the Apify platform for web scraping operations.
  */
 
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { DefaultApifyManager, ApifyError } from '../DefaultApifyManager';
 import { ApifyToolInput, ApifyToolResult, ApifyLimitContext } from '../ApifyManager.interface';
 
 // Mock the logger
-jest.mock('../../../../../../lib/logging', () => ({
+vi.mock('../../../../../../lib/logging', () => ({
   logger: {
-    info: jest.fn(),
-    warn: jest.fn(),
-    error: jest.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
   },
 }));
 
 // Mock global fetch
-global.fetch = jest.fn();
+global.fetch = vi.fn();
 
 describe('DefaultApifyManager', () => {
   let manager: DefaultApifyManager;
@@ -26,7 +27,7 @@ describe('DefaultApifyManager', () => {
   
   beforeEach(() => {
     // Reset all mocks
-    jest.clearAllMocks();
+    vi.clearAllMocks();
     
     // Mock environment variable
     process.env = { ...originalEnv, APIFY_API_KEY: 'test-api-key' };
@@ -103,7 +104,7 @@ describe('DefaultApifyManager', () => {
   describe('runRedditSearch', () => {
     it('should call runApifyActor with correct parameters', async () => {
       // Create spy on runApifyActor
-      const spy = jest.spyOn(manager, 'runApifyActor').mockResolvedValueOnce({
+      const spy = vi.spyOn(manager, 'runApifyActor').mockResolvedValueOnce({
         runId: 'test-run',
         output: [{ title: 'Test Post' }],
         success: true,
@@ -125,7 +126,7 @@ describe('DefaultApifyManager', () => {
     
     it('should handle errors gracefully', async () => {
       // Make runApifyActor throw an error
-      jest.spyOn(manager, 'runApifyActor').mockRejectedValueOnce(new Error('API error'));
+      vi.spyOn(manager, 'runApifyActor').mockRejectedValueOnce(new Error('API error'));
       
       const result = await manager.runRedditSearch('test query');
       
@@ -138,7 +139,7 @@ describe('DefaultApifyManager', () => {
   describe('runTwitterSearch', () => {
     it('should call runApifyActor with correct parameters', async () => {
       // Create spy on runApifyActor
-      const spy = jest.spyOn(manager, 'runApifyActor').mockResolvedValueOnce({
+      const spy = vi.spyOn(manager, 'runApifyActor').mockResolvedValueOnce({
         runId: 'test-run',
         output: [{ text: 'Test Tweet' }],
         success: true,
@@ -160,7 +161,7 @@ describe('DefaultApifyManager', () => {
     
     it('should handle errors gracefully', async () => {
       // Make runApifyActor throw an error
-      jest.spyOn(manager, 'runApifyActor').mockRejectedValueOnce(new Error('Network error'));
+      vi.spyOn(manager, 'runApifyActor').mockRejectedValueOnce(new Error('Network error'));
       
       const result = await manager.runTwitterSearch('test query');
       
@@ -173,7 +174,7 @@ describe('DefaultApifyManager', () => {
   describe('runWebsiteCrawler', () => {
     it('should call runApifyActor with correct parameters', async () => {
       // Create spy on runApifyActor
-      const spy = jest.spyOn(manager, 'runApifyActor').mockResolvedValueOnce({
+      const spy = vi.spyOn(manager, 'runApifyActor').mockResolvedValueOnce({
         runId: 'test-run',
         output: [{ url: 'https://example.com', title: 'Example' }],
         success: true,
@@ -197,7 +198,7 @@ describe('DefaultApifyManager', () => {
   describe('runYouTubeSearch', () => {
     it('should call runApifyActor with correct parameters', async () => {
       // Create spy on runApifyActor
-      const spy = jest.spyOn(manager, 'runApifyActor').mockResolvedValueOnce({
+      const spy = vi.spyOn(manager, 'runApifyActor').mockResolvedValueOnce({
         runId: 'test-run',
         output: [{ title: 'Test Video' }],
         success: true,
@@ -223,7 +224,7 @@ describe('DefaultApifyManager', () => {
   describe('runInstagramScraper', () => {
     it('should call runApifyActor with correct parameters', async () => {
       // Create spy on runApifyActor
-      const spy = jest.spyOn(manager, 'runApifyActor').mockResolvedValueOnce({
+      const spy = vi.spyOn(manager, 'runApifyActor').mockResolvedValueOnce({
         runId: 'test-run',
         output: [{ username: 'testuser' }],
         success: true,
@@ -250,7 +251,7 @@ describe('DefaultApifyManager', () => {
   describe('runTikTokScraper', () => {
     it('should handle username search correctly', async () => {
       // Create spy on runApifyActor
-      const spy = jest.spyOn(manager, 'runApifyActor').mockResolvedValueOnce({
+      const spy = vi.spyOn(manager, 'runApifyActor').mockResolvedValueOnce({
         runId: 'test-run',
         output: [{ username: 'testuser' }],
         success: true,
@@ -273,7 +274,7 @@ describe('DefaultApifyManager', () => {
     
     it('should handle hashtag search correctly', async () => {
       // Create spy on runApifyActor
-      const spy = jest.spyOn(manager, 'runApifyActor').mockResolvedValueOnce({
+      const spy = vi.spyOn(manager, 'runApifyActor').mockResolvedValueOnce({
         runId: 'test-run',
         output: [{ hashtag: 'trending' }],
         success: true,
@@ -296,7 +297,7 @@ describe('DefaultApifyManager', () => {
     
     it('should handle keyword search correctly', async () => {
       // Create spy on runApifyActor
-      const spy = jest.spyOn(manager, 'runApifyActor').mockResolvedValueOnce({
+      const spy = vi.spyOn(manager, 'runApifyActor').mockResolvedValueOnce({
         runId: 'test-run',
         output: [{ keyword: 'dance' }],
         success: true,

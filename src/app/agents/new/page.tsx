@@ -2,7 +2,15 @@
 
 import { useState } from 'react';
 import { MCPRuntime } from '@/agents/mcp/MCPRuntime';
-import { AgentSuggestion } from '@/agents/chloe/systems/AgentGenerator';
+// Creating local type instead of importing
+interface AgentSuggestion {
+  id: string;
+  name: string;
+  reason: string;
+  capabilities: string[];
+  roles: string[];
+  persona: string;
+}
 import { useRouter } from 'next/navigation';
 import fs from 'fs/promises';
 import path from 'path';

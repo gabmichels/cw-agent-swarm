@@ -5,6 +5,7 @@
  * validation, configuration creation, and preset handling.
  */
 
+import { describe, it, expect } from 'vitest';
 import { 
   createMemoryManagerConfig,
   createPlanningManagerConfig,
@@ -21,20 +22,20 @@ import { ConfigValidationError } from '../../../../lib/config/errors';
 
 // Memory Manager Config Tests
 describe('Memory Manager Configuration', () => {
-  test('should create valid config with default preset', () => {
+  it('should create valid config with default preset', () => {
     const config = createMemoryManagerConfig();
     expect(config).toBeDefined();
     expect(config.enabled).toBe(true);
   });
 
-  test('should create valid config with MINIMAL preset', () => {
+  it('should create valid config with MINIMAL preset', () => {
     const config = createMemoryManagerConfig('MINIMAL');
     expect(config).toBeDefined();
     expect(config.maxShortTermEntries).toBe(20);
     expect(config.relevanceThreshold).toBe(0.4);
   });
 
-  test('should override preset values with custom values', () => {
+  it('should override preset values with custom values', () => {
     const config = createMemoryManagerConfig('MINIMAL', {
       maxShortTermEntries: 50
     });
@@ -46,13 +47,13 @@ describe('Memory Manager Configuration', () => {
 
 // Planning Manager Config Tests
 describe('Planning Manager Configuration', () => {
-  test('should create valid config with default preset', () => {
+  it('should create valid config with default preset', () => {
     const config = createPlanningManagerConfig();
     expect(config).toBeDefined();
     expect(config.enabled).toBe(true);
   });
 
-  test('should create valid config with MINIMAL_PLANNER preset', () => {
+  it('should create valid config with MINIMAL_PLANNER preset', () => {
     const config = createPlanningManagerConfig('MINIMAL_PLANNER');
     expect(config).toBeDefined();
     expect(config.enableAutoPlanning).toBe(false);
@@ -62,13 +63,13 @@ describe('Planning Manager Configuration', () => {
 
 // Tool Manager Config Tests
 describe('Tool Manager Configuration', () => {
-  test('should create valid config with default preset', () => {
+  it('should create valid config with default preset', () => {
     const config = createToolManagerConfig();
     expect(config).toBeDefined();
     expect(config.enabled).toBe(true);
   });
 
-  test('should create valid config with MINIMAL preset', () => {
+  it('should create valid config with MINIMAL preset', () => {
     const config = createToolManagerConfig('MINIMAL');
     expect(config).toBeDefined();
     expect(config.trackToolPerformance).toBe(false);
@@ -78,13 +79,13 @@ describe('Tool Manager Configuration', () => {
 
 // Scheduler Manager Config Tests
 describe('Scheduler Manager Configuration', () => {
-  test('should create valid config with default preset', () => {
+  it('should create valid config with default preset', () => {
     const config = createSchedulerManagerConfig();
     expect(config).toBeDefined();
     expect(config.enabled).toBe(true);
   });
 
-  test('should create valid config with RESOURCE_CONSTRAINED preset', () => {
+  it('should create valid config with RESOURCE_CONSTRAINED preset', () => {
     const config = createSchedulerManagerConfig('RESOURCE_CONSTRAINED');
     expect(config).toBeDefined();
     expect(config.maxConcurrentTasks).toBe(3);
@@ -121,7 +122,7 @@ describe('Config Factory', () => {
 
   const factory = createConfigFactory(testSchema);
 
-  test('should create valid config with defaults', () => {
+  it('should create valid config with defaults', () => {
     const config = factory.create({
       name: 'test-config'
     });
@@ -132,7 +133,7 @@ describe('Config Factory', () => {
     expect(config.count).toBe(10); // default
   });
 
-  test('should throw on validation errors', () => {
+  it('should throw on validation errors', () => {
     expect(() => {
       factory.create({
         name: 'invalid name with spaces'
@@ -140,7 +141,7 @@ describe('Config Factory', () => {
     }).toThrow();
   });
 
-  test('should validate config correctly', () => {
+  it('should validate config correctly', () => {
     const validResult = factory.validate({
       name: 'valid-name',
       count: 50
@@ -158,7 +159,7 @@ describe('Config Factory', () => {
     expect(invalidResult.errors?.length).toBeGreaterThan(0);
   });
 
-  test('should update config correctly', () => {
+  it('should update config correctly', () => {
     const original = factory.create({
       name: 'original-config'
     });
@@ -171,7 +172,7 @@ describe('Config Factory', () => {
     expect(updated.count).toBe(20);
   });
 
-  test('should handle different update strategies', () => {
+  it('should handle different update strategies', () => {
     const original = factory.create({
       name: 'original-config',
       count: 5

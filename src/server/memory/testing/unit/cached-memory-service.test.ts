@@ -45,6 +45,7 @@ describe('CachedMemoryService', () => {
       clear: vi.fn().mockImplementation(() => Promise.resolve(undefined)),
       has: vi.fn().mockImplementation(() => Promise.resolve(false)),
       invalidateByTag: vi.fn().mockImplementation(() => Promise.resolve(0)),
+      getTags: vi.fn().mockImplementation(() => Promise.resolve(new Set<string>())),
       getStats: vi.fn().mockImplementation(() => Promise.resolve({
         size: 0,
         hits: 0,

@@ -4,6 +4,7 @@
  * Tests for the DefaultKnowledgePrioritization implementation.
  */
 
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { DefaultKnowledgePrioritization } from '../DefaultKnowledgePrioritization';
 import {
   KnowledgePriorityLevel,
@@ -24,7 +25,7 @@ describe('DefaultKnowledgePrioritization', () => {
     await prioritization.shutdown();
   });
 
-  test('should initialize and register default model', async () => {
+  it('should initialize and register default model', async () => {
     const models = await prioritization.getScoringModels();
     expect(models.length).toBeGreaterThan(0);
     
@@ -33,7 +34,7 @@ describe('DefaultKnowledgePrioritization', () => {
     expect(defaultModel?.name).toBe('default');
   });
 
-  test('should register custom scoring model', async () => {
+  it('should register custom scoring model', async () => {
     const modelId = await prioritization.registerScoringModel({
       name: 'custom-model',
       description: 'A custom scoring model',
@@ -55,7 +56,7 @@ describe('DefaultKnowledgePrioritization', () => {
     expect(model?.factorWeights[PriorityFactor.IMPORTANCE]).toBe(1.0);
   });
 
-  test('should prioritize knowledge items', async () => {
+  it('should prioritize knowledge items', async () => {
     const testItemId = uuidv4();
     
     const result = await prioritization.prioritizeKnowledge({
@@ -69,7 +70,7 @@ describe('DefaultKnowledgePrioritization', () => {
     expect(result.stats.itemsProcessed).toBe(1);
   });
 
-  test('should get priority info for a knowledge item', async () => {
+  it('should get priority info for a knowledge item', async () => {
     const testItemId = uuidv4();
     
     // First, prioritize the item
@@ -86,7 +87,7 @@ describe('DefaultKnowledgePrioritization', () => {
     expect(priorityInfo?.priorityScore).toBeLessThanOrEqual(100);
   });
 
-  test('should adjust priority for a knowledge item', async () => {
+  it('should adjust priority for a knowledge item', async () => {
     const testItemId = uuidv4();
     
     // First, prioritize the item
@@ -113,7 +114,7 @@ describe('DefaultKnowledgePrioritization', () => {
     expect(adjustedPriority.metadata).toHaveProperty('adjustmentReason', 'Test adjustment');
   });
 
-  test('should set relevance category for a knowledge item', async () => {
+  it('should set relevance category for a knowledge item', async () => {
     const testItemId = uuidv4();
     
     // First, prioritize the item
@@ -136,7 +137,7 @@ describe('DefaultKnowledgePrioritization', () => {
     expect(updatedPriority?.metadata).toHaveProperty('categoryChangeReason', 'This is core knowledge');
   });
 
-  test('should get top priority items', async () => {
+  it('should get top priority items', async () => {
     // Create several items with different priorities
     const itemId = uuidv4(); // Create a single item we'll prioritize highest
     const otherIds = [uuidv4(), uuidv4(), uuidv4(), uuidv4()]; // Other items
@@ -161,7 +162,7 @@ describe('DefaultKnowledgePrioritization', () => {
     expect(topItemIds).toContain(itemId);
   });
 
-  test('should schedule and cancel prioritization jobs', async () => {
+  it('should schedule and cancel prioritization jobs', async () => {
     const jobId = await prioritization.schedulePrioritization(
       '0 0 * * *', // Midnight every day (cron syntax)
       { knowledgeItemIds: [uuidv4()] }
@@ -177,7 +178,7 @@ describe('DefaultKnowledgePrioritization', () => {
     expect(invalidResult).toBe(false);
   });
 
-  test('should generate priority statistics', async () => {
+  it('should generate priority statistics', async () => {
     // Create several items with different categories and levels
     const itemIds = [uuidv4(), uuidv4(), uuidv4()];
     
@@ -208,7 +209,7 @@ describe('DefaultKnowledgePrioritization', () => {
     expect(stats.topPriorityItems[0].knowledgeItemId).toBe(itemIds[0]);
   });
 
-  test('should generate priority reports in different formats', async () => {
+  it('should generate priority reports in different formats', async () => {
     // Create a few items
     const itemIds = [uuidv4(), uuidv4()];
     
@@ -236,7 +237,7 @@ describe('DefaultKnowledgePrioritization', () => {
     expect(textReport).toContain('Summary:');
   });
 
-  test('should clear all priority data', async () => {
+  it('should clear all priority data', async () => {
     // Create a few items
     const itemIds = [uuidv4(), uuidv4()];
     

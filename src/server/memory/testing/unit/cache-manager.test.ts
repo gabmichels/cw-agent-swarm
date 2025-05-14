@@ -2,7 +2,7 @@
  * Unit tests for CacheManager
  */
 
-import { describe, test, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { CacheManager } from '../../services/cache/cache-manager';
 import { MemoryType } from '../../config/types';
 import { BaseMemorySchema } from '../../models';
@@ -36,7 +36,7 @@ describe('CacheManager', () => {
   });
 
   describe('Basic Cache Operations', () => {
-    test('should set and get cache item', async () => {
+    it('should set and get cache item', async () => {
       const key = 'test-key';
       const value = { ...baseMemory };
 
@@ -53,12 +53,12 @@ describe('CacheManager', () => {
       expect(result?.type).toBe(value.type);
     });
 
-    test('should return null for non-existent key', async () => {
+    it('should return null for non-existent key', async () => {
       const result = await cacheManager.get('non-existent-key');
       expect(result).toBeNull();
     });
 
-    test('should delete cache item', async () => {
+    it('should delete cache item', async () => {
       const key = 'delete-test-key';
       const value = { ...baseMemory };
 
@@ -73,7 +73,7 @@ describe('CacheManager', () => {
   });
 
   describe('TTL Handling', () => {
-    test('should expire items after TTL', async () => {
+    it('should expire items after TTL', async () => {
       const key = 'ttl-test-key';
       const value = { ...baseMemory };
 
@@ -88,7 +88,7 @@ describe('CacheManager', () => {
       expect(result).toBeNull();
     });
 
-    test('should respect custom TTL per item', async () => {
+    it('should respect custom TTL per item', async () => {
       const key1 = 'ttl-custom-1';
       const key2 = 'ttl-custom-2';
       const value = { ...baseMemory };
@@ -107,7 +107,7 @@ describe('CacheManager', () => {
   });
 
   describe('Eviction Policies', () => {
-    test('should evict least recently used items when cache is full', async () => {
+    it('should evict least recently used items when cache is full', async () => {
       // Create cache with small size
       const smallCache = new CacheManager({
         maxSize: 2,
@@ -134,7 +134,7 @@ describe('CacheManager', () => {
       expect(await smallCache.get('key3')).toBeDefined();
     });
 
-    test('should evict expired items during cleanup', async () => {
+    it('should evict expired items during cleanup', async () => {
       const key1 = 'expired-key';
       const key2 = 'valid-key';
       const value = { ...baseMemory };
@@ -156,7 +156,7 @@ describe('CacheManager', () => {
   });
 
   describe('Memory Management', () => {
-    test('should track cache size', async () => {
+    it('should track cache size', async () => {
       const key = 'size-test-key';
       const value = { ...baseMemory };
 
@@ -171,7 +171,7 @@ describe('CacheManager', () => {
       expect(newSize).toBeGreaterThan(initialSize);
     });
 
-    test('should clear all items', async () => {
+    it('should clear all items', async () => {
       // Add some items
       await cacheManager.set('key1', { ...baseMemory, id: '1', text: 'content1' });
       await cacheManager.set('key2', { ...baseMemory, id: '2', text: 'content2' });
@@ -187,17 +187,17 @@ describe('CacheManager', () => {
   });
 
   describe('Error Handling', () => {
-    test('should handle invalid keys', async () => {
+    it('should handle invalid keys', async () => {
       await expect(cacheManager.set('', { ...baseMemory })).rejects.toThrow();
       await expect(cacheManager.get('')).rejects.toThrow();
     });
 
-    test('should handle invalid values', async () => {
+    it('should handle invalid values', async () => {
       await expect(cacheManager.set('key', null as unknown as BaseMemorySchema)).rejects.toThrow();
       await expect(cacheManager.set('key', undefined as unknown as BaseMemorySchema)).rejects.toThrow();
     });
 
-    test('should handle storage errors', async () => {
+    it('should handle storage errors', async () => {
       // Mock storage error
       vi.spyOn(cacheManager['storage'], 'set').mockRejectedValueOnce(new Error('Storage error'));
 

@@ -8,7 +8,7 @@
  * - Foundation for advanced agent lifecycle operations
  */
 
-import { AgentBase } from '../shared/base/AgentBase';
+import { AgentBase } from '../shared/base/AgentBase.interface';
 import { AgentHealthChecker, AgentHealthStatus } from '../shared/coordination/AgentHealthChecker';
 import { CapabilityRegistry, CapabilitySearchOptions, CapabilityLevel } from '../shared/coordination/CapabilityRegistry';
 
@@ -27,7 +27,7 @@ export interface PlannedTask {
 
 export interface TaskResult {
   success: boolean;
-  data?: any;
+  data?: Record<string, unknown>;
   error?: string;
   message?: string;
 }

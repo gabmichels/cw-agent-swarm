@@ -8,7 +8,21 @@
 
 import { describe, it, expect } from 'vitest';
 import { MemoryEntry } from '../../../../lib/agents/base/managers/MemoryManager';
-import { EnhancedMemoryManager, EnhancedMemoryEntry, EnhancedMemoryManagerConfig, MemoryTransformationOptions } from '../interfaces/EnhancedMemoryManager.interface';
+import { 
+  EnhancedMemoryManager, 
+  EnhancedMemoryEntry, 
+  EnhancedMemoryManagerConfig, 
+  MemoryTransformationOptions
+} from '../interfaces/EnhancedMemoryManager.interface';
+import { 
+  MemoryChangeType, 
+  MemoryVersion, 
+  RollbackOptions, 
+  RollbackResult, 
+  MemoryDiff,
+  BatchHistoryOptions,
+  BatchHistoryResult
+} from '../interfaces/MemoryVersionHistory.interface';
 import { CognitivePatternType, CognitiveReasoningType, MemoryAssociation, MemorySynthesis, MemoryReasoning, AssociationStrength } from '../interfaces/CognitiveMemory.interface';
 import { ConversationSummaryOptions, ConversationSummaryResult } from '../interfaces/ConversationSummarization.interface';
 import { AgentBase } from '../../../shared/base/AgentBase.interface';
@@ -19,12 +33,110 @@ const mockAgent: AgentBase = {
   getAgentId: () => 'mock-agent',
   hasManager: () => true,
   getManager: () => null,
+  initialize: async () => true,
+  shutdown: async () => true,
+  getAgentInfo: () => ({ id: 'mock-agent', name: 'Mock Agent' }),
+  handleEvent: async () => true,
+  handleCommand: async () => ({ success: true }),
+  setReady: (ready: boolean) => {}
 } as unknown as AgentBase;
 
-// Mock implementation for type testing
+// Create mock for EnhancedMemoryManager with necessary interfaces
 class MockEnhancedMemoryManager extends AbstractBaseManager implements EnhancedMemoryManager {
   constructor(config: EnhancedMemoryManagerConfig = { enabled: true }) {
     super('mock-enhanced-memory-manager', 'memory', mockAgent, config);
+  }
+  
+  // Additional methods required by EnhancedMemoryManager interface
+  async createMemoryVersion(
+    memoryId: string, 
+    content: string, 
+    changeType: MemoryChangeType, 
+    metadata?: Record<string, unknown>
+  ): Promise<MemoryVersion> {
+    return {
+      versionId: 'mock-version-id',
+      memoryId,
+      content,
+      changeType,
+      timestamp: new Date()
+    };
+  }
+  
+  async getMemoryVersions(
+    memoryId: string,
+    options?: { 
+      limit?: number; 
+      offset?: number; 
+      sortDirection?: "asc" | "desc"; 
+    }
+  ): Promise<MemoryVersion[]> {
+    return [{
+      versionId: 'mock-version-id',
+      memoryId,
+      content: 'Mock version content',
+      changeType: MemoryChangeType.UPDATED,
+      timestamp: new Date()
+    }];
+  }
+  
+  async getMemoryVersion(
+    memoryId: string, 
+    versionId: string
+  ): Promise<MemoryVersion | null> {
+    return {
+      versionId,
+      memoryId,
+      content: 'Mock version content',
+      changeType: MemoryChangeType.UPDATED,
+      timestamp: new Date()
+    };
+  }
+  
+  async rollbackMemoryToVersion(
+    memoryId: string, 
+    options: RollbackOptions
+  ): Promise<RollbackResult> {
+    return {
+      success: true,
+      memoryId,
+      newVersionId: 'new-version-id',
+      previousVersionId: options.targetVersionId
+    };
+  }
+  
+  async compareMemoryVersions(
+    memoryId: string, 
+    firstVersionId: string, 
+    secondVersionId: string
+  ): Promise<MemoryDiff> {
+    return {
+      memoryId,
+      firstVersionId,
+      secondVersionId,
+      changes: [{ 
+        type: 'changed', 
+        content: 'Changed content',
+        lineNumber: 1
+      }],
+      isComplete: true
+    };
+  }
+
+  async batchMemoryHistoryOperation(
+    operation: string,
+    options: BatchHistoryOptions
+  ): Promise<BatchHistoryResult> {
+    return {
+      success: true,
+      results: options.memoryIds.map(id => ({ id, success: true })),
+      successCount: options.memoryIds.length,
+      failureCount: 0
+    };
+  }
+  
+  async reset(): Promise<boolean> {
+    return true;
   }
   
   // Memory manager methods

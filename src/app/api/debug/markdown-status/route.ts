@@ -15,10 +15,6 @@ export async function GET(request: NextRequest) {
     const globalAny = global as any;
     const preventFlag = globalAny.preventMarkdownReload === true;
     
-    // Check if agent has prevention flag
-    const chloePreventFlag = globalAny.chloeAgent && 
-                            (globalAny.chloeAgent as any).preventMarkdownReload === true;
-    
     // Check cache file existence
     let cacheExists = false;
     let cacheSize = 0;
@@ -61,7 +57,6 @@ export async function GET(request: NextRequest) {
     // Build status response
     const status = {
       preventMarkdownReload: preventFlag,
-      chloePreventMarkdownReload: chloePreventFlag,
       cacheFile: {
         exists: cacheExists,
         path: CACHE_FILE_PATH,

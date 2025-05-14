@@ -2,19 +2,24 @@
  * Unit tests for the ResourceUtilizationTracker
  */
 
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { ResourceUtilizationTracker, ResourceUsageListener } from '../ResourceUtilization';
 
 describe('ResourceUtilizationTracker', () => {
   let tracker: ResourceUtilizationTracker;
-  let mockListener: jest.Mocked<ResourceUsageListener>;
+  let mockListener: { 
+    onResourceWarning: ReturnType<typeof vi.fn>;
+    onResourceLimitExceeded: ReturnType<typeof vi.fn>;
+    onResourceUsageNormalized: ReturnType<typeof vi.fn>;
+  };
 
   beforeEach(() => {
-    jest.useFakeTimers();
+    vi.useFakeTimers();
     
     mockListener = {
-      onResourceWarning: jest.fn(),
-      onResourceLimitExceeded: jest.fn(),
-      onResourceUsageNormalized: jest.fn()
+      onResourceWarning: vi.fn(),
+      onResourceLimitExceeded: vi.fn(),
+      onResourceUsageNormalized: vi.fn()
     };
     
     // Create tracker with testing configuration
@@ -32,15 +37,15 @@ describe('ResourceUtilizationTracker', () => {
     });
     
     // Add mock listener
-    tracker.addListener(mockListener);
+    tracker.addListener(mockListener as ResourceUsageListener);
   });
   
   afterEach(() => {
     tracker.stop();
-    jest.useRealTimers();
+    vi.useRealTimers();
   });
   
-  test('should initialize with proper defaults', () => {
+  it('should initialize with proper defaults', () => {
     expect(tracker.getCurrentUtilization()).toEqual(expect.objectContaining({
       cpuUtilization: 0,
       memoryBytes: 0,
@@ -51,11 +56,11 @@ describe('ResourceUtilizationTracker', () => {
     }));
   });
   
-  test('should track resource utilization', () => {
+  it('should track resource utilization', () => {
     tracker.start();
     
     // Advance timers to trigger sample
-    jest.advanceTimersByTime(1000);
+    vi.advanceTimersByTime(1000);
     
     // Verify that sampling occurred
     const utilization = tracker.getCurrentUtilization();
@@ -64,7 +69,7 @@ describe('ResourceUtilizationTracker', () => {
     expect(utilization.memoryBytes).toBeGreaterThan(0);
   });
   
-  test('should record task utilization', () => {
+  it('should record task utilization', () => {
     tracker.start();
     
     // Record task utilization
@@ -79,7 +84,7 @@ describe('ResourceUtilizationTracker', () => {
     tracker.updateTaskCounts(1, 2);
     
     // Advance timers to trigger sample
-    jest.advanceTimersByTime(1000);
+    vi.advanceTimersByTime(1000);
     
     // Verify that task utilization was recorded
     const utilization = tracker.getCurrentUtilization();
@@ -90,12 +95,12 @@ describe('ResourceUtilizationTracker', () => {
     expect(utilization.taskUtilization?.task1.cpuUtilization).toBe(0.2);
   });
   
-  test('should maintain utilization history', () => {
+  it('should maintain utilization history', () => {
     tracker.start();
     
     // Record multiple samples
     for (let i = 0; i < 5; i++) {
-      jest.advanceTimersByTime(1000);
+      vi.advanceTimersByTime(1000);
     }
     
     // Get history
@@ -107,7 +112,7 @@ describe('ResourceUtilizationTracker', () => {
     expect(history[0].cpuUtilization).toBeGreaterThanOrEqual(0);
   });
   
-  test('should filter history by date range', () => {
+  it('should filter history by date range', () => {
     tracker.start();
     
     // Create dates for filtering
@@ -116,7 +121,7 @@ describe('ResourceUtilizationTracker', () => {
     
     // Record multiple samples
     for (let i = 0; i < 5; i++) {
-      jest.advanceTimersByTime(1000);
+      vi.advanceTimersByTime(1000);
     }
     
     // Get filtered history
@@ -133,7 +138,7 @@ describe('ResourceUtilizationTracker', () => {
     });
   });
   
-  test('should check resource limits and notify listeners', () => {
+  it('should check resource limits and notify listeners', () => {
     // Set strict limits to trigger warnings
     tracker.setLimits({
       cpuUtilization: 0.1,
@@ -149,15 +154,15 @@ describe('ResourceUtilizationTracker', () => {
     tracker.start();
     
     // Advance timers to trigger sample
-    jest.advanceTimersByTime(1000);
+    vi.advanceTimersByTime(1000);
     
     // Verify that listeners were notified
     expect(mockListener.onResourceLimitExceeded).toHaveBeenCalled();
   });
   
-  test('should remove listeners', () => {
+  it('should remove listeners', () => {
     // Remove listener
-    tracker.removeListener(mockListener);
+    tracker.removeListener(mockListener as ResourceUsageListener);
     
     // Set limits to trigger warnings
     tracker.setLimits({ cpuUtilization: 0.1 });
@@ -168,13 +173,13 @@ describe('ResourceUtilizationTracker', () => {
     tracker.start();
     
     // Advance timers to trigger sample
-    jest.advanceTimersByTime(1000);
+    vi.advanceTimersByTime(1000);
     
     // Verify that listeners were not notified
     expect(mockListener.onResourceLimitExceeded).not.toHaveBeenCalled();
   });
   
-  test('should check if any resource limits are exceeded', () => {
+  it('should check if any resource limits are exceeded', () => {
     // Initial state should be no limits exceeded
     expect(tracker.areAnyResourceLimitsExceeded()).toBe(false);
     
@@ -187,7 +192,7 @@ describe('ResourceUtilizationTracker', () => {
     tracker.start();
     
     // Advance timers to trigger sample
-    jest.advanceTimersByTime(1000);
+    vi.advanceTimersByTime(1000);
     
     // Now limits should be exceeded
     expect(tracker.areAnyResourceLimitsExceeded()).toBe(true);

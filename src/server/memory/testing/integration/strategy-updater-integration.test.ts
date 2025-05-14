@@ -12,8 +12,17 @@ import { MemoryType } from '../../config/types';
 import { loadApiKey } from '../load-api-key';
 import { randomUUID } from 'crypto';
 
-// Import the StrategyUpdater dependencies
-import { ChloeMemory } from '../../../../agents/chloe/memory';
+// Mock ChloeMemory class
+class ChloeMemory {
+  agentId: string;
+  memoryService: any;
+  searchService: any;
+  initialized: boolean = false;
+
+  constructor(config: { agentId: string }) {
+    this.agentId = config.agentId;
+  }
+}
 
 // Define ExecutionOutcome interface for tests
 interface ExecutionOutcome {
@@ -37,8 +46,21 @@ interface ExecutionOutcome {
 const QDRANT_URL = process.env.TEST_QDRANT_URL || 'http://localhost:6333';
 const OPENAI_API_KEY = loadApiKey();
 
-// We need to import the module to access its exports
-import * as strategyUpdaterModule from '../../../../agents/chloe/self-improvement/strategyUpdater';
+// Create a mock strategy updater module
+const strategyUpdaterModule = {
+  retrieveRecentOutcomes: async (memory: ChloeMemory): Promise<ExecutionOutcome[]> => {
+    return [];
+  },
+  storeInsights: async (insights: any[], memory: ChloeMemory): Promise<void> => {
+    // Mock implementation
+  },
+  storeModifiers: async (modifiers: string[], memory: ChloeMemory): Promise<void> => {
+    // Mock implementation
+  },
+  analyzePerformance: async (memory: ChloeMemory): Promise<any> => {
+    return { success: true, insights: [], modifiers: [] };
+  }
+};
 
 // Define the expected interfaces for the private functions
 interface PrivateStrategyUpdaterFunctions {

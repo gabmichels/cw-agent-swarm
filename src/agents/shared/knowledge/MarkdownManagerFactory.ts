@@ -34,29 +34,6 @@ export function createMarkdownManager(
 }
 
 /**
- * Create a MarkdownManager instance for the Chloe agent
- * This provides a drop-in replacement for the original Chloe markdownManager
- * with the same interface and behavior
- * 
- * @param memory - Chloe's memory implementation
- * @param options - Additional options
- * @returns A configured MarkdownManager instance for Chloe
- */
-export function createChloeMarkdownManager(
-  memory: IAgentMemory,
-  options: Partial<Omit<MarkdownManagerOptions, 'agentId' | 'memory'>> = {}
-): MarkdownManager {
-  return createMarkdownManager('chloe', memory, {
-    department: 'marketing',
-    syncWithGraph: true,
-    logFunction: (message, data) => {
-      logger.info(`[ChloeMarkdownManager] ${message}`, data ? data : '');
-    },
-    ...options
-  });
-}
-
-/**
  * Default markdown manager instance for shared use
  * This is lazy-loaded when first accessed
  */

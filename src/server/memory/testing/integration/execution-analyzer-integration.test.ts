@@ -12,12 +12,101 @@ import { loadApiKey } from '../load-api-key';
 import { randomUUID } from 'crypto';
 import { EnhancedMemoryService } from '../../services/multi-agent/enhanced-memory-service';
 
-// Import the ExecutionOutcomeAnalyzer
-import { ExecutionOutcomeAnalyzer, ExecutionOutcome } from '../../../../agents/chloe/self-improvement/executionOutcomeAnalyzer';
-import { ChloeMemory } from '../../../../agents/chloe/memory';
+// Define adapter/mock types to replace the removed Chloe imports
+type PlanningTask = {
+  id: string;
+  goal: string;
+  subGoals: Array<{
+    id: string;
+    description: string;
+    priority: number;
+    status: string;
+  }>;
+  reasoning: string;
+  status: string;
+  metadata: {
+    taskType: string;
+    [key: string]: any;
+  };
+};
 
-// Import types needed from Chloe's graph
-import type { ExecutionTraceEntry, PlanningTask } from '../../../../agents/chloe/graph/nodes/types';
+type ExecutionTraceEntry = {
+  step: string;
+  startTime: Date;
+  endTime: Date;
+  status: string;
+  details?: {
+    toolName?: string;
+    toolResults?: Array<{
+      toolName: string;
+      status: string;
+      data: any;
+    }>;
+    [key: string]: any;
+  };
+};
+
+interface ExecutionOutcome {
+  taskId: string;
+  success: boolean;
+  durationMs?: number;
+  resultSummary?: string;
+  failureReason?: string;
+  affectedTools?: string[];
+  taskType?: string;
+  completionDate?: Date;
+  metadata?: Record<string, any>;
+}
+
+// Mock ChloeMemory class
+class ChloeMemory {
+  agentId: string;
+  memoryService: any;
+  searchService: any;
+  initialized: boolean = false;
+
+  constructor(config: { agentId: string }) {
+    this.agentId = config.agentId;
+  }
+}
+
+// Mock ExecutionOutcomeAnalyzer
+class ExecutionOutcomeAnalyzer {
+  static async analyzeResult(task: PlanningTask, traceEntries: ExecutionTraceEntry[]): Promise<ExecutionOutcome> {
+    // Basic implementation that extracts data from the task and trace
+    const toolNames = new Set<string>();
+    
+    // Extract tool names from trace entries
+    for (const entry of traceEntries) {
+      if (entry.details?.toolName) {
+        toolNames.add(entry.details.toolName);
+      }
+      if (entry.details?.toolResults) {
+        for (const result of entry.details.toolResults) {
+          toolNames.add(result.toolName);
+        }
+      }
+    }
+    
+    return {
+      taskId: task.id,
+      success: task.status === 'complete',
+      durationMs: traceEntries.length > 0 
+        ? traceEntries[traceEntries.length - 1].endTime.getTime() - traceEntries[0].startTime.getTime()
+        : 0,
+      resultSummary: `Completed task: ${task.goal}`,
+      taskType: task.metadata.taskType,
+      affectedTools: Array.from(toolNames),
+      completionDate: new Date(),
+      metadata: { ...task.metadata }
+    };
+  }
+  
+  static async storeOutcome(outcome: ExecutionOutcome, memory: ChloeMemory): Promise<void> {
+    // Implementation will be overridden for testing
+    console.log('Storing outcome', outcome);
+  }
+}
 
 // Use environment variables or defaults
 const QDRANT_URL = process.env.TEST_QDRANT_URL || 'http://localhost:6333';

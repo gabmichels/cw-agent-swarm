@@ -206,7 +206,7 @@ describe('QueryOptimizer', () => {
     };
 
     beforeEach(() => {
-      (mockCacheManager.get as jest.Mock).mockResolvedValue(undefined);
+      (mockCacheManager.get as any).mockResolvedValue(undefined);
     });
 
     it('should cache query results', async () => {
@@ -217,7 +217,7 @@ describe('QueryOptimizer', () => {
       expect(firstResult.results.length).toBeGreaterThan(0);
 
       // Mock cache hit for second call
-      (mockCacheManager.get as jest.Mock).mockResolvedValueOnce(firstResult as any);
+      (mockCacheManager.get as any).mockResolvedValueOnce(firstResult as any);
 
       // Second call should use cache
       const cachedResults = await queryOptimizer.query(testParams);
@@ -237,7 +237,7 @@ describe('QueryOptimizer', () => {
       await queryOptimizer.clearCache('test-collection');
       // No assertion on clear being called, just ensure no error
       // Verify cache is cleared by making another query
-      (mockCacheManager.get as jest.Mock).mockResolvedValueOnce(undefined);
+      (mockCacheManager.get as any).mockResolvedValueOnce(undefined);
       await queryOptimizer.query(testParams);
       expect(mockVectorDb.search).toHaveBeenCalledTimes(2); // Called again because cache was cleared
     });

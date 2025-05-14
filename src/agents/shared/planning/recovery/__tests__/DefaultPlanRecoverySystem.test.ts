@@ -4,6 +4,7 @@
  * This file contains tests for the DefaultPlanRecoverySystem implementation.
  */
 
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
   PlanFailureCategory,
   PlanFailureSeverity,
@@ -23,14 +24,14 @@ describe('DefaultPlanRecoverySystem', () => {
     await recoverySystem.shutdown();
   });
   
-  test('should initialize successfully', async () => {
+  it('should initialize successfully', async () => {
     const newSystem = new DefaultPlanRecoverySystem();
     const result = await newSystem.initialize();
     expect(result).toBe(true);
     await newSystem.shutdown();
   });
   
-  test('should classify failure correctly', async () => {
+  it('should classify failure correctly', async () => {
     const classification = await recoverySystem.classifyFailure(
       'API request timed out after 30 seconds'
     );
@@ -40,7 +41,7 @@ describe('DefaultPlanRecoverySystem', () => {
     expect(classification.confidence).toBeGreaterThan(0);
   });
   
-  test('should generate standardized error response', async () => {
+  it('should generate standardized error response', async () => {
     const error = new Error('Resource database is currently unavailable');
     const response = await recoverySystem.generateStandardErrorResponse(error, {
       requestId: 'req-123',
@@ -57,7 +58,7 @@ describe('DefaultPlanRecoverySystem', () => {
     expect(response.suggestedActions).toContain(PlanRecoveryActionType.RETRY);
   });
   
-  test('should record failure', async () => {
+  it('should record failure', async () => {
     const failureId = await recoverySystem.recordFailure({
       planId: 'plan-123',
       stepId: 'step-456',
@@ -71,7 +72,7 @@ describe('DefaultPlanRecoverySystem', () => {
     expect(typeof failureId).toBe('string');
   });
   
-  test('should register and get recovery policy', async () => {
+  it('should register and get recovery policy', async () => {
     const policyId = 'test-policy-1';
     
     await recoverySystem.registerRecoveryPolicy({
@@ -106,7 +107,7 @@ describe('DefaultPlanRecoverySystem', () => {
     expect(policy?.actionSequence.length).toBe(2);
   });
   
-  test('should update recovery policy', async () => {
+  it('should update recovery policy', async () => {
     const policyId = 'test-policy-2';
     
     await recoverySystem.registerRecoveryPolicy({
@@ -137,7 +138,7 @@ describe('DefaultPlanRecoverySystem', () => {
     expect(updatedPolicy?.maxRecoveryAttempts).toBe(3);
   });
   
-  test('should delete recovery policy', async () => {
+  it('should delete recovery policy', async () => {
     const policyId = 'test-policy-3';
     
     await recoverySystem.registerRecoveryPolicy({
@@ -158,7 +159,7 @@ describe('DefaultPlanRecoverySystem', () => {
     expect(policy).toBeNull();
   });
   
-  test('should get all recovery policies', async () => {
+  it('should get all recovery policies', async () => {
     // First clear any existing policies by shutdown/init
     await recoverySystem.shutdown();
     await recoverySystem.initialize();

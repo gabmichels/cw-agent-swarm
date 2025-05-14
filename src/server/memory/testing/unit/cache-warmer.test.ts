@@ -143,7 +143,7 @@ describe('CacheWarmer', () => {
         }
       ];
       // Only return memories with access_count >= 3
-      (mockMemoryService.searchMemories as jest.Mock).mockResolvedValue(memories);
+      (mockMemoryService.searchMemories as any).mockResolvedValue(memories);
 
       // Run cache warming with frequent access strategy
       const results = await cacheWarmer.warmCache(CacheWarmingStrategy.FREQUENT_ACCESS);
@@ -199,7 +199,7 @@ describe('CacheWarmer', () => {
         }
       ];
       // Only return memories accessed within 24 hours
-      (mockMemoryService.searchMemories as jest.Mock).mockResolvedValue(memories);
+      (mockMemoryService.searchMemories as any).mockResolvedValue(memories);
 
       // Run cache warming with recent access strategy
       const results = await cacheWarmer.warmCache(CacheWarmingStrategy.RECENT_ACCESS);
@@ -285,10 +285,10 @@ describe('CacheWarmer', () => {
       ];
 
       // Mock searchMemories to return the source memory
-      (mockMemoryService.searchMemories as jest.Mock).mockResolvedValue([sourceMemory]);
+      (mockMemoryService.searchMemories as any).mockResolvedValue([sourceMemory]);
 
       // Mock getMemory to return related memories
-      (mockMemoryService.getMemory as jest.Mock).mockImplementation(({ id }: { id: string }) => {
+      (mockMemoryService.getMemory as any).mockImplementation(({ id }: { id: string }) => {
         const memory = relatedMemories.find(m => m.id === id);
         return Promise.resolve(memory || null);
       });
@@ -374,7 +374,7 @@ describe('CacheWarmer', () => {
         }
       ];
       // Only return memories with valid time constraints
-      (mockMemoryService.searchMemories as jest.Mock).mockResolvedValue(memories);
+      (mockMemoryService.searchMemories as any).mockResolvedValue(memories);
 
       // Run cache warming with time-based strategy
       const results = await cacheWarmer.warmCache(CacheWarmingStrategy.TIME_BASED);
@@ -449,7 +449,7 @@ describe('CacheWarmer', () => {
         }
       ];
       // Only return memories with importance >= 0.5 or usage_count >= 3
-      (mockMemoryService.searchMemories as jest.Mock).mockResolvedValue(memories);
+      (mockMemoryService.searchMemories as any).mockResolvedValue(memories);
 
       // Run cache warming with pattern-based strategy
       const results = await cacheWarmer.warmCache(CacheWarmingStrategy.PATTERN_BASED);
@@ -511,7 +511,7 @@ describe('CacheWarmer', () => {
   describe('error handling', () => {
     test('should handle errors during warming', async () => {
       // Mock searchMemories to throw an error
-      (mockMemoryService.searchMemories as jest.Mock).mockRejectedValue(new Error('Search failed'));
+      (mockMemoryService.searchMemories as any).mockRejectedValue(new Error('Search failed'));
 
       // Run cache warming
       const results = await cacheWarmer.warmCache(CacheWarmingStrategy.FREQUENT_ACCESS);

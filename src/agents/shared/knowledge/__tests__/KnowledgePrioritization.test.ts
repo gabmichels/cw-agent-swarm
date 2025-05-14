@@ -4,6 +4,7 @@
  * Tests to verify the KnowledgePrioritization interface contract.
  */
 
+import { describe, it, expect, beforeEach } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 import {
   KnowledgePrioritization,
@@ -515,7 +516,7 @@ describe('KnowledgePrioritization Interface', () => {
     await prioritization.initialize();
   });
   
-  test('should register and retrieve scoring models', async () => {
+  it('should register and retrieve scoring models', async () => {
     const modelId = await prioritization.registerScoringModel({
       name: 'Test Model',
       description: 'A test scoring model',
@@ -539,7 +540,7 @@ describe('KnowledgePrioritization Interface', () => {
     expect(retrievedModel?.name).toBe('Test Model');
   });
   
-  test('should prioritize knowledge items', async () => {
+  it('should prioritize knowledge items', async () => {
     const result = await prioritization.prioritizeKnowledge({});
     
     expect(result).toBeDefined();
@@ -548,7 +549,7 @@ describe('KnowledgePrioritization Interface', () => {
     expect(result.timestamp).toBeDefined();
   });
   
-  test('should get and manipulate priority info', async () => {
+  it('should get and manipulate priority info', async () => {
     // First prioritize to create a mock item
     const result = await prioritization.prioritizeKnowledge({});
     const itemId = result.prioritizedItems[0].knowledgeItemId;
@@ -581,7 +582,7 @@ describe('KnowledgePrioritization Interface', () => {
     expect(updatedPriority?.relevanceCategory).toBe(KnowledgeRelevanceCategory.CORE);
   });
   
-  test('should get top priority items', async () => {
+  it('should get top priority items', async () => {
     // Create several mock items
     await prioritization.prioritizeKnowledge({
       knowledgeItemIds: [uuidv4(), uuidv4(), uuidv4(), uuidv4(), uuidv4()]
@@ -597,7 +598,7 @@ describe('KnowledgePrioritization Interface', () => {
     }
   });
   
-  test('should schedule and cancel prioritization jobs', async () => {
+  it('should schedule and cancel prioritization jobs', async () => {
     const jobId = await prioritization.schedulePrioritization(
       '0 0 * * *',
       { knowledgeItemIds: [uuidv4()] }
@@ -609,7 +610,7 @@ describe('KnowledgePrioritization Interface', () => {
     expect(cancelResult).toBe(true);
   });
   
-  test('should generate priority statistics', async () => {
+  it('should generate priority statistics', async () => {
     // Create several mock items
     await prioritization.prioritizeKnowledge({
       knowledgeItemIds: [uuidv4(), uuidv4(), uuidv4()]
@@ -621,7 +622,7 @@ describe('KnowledgePrioritization Interface', () => {
     expect(stats.topPriorityItems).toBeDefined();
   });
   
-  test('should generate priority reports', async () => {
+  it('should generate priority reports', async () => {
     // Create several mock items
     await prioritization.prioritizeKnowledge({
       knowledgeItemIds: [uuidv4(), uuidv4()]
@@ -637,7 +638,7 @@ describe('KnowledgePrioritization Interface', () => {
     expect(textReport).toContain('Knowledge Priority Report');
   });
   
-  test('should clear priority data', async () => {
+  it('should clear priority data', async () => {
     // Create mock items
     await prioritization.prioritizeKnowledge({});
     

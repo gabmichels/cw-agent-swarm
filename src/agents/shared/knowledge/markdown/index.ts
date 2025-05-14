@@ -13,7 +13,6 @@ export type {
 
 export {
   createMarkdownManager,
-  createChloeMarkdownManager,
   getDefaultMarkdownManager,
   resetDefaultMarkdownManager
 } from '../MarkdownManagerFactory';

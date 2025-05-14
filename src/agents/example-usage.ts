@@ -4,8 +4,12 @@
  * This file demonstrates how to set up and use the refactored multi-agent system.
  * It creates a coordinator (Chloe) and a sub-agent (ResearchAgent) and shows
  * how to perform task delegation.
+ * 
+ * NOTE: This file is kept for reference only and is not used in the current implementation.
+ * The imports have been commented out since we've removed the related components.
  */
 
+/*
 import { createAgent } from './shared';
 import { ChloeCoordinator } from './chloe/ChloeCoordinator';
 import { ResearchAgent } from './subagents/ResearchAgent';
@@ -14,9 +18,10 @@ import { AgentCapabilityLevel } from './shared/base/AgentBase';
 /**
  * Set up the multi-agent system
  */
+/*
 async function setupMultiAgentSystem() {
   console.log('Setting up multi-agent system...');
-  
+
   // Create Chloe coordinator
   const chloe = new ChloeCoordinator({
     config: {
@@ -28,87 +33,73 @@ async function setupMultiAgentSystem() {
       coordinatorPrompt: 'You are Chloe, a coordinator agent who delegates tasks to specialized sub-agents.'
     }
   });
-  
-  // Initialize Chloe
-  await chloe.initialize();
-  console.log(`Chloe initialized with ID: ${chloe.getAgentId()}`);
-  
-  // Create research agent
+
+  // Create Research Agent
   const researchAgent = new ResearchAgent({
     config: {
-      agentId: 'research_agent',
-      name: 'Research Agent',
-      description: 'Specialized agent for research tasks',
+      agentId: 'researcher',
+      name: 'Researcher',
+      description: 'Specialized agent for information gathering and research tasks',
       model: 'gpt-4',
-      temperature: 0.7,
-      researchPrompt: 'You are a specialized research agent focused on gathering accurate information.'
+      temperature: 0.5,
+      researchPrompt: 'You are a specialized research agent focused on gathering accurate information.',
+      capabilities: {
+        skills: { 
+          research: AgentCapabilityLevel.ADVANCED, 
+          information_gathering: AgentCapabilityLevel.ADVANCED 
+        },
+        domains: ['research', 'information'],
+        roles: ['researcher']
+      }
     }
   });
-  
-  // Initialize research agent
+
+  // Initialize agents
+  await chloe.initialize();
   await researchAgent.initialize();
-  console.log(`Research agent initialized with ID: ${researchAgent.getAgentId()}`);
-  
-  // Get the agent coordinator from Chloe
-  const coordinator = (chloe as any).coordinator;
-  
-  // Register the research agent with the coordinator
-  coordinator.registerAgent(
-    researchAgent,
-    ['research', 'information_gathering', 'web_search'],
-    'research'
-  );
-  
-  console.log('Multi-agent system setup complete');
-  console.log('Registered agents:', Object.keys(coordinator.getRegisteredAgents()));
-  
-  return { chloe, researchAgent, coordinator };
+
+  // Register research agent with Chloe
+  await chloe.registerSubAgent(researchAgent);
+
+  return {
+    chloe,
+    researchAgent
+  };
 }
 
 /**
- * Execute a task in the multi-agent system
+ * Example of delegating a task from Chloe to a specialized agent
  */
-async function executeTask(chloe: ChloeCoordinator, task: string) {
-  console.log(`\nExecuting task: ${task}`);
+/*
+async function runExample() {
+  const { chloe, researchAgent } = await setupMultiAgentSystem();
   
-  // Process the task with Chloe
-  const response = await chloe.processMessage(task);
-  console.log(`\nResponse: ${response}`);
+  console.log('Running example task delegation...');
   
-  // This would normally be handled asynchronously through the delegation system
+  // Here Chloe would determine which agent to use and delegate appropriately
+  const researchQuery = "What were the key technological advancements in AI during 2023?";
   
-  return response;
-}
-
-/**
- * Main execution function
- */
-async function main() {
-  try {
-    // Set up the system
-    const { chloe, researchAgent } = await setupMultiAgentSystem();
-    
-    // Execute some example tasks
-    await executeTask(chloe, 'What is the latest news about artificial intelligence?');
-    await executeTask(chloe, 'Create a plan for our marketing campaign.');
-    
-    // Properly shut down all agents
-    await researchAgent.shutdown();
-    await chloe.shutdown();
-    
-    console.log('System shutdown complete');
-  } catch (error) {
-    console.error('Error:', error);
-  }
+  console.log(`Delegating research task: "${researchQuery}"`);
+  
+  // Chloe determines this should go to the research agent
+  const delegationResult = await chloe.delegateTask({
+    type: 'research',
+    content: researchQuery,
+    priority: 'medium'
+  });
+  
+  console.log('Delegation result:', delegationResult);
+  
+  // Display research result
+  console.log('Research result:', delegationResult.result);
+  
+  // Shutdown agents
+  await researchAgent.shutdown();
+  await chloe.shutdown();
 }
 
 // Run the example if this file is executed directly
 if (require.main === module) {
-  main().catch(error => {
-    console.error('Fatal error:', error);
-    process.exit(1);
-  });
+  runExample().catch(console.error);
 }
-
-// Export for use in other files
-export { setupMultiAgentSystem, executeTask }; 
+*/ 

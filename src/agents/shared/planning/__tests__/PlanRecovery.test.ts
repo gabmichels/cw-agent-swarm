@@ -4,6 +4,7 @@
  * Tests to verify the PlanRecovery interface contract.
  */
 
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 import {
   PlanRecoverySystem,
@@ -599,7 +600,7 @@ describe('PlanRecovery Interface', () => {
     await recoverySystem.shutdown();
   });
   
-  test('should classify failure correctly', async () => {
+  it('should classify failure correctly', async () => {
     const classification = await recoverySystem.classifyFailure(
       'API request timeout after 30 seconds'
     );
@@ -609,7 +610,7 @@ describe('PlanRecovery Interface', () => {
     expect(classification.confidence).toBeGreaterThan(0);
   });
   
-  test('should generate standardized error response', async () => {
+  it('should generate standardized error response', async () => {
     const error = new Error('Resource database is currently unavailable');
     const response = await recoverySystem.generateStandardErrorResponse(error, {
       requestId: 'req-123',
@@ -626,7 +627,7 @@ describe('PlanRecovery Interface', () => {
     expect(response.suggestedActions).toContain(PlanRecoveryActionType.RETRY);
   });
   
-  test('should record failure and get recovery actions', async () => {
+  it('should record failure and get recovery actions', async () => {
     // Record a failure
     const failureId = await recoverySystem.recordFailure({
       planId: 'plan-123',
@@ -647,7 +648,7 @@ describe('PlanRecovery Interface', () => {
     expect(actions[0].confidence).toBeGreaterThan(0);
   });
   
-  test('should execute recovery action', async () => {
+  it('should execute recovery action', async () => {
     // Record a failure
     const failureId = await recoverySystem.recordFailure({
       planId: 'plan-123',
@@ -669,7 +670,7 @@ describe('PlanRecovery Interface', () => {
     expect(result.durationMs).toBeGreaterThan(0);
   });
   
-  test('should execute automatic recovery', async () => {
+  it('should execute automatic recovery', async () => {
     // Record a failure
     const failureId = await recoverySystem.recordFailure({
       planId: 'plan-123',
@@ -687,7 +688,7 @@ describe('PlanRecovery Interface', () => {
     expect(result.action).toBeDefined();
   });
   
-  test('should get recovery history for a plan', async () => {
+  it('should get recovery history for a plan', async () => {
     // Record a failure
     const failureId = await recoverySystem.recordFailure({
       planId: 'plan-123',
@@ -713,7 +714,7 @@ describe('PlanRecovery Interface', () => {
     expect(history[0].recoveryActions[0].action.type).toBe(PlanRecoveryActionType.RETRY);
   });
   
-  test('should get failure statistics', async () => {
+  it('should get failure statistics', async () => {
     // Record multiple failures
     const failureId1 = await recoverySystem.recordFailure({
       planId: 'plan-123',

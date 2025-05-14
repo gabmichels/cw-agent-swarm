@@ -4,6 +4,7 @@
  * Tests for the in-memory operation queue implementation.
  */
 
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { OperationQueue } from './OperationQueue';
 import { 
   OperationType, 

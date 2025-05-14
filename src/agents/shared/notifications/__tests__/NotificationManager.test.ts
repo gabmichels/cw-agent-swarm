@@ -4,6 +4,7 @@
  * Tests to verify the NotificationManager interface and DefaultNotificationManager implementation.
  */
 
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { DefaultNotificationManager } from '../DefaultNotificationManager';
 import {
   NotificationManager,
@@ -27,7 +28,7 @@ describe('NotificationManager Interface', () => {
     await notificationManager.shutdown();
   });
   
-  test('should initialize with default configuration', async () => {
+  it('should initialize with default configuration', async () => {
     const channels = await notificationManager.getChannels();
     
     expect(channels).toBeDefined();
@@ -36,7 +37,7 @@ describe('NotificationManager Interface', () => {
     expect(channels[0].enabled).toBe(true);
   });
   
-  test('should send a notification', async () => {
+  it('should send a notification', async () => {
     const notificationId = await notificationManager.sendNotification({
       title: 'Test Notification',
       content: 'This is a test notification',
@@ -59,7 +60,7 @@ describe('NotificationManager Interface', () => {
     expect(deliveredNotification?.status).toBe(NotificationStatus.DELIVERED);
   });
   
-  test('should mark notification as read', async () => {
+  it('should mark notification as read', async () => {
     const notificationId = await notificationManager.sendNotification({
       title: 'Test Notification',
       content: 'This is a test notification',
@@ -77,7 +78,7 @@ describe('NotificationManager Interface', () => {
     expect(notification?.readAt).toBeDefined();
   });
   
-  test('should get notifications with filters', async () => {
+  it('should get notifications with filters', async () => {
     // Create multiple notifications
     await notificationManager.sendNotification({
       title: 'High Priority',
@@ -130,7 +131,7 @@ describe('NotificationManager Interface', () => {
     expect(importantNotifications[0].title).toBe('High Priority');
   });
   
-  test('should get unread notification count', async () => {
+  it('should get unread notification count', async () => {
     // Create multiple notifications
     await notificationManager.sendNotification({
       title: 'For User 1',
@@ -166,7 +167,7 @@ describe('NotificationManager Interface', () => {
     expect(totalCount).toBe(3);
   });
   
-  test('should register and handle notification actions', async () => {
+  it('should register and handle notification actions', async () => {
     let actionHandled = false;
     let receivedData: Record<string, unknown> = {};
     
@@ -219,7 +220,7 @@ describe('NotificationManager Interface', () => {
     expect(receivedData.approved).toBe(true);
   });
   
-  test('should mark all notifications as read', async () => {
+  it('should mark all notifications as read', async () => {
     // Create notifications for different users
     await notificationManager.sendNotification({
       title: 'For User 1',
@@ -254,7 +255,7 @@ describe('NotificationManager Interface', () => {
     expect(user2Count).toBe(1);
   });
   
-  test('should delete notifications by filter', async () => {
+  it('should delete notifications by filter', async () => {
     // Create notifications with different priorities
     await notificationManager.sendNotification({
       title: 'High Priority',
@@ -290,7 +291,7 @@ describe('NotificationManager Interface', () => {
     expect(remainingNotifications[0].priority).toBe(NotificationPriority.HIGH);
   });
   
-  test('should get delivery statistics', async () => {
+  it('should get delivery statistics', async () => {
     // Create a notification
     const notificationId = await notificationManager.sendNotification({
       title: 'Test Statistics',
@@ -313,7 +314,7 @@ describe('NotificationManager Interface', () => {
     expect(stats[NotificationStatus.DELIVERED]).toBe(0);
   });
   
-  test('should register, enable, and disable channels', async () => {
+  it('should register, enable, and disable channels', async () => {
     // Register a new channel
     await notificationManager.registerChannel({
       type: NotificationChannel.EMAIL,

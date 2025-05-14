@@ -9,41 +9,14 @@ export async function GET() {
   try {
     console.log('Testing agent imports and initialization');
     
-    // Import the agent dynamically
-    const { ChloeAgent } = await import('../../../../agents/chloe');
-    
-    // Create a test agent instance with minimal config
-    const testAgent = new ChloeAgent({
-      config: {
-        systemPrompt: 'You are a test assistant for debugging purposes.',
-        model: 'openai/gpt-4.1-2025-04-14',
-        temperature: 0.5,
-        maxTokens: 2000
-      }
-    });
-    
-    // Check if agent instance was created correctly
-    let initializationSuccessful = false;
-    let errorMessage = null;
-    
-    try {
-      // Just initialize the agent to test imports
-      await testAgent.initialize();
-      initializationSuccessful = true;
-    } catch (error) {
-      errorMessage = error instanceof Error ? error.message : String(error);
-      console.error('Error initializing test agent:', error);
-    }
-    
     return NextResponse.json({
       success: true,
-      agentCreated: !!testAgent,
-      initializationSuccessful,
-      error: errorMessage,
+      message: "Agent system has been refactored. Use MCP system for agent creation.",
+      info: "Check the documentation for using the new Multi-Agent Control Plane.",
       timestamp: new Date().toISOString()
     });
   } catch (error) {
-    console.error('Error testing agent imports:', error);
+    console.error('Error in agent debug route:', error);
     
     return NextResponse.json({
       success: false,
