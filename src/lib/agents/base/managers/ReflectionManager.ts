@@ -722,4 +722,14 @@ export interface ReflectionManager extends BaseManager, SelfImprovement {
   deletePeriodicReflectionTask(
     taskId: string
   ): Promise<boolean>;
-} 
+}
+
+/**
+ * ReflectionManager.ts - Bridge export for Reflection Manager types
+ * 
+ * This file re-exports the ReflectionManager interface and related types
+ * to maintain compatibility across the codebase.
+ */
+
+// Re-export everything from the shared implementation
+export * from '../../../../agents/shared/base/managers/ReflectionManager.interface'; 

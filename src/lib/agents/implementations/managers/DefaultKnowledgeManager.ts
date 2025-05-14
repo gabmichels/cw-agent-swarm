@@ -14,11 +14,12 @@ import {
   KnowledgeSearchOptions,
   KnowledgeSearchResult,
   KnowledgeGap
-} from '../../../agents/base/managers/KnowledgeManager';
+} from '../../../../agents/shared/base/managers/KnowledgeManager.interface';
 import { AgentBase } from '../../../../agents/shared/base/AgentBase.interface';
-import { AbstractBaseManager, ManagerConfig } from '../../../../agents/shared/base/managers/BaseManager';
+import { AbstractBaseManager } from '../../../../agents/shared/base/managers/BaseManager';
 import { createConfigFactory } from '../../../../agents/shared/config';
 import { KnowledgeManagerConfigSchema } from '../../../../agents/shared/knowledge/config/KnowledgeManagerConfigSchema';
+import { ManagerType } from '../../../../agents/shared/base/managers/ManagerType';
 
 /**
  * Error class for knowledge-related errors
@@ -38,14 +39,14 @@ class KnowledgeError extends Error {
 /**
  * Default implementation of the KnowledgeManager interface
  */
-// @ts-ignore - This class implements KnowledgeManager with some method signature differences
 export class DefaultKnowledgeManager extends AbstractBaseManager implements KnowledgeManager {
   private knowledge: Map<string, KnowledgeEntry> = new Map();
   private gaps: Map<string, KnowledgeGap> = new Map();
   private refreshTimer: NodeJS.Timeout | null = null;
   private configFactory = createConfigFactory(KnowledgeManagerConfigSchema);
+  
   // Override config type to use specific config type
-  protected config!: KnowledgeManagerConfig & Record<string, unknown>;
+  protected config!: KnowledgeManagerConfig;
 
   /**
    * Type property accessor for compatibility with KnowledgeManager
@@ -64,7 +65,7 @@ export class DefaultKnowledgeManager extends AbstractBaseManager implements Know
   constructor(agent: AgentBase, config: Partial<KnowledgeManagerConfig> = {}) {
     super(
       `knowledge-manager-${uuidv4()}`,
-      'knowledge',
+      ManagerType.KNOWLEDGE,
       agent,
       { enabled: true }
     );
@@ -73,7 +74,7 @@ export class DefaultKnowledgeManager extends AbstractBaseManager implements Know
     this.config = this.configFactory.create({
       enabled: true,
       ...config
-    }) as KnowledgeManagerConfig & Record<string, unknown>;
+    }) as KnowledgeManagerConfig;
   }
 
   /**
@@ -84,7 +85,7 @@ export class DefaultKnowledgeManager extends AbstractBaseManager implements Know
     this.config = this.configFactory.create({
       ...this.config, 
       ...config
-    }) as KnowledgeManagerConfig & Record<string, unknown>;
+    }) as KnowledgeManagerConfig;
     
     // If auto-refresh config changed, update the timer
     if (('enableAutoRefresh' in config || 'refreshIntervalMs' in config) && this.initialized) {
@@ -481,33 +482,7 @@ export class DefaultKnowledgeManager extends AbstractBaseManager implements Know
   }
 
   /**
-   * Fill a knowledge gap
-   */
-  async fillKnowledgeGap(gapId: string, content: string): Promise<boolean> {
-    if (!this.initialized) {
-      throw new KnowledgeError(
-        'Knowledge manager not initialized',
-        'NOT_INITIALIZED'
-      );
-    }
-
-    const gap = this.gaps.get(gapId);
-    if (!gap) {
-      return false;
-    }
-    
-    // Update gap status
-    gap.status = 'filled';
-    this.gaps.set(gapId, gap);
-    
-    // In a real implementation, we'd also add the content to the knowledge base
-    // using the addKnowledgeEntry method
-    
-    return true;
-  }
-
-  /**
-   * Get a specific knowledge gap
+   * Get a knowledge gap by ID
    */
   async getKnowledgeGap(id: string): Promise<KnowledgeGap | null> {
     if (!this.initialized) {
@@ -521,155 +496,10 @@ export class DefaultKnowledgeManager extends AbstractBaseManager implements Know
   }
 
   /**
-   * Get all knowledge gaps
+   * Check if the manager is initialized
    */
-  async getKnowledgeGaps(options?: {
-    status?: KnowledgeGap['status'];
-    minImportance?: number;
-    limit?: number;
-    offset?: number;
-  }): Promise<KnowledgeGap[]> {
-    if (!this.initialized) {
-      throw new KnowledgeError(
-        'Knowledge manager not initialized',
-        'NOT_INITIALIZED'
-      );
-    }
-
-    let gaps = Array.from(this.gaps.values());
-    
-    // Apply filters
-    if (options?.status) {
-      gaps = gaps.filter(gap => gap.status === options.status);
-    }
-    
-    if (options?.minImportance !== undefined) {
-      gaps = gaps.filter(gap => gap.importance >= (options.minImportance ?? 0));
-    }
-    
-    // Apply pagination
-    const offset = options?.offset ?? 0;
-    const limit = options?.limit ?? gaps.length;
-    
-    return gaps.slice(offset, offset + limit);
-  }
-
-  /**
-   * Find relationships between knowledge entries
-   */
-  async findRelatedKnowledge(entryId: string, options?: {
-    maxResults?: number;
-    minRelevance?: number;
-  }): Promise<KnowledgeSearchResult[]> {
-    if (!this.initialized) {
-      throw new KnowledgeError(
-        'Knowledge manager not initialized',
-        'NOT_INITIALIZED'
-      );
-    }
-
-    const entry = this.knowledge.get(entryId);
-    if (!entry) {
-      return [];
-    }
-    
-    // Simple implementation - in a real system this would use semantic similarity
-    // For demonstration, we'll just use text overlap
-    const results: KnowledgeSearchResult[] = [];
-    
-    for (const otherEntry of Array.from(this.knowledge.values())) {
-      // Skip the same entry
-      if (otherEntry.id === entryId) {
-        continue;
-      }
-      
-      // Calculate similarity
-      const similarity = this.calculateSimilarity(entry.content, otherEntry.content);
-      
-      // Check minimum relevance
-      if (similarity >= (options?.minRelevance ?? 0.2)) {
-        results.push({
-          entry: otherEntry,
-          relevance: similarity
-        });
-      }
-    }
-    
-    // Sort by relevance and limit results
-    return results
-      .sort((a, b) => b.relevance - a.relevance)
-      .slice(0, options?.maxResults ?? 10);
-  }
-
-  /**
-   * Extract key insights from a set of knowledge entries
-   */
-  async extractInsights(entryIds: string[]): Promise<string[]> {
-    if (!this.initialized) {
-      throw new KnowledgeError(
-        'Knowledge manager not initialized',
-        'NOT_INITIALIZED'
-      );
-    }
-
-    // Get all entries
-    const entries = entryIds
-      .map(id => this.knowledge.get(id))
-      .filter((entry): entry is KnowledgeEntry => entry !== undefined);
-    
-    if (entries.length === 0) {
-      return [];
-    }
-    
-    // Basic implementation - in a real system this would use LLM or similar to extract insights
-    // For demonstration, just return first sentences
-    const insights = entries.map(entry => {
-      const sentences = entry.content.split(/[.!?]+/);
-      return sentences[0]?.trim() || '';
-    }).filter(Boolean);
-    
-    return Array.from(new Set(insights)); // Remove duplicates
-  }
-
-  /**
-   * Get statistics about the knowledge base
-   */
-  async getStats(): Promise<{
-    totalEntries: number;
-    entriesByCategory: Record<string, number>;
-    entriesBySource: Record<string, number>;
-    verifiedCount: number;
-    unverifiedCount: number;
-    knowledgeGaps: number;
-    lastRefreshTime?: Date;
-  }> {
-    const entries = Array.from(this.knowledge.values());
-    
-    // Count by category
-    const entriesByCategory: Record<string, number> = {};
-    for (const entry of entries) {
-      const category = entry.category || 'uncategorized';
-      entriesByCategory[category] = (entriesByCategory[category] || 0) + 1;
-    }
-    
-    // Count by source
-    const entriesBySource: Record<string, number> = {};
-    for (const entry of entries) {
-      entriesBySource[entry.source] = (entriesBySource[entry.source] || 0) + 1;
-    }
-    
-    // Count verified/unverified
-    const verifiedCount = entries.filter(entry => entry.verified).length;
-    const unverifiedCount = entries.length - verifiedCount;
-    
-    return {
-      totalEntries: entries.length,
-      entriesByCategory,
-      entriesBySource,
-      verifiedCount,
-      unverifiedCount,
-      knowledgeGaps: this.gaps.size
-    };
+  public isInitialized(): boolean {
+    return this.initialized;
   }
 
   // Private helper methods
@@ -692,7 +522,7 @@ export class DefaultKnowledgeManager extends AbstractBaseManager implements Know
   }
 
   /**
-   * Prune knowledge entries when exceeding maximum
+   * Prune knowledge entries to stay within limits
    */
   private pruneKnowledge(): void {
     const maxEntries = this.config.maxKnowledgeEntries ?? 1000;
@@ -700,39 +530,52 @@ export class DefaultKnowledgeManager extends AbstractBaseManager implements Know
       return;
     }
     
-    // Sort by confidence (lower first) and timestamp (older first)
+    // Sort entries by timestamp (oldest first)
     const entries = Array.from(this.knowledge.values())
-      .sort((a, b) => {
-        // First by confidence
-        const confidenceDiff = (a.confidence ?? 0) - (b.confidence ?? 0);
-        if (confidenceDiff !== 0) {
-          return confidenceDiff;
-        }
-        
-        // Then by date (older first)
-        return a.timestamp.getTime() - b.timestamp.getTime();
-      });
+      .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
     
-    // Remove oldest entries
-    const toRemove = entries.slice(0, this.knowledge.size - maxEntries);
-    for (const entry of toRemove) {
+    // Remove oldest entries to get back to the limit
+    const entriesToRemove = entries.slice(0, this.knowledge.size - maxEntries);
+    for (const entry of entriesToRemove) {
       this.knowledge.delete(entry.id);
     }
   }
 
   /**
-   * Calculate similarity between two strings
+   * Get knowledge manager statistics
    */
-  private calculateSimilarity(str1: string, str2: string): number {
-    const words1 = new Set(str1.toLowerCase().split(/\s+/));
-    const words2 = new Set(str2.toLowerCase().split(/\s+/));
+  private async getStats(): Promise<{
+    totalEntries: number;
+    entriesByCategory: Record<string, number>;
+    entriesBySource: Record<string, number>;
+    verifiedCount: number;
+    unverifiedCount: number;
+    knowledgeGaps: number;
+    lastRefreshTime?: Date;
+  }> {
+    const allEntries = Array.from(this.knowledge.values());
+    const verifiedEntries = allEntries.filter(entry => entry.verified);
     
-    const words1Array = Array.from(words1);
-    const words2Array = Array.from(words2);
+    // Count entries by category
+    const entriesByCategory: Record<string, number> = {};
+    for (const entry of allEntries) {
+      const category = entry.category ?? 'uncategorized';
+      entriesByCategory[category] = (entriesByCategory[category] ?? 0) + 1;
+    }
     
-    const intersection = words1Array.filter(x => words2.has(x));
-    const union = new Set([...words1Array, ...words2Array]);
+    // Count entries by source
+    const entriesBySource: Record<string, number> = {};
+    for (const entry of allEntries) {
+      entriesBySource[entry.source] = (entriesBySource[entry.source] ?? 0) + 1;
+    }
     
-    return intersection.length / union.size;
+    return {
+      totalEntries: allEntries.length,
+      entriesByCategory,
+      entriesBySource,
+      verifiedCount: verifiedEntries.length,
+      unverifiedCount: allEntries.length - verifiedEntries.length,
+      knowledgeGaps: this.gaps.size
+    };
   }
 } 

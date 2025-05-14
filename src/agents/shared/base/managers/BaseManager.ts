@@ -7,6 +7,7 @@
  */
 
 import type { AgentBase } from '../AgentBase.interface';
+import { ManagerType } from './ManagerType';
 
 /**
  * Manager configuration interface
@@ -31,7 +32,7 @@ export interface BaseManager {
   
   /**
    * Get the manager type
-   * @returns The manager type string
+   * @returns The manager type enum value
    */
   getType(): string;
   
@@ -134,7 +135,7 @@ export abstract class AbstractBaseManager extends BaseManager implements BaseMan
   /** Unique identifier for this manager instance */
   protected managerId: string;
   
-  /** Type of manager (e.g., 'memory', 'tool', 'scheduler') */
+  /** Type of manager (e.g., ManagerType.MEMORY, ManagerType.TOOL) */
   protected managerType: string;
   
   /** Manager configuration */

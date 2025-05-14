@@ -3,28 +3,29 @@ import type { DefaultSchedulerManager } from '../../../lib/agents/implementation
 import type { ManagersConfig } from './ManagersConfig.interface';
 import type { BaseManager } from './managers/BaseManager';
 import type { MemoryManager } from './managers/MemoryManager';
-import type { PlanningManager, PlanCreationOptions, PlanCreationResult, Plan, PlanExecutionResult } from '../../../lib/agents/base/managers/PlanningManager';
+import type { PlanningManager, PlanCreationOptions, PlanCreationResult, Plan, PlanExecutionResult } from './managers/PlanningManager.interface';
 import type { 
   ToolManager, 
   Tool, 
   ToolExecutionResult, 
   ToolUsageMetrics,
   ToolFallbackRule
-} from '../../../lib/agents/base/managers/ToolManager';
+} from './managers/ToolManager.interface';
 import type {
   KnowledgeManager,
   KnowledgeEntry,
   KnowledgeSearchResult,
   KnowledgeSearchOptions,
   KnowledgeGap
-} from '../../../lib/agents/base/managers/KnowledgeManager';
+} from './managers/KnowledgeManager.interface';
 import type {
   SchedulerManager,
   ScheduledTask,
   TaskCreationOptions,
   TaskCreationResult,
   TaskExecutionResult
-} from '../../../lib/agents/base/managers/SchedulerManager';
+} from './managers/SchedulerManager.interface';
+import { ManagerType } from './managers/ManagerType';
 
 export interface AgentBase {
   getAgentId(): string;
@@ -34,7 +35,7 @@ export interface AgentBase {
   initialize(): Promise<boolean>;
   shutdown(): Promise<void>;
   registerManager<T extends BaseManager>(manager: T): T;
-  getManager<T extends BaseManager>(managerType: string): T | undefined;
+  getManager<T extends BaseManager>(managerType: ManagerType): T | undefined;
   getManagers(): BaseManager[];
   isEnabled(): boolean;
   setEnabled(enabled: boolean): boolean;

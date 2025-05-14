@@ -15,123 +15,136 @@ import {
  * Schema for reflection manager configuration
  */
 export const ReflectionManagerConfigSchema: ConfigSchema<ReflectionManagerConfig & Record<string, unknown>> = {
-  enabled: {
-    type: 'boolean',
-    required: true,
-    default: true,
-    description: 'Whether the reflection manager is enabled'
-  },
-  reflectionFrequency: {
-    type: 'object',
-    properties: {
-      interval: {
-        type: 'number',
-        min: 1000,             // Minimum 1 second
-        max: 86400000,         // Maximum 24 hours
-        default: 3600000,      // Default 1 hour
-        description: 'How often to perform reflections (in ms)'
+  type: 'object',
+  properties: {
+    // Base manager options
+    enabled: {
+      type: 'boolean',
+      description: 'Whether this manager is enabled',
+      default: true
+    },
+    
+    // Reflection depth options
+    reflectionDepth: {
+      type: 'string',
+      enum: ['light', 'standard', 'deep'],
+      description: 'Depth/thoroughness level for reflections',
+      default: 'standard'
+    },
+    
+    // Reflection frequency settings
+    reflectionFrequency: {
+      type: 'object',
+      description: 'Settings for reflection frequency',
+      properties: {
+        interval: {
+          type: 'number',
+          description: 'How often to perform reflections (in ms)',
+          default: 3600000 // 1 hour
+        },
+        afterEachInteraction: {
+          type: 'boolean',
+          description: 'Whether to reflect after each interaction',
+          default: false
+        },
+        afterErrors: {
+          type: 'boolean',
+          description: 'Whether to reflect after errors',
+          default: true
+        },
+        minIntervalMs: {
+          type: 'number',
+          description: 'Minimum time between reflections (in ms)',
+          default: 60000 // 1 minute
+        }
       },
-      afterEachInteraction: {
-        type: 'boolean',
-        default: false,
-        description: 'Whether to reflect after each interaction'
-      },
-      afterErrors: {
-        type: 'boolean',
-        default: true,
-        description: 'Whether to reflect after errors'
-      },
-      minIntervalMs: {
-        type: 'number',
-        min: 1000,            // Minimum 1 second
-        max: 86400000,        // Maximum 24 hours
-        default: 60000,       // Default 1 minute
-        description: 'Minimum time between reflections in milliseconds'
+      default: {
+        interval: 3600000,
+        afterEachInteraction: false,
+        afterErrors: true,
+        minIntervalMs: 60000
       }
     },
-    default: {
-      interval: 3600000,
-      afterEachInteraction: false,
-      afterErrors: true,
-      minIntervalMs: 60000
+    
+    // Adaptive behavior options
+    adaptiveBehavior: {
+      type: 'boolean',
+      description: 'Whether to adapt behavior based on reflections',
+      default: true
     },
-    description: 'Reflection frequency settings'
-  },
-  reflectionDepth: {
-    type: 'enum',
-    enum: ['light', 'standard', 'deep'],
-    default: 'standard',
-    description: 'Reflection depth/thoroughness level'
-  },
-  maxHistoryItems: {
-    type: 'number',
-    min: 1,
-    max: 1000,
-    default: 100,
-    description: 'Maximum reflection history items to maintain'
-  },
-  adaptiveBehavior: {
-    type: 'boolean',
-    default: true,
-    description: 'Whether to adapt behavior based on reflections'
-  },
-  adaptationRate: {
-    type: 'number',
-    min: 0,
-    max: 1,
-    default: 0.3,
-    description: 'How aggressively to change behavior based on reflections (0-1)'
-  },
-  metricsToTrack: {
-    type: 'array',
-    items: {
-      type: 'enum',
-      enum: ['success', 'efficiency', 'satisfaction', 'errors', 'custom']
+    
+    adaptationRate: {
+      type: 'number',
+      description: 'How aggressively to change behavior based on reflections (0-1)',
+      minimum: 0,
+      maximum: 1,
+      default: 0.3
     },
-    default: ['success', 'efficiency', 'satisfaction', 'errors'],
-    description: 'Metrics to track for reflection'
-  },
-  improvementGoals: {
-    type: 'array',
-    items: {
-      type: 'string'
+    
+    // Storage options
+    persistReflections: {
+      type: 'boolean',
+      description: 'Whether to persist reflections across sessions',
+      default: true
     },
-    default: [],
-    description: 'Self-improvement goals'
-  },
-  persistReflections: {
-    type: 'boolean',
-    default: true,
-    description: 'Whether to persist reflections across sessions'
-  },
-  enablePeriodicReflections: {
-    type: 'boolean',
-    default: true,
-    description: 'Whether to enable periodic reflections'
-  },
-  periodicReflectionSchedule: {
-    type: 'string',
-    default: '0 0 * * *', // Default: Every day at midnight (cron expression)
-    description: 'Default periodic reflection schedule (cron expression or interval)'
-  },
-  enableSelfImprovement: {
-    type: 'boolean',
-    default: true,
-    description: 'Whether to enable self-improvement capabilities'
-  },
-  defaultImprovementAreas: {
-    type: 'array',
-    items: {
-      type: 'enum',
-      enum: Object.values(ImprovementAreaType)
+    
+    maxHistoryItems: {
+      type: 'number',
+      description: 'Maximum reflection history items to maintain',
+      default: 100
     },
-    default: [
-      ImprovementAreaType.KNOWLEDGE,
-      ImprovementAreaType.SKILL,
-      ImprovementAreaType.PROCESS
-    ],
-    description: 'Default improvement areas to focus on'
-  }
+    
+    // Metrics to track
+    metricsToTrack: {
+      type: 'array',
+      description: 'Metrics to track for reflection',
+      items: {
+        type: 'string'
+      },
+      default: ['success', 'efficiency', 'satisfaction', 'errors']
+    },
+    
+    // Improvement goals
+    improvementGoals: {
+      type: 'array',
+      description: 'Self-improvement goals',
+      items: {
+        type: 'string'
+      },
+      default: []
+    },
+    
+    // Enhanced options
+    enablePeriodicReflections: {
+      type: 'boolean',
+      description: 'Whether to enable periodic reflections',
+      default: false
+    },
+    
+    periodicReflectionSchedule: {
+      type: 'string',
+      description: 'Default periodic reflection schedule (cron expression or interval)',
+      default: '0 0 * * *' // Daily at midnight
+    },
+    
+    enableSelfImprovement: {
+      type: 'boolean',
+      description: 'Whether to enable self-improvement capabilities',
+      default: false
+    },
+    
+    defaultImprovementAreas: {
+      type: 'array',
+      description: 'Default improvement areas to focus on',
+      items: {
+        type: 'string',
+        enum: ['knowledge', 'skill', 'strategy', 'behavior', 'tool', 'process']
+      },
+      default: ['knowledge', 'skill', 'behavior']
+    }
+  },
+  required: ['enabled'],
+  additionalProperties: true
 };
 
 /**

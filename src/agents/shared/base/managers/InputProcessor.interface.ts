@@ -1,22 +1,134 @@
 /**
- * InputProcessor.ts - Bridge export for Input Processor types
+ * InputProcessor.interface.ts - Input Processor Interface
  * 
- * This file re-exports the InputProcessor interface and related types
- * to maintain compatibility across the codebase.
+ * This file defines the input processor interface that handles processing
+ * and normalization of inputs to an agent. It extends the base manager interface
+ * with input processing specific functionality.
  */
 
-// Re-export everything from the shared implementation
-export * from '../../../../agents/shared/base/managers/InputProcessor.interface';
+import { BaseManager, ManagerConfig } from './BaseManager';
 
 /**
- * Input Processor Interface
- * 
- * This file defines the input processor interface that provides input processing services
- * for agents. It extends the base manager interface with input-specific functionality.
+ * Input data structure
  */
+export interface InputData {
+  /** Unique identifier for this input */
+  id: string;
+  
+  /** Raw input content */
+  raw: string | Record<string, unknown>;
+  
+  /** When this input was received */
+  timestamp: Date;
+  
+  /** Source of the input */
+  source: string;
+  
+  /** Content type of the input */
+  contentType: string;
+  
+  /** Metadata associated with this input */
+  metadata?: Record<string, unknown>;
+}
 
-import type { BaseManager, ManagerConfig } from './BaseManager';
-import type { AgentBase } from '../AgentBase';
+/**
+ * Processed input interface - represents the result of processing raw input
+ */
+export interface ProcessedInput {
+  /** Original input message */
+  originalMessage: InputMessage;
+  
+  /** Processed content */
+  processedContent: string;
+  
+  /** Detected language */
+  detectedLanguage?: string;
+  
+  /** Confidence of language detection (0-1) */
+  languageConfidence?: number;
+  
+  /** Input tokens (if tokenization was applied) */
+  tokens?: string[];
+  
+  /** Extracted entities */
+  entities?: Array<{
+    text: string;
+    type: string;
+    startPos: number;
+    endPos: number;
+    metadata?: Record<string, unknown>;
+  }>;
+  
+  /** Input sentiment analysis */
+  sentiment?: {
+    score: number; // -1 to 1
+    magnitude?: number;
+    label?: 'positive' | 'negative' | 'neutral';
+  };
+  
+  /** Content safety analysis */
+  contentSafety?: {
+    safe: boolean;
+    categories?: Record<string, number>; // Category to confidence mapping
+    flaggedContent?: Array<{
+      content: string;
+      category: string;
+      confidence: number;
+    }>;
+  };
+  
+  /** User intent classification */
+  intent?: {
+    primary: string;
+    confidence: number;
+    secondary?: string[];
+  };
+  
+  /** Processing metadata */
+  processingMetadata: {
+    /** Time taken to process in milliseconds */
+    processingTimeMs: number;
+    
+    /** Preprocessing steps applied */
+    appliedSteps: string[];
+    
+    /** Whether content was modified during processing */
+    contentModified: boolean;
+    
+    /** Errors encountered during processing */
+    errors?: Array<{
+      step: string;
+      message: string;
+      severity: 'warning' | 'error';
+    }>;
+  };
+}
+
+/**
+ * Input validation result
+ */
+export interface InputValidationResult {
+  /** Whether the input is valid */
+  valid: boolean;
+  
+  /** Whether the issues are blockers or just warnings */
+  hasBlockingIssues: boolean;
+  
+  /** Validation issues found */
+  issues?: Array<{
+    code: string;
+    message: string;
+    severity: 'info' | 'warning' | 'error';
+    metadata?: Record<string, unknown>;
+  }>;
+  
+  /** Suggested corrections */
+  suggestions?: Array<{
+    originalText: string;
+    suggestedText: string;
+    reason: string;
+  }>;
+}
 
 /**
  * Configuration options for input processors
@@ -118,79 +230,6 @@ export interface InputMessage {
 }
 
 /**
- * Processed input interface - represents the result of processing raw input
- */
-export interface ProcessedInput {
-  /** Original input message */
-  originalMessage: InputMessage;
-  
-  /** Processed content */
-  processedContent: string;
-  
-  /** Detected language */
-  detectedLanguage?: string;
-  
-  /** Confidence of language detection (0-1) */
-  languageConfidence?: number;
-  
-  /** Input tokens (if tokenization was applied) */
-  tokens?: string[];
-  
-  /** Extracted entities */
-  entities?: Array<{
-    text: string;
-    type: string;
-    startPos: number;
-    endPos: number;
-    metadata?: Record<string, unknown>;
-  }>;
-  
-  /** Input sentiment analysis */
-  sentiment?: {
-    score: number; // -1 to 1
-    magnitude?: number;
-    label?: 'positive' | 'negative' | 'neutral';
-  };
-  
-  /** Content safety analysis */
-  contentSafety?: {
-    safe: boolean;
-    categories?: Record<string, number>; // Category to confidence mapping
-    flaggedContent?: Array<{
-      content: string;
-      category: string;
-      confidence: number;
-    }>;
-  };
-  
-  /** User intent classification */
-  intent?: {
-    primary: string;
-    confidence: number;
-    secondary?: string[];
-  };
-  
-  /** Processing metadata */
-  processingMetadata: {
-    /** Time taken to process in milliseconds */
-    processingTimeMs: number;
-    
-    /** Preprocessing steps applied */
-    appliedSteps: string[];
-    
-    /** Whether content was modified during processing */
-    contentModified: boolean;
-    
-    /** Errors encountered during processing */
-    errors?: Array<{
-      step: string;
-      message: string;
-      severity: 'warning' | 'error';
-    }>;
-  };
-}
-
-/**
  * Input preprocessing step interface
  */
 export interface InputPreprocessor {
@@ -211,32 +250,6 @@ export interface InputPreprocessor {
   
   /** Execution order (lower numbers run first) */
   order: number;
-}
-
-/**
- * Input validation result interface
- */
-export interface InputValidationResult {
-  /** Whether the input is valid */
-  valid: boolean;
-  
-  /** Validation issues found */
-  issues?: Array<{
-    code: string;
-    message: string;
-    severity: 'info' | 'warning' | 'error';
-    metadata?: Record<string, unknown>;
-  }>;
-  
-  /** Suggested corrections */
-  suggestions?: Array<{
-    originalText: string;
-    suggestedText: string;
-    reason: string;
-  }>;
-  
-  /** Whether the issues are blockers or just warnings */
-  hasBlockingIssues: boolean;
 }
 
 /**

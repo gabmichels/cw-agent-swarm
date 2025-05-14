@@ -17,11 +17,12 @@ import {
   ReflectionStrategy,
   KnowledgeGap,
   PerformanceMetrics
-} from '../../../../lib/agents/base/managers/ReflectionManager';
+} from '../../base/managers/ReflectionManager.interface';
 import { AgentBase } from '../../base/AgentBase.interface';
-import { AbstractBaseManager } from '../../../../lib/agents/base/managers/BaseManager';
+import { AbstractBaseManager } from '../../base/managers/BaseManager';
 import { createConfigFactory } from '../../config';
 import { ReflectionManagerConfigSchema } from '../config/ReflectionManagerConfigSchema';
+import { ManagerType } from '../../base/managers/ManagerType';
 
 /**
  * Error class for reflection-related errors
@@ -41,7 +42,6 @@ class ReflectionError extends Error {
 /**
  * Default implementation of the ReflectionManager interface
  */
-// @ts-ignore - This class implements ReflectionManager with some method signature differences
 export class DefaultReflectionManager extends AbstractBaseManager implements ReflectionManager {
   // Private members specific to this manager
   private configFactory = createConfigFactory(ReflectionManagerConfigSchema);
@@ -52,14 +52,6 @@ export class DefaultReflectionManager extends AbstractBaseManager implements Ref
   
   // Override config type to use specific config type
   protected config!: ReflectionManagerConfig & Record<string, unknown>;
-
-  /**
-   * Type property accessor for compatibility with ReflectionManager
-   * Use managerType property to avoid infinite recursion
-   */
-  get type(): string {
-    return this.managerType;
-  }
 
   /**
    * Create a new DefaultReflectionManager instance
@@ -73,16 +65,34 @@ export class DefaultReflectionManager extends AbstractBaseManager implements Ref
   ) {
     super(
       `reflection-manager-${uuidv4()}`,
-      'reflection',
+      ManagerType.REFLECTION,
       agent,
       { enabled: true }
     );
     
-    // Validate and apply configuration with defaults
-    this.config = this.configFactory.create({
+    // Create default configuration with required fields
+    const defaultConfig: ReflectionManagerConfig & Record<string, unknown> = {
       enabled: true,
+      reflectionDepth: 'standard',
+      adaptiveBehavior: true,
+      adaptationRate: 0.3,
+      reflectionFrequency: {
+        minIntervalMs: 60000, // 1 minute
+        interval: 3600000, // 1 hour
+        afterEachInteraction: false,
+        afterErrors: true
+      },
+      persistReflections: true,
+      maxHistoryItems: 100,
+      improvementGoals: [],
+      metricsToTrack: ['success', 'efficiency', 'satisfaction', 'errors']
+    };
+    
+    // Merge with provided config
+    this.config = {
+      ...defaultConfig,
       ...config
-    }) as ReflectionManagerConfig & Record<string, unknown>;
+    };
     
     // Initialize metrics
     this.initializeMetrics();
@@ -103,13 +113,12 @@ export class DefaultReflectionManager extends AbstractBaseManager implements Ref
   /**
    * Update the manager configuration
    */
-  // @ts-ignore - Override BaseManager updateConfig() method with specific type
   updateConfig<T extends ReflectionManagerConfig>(config: Partial<T>): T {
-    // Validate and merge configuration
-    this.config = this.configFactory.create({
-      ...this.config, 
+    // Merge with current config
+    this.config = {
+      ...this.config,
       ...config
-    }) as ReflectionManagerConfig & Record<string, unknown>;
+    };
     
     // Reinitialize metrics if they changed
     if ('metricsToTrack' in config) {
@@ -159,8 +168,7 @@ export class DefaultReflectionManager extends AbstractBaseManager implements Ref
   /**
    * Reset the manager to its initial state
    */
-  // @ts-ignore - Override BaseManager reset() method return type
-  async reset(): Promise<void> {
+  async reset(): Promise<boolean> {
     console.log(`[${this.managerId}] Resetting ${this.managerType} manager`);
     
     // Clear all reflections and insights
@@ -170,6 +178,8 @@ export class DefaultReflectionManager extends AbstractBaseManager implements Ref
     
     // Reset metrics
     this.initializeMetrics();
+    
+    return true;
   }
 
   /**
@@ -807,7 +817,7 @@ export class DefaultReflectionManager extends AbstractBaseManager implements Ref
   /**
    * Get statistics about the reflection process
    */
-  async getStats(): Promise<any> {
+  async getStats(): Promise<Record<string, unknown>> {
     return {
       totalReflections: this.reflections.size,
       reflectionsByType: {},

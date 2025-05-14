@@ -6,7 +6,7 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
-import { AbstractBaseManager } from '../../../../lib/agents/base/managers/BaseManager';
+import { AbstractBaseManager } from '../../base/managers/BaseManager';
 import { 
   OutputProcessor,
   OutputProcessorConfig,
@@ -15,17 +15,17 @@ import {
   OutputProcessorStep,
   OutputValidationResult,
   OutputTemplate
-} from '../../../../lib/agents/base/managers/OutputProcessor';
+} from '../../base/managers/OutputProcessor.interface';
 import { AgentBase } from '../../base/AgentBase.interface';
 import { createConfigFactory } from '../../config';
 import { OutputProcessorConfigSchema } from '../config/OutputProcessorConfigSchema';
+import { ManagerType } from '../../base/managers/ManagerType';
 
 /**
  * Default implementation of the OutputProcessor interface
  */
-// @ts-ignore - This class implements OutputProcessor with some method signature differences
 export class DefaultOutputProcessor extends AbstractBaseManager implements OutputProcessor {
-  protected config: OutputProcessorConfig & Record<string, unknown>;
+  protected config: OutputProcessorConfig;
   private processorSteps: Map<string, OutputProcessorStep> = new Map();
   private history: ProcessedOutput[] = [];
   private configFactory = createConfigFactory(OutputProcessorConfigSchema);
@@ -50,7 +50,7 @@ export class DefaultOutputProcessor extends AbstractBaseManager implements Outpu
   ) {
     super(
       `output-processor-${uuidv4()}`,
-      'output-processor',
+      ManagerType.OUTPUT,
       agent,
       { enabled: true }
     );
@@ -59,7 +59,7 @@ export class DefaultOutputProcessor extends AbstractBaseManager implements Outpu
     this.config = this.configFactory.create({
       enabled: true,
       ...config
-    }) as OutputProcessorConfig & Record<string, unknown>;
+    }) as OutputProcessorConfig;
     
     // Initialize default processor steps based on configuration
     this.initializeDefaultProcessorSteps();
@@ -93,7 +93,7 @@ export class DefaultOutputProcessor extends AbstractBaseManager implements Outpu
     this.config = this.configFactory.create({
       ...this.config, 
       ...config
-    }) as OutputProcessorConfig & Record<string, unknown>;
+    }) as OutputProcessorConfig;
     
     // Reinitialize processor steps with new configuration
     if ('processingSteps' in config) {
@@ -168,8 +168,7 @@ export class DefaultOutputProcessor extends AbstractBaseManager implements Outpu
   /**
    * Reset the manager
    */
-  // @ts-ignore - Override BaseManager reset() method return type
-  async reset(): Promise<void> {
+  async reset(): Promise<boolean> {
     // Clear history
     this.history = [];
     
@@ -196,6 +195,8 @@ export class DefaultOutputProcessor extends AbstractBaseManager implements Outpu
         });
       }
     }
+    
+    return true;
   }
   
   /**
@@ -498,11 +499,10 @@ export class DefaultOutputProcessor extends AbstractBaseManager implements Outpu
       
       if (matches) {
         for (const match of matches) {
-          output.moderationResult.flaggedContent!.push({
+          output.moderationResult.flaggedContent.push({
             content: match,
             category,
-            confidence,
-            action: level === 'high' ? 'removed' : 'flagged'
+            confidence
           });
           
           if (confidence > overallScore) {
@@ -517,10 +517,7 @@ export class DefaultOutputProcessor extends AbstractBaseManager implements Outpu
       }
     }
     
-    // Set overall score
-    if (output.moderationResult.flaggedContent!.length > 0) {
-      output.moderationResult.score = overallScore;
-    }
+    // We don't set score since it's not in the interface
   }
   
   /**
@@ -629,7 +626,6 @@ export class DefaultOutputProcessor extends AbstractBaseManager implements Outpu
     // Create the message
     const message: OutputMessage = {
       id: messageId,
-      agentId: this.agent.getAgentId(),
       recipientId,
       timestamp: new Date(),
       content,
@@ -646,10 +642,7 @@ export class DefaultOutputProcessor extends AbstractBaseManager implements Outpu
         data: attachment.data,
         metadata: {}
       })),
-      tags: options?.tags,
-      streaming: this.config.enableStreaming ? {
-        enabled: true
-      } : undefined
+      tags: options?.tags
     };
     
     // If metadata is enabled, add it
@@ -660,7 +653,8 @@ export class DefaultOutputProcessor extends AbstractBaseManager implements Outpu
         format: modality,
         config: {
           processingSteps: this.config.processingSteps
-        }
+        },
+        agentId: this.agent.getAgentId() // Store agent ID in metadata instead
       };
     }
     
@@ -721,30 +715,21 @@ export class DefaultOutputProcessor extends AbstractBaseManager implements Outpu
       throw new Error('Output processor is disabled');
     }
     
-    // Update validation result to match interface
-    const result = {
+    // Initialize validation result with required fields
+    const result: OutputValidationResult = {
       valid: true,
-      // Add any other required fields from the interface
-    } as OutputValidationResult;
-    
-    const validationErrors: Array<{
-      code: string;
-      message: string;
-      severity: 'error' | 'warning';
-    }> = [];
-    
-    const validationWarnings: Array<{
-      code: string;
-      message: string;
-      severity: 'warning';
-    }> = [];
+      hasBlockingIssues: false,
+      issues: [] // Always initialize issues as an array
+    };
     
     // Size validation
-    if (this.config.maxOutputSizeBytes && Buffer.byteLength(content, 'utf8') > this.config.maxOutputSizeBytes) {
+    const maxOutputSizeBytes = this.config.maxOutputSizeBytes as number | undefined;
+    if (maxOutputSizeBytes && Buffer.byteLength(content, 'utf8') > maxOutputSizeBytes) {
       result.valid = false;
-      validationErrors.push({
+      result.hasBlockingIssues = true;
+      result.issues.push({
         code: 'size_exceeded',
-        message: `Output exceeds maximum size of ${this.config.maxOutputSizeBytes} bytes`,
+        message: `Output exceeds maximum size of ${maxOutputSizeBytes} bytes`,
         severity: 'error'
       });
     }
@@ -756,7 +741,8 @@ export class DefaultOutputProcessor extends AbstractBaseManager implements Outpu
         const codeBlockMatches = content.match(/```/g);
         if (codeBlockMatches && codeBlockMatches.length % 2 !== 0) {
           result.valid = false;
-          validationErrors.push({
+          result.hasBlockingIssues = true;
+          result.issues.push({
             code: 'unclosed_code_block',
             message: 'Markdown contains unclosed code blocks',
             severity: 'error'
@@ -770,7 +756,8 @@ export class DefaultOutputProcessor extends AbstractBaseManager implements Outpu
           JSON.parse(content);
         } catch (error) {
           result.valid = false;
-          validationErrors.push({
+          result.hasBlockingIssues = true;
+          result.issues.push({
             code: 'invalid_json',
             message: 'Invalid JSON format',
             severity: 'error'
@@ -791,7 +778,8 @@ export class DefaultOutputProcessor extends AbstractBaseManager implements Outpu
         
         if (unclosedTags.length > 0) {
           result.valid = false;
-          validationErrors.push({
+          result.hasBlockingIssues = true;
+          result.issues.push({
             code: 'unclosed_html_tags',
             message: `HTML contains unclosed tags: ${unclosedTags.join(', ')}`,
             severity: 'error'
@@ -808,7 +796,8 @@ export class DefaultOutputProcessor extends AbstractBaseManager implements Outpu
             const lengthParams = rule.params as { min?: number; max?: number } || {};
             if (lengthParams.min !== undefined && content.length < lengthParams.min) {
               result.valid = false;
-              validationErrors.push({
+              result.hasBlockingIssues = true;
+              result.issues.push({
                 code: 'length_too_short',
                 message: `Output is too short (minimum ${lengthParams.min} characters)`,
                 severity: 'error'
@@ -816,7 +805,8 @@ export class DefaultOutputProcessor extends AbstractBaseManager implements Outpu
             }
             if (lengthParams.max !== undefined && content.length > lengthParams.max) {
               result.valid = false;
-              validationErrors.push({
+              result.hasBlockingIssues = true;
+              result.issues.push({
                 code: 'length_too_long',
                 message: `Output is too long (maximum ${lengthParams.max} characters)`,
                 severity: 'error'
@@ -825,10 +815,11 @@ export class DefaultOutputProcessor extends AbstractBaseManager implements Outpu
             break;
             
           case 'pattern':
-            const patternParams = rule.params as { pattern: string; message: string } || {};
+            const patternParams = (rule.params as { pattern: string; message: string }) || { pattern: '', message: '' };
             if (patternParams.pattern && !new RegExp(patternParams.pattern).test(content)) {
               result.valid = false;
-              validationErrors.push({
+              result.hasBlockingIssues = true;
+              result.issues.push({
                 code: 'pattern_mismatch',
                 message: patternParams.message || 'Output does not match required pattern',
                 severity: 'error'
@@ -838,10 +829,6 @@ export class DefaultOutputProcessor extends AbstractBaseManager implements Outpu
         }
       }
     }
-    
-    // Add validation results
-    (result as any).errors = validationErrors;
-    (result as any).warnings = validationWarnings;
     
     return result;
   }
@@ -1008,7 +995,7 @@ export class DefaultOutputProcessor extends AbstractBaseManager implements Outpu
     try {
       // Parse and stringify to format the JSON
       const parsed = JSON.parse(content);
-      const indentSize = this.config.formatting?.indentSize || 2;
+      const indentSize = options?.indentSize as number || 2; // Use options or default to 2
       return JSON.stringify(parsed, null, indentSize);
     } catch (error) {
       // If parsing fails, return the original content
@@ -1070,14 +1057,14 @@ export class DefaultOutputProcessor extends AbstractBaseManager implements Outpu
     
     return {
       id: messageId,
-      agentId: this.agent.getAgentId(),
       recipientId: variables.recipientId as string || 'user',
       timestamp: new Date(),
       content,
       modality: format || template.modality,
       metadata: {
         templateId: template.id,
-        generator: this.managerId
+        generator: this.managerId,
+        agentId: this.agent.getAgentId() // Store agent ID in metadata
       }
     };
   }
@@ -1268,9 +1255,12 @@ export class DefaultOutputProcessor extends AbstractBaseManager implements Outpu
       };
     }
     
-    // Calculate streaming stats if there are any streamed outputs
+    // Calculate streaming stats (if any)
+    // Since streaming isn't in the OutputMessage type, check metadata instead
     const streamedOutputs = this.history.filter(item => 
-      item.originalMessage.streaming && item.originalMessage.streaming.enabled);
+      item.originalMessage.metadata && 
+      (item.originalMessage.metadata as any).streaming && 
+      (item.originalMessage.metadata as any).streaming.enabled);
     
     let streamingStats;
     if (streamedOutputs.length > 0) {

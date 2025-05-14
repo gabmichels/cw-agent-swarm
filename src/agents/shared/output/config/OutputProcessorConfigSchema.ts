@@ -96,29 +96,29 @@ export const OutputProcessorConfigSchema: ConfigSchema<OutputProcessorConfig & R
         default: true,
         description: 'Auto-format code blocks'
       },
-      codeBlockStyle: {
-        type: 'string',
-        default: 'markdown',
-        description: 'Code block style (markdown, html, etc.)'
-      },
-      syntaxHighlighting: {
+      smartFormatting: {
         type: 'boolean',
         default: true,
-        description: 'Whether to include syntax highlighting'
+        description: 'Whether to apply smart formatting'
       },
-      indentSize: {
+      maxLength: {
         type: 'number',
-        min: 1,
-        max: 8,
-        default: 2,
-        description: 'Default indent size'
+        min: 100,
+        max: 100000,
+        default: 10000,
+        description: 'Maximum output length'
+      },
+      encoding: {
+        type: 'string',
+        default: 'utf-8',
+        description: 'Character encoding to use'
       }
     },
     default: {
       formatCodeBlocks: true,
-      codeBlockStyle: 'markdown',
-      syntaxHighlighting: true,
-      indentSize: 2
+      smartFormatting: true,
+      maxLength: 10000,
+      encoding: 'utf-8'
     },
     description: 'Formatting options'
   }
@@ -141,9 +141,9 @@ export const OutputProcessorPresets = {
     maxOutputSizeBytes: 10485760,   // 10MB
     formatting: {
       formatCodeBlocks: true,
-      codeBlockStyle: 'markdown',
-      syntaxHighlighting: true,
-      indentSize: 2
+      smartFormatting: true,
+      maxLength: 10000,
+      encoding: 'utf-8'
     }
   },
   
@@ -160,9 +160,9 @@ export const OutputProcessorPresets = {
     maxOutputSizeBytes: 524288,     // 512KB
     formatting: {
       formatCodeBlocks: true,
-      codeBlockStyle: 'markdown',
-      syntaxHighlighting: true,
-      indentSize: 2
+      smartFormatting: true,
+      maxLength: 10000,
+      encoding: 'utf-8'
     }
   },
   
@@ -179,9 +179,9 @@ export const OutputProcessorPresets = {
     maxOutputSizeBytes: 262144,     // 256KB
     formatting: {
       formatCodeBlocks: false,
-      codeBlockStyle: 'markdown',
-      syntaxHighlighting: false,
-      indentSize: 2
+      smartFormatting: false,
+      maxLength: 10000,
+      encoding: 'utf-8'
     }
   },
   
@@ -198,9 +198,9 @@ export const OutputProcessorPresets = {
     maxOutputSizeBytes: 1048576,    // 1MB
     formatting: {
       formatCodeBlocks: true,
-      codeBlockStyle: 'json',
-      syntaxHighlighting: true,
-      indentSize: 2
+      smartFormatting: true,
+      maxLength: 10000,
+      encoding: 'utf-8'
     }
   },
   
@@ -217,9 +217,9 @@ export const OutputProcessorPresets = {
     maxOutputSizeBytes: 524288,     // 512KB
     formatting: {
       formatCodeBlocks: true,
-      codeBlockStyle: 'markdown',
-      syntaxHighlighting: true,
-      indentSize: 2
+      smartFormatting: true,
+      maxLength: 10000,
+      encoding: 'utf-8'
     }
   }
 };
@@ -242,8 +242,8 @@ export function createOutputProcessorConfig(
     ? OutputProcessorPresets[preset as OutputProcessorPresetKey]
     : preset;
   
-  // Merge with base defaults and overrides
-  return {
+  // Define base defaults
+  const baseDefaults = {
     enabled: true,
     supportedModalities: ['text', 'markdown'],
     defaultFormat: 'markdown',
@@ -258,10 +258,15 @@ export function createOutputProcessorConfig(
     maxOutputSizeBytes: 1048576,    // 1MB
     formatting: {
       formatCodeBlocks: true,
-      codeBlockStyle: 'markdown',
-      syntaxHighlighting: true,
-      indentSize: 2
-    },
+      smartFormatting: true,
+      maxLength: 10000,
+      encoding: 'utf-8'
+    }
+  };
+  
+  // Merge in this order: baseDefaults, presetConfig, overrides
+  return {
+    ...baseDefaults,
     ...presetConfig,
     ...overrides
   } as OutputProcessorConfig;

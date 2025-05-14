@@ -1,8 +1,8 @@
 /**
- * Self-Improvement Interface
+ * SelfImprovement.interface.ts
  * 
- * This file defines interfaces for self-improvement capabilities
- * to be implemented by reflection managers.
+ * Defines interfaces and types for self-improvement capabilities
+ * used by enhanced reflection managers.
  */
 
 /**
@@ -11,10 +11,10 @@
 export enum ImprovementAreaType {
   KNOWLEDGE = 'knowledge',
   SKILL = 'skill',
-  PROCESS = 'process',
-  PERFORMANCE = 'performance',
   STRATEGY = 'strategy',
-  COMMUNICATION = 'communication'
+  BEHAVIOR = 'behavior',
+  TOOL = 'tool',
+  PROCESS = 'process'
 }
 
 /**
@@ -31,67 +31,68 @@ export enum ImprovementPriority {
  * Learning outcome types
  */
 export enum LearningOutcomeType {
-  NEW_KNOWLEDGE = 'new_knowledge',
-  REFINED_SKILL = 'refined_skill',
-  IMPROVED_PROCESS = 'improved_process',
-  CORRECTED_MISUNDERSTANDING = 'corrected_misunderstanding',
-  ENHANCED_CAPABILITY = 'enhanced_capability'
+  KNOWLEDGE = 'knowledge',
+  SKILL = 'skill',
+  INSIGHT = 'insight',
+  PATTERN = 'pattern',
+  STRATEGY = 'strategy'
 }
 
 /**
- * Self-improvement plan
+ * Self-improvement plan structure
  */
 export interface SelfImprovementPlan {
-  /** Unique ID for the plan */
+  /** Unique identifier */
   id: string;
   
   /** Human-readable name */
   name: string;
   
-  /** When the plan was created */
+  /** Detailed description */
+  description: string;
+  
+  /** When this plan was created */
   createdAt: Date;
   
-  /** When the plan was last updated */
+  /** When this plan was last updated */
   updatedAt: Date;
   
-  /** Areas targeted for improvement */
+  /** When this plan starts */
+  startDate: Date;
+  
+  /** When this plan ends */
+  endDate: Date;
+  
+  /** Reflection IDs that led to this plan */
+  sourceReflectionIds: string[];
+  
+  /** Target improvement areas */
   targetAreas: ImprovementAreaType[];
   
-  /** Overall priority of the plan */
+  /** Current status */
+  status: 'active' | 'paused' | 'completed' | 'abandoned';
+  
+  /** Priority level */
   priority: ImprovementPriority;
   
-  /** Specific improvements to make */
-  improvements: {
-    area: ImprovementAreaType;
-    description: string;
-    priority: ImprovementPriority;
-    expectedOutcome: string;
-  }[];
+  /** Current progress (0-1) */
+  progress: number;
   
-  /** Success metrics to track */
+  /** Metrics used to measure success */
   successMetrics: string[];
   
-  /** Plan status */
-  status: 'draft' | 'active' | 'completed' | 'abandoned';
-  
-  /** Expected completion timeline in days */
-  timelineInDays: number;
-  
-  /** Plan source (what prompted the plan creation) */
-  source: 'reflection' | 'feedback' | 'evaluation' | 'manual';
-  
-  /** Progress (0-100%) */
-  progress: number;
+  /** Criteria for determining success */
+  successCriteria: string[];
 }
 
 /**
- * Learning activity for improvement
+ * Learning activity structure
  */
 export interface LearningActivity {
-  /** Unique ID for the activity */
+  /** Unique identifier */
   id: string;
   
-  /** Related improvement plan ID */
+  /** Associated plan ID */
   planId: string;
   
   /** Human-readable name */
@@ -100,122 +101,118 @@ export interface LearningActivity {
   /** Detailed description */
   description: string;
   
-  /** Type of activity */
-  type: 'study' | 'practice' | 'analyze' | 'experiment' | 'review';
+  /** Activity type */
+  type: 'study' | 'practice' | 'reflection' | 'experiment' | 'observation';
   
-  /** Related improvement area */
+  /** Target improvement area */
   area: ImprovementAreaType;
   
-  /** Status of the activity */
+  /** Current status */
   status: 'pending' | 'in_progress' | 'completed' | 'failed';
   
-  /** Start time if in progress or completed */
-  startTime?: Date;
+  /** Expected duration in milliseconds */
+  expectedDurationMs?: number;
   
-  /** Completion time if completed */
-  completionTime?: Date;
+  /** Actual duration in milliseconds */
+  actualDurationMs?: number;
   
-  /** Expected outcome from this activity */
-  expectedOutcome: string;
-  
-  /** Actual outcome after completion */
-  actualOutcome?: string;
-  
-  /** Resources used in this activity */
+  /** Learning resources */
   resources?: string[];
   
-  /** Success rating (0-100%) if completed */
-  successRating?: number;
+  /** Related learning activities */
+  relatedActivities?: string[];
   
-  /** Lessons learned */
-  lessonsLearned?: string[];
+  /** Additional metadata */
+  metadata?: Record<string, unknown>;
 }
 
 /**
- * Learning outcome from improvement activities
+ * Learning outcome structure
  */
 export interface LearningOutcome {
-  /** Unique ID for the outcome */
+  /** Unique identifier */
   id: string;
   
-  /** Related improvement plan ID */
+  /** Associated plan ID */
   planId: string;
   
-  /** Related activity IDs that led to this outcome */
-  activityIds: string[];
-  
-  /** Type of learning outcome */
-  type: LearningOutcomeType;
-  
-  /** Description of what was learned */
-  description: string;
-  
-  /** When the outcome was recorded */
+  /** When this outcome was recorded */
   timestamp: Date;
   
-  /** Confidence in the outcome (0-100%) */
+  /** Outcome type */
+  type: LearningOutcomeType;
+  
+  /** Outcome content */
+  content: string;
+  
+  /** Source of this outcome */
+  source: 'reflection' | 'activity' | 'practice' | 'observation' | 'feedback';
+  
+  /** Source ID (reflection ID, activity ID, etc.) */
+  sourceId: string;
+  
+  /** Confidence level (0-1) */
   confidence: number;
   
-  /** How the outcome was validated */
-  validationMethod?: string;
-  
-  /** Areas this outcome affects */
+  /** Areas affected by this outcome */
   affectedAreas: ImprovementAreaType[];
   
-  /** Whether this outcome has been applied to behavior */
+  /** Whether this outcome has been applied to agent behavior */
   appliedToBehavior: boolean;
   
-  /** Impact rating after application (0-100%) */
-  impactRating?: number;
+  /** When this outcome was applied */
+  appliedAt?: Date;
+  
+  /** Additional metadata */
+  metadata?: Record<string, unknown>;
 }
 
 /**
- * Progress report for improvement plans
+ * Improvement progress report structure
  */
 export interface ImprovementProgressReport {
-  /** Plan ID */
+  /** Associated plan ID */
   planId: string;
   
-  /** Plan name */
-  planName: string;
+  /** When this report was generated */
+  generatedAt: Date;
   
-  /** Overall progress percentage */
+  /** Overall progress (0-1) */
   overallProgress: number;
   
   /** Progress by area */
   progressByArea: Record<ImprovementAreaType, number>;
   
-  /** Active learning activities */
-  activeActivities: LearningActivity[];
+  /** Active activities */
+  activeActivities?: LearningActivity[];
   
-  /** Completed learning activities */
-  completedActivities: LearningActivity[];
+  /** Completed activities */
+  completedActivities?: LearningActivity[];
   
-  /** Learning outcomes achieved */
-  outcomes: LearningOutcome[];
+  /** Learning outcomes */
+  outcomes?: LearningOutcome[];
   
   /** Metrics improvements */
-  metricsImprovements: Record<string, { before: number; after: number }>;
+  metricsImprovements?: Record<string, { before: number; after: number }>;
   
   /** Challenges encountered */
   challenges: string[];
   
-  /** Recommendations for adjustments */
-  recommendations: string[];
-  
-  /** Report generation timestamp */
-  timestamp: Date;
+  /** Recommendations for further improvement */
+  recommendations?: string[];
 }
 
 /**
- * Self-improvement capability interface
+ * Self-Improvement interface 
+ * 
+ * This interface defines methods for managing self-improvement
+ * plans, activities, and outcomes.
  */
 export interface SelfImprovement {
   /**
    * Create a self-improvement plan
-   * 
-   * @param plan Plan details excluding ID and timestamps
-   * @returns Created plan with ID and timestamps
+   * @param plan Plan to create (without ID and timestamps)
+   * @returns Promise resolving to the created plan
    */
   createImprovementPlan(
     plan: Omit<SelfImprovementPlan, 'id' | 'createdAt' | 'updatedAt'>
@@ -223,18 +220,16 @@ export interface SelfImprovement {
   
   /**
    * Get a self-improvement plan by ID
-   * 
-   * @param planId Plan ID
-   * @returns Plan or null if not found
+   * @param planId Plan ID to retrieve
+   * @returns Promise resolving to the plan or null if not found
    */
   getImprovementPlan(planId: string): Promise<SelfImprovementPlan | null>;
   
   /**
    * Update a self-improvement plan
-   * 
    * @param planId Plan ID to update
    * @param updates Updates to apply
-   * @returns Updated plan
+   * @returns Promise resolving to the updated plan
    */
   updateImprovementPlan(
     planId: string,
@@ -242,10 +237,9 @@ export interface SelfImprovement {
   ): Promise<SelfImprovementPlan>;
   
   /**
-   * List improvement plans
-   * 
-   * @param options Filtering options
-   * @returns Matching plans
+   * List improvement plans with optional filtering
+   * @param options Filter options
+   * @returns Promise resolving to matching plans
    */
   listImprovementPlans(options?: {
     status?: SelfImprovementPlan['status'][];
@@ -257,9 +251,8 @@ export interface SelfImprovement {
   
   /**
    * Create a learning activity
-   * 
-   * @param activity Activity details excluding ID
-   * @returns Created activity with ID
+   * @param activity Activity to create (without ID)
+   * @returns Promise resolving to the created activity
    */
   createLearningActivity(
     activity: Omit<LearningActivity, 'id'>
@@ -267,18 +260,16 @@ export interface SelfImprovement {
   
   /**
    * Get a learning activity by ID
-   * 
-   * @param activityId Activity ID
-   * @returns Activity or null if not found
+   * @param activityId Activity ID to retrieve
+   * @returns Promise resolving to the activity or null if not found
    */
   getLearningActivity(activityId: string): Promise<LearningActivity | null>;
   
   /**
    * Update a learning activity
-   * 
    * @param activityId Activity ID to update
    * @param updates Updates to apply
-   * @returns Updated activity
+   * @returns Promise resolving to the updated activity
    */
   updateLearningActivity(
     activityId: string,
@@ -286,10 +277,9 @@ export interface SelfImprovement {
   ): Promise<LearningActivity>;
   
   /**
-   * List learning activities
-   * 
-   * @param options Filtering options
-   * @returns Matching activities
+   * List learning activities with optional filtering
+   * @param options Filter options
+   * @returns Promise resolving to matching activities
    */
   listLearningActivities(options?: {
     planId?: string;
@@ -300,9 +290,8 @@ export interface SelfImprovement {
   
   /**
    * Record a learning outcome
-   * 
-   * @param outcome Outcome details excluding ID
-   * @returns Recorded outcome with ID
+   * @param outcome Outcome to record (without ID and timestamp)
+   * @returns Promise resolving to the recorded outcome
    */
   recordLearningOutcome(
     outcome: Omit<LearningOutcome, 'id' | 'timestamp'>
@@ -310,18 +299,16 @@ export interface SelfImprovement {
   
   /**
    * Get a learning outcome by ID
-   * 
-   * @param outcomeId Outcome ID
-   * @returns Outcome or null if not found
+   * @param outcomeId Outcome ID to retrieve
+   * @returns Promise resolving to the outcome or null if not found
    */
   getLearningOutcome(outcomeId: string): Promise<LearningOutcome | null>;
   
   /**
    * Update a learning outcome
-   * 
    * @param outcomeId Outcome ID to update
    * @param updates Updates to apply
-   * @returns Updated outcome
+   * @returns Promise resolving to the updated outcome
    */
   updateLearningOutcome(
     outcomeId: string,
@@ -329,10 +316,9 @@ export interface SelfImprovement {
   ): Promise<LearningOutcome>;
   
   /**
-   * List learning outcomes
-   * 
-   * @param options Filtering options
-   * @returns Matching outcomes
+   * List learning outcomes with optional filtering
+   * @param options Filter options
+   * @returns Promise resolving to matching outcomes
    */
   listLearningOutcomes(options?: {
     planId?: string;
@@ -343,11 +329,10 @@ export interface SelfImprovement {
   }): Promise<LearningOutcome[]>;
   
   /**
-   * Generate an improvement progress report
-   * 
-   * @param planId Plan ID to report on
+   * Generate a progress report for an improvement plan
+   * @param planId Plan ID to generate a report for
    * @param options Report options
-   * @returns Generated report
+   * @returns Promise resolving to the generated report
    */
   generateProgressReport(
     planId: string,
@@ -360,19 +345,17 @@ export interface SelfImprovement {
   ): Promise<ImprovementProgressReport>;
   
   /**
-   * Apply learning outcomes to adjust behavior
-   * 
+   * Apply learning outcomes to agent behavior
    * @param outcomeIds Outcome IDs to apply
-   * @returns Whether application was successful
+   * @returns Promise resolving to true if successfully applied
    */
   applyLearningOutcomes(outcomeIds: string[]): Promise<boolean>;
   
   /**
-   * Generate a new improvement plan based on reflection insights
-   * 
-   * @param reflectionIds Reflection IDs to use as basis
+   * Generate an improvement plan from reflections
+   * @param reflectionIds Reflection IDs to analyze
    * @param options Plan generation options
-   * @returns Generated plan
+   * @returns Promise resolving to the generated plan
    */
   generateImprovementPlanFromReflections(
     reflectionIds: string[],

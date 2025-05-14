@@ -16,7 +16,7 @@ import {
   PlanCreationOptions,
   PlanCreationResult,
   PlanExecutionResult
-} from '../../../agents/base/managers/PlanningManager';
+} from '../../../../agents/shared/base/managers/PlanningManager.interface';
 import { AgentBase } from '../../../../agents/shared/base/AgentBase.interface';
 import { AdaptationMetricsCalculatorImpl } from '../../../../server/planning/metrics/AdaptationMetrics';
 import { OptimizationMetricsCalculatorImpl } from '../../../../server/planning/metrics/OptimizationMetrics';
@@ -32,6 +32,7 @@ import { DefaultPlanValidator } from '../../../../server/planning/validators/Pla
 import { AbstractBaseManager } from '../../../../agents/shared/base/managers/BaseManager';
 import { createConfigFactory } from '../../../../agents/shared/config';
 import { PlanningManagerConfigSchema } from '../../../../agents/shared/planning/config/PlanningManagerConfigSchema';
+import { ManagerType } from '../../../../agents/shared/base/managers/ManagerType';
 
 /**
  * Error class for planning-related errors
@@ -51,7 +52,6 @@ class PlanningError extends Error {
 /**
  * Default implementation of the PlanningManager interface
  */
-// @ts-ignore - This class implements PlanningManager with some method signature differences
 export class DefaultPlanningManager extends AbstractBaseManager implements PlanningManager {
   private plans: Map<string, Plan> = new Map();
   protected initialized = false;
@@ -67,6 +67,9 @@ export class DefaultPlanningManager extends AbstractBaseManager implements Plann
   private resourceValidator = new DefaultResourceValidator();
   private planValidator = new DefaultPlanValidator();
   private configFactory = createConfigFactory(PlanningManagerConfigSchema);
+  
+  // Override config type to use specific config type
+  protected config!: PlanningManagerConfig;
 
   /**
    * Type property accessor for compatibility with PlanningManager
@@ -86,7 +89,7 @@ export class DefaultPlanningManager extends AbstractBaseManager implements Plann
   constructor(agent: AgentBase, config: Partial<PlanningManagerConfig> = {}) {
     super(
       `planning-manager-${uuidv4()}`,
-      'planning',
+      ManagerType.PLANNING,
       agent,
       { enabled: true }
     );

@@ -1,20 +1,16 @@
 /**
- * Memory Manager Interface
+ * MemoryManager.interface.ts - Memory Manager Interface
  * 
  * This file defines the memory manager interface that provides memory services
  * for agents. It extends the base manager interface with memory-specific functionality.
  */
 
-import type { BaseManager, ManagerConfig } from './BaseManager';
-import type { AgentBase } from '../AgentBase';
+import { BaseManager, ManagerConfig } from './BaseManager';
 
 /**
  * Configuration options for memory managers
  */
 export interface MemoryManagerConfig extends ManagerConfig {
-  /** Whether this manager is enabled */
-  enabled: boolean;
-  
   /** Whether to enable automatic memory pruning */
   enableAutoPruning?: boolean;
   
@@ -158,14 +154,4 @@ export interface MemoryManager extends BaseManager {
    * @returns Promise resolving when pruning is complete
    */
   pruneMemories(): Promise<MemoryPruningResult>;
-}
-
-/**
- * MemoryManager.ts - Bridge export for Memory Manager types
- * 
- * This file re-exports the MemoryManager interface and related types
- * to maintain compatibility across the codebase.
- */
-
-// Re-export everything from the shared implementation
-export * from '../../../../agents/shared/base/managers/MemoryManager.interface'; 
+} 

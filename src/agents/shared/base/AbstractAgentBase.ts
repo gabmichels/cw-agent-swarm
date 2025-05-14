@@ -16,28 +16,29 @@ import type { AgentBase } from './AgentBase.interface';
 import type { ManagersConfig } from './ManagersConfig.interface';
 import { DefaultSchedulerManager } from '../../../lib/agents/implementations/managers/DefaultSchedulerManager';
 import type { MemoryManager } from './managers/MemoryManager';
-import type { PlanningManager, PlanCreationOptions, PlanCreationResult, Plan, PlanExecutionResult } from '../../../lib/agents/base/managers/PlanningManager';
+import type { PlanningManager, PlanCreationOptions, PlanCreationResult, Plan, PlanExecutionResult } from './managers/PlanningManager.interface';
 import type { 
   ToolManager, 
   Tool, 
   ToolExecutionResult, 
   ToolUsageMetrics,
   ToolFallbackRule
-} from '../../../lib/agents/base/managers/ToolManager';
+} from './managers/ToolManager.interface';
 import type {
   KnowledgeManager,
   KnowledgeEntry,
   KnowledgeSearchResult,
   KnowledgeSearchOptions,
   KnowledgeGap
-} from '../../../lib/agents/base/managers/KnowledgeManager';
+} from './managers/KnowledgeManager.interface';
 import type {
   SchedulerManager,
   ScheduledTask,
   TaskCreationOptions,
   TaskCreationResult,
   TaskExecutionResult
-} from '../../../lib/agents/base/managers/SchedulerManager';
+} from './managers/SchedulerManager.interface';
+import { ManagerType } from './managers/ManagerType';
 
 /**
  * Abstract implementation of the AgentBase interface
@@ -48,7 +49,7 @@ export abstract class AbstractAgentBase implements AgentBase {
   protected config: AgentBaseConfig;
   
   /** Registered managers */
-  protected managers: Map<string, BaseManager> = new Map();
+  protected managers: Map<ManagerType, BaseManager> = new Map();
   
   /** Scheduler manager */
   protected schedulerManager?: DefaultSchedulerManager;
@@ -56,9 +57,18 @@ export abstract class AbstractAgentBase implements AgentBase {
   /**
    * Create a new agent instance
    * @param config Agent configuration
+   * @param managers Optional managers to inject during construction
    */
-  constructor(config: AgentBaseConfig) {
+  constructor(
+    config: AgentBaseConfig,
+    managers?: BaseManager[]
+  ) {
     this.config = config;
+    
+    // Initialize managers if provided (dependency injection)
+    if (managers && Array.isArray(managers)) {
+      managers.forEach(manager => this.registerManager(manager));
+    }
   }
   
   /**
@@ -94,8 +104,8 @@ export abstract class AbstractAgentBase implements AgentBase {
    * Initialize the agent
    */
   async initialize(): Promise<boolean> {
-    // ... existing initialization logic ...
-    // ... rest of initialization ...
+    // Initialize all registered managers
+    await this.initializeManagers();
     return true;
   }
   
@@ -108,14 +118,21 @@ export abstract class AbstractAgentBase implements AgentBase {
    * Register a manager with this agent
    */
   registerManager<T extends BaseManager>(manager: T): T {
-    this.managers.set(manager.getType(), manager);
+    const managerType = manager.getType() as ManagerType;
+    this.managers.set(managerType, manager);
+    
+    // Store specialized references for frequently used managers
+    if (managerType === ManagerType.SCHEDULER && manager instanceof DefaultSchedulerManager) {
+      this.schedulerManager = manager as DefaultSchedulerManager;
+    }
+    
     return manager;
   }
   
   /**
    * Get a registered manager by type
    */
-  getManager<T extends BaseManager>(managerType: string): T | undefined {
+  getManager<T extends BaseManager>(managerType: ManagerType): T | undefined {
     return this.managers.get(managerType) as T | undefined;
   }
   
@@ -216,17 +233,23 @@ export abstract class AbstractAgentBase implements AgentBase {
       overallStatus = 'degraded';
     }
       
-      return {
+    return {
       status: overallStatus,
       message: `Agent ${this.getAgentId()} is ${overallStatus}`,
       managerHealth
     };
   }
 
+  /**
+   * Get the scheduler manager instance
+   */
   getSchedulerManager(): DefaultSchedulerManager | undefined {
     return this.schedulerManager;
   }
 
+  /**
+   * Initialize all registered managers
+   */
   async initializeManagers(): Promise<void> {
     for (const manager of Array.from(this.managers.values())) {
       if (typeof manager.initialize === 'function') {
@@ -235,6 +258,9 @@ export abstract class AbstractAgentBase implements AgentBase {
     }
   }
 
+  /**
+   * Shut down all registered managers
+   */
   async shutdownManagers(): Promise<void> {
     for (const manager of Array.from(this.managers.values())) {
       if (typeof manager.shutdown === 'function') {
@@ -247,7 +273,7 @@ export abstract class AbstractAgentBase implements AgentBase {
    * Add memory content via the registered MemoryManager
    */
   async addMemory(content: string, metadata: Record<string, unknown>): Promise<unknown> {
-    const memoryManager = this.getManager<MemoryManager>('memory');
+    const memoryManager = this.getManager<MemoryManager>(ManagerType.MEMORY);
     if (!memoryManager) throw new Error('MemoryManager not registered');
     if (!memoryManager.isInitialized()) throw new Error('MemoryManager not initialized');
     return memoryManager.addMemory(content, metadata);
@@ -257,7 +283,7 @@ export abstract class AbstractAgentBase implements AgentBase {
    * Search memories via the registered MemoryManager
    */
   async searchMemories(query: string, options: Record<string, unknown>): Promise<unknown[]> {
-    const memoryManager = this.getManager<MemoryManager>('memory');
+    const memoryManager = this.getManager<MemoryManager>(ManagerType.MEMORY);
     if (!memoryManager) throw new Error('MemoryManager not registered');
     if (!memoryManager.isInitialized()) throw new Error('MemoryManager not initialized');
     return memoryManager.searchMemories(query, options);
@@ -267,7 +293,7 @@ export abstract class AbstractAgentBase implements AgentBase {
    * Get recent memories via the registered MemoryManager
    */
   async getRecentMemories(limit: number): Promise<unknown[]> {
-    const memoryManager = this.getManager<MemoryManager>('memory');
+    const memoryManager = this.getManager<MemoryManager>(ManagerType.MEMORY);
     if (!memoryManager) throw new Error('MemoryManager not registered');
     if (!memoryManager.isInitialized()) throw new Error('MemoryManager not initialized');
     return memoryManager.getRecentMemories(limit);
@@ -277,7 +303,7 @@ export abstract class AbstractAgentBase implements AgentBase {
    * Consolidate memories via the registered MemoryManager
    */
   async consolidateMemories(): Promise<void> {
-    const memoryManager = this.getManager<MemoryManager>('memory');
+    const memoryManager = this.getManager<MemoryManager>(ManagerType.MEMORY);
     if (!memoryManager) throw new Error('MemoryManager not registered');
     if (!memoryManager.isInitialized()) throw new Error('MemoryManager not initialized');
     return memoryManager.consolidateMemories();
@@ -287,7 +313,7 @@ export abstract class AbstractAgentBase implements AgentBase {
    * Prune memories via the registered MemoryManager
    */
   async pruneMemories(): Promise<void> {
-    const memoryManager = this.getManager<MemoryManager>('memory');
+    const memoryManager = this.getManager<MemoryManager>(ManagerType.MEMORY);
     if (!memoryManager) throw new Error('MemoryManager not registered');
     if (!memoryManager.isInitialized()) throw new Error('MemoryManager not initialized');
     return memoryManager.pruneMemories();
@@ -297,7 +323,7 @@ export abstract class AbstractAgentBase implements AgentBase {
    * Create a new plan via the registered PlanningManager
    */
   async createPlan(options: PlanCreationOptions): Promise<PlanCreationResult> {
-    const planningManager = this.getManager<PlanningManager>('planning');
+    const planningManager = this.getManager<PlanningManager>(ManagerType.PLANNING);
     if (!planningManager) throw new Error('PlanningManager not registered');
     if (!planningManager.isInitialized()) throw new Error('PlanningManager not initialized');
     return planningManager.createPlan(options);
@@ -307,7 +333,7 @@ export abstract class AbstractAgentBase implements AgentBase {
    * Get a plan by ID via the registered PlanningManager
    */
   async getPlan(planId: string): Promise<Plan | null> {
-    const planningManager = this.getManager<PlanningManager>('planning');
+    const planningManager = this.getManager<PlanningManager>(ManagerType.PLANNING);
     if (!planningManager) throw new Error('PlanningManager not registered');
     if (!planningManager.isInitialized()) throw new Error('PlanningManager not initialized');
     return planningManager.getPlan(planId);
@@ -317,7 +343,7 @@ export abstract class AbstractAgentBase implements AgentBase {
    * Get all plans via the registered PlanningManager
    */
   async getAllPlans(): Promise<Plan[]> {
-    const planningManager = this.getManager<PlanningManager>('planning');
+    const planningManager = this.getManager<PlanningManager>(ManagerType.PLANNING);
     if (!planningManager) throw new Error('PlanningManager not registered');
     if (!planningManager.isInitialized()) throw new Error('PlanningManager not initialized');
     return planningManager.getAllPlans();
@@ -327,7 +353,7 @@ export abstract class AbstractAgentBase implements AgentBase {
    * Update a plan via the registered PlanningManager
    */
   async updatePlan(planId: string, updates: Partial<Plan>): Promise<Plan | null> {
-    const planningManager = this.getManager<PlanningManager>('planning');
+    const planningManager = this.getManager<PlanningManager>(ManagerType.PLANNING);
     if (!planningManager) throw new Error('PlanningManager not registered');
     if (!planningManager.isInitialized()) throw new Error('PlanningManager not initialized');
     return planningManager.updatePlan(planId, updates);
@@ -337,7 +363,7 @@ export abstract class AbstractAgentBase implements AgentBase {
    * Delete a plan via the registered PlanningManager
    */
   async deletePlan(planId: string): Promise<boolean> {
-    const planningManager = this.getManager<PlanningManager>('planning');
+    const planningManager = this.getManager<PlanningManager>(ManagerType.PLANNING);
     if (!planningManager) throw new Error('PlanningManager not registered');
     if (!planningManager.isInitialized()) throw new Error('PlanningManager not initialized');
     return planningManager.deletePlan(planId);
@@ -347,7 +373,7 @@ export abstract class AbstractAgentBase implements AgentBase {
    * Execute a plan via the registered PlanningManager
    */
   async executePlan(planId: string): Promise<PlanExecutionResult> {
-    const planningManager = this.getManager<PlanningManager>('planning');
+    const planningManager = this.getManager<PlanningManager>(ManagerType.PLANNING);
     if (!planningManager) throw new Error('PlanningManager not registered');
     if (!planningManager.isInitialized()) throw new Error('PlanningManager not initialized');
     return planningManager.executePlan(planId);
@@ -357,7 +383,7 @@ export abstract class AbstractAgentBase implements AgentBase {
    * Adapt a plan via the registered PlanningManager
    */
   async adaptPlan(planId: string, reason: string): Promise<Plan | null> {
-    const planningManager = this.getManager<PlanningManager>('planning');
+    const planningManager = this.getManager<PlanningManager>(ManagerType.PLANNING);
     if (!planningManager) throw new Error('PlanningManager not registered');
     if (!planningManager.isInitialized()) throw new Error('PlanningManager not initialized');
     return planningManager.adaptPlan(planId, reason);
@@ -367,7 +393,7 @@ export abstract class AbstractAgentBase implements AgentBase {
    * Validate a plan via the registered PlanningManager
    */
   async validatePlan(planId: string): Promise<boolean> {
-    const planningManager = this.getManager<PlanningManager>('planning');
+    const planningManager = this.getManager<PlanningManager>(ManagerType.PLANNING);
     if (!planningManager) throw new Error('PlanningManager not registered');
     if (!planningManager.isInitialized()) throw new Error('PlanningManager not initialized');
     return planningManager.validatePlan(planId);
@@ -377,7 +403,7 @@ export abstract class AbstractAgentBase implements AgentBase {
    * Optimize a plan via the registered PlanningManager
    */
   async optimizePlan(planId: string): Promise<Plan | null> {
-    const planningManager = this.getManager<PlanningManager>('planning');
+    const planningManager = this.getManager<PlanningManager>(ManagerType.PLANNING);
     if (!planningManager) throw new Error('PlanningManager not registered');
     if (!planningManager.isInitialized()) throw new Error('PlanningManager not initialized');
     return planningManager.optimizePlan(planId);
@@ -387,7 +413,7 @@ export abstract class AbstractAgentBase implements AgentBase {
    * Register a new tool via the registered ToolManager
    */
   async registerTool(tool: Tool): Promise<Tool> {
-    const toolManager = this.getManager<ToolManager>('tools');
+    const toolManager = this.getManager<ToolManager>(ManagerType.TOOL);
     if (!toolManager) throw new Error('ToolManager not registered');
     if (!toolManager.isInitialized()) throw new Error('ToolManager not initialized');
     return toolManager.registerTool(tool);
@@ -397,7 +423,7 @@ export abstract class AbstractAgentBase implements AgentBase {
    * Unregister a tool via the registered ToolManager
    */
   async unregisterTool(toolId: string): Promise<boolean> {
-    const toolManager = this.getManager<ToolManager>('tools');
+    const toolManager = this.getManager<ToolManager>(ManagerType.TOOL);
     if (!toolManager) throw new Error('ToolManager not registered');
     if (!toolManager.isInitialized()) throw new Error('ToolManager not initialized');
     return toolManager.unregisterTool(toolId);
@@ -407,7 +433,7 @@ export abstract class AbstractAgentBase implements AgentBase {
    * Get a tool by ID via the registered ToolManager
    */
   async getTool(toolId: string): Promise<Tool | null> {
-    const toolManager = this.getManager<ToolManager>('tools');
+    const toolManager = this.getManager<ToolManager>(ManagerType.TOOL);
     if (!toolManager) throw new Error('ToolManager not registered');
     if (!toolManager.isInitialized()) throw new Error('ToolManager not initialized');
     return toolManager.getTool(toolId);
@@ -422,7 +448,7 @@ export abstract class AbstractAgentBase implements AgentBase {
     capabilities?: string[];
     experimental?: boolean;
   }): Promise<Tool[]> {
-    const toolManager = this.getManager<ToolManager>('tools');
+    const toolManager = this.getManager<ToolManager>(ManagerType.TOOL);
     if (!toolManager) throw new Error('ToolManager not registered');
     if (!toolManager.isInitialized()) throw new Error('ToolManager not initialized');
     return toolManager.getTools(filter);
@@ -432,7 +458,7 @@ export abstract class AbstractAgentBase implements AgentBase {
    * Enable or disable a tool via the registered ToolManager
    */
   async setToolEnabled(toolId: string, enabled: boolean): Promise<Tool> {
-    const toolManager = this.getManager<ToolManager>('tools');
+    const toolManager = this.getManager<ToolManager>(ManagerType.TOOL);
     if (!toolManager) throw new Error('ToolManager not registered');
     if (!toolManager.isInitialized()) throw new Error('ToolManager not initialized');
     return toolManager.setToolEnabled(toolId, enabled);
@@ -451,7 +477,7 @@ export abstract class AbstractAgentBase implements AgentBase {
       useFallbacks?: boolean;
     }
   ): Promise<ToolExecutionResult> {
-    const toolManager = this.getManager<ToolManager>('tools');
+    const toolManager = this.getManager<ToolManager>(ManagerType.TOOL);
     if (!toolManager) throw new Error('ToolManager not registered');
     if (!toolManager.isInitialized()) throw new Error('ToolManager not initialized');
     return toolManager.executeTool(toolId, params, options);
@@ -461,7 +487,7 @@ export abstract class AbstractAgentBase implements AgentBase {
    * Get tool metrics via the registered ToolManager
    */
   async getToolMetrics(toolId?: string): Promise<ToolUsageMetrics[]> {
-    const toolManager = this.getManager<ToolManager>('tools');
+    const toolManager = this.getManager<ToolManager>(ManagerType.TOOL);
     if (!toolManager) throw new Error('ToolManager not registered');
     if (!toolManager.isInitialized()) throw new Error('ToolManager not initialized');
     return toolManager.getToolMetrics(toolId);
@@ -471,7 +497,7 @@ export abstract class AbstractAgentBase implements AgentBase {
    * Find best tool for a task via the registered ToolManager
    */
   async findBestToolForTask(taskDescription: string, context?: unknown): Promise<Tool | null> {
-    const toolManager = this.getManager<ToolManager>('tools');
+    const toolManager = this.getManager<ToolManager>(ManagerType.TOOL);
     if (!toolManager) throw new Error('ToolManager not registered');
     if (!toolManager.isInitialized()) throw new Error('ToolManager not initialized');
     return toolManager.findBestToolForTask(taskDescription, context);
@@ -481,7 +507,7 @@ export abstract class AbstractAgentBase implements AgentBase {
    * Load knowledge via the registered KnowledgeManager
    */
   async loadKnowledge(): Promise<void> {
-    const knowledgeManager = this.getManager<KnowledgeManager>('knowledge');
+    const knowledgeManager = this.getManager<KnowledgeManager>(ManagerType.KNOWLEDGE);
     if (!knowledgeManager) throw new Error('KnowledgeManager not registered');
     if (!knowledgeManager.isInitialized()) throw new Error('KnowledgeManager not initialized');
     return knowledgeManager.loadKnowledge();
@@ -491,7 +517,7 @@ export abstract class AbstractAgentBase implements AgentBase {
    * Search knowledge via the registered KnowledgeManager
    */
   async searchKnowledge(query: string, options?: KnowledgeSearchOptions): Promise<KnowledgeSearchResult[]> {
-    const knowledgeManager = this.getManager<KnowledgeManager>('knowledge');
+    const knowledgeManager = this.getManager<KnowledgeManager>(ManagerType.KNOWLEDGE);
     if (!knowledgeManager) throw new Error('KnowledgeManager not registered');
     if (!knowledgeManager.isInitialized()) throw new Error('KnowledgeManager not initialized');
     return knowledgeManager.searchKnowledge(query, options);
@@ -501,7 +527,7 @@ export abstract class AbstractAgentBase implements AgentBase {
    * Add a knowledge entry via the registered KnowledgeManager
    */
   async addKnowledgeEntry(entry: Omit<KnowledgeEntry, 'id' | 'timestamp'>): Promise<KnowledgeEntry> {
-    const knowledgeManager = this.getManager<KnowledgeManager>('knowledge');
+    const knowledgeManager = this.getManager<KnowledgeManager>(ManagerType.KNOWLEDGE);
     if (!knowledgeManager) throw new Error('KnowledgeManager not registered');
     if (!knowledgeManager.isInitialized()) throw new Error('KnowledgeManager not initialized');
     return knowledgeManager.addKnowledgeEntry(entry);
@@ -511,7 +537,7 @@ export abstract class AbstractAgentBase implements AgentBase {
    * Get a knowledge entry via the registered KnowledgeManager
    */
   async getKnowledgeEntry(id: string): Promise<KnowledgeEntry | null> {
-    const knowledgeManager = this.getManager<KnowledgeManager>('knowledge');
+    const knowledgeManager = this.getManager<KnowledgeManager>(ManagerType.KNOWLEDGE);
     if (!knowledgeManager) throw new Error('KnowledgeManager not registered');
     if (!knowledgeManager.isInitialized()) throw new Error('KnowledgeManager not initialized');
     return knowledgeManager.getKnowledgeEntry(id);
@@ -521,7 +547,7 @@ export abstract class AbstractAgentBase implements AgentBase {
    * Update a knowledge entry via the registered KnowledgeManager
    */
   async updateKnowledgeEntry(id: string, updates: Partial<KnowledgeEntry>): Promise<KnowledgeEntry> {
-    const knowledgeManager = this.getManager<KnowledgeManager>('knowledge');
+    const knowledgeManager = this.getManager<KnowledgeManager>(ManagerType.KNOWLEDGE);
     if (!knowledgeManager) throw new Error('KnowledgeManager not registered');
     if (!knowledgeManager.isInitialized()) throw new Error('KnowledgeManager not initialized');
     return knowledgeManager.updateKnowledgeEntry(id, updates);
@@ -531,7 +557,7 @@ export abstract class AbstractAgentBase implements AgentBase {
    * Delete a knowledge entry via the registered KnowledgeManager
    */
   async deleteKnowledgeEntry(id: string): Promise<boolean> {
-    const knowledgeManager = this.getManager<KnowledgeManager>('knowledge');
+    const knowledgeManager = this.getManager<KnowledgeManager>(ManagerType.KNOWLEDGE);
     if (!knowledgeManager) throw new Error('KnowledgeManager not registered');
     if (!knowledgeManager.isInitialized()) throw new Error('KnowledgeManager not initialized');
     return knowledgeManager.deleteKnowledgeEntry(id);
@@ -548,7 +574,7 @@ export abstract class AbstractAgentBase implements AgentBase {
     limit?: number;
     offset?: number;
   }): Promise<KnowledgeEntry[]> {
-    const knowledgeManager = this.getManager<KnowledgeManager>('knowledge');
+    const knowledgeManager = this.getManager<KnowledgeManager>(ManagerType.KNOWLEDGE);
     if (!knowledgeManager) throw new Error('KnowledgeManager not registered');
     if (!knowledgeManager.isInitialized()) throw new Error('KnowledgeManager not initialized');
     return knowledgeManager.getKnowledgeEntries(options);
@@ -558,7 +584,7 @@ export abstract class AbstractAgentBase implements AgentBase {
    * Identify knowledge gaps via the registered KnowledgeManager
    */
   async identifyKnowledgeGaps(): Promise<KnowledgeGap[]> {
-    const knowledgeManager = this.getManager<KnowledgeManager>('knowledge');
+    const knowledgeManager = this.getManager<KnowledgeManager>(ManagerType.KNOWLEDGE);
     if (!knowledgeManager) throw new Error('KnowledgeManager not registered');
     if (!knowledgeManager.isInitialized()) throw new Error('KnowledgeManager not initialized');
     return knowledgeManager.identifyKnowledgeGaps();
@@ -568,7 +594,7 @@ export abstract class AbstractAgentBase implements AgentBase {
    * Get a knowledge gap via the registered KnowledgeManager
    */
   async getKnowledgeGap(id: string): Promise<KnowledgeGap | null> {
-    const knowledgeManager = this.getManager<KnowledgeManager>('knowledge');
+    const knowledgeManager = this.getManager<KnowledgeManager>(ManagerType.KNOWLEDGE);
     if (!knowledgeManager) throw new Error('KnowledgeManager not registered');
     if (!knowledgeManager.isInitialized()) throw new Error('KnowledgeManager not initialized');
     return knowledgeManager.getKnowledgeGap(id);
@@ -578,7 +604,7 @@ export abstract class AbstractAgentBase implements AgentBase {
    * Create a task via the registered SchedulerManager
    */
   async createTask(options: TaskCreationOptions): Promise<TaskCreationResult> {
-    const schedulerManager = this.getManager<SchedulerManager>('scheduler');
+    const schedulerManager = this.getManager<SchedulerManager>(ManagerType.SCHEDULER);
     if (!schedulerManager) throw new Error('SchedulerManager not registered');
     if (!schedulerManager.isInitialized()) throw new Error('SchedulerManager not initialized');
     return schedulerManager.createTask(options);
@@ -588,7 +614,7 @@ export abstract class AbstractAgentBase implements AgentBase {
    * Get a task via the registered SchedulerManager
    */
   async getTask(taskId: string): Promise<ScheduledTask | null> {
-    const schedulerManager = this.getManager<SchedulerManager>('scheduler');
+    const schedulerManager = this.getManager<SchedulerManager>(ManagerType.SCHEDULER);
     if (!schedulerManager) throw new Error('SchedulerManager not registered');
     if (!schedulerManager.isInitialized()) throw new Error('SchedulerManager not initialized');
     return schedulerManager.getTask(taskId);
@@ -598,7 +624,7 @@ export abstract class AbstractAgentBase implements AgentBase {
    * Get all tasks via the registered SchedulerManager
    */
   async getAllTasks(): Promise<ScheduledTask[]> {
-    const schedulerManager = this.getManager<SchedulerManager>('scheduler');
+    const schedulerManager = this.getManager<SchedulerManager>(ManagerType.SCHEDULER);
     if (!schedulerManager) throw new Error('SchedulerManager not registered');
     if (!schedulerManager.isInitialized()) throw new Error('SchedulerManager not initialized');
     return schedulerManager.getAllTasks();
@@ -608,7 +634,7 @@ export abstract class AbstractAgentBase implements AgentBase {
    * Update a task via the registered SchedulerManager
    */
   async updateTask(taskId: string, updates: Partial<ScheduledTask>): Promise<ScheduledTask | null> {
-    const schedulerManager = this.getManager<SchedulerManager>('scheduler');
+    const schedulerManager = this.getManager<SchedulerManager>(ManagerType.SCHEDULER);
     if (!schedulerManager) throw new Error('SchedulerManager not registered');
     if (!schedulerManager.isInitialized()) throw new Error('SchedulerManager not initialized');
     return schedulerManager.updateTask(taskId, updates);
@@ -618,7 +644,7 @@ export abstract class AbstractAgentBase implements AgentBase {
    * Delete a task via the registered SchedulerManager
    */
   async deleteTask(taskId: string): Promise<boolean> {
-    const schedulerManager = this.getManager<SchedulerManager>('scheduler');
+    const schedulerManager = this.getManager<SchedulerManager>(ManagerType.SCHEDULER);
     if (!schedulerManager) throw new Error('SchedulerManager not registered');
     if (!schedulerManager.isInitialized()) throw new Error('SchedulerManager not initialized');
     return schedulerManager.deleteTask(taskId);
@@ -628,7 +654,7 @@ export abstract class AbstractAgentBase implements AgentBase {
    * Execute a task via the registered SchedulerManager
    */
   async executeTask(taskId: string): Promise<TaskExecutionResult> {
-    const schedulerManager = this.getManager<SchedulerManager>('scheduler');
+    const schedulerManager = this.getManager<SchedulerManager>(ManagerType.SCHEDULER);
     if (!schedulerManager) throw new Error('SchedulerManager not registered');
     if (!schedulerManager.isInitialized()) throw new Error('SchedulerManager not initialized');
     return schedulerManager.executeTask(taskId);
@@ -638,7 +664,7 @@ export abstract class AbstractAgentBase implements AgentBase {
    * Cancel a task via the registered SchedulerManager
    */
   async cancelTask(taskId: string): Promise<boolean> {
-    const schedulerManager = this.getManager<SchedulerManager>('scheduler');
+    const schedulerManager = this.getManager<SchedulerManager>(ManagerType.SCHEDULER);
     if (!schedulerManager) throw new Error('SchedulerManager not registered');
     if (!schedulerManager.isInitialized()) throw new Error('SchedulerManager not initialized');
     return schedulerManager.cancelTask(taskId);
@@ -648,7 +674,7 @@ export abstract class AbstractAgentBase implements AgentBase {
    * Get due tasks via the registered SchedulerManager
    */
   async getDueTasks(): Promise<ScheduledTask[]> {
-    const schedulerManager = this.getManager<SchedulerManager>('scheduler');
+    const schedulerManager = this.getManager<SchedulerManager>(ManagerType.SCHEDULER);
     if (!schedulerManager) throw new Error('SchedulerManager not registered');
     if (!schedulerManager.isInitialized()) throw new Error('SchedulerManager not initialized');
     return schedulerManager.getDueTasks();
@@ -658,7 +684,7 @@ export abstract class AbstractAgentBase implements AgentBase {
    * Get running tasks via the registered SchedulerManager
    */
   async getRunningTasks(): Promise<ScheduledTask[]> {
-    const schedulerManager = this.getManager<SchedulerManager>('scheduler');
+    const schedulerManager = this.getManager<SchedulerManager>(ManagerType.SCHEDULER);
     if (!schedulerManager) throw new Error('SchedulerManager not registered');
     if (!schedulerManager.isInitialized()) throw new Error('SchedulerManager not initialized');
     return schedulerManager.getRunningTasks();
@@ -668,7 +694,7 @@ export abstract class AbstractAgentBase implements AgentBase {
    * Get pending tasks via the registered SchedulerManager
    */
   async getPendingTasks(): Promise<ScheduledTask[]> {
-    const schedulerManager = this.getManager<SchedulerManager>('scheduler');
+    const schedulerManager = this.getManager<SchedulerManager>(ManagerType.SCHEDULER);
     if (!schedulerManager) throw new Error('SchedulerManager not registered');
     if (!schedulerManager.isInitialized()) throw new Error('SchedulerManager not initialized');
     return schedulerManager.getPendingTasks();
@@ -678,7 +704,7 @@ export abstract class AbstractAgentBase implements AgentBase {
    * Get failed tasks via the registered SchedulerManager
    */
   async getFailedTasks(): Promise<ScheduledTask[]> {
-    const schedulerManager = this.getManager<SchedulerManager>('scheduler');
+    const schedulerManager = this.getManager<SchedulerManager>(ManagerType.SCHEDULER);
     if (!schedulerManager) throw new Error('SchedulerManager not registered');
     if (!schedulerManager.isInitialized()) throw new Error('SchedulerManager not initialized');
     return schedulerManager.getFailedTasks();
@@ -688,7 +714,7 @@ export abstract class AbstractAgentBase implements AgentBase {
    * Retry a task via the registered SchedulerManager
    */
   async retryTask(taskId: string): Promise<TaskExecutionResult> {
-    const schedulerManager = this.getManager<SchedulerManager>('scheduler');
+    const schedulerManager = this.getManager<SchedulerManager>(ManagerType.SCHEDULER);
     if (!schedulerManager) throw new Error('SchedulerManager not registered');
     if (!schedulerManager.isInitialized()) throw new Error('SchedulerManager not initialized');
     return schedulerManager.retryTask(taskId);

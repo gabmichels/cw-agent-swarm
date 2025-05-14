@@ -18,11 +18,12 @@ import {
   ResourceUtilization,
   SchedulerEvent,
   SchedulerMetrics
-} from '../../../agents/base/managers/SchedulerManager';
+} from '../../../../agents/shared/base/managers/SchedulerManager.interface';
 import type { AgentBase } from '../../../../agents/shared/base/AgentBase.interface';
 import { AbstractBaseManager } from '../../../../agents/shared/base/managers/BaseManager';
 import { createConfigFactory } from '../../../../agents/shared/config';
 import { SchedulerManagerConfigSchema } from '../../../../agents/shared/scheduler/config/SchedulerManagerConfigSchema';
+import { ManagerType } from '../../../../agents/shared/base/managers/ManagerType';
 
 /**
  * Error class for scheduling-related errors
@@ -42,13 +43,13 @@ class SchedulingError extends Error {
 /**
  * Default implementation of the SchedulerManager interface
  */
-// @ts-ignore - This class implements SchedulerManager with some method signature differences
 export class DefaultSchedulerManager extends AbstractBaseManager implements SchedulerManager {
   private tasks: Map<string, ScheduledTask> = new Map();
   private schedulingTimer: NodeJS.Timeout | null = null;
   private configFactory = createConfigFactory(SchedulerManagerConfigSchema);
+  
   // Override config type to use specific config type
-  protected config!: SchedulerManagerConfig & Record<string, unknown>;
+  protected config!: SchedulerManagerConfig;
 
   /**
    * Type property accessor for compatibility with SchedulerManager
@@ -65,15 +66,14 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
    */
   constructor(agent: AgentBase, config: Partial<SchedulerManagerConfig> = {}) {
     const managerId = `scheduler-manager-${uuidv4()}`;
-    const managerType = 'scheduler';
     
-    super(managerId, managerType, agent, { enabled: true });
+    super(managerId, ManagerType.SCHEDULER, agent, { enabled: true });
     
     // Validate and apply configuration with defaults
     this.config = this.configFactory.create({
       enabled: true,
       ...config
-    }) as SchedulerManagerConfig & Record<string, unknown>;
+    }) as SchedulerManagerConfig;
   }
 
   /**
@@ -105,7 +105,7 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
     this.config = this.configFactory.create({
       ...this.config, 
       ...config
-    }) as SchedulerManagerConfig & Record<string, unknown>;
+    }) as SchedulerManagerConfig;
     
     // If auto-scheduling config changed, update the timer
     if (('enableAutoScheduling' in config || 'schedulingIntervalMs' in config) && this.initialized) {
@@ -271,21 +271,19 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
       
       const task: ScheduledTask = {
         id: taskId,
-        name: options.name,
+        title: options.title,
         description: options.description,
         type: options.type,
         status: 'pending',
         priority: options.priority ?? 0.5,
-        schedule: options.schedule,
-        startTime: options.startTime,
-        endTime: options.endTime,
-        dependencies: options.dependencies,
+        scheduledStartTime: options.scheduledStartTime,
+        dueDate: options.dueDate,
+        dependencies: options.dependencies ?? [],
         parameters: options.parameters ?? {},
         metadata: options.metadata ?? {},
         createdAt: timestamp,
         updatedAt: timestamp,
-        executionCount: 0,
-        failureCount: 0
+        retryAttempts: 0
       };
       
       this.tasks.set(taskId, task);
@@ -297,7 +295,9 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Unknown error creating task'
+        error: {
+          message: error instanceof Error ? error.message : 'Unknown error creating task'
+        }
       };
     }
   }
@@ -385,28 +385,40 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
     if (!task) {
       return {
         success: false,
-        error: 'Task not found'
+        taskId,
+        error: {
+          message: 'Task not found'
+        },
+        durationMs: 0
       };
     }
 
     try {
       // Check if task can be executed
-      if (task.status === 'running') {
+      if (task.status === 'in_progress') {
         return {
           success: false,
-          error: 'Task is already running'
+          taskId,
+          error: {
+            message: 'Task is already running'
+          },
+          durationMs: 0
         };
       }
 
       if (task.status === 'completed') {
         return {
           success: false,
-          error: 'Task is already completed'
+          taskId,
+          error: {
+            message: 'Task is already completed'
+          },
+          durationMs: 0
         };
       }
 
-      // Check dependencies if enabled
-      if (this.config.enableTaskDependencies && task.dependencies?.length) {
+      // Check dependencies if applicable
+      if (task.dependencies?.length) {
         const dependencies = await Promise.all(
           task.dependencies.map(depId => this.getTask(depId))
         );
@@ -418,21 +430,31 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
         if (incompleteDeps.length) {
           return {
             success: false,
-            error: 'Task dependencies not completed'
+            taskId,
+            error: {
+              message: 'Task dependencies not completed'
+            },
+            durationMs: 0
           };
         }
       }
 
+      const startTime = Date.now();
+
       // Update task status
       const updatedTask = await this.updateTask(taskId, {
-        status: 'running',
-        lastExecutedAt: new Date()
+        status: 'in_progress',
+        startedAt: new Date()
       });
 
       if (!updatedTask) {
         return {
           success: false,
-          error: 'Failed to update task status'
+          taskId,
+          error: {
+            message: 'Failed to update task status'
+          },
+          durationMs: 0
         };
       }
 
@@ -440,33 +462,50 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
       try {
         await this.executeTaskAction(updatedTask);
         
+        const endTime = Date.now();
+        const durationMs = endTime - startTime;
+        
         // Update task status
         const finalTask = await this.updateTask(taskId, {
           status: 'completed',
-          executionCount: updatedTask.executionCount + 1
+          completedAt: new Date()
         });
 
         return {
           success: true,
+          taskId,
+          durationMs,
           task: finalTask ?? undefined
         };
       } catch (error) {
+        const endTime = Date.now();
+        const durationMs = endTime - startTime;
+        
         // Update task status
         const failedTask = await this.updateTask(taskId, {
           status: 'failed',
-          failureCount: updatedTask.failureCount + 1
+          retryAttempts: (task.retryAttempts ?? 0) + 1
         });
 
         return {
           success: false,
-          error: error instanceof Error ? error.message : 'Unknown error executing task',
+          taskId,
+          error: {
+            message: error instanceof Error ? error.message : 'Unknown error executing task',
+            code: error instanceof Error ? (error as any).code : 'EXECUTION_ERROR'
+          },
+          durationMs,
           task: failedTask ?? undefined
         };
       }
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Unknown error executing task'
+        taskId,
+        error: {
+          message: error instanceof Error ? error.message : 'Unknown error executing task'
+        },
+        durationMs: 0
       };
     }
   }
@@ -518,17 +557,17 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
       }
 
       // Check start time
-      if (task.startTime && task.startTime > now) {
+      if (task.scheduledStartTime && task.scheduledStartTime > now) {
         return false;
       }
 
       // Check end time
-      if (task.endTime && task.endTime < now) {
+      if (task.dueDate && task.dueDate < now) {
         return false;
       }
 
       // Check schedule if present
-      if (task.schedule) {
+      if (task.scheduledStartTime && task.scheduledStartTime > now) {
         // TODO: Implement cron schedule checking
         return false;
       }
@@ -549,7 +588,7 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
     }
 
     return Array.from(this.tasks.values()).filter(
-      task => task.status === 'running'
+      task => task.status === 'in_progress'
     );
   }
 
@@ -600,24 +639,38 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
     if (!task) {
       return {
         success: false,
-        error: 'Task not found'
+        taskId,
+        error: {
+          message: 'Task not found'
+        },
+        durationMs: 0
       };
     }
 
     if (task.status !== 'failed') {
       return {
         success: false,
-        error: 'Task is not in failed state'
+        taskId,
+        error: {
+          message: 'Task is not in failed state'
+        },
+        durationMs: 0
       };
     }
 
     // Check retry attempts if enabled
     if (this.config.enableTaskRetries) {
-      const retryCount = (task.metadata.retryCount as number) ?? 0;
-      if (retryCount >= (this.config.maxRetryAttempts ?? 3)) {
+      const retryCount = (task.metadata.retryAttempts as number) ?? 0;
+      const maxRetryAttempts = this.config.maxRetryAttempts as number ?? 3;
+      
+      if (retryCount >= maxRetryAttempts) {
         return {
           success: false,
-          error: 'Maximum retry attempts exceeded'
+          taskId,
+          error: {
+            message: 'Maximum retry attempts exceeded'
+          },
+          durationMs: 0
         };
       }
 
@@ -625,7 +678,7 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
       await this.updateTask(taskId, {
         metadata: {
           ...task.metadata,
-          retryCount: retryCount + 1
+          retryAttempts: retryCount + 1
         }
       });
     }
@@ -707,13 +760,13 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
     avgExecutionTime: number;
   }> {
     const allTasks = Array.from(this.tasks.values());
-    const runningTasks = allTasks.filter(t => t.status === 'running');
+    const runningTasks = allTasks.filter(t => t.status === 'in_progress');
     const pendingTasks = allTasks.filter(t => t.status === 'pending');
     const completedTasks = allTasks.filter(t => t.status === 'completed');
     const failedTasks = allTasks.filter(t => t.status === 'failed');
     
     const totalPriority = allTasks.reduce((sum, t) => sum + t.priority, 0);
-    const totalExecutions = allTasks.reduce((sum, t) => sum + t.executionCount, 0);
+    const totalExecutions = allTasks.reduce((sum, t) => sum + t.retryAttempts, 0);
     
     return {
       totalTasks: allTasks.length,

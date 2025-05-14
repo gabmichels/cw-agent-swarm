@@ -14,11 +14,12 @@ import {
   ToolManagerConfig,
   ToolUsageMetrics,
   ToolFallbackRule
-} from '../../base/managers/ToolManager';
+} from '../../../../agents/shared/base/managers/ToolManager.interface';
 import { AgentBase } from '../../../../agents/shared/base/AgentBase.interface';
-import { AbstractBaseManager, ManagerConfig } from '../../../../agents/shared/base/managers/BaseManager';
+import { AbstractBaseManager } from '../../../../agents/shared/base/managers/BaseManager';
 import { createConfigFactory } from '../../../../agents/shared/config';
 import { ToolManagerConfigSchema } from '../../../../agents/shared/tools/config/ToolManagerConfigSchema';
+import { ManagerType } from '../../../../agents/shared/base/managers/ManagerType';
 
 /**
  * Error class for tool-related errors
@@ -38,14 +39,14 @@ class ToolError extends Error {
 /**
  * Default implementation of the ToolManager interface
  */
-// @ts-ignore - This class implements ToolManager with some method signature differences
 export class DefaultToolManager extends AbstractBaseManager implements ToolManager {
   private tools: Map<string, Tool> = new Map();
   private fallbackRules: Map<string, ToolFallbackRule> = new Map();
   private metrics: Map<string, ToolUsageMetrics> = new Map();
   private configFactory = createConfigFactory(ToolManagerConfigSchema);
+  
   // Override config type to use ToolManagerConfig
-  protected config!: ToolManagerConfig & Record<string, unknown>;
+  protected config!: ToolManagerConfig;
 
   /**
    * Type property accessor for compatibility with ToolManager
@@ -64,7 +65,7 @@ export class DefaultToolManager extends AbstractBaseManager implements ToolManag
   constructor(agent: AgentBase, config: Partial<ToolManagerConfig> = {}) {
     super(
       `tool-manager-${uuidv4()}`,
-      'tool',
+      ManagerType.TOOL,
       agent,
       { enabled: true }
     );
@@ -73,7 +74,7 @@ export class DefaultToolManager extends AbstractBaseManager implements ToolManag
     this.config = this.configFactory.create({
       enabled: true,
       ...config
-    }) as ToolManagerConfig & Record<string, unknown>;
+    }) as ToolManagerConfig;
   }
 
   /**
@@ -84,7 +85,7 @@ export class DefaultToolManager extends AbstractBaseManager implements ToolManag
     this.config = this.configFactory.create({
       ...this.config, 
       ...config
-    }) as ToolManagerConfig & Record<string, unknown>;
+    }) as ToolManagerConfig;
     
     return this.config as unknown as T;
   }
@@ -447,28 +448,6 @@ export class DefaultToolManager extends AbstractBaseManager implements ToolManag
   }
 
   /**
-   * Reset tool metrics
-   */
-  async resetToolMetrics(toolId?: string): Promise<boolean> {
-    if (toolId) {
-      const tool = await this.getTool(toolId);
-      if (!tool) {
-        return false;
-      }
-      
-      this.initializeToolMetrics(toolId, tool.name);
-      return true;
-    }
-    
-    // Reset all tool metrics
-    for (const [toolId, tool] of Array.from(this.tools.entries())) {
-      this.initializeToolMetrics(toolId, tool.name);
-    }
-    
-    return true;
-  }
-
-  /**
    * Find the best tool for a specific task
    */
   async findBestToolForTask(
@@ -626,6 +605,28 @@ export class DefaultToolManager extends AbstractBaseManager implements ToolManag
     
     this.fallbackRules.set(ruleId, updatedRule);
     return updatedRule;
+  }
+
+  /**
+   * Reset tool metrics
+   */
+  async resetToolMetrics(toolId?: string): Promise<boolean> {
+    if (toolId) {
+      const tool = await this.getTool(toolId);
+      if (!tool) {
+        return false;
+      }
+      
+      this.initializeToolMetrics(toolId, tool.name);
+      return true;
+    }
+    
+    // Reset all tool metrics
+    for (const [toolId, tool] of Array.from(this.tools.entries())) {
+      this.initializeToolMetrics(toolId, tool.name);
+    }
+    
+    return true;
   }
 
   /**
@@ -896,5 +897,12 @@ export class DefaultToolManager extends AbstractBaseManager implements ToolManag
     }
     
     return null;
+  }
+
+  /**
+   * Check if the manager is initialized
+   */
+  public isInitialized(): boolean {
+    return this.initialized;
   }
 } 

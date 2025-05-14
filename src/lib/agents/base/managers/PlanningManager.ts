@@ -254,4 +254,14 @@ export interface PlanningManager extends BaseManager {
    * @returns Promise resolving to the optimized plan
    */
   optimizePlan(planId: string): Promise<Plan | null>;
-} 
+}
+
+/**
+ * PlanningManager.ts - Bridge export for Planning Manager types
+ * 
+ * This file re-exports the PlanningManager interface and related types
+ * to maintain compatibility across the codebase.
+ */
+
+// Re-export everything from the shared implementation
+export * from '../../../../agents/shared/base/managers/PlanningManager.interface'; 

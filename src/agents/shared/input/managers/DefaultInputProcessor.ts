@@ -13,18 +13,18 @@ import {
   ProcessedInput,
   InputPreprocessor,
   InputValidationResult
-} from '../../../../lib/agents/base/managers/InputProcessor';
+} from '../../base/managers/InputProcessor.interface';
 import { AgentBase } from '../../base/AgentBase.interface';
 import { createConfigFactory } from '../../config';
 import { InputProcessorConfigSchema } from '../config/InputProcessorConfigSchema';
 import { AbstractBaseManager } from '../../base/managers/BaseManager';
+import { ManagerType } from '../../base/managers/ManagerType';
 
 /**
  * Default implementation of the InputProcessor interface
  */
-// @ts-ignore - This class implements InputProcessor with some method signature differences
 export class DefaultInputProcessor extends AbstractBaseManager implements InputProcessor {
-  protected config: InputProcessorConfig & Record<string, unknown>;
+  protected config: InputProcessorConfig;
   private preprocessors: Map<string, InputPreprocessor> = new Map();
   private history: ProcessedInput[] = [];
   private configFactory = createConfigFactory(InputProcessorConfigSchema);
@@ -48,7 +48,7 @@ export class DefaultInputProcessor extends AbstractBaseManager implements InputP
   ) {
     super(
       `input-processor-${uuidv4()}`,
-      'input-processor',
+      ManagerType.INPUT,
       agent,
       { enabled: true }
     );
@@ -57,7 +57,7 @@ export class DefaultInputProcessor extends AbstractBaseManager implements InputP
     this.config = this.configFactory.create({
       enabled: true,
       ...config
-    }) as InputProcessorConfig & Record<string, unknown>;
+    }) as InputProcessorConfig;
     
     // Initialize default preprocessors based on configuration
     this.initializeDefaultPreprocessors();
@@ -66,13 +66,12 @@ export class DefaultInputProcessor extends AbstractBaseManager implements InputP
   /**
    * Update the manager configuration
    */
-  // @ts-ignore - Override BaseManager updateConfig() method with specific type
   updateConfig<T extends InputProcessorConfig>(config: Partial<T>): T {
     // Validate and merge configuration
     this.config = this.configFactory.create({
       ...this.config, 
       ...config
-    }) as InputProcessorConfig & Record<string, unknown>;
+    }) as InputProcessorConfig;
     
     // Reinitialize preprocessors with new configuration
     this.preprocessors.clear();
@@ -113,14 +112,15 @@ export class DefaultInputProcessor extends AbstractBaseManager implements InputP
   /**
    * Reset the manager
    */
-  // @ts-ignore - Override BaseManager reset() method return type
-  async reset(): Promise<void> {
+  async reset(): Promise<boolean> {
     // Clear history
     this.history = [];
     
     // Clear preprocessors and reinitialize
     this.preprocessors.clear();
     this.initializeDefaultPreprocessors();
+    
+    return true;
   }
 
   /**
@@ -152,9 +152,9 @@ export class DefaultInputProcessor extends AbstractBaseManager implements InputP
       status: 'healthy',
       message: 'Input processor is healthy',
       metrics: {
-        ...stats,
         preprocessorCount: this.preprocessors.size,
-        historySize: this.history.length
+        historySize: this.history.length,
+        ...stats
       }
     };
   }
@@ -478,7 +478,7 @@ export class DefaultInputProcessor extends AbstractBaseManager implements InputP
             break;
             
           case 'pattern':
-            const patternParams = rule.params as { pattern: string; message: string } || {};
+            const patternParams = (rule.params as { pattern: string; message: string }) || { pattern: '', message: '' };
             if (patternParams.pattern && !new RegExp(patternParams.pattern).test(contentToValidate)) {
               result.valid = false;
               result.hasBlockingIssues = true;
