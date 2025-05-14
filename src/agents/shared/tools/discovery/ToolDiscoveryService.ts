@@ -5,11 +5,12 @@
  * system. It bridges between our SharedToolRegistry and the agent's ToolManager.
  */
 
-import { Tool as RegistryTool, ToolCategory, ToolExecutionResult } from '../../../../lib/tools/types';
-import { Tool as ManagerTool, ToolManager } from '../../../../lib/agents/base/managers/ToolManager';
+import { Tool as RegistryTool, ToolCategory } from '../../../../lib/tools/types';
+import { ToolManager } from '../../../../lib/agents/base/managers/ToolManager';
 import defaultRegistry from '../registry';
 import { logger } from '../../../../lib/logging';
 import { ApifyActorMetadata } from '../integrations/apify';
+import { adaptRegistryToolToManagerTool } from '../adapters/ToolAdapter';
 
 /**
  * Options for tool discovery
@@ -26,45 +27,6 @@ export interface ToolDiscoveryOptions {
   
   /** Whether to include custom tools */
   includeCustomTools?: boolean;
-}
-
-/**
- * Adapter to convert between registry Tool and manager Tool interfaces
- * This handles the different execute method signatures
- */
-function adaptRegistryToolToManagerTool(registryTool: RegistryTool): ManagerTool {
-  return {
-    id: registryTool.id,
-    name: registryTool.name,
-    description: registryTool.description,
-    // Convert single category to array of categories for ManagerTool
-    categories: registryTool.category ? [registryTool.category] : [],
-    enabled: registryTool.enabled,
-    // Add default values for properties that exist in ManagerTool but not in RegistryTool
-    capabilities: [],
-    version: '1.0.0',
-    experimental: false,
-    costPerUse: 1,
-    timeoutMs: 30000,
-    metadata: registryTool.metadata,
-    
-    // Adapt the execute method signature
-    execute: async (params: unknown, context?: unknown): Promise<unknown> => {
-      try {
-        // Convert params to Record<string, unknown> as expected by registry tool
-        const typedParams = params as Record<string, unknown>;
-        
-        // Call the original execute method
-        const result = await registryTool.execute(typedParams);
-        
-        // Return the result data
-        return result.data || result;
-      } catch (error) {
-        // Re-throw the error
-        throw error;
-      }
-    }
-  };
 }
 
 /**
@@ -139,7 +101,7 @@ export class ToolDiscoveryService {
     let registered = 0;
     for (const tool of filteredTools) {
       try {
-        // Convert registry tool to manager tool format
+        // Convert registry tool to manager tool format using the centralized adapter
         const managerTool = adaptRegistryToolToManagerTool(tool);
         
         // Register the adapted tool
@@ -172,7 +134,7 @@ export class ToolDiscoveryService {
       
       for (const tool of apifyTools) {
         try {
-          // Convert registry tool to manager tool format
+          // Convert registry tool to manager tool format using the centralized adapter
           const managerTool = adaptRegistryToolToManagerTool(tool);
           
           // Register the adapted tool
@@ -197,7 +159,7 @@ export class ToolDiscoveryService {
     
     if (tool) {
       try {
-        // Convert registry tool to manager tool format
+        // Convert registry tool to manager tool format using the centralized adapter
         const managerTool = adaptRegistryToolToManagerTool(tool);
         
         // Register the adapted tool

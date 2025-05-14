@@ -307,6 +307,15 @@ export class SharedToolRegistry implements IToolRegistry {
       this.registerTool(tool);
     }
     
+    // Register web search tool
+    try {
+      const { createWebSearchTool } = require('../web');
+      const webSearchTool = createWebSearchTool();
+      this.registerTool(webSearchTool);
+    } catch (error) {
+      logger.warn('Could not register web search tool:', error);
+    }
+    
     // TODO: Register other shared tools here as they are implemented
   }
   

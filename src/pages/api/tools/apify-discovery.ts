@@ -2,52 +2,14 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import defaultApifyManager from '../../../agents/shared/tools/integrations/apify';
 import { SharedToolRegistry } from '../../../agents/shared/tools/registry/SharedToolRegistry';
 import { getAgentById } from '../../../server/agent/agent-service';
-import { Tool as ManagerTool, ToolManager } from '../../../lib/agents/base/managers/ToolManager';
-import { Tool as RegistryTool, ToolExecutionResult } from '../../../lib/tools/types';
+import { ToolManager } from '../../../lib/agents/base/managers/ToolManager';
+import { Tool as RegistryTool } from '../../../lib/tools/types';
+import { adaptRegistryToolToManagerTool, getAgentToolManager } from '../../../agents/shared/tools/adapters/ToolAdapter';
 
 // Initialize the shared tool registry
 const sharedToolRegistry = new SharedToolRegistry({
   apifyManager: defaultApifyManager
 });
-
-/**
- * Adapter to convert between registry Tool and manager Tool interfaces
- * This handles the different execute method signatures
- */
-function adaptRegistryToolToManagerTool(registryTool: RegistryTool): ManagerTool {
-  return {
-    id: registryTool.id,
-    name: registryTool.name,
-    description: registryTool.description,
-    // Convert single category to array of categories for ManagerTool
-    categories: registryTool.category ? [registryTool.category] : [],
-    enabled: registryTool.enabled,
-    // Add default values for properties that exist in ManagerTool but not in RegistryTool
-    capabilities: [],
-    version: '1.0.0',
-    experimental: false,
-    costPerUse: 1,
-    timeoutMs: 30000,
-    metadata: registryTool.metadata,
-    
-    // Adapt the execute method signature
-    execute: async (params: unknown, context?: unknown): Promise<unknown> => {
-      try {
-        // Convert params to Record<string, unknown> as expected by registry tool
-        const typedParams = params as Record<string, unknown>;
-        
-        // Call the original execute method
-        const result = await registryTool.execute(typedParams);
-        
-        // Return the result data
-        return result.data || result;
-      } catch (error) {
-        // Re-throw the error
-        throw error;
-      }
-    }
-  };
-}
 
 /**
  * API endpoint for discovering Apify actors
@@ -135,37 +97,33 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         // If an agent ID is provided, register with that agent's tool manager
         let agentRegistration = null;
         if (agentId && registeredTool) {
-          const agent = await getAgentById(agentId);
-          if (agent) {
-            // Get the agent's tool manager using getManager method
-            const toolManager = agent.getManager('tool') as ToolManager;
+          try {
+            const agent = await getAgentById(agentId);
             
-            if (toolManager) {
-              try {
-                // Convert registry tool to manager tool format
-                const managerTool = adaptRegistryToolToManagerTool(registeredTool);
-                
-                // Register the adapted tool
-                await toolManager.registerTool(managerTool);
-                agentRegistration = {
-                  success: true,
-                  agentId,
-                  toolId: registeredTool.id
-                };
-              } catch (error) {
-                agentRegistration = {
-                  success: false,
-                  agentId,
-                  error: error instanceof Error ? error.message : 'Unknown error registering tool with agent'
-                };
-              }
-            } else {
-              agentRegistration = {
-                success: false,
-                agentId,
-                error: 'Agent does not have a tool manager'
-              };
+            if (!agent) {
+              throw new Error(`Agent with ID ${agentId} not found`);
             }
+            
+            // Get the agent's tool manager using the centralized adapter
+            const toolManager = getAgentToolManager(agent, `Agent ${agentId} does not have a tool manager`);
+            
+            // Convert registry tool to manager tool format using the centralized adapter
+            const managerTool = adaptRegistryToolToManagerTool(registeredTool);
+            
+            // Register the adapted tool
+            await toolManager.registerTool(managerTool);
+            
+            agentRegistration = {
+              success: true,
+              agentId,
+              toolId: registeredTool.id
+            };
+          } catch (error) {
+            agentRegistration = {
+              success: false,
+              agentId,
+              error: error instanceof Error ? error.message : 'Unknown error registering tool with agent'
+            };
           }
         }
         

@@ -137,8 +137,8 @@ export default function useToolsMemory() {
         }
       });
       
-      // Call the API to execute the tool
-      const response = await fetch('/api/tools/execute', {
+      // Call the API to execute the tool - using v2 endpoint for improved compatibility
+      const response = await fetch('/api/tools/execute-v2', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
