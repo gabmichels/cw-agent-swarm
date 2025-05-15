@@ -139,6 +139,36 @@ describe('QdrantMemoryClient', () => {
       expect(mockQdrantClient.createCollection).toHaveBeenCalledWith('new_collection', expect.anything());
       expect(mockQdrantClient.createPayloadIndex).toHaveBeenCalledTimes(2); // timestamp and type
     });
+
+    test('should get collection info for an existing collection', async () => {
+      // Mock getCollection to return a config with dimensions
+      const mockQdrantClient = MockedQdrantClient.mock.results[0].value;
+      mockQdrantClient.getCollection = vi.fn().mockResolvedValue({
+        config: {
+          params: {
+            vectors: {
+              default: { size: 1536 }
+            }
+          }
+        },
+        vectors_count: 42
+      });
+      const info = await client.getCollectionInfo('test_collection');
+      expect(info).not.toBeNull();
+      expect(info?.name).toBe('test_collection');
+      expect(info?.dimensions).toBe(1536);
+      expect(info?.pointsCount).toBe(42);
+      expect(info?.createdAt).toBeInstanceOf(Date);
+    });
+
+    test('should return null for non-existent collection in getCollectionInfo', async () => {
+      // Mock collectionExists to return false
+      const orig = client.collectionExists;
+      client.collectionExists = vi.fn().mockResolvedValue(false);
+      const info = await client.getCollectionInfo('non_existent_collection');
+      expect(info).toBeNull();
+      client.collectionExists = orig;
+    });
   });
   
   describe('point operations', () => {

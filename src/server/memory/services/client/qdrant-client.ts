@@ -156,6 +156,46 @@ export class QdrantMemoryClient implements IMemoryClient {
     // Initialize fallback storage
     this.fallbackStorage = new InMemoryStorage();
   }
+
+  /**
+   * Get information about a collection
+   */
+  async getCollectionInfo(collectionName: string): Promise<{ name: string; dimensions: number; pointsCount: number; createdAt: Date } | null> {
+    if (!this.initialized) {
+      await this.initialize();
+    }
+    if (!this.useQdrant) {
+      // Fallback: return null if not using Qdrant
+      return null;
+    }
+    // Check if collection exists
+    const exists = await this.collectionExists(collectionName);
+    if (!exists) {
+      return null;
+    }
+    // Get collection info from Qdrant
+    const info = await this.client.getCollection(collectionName);
+    let dimensions = 1536; // Default
+    if (info.config?.params?.vectors) {
+      const vectorsConfig = info.config.params.vectors as Record<string, unknown>;
+      if (typeof vectorsConfig === 'object' && !Array.isArray(vectorsConfig)) {
+        const vectorNames = Object.keys(vectorsConfig);
+        if (vectorNames.length > 0) {
+          const firstVectorName = vectorNames[0];
+          const firstVectorConfig = vectorsConfig[firstVectorName] as Record<string, unknown> | undefined;
+          if (firstVectorConfig && typeof firstVectorConfig === 'object' && 'size' in firstVectorConfig) {
+            dimensions = (firstVectorConfig.size as number) || 1536;
+          }
+        }
+      }
+    }
+    return {
+      name: collectionName,
+      dimensions,
+      pointsCount: info.vectors_count || 0,
+      createdAt: new Date()
+    };
+  }
   
   /**
    * Initialize the client
@@ -174,6 +214,16 @@ export class QdrantMemoryClient implements IMemoryClient {
         const result = await Promise.race([testConnectionPromise, timeoutPromise]);
         this.useQdrant = true;
         console.log(`Qdrant connection successful. Found ${result.collections.length} collections.`);
+        
+        // Initialize collections set
+        this.collections = new Set(result.collections.map(c => c.name));
+        
+        // Ensure all required methods are available
+        if (typeof this.getCollectionInfo !== 'function') {
+          console.error('getCollectionInfo method not properly initialized');
+          throw new Error('Required methods not available');
+        }
+        
       } catch (error) {
         console.error('Failed to connect to Qdrant:', error);
         this.useQdrant = false;
@@ -181,10 +231,7 @@ export class QdrantMemoryClient implements IMemoryClient {
         return;
       }
       
-      // Initialize collections
-      this.collections = new Set();
       this.initialized = true;
-      
       console.log('Qdrant memory client initialized.');
     } catch (error) {
       console.error('Failed to initialize Qdrant memory client:', error);

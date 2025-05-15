@@ -108,6 +108,13 @@ describe('SearchService - Extended Tests', () => {
       mockEmbeddingService,
       enhancedMemoryService
     );
+
+    mockClient.getCollectionInfo = async (collectionName: string) => ({
+      name: collectionName,
+      dimensions: 1536,
+      pointsCount: 0,
+      createdAt: new Date()
+    });
   });
   
   afterEach(() => {

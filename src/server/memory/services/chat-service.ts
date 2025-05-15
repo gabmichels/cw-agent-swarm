@@ -64,6 +64,73 @@ export class ChatService {
     if (this.initialized) return;
 
     const { client } = await getMemoryServices();
+    // Runtime assertion and debug log
+    
+    // If getCollectionInfo is not available, implement it on the client instance
+    if (typeof client.getCollectionInfo !== 'function') {
+      console.log('Adding getCollectionInfo method to client instance');
+      // Add a custom implementation of getCollectionInfo
+      (client as any).getCollectionInfo = async (collectionName: string) => {
+        try {
+          // Use client's existing methods to get collection info
+          const exists = await client.collectionExists(collectionName);
+          if (!exists) {
+            return null;
+          }
+          
+          // Access the client's private properties
+          const qdrantClient = (client as any).client;
+          if (!qdrantClient) {
+            console.error('Unable to access Qdrant client');
+            return {
+              name: collectionName,
+              dimensions: 1536, // Default
+              pointsCount: 0,
+              createdAt: new Date()
+            };
+          }
+          
+          // Get collection info
+          const info = await qdrantClient.getCollection(collectionName);
+          let dimensions = 1536; // Default
+          
+          // Parse vector dimensions from the response
+          if (info.config?.params?.vectors) {
+            try {
+              const vectorsConfig = info.config.params.vectors;
+              if (typeof vectorsConfig === 'object' && !Array.isArray(vectorsConfig)) {
+                const vectorNames = Object.keys(vectorsConfig);
+                if (vectorNames.length > 0) {
+                  const firstVectorName = vectorNames[0];
+                  const firstVectorConfig = vectorsConfig[firstVectorName];
+                  if (firstVectorConfig && typeof firstVectorConfig === 'object' && 'size' in firstVectorConfig) {
+                    dimensions = (firstVectorConfig.size as number) || 1536;
+                  }
+                }
+              }
+            } catch (parseError) {
+              console.error('Error parsing vector config:', parseError);
+            }
+          }
+          
+          // Return simplified collection info
+          return {
+            name: collectionName,
+            dimensions,
+            pointsCount: info.vectors_count || 0,
+            createdAt: new Date()
+          };
+        } catch (error) {
+          console.error('Error in getCollectionInfo:', error);
+          return {
+            name: collectionName,
+            dimensions: 1536,
+            pointsCount: 0,
+            createdAt: new Date()
+          };
+        }
+      };
+    }
     
     try {
       // Check if collection exists
@@ -87,7 +154,7 @@ export class ChatService {
         // Check the vector dimension of the existing collection
         try {
           const collectionInfo = await client.getCollectionInfo(CHAT_COLLECTION);
-          const vectorSize = collectionInfo?.config?.params?.vectors?.size;
+          const vectorSize = collectionInfo?.dimensions;
           
           console.log(`Collection ${CHAT_COLLECTION} has vector size: ${vectorSize}`);
           

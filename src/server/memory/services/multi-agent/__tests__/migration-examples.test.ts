@@ -36,7 +36,13 @@ const mockMemoryClient: Record<keyof IMemoryClient, any> = {
   deletePoint: vi.fn().mockResolvedValue(true),
   addPoints: vi.fn().mockResolvedValue(['mock-id']),
   scrollPoints: vi.fn().mockResolvedValue([]),
-  getPointCount: vi.fn().mockResolvedValue(0)
+  getPointCount: vi.fn().mockResolvedValue(0),
+  getCollectionInfo: vi.fn().mockResolvedValue({
+    name: 'test',
+    dimensions: 1536,
+    pointsCount: 0,
+    createdAt: new Date()
+  }),
 };
 
 // Create a mock that matches the actual service API

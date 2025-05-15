@@ -67,6 +67,7 @@ export function createDefaultUser(): User {
  */
 export function getCurrentUser(): User {
   return createUser({
+    id: 'user_gab',
     username: 'gab',
     displayName: 'Gab',
   });

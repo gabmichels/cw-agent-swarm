@@ -221,6 +221,15 @@ class MockMemoryClient implements IMemoryClient {
     // Stub for IVectorDatabaseClient compatibility
     return { matches: [], totalCount: 0 };
   }
+
+  async getCollectionInfo(collectionName: string): Promise<{ name: string; dimensions: number; pointsCount: number; createdAt: Date } | null> {
+    return Promise.resolve({
+      name: collectionName,
+      dimensions: 1536,
+      pointsCount: 0,
+      createdAt: new Date()
+    });
+  }
 }
 
 // Simple mock embedding service

@@ -138,6 +138,9 @@ export interface IMemoryClient {
   
   // Utility methods
   getPointCount(collectionName: string, filter?: MemoryFilter): Promise<number>;
+
+  // Add getCollectionInfo to the interface
+  getCollectionInfo(collectionName: string): Promise<{ name: string; dimensions: number; pointsCount: number; createdAt: Date } | null>;
 }
 
 /**

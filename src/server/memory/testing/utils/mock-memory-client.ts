@@ -398,4 +398,13 @@ export class MockMemoryClient implements IMemoryClient {
     this.storage.clear();
     this.collections.clear();
   }
+  
+  async getCollectionInfo(collectionName: string): Promise<{ name: string; dimensions: number; pointsCount: number; createdAt: Date } | null> {
+    return Promise.resolve({
+      name: collectionName,
+      dimensions: 1536,
+      pointsCount: 0,
+      createdAt: new Date()
+    });
+  }
 } 

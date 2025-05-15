@@ -87,6 +87,67 @@ export async function getMemoryServices() {
     // Initialize client
     await memoryClientInstance.initialize();
     
+    // Ensure getCollectionInfo method is available
+    if (memoryClientInstance && typeof memoryClientInstance.getCollectionInfo !== 'function') {
+      console.log('Adding getCollectionInfo method to client instance');
+      // Add getCollectionInfo method directly using Object.defineProperty to avoid private property access issues
+      Object.defineProperty(memoryClientInstance, 'getCollectionInfo', {
+        value: async function(collectionName: string) {
+          // Skip initialization check since we've already initialized
+          
+          try {
+            // Check if collection exists - use the existing public method
+            if (!memoryClientInstance) {
+              return null;
+            }
+            
+            const exists = await memoryClientInstance.collectionExists(collectionName);
+            if (!exists) {
+              return null;
+            }
+            
+            // Access the client using a workaround
+            const client = (memoryClientInstance as any).client;
+            if (!client) {
+              console.error('Unable to access Qdrant client');
+              return null;
+            }
+            
+            // Get collection info from Qdrant
+            const info = await client.getCollection(collectionName);
+            let dimensions = 1536; // Default
+            
+            if (info.config?.params?.vectors) {
+              const vectorsConfig = info.config.params.vectors as Record<string, unknown>;
+              if (typeof vectorsConfig === 'object' && !Array.isArray(vectorsConfig)) {
+                const vectorNames = Object.keys(vectorsConfig);
+                if (vectorNames.length > 0) {
+                  const firstVectorName = vectorNames[0];
+                  const firstVectorConfig = vectorsConfig[firstVectorName] as Record<string, unknown> | undefined;
+                  if (firstVectorConfig && typeof firstVectorConfig === 'object' && 'size' in firstVectorConfig) {
+                    dimensions = (firstVectorConfig.size as number) || 1536;
+                  }
+                }
+              }
+            }
+            
+            return {
+              name: collectionName,
+              dimensions,
+              pointsCount: info.vectors_count || 0,
+              createdAt: new Date()
+            };
+          } catch (error) {
+            console.error('Error in getCollectionInfo:', error);
+            return null;
+          }
+        },
+        writable: false,
+        configurable: true,
+        enumerable: true
+      });
+    }
+    
     // Create filter builder
     filterBuilderInstance = new QdrantFilterBuilder();
     

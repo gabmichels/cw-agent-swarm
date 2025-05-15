@@ -43,6 +43,13 @@ describe('Memory Processing', () => {
     memoryService = new MemoryService(mockClient, mockEmbeddingService, {
       getTimestamp: () => mockTimestamp
     });
+
+    mockClient.getCollectionInfo = async (collectionName: string) => ({
+      name: collectionName,
+      dimensions: 1536,
+      pointsCount: 0,
+      createdAt: new Date()
+    });
   });
 
   describe('Memory Transformation', () => {

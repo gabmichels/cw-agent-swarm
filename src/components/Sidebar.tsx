@@ -148,11 +148,8 @@ const Sidebar: React.FC<SidebarProps> = ({
     // Set the selected agent in the main interface
     setSelectedAgent(agentId);
     
-    // Also navigate to the home page if we're not already there
-    // to ensure the chat interface is shown
-    if (window.location.pathname !== '/') {
-      router.push('/');
-    }
+    // Navigate to the chat page for the selected agent
+    router.push(`/chat/${agentId}`);
   };
 
   return (

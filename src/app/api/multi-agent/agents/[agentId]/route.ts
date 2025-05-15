@@ -9,11 +9,11 @@ import { AppError } from '@/lib/errors/base';
  */
 export async function GET(
   request: NextRequest,
-  { params }: { params: { agentId: string } }
+  context: { params: { agentId: string } }
 ) {
+  const params = await context.params;
+  const agentId = params.agentId;
   try {
-    const agentId = params.agentId;
-    
     if (!agentId) {
       return NextResponse.json({ 
         success: false, 
@@ -46,7 +46,7 @@ export async function GET(
       agent: result.value 
     });
   } catch (error) {
-    console.error(`Error retrieving agent ${params.agentId}:`, error);
+    console.error(`Error retrieving agent ${agentId}:`, error);
     
     return NextResponse.json({ 
       success: false, 
@@ -61,12 +61,11 @@ export async function GET(
  */
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { agentId: string } }
+  context: { params: { agentId: string } }
 ) {
+  const params = await context.params;
+  const agentId = params.agentId;
   try {
-    const agentId = params.agentId;
-    const updates = await request.json();
-    
     if (!agentId) {
       return NextResponse.json({ 
         success: false, 
@@ -98,7 +97,7 @@ export async function PUT(
     // Merge the existing agent with the updates
     const updatedAgent = {
       ...getResult.value,
-      ...updates,
+      ...await request.json(),
       updatedAt: new Date()
     };
     
@@ -134,7 +133,7 @@ export async function PUT(
       agent: updatedAgent
     });
   } catch (error) {
-    console.error(`Error updating agent ${params.agentId}:`, error);
+    console.error(`Error updating agent ${agentId}:`, error);
     
     return NextResponse.json({ 
       success: false, 
@@ -149,11 +148,11 @@ export async function PUT(
  */
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { agentId: string } }
+  context: { params: { agentId: string } }
 ) {
+  const params = await context.params;
+  const agentId = params.agentId;
   try {
-    const agentId = params.agentId;
-    
     if (!agentId) {
       return NextResponse.json({ 
         success: false, 
@@ -196,7 +195,7 @@ export async function DELETE(
       message: `Agent ${agentId} deleted successfully` 
     });
   } catch (error) {
-    console.error(`Error deleting agent ${params.agentId}:`, error);
+    console.error(`Error deleting agent ${agentId}:`, error);
     
     return NextResponse.json({ 
       success: false, 

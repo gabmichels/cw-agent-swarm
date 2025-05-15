@@ -100,6 +100,13 @@ describe('SearchService - Basic Functions', () => {
     searchService.getCollectionName = (type: MemoryType): string => {
       return COLLECTION_NAMES[type] || String(type);
     };
+
+    mockClient.getCollectionInfo = async (collectionName: string) => ({
+      name: collectionName,
+      dimensions: 1536,
+      pointsCount: 0,
+      createdAt: new Date()
+    });
   });
   
   describe('buildFilter', () => {

@@ -90,6 +90,13 @@ describe('CachedMemoryService', () => {
       cacheManager, 
       { defaultTtl: 60000 }
     );
+
+    mockClient.getCollectionInfo = async (collectionName: string) => ({
+      name: collectionName,
+      dimensions: 1536,
+      pointsCount: 0,
+      createdAt: new Date()
+    });
   });
   
   afterEach(async () => {
