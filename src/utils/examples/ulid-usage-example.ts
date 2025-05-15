@@ -11,6 +11,7 @@ import {
   migrateTimestampId,
   batchMigrateIds
 } from '../id';
+import { StructuredId } from '../../types/structured-id';
 
 /**
  * Example memory document that uses the new ULID identifiers
@@ -40,20 +41,43 @@ function createMemoryDocument(userId: string, chatId: string, content: string): 
 }
 
 /**
- * Example showing how to parse a structured ID string back into an object
+ * Example function showing how to validate a memory ID
  */
-function parseMemoryId(memoryIdString: string) {
-  const structuredId = IdGenerator.parse(memoryIdString);
-  
-  if (!structuredId) {
-    throw new Error('Invalid memory ID format');
+export function validateMemoryId(structuredId: StructuredId): boolean {
+  if (structuredId.namespace !== IdPrefix.MEMORY) {
+    throw new Error(`Expected memory ID prefix, got ${structuredId.namespace}`);
   }
-  
-  if (structuredId.prefix !== IdPrefix.MEMORY) {
-    throw new Error(`Expected memory ID prefix, got ${structuredId.prefix}`);
+
+  return IdGenerator.isValid(structuredId.id);
+}
+
+/**
+ * Example function showing how to get the creation time of an ID
+ */
+export function getIdCreationTime(structuredId: StructuredId): Date {
+  const timestamp = structuredId.timestamp || structuredId.getTimestamp?.();
+  if (!timestamp) {
+    throw new Error('ID does not have timestamp information');
   }
-  
-  return structuredId;
+  return timestamp;
+}
+
+/**
+ * Example function showing how to parse and validate an ID string
+ */
+export function parseAndValidateId(idString: string): StructuredId {
+  const parsedId = IdGenerator.parse(idString);
+  if (!parsedId) {
+    throw new Error('Invalid ID string format');
+  }
+
+  // Log creation time if available
+  const timestamp = parsedId.timestamp || parsedId.getTimestamp?.();
+  if (timestamp) {
+    console.log('Creation time:', timestamp);
+  }
+
+  return parsedId;
 }
 
 /**
@@ -84,7 +108,7 @@ function createNewConversation(userName: string) {
 /**
  * Example showing how to use the timestamp extraction feature
  */
-function getMessageCreationTime(messageId: string) {
+function getMessageCreationTime(messageId: string): Date | undefined {
   const structuredId = IdGenerator.parse(messageId);
   
   if (!structuredId) {
@@ -92,7 +116,7 @@ function getMessageCreationTime(messageId: string) {
   }
   
   // Get the creation timestamp from the ID
-  return structuredId.getTimestamp();
+  return structuredId.timestamp || structuredId.getTimestamp?.();
 }
 
 /**
@@ -111,6 +135,23 @@ function migrateUserData(legacyUserId: string, legacyMessages: Array<{ id: strin
   };
 }
 
+/**
+ * Example function showing how to create and use a memory ID
+ */
+export function createAndUseMemoryId(): void {
+  const memoryId = IdGenerator.generate(IdPrefix.MEMORY);
+  console.log('Created memory ID:', memoryId.toString());
+
+  // Validate the ID
+  if (validateMemoryId(memoryId)) {
+    console.log('Memory ID is valid');
+  }
+
+  // Get creation time
+  const timestamp = getIdCreationTime(memoryId);
+  console.log('Memory ID was created at:', timestamp);
+}
+
 // Run the examples if this file is executed directly
 if (require.main === module) {
   // Example 1: Create a new memory document
@@ -121,9 +162,12 @@ if (require.main === module) {
   
   // Example 2: Parse an ID
   const memoryId = document.id;
-  const parsedId = parseMemoryId(memoryId);
+  const parsedId = parseAndValidateId(memoryId);
   console.log('Parsed memory ID:', parsedId);
-  console.log('Creation time:', parsedId.getTimestamp());
+  const timestamp = parsedId.timestamp || parsedId.getTimestamp?.();
+  if (timestamp) {
+    console.log('Creation time:', timestamp);
+  }
   
   // Example 3: Create a new conversation
   const conversation = createNewConversation('John Doe');

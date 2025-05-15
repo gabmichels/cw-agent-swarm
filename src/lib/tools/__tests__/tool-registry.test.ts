@@ -20,10 +20,19 @@ describe('ToolRegistry', () => {
       category: ToolCategory.UTILITY,
       enabled: true,
       execute: async () => ({
-        id: { id: 'exec-1', prefix: 'EXEC', timestamp: new Date(), toString: () => 'EXEC_exec-1', toULID: () => 'exec-1', getTimestamp: () => new Date() },
+        id: {
+          namespace: 'EXEC',
+          type: 'EXEC',
+          id: 'exec-1',
+          prefix: 'EXEC',
+          timestamp: new Date(),
+          toString: () => 'EXEC_exec-1',
+          toULID: () => 'exec-1',
+          getTimestamp: () => new Date()
+        },
         toolId: 'test-tool-1',
         success: true,
-        data: 'result',
+        data: 'test result',
         metrics: { startTime: Date.now(), endTime: Date.now(), durationMs: 10 }
       })
     };

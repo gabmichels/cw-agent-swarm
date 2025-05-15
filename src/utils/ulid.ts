@@ -9,10 +9,20 @@ import { ulid, decodeTime } from 'ulid';
  * This interface will be removed in a future version.
  */
 export interface StructuredId {
+  // New properties
   namespace: string;
   type: string;
   id: string;
   version?: number;
+
+  // Legacy properties for backward compatibility
+  prefix?: string;
+  timestamp?: Date;
+
+  // Methods
+  toString(): string;
+  toULID?(): string;
+  getTimestamp?(): Date;
 }
 
 /**
@@ -27,7 +37,7 @@ export enum IdPrefix {
   KNOWLEDGE = 'know',
   DOCUMENT = 'doc',
   THOUGHT = 'thght',
-  EMBEDDING = 'embd',
+  EMBEDDING = 'embd'
 }
 
 // Add logging utility
@@ -96,27 +106,67 @@ export class IdGenerator {
     if (!IdGenerator.isValid(id)) return null;
     
     const timestamp = IdGenerator.getTimestamp(id);
-    return new StructuredIdImpl(id, prefix, timestamp);
+    return IdGenerator.generate(prefix);
   }
   
   /**
    * Generate a new ID with the given prefix
    * @param prefix The prefix to use for the ID
-   * @returns A string ID
+   * @returns A StructuredId object
    */
-  static generate(prefix: string): string {
+  static generate(prefix: string): StructuredId {
     const timestamp = new Date();
     const id = ulid(timestamp.getTime());
-    return `${prefix}_${id}`;
+    return {
+      // New properties
+      namespace: prefix,
+      type: prefix,
+      id: id,
+
+      // Legacy properties
+      prefix: prefix,
+      timestamp: timestamp,
+
+      // Methods
+      toString() {
+        return `${prefix}_${id}`;
+      },
+      toULID() {
+        return id;
+      },
+      getTimestamp() {
+        return timestamp;
+      }
+    };
   }
   
   /**
    * @deprecated Use generate(prefix) directly instead
    */
-  static generateWithTimestamp(prefix: string, timestamp: Date): string {
+  static generateWithTimestamp(prefix: string, timestamp: Date): StructuredId {
     logDeprecatedUsage('IdGenerator.generateWithTimestamp');
     const id = ulid(timestamp.getTime());
-    return `${prefix}_${id}`;
+    return {
+      // New properties
+      namespace: prefix,
+      type: prefix,
+      id: id,
+
+      // Legacy properties
+      prefix: prefix,
+      timestamp: timestamp,
+
+      // Methods
+      toString() {
+        return `${prefix}_${id}`;
+      },
+      toULID() {
+        return id;
+      },
+      getTimestamp() {
+        return timestamp;
+      }
+    };
   }
   
   /**
@@ -146,7 +196,7 @@ export class IdGenerator {
  */
 export function createUserId(): string {
   logDeprecatedUsage('createUserId');
-  return IdGenerator.generate('user');
+  return IdGenerator.generate('user').toString();
 }
 
 /**
@@ -154,7 +204,7 @@ export function createUserId(): string {
  */
 export function createAgentId(): string {
   logDeprecatedUsage('createAgentId');
-  return IdGenerator.generate('agent');
+  return IdGenerator.generate('agent').toString();
 }
 
 /**
@@ -162,7 +212,7 @@ export function createAgentId(): string {
  */
 export function createChatId(): string {
   logDeprecatedUsage('createChatId');
-  return IdGenerator.generate('chat');
+  return IdGenerator.generate('chat').toString();
 }
 
 /**
@@ -170,7 +220,7 @@ export function createChatId(): string {
  */
 export function createMessageId(): string {
   logDeprecatedUsage('createMessageId');
-  return IdGenerator.generate('message');
+  return IdGenerator.generate('message').toString();
 }
 
 /**
@@ -178,7 +228,7 @@ export function createMessageId(): string {
  */
 export function createMemoryId(): string {
   logDeprecatedUsage('createMemoryId');
-  return IdGenerator.generate('memory');
+  return IdGenerator.generate('memory').toString();
 }
 
 /**
@@ -186,7 +236,7 @@ export function createMemoryId(): string {
  */
 export function createKnowledgeId(): string {
   logDeprecatedUsage('createKnowledgeId');
-  return IdGenerator.generate('knowledge');
+  return IdGenerator.generate('knowledge').toString();
 }
 
 /**
@@ -194,7 +244,7 @@ export function createKnowledgeId(): string {
  */
 export function createDocumentId(): string {
   logDeprecatedUsage('createDocumentId');
-  return IdGenerator.generate('document');
+  return IdGenerator.generate('document').toString();
 }
 
 /**
@@ -202,7 +252,7 @@ export function createDocumentId(): string {
  */
 export function createThoughtId(): string {
   logDeprecatedUsage('createThoughtId');
-  return IdGenerator.generate('thought');
+  return IdGenerator.generate('thought').toString();
 }
 
 /**
@@ -210,5 +260,5 @@ export function createThoughtId(): string {
  */
 export function createEmbeddingId(): string {
   logDeprecatedUsage('createEmbeddingId');
-  return IdGenerator.generate('embedding');
+  return IdGenerator.generate('embedding').toString();
 } 

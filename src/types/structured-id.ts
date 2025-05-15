@@ -32,10 +32,20 @@ export enum EntityType {
 
 // Export StructuredId interface
 export interface StructuredId {
+  // New properties
   namespace: string;
   type: string;
   id: string;
   version?: number;
+
+  // Legacy properties for backward compatibility
+  prefix?: string;
+  timestamp?: Date;
+
+  // Methods
+  toString(): string;
+  toULID?(): string;
+  getTimestamp?(): Date;
 }
 
 // Interface for the structured ID components

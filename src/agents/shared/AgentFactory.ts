@@ -159,7 +159,7 @@ export class AgentFactory {
     
     // Create agent data conforming to the DB entity format
     const agentData: Partial<AgentMemoryEntity> = {
-      id: agentId,
+      id: agentId.toString(),
       name: profile.name,
       description: profile.description,
       createdBy: 'user',
