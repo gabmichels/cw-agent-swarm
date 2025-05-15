@@ -2,7 +2,7 @@
  * Tests for DefaultOpportunityIdentifier
  */
 
-import { describe, test, expect, beforeEach, vi } from 'vitest';
+import { describe, test, expect, beforeEach, vi, afterEach } from 'vitest';
 import { DefaultOpportunityIdentifier } from '../DefaultOpportunityIdentifier';
 import { OpportunityType, OpportunityPriority } from '../../interfaces/OpportunityIdentification.interface';
 import { AgentBase } from '../../../base/AgentBase.interface';
@@ -26,7 +26,7 @@ describe('DefaultOpportunityIdentifier', () => {
     title: 'Test Knowledge',
     content: 'Test knowledge content',
     source: 'test',
-    timestamp: new Date(),
+    timestamp: new Date()
   };
 
   const mockKnowledgeManager = {
@@ -43,7 +43,7 @@ describe('DefaultOpportunityIdentifier', () => {
     // Reset mock function calls and timers
     vi.clearAllMocks();
     vi.useFakeTimers();
-    
+
     // Create mock agent
     mockAgent = {
       getAgentId: () => 'test-agent',
@@ -178,9 +178,9 @@ describe('DefaultOpportunityIdentifier', () => {
     } as unknown as AgentBase;
 
     const identifier = new DefaultOpportunityIdentifier(mockAgentWithoutManagers);
-    
+
     // We expect initialization to fail gracefully
     const initResult = await identifier.initialize();
     expect(initResult).toBe(false);
   });
-}); 
+});
