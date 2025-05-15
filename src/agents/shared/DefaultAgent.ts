@@ -1,6 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import { AbstractAgentBase } from './base/AbstractAgentBase';
-import { AgentBaseConfig, AgentStatus } from './base/types';
+import { AgentBaseConfig } from './base/types';
 import { DefaultMemoryManager } from '../../lib/agents/implementations/managers/DefaultMemoryManager';
 import { DefaultPlanningManager } from '../../lib/agents/implementations/managers/DefaultPlanningManager';
 import { DefaultToolManager } from '../../lib/agents/implementations/managers/DefaultToolManager';
@@ -9,7 +9,10 @@ import { DefaultSchedulerManager } from '../../lib/agents/implementations/manage
 import { BaseManager } from './base/managers/BaseManager';
 import { ManagerConfig } from './base/managers/BaseManager';
 import { ResourceUtilizationTracker, ResourceUtilizationTrackerOptions, ResourceUsageListener } from './scheduler/ResourceUtilization';
-import { TaskCreationOptions, TaskCreationResult, ScheduledTask, TaskExecutionResult } from '../../lib/agents/base/managers/SchedulerManager';
+import { TaskCreationOptions, TaskCreationResult, ScheduledTask, TaskExecutionResult } from './base/managers/SchedulerManager.interface';
+import { ManagerType } from './base/managers/ManagerType';
+import { AgentMemoryEntity, AgentStatus } from '../../server/memory/schema/agent';
+import { createAgentId } from '../../utils/ulid';
 
 // Since we can't import the specific input/output processors directly due to type issues,
 // we'll use more generic types to avoid linter errors
@@ -19,7 +22,13 @@ type InputProcessor = BaseManager;
 type OutputProcessor = BaseManager;
 
 // Extended agent config with manager enablement and configuration
-interface ExtendedAgentConfig extends AgentBaseConfig {
+interface ExtendedAgentConfig {
+  /** Optional agent name */
+  name?: string;
+  
+  /** Optional agent description */
+  description?: string;
+  
   // Manager enablement flags
   enableMemoryManager?: boolean;
   enablePlanningManager?: boolean;
@@ -51,17 +60,238 @@ interface ExtendedAgentConfig extends AgentBaseConfig {
 export class DefaultAgent extends AbstractAgentBase implements ResourceUsageListener {
   private extendedConfig: ExtendedAgentConfig;
   private resourceTracker: ResourceUtilizationTracker | null = null;
+  private agentId: string;
+  private agentType: string = 'default';
+  private version: string = '1.0.0';
+  protected schedulerManager?: DefaultSchedulerManager;
+  protected initialized: boolean = false;
   
   /**
    * Create a new DefaultAgent
    * @param config Agent configuration
    */
   constructor(config: ExtendedAgentConfig) {
+    // Create AgentMemoryEntity from ExtendedAgentConfig
+    const structuredId = createAgentId();
+    const agentConfig: AgentMemoryEntity = {
+      id: structuredId,
+      name: 'Default Agent',
+      description: 'A general-purpose agent that can be used for various tasks',
+      createdBy: 'system',
+      capabilities: [],
+      parameters: {
+        model: 'gpt-4',
+        temperature: 0.7,
+        maxTokens: 4096,
+        tools: []
+      },
+      status: AgentStatus.AVAILABLE,
+      lastActive: new Date(),
+      chatIds: [],
+      teamIds: [],
+      metadata: {
+        tags: [],
+        domain: [],
+        specialization: [],
+        performanceMetrics: {
+          successRate: 0,
+          averageResponseTime: 0,
+          taskCompletionRate: 0
+        },
+        version: '1.0.0',
+        isPublic: false
+      },
+      content: '',
+      type: 'agent',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      schemaVersion: '1.0'
+    };
+    
     // Pass the base config to AbstractAgentBase
-    super(config);
+    super(agentConfig);
     
     // Store extended config for use in initialization
     this.extendedConfig = config;
+    this.agentId = structuredId.id;
+  }
+
+  /**
+   * Get the agent's unique identifier
+   */
+  getId(): string {
+    return this.agentId;
+  }
+
+  /**
+   * Get the agent's type
+   */
+  getType(): string {
+    return this.agentType;
+  }
+
+  /**
+   * Get the agent's description
+   */
+  getDescription(): string {
+    return 'A general-purpose agent that can be used for various tasks';
+  }
+
+  /**
+   * Get the agent's version
+   */
+  getVersion(): string {
+    return this.version;
+  }
+
+  /**
+   * Get the agent's capabilities
+   */
+  async getCapabilities(): Promise<string[]> {
+    return [
+      'memory_management',
+      'planning',
+      'tool_usage',
+      'knowledge_management',
+      'scheduling'
+    ];
+  }
+
+  /**
+   * Get the agent's configuration
+   */
+  getConfig(): Record<string, unknown> {
+    return {
+      id: this.agentId,
+      name: this.agentType,
+      description: this.getDescription(),
+      version: this.version,
+      capabilities: [],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      createdBy: 'system',
+      status: this.config.status,
+      type: this.agentType,
+      config: this.extendedConfig,
+      metadata: {
+        tags: [],
+        domain: [],
+        specialization: [],
+        performanceMetrics: {
+          successRate: 0,
+          averageResponseTime: 0,
+          taskCompletionRate: 0
+        },
+        version: this.version,
+        isPublic: false
+      },
+      parameters: {
+        model: 'gpt-4',
+        temperature: 0.7,
+        maxTokens: 4096,
+        tools: []
+      },
+      lastActive: new Date(),
+      chatIds: [],
+      teamIds: [],
+      content: '',
+      schemaVersion: '1.0'
+    } as Record<string, unknown>;
+  }
+
+  /**
+   * Get agent status
+   */
+  getStatus(): { status: string; message?: string } {
+    if (!this.initialized) {
+      return {
+        status: AgentStatus.OFFLINE,
+        message: 'Agent not initialized'
+      };
+    }
+
+    if (this.schedulerManager) {
+      return {
+        status: AgentStatus.BUSY,
+        message: 'Processing active tasks'
+      };
+    }
+
+    return {
+      status: AgentStatus.AVAILABLE,
+      message: 'Ready to process tasks'
+    };
+  }
+
+  /**
+   * Reset the agent to its initial state
+   */
+  async reset(): Promise<void> {
+    try {
+      // Reset all managers
+      for (const manager of Array.from(this.managers.values())) {
+        await manager.reset();
+      }
+      
+      // Reset resource tracker
+      if (this.resourceTracker) {
+        this.resourceTracker.stop();
+        this.resourceTracker = null;
+      }
+      
+      // Reset status
+      this.config.status = AgentStatus.AVAILABLE;
+    } catch (error) {
+      console.error('Error resetting agent:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get a manager by type
+   */
+  getManager<T extends BaseManager>(managerType: ManagerType): T | null {
+    const manager = this.managers.get(managerType);
+    return manager ? manager as T : null;
+  }
+
+  /**
+   * Get all managers
+   */
+  getManagers(): BaseManager[] {
+    return Array.from(this.managers.values());
+  }
+
+  /**
+   * Set a manager for the agent
+   */
+  setManager(manager: BaseManager): void {
+    this.managers.set(manager.managerType, manager);
+  }
+
+  /**
+   * Remove a manager from the agent
+   */
+  removeManager(managerType: ManagerType): void {
+    this.managers.delete(managerType);
+  }
+
+  /**
+   * Check if the agent has a specific manager
+   */
+  hasManager(managerType: ManagerType): boolean {
+    return this.managers.has(managerType);
+  }
+
+  /**
+   * Get all tasks for this agent
+   */
+  async getTasks(): Promise<Record<string, unknown>[]> {
+    if (!this.schedulerManager) {
+      return [];
+    }
+    const tasks = await this.schedulerManager.getAllTasks();
+    return tasks.map(task => ({ ...task } as Record<string, unknown>));
   }
 
   /**
@@ -75,8 +305,8 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
           this, 
           this.extendedConfig.managersConfig?.memoryManager || {}
         );
-        this.registerManager(memoryManager);
         await memoryManager.initialize();
+        this.registerManager(memoryManager);
       }
 
       if (this.extendedConfig.enablePlanningManager) {
@@ -84,8 +314,8 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
           this,
           this.extendedConfig.managersConfig?.planningManager || {}
         );
-        this.registerManager(planningManager);
         await planningManager.initialize();
+        this.registerManager(planningManager);
       }
 
       if (this.extendedConfig.enableToolManager) {
@@ -93,8 +323,8 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
           this,
           this.extendedConfig.managersConfig?.toolManager || {}
         );
-        this.registerManager(toolManager);
         await toolManager.initialize();
+        this.registerManager(toolManager);
       }
 
       if (this.extendedConfig.enableKnowledgeManager) {
@@ -102,8 +332,8 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
           this,
           this.extendedConfig.managersConfig?.knowledgeManager || {}
         );
-        this.registerManager(knowledgeManager);
         await knowledgeManager.initialize();
+        this.registerManager(knowledgeManager);
       }
 
       if (this.extendedConfig.enableSchedulerManager) {
@@ -111,8 +341,8 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
           this,
           this.extendedConfig.managersConfig?.schedulerManager || {}
         );
-        this.registerManager(this.schedulerManager);
         await this.schedulerManager.initialize();
+        this.registerManager(this.schedulerManager);
         
         // Initialize resource utilization tracking if enabled
         if (this.extendedConfig.enableResourceTracking) {
@@ -196,37 +426,54 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
   }
   
   /**
-   * Create a scheduled task through the scheduler manager
-   * 
-   * @param options Task creation options
-   * @returns Task creation result
+   * Create a new task
    */
-  async createScheduledTask(options: TaskCreationOptions): Promise<TaskCreationResult> {
+  async createTask(options: Record<string, unknown>): Promise<TaskCreationResult> {
     if (!this.schedulerManager) {
-      return {
-        success: false,
-        error: 'Scheduler manager not available. Enable scheduler in agent configuration.'
-      };
+      throw new Error('Scheduler manager not initialized');
     }
-    
-    return await this.schedulerManager.createTask(options);
+    return this.schedulerManager.createTask(options as unknown as TaskCreationOptions);
   }
-  
+
   /**
-   * Run a scheduled task immediately
-   * 
-   * @param taskId ID of task to run
-   * @returns Task execution result
+   * Get a task by ID
    */
-  async runScheduledTask(taskId: string): Promise<TaskExecutionResult> {
+  async getTask(taskId: string): Promise<Record<string, unknown> | null> {
     if (!this.schedulerManager) {
-      return {
-        success: false,
-        error: 'Scheduler manager not available. Enable scheduler in agent configuration.'
-      };
+      return null;
     }
-    
-    return await this.schedulerManager.executeTask(taskId);
+    const task = await this.schedulerManager.getTask(taskId);
+    return task ? { ...task } as Record<string, unknown> : null;
+  }
+
+  /**
+   * Execute a task
+   */
+  async executeTask(taskId: string): Promise<TaskExecutionResult> {
+    if (!this.schedulerManager) {
+      throw new Error('Scheduler manager not initialized');
+    }
+    return this.schedulerManager.executeTask(taskId);
+  }
+
+  /**
+   * Cancel a task
+   */
+  async cancelTask(taskId: string): Promise<boolean> {
+    if (!this.schedulerManager) {
+      return false;
+    }
+    return this.schedulerManager.cancelTask(taskId);
+  }
+
+  /**
+   * Retry a failed task
+   */
+  async retryTask(taskId: string): Promise<TaskExecutionResult> {
+    if (!this.schedulerManager) {
+      throw new Error('Scheduler manager not initialized');
+    }
+    return this.schedulerManager.retryTask(taskId);
   }
   
   /**
@@ -322,61 +569,35 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
   // ResourceUsageListener implementation
   
   /**
-   * Handle resource warning events
+   * Handle resource warning
    */
   onResourceWarning(metric: string, value: number, limit: number): void {
-    console.warn(`[${this.getAgentId()}] Resource warning: ${metric} at ${value} (limit: ${limit})`);
-    
-    // Log to memory if memory manager is available
-    this.addMemory(`Resource warning: ${metric} approaching limit`, { 
-      type: 'SYSTEM_EVENT',
-      eventType: 'resource_warning',
-      metric,
-      value,
-      limit
-    }).catch(error => {
-      console.error('Failed to log resource warning to memory:', error);
-    });
+    if (this.schedulerManager) {
+      // Pause scheduling by disabling the manager
+      this.schedulerManager.setEnabled(false);
+      console.warn(`Resource warning for ${metric}: ${value}/${limit}`);
+    }
   }
   
   /**
-   * Handle resource limit exceeded events
+   * Handle resource limit exceeded
    */
   onResourceLimitExceeded(metric: string, value: number, limit: number): void {
-    console.error(`[${this.getAgentId()}] Resource limit exceeded: ${metric} at ${value} (limit: ${limit})`);
-    
-    // Take action to reduce resource usage, e.g. pause non-critical tasks
     if (this.schedulerManager) {
-      this.schedulerManager.pauseScheduler().catch(error => {
-        console.error('Failed to pause scheduler:', error);
-      });
+      // Pause scheduling by disabling the manager
+      this.schedulerManager.setEnabled(false);
+      console.error(`Resource limit exceeded for ${metric}: ${value}/${limit}`);
     }
-    
-    // Log to memory if memory manager is available
-    this.addMemory(`Resource limit exceeded: ${metric}`, { 
-      type: 'SYSTEM_ERROR',
-      errorType: 'resource_limit_exceeded',
-      metric,
-      value,
-      limit
-    }).catch(error => {
-      console.error('Failed to log resource limit event to memory:', error);
-    });
   }
   
   /**
-   * Handle resource usage normalized events
+   * Handle resource usage normalized
    */
   onResourceUsageNormalized(metric: string): void {
-    console.log(`[${this.getAgentId()}] Resource usage normalized: ${metric}`);
-    
-    // Resume normal operation if all resources are back to normal
-    if (this.resourceTracker && !this.resourceTracker.areAnyResourceLimitsExceeded()) {
-      if (this.schedulerManager) {
-        this.schedulerManager.resumeScheduler().catch(error => {
-          console.error('Failed to resume scheduler:', error);
-        });
-      }
+    if (this.schedulerManager) {
+      // Resume scheduling by enabling the manager
+      this.schedulerManager.setEnabled(true);
+      console.info(`Resource usage normalized for ${metric}`);
     }
   }
 } 

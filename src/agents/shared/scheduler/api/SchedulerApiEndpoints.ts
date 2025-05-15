@@ -99,7 +99,7 @@ export function createSchedulerApiRouter(schedulerManager: DefaultSchedulerManag
     } else {
       res.status(400).json({
         success: false,
-        error: result.error
+        error: 'Failed to create task'
       });
     }
   }));
@@ -239,22 +239,23 @@ export function createSchedulerApiRouter(schedulerManager: DefaultSchedulerManag
   }));
   
   /**
-   * POST /scheduler/tasks/:taskId/execute
-   * Execute a task immediately
+   * PUT /scheduler/tasks/:taskId/execute
+   * Execute a task
    */
-  router.post('/tasks/:taskId/execute', asyncHandler(async (req, res) => {
+  router.put('/tasks/:taskId/execute', asyncHandler(async (req, res) => {
     const { taskId } = req.params;
     const result = await schedulerManager.executeTask(taskId);
     
     if (result.success) {
+      const task = await schedulerManager.getTask(taskId);
       res.json({
         success: true,
-        task: result.task
+        task
       });
     } else {
       res.status(400).json({
         success: false,
-        error: result.error
+        error: result.error ?? 'Failed to execute task'
       });
     }
   }));
@@ -281,22 +282,23 @@ export function createSchedulerApiRouter(schedulerManager: DefaultSchedulerManag
   }));
   
   /**
-   * POST /scheduler/tasks/:taskId/retry
+   * PUT /scheduler/tasks/:taskId/retry
    * Retry a failed task
    */
-  router.post('/tasks/:taskId/retry', asyncHandler(async (req, res) => {
+  router.put('/tasks/:taskId/retry', asyncHandler(async (req, res) => {
     const { taskId } = req.params;
     const result = await schedulerManager.retryTask(taskId);
     
     if (result.success) {
+      const task = await schedulerManager.getTask(taskId);
       res.json({
         success: true,
-        task: result.task
+        task
       });
     } else {
       res.status(400).json({
         success: false,
-        error: result.error
+        error: result.error ?? 'Failed to retry task'
       });
     }
   }));

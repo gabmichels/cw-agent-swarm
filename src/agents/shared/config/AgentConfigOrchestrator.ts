@@ -7,8 +7,9 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import { BaseManager } from '../base/managers/BaseManager';
+import { ManagerType } from '../base/managers/ManagerType';
 import { AgentBase } from '../base/AgentBase.interface';
-import { ConfigSchema, ValidationOptions, ValidationResult } from '../../../lib/config/types';
+import { ConfigSchema, ValidationOptions, ValidationResult, ConfigPropertySchema } from '../../../lib/config/types';
 import { createConfigFactory, ConfigDefaultsProvider } from '../../../lib/config/factory';
 import { ConfigValidationError, ValidationError } from '../../../lib/config/errors';
 
@@ -71,10 +72,7 @@ export interface ConfigVerificationResult {
  * Agent-level configuration schema
  */
 export interface AgentConfigSchema {
-  /** General agent configuration */
   general: ConfigSchema<Record<string, unknown>>;
-  
-  /** Manager-specific configuration schemas */
   managers: Record<string, ConfigSchema<Record<string, unknown>>>;
 }
 
@@ -84,20 +82,27 @@ export interface AgentConfigSchema {
  * Handles agent-level configuration orchestration and dependency resolution
  */
 export class AgentConfigOrchestrator {
-  private agent: AgentBase;
+  private readonly agent: AgentBase;
+  private readonly managers: Record<ManagerType, BaseManager>;
+  private readonly configSchema: AgentConfigSchema;
   private dependencies: ConfigDependency[] = [];
-  private schema: AgentConfigSchema;
-  private configFactory: any;
+  private readonly configFactory: ReturnType<typeof createConfigFactory>;
   
   /**
    * Create a new configuration orchestrator
    * @param agent The agent to manage configuration for
-   * @param schema The agent configuration schema
+   * @param managers The managers to manage configuration for
+   * @param configSchema The agent configuration schema
    */
-  constructor(agent: AgentBase, schema: AgentConfigSchema) {
+  constructor(
+    agent: AgentBase,
+    managers: BaseManager[],
+    configSchema: AgentConfigSchema
+  ) {
     this.agent = agent;
-    this.schema = schema;
-    this.configFactory = createConfigFactory(schema.general);
+    this.managers = this.buildManagerMap(managers);
+    this.configSchema = configSchema;
+    this.configFactory = createConfigFactory(configSchema.general);
   }
   
   /**
@@ -248,7 +253,7 @@ export class AgentConfigOrchestrator {
     // Verify manager configurations against their schemas
     for (const [managerType, manager] of Object.entries(managers)) {
       // Skip if no schema for this manager
-      if (!this.schema.managers[managerType]) {
+      if (!this.configSchema.managers[managerType]) {
         continue;
       }
       
@@ -257,7 +262,7 @@ export class AgentConfigOrchestrator {
       
       // Verify against schema
       try {
-        const schemaFactory = createConfigFactory(this.schema.managers[managerType]);
+        const schemaFactory = createConfigFactory(this.configSchema.managers[managerType]);
         schemaFactory.validate(config, { throwOnError: true });
       } catch (error) {
         if (error instanceof ConfigValidationError) {
@@ -460,7 +465,7 @@ export class AgentConfigOrchestrator {
     const managers = this.agent.getManagers();
     
     for (const manager of managers) {
-      result[manager.getType()] = manager;
+      result[manager.managerType] = manager;
     }
     
     return result;
@@ -513,5 +518,52 @@ export class AgentConfigOrchestrator {
     }
     
     current[lastPart] = value;
+  }
+
+  private buildManagerMap(managers: BaseManager[]): Record<ManagerType, BaseManager> {
+    const result: Partial<Record<ManagerType, BaseManager>> = {};
+    
+    for (const manager of managers) {
+      result[manager.managerType] = manager;
+    }
+    
+    return result as Record<ManagerType, BaseManager>;
+  }
+
+  private getManagerConfig(managerType: ManagerType): Record<string, unknown> | null {
+    const manager = this.managers[managerType];
+    if (!manager) {
+      return null;
+    }
+    return manager.getConfig();
+  }
+
+  private validateManagerConfig(
+    managerType: ManagerType, 
+    config: Record<string, unknown>
+  ): void {
+    const schema = this.configSchema.managers[managerType];
+    if (!schema) {
+      throw new ConfigValidationError(
+        `No schema found for manager type ${managerType}`,
+        [new ValidationError(`No schema found for manager type ${managerType}`, managerType)]
+      );
+    }
+
+    const factory = createConfigFactory(schema);
+    const result = factory.validate(config, { 
+      throwOnError: true, 
+      applyDefaults: true,
+      removeAdditional: true 
+    });
+
+    if (!result.valid) {
+      // Cast the errors to ValidationError[] since we know they come from the validation system
+      const validationErrors = (result.errors || []) as ValidationError[];
+      throw new ConfigValidationError(
+        `Configuration validation failed for manager ${managerType}`,
+        validationErrors.length > 0 ? validationErrors : [new ValidationError(`Unknown validation error`, managerType)]
+      );
+    }
   }
 } 

@@ -4,17 +4,21 @@
  * This file defines the core types and interfaces for the agent base system.
  */
 
-// Canonical agent config and related types (imported from schema)
-export { AgentStatus } from '../../../server/memory/schema/agent';
-export type { 
-  AgentCapability, 
-  AgentParameters, 
-  AgentTool, 
-  AgentMetadata, 
-  AgentMemoryEntity as AgentBaseConfig 
-} from '../../../server/memory/schema/agent';
+import type { AgentStatus, AgentMemoryEntity } from '../../../server/memory/schema/agent';
 
-import type { AgentMemoryEntity as AgentBaseConfig } from '../../../server/memory/schema/agent';
+// Export types from schema
+export type { AgentStatus };
+export type AgentBaseConfig = AgentMemoryEntity;
+
+// Local type definitions
+export interface AgentCapability {
+  id: string;
+  name: string;
+  description: string;
+  enabled: boolean;
+  version: string;
+  metadata?: Record<string, unknown>;
+}
 
 /**
  * Capability levels for agents
@@ -93,4 +97,22 @@ export interface AgentBase {
    * Disable a capability
    */
   disableCapability(capability: string): void;
+}
+
+// Additional types that extend or complement the base types
+export interface AgentParameters {
+  [key: string]: unknown;
+}
+
+export interface AgentTool {
+  id: string;
+  name: string;
+  description: string;
+  enabled: boolean;
+  version: string;
+  execute: (params: unknown) => Promise<unknown>;
+}
+
+export interface AgentMetadata {
+  [key: string]: unknown;
 } 

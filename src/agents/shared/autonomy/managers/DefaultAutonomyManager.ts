@@ -6,133 +6,49 @@
  */
 
 import { AgentBase } from '../../base/AgentBase.interface';
-import { BaseManager, ManagerConfig } from '../../base/managers/BaseManager';
+import { AbstractBaseManager } from '../../base/managers/BaseManager';
+import { ManagerType } from '../../base/managers/ManagerType';
 import { AutonomyManager, AutonomyManagerConfig } from '../interfaces/AutonomyManager.interface';
 import {
   AutonomySystem, AutonomyStatus, AutonomyCapabilities, AutonomyDiagnostics,
   TaskStatistics, AutonomousExecutionOptions, AutonomousExecutionResult
 } from '../interfaces/AutonomySystem.interface';
 import { DefaultAutonomySystem } from '../systems/DefaultAutonomySystem';
-import { ScheduledTask } from '../../../../lib/agents/base/managers/SchedulerManager';
+import { ScheduledTask } from '../../../../lib/shared/types/agentTypes';
+import { LoggerManager } from '../../base/managers/LoggerManager.interface';
+import { ManagerHealth } from '../../base/managers/ManagerHealth';
 
-/**
- * Default implementation of the AutonomyManager interface
- */
-export class DefaultAutonomyManager implements AutonomyManager {
-  private agent: AgentBase;
-  private config: AutonomyManagerConfig;
+export class DefaultAutonomyManager extends AbstractBaseManager implements AutonomyManager {
   private autonomySystem: AutonomySystem | null = null;
-  private initialized: boolean = false;
-  private readonly managerId: string;
-  private readonly managerType: string = 'autonomy';
-  
-  /**
-   * Create a new DefaultAutonomyManager
-   * 
-   * @param agent The agent this manager belongs to
-   * @param config Configuration for the autonomy manager
-   */
+  private schedulingTimer: NodeJS.Timeout | undefined;
+
   constructor(agent: AgentBase, config: AutonomyManagerConfig) {
-    this.agent = agent;
-    this.config = config;
-    this.managerId = `${agent.getAgentId()}_autonomy_manager`;
+    super(
+      agent.getAgentId() + '-autonomy-manager',
+      ManagerType.AUTONOMY,
+      agent,
+      config
+    );
   }
-  
-  /**
-   * Get the manager ID
-   */
-  getId(): string {
-    return this.managerId;
-  }
-  
-  /**
-   * Get the manager type
-   */
-  getType(): string {
-    return this.managerType;
-  }
-  
-  /**
-   * Get the manager configuration
-   */
-  getConfig<T extends ManagerConfig>(): T {
-    return this.config as unknown as T;
-  }
-  
-  /**
-   * Update the manager configuration
-   */
-  updateConfig<T extends ManagerConfig>(config: Partial<T>): T {
-    this.config = {
-      ...this.config,
-      ...config,
-    };
-    return this.config as unknown as T;
-  }
-  
-  /**
-   * Get the agent this manager belongs to
-   */
-  getAgent(): AgentBase {
-    return this.agent;
-  }
-  
-  /**
-   * Get the agent ID
-   */
-  getAgentId(): string {
-    return this.agent.getAgentId();
-  }
-  
-  /**
-   * Check if the manager is initialized
-   */
-  isInitialized(): boolean {
-    return this.initialized;
-  }
-  
-  /**
-   * Initialize the autonomy manager
-   */
+
   async initialize(): Promise<boolean> {
-    if (this.initialized) {
+    if (this._initialized) {
       return true;
     }
-    
+
     try {
-      // Create the autonomy system
-      this.autonomySystem = new DefaultAutonomySystem(this.agent, this.config.autonomyConfig);
-      
-      // Initialize the autonomy system
-      const success = await this.autonomySystem.initialize();
-      this.initialized = success;
-      
-      if (success) {
-        this.logAction('Autonomy system initialized successfully');
-      } else {
-        this.logAction('Failed to initialize autonomy system', { error: 'INITIALIZATION_FAILED' });
-      }
-      
-      return success;
+      this.autonomySystem = new DefaultAutonomySystem(this.getAgent(), this.getConfig<AutonomyManagerConfig>().autonomyConfig);
+      await this.autonomySystem.initialize();
+      this._initialized = true;
+      this.logAction('Autonomy system initialized successfully');
+      return true;
     } catch (error) {
-      this.logAction('Error initializing autonomy system', { error: String(error) });
+      this.logAction('Failed to initialize autonomy system', { error });
       console.error('Error initializing autonomy manager:', error);
       return false;
     }
   }
-  
-  /**
-   * Shutdown the autonomy manager
-   */
-  async shutdown(): Promise<void> {
-    if (this.autonomySystem) {
-      await this.autonomySystem.shutdown();
-      this.autonomySystem = null;
-    }
-    this.initialized = false;
-    this.logAction('Autonomy system shutdown');
-  }
-  
+
   /**
    * Get the autonomy system
    */
@@ -142,7 +58,7 @@ export class DefaultAutonomyManager implements AutonomyManager {
     }
     return this.autonomySystem;
   }
-  
+
   /**
    * Get the current status of the autonomy system
    */
@@ -152,7 +68,7 @@ export class DefaultAutonomyManager implements AutonomyManager {
     }
     return this.autonomySystem.getStatus();
   }
-  
+
   /**
    * Enable or disable autonomous mode
    */
@@ -167,7 +83,7 @@ export class DefaultAutonomyManager implements AutonomyManager {
     }
     return result;
   }
-  
+
   /**
    * Get the current autonomy mode
    */
@@ -177,17 +93,41 @@ export class DefaultAutonomyManager implements AutonomyManager {
     }
     return this.autonomySystem.getAutonomyMode();
   }
-  
+
+  /**
+   * Get the manager health status
+   */
+  async getHealth(): Promise<ManagerHealth> {
+    const status = this.autonomySystem ? await this.autonomySystem.getStatus() : AutonomyStatus.INACTIVE;
+    const capabilities = this.getCapabilities();
+    
+    return {
+      status: this._initialized ? 'healthy' : 'unhealthy',
+      message: `Autonomy system is ${status}`,
+      details: {
+        lastCheck: new Date(),
+        issues: [],
+        metrics: {
+          status,
+          capabilities,
+          isEnabled: this.isEnabled(),
+          isInitialized: this._initialized,
+          autonomyMode: this.getAutonomyMode()
+        }
+      }
+    };
+  }
+
   /**
    * Get all scheduled tasks
    */
-  getScheduledTasks(): ScheduledTask[] {
+  async getTasks(): Promise<ScheduledTask[]> {
     if (!this.autonomySystem) {
       return [];
     }
-    return this.autonomySystem.getScheduledTasks();
+    return await this.autonomySystem.getScheduledTasks();
   }
-  
+
   /**
    * Schedule a new task
    */
@@ -196,13 +136,18 @@ export class DefaultAutonomyManager implements AutonomyManager {
       return false;
     }
     
-    const result = await this.autonomySystem.scheduleTask(task);
-    if (result) {
-      this.logAction(`Scheduled task: ${task.name} (${task.id})`);
+    try {
+      const result = await this.autonomySystem.scheduleTask(task);
+      if (result) {
+        this.logAction(`Scheduled task: ${task.name} (${task.id})`);
+      }
+      return result;
+    } catch (error) {
+      this.logAction('Failed to schedule task', { error, taskId: task.id });
+      return false;
     }
-    return result;
   }
-  
+
   /**
    * Run a task immediately
    */
@@ -214,7 +159,7 @@ export class DefaultAutonomyManager implements AutonomyManager {
     this.logAction(`Running task: ${taskId}`);
     return await this.autonomySystem.runTask(taskId);
   }
-  
+
   /**
    * Cancel a scheduled task
    */
@@ -229,7 +174,7 @@ export class DefaultAutonomyManager implements AutonomyManager {
     }
     return result;
   }
-  
+
   /**
    * Enable or disable a task
    */
@@ -244,7 +189,7 @@ export class DefaultAutonomyManager implements AutonomyManager {
     }
     return result;
   }
-  
+
   /**
    * Run diagnostics on the autonomy system
    */
@@ -288,7 +233,7 @@ export class DefaultAutonomyManager implements AutonomyManager {
     this.logAction('Running diagnostics');
     return await this.autonomySystem.diagnose();
   }
-  
+
   /**
    * Plan and execute a goal autonomously
    */
@@ -304,7 +249,7 @@ export class DefaultAutonomyManager implements AutonomyManager {
     this.logAction('Executing autonomous plan', { goal: options.goalPrompt });
     return await this.autonomySystem.planAndExecute(options);
   }
-  
+
   /**
    * Run daily autonomous tasks
    */
@@ -316,7 +261,7 @@ export class DefaultAutonomyManager implements AutonomyManager {
     this.logAction('Running daily tasks');
     return await this.autonomySystem.runDailyTasks();
   }
-  
+
   /**
    * Run weekly reflection
    */
@@ -328,7 +273,7 @@ export class DefaultAutonomyManager implements AutonomyManager {
     this.logAction('Running weekly reflection');
     return await this.autonomySystem.runWeeklyReflection();
   }
-  
+
   /**
    * Get task statistics
    */
@@ -349,7 +294,7 @@ export class DefaultAutonomyManager implements AutonomyManager {
     
     return await this.autonomySystem.getTaskStatistics();
   }
-  
+
   /**
    * Get autonomy capabilities
    */
@@ -367,7 +312,7 @@ export class DefaultAutonomyManager implements AutonomyManager {
     
     return this.autonomySystem.getCapabilities();
   }
-  
+
   /**
    * Generate a task based on a goal
    */
@@ -380,34 +325,22 @@ export class DefaultAutonomyManager implements AutonomyManager {
     if (!this.autonomySystem) {
       return null;
     }
-    
-    const task = await this.autonomySystem.generateTask(goal, options);
-    if (task) {
-      this.logAction('Generated task', { 
-        id: task.id, 
-        name: task.name,
-        goal: goal,
-        category: options?.category
-      });
+
+    try {
+      return await this.autonomySystem.generateTask(goal, options);
+    } catch (error) {
+      this.logAction('Failed to generate task', { error, goal });
+      return null;
     }
-    
-    return task;
   }
-  
-  /**
-   * Log an action taken by this manager
-   */
-  logAction(action: string, metadata?: Record<string, unknown>): void {
-    const logMessage = `[AutonomyManager] ${action}`;
-    
-    // Try to use the logger manager if available
-    const loggerManager = this.agent?.getManager('logger');
-    if (loggerManager && typeof (loggerManager as any).logAction === 'function') {
-      (loggerManager as any).logAction(logMessage, metadata);
+
+  protected logAction(action: string, metadata?: Record<string, unknown>): void {
+    const loggerManager = this.getAgent().getManager<LoggerManager>(ManagerType.LOGGER);
+    if (loggerManager) {
+      loggerManager.log(action, metadata);
       return;
     }
     
-    // Fallback to console
-    console.log(logMessage, metadata || '');
+    console.log(`[${this.getAgent().getAgentId()}][AutonomyManager] ${action}`, metadata || '');
   }
 } 

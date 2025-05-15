@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { KnowledgeGraph } from '../../../lib/knowledge/KnowledgeGraph';
-import { KnowledgeFlaggingService } from '../../../lib/knowledge/flagging/KnowledgeFlaggingService';
+import { KnowledgeGraphManager } from '../../../lib/agents/implementations/memory/KnowledgeGraphManager';
 import { createMarketScanningService, MarketScanningService } from '../../../lib/knowledge/MarketScanningService';
 
 // Mark as server-side only and force dynamic
@@ -18,16 +17,12 @@ async function getMarketScanningService(): Promise<MarketScanningService> {
     return marketScanningService;
   }
 
-  // Initialize knowledge graph
-  const knowledgeGraph = new KnowledgeGraph('default');
-  await knowledgeGraph.load();
-
-  // Initialize flagging service
-  const flaggingService = new KnowledgeFlaggingService(knowledgeGraph);
-  await flaggingService.load();
+  // Initialize knowledge graph manager
+  const graphManager = new KnowledgeGraphManager();
+  await graphManager.initialize();
 
   // Create market scanning service
-  marketScanningService = createMarketScanningService(flaggingService);
+  marketScanningService = createMarketScanningService(graphManager);
   
   // Set up scheduled scans
   marketScanningService.setupScheduledScans();
@@ -198,38 +193,15 @@ export async function POST(request: NextRequest) {
         
         const queryResult = await scanner.runQueryNow(payload.id);
         
-        if (!queryResult) {
-          return NextResponse.json({
-            success: false,
-            error: 'Query not found or execution failed'
-          }, { status: 404 });
-        }
-        
         return NextResponse.json({
           success: true,
           result: queryResult
         });
         
-      case 'set-autonomy-mode':
-        // Enable/disable autonomy mode
-        if (payload.enabled === undefined) {
-          return NextResponse.json({
-            success: false,
-            error: 'Enabled status is required'
-          }, { status: 400 });
-        }
-        
-        scanner.setAutonomyMode(!!payload.enabled);
-        
-        return NextResponse.json({
-          success: true,
-          message: `Autonomy mode ${payload.enabled ? 'enabled' : 'disabled'}`
-        });
-        
       default:
         return NextResponse.json({
           success: false,
-          error: `Unknown action: ${action}`
+          error: 'Unknown action'
         }, { status: 400 });
     }
   } catch (error) {

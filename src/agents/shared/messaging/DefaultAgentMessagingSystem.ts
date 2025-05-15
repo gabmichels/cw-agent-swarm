@@ -28,6 +28,8 @@ import {
   SendMessageResult,
   TextMessage
 } from './AgentMessaging.interface';
+import { ManagerType } from '../base/managers/ManagerType';
+import { ManagerHealth } from '../base/managers/ManagerHealth';
 
 // Define a monitor interface for messaging systems
 interface AgentEventMonitor {
@@ -120,6 +122,13 @@ export interface MessagingSystemConfig extends ManagerConfig {
   enableEncryption?: boolean;
 }
 
+interface PendingRequest {
+  resolve: (value: SendMessageResult) => void;
+  reject: (reason: any) => void;
+  timeout: NodeJS.Timeout;
+  startTime: number;
+}
+
 /**
  * Default implementation of the AgentMessagingSystem interface
  */
@@ -147,11 +156,7 @@ export class DefaultAgentMessagingSystem extends AbstractBaseManager implements 
   /**
    * Map of pending requests waiting for responses
    */
-  private pendingRequests: Map<string, {
-    resolve: (value: SendMessageResult) => void;
-    reject: (reason: any) => void;
-    timeout: NodeJS.Timeout;
-  }> = new Map();
+  private pendingRequests: Map<string, PendingRequest> = new Map();
 
   /**
    * Messaging-specific configuration
@@ -165,7 +170,7 @@ export class DefaultAgentMessagingSystem extends AbstractBaseManager implements 
     // Call parent constructor with required parameters
     super(
       `messaging-${config.agentId}`, 
-      'messaging',
+      ManagerType.MESSAGING,
       null as any, // Agent will be set later through setAgent
       config
     );
@@ -195,13 +200,18 @@ export class DefaultAgentMessagingSystem extends AbstractBaseManager implements 
    * Initialize the messaging system
    */
   async initialize(): Promise<boolean> {
+    if (this._initialized) {
+      return true;
+    }
+
     try {
       // Register default handlers
       await this.registerDefaultHandlers();
-      this.initialized = true;
+      
+      this._initialized = true;
       return true;
     } catch (error) {
-      console.error(`Error initializing messaging system: ${error}`);
+      console.error('Failed to initialize messaging system:', error);
       return false;
     }
   }
@@ -210,13 +220,21 @@ export class DefaultAgentMessagingSystem extends AbstractBaseManager implements 
    * Shutdown the messaging system
    */
   async shutdown(): Promise<void> {
-    // Clear all timeouts for pending requests
-    const pendingRequestEntries = Array.from(this.pendingRequests.entries());
-    for (const [_, pendingRequest] of pendingRequestEntries) {
-      clearTimeout(pendingRequest.timeout);
-    }
+    // Clear all pending requests
+    this.pendingRequests.forEach((request) => {
+      clearTimeout(request.timeout);
+      request.reject(new Error('Messaging system shutdown'));
+    });
     this.pendingRequests.clear();
-    this.initialized = false;
+    
+    // Clear message store for this agent
+    DefaultAgentMessagingSystem.messageStore[this.messagingConfig.agentId] = [];
+    
+    // Clear handler registry for this agent
+    DefaultAgentMessagingSystem.handlerRegistry[this.messagingConfig.agentId] = {};
+    
+    // Call parent shutdown
+    await super.shutdown();
   }
 
   /**
@@ -261,29 +279,51 @@ export class DefaultAgentMessagingSystem extends AbstractBaseManager implements 
     content: unknown,
     options?: SendMessageOptions
   ): T {
-    const messageId = uuidv4();
-    const timestamp = new Date();
-    
-    const message = {
+    const messageId = `msg_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
+    const now = Date.now();
+
+    // Create base message properties
+    const baseMessage: Omit<AgentMessage, 'type'> = {
       id: messageId,
       senderId: this.messagingConfig.agentId,
       recipientId,
-      type,
       content,
       priority: options?.priority ?? MessagePriority.NORMAL,
       securityLevel: options?.securityLevel ?? this.messagingConfig.defaultSecurityLevel,
-      timestamp,
+      timestamp: new Date(now),
       status: MessageStatus.QUEUED,
       inReplyTo: options?.inReplyTo,
       threadId: options?.threadId ?? options?.inReplyTo ?? messageId,
       ttl: options?.ttl ?? this.messagingConfig.defaultTtl,
-      metadata: options?.metadata ?? {}
+      metadata: {
+        ...options?.metadata,
+        createdAt: now,
+        source: 'agent_messaging'
+      }
+    };
+
+    // Create the typed message
+    const message = {
+      ...baseMessage,
+      type
     } as T;
 
-    // Apply encryption if enabled and required by security level
-    if (this.messagingConfig.enableEncryption && message.securityLevel === MessageSecurityLevel.ENCRYPTED) {
-      // In a real implementation, we would encrypt the content here
-      message.metadata!.encrypted = true;
+    // If this is a request message, set up timeout handling
+    if (type === MessageType.REQUEST && options?.timeout) {
+      const timeoutHandle = setTimeout(() => {
+        const pendingRequest = this.pendingRequests.get(messageId);
+        if (pendingRequest) {
+          pendingRequest.reject(new Error('Request timeout'));
+          this.pendingRequests.delete(messageId);
+        }
+      }, options.timeout);
+
+      this.pendingRequests.set(messageId, {
+        resolve: options.onResponse!,
+        reject: options.onError!,
+        timeout: timeoutHandle,
+        startTime: now
+      });
     }
 
     return message;
@@ -499,7 +539,8 @@ export class DefaultAgentMessagingSystem extends AbstractBaseManager implements 
       this.pendingRequests.set(message.id, {
         resolve,
         reject,
-        timeout
+        timeout,
+        startTime: Date.now()
       });
       
       // Send the message
@@ -743,5 +784,82 @@ export class DefaultAgentMessagingSystem extends AbstractBaseManager implements 
     }
     
     return result;
+  }
+
+  /**
+   * Get manager health status
+   */
+  async getHealth(): Promise<ManagerHealth> {
+    if (!this._initialized) {
+      return {
+        status: 'degraded',
+        details: {
+          lastCheck: new Date(),
+          issues: [{
+            severity: 'high',
+            message: 'Messaging system not initialized',
+            detectedAt: new Date()
+          }]
+        }
+      };
+    }
+
+    const issues: Array<{
+      severity: 'low' | 'medium' | 'high' | 'critical';
+      message: string;
+      detectedAt: Date;
+    }> = [];
+
+    const messageStore = DefaultAgentMessagingSystem.messageStore[this.messagingConfig.agentId];
+    const handlerRegistry = DefaultAgentMessagingSystem.handlerRegistry[this.messagingConfig.agentId];
+
+    // Check message store health
+    if (messageStore.length >= this.messagingConfig.maxMessageHistory) {
+      issues.push({
+        severity: 'high',
+        message: 'Message store is at capacity',
+        detectedAt: new Date()
+      });
+    }
+
+    // Check pending requests
+    const stalePendingRequests = Array.from(this.pendingRequests.entries())
+      .filter(([, request]) => Date.now() - request.startTime > 60000); // Over 1 minute old
+
+    if (stalePendingRequests.length > 0) {
+      issues.push({
+        severity: 'medium',
+        message: `${stalePendingRequests.length} stale pending requests detected`,
+        detectedAt: new Date()
+      });
+    }
+
+    // Check handler registry
+    if (Object.keys(handlerRegistry).length === 0) {
+      issues.push({
+        severity: 'medium',
+        message: 'No message handlers registered',
+        detectedAt: new Date()
+      });
+    }
+
+    return {
+      status: issues.some(i => i.severity === 'critical') ? 'unhealthy' :
+             issues.some(i => i.severity === 'high') ? 'degraded' : 'healthy',
+      details: {
+        lastCheck: new Date(),
+        issues,
+        metrics: {
+          messageCount: messageStore.length,
+          handlerCount: Object.keys(handlerRegistry).length,
+          pendingRequests: this.pendingRequests.size,
+          subscriptionCount: Object.values(DefaultAgentMessagingSystem.subscriptions)
+            .reduce((count, subs) => count + subs.length, 0),
+          messageStoreUsage: (messageStore.length / this.messagingConfig.maxMessageHistory) * 100,
+          encryptionEnabled: this.messagingConfig.enableEncryption,
+          monitoringEnabled: this.messagingConfig.enableMonitoring
+        }
+      }
+    };
   }
 } 

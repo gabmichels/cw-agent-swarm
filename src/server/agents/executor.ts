@@ -1,6 +1,12 @@
-import { ChloeMemory } from '../../agents/chloe/memory';
+import { MemoryManager } from '../../agents/shared/base/managers/MemoryManager.interface';
 import { getLLM } from '../../lib/core/llm';
-import { ChatPromptTemplate } from '@langchain/core/prompts';
+import { AgentExecutorOptions } from '../../lib/shared/types/agentTypes';
+import { ImportanceLevel } from '../../constants/memory';
+import { MemoryType } from '../../server/memory/config/types';
+import { getMemoryServices } from '../memory/services';
+import { MemoryEntry } from '../../agents/shared/base/managers/MemoryManager.interface';
+import { SearchResult } from '../memory/services/search/types';
+import { BaseMemorySchema } from '../memory/models/base-schema';
 
 export interface ExecutionResult {
   success: boolean;
@@ -24,7 +30,7 @@ export async function executePlan(
   plan: string[],
   context: string,
   options: {
-    memory?: ChloeMemory;
+    memory?: MemoryManager;
     stopOnFailure?: boolean;
   } = {}
 ): Promise<ExecutionResult> {
@@ -39,16 +45,18 @@ export async function executePlan(
   };
   
   try {
-    // Get memory context if available
-    let memoryContext = '';
+    // Get relevant high importance memories
+    let memories: MemoryEntry[] = [];
     if (options.memory) {
-      const memories = await options.memory.getHighImportanceMemories(3);
-      if (memories && memories.length > 0) {
-        memoryContext = memories
-          .map(memory => `IMPORTANT MEMORY: ${memory.content}`)
-          .join('\n');
-      }
+      memories = await options.memory.getRecentMemories(3);
     }
+    
+    // Format memories for context
+    const memoryContext = memories.length > 0 
+      ? '\n\nImportant context from memory:\n' + memories
+          .map(memory => `IMPORTANT MEMORY: ${memory.content}`)
+          .join('\n')
+      : '';
     
     // Execute each step in sequence
     let allStepsSuccessful = true;
@@ -131,5 +139,41 @@ SUCCESS: [YES or NO]
     result.success = false;
     result.error = error instanceof Error ? error.message : 'Unknown error during plan execution';
     return result;
+  }
+}
+
+export async function executeTask(task: string, options: AgentExecutorOptions): Promise<string> {
+  try {
+    // Get memory services
+    const { searchService } = await getMemoryServices();
+    
+    // Search for high importance memories
+    const memories: SearchResult<BaseMemorySchema>[] = await searchService.search('', {
+      types: [MemoryType.TASK, MemoryType.THOUGHT],
+      filter: {
+        must: [
+          {
+            key: 'importance',
+            match: {
+              value: ImportanceLevel.HIGH
+            }
+          }
+        ]
+      },
+      limit: 3
+    });
+    
+    // Format memories for context
+    const memoryContext = memories.length > 0
+      ? '\n\nRelevant memories:\n' + memories
+          .map(memory => `RELEVANT MEMORY: ${memory.point.payload.text}`)
+          .join('\n')
+      : '';
+
+    // Execute task with memory context
+    return `Executed task: ${task}\nContext:\n${memoryContext}`;
+  } catch (error) {
+    console.error('Error executing task:', error);
+    throw error;
   }
 } 

@@ -1,9 +1,11 @@
 /**
- * DefaultMemoryManager.ts - Default implementation of the MemoryManager interface
+ * DefaultMemoryManager.ts - Core memory management implementation
  * 
- * This file provides a concrete implementation of the MemoryManager interface
- * that can be used by any agent implementation. It includes memory storage,
- * retrieval, consolidation, and pruning capabilities.
+ * This file provides the base memory manager implementation with support for:
+ * - Basic memory operations (CRUD)
+ * - Memory isolation between agents
+ * - Memory versioning
+ * - Memory pruning and consolidation
  */
 
 import { v4 as uuidv4 } from 'uuid';
@@ -18,22 +20,71 @@ import {
 import { AgentBase } from '../../../../agents/shared/base/AgentBase.interface';
 import { AbstractBaseManager } from '../../../../agents/shared/base/managers/BaseManager';
 import { ManagerType } from '../../../../agents/shared/base/managers/ManagerType';
-// Import these when the schema is available
-// import { createConfigFactory } from '../../../../agents/shared/config';
-// import { MemoryManagerConfigSchema } from '../../../../agents/shared/memory/config/MemoryManagerConfigSchema';
+import { ManagerHealth } from '../../../../agents/shared/base/managers/ManagerHealth';
+import { 
+  MemoryIsolationManager,
+  DEFAULT_MEMORY_ISOLATION_CONFIG,
+  MemoryIsolationConfig 
+} from '../../../../agents/shared/memory/MemoryIsolationManager';
+import {
+  MemoryScope,
+  MemoryAccessLevel,
+  MemoryPermission
+} from '../../../../agents/shared/memory/MemoryScope';
+
+/**
+ * Extended configuration for DefaultMemoryManager
+ */
+export interface DefaultMemoryManagerConfig extends MemoryManagerConfig {
+  /**
+   * Isolation-specific configuration
+   */
+  isolation?: Partial<MemoryIsolationConfig>;
+  
+  /**
+   * Whether to create a private scope for the agent
+   */
+  createPrivateScope?: boolean;
+  
+  /**
+   * Default scope name for the agent
+   */
+  defaultScopeName?: string;
+  
+  /**
+   * Memory types allowed in the agent's scopes
+   */
+  allowedMemoryTypes?: string[];
+}
+
+/**
+ * Default configuration
+ */
+export const DEFAULT_MEMORY_MANAGER_CONFIG: DefaultMemoryManagerConfig = {
+  enabled: true,
+  enableAutoPruning: true,
+  pruningIntervalMs: 300000, // 5 minutes
+  maxShortTermEntries: 100,
+  relevanceThreshold: 0.2,
+  enableAutoConsolidation: true,
+  consolidationIntervalMs: 600000, // 10 minutes
+  minMemoriesForConsolidation: 5,
+  forgetSourceMemoriesAfterConsolidation: false,
+  createPrivateScope: true,
+  defaultScopeName: 'private'
+};
 
 /**
  * Error class for memory-related errors
  */
-class MemoryError extends Error {
-  public readonly code: string;
-  public readonly context: Record<string, unknown>;
-
-  constructor(message: string, code = 'MEMORY_ERROR', context: Record<string, unknown> = {}) {
+export class MemoryError extends Error {
+  constructor(
+    message: string,
+    public readonly code: string = 'MEMORY_ERROR',
+    public readonly context: Record<string, unknown> = {}
+  ) {
     super(message);
     this.name = 'MemoryError';
-    this.code = code;
-    this.context = context;
   }
 }
 
@@ -41,22 +92,33 @@ class MemoryError extends Error {
  * Default implementation of the MemoryManager interface
  */
 export class DefaultMemoryManager extends AbstractBaseManager implements MemoryManager {
-  private memories: Map<string, MemoryEntry> = new Map();
-  private pruningTimer: NodeJS.Timeout | null = null;
-  private consolidationTimer: NodeJS.Timeout | null = null;
-  // When configFactory is available:
-  // private configFactory = createConfigFactory(MemoryManagerConfigSchema);
+  protected memories: Map<string, MemoryEntry> = new Map();
+  protected pruningTimer: NodeJS.Timeout | null = null;
+  protected consolidationTimer: NodeJS.Timeout | null = null;
+  protected _config: DefaultMemoryManagerConfig;
   
-  // Override config type to use MemoryManagerConfig
-  protected config!: MemoryManagerConfig & Record<string, unknown>;
-
+  /**
+   * Memory isolation manager
+   */
+  protected isolationManager: MemoryIsolationManager;
+  
+  /**
+   * Agent-specific private scope
+   */
+  protected privateScope?: MemoryScope;
+  
+  /**
+   * Default shared scope for cross-agent communication
+   */
+  protected sharedScope?: MemoryScope;
+  
   /**
    * Create a new DefaultMemoryManager instance
    * 
    * @param agent - The agent this manager belongs to
    * @param config - Configuration options
    */
-  constructor(agent: AgentBase, config: Partial<MemoryManagerConfig> = {}) {
+  constructor(agent: AgentBase, config: Partial<DefaultMemoryManagerConfig> = {}) {
     super(
       `memory-manager-${uuidv4()}`,
       ManagerType.MEMORY,
@@ -64,53 +126,106 @@ export class DefaultMemoryManager extends AbstractBaseManager implements MemoryM
       { enabled: true }
     );
     
-    // For now, use direct assignment:
-    this.config = {
-      enabled: config.enabled ?? true,
-      enableAutoPruning: config.enableAutoPruning ?? true,
-      pruningIntervalMs: config.pruningIntervalMs ?? 300000, // 5 minutes
-      maxShortTermEntries: config.maxShortTermEntries ?? 100,
-      relevanceThreshold: config.relevanceThreshold ?? 0.2,
-      enableAutoConsolidation: config.enableAutoConsolidation ?? true,
-      consolidationIntervalMs: config.consolidationIntervalMs ?? 600000, // 10 minutes
-      minMemoriesForConsolidation: config.minMemoriesForConsolidation ?? 5,
-      forgetSourceMemoriesAfterConsolidation: config.forgetSourceMemoriesAfterConsolidation ?? false,
-      enableMemoryInjection: config.enableMemoryInjection ?? true,
-      maxInjectedMemories: config.maxInjectedMemories ?? 5
-    } as MemoryManagerConfig & Record<string, unknown>;
+    // Merge defaults with provided config
+    this._config = {
+      ...DEFAULT_MEMORY_MANAGER_CONFIG,
+      ...config
+    } as DefaultMemoryManagerConfig;
+    
+    // Create isolation manager
+    this.isolationManager = new MemoryIsolationManager(
+      this._config.isolation || DEFAULT_MEMORY_ISOLATION_CONFIG
+    );
   }
 
   /**
-   * Update the manager configuration
+   * Add a new memory entry (alias for storeMemory)
    */
-  updateConfig<T extends MemoryManagerConfig>(config: Partial<T>): T {
-    // For now, use direct assignment:
-    this.config = {
-      ...this.config,
-      ...config
-    } as MemoryManagerConfig & Record<string, unknown>;
-    
-    return this.config as unknown as T;
+  async addMemory(content: string, metadata: Record<string, unknown> = {}): Promise<MemoryEntry> {
+    return this.storeMemory(content, metadata);
+  }
+
+  /**
+   * Get recent memories
+   */
+  async getRecentMemories(limit = 10): Promise<MemoryEntry[]> {
+    if (!this._initialized) {
+      throw new MemoryError('Memory manager not initialized', 'NOT_INITIALIZED');
+    }
+
+    // Get memories from accessible scopes
+    const accessibleScopes = this.isolationManager.getScopesForAgent(
+      this.getAgent().getAgentId()
+    );
+
+    // Get memories from accessible scopes
+    const accessibleMemories = Array.from(this.memories.values()).filter(memory => {
+      const memoryScope = accessibleScopes.find(
+        scope => scope.scopeId.id === memory.metadata.scopeId
+      );
+      return memoryScope !== undefined;
+    });
+
+    // Sort by creation date
+    return accessibleMemories
+      .sort((a, b) => {
+        const aDate = new Date(a.metadata.createdAt as string);
+        const bDate = new Date(b.metadata.createdAt as string);
+        return bDate.getTime() - aDate.getTime();
+      })
+      .slice(0, limit);
   }
 
   /**
    * Initialize the manager
    */
   async initialize(): Promise<boolean> {
-    console.log(`[${this.managerId}] Initializing ${this.managerType} manager`);
-    
-    // Setup auto-pruning if enabled
-    if (this.config.enableAutoPruning) {
-      this.setupAutoPruning();
+    if (this._initialized) {
+      return true;
     }
-    
-    // Setup auto-consolidation if enabled
-    if (this.config.enableAutoConsolidation) {
-      this.setupAutoConsolidation();
+
+    try {
+      console.log(`[${this.managerId}] Initializing ${this.managerType} manager`);
+      
+      // Create private scope for the agent if enabled
+      if (this._config.createPrivateScope) {
+        this.privateScope = this.isolationManager.createScope({
+          name: this._config.defaultScopeName || 'private',
+          description: `Private memory space for agent ${this.getAgent().getAgentId()}`,
+          accessLevel: MemoryAccessLevel.PRIVATE,
+          ownerAgentId: this.getAgent().getAgentId(),
+          allowedMemoryTypes: this._config.allowedMemoryTypes
+        });
+        
+        console.log(`Created private scope for agent ${this.getAgent().getAgentId()}: ${this.privateScope.scopeId.id}`);
+      }
+      
+      // Locate shared scope
+      const scopes = this.isolationManager.getScopesForAgent(this.getAgent().getAgentId());
+      this.sharedScope = scopes.find(s => s.accessPolicy.accessLevel === MemoryAccessLevel.PUBLIC);
+      
+      if (this.sharedScope) {
+        console.log(`Found shared scope: ${this.sharedScope.scopeId.id}`);
+      } else {
+        console.warn('No shared scope available');
+      }
+      
+      // Setup auto-pruning if enabled
+      if (this._config.enableAutoPruning) {
+        this.setupAutoPruning();
+      }
+      
+      // Setup auto-consolidation if enabled
+      if (this._config.enableAutoConsolidation) {
+        this.setupAutoConsolidation();
+      }
+      
+      this._initialized = true;
+      return true;
+    } catch (error) {
+      console.error(`[${this.managerId}] Error during initialization:`, error);
+      return false;
     }
-    
-    this.initialized = true;
-    return true;
   }
 
   /**
@@ -130,7 +245,7 @@ export class DefaultMemoryManager extends AbstractBaseManager implements MemoryM
       this.consolidationTimer = null;
     }
     
-    this.initialized = false;
+    this._initialized = false;
   }
 
   /**
@@ -143,452 +258,422 @@ export class DefaultMemoryManager extends AbstractBaseManager implements MemoryM
   }
 
   /**
-   * Get manager health status
+   * Get the health status of the manager
    */
-  async getHealth(): Promise<{
-    status: 'healthy' | 'degraded' | 'unhealthy';
-    message?: string;
-    metrics?: Record<string, unknown>;
-  }> {
-    if (!this.initialized) {
-      return {
-        status: 'degraded',
-        message: 'Memory manager not initialized'
-      };
-    }
-
-    const stats = await this.getStats();
-    
-    // Check if there are critical issues
-    if (!this.isEnabled()) {
-      return {
-        status: 'unhealthy',
-        message: 'Memory manager is disabled',
-        metrics: stats
-      };
-    }
-    
-    // Degraded if memory usage is high
-    if (stats.memoryUsage > 0.9) {
-      return {
-        status: 'degraded',
-        message: 'Memory usage is high',
-        metrics: stats
-      };
-    }
-    
+  async getHealth(): Promise<ManagerHealth> {
     return {
-      status: 'healthy',
-      message: 'Memory manager is healthy',
-      metrics: stats
+      status: this._initialized ? 'healthy' : 'unhealthy',
+      message: `Memory manager is ${this._initialized ? 'healthy' : 'unhealthy'}`,
+      details: {
+        lastCheck: new Date(),
+        issues: [],
+        metrics: {
+          totalMemories: this.memories.size,
+          privateMemories: this.privateScope ? 
+            Array.from(this.memories.values()).filter(
+              m => m.metadata.scopeId === this.privateScope!.scopeId.id
+            ).length : 0,
+          sharedMemories: this.sharedScope ?
+            Array.from(this.memories.values()).filter(
+              m => m.metadata.scopeId === this.sharedScope!.scopeId.id
+            ).length : 0
+        }
+      }
     };
   }
 
+  // #region Memory Operations
+
   /**
-   * Add a new memory entry
+   * Store a new memory
    */
-  async addMemory(content: string, metadata: Record<string, unknown> = {}): Promise<MemoryEntry> {
-    if (!this.initialized) {
-      throw new MemoryError(
-        'Memory manager not initialized',
-        'NOT_INITIALIZED'
-      );
+  async storeMemory(
+    content: string,
+    metadata: Record<string, unknown> = {},
+    scope: MemoryScope = this.privateScope!
+  ): Promise<MemoryEntry> {
+    if (!this._initialized) {
+      throw new MemoryError('Memory manager not initialized', 'NOT_INITIALIZED');
     }
 
-    const memoryId = uuidv4();
-    const timestamp = new Date();
-    
+    const now = new Date();
     const memory: MemoryEntry = {
-      id: memoryId,
+      id: uuidv4(),
       content,
       metadata: {
         ...metadata,
-        timestamp,
-        type: metadata.type ?? 'short-term',
-        importance: metadata.importance ?? 0.5,
-        source: metadata.source ?? 'agent'
+        createdAt: now.toISOString(),
+        createdBy: this.getAgent().getAgentId(),
+        scopeId: scope.scopeId.id
       },
-      createdAt: timestamp,
-      lastAccessedAt: timestamp,
+      createdAt: now,
+      lastAccessedAt: now,
       accessCount: 0
     };
-    
-    this.memories.set(memoryId, memory);
-    
-    // Check if we need to prune after adding
-    if (this.config.enableAutoPruning) {
-      const shortTermMemories = Array.from(this.memories.values())
-        .filter(m => m.metadata.type === 'short-term');
-      
-      if (shortTermMemories.length > (this.config.maxShortTermEntries ?? 100)) {
-        await this.pruneMemories();
-      }
+
+    // Store in memory map
+    this.memories.set(memory.id, memory);
+
+    // Store in isolation scope
+    const accessResult = this.isolationManager.checkAccess(
+      this.getAgent().getAgentId(),
+      scope.scopeId.id,
+      MemoryPermission.WRITE
+    );
+
+    if (!accessResult.granted) {
+      throw new MemoryError(
+        `Agent ${this.getAgent().getAgentId()} does not have write access to scope ${scope.scopeId.id}`,
+        'PERMISSION_DENIED'
+      );
     }
-    
+
     return memory;
   }
 
   /**
-   * Search memories based on query and options
+   * Retrieve a memory by ID
+   */
+  async getMemory(id: string): Promise<MemoryEntry | null> {
+    if (!this._initialized) {
+      throw new MemoryError('Memory manager not initialized', 'NOT_INITIALIZED');
+    }
+
+    return this.memories.get(id) || null;
+  }
+
+  /**
+   * Search memories based on criteria
    */
   async searchMemories(
     query: string,
     options: MemorySearchOptions = {}
   ): Promise<MemoryEntry[]> {
-    if (!this.initialized) {
-      throw new MemoryError(
-        'Memory manager not initialized',
-        'NOT_INITIALIZED'
-      );
+    if (!this._initialized) {
+      throw new MemoryError('Memory manager not initialized', 'NOT_INITIALIZED');
     }
 
-    const {
-      limit = 10,
-      minRelevance = this.config.relevanceThreshold ?? 0.2,
-      type,
-      timeRange,
-      metadata
-    } = options;
-    
-    // Convert memories to array for filtering
-    let results = Array.from(this.memories.values());
-    
-    // Apply filters
-    if (type) {
-      results = results.filter(m => m.metadata.type === type);
-    }
-    
-    if (timeRange) {
-      const { start, end } = timeRange;
-      results = results.filter(m => {
-        const timestamp = m.metadata.timestamp as Date;
-        return (!start || timestamp >= start) && (!end || timestamp <= end);
+    // Get accessible scopes for the agent
+    const accessibleScopes = this.isolationManager.getScopesForAgent(
+      this.getAgent().getAgentId()
+    );
+
+    // Get memories from accessible scopes
+    const accessibleMemories = Array.from(this.memories.values()).filter(memory => {
+      const memoryScope = accessibleScopes.find(
+        scope => scope.scopeId.id === memory.metadata.scopeId
+      );
+      return memoryScope !== undefined;
+    });
+
+    // Apply search criteria (simple implementation - would use embeddings in production)
+    let results = accessibleMemories.filter(memory => {
+      const content = memory.content.toLowerCase();
+      const searchTerms = query.toLowerCase().split(' ');
+      return searchTerms.every(term => content.includes(term));
+    });
+
+    // Apply time range filter if specified
+    if (options.timeRange) {
+      results = results.filter(memory => {
+        const { start, end } = options.timeRange!;
+        return (!start || memory.createdAt >= start) && (!end || memory.createdAt <= end);
       });
     }
-    
-    if (metadata) {
-      results = results.filter(m => {
-        return Object.entries(metadata).every(([key, value]) => 
-          m.metadata[key] === value
+
+    // Apply metadata filter if specified
+    if (options.metadata) {
+      results = results.filter(memory => {
+        return Object.entries(options.metadata!).every(([key, value]) => 
+          memory.metadata[key] === value
         );
       });
     }
-    
-    // Simple relevance scoring based on content matching
-    // In a real implementation, this would use embeddings or other semantic search
-    const scoredResults = results.map(memory => {
-      const contentWords = memory.content.toLowerCase().split(/\s+/);
-      const queryWords = query.toLowerCase().split(/\s+/);
-      
-      const matchingWords = queryWords.filter(word => 
-        contentWords.includes(word)
-      ).length;
-      
-      const relevance = matchingWords / queryWords.length;
-      
-      return {
-        memory,
-        relevance
-      };
-    });
-    
-    // Filter by minimum relevance and sort by relevance
-    return scoredResults
-      .filter(r => r.relevance >= minRelevance)
-      .sort((a, b) => b.relevance - a.relevance)
-      .slice(0, limit)
-      .map(r => {
-        // Update access metrics
-        const memory = r.memory;
-        memory.lastAccessedAt = new Date();
-        memory.accessCount++;
-        this.memories.set(memory.id, memory);
-        
-        return memory;
-      });
-  }
 
-  /**
-   * Get recent memories
-   */
-  async getRecentMemories(limit = 10): Promise<MemoryEntry[]> {
-    if (!this.initialized) {
-      throw new MemoryError(
-        'Memory manager not initialized',
-        'NOT_INITIALIZED'
+    // Apply type filter if specified
+    if (options.type) {
+      results = results.filter(memory => 
+        memory.metadata.type === options.type
       );
     }
 
-    return Array.from(this.memories.values())
-      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
-      .slice(0, limit);
-  }
-
-  /**
-   * Consolidate memories
-   */
-  async consolidateMemories(): Promise<MemoryConsolidationResult> {
-    if (!this.initialized) {
-      throw new MemoryError(
-        'Memory manager not initialized',
-        'NOT_INITIALIZED'
+    // Apply minimum relevance filter
+    if (options.minRelevance) {
+      results = results.filter(memory => 
+        (memory.metadata.relevance as number || 0.5) >= options.minRelevance!
       );
     }
 
-    const shortTermMemories = Array.from(this.memories.values())
-      .filter(m => m.metadata.type === 'short-term');
-    
-    if (shortTermMemories.length < (this.config.minMemoriesForConsolidation ?? 5)) {
-      return {
-        success: true,
-        consolidatedCount: 0,
-        message: 'Not enough memories to consolidate'
-      };
+    // Apply limit
+    if (options.limit) {
+      results = results.slice(0, options.limit);
     }
-    
-    // Group memories by topic/context
-    const groups = this.groupMemoriesByContext(shortTermMemories);
-    
-    let consolidatedCount = 0;
-    
-    // Consolidate each group
-    for (const group of groups) {
-      if (group.length < 2) continue;
-      
-      // Create consolidated memory
-      const consolidatedMemory = await this.createConsolidatedMemory(group);
-      
-      // Add consolidated memory
-      await this.addMemory(consolidatedMemory.content, {
-        ...consolidatedMemory.metadata,
-        type: 'long-term',
-        source: 'consolidation',
-        originalMemoryIds: group.map(m => m.id)
-      });
-      
-      consolidatedCount++;
-      
-      // Remove source memories if configured
-      if (this.config.forgetSourceMemoriesAfterConsolidation) {
-        for (const memory of group) {
-          this.memories.delete(memory.id);
-        }
-      }
-    }
-    
-    return {
-      success: true,
-      consolidatedCount,
-      message: `Consolidated ${consolidatedCount} groups of memories`
-    };
+
+    return results;
   }
 
   /**
-   * Prune memories based on relevance and age
+   * Update an existing memory
    */
-  async pruneMemories(): Promise<MemoryPruningResult> {
-    if (!this.initialized) {
-      throw new MemoryError(
-        'Memory manager not initialized',
-        'NOT_INITIALIZED'
-      );
+  async updateMemory(
+    id: string,
+    updates: Partial<MemoryEntry>
+  ): Promise<MemoryEntry> {
+    if (!this._initialized) {
+      throw new MemoryError('Memory manager not initialized', 'NOT_INITIALIZED');
     }
 
-    const shortTermMemories = Array.from(this.memories.values())
-      .filter(m => m.metadata.type === 'short-term');
-    
-    if (shortTermMemories.length <= (this.config.maxShortTermEntries ?? 100)) {
-      return {
-        success: true,
-        prunedCount: 0,
-        message: 'No pruning needed'
-      };
+    const memory = await this.getMemory(id);
+    if (!memory) {
+      throw new MemoryError(`Memory ${id} not found`, 'MEMORY_NOT_FOUND');
     }
-    
-    // Sort by importance and recency
-    const sortedMemories = shortTermMemories.sort((a, b) => {
-      const importanceA = a.metadata.importance as number;
-      const importanceB = b.metadata.importance as number;
-      
-      if (importanceA !== importanceB) {
-        return importanceB - importanceA;
-      }
-      
-      return b.lastAccessedAt.getTime() - a.lastAccessedAt.getTime();
-    });
-    
-    // Remove excess memories
-    const toRemove = sortedMemories.slice(this.config.maxShortTermEntries ?? 100);
-    let prunedCount = 0;
-    
-    for (const memory of toRemove) {
-      this.memories.delete(memory.id);
-      prunedCount++;
-    }
-    
-    return {
-      success: true,
-      prunedCount,
-      message: `Pruned ${prunedCount} memories`
-    };
-  }
 
-  /**
-   * Get memory manager statistics
-   */
-  async getStats(): Promise<{
-    totalMemories: number;
-    shortTermMemories: number;
-    longTermMemories: number;
-    memoryUsage: number;
-    avgMemorySize: number;
-    consolidationStats: {
-      lastConsolidation: Date | null;
-      totalConsolidated: number;
-    };
-    pruningStats: {
-      lastPruning: Date | null;
-      totalPruned: number;
-    };
-  }> {
-    const allMemories = Array.from(this.memories.values());
-    const shortTermMemories = allMemories.filter(m => m.metadata.type === 'short-term');
-    const longTermMemories = allMemories.filter(m => m.metadata.type === 'long-term');
-    
-    const totalSize = allMemories.reduce((sum, m) => 
-      sum + JSON.stringify(m).length, 0
+    // Check access permissions
+    const memoryScope = this.isolationManager.getScope(memory.metadata.scopeId as string);
+    if (!memoryScope) {
+      throw new MemoryError(`Scope not found for memory ${id}`, 'SCOPE_NOT_FOUND');
+    }
+
+    const accessResult = this.isolationManager.checkAccess(
+      this.getAgent().getAgentId(),
+      memoryScope.scopeId.id,
+      MemoryPermission.WRITE
     );
-    
-    return {
-      totalMemories: allMemories.length,
-      shortTermMemories: shortTermMemories.length,
-      longTermMemories: longTermMemories.length,
-      memoryUsage: allMemories.length / (this.config.maxShortTermEntries ?? 100),
-      avgMemorySize: allMemories.length > 0 ? totalSize / allMemories.length : 0,
-      consolidationStats: {
-        lastConsolidation: null, // To be implemented with tracking
-        totalConsolidated: 0 // To be implemented with tracking
-      },
-      pruningStats: {
-        lastPruning: null, // To be implemented with tracking
-        totalPruned: 0 // To be implemented with tracking
+
+    if (!accessResult.granted) {
+      throw new MemoryError(
+        `Agent ${this.getAgent().getAgentId()} does not have write access to memory ${id}`,
+        'PERMISSION_DENIED'
+      );
+    }
+
+    // Update memory
+    const updatedMemory = {
+      ...memory,
+      ...updates,
+      metadata: {
+        ...memory.metadata,
+        ...updates.metadata,
+        updatedAt: new Date().toISOString(),
+        updatedBy: this.getAgent().getAgentId()
       }
     };
+
+    this.memories.set(id, updatedMemory);
+
+    return updatedMemory;
   }
 
-  // Private helper methods
+  /**
+   * Delete a memory
+   */
+  async deleteMemory(id: string): Promise<boolean> {
+    if (!this._initialized) {
+      throw new MemoryError('Memory manager not initialized', 'NOT_INITIALIZED');
+    }
+
+    const memory = await this.getMemory(id);
+    if (!memory) {
+      return false;
+    }
+
+    // Check access permissions
+    const memoryScope = this.isolationManager.getScope(memory.metadata.scopeId as string);
+    if (!memoryScope) {
+      throw new MemoryError(`Scope not found for memory ${id}`, 'SCOPE_NOT_FOUND');
+    }
+
+    const accessResult = this.isolationManager.checkAccess(
+      this.getAgent().getAgentId(),
+      memoryScope.scopeId.id,
+      MemoryPermission.WRITE
+    );
+
+    if (!accessResult.granted) {
+      throw new MemoryError(
+        `Agent ${this.getAgent().getAgentId()} does not have write access to memory ${id}`,
+        'PERMISSION_DENIED'
+      );
+    }
+
+    // Remove from memory map
+    this.memories.delete(id);
+
+    return true;
+  }
+
+  // #endregion Memory Operations
+
+  // #region Memory Maintenance
 
   /**
    * Setup automatic memory pruning
    */
-  private setupAutoPruning(): void {
+  protected setupAutoPruning(): void {
+    const interval = this._config.pruningIntervalMs || 300000; // 5 minutes
+    
+    // Clear any existing timer
     if (this.pruningTimer) {
       clearInterval(this.pruningTimer);
     }
     
+    // Set up new timer
     this.pruningTimer = setInterval(async () => {
       try {
         await this.pruneMemories();
       } catch (error) {
         console.error(`[${this.managerId}] Error during auto-pruning:`, error);
       }
-    }, this.config.pruningIntervalMs);
+    }, interval);
+    
+    console.log(`[${this.managerId}] Set up memory pruning with interval ${interval}ms`);
   }
 
   /**
    * Setup automatic memory consolidation
    */
-  private setupAutoConsolidation(): void {
+  protected setupAutoConsolidation(): void {
+    const interval = this._config.consolidationIntervalMs || 600000; // 10 minutes
+    
+    // Clear any existing timer
     if (this.consolidationTimer) {
       clearInterval(this.consolidationTimer);
     }
     
+    // Set up new timer
     this.consolidationTimer = setInterval(async () => {
       try {
         await this.consolidateMemories();
       } catch (error) {
         console.error(`[${this.managerId}] Error during auto-consolidation:`, error);
       }
-    }, this.config.consolidationIntervalMs);
+    }, interval);
+    
+    console.log(`[${this.managerId}] Set up memory consolidation with interval ${interval}ms`);
   }
 
   /**
-   * Group memories by context/topic
+   * Prune old or irrelevant memories
    */
-  private groupMemoriesByContext(memories: MemoryEntry[]): MemoryEntry[][] {
-    // Simple grouping based on content similarity
-    // In a real implementation, this would use embeddings or other semantic analysis
-    const groups: MemoryEntry[][] = [];
-    const processed = new Set<string>();
-    
-    for (const memory of memories) {
-      if (processed.has(memory.id)) continue;
-      
-      const group: MemoryEntry[] = [memory];
-      processed.add(memory.id);
-      
-      // Find similar memories
-      for (const other of memories) {
-        if (processed.has(other.id)) continue;
-        
-        // Simple similarity check based on word overlap
-        const similarity = this.calculateSimilarity(memory.content, other.content);
-        
-        if (similarity > 0.5) { // Threshold for grouping
-          group.push(other);
-          processed.add(other.id);
+  async pruneMemories(): Promise<MemoryPruningResult> {
+    if (!this._initialized) {
+      throw new MemoryError('Memory manager not initialized', 'NOT_INITIALIZED');
+    }
+
+    let prunedCount = 0;
+
+    try {
+      // Get memories from private scope
+      if (this.privateScope) {
+        const privateMemories = Array.from(this.memories.values()).filter(
+          memory => memory.metadata.scopeId === this.privateScope!.scopeId.id
+        );
+
+        // Prune based on age and relevance
+        for (const memory of privateMemories) {
+          try {
+            const age = Date.now() - memory.createdAt.getTime();
+            const relevance = memory.metadata.relevance as number || 0.5;
+
+            // Prune if old and low relevance
+            if (age > 24 * 60 * 60 * 1000 && relevance < this._config.relevanceThreshold!) {
+              await this.deleteMemory(memory.id);
+              prunedCount++;
+            }
+          } catch (error) {
+            console.error(`Error pruning memory ${memory.id}:`, error);
+          }
         }
       }
-      
-      if (group.length > 1) {
-        groups.push(group);
-      }
+
+      return {
+        success: true,
+        prunedCount,
+        message: `Pruned ${prunedCount} memories`
+      };
+    } catch (error) {
+      return {
+        success: false,
+        prunedCount: 0,
+        message: `Error during memory pruning: ${(error as Error).message}`
+      };
     }
-    
-    return groups;
   }
 
   /**
-   * Calculate similarity between two strings
+   * Consolidate related memories
    */
-  private calculateSimilarity(str1: string, str2: string): number {
-    const words1 = new Set(str1.toLowerCase().split(/\s+/));
-    const words2 = new Set(str2.toLowerCase().split(/\s+/));
-    
-    const words1Array = Array.from(words1);
-    const words2Array = Array.from(words2);
-    
-    const intersection = words1Array.filter(x => words2.has(x));
-    const union = new Set([...words1Array, ...words2Array]);
-    
-    return intersection.length / union.size;
+  async consolidateMemories(): Promise<MemoryConsolidationResult> {
+    if (!this._initialized) {
+      throw new MemoryError('Memory manager not initialized', 'NOT_INITIALIZED');
+    }
+
+    let consolidatedCount = 0;
+
+    try {
+      // Get memories from private scope
+      if (this.privateScope) {
+        const privateMemories = Array.from(this.memories.values()).filter(
+          memory => memory.metadata.scopeId === this.privateScope!.scopeId.id
+        );
+
+        // Group related memories (simple implementation - would use embeddings in production)
+        const groups = new Map<string, MemoryEntry[]>();
+        
+        privateMemories.forEach(memory => {
+          const category = memory.metadata.category as string || 'general';
+          const group = groups.get(category) || [];
+          group.push(memory);
+          groups.set(category, group);
+        });
+
+        // Consolidate groups that meet the threshold
+        for (const [category, memories] of Array.from(groups.entries())) {
+          if (memories.length >= this._config.minMemoriesForConsolidation!) {
+            try {
+              // Create consolidated memory
+              const consolidatedContent = memories
+                .map(memory => memory.content)
+                .join('\n\n');
+
+              const consolidatedMemory = await this.storeMemory(
+                consolidatedContent,
+                {
+                  category,
+                  type: 'consolidated',
+                  sourceMemories: memories.map(memory => memory.id),
+                  consolidatedAt: new Date().toISOString()
+                }
+              );
+
+              consolidatedCount++;
+
+              // Optionally delete source memories
+              if (this._config.forgetSourceMemoriesAfterConsolidation) {
+                await Promise.all(
+                  memories.map(memory => this.deleteMemory(memory.id))
+                );
+              }
+            } catch (error) {
+              console.error(`Error consolidating memories in category ${category}:`, error);
+            }
+          }
+        }
+      }
+
+      return {
+        success: true,
+        consolidatedCount,
+        message: `Consolidated ${consolidatedCount} groups of memories`
+      };
+    } catch (error) {
+      return {
+        success: false,
+        consolidatedCount: 0,
+        message: `Error during memory consolidation: ${(error as Error).message}`
+      };
+    }
   }
 
-  /**
-   * Create a consolidated memory from a group of memories
-   */
-  private async createConsolidatedMemory(memories: MemoryEntry[]): Promise<MemoryEntry> {
-    // In a real implementation, this would use LLM or other techniques
-    // to create a coherent summary of the memories
-    const content = memories.map(m => m.content).join('\n\n');
-    
-    // Calculate max importance, defaulting to 0.5 if not set
-    const maxImportance = Math.max(
-      ...memories.map(m => (m.metadata.importance as number) ?? 0.5)
-    );
-    
-    return {
-      id: uuidv4(),
-      content,
-      metadata: {
-        type: 'long-term',
-        importance: maxImportance,
-        source: 'consolidation',
-        timestamp: new Date()
-      },
-      createdAt: new Date(),
-      lastAccessedAt: new Date(),
-      accessCount: 0
-    };
-  }
+  // #endregion Memory Maintenance
 } 

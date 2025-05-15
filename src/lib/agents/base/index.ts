@@ -5,7 +5,7 @@
  */
 
 // Export AgentBase from the existing implementation
-export type { AgentBase, AgentConfig } from '../../../agents/shared/base/AgentBase';
+export type { AgentBase } from '../../../agents/shared/base/AgentBase';
 
 // Manager interfaces
 export type { BaseManager, ManagerConfig } from './managers/BaseManager';

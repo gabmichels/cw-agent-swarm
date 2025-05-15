@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { createAgentMemoryService } from '@/server/memory/services/multi-agent';
 import { getMemoryServices } from '@/server/memory/services';
 import { AgentFactory } from '@/agents/shared/AgentFactory';
-import { agentSchema } from '@/server/memory/schema/agent';
+import { AgentMemoryService } from '@/server/memory/services/multi-agent/agent-service';
 
 /**
  * POST /api/multi-agent/agents/[agentId]/process
@@ -34,30 +34,19 @@ export async function POST(
     
     // Get the agent from the memory service
     const { memoryService } = await getMemoryServices();
-    const agentService = createAgentMemoryService(memoryService);
+    const agentService: AgentMemoryService = await createAgentMemoryService(memoryService);
     
-    // Ensure the repository has the schema property set
-    if (agentService.repository && !agentService.repository.schema) {
-      agentService.repository.schema = agentSchema;
-    }
+    // Get the agent entity
+    const result = await agentService.getAgent(agentId);
     
-    const result = await agentService.getById(agentId);
-    
-    if (result.isError) {
+    if (result.isError || !result.value) {
       return NextResponse.json(
-        { success: false, error: result.error.message },
-        { status: 500 }
+        { success: false, error: result.error?.message || 'Agent not found' },
+        { status: result.error ? 500 : 404 }
       );
     }
     
-    if (!result.data) {
-      return NextResponse.json(
-        { success: false, error: 'Agent not found' },
-        { status: 404 }
-      );
-    }
-    
-    const agentEntity = result.data;
+    const agentEntity = result.value;
     
     // Create an agent instance from the entity
     try {

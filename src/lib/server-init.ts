@@ -3,6 +3,11 @@
  * This file is loaded on the server side only and initializes global singletons
  */
 
+// Add type declaration for global
+declare global {
+  var chloeAgent: unknown;
+}
+
 // Use top-level await for initialization
 let initializationPromise: Promise<void> | null = null;
 
@@ -93,4 +98,11 @@ if (typeof window === 'undefined') {
   initializeServer().catch(err => {
     console.error('Failed to auto-initialize server:', err);
   });
+}
+
+// Remove chloe agent from global scope
+if (typeof global !== 'undefined') {
+  if ('chloeAgent' in global) {
+    delete global.chloeAgent;
+  }
 } 

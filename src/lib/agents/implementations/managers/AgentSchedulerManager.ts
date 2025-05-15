@@ -7,7 +7,7 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import { SchedulerManager, ScheduledTask, TaskSchedule } from '../../interfaces/scheduler';
-import { AgentMemory } from '../../../../agents/chloe/memory';
+import { AgentMemory } from '../../shared/memory/AgentMemory';
 
 /**
  * Error class for scheduler-related errors

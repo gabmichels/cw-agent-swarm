@@ -2,9 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getMemoryServices } from '../../../server/memory/services';
 import { MemoryType } from '../../../server/memory/config';
 import { ImportanceLevel } from '../../../constants/memory';
-import { KnowledgeGraph } from '../../../lib/knowledge/KnowledgeGraph';
-import { KnowledgeFlaggingService } from '../../../lib/knowledge/flagging/KnowledgeFlaggingService';
-import { SuggestedKnowledgeType } from '../../../lib/knowledge/flagging/types';
+import { KnowledgeGraphManager } from '../../../lib/agents/implementations/memory/KnowledgeGraphManager';
+import { KnowledgeNodeType } from '../../../lib/agents/shared/memory/types';
 import { BaseMetadata } from '../../../types/metadata';
 
 // Interface for extended metadata in Knowledge context
@@ -36,11 +35,9 @@ export async function POST(req: NextRequest) {
     // Initialize memory services
     const { memoryService, searchService } = await getMemoryServices();
     
-    // Initialize the knowledge systems
-    const knowledgeGraph = new KnowledgeGraph('default');
-    await knowledgeGraph.load();
-    const flaggingService = new KnowledgeFlaggingService(knowledgeGraph);
-    await flaggingService.load();
+    // Initialize the knowledge graph manager
+    const graphManager = new KnowledgeGraphManager();
+    await graphManager.initialize();
 
     // Determine memory content: either use provided content or fetch by ID
     let memoryContent = content;
@@ -104,90 +101,70 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Create structured knowledge item
-    const knowledgeItem = {
-      title,
-      content: memoryContent,
-      sourceMemoryId: sourceId || `generated_${Date.now()}`,
-      type: memoryType,
-      tags: memoryTags,
-      addedBy,
-      createdAt: new Date(),
-      category: inferredCategory,
-      importance: ImportanceLevel.HIGH
-    };
-
-    // Determine the suggested knowledge type based on content and tags
-    let suggestedType: SuggestedKnowledgeType = 'concept'; // Default type
-    if (memoryTags.includes('principle') || /principle|rule|guideline/i.test(memoryContent)) {
-      suggestedType = 'principle';
-    } else if (memoryTags.includes('framework') || /framework|model|methodology/i.test(memoryContent)) {
-      suggestedType = 'framework';
-    } else if (memoryTags.includes('research') || /research|study|finding/i.test(memoryContent)) {
-      suggestedType = 'research';
+    // Determine node type based on content
+    let nodeType: KnowledgeNodeType = KnowledgeNodeType.CONCEPT;
+    if (memoryContent.includes('insight') || memoryContent.includes('observation')) {
+      nodeType = KnowledgeNodeType.INSIGHT;
+    } else if (memoryContent.includes('process') || memoryContent.includes('workflow')) {
+      nodeType = KnowledgeNodeType.PROCESS;
+    } else if (memoryContent.includes('resource') || memoryContent.includes('tool')) {
+      nodeType = KnowledgeNodeType.RESOURCE;
     }
 
-    // Store in knowledge system via flagging service
-    const result = await flaggingService.flagManually(
-      title,
-      memoryContent,
-      suggestedType,
-      inferredCategory,
-      // Using a basic properties object with type assertion to avoid complex typing issues
-      {
-        type: suggestedType,
-        name: title,
-        description: memoryContent
-      } as any, // Use type assertion for simplicity
-      {
+    // Create knowledge node
+    const nodeId = `knowledge-${Date.now()}`;
+    await graphManager.addNode({
+      id: nodeId,
+      label: title,
+      type: nodeType,
+      description: memoryContent,
+      tags: [...memoryTags, inferredCategory],
+      metadata: {
         source: 'memory',
-        sourceId: knowledgeItem.sourceMemoryId,
-        addedBy: knowledgeItem.addedBy,
+        sourceId: sourceId || `generated_${Date.now()}`,
+        addedBy,
         addedVia: 'knowledge_api',
-        addedAt: new Date().toISOString(),
-        tags: memoryTags,
-        timestamp,
+        addedAt: timestamp,
         importance: ImportanceLevel.HIGH,
         originalMetadata: body
       }
-    );
+    });
 
-    if (result.success) {
-      // Save changes to the flagging service
-      await flaggingService.save();
-      
-      // Also add a reference to memory system with high importance
-      await memoryService.addMemory({
-        id: result.itemId,
-        type: MemoryType.DOCUMENT,
+    // Also add a reference to memory system with high importance
+    await memoryService.addMemory({
+      id: nodeId,
+      type: MemoryType.DOCUMENT,
+      content: memoryContent,
+      metadata: {
+        schemaVersion: "1.0.0", // Required by BaseMetadata
+        kind: 'knowledge',
+        category: inferredCategory,
+        tags: memoryTags,
+        importance: ImportanceLevel.HIGH,
+        source: 'knowledge_system',
+        addedBy,
+        title,
+        knowledgeId: nodeId,
+        sourceMemoryId: sourceId || `generated_${Date.now()}`,
+        addedAt: timestamp
+      }
+    });
+
+    return NextResponse.json({ 
+      success: true, 
+      message: 'Content added to knowledge system',
+      itemId: nodeId,
+      knowledgeItem: {
+        id: nodeId,
+        title,
         content: memoryContent,
-        metadata: {
-          schemaVersion: "1.0.0", // Required by BaseMetadata
-          kind: 'knowledge',
-          category: inferredCategory,
-          tags: memoryTags,
-          importance: ImportanceLevel.HIGH,
-          source: 'knowledge_system',
-          addedBy,
-          title,
-          knowledgeId: result.itemId,
-          sourceMemoryId: knowledgeItem.sourceMemoryId,
-          flaggedAt: new Date().toISOString()
-        }
-      });
-
-      return NextResponse.json({ 
-        success: true, 
-        message: 'Content added to knowledge system',
-        itemId: result.itemId,
-        knowledgeItem
-      });
-    } else {
-      return NextResponse.json({ 
-        success: false, 
-        error: result.error || 'Failed to add content to knowledge system' 
-      }, { status: 400 });
-    }
+        type: nodeType,
+        tags: memoryTags,
+        category: inferredCategory,
+        addedBy,
+        createdAt: new Date(timestamp)
+      }
+    });
   } catch (error) {
     console.error('Error adding to knowledge system:', error);
     return NextResponse.json(

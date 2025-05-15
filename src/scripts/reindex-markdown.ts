@@ -13,9 +13,9 @@
  * --directories: Comma-separated list of directories to search (defaults to docs/,knowledge/)
  */
 
-import { MarkdownManager } from '../agents/chloe/knowledge/markdownManager';
-import { getMemoryServices } from '../server/memory/services';
-import { logger } from '../lib/logging';
+import { getMemoryServices } from '@/server/memory/services';
+import { logger } from '@/lib/logging';
+import { MarkdownManager } from '@/agents/shared/knowledge/MarkdownManager';
 
 async function main() {
   try {
@@ -64,9 +64,6 @@ async function main() {
     // Output the results
     console.log('✅ Markdown reindexing complete!');
     console.log(`📊 Summary:
-      - Files processed: ${stats.filesProcessed}
-      - Entries added: ${stats.entriesAdded}
-      - Files skipped: ${stats.filesSkipped}
       - Duplicates skipped: ${stats.duplicatesSkipped}
       - Unchanged files: ${stats.unchangedFiles}
     `);

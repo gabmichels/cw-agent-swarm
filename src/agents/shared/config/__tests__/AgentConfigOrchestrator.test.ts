@@ -106,7 +106,11 @@ describe('AgentConfigOrchestrator', () => {
     };
     
     // Create orchestrator
-    orchestrator = new AgentConfigOrchestrator(agent as AgentBase, mockSchema);
+    orchestrator = new AgentConfigOrchestrator(
+      agent as AgentBase, 
+      [memoryManager, planningManager], 
+      mockSchema
+    );
   });
   
   it('should register and retrieve dependencies', () => {

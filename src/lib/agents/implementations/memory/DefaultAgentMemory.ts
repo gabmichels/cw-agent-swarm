@@ -51,6 +51,8 @@ interface MemoryDecayResult {
   isCritical: boolean;
   daysSinceLastAccess: number;
   accessCount: number;
+  decayedMemories: MemoryEntry[];
+  decayStats: MemoryDecayStats;
 }
 
 /**
@@ -365,7 +367,7 @@ export class DefaultAgentMemory implements AgentMemory {
       await this.knowledgeGraph.addNode({
         id: memoryId,
         label,
-        type: 'concept',
+        type: KnowledgeNodeType.CONCEPT,
         description: memory.content,
         metadata: {
           originalId: memory.id,
@@ -382,7 +384,7 @@ export class DefaultAgentMemory implements AgentMemory {
         await this.knowledgeGraph.addEdge({
           from: memoryId,
           to: relatedId,
-          type: 'related_to',
+          type: KnowledgeEdgeType.RELATED_TO,
           label: 'Related memory'
         });
       }
@@ -501,7 +503,7 @@ export class DefaultAgentMemory implements AgentMemory {
           await this.knowledgeGraph.addEdge({
             from: memoryNodeId,
             to: relatedNodeId,
-            type: 'related_to',
+            type: KnowledgeEdgeType.RELATED_TO,
             label: 'Related memory'
           });
         }
@@ -1312,6 +1314,15 @@ export class DefaultAgentMemory implements AgentMemory {
         isCritical: true,
         daysSinceLastAccess: 0,
         accessCount: (memory.metadata?.accessCount as number) || 0,
+        decayedMemories: [],
+        decayStats: {
+          totalMemoriesDecayed: 0,
+          criticalMemoriesProtected: 1,
+          averageDecayRate: 0,
+          typeDecayRates: this.getDefaultDecayStats().typeDecayRates,
+          lastDecayTime: Date.now(),
+          decayErrors: 0
+        }
       };
     }
 
@@ -1330,6 +1341,15 @@ export class DefaultAgentMemory implements AgentMemory {
         isCritical: false,
         daysSinceLastAccess,
         accessCount: (memory.metadata?.accessCount as number) || 0,
+        decayedMemories: [],
+        decayStats: {
+          totalMemoriesDecayed: 0,
+          criticalMemoriesProtected: 0,
+          averageDecayRate: 0,
+          typeDecayRates: this.getDefaultDecayStats().typeDecayRates,
+          lastDecayTime: Date.now(),
+          decayErrors: 0
+        }
       };
     }
 
@@ -1358,6 +1378,10 @@ export class DefaultAgentMemory implements AgentMemory {
     // Calculate new importance
     const newImportance = this.calculateNewImportance(memory.importance, decayRate);
 
+    // Create type decay rates with all memory types
+    const typeDecayRates = this.getDefaultDecayStats().typeDecayRates;
+    typeDecayRates[memory.type] = decayRate;
+
     return {
       id: memoryId,
       newImportance,
@@ -1365,6 +1389,15 @@ export class DefaultAgentMemory implements AgentMemory {
       isCritical: false,
       daysSinceLastAccess,
       accessCount,
+      decayedMemories: [memory],
+      decayStats: {
+        totalMemoriesDecayed: 1,
+        criticalMemoriesProtected: 0,
+        averageDecayRate: decayRate,
+        typeDecayRates,
+        lastDecayTime: Date.now(),
+        decayErrors: 0
+      }
     };
   }
 

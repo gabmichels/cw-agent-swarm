@@ -3,6 +3,8 @@ import { createAgentMemoryService } from '../../../../../../server/memory/servic
 import { getMemoryServices } from '../../../../../../server/memory/services';
 import { IdGenerator } from '../../../../../../utils/ulid';
 import { agentSchema } from '../../../../../../server/memory/schema/agent';
+import type { AgentCapability, AgentMemoryEntity } from '../../../../../../server/memory/schema/agent';
+import type { DefaultAgentMemoryService } from '../../../../../../server/memory/services/multi-agent/agent-service';
 
 /**
  * GET endpoint to retrieve agent capabilities
@@ -22,15 +24,10 @@ export async function GET(
     }
     
     const { memoryService } = await getMemoryServices();
-    const agentService = createAgentMemoryService(memoryService);
-    
-    // Ensure the repository has the schema property set
-    if (agentService.repository && !agentService.repository.schema) {
-      agentService.repository.schema = agentSchema;
-    }
+    const agentService = await createAgentMemoryService(memoryService);
     
     // Get the agent
-    const result = await agentService.getById(agentId);
+    const result = await agentService.getAgent(agentId);
     
     if (result.isError) {
       return NextResponse.json(
@@ -39,7 +36,7 @@ export async function GET(
       );
     }
     
-    if (!result.data) {
+    if (!result.value) {
       return NextResponse.json(
         { error: 'Agent not found' },
         { status: 404 }
@@ -47,7 +44,7 @@ export async function GET(
     }
     
     // Extract capabilities
-    const capabilities = result.data.capabilities || [];
+    const capabilities = result.value.capabilities || [];
     
     return NextResponse.json({ capabilities });
   } catch (error) {
@@ -69,7 +66,7 @@ export async function POST(
 ) {
   try {
     const agentId = params.agentId;
-    const capability = await request.json();
+    const capabilityData = await request.json();
     
     if (!agentId) {
       return NextResponse.json(
@@ -79,33 +76,27 @@ export async function POST(
     }
     
     // Validate capability
-    if (!capability.name) {
+    if (!capabilityData.name || !capabilityData.description) {
       return NextResponse.json(
-        { error: 'Capability name is required' },
+        { error: 'Capability name and description are required' },
         { status: 400 }
       );
     }
     
-    // Generate ID if not provided
-    if (!capability.id) {
-      capability.id = IdGenerator.generate('cap').toString();
-    }
-    
-    // Set version if not provided
-    if (!capability.version) {
-      capability.version = '1.0.0';
-    }
+    // Create a properly typed capability object
+    const capability: AgentCapability = {
+      id: capabilityData.id || IdGenerator.generate('cap').toString(),
+      name: capabilityData.name,
+      description: capabilityData.description,
+      version: capabilityData.version || '1.0.0',
+      parameters: capabilityData.parameters || {}
+    };
     
     const { memoryService } = await getMemoryServices();
-    const agentService = createAgentMemoryService(memoryService);
-    
-    // Ensure the repository has the schema property set
-    if (agentService.repository && !agentService.repository.schema) {
-      agentService.repository.schema = agentSchema;
-    }
+    const agentService = await createAgentMemoryService(memoryService);
     
     // Get the agent
-    const getResult = await agentService.getById(agentId);
+    const getResult = await agentService.getAgent(agentId);
     
     if (getResult.isError) {
       return NextResponse.json(
@@ -114,15 +105,15 @@ export async function POST(
       );
     }
     
-    if (!getResult.data) {
+    if (!getResult.value) {
       return NextResponse.json(
         { error: 'Agent not found' },
         { status: 404 }
       );
     }
     
-    // Get existing capabilities
-    const agent = getResult.data;
+    // Get existing capabilities and create updated agent
+    const agent = getResult.value;
     const capabilities = [...(agent.capabilities || [])];
     
     // Check for duplicate
@@ -137,8 +128,14 @@ export async function POST(
     // Add new capability
     capabilities.push(capability);
     
+    // Create updated agent
+    const updatedAgent: AgentMemoryEntity = {
+      ...agent,
+      capabilities
+    };
+    
     // Update agent
-    const updateResult = await agentService.updateAgentCapabilities(agentId, capabilities);
+    const updateResult = await agentService.updateAgent(updatedAgent);
     
     if (updateResult.isError) {
       return NextResponse.json(
@@ -170,7 +167,7 @@ export async function PUT(
 ) {
   try {
     const agentId = params.agentId;
-    const capabilities = await request.json();
+    const capabilitiesData = await request.json();
     
     if (!agentId) {
       return NextResponse.json(
@@ -180,55 +177,61 @@ export async function PUT(
     }
     
     // Validate capabilities
-    if (!Array.isArray(capabilities)) {
+    if (!Array.isArray(capabilitiesData)) {
       return NextResponse.json(
         { error: 'Capabilities must be an array' },
         { status: 400 }
       );
     }
     
-    // Validate each capability
-    for (const capability of capabilities) {
-      if (!capability.name) {
-        return NextResponse.json(
-          { error: 'Each capability must have a name' },
-          { status: 400 }
-        );
+    // Create properly typed capabilities array
+    const capabilities: AgentCapability[] = capabilitiesData.map(data => {
+      if (!data.name || !data.description) {
+        throw new Error('Each capability must have a name and description');
       }
       
-      // Generate ID if not provided
-      if (!capability.id) {
-        capability.id = IdGenerator.generate('cap').toString();
-      }
-      
-      // Set version if not provided
-      if (!capability.version) {
-        capability.version = '1.0.0';
-      }
-    }
+      return {
+        id: data.id || IdGenerator.generate('cap').toString(),
+        name: data.name,
+        description: data.description,
+        version: data.version || '1.0.0',
+        parameters: data.parameters || {}
+      };
+    });
     
     const { memoryService } = await getMemoryServices();
-    const agentService = createAgentMemoryService(memoryService);
+    const agentService = await createAgentMemoryService(memoryService);
     
-    // Ensure the repository has the schema property set
-    if (agentService.repository && !agentService.repository.schema) {
-      agentService.repository.schema = agentSchema;
-    }
+    // Get current agent to update
+    const getResult = await agentService.getAgent(agentId);
     
-    // Update agent capabilities
-    const result = await agentService.updateAgentCapabilities(agentId, capabilities);
-    
-    if (result.isError) {
+    if (getResult.isError) {
       return NextResponse.json(
-        { error: result.error.message },
+        { error: getResult.error.message },
         { status: 500 }
       );
     }
     
-    if (!result.data) {
+    if (!getResult.value) {
       return NextResponse.json(
         { error: 'Agent not found' },
         { status: 404 }
+      );
+    }
+    
+    // Create updated agent
+    const updatedAgent: AgentMemoryEntity = {
+      ...getResult.value,
+      capabilities
+    };
+    
+    // Update agent
+    const updateResult = await agentService.updateAgent(updatedAgent);
+    
+    if (updateResult.isError) {
+      return NextResponse.json(
+        { error: updateResult.error.message },
+        { status: 500 }
       );
     }
     

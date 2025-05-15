@@ -19,6 +19,7 @@ import { createConfigFactory } from '../../config';
 import { InputProcessorConfigSchema } from '../config/InputProcessorConfigSchema';
 import { AbstractBaseManager } from '../../base/managers/BaseManager';
 import { ManagerType } from '../../base/managers/ManagerType';
+import { ManagerHealth } from '../../base/managers/ManagerHealth';
 
 /**
  * Default implementation of the InputProcessor interface
@@ -84,17 +85,16 @@ export class DefaultInputProcessor extends AbstractBaseManager implements InputP
    * Initialize the manager
    */
   async initialize(): Promise<boolean> {
-    if (this.initialized) return true;
-    
+    if (this._initialized) return true;
+
     try {
-      // Re-initialize preprocessors
-      this.preprocessors.clear();
+      // Initialize default preprocessors
       this.initializeDefaultPreprocessors();
       
-      this.initialized = true;
+      this._initialized = true;
       return true;
     } catch (error) {
-      console.error(`[${this.managerId}] Failed to initialize input processor:`, error);
+      console.error('Failed to initialize input processor:', error);
       return false;
     }
   }
@@ -103,10 +103,7 @@ export class DefaultInputProcessor extends AbstractBaseManager implements InputP
    * Shut down the manager
    */
   async shutdown(): Promise<void> {
-    // Clear any resources
-    this.preprocessors.clear();
-    this.history = [];
-    this.initialized = false;
+    this._initialized = false;
   }
 
   /**
@@ -126,22 +123,34 @@ export class DefaultInputProcessor extends AbstractBaseManager implements InputP
   /**
    * Get manager health status
    */
-  async getHealth(): Promise<{
-    status: 'healthy' | 'degraded' | 'unhealthy';
-    message?: string;
-    metrics?: Record<string, unknown>;
-  }> {
-    if (!this.initialized) {
+  async getHealth(): Promise<ManagerHealth> {
+    if (!this._initialized) {
       return {
         status: 'degraded',
-        message: 'Input processor not initialized'
+        details: {
+          lastCheck: new Date(),
+          issues: [{
+            severity: 'high',
+            message: 'Input processor not initialized',
+            detectedAt: new Date()
+          }],
+          metrics: {}
+        }
       };
     }
 
     if (!this.config.enabled) {
       return {
         status: 'degraded',
-        message: 'Input processor is disabled'
+        details: {
+          lastCheck: new Date(),
+          issues: [{
+            severity: 'medium',
+            message: 'Input processor is disabled',
+            detectedAt: new Date()
+          }],
+          metrics: {}
+        }
       };
     }
 
@@ -150,11 +159,14 @@ export class DefaultInputProcessor extends AbstractBaseManager implements InputP
     
     return {
       status: 'healthy',
-      message: 'Input processor is healthy',
-      metrics: {
-        preprocessorCount: this.preprocessors.size,
-        historySize: this.history.length,
-        ...stats
+      details: {
+        lastCheck: new Date(),
+        issues: [],
+        metrics: {
+          ...stats,
+          processorStepCount: this.preprocessors.size,
+          historySize: this.history.length
+        }
       }
     };
   }

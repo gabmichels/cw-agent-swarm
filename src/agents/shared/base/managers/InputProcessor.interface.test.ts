@@ -12,10 +12,12 @@ import {
   InputMessage,
   ProcessedInput, 
   InputValidationResult,
-  InputPreprocessor 
+  InputPreprocessor
 } from './InputProcessor.interface';
 import { ManagerType } from './ManagerType';
-import { BaseManager } from './BaseManager';
+import { BaseManager, AbstractBaseManager } from './BaseManager';
+import { ManagerHealth } from './ManagerHealth';
+import { AgentBase } from '../AgentBase.interface';
 
 // Mock implementation of the InputProcessor interface for testing
 // @ts-ignore - Intentionally not implementing all BaseManager properties for testing
@@ -26,6 +28,7 @@ class MockInputProcessor implements InputProcessor {
   initialized: boolean;
   private preprocessors: Map<string, InputPreprocessor> = new Map();
   private history: ProcessedInput[] = [];
+  private postprocessors: Map<string, InputPreprocessor> = new Map();
 
   constructor() {
     this.managerId = 'mock-input-processor-123';
@@ -70,14 +73,17 @@ class MockInputProcessor implements InputProcessor {
     return true;
   }
 
-  async getHealth(): Promise<{
-    status: 'healthy' | 'degraded' | 'unhealthy';
-    message?: string;
-    metrics?: Record<string, unknown>;
-  }> {
+  async getHealth(): Promise<ManagerHealth> {
     return {
       status: 'healthy',
-      message: 'Input processor is healthy'
+      details: {
+        lastCheck: new Date(),
+        issues: [],
+        metrics: {
+          totalProcessedInputs: this.history.length,
+          activeProcessors: this.preprocessors.size + this.postprocessors.size
+        }
+      }
     };
   }
 
@@ -231,7 +237,7 @@ describe('InputProcessor Interface', () => {
   });
 
   it('should have the correct manager type', () => {
-    expect(inputProcessor.getType()).toBe(ManagerType.INPUT);
+    expect(inputProcessor.managerType).toBe(ManagerType.INPUT);
   });
 
   it('should initialize successfully', async () => {

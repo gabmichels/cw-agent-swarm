@@ -10,6 +10,7 @@ import useKnowledgeMemory, { KnowledgeImportance } from '../../hooks/useKnowledg
 import useMemory from '../../hooks/useMemory';
 import { MemoryType } from '../../server/memory/config';
 import { FlaggedKnowledgeItem, KnowledgeSourceType, SuggestedKnowledgeType } from '../../lib/knowledge/flagging/types';
+import { FlaggedItemStatus } from '../../lib/knowledge/flagging/types';
 
 interface KnowledgeTabProps {
   // Props can be expanded as needed
@@ -326,23 +327,28 @@ const KnowledgeTab: React.FC<KnowledgeTabProps> = () => {
   const convertToFlaggedItems = useCallback((): FlaggedKnowledgeItem[] => {
     return flaggedItems.map(item => ({
       id: item.id,
-      title: item.content.substring(0, 100),
+      type: (item.metadata?.suggestedType || SuggestedKnowledgeType.CONCEPT) as SuggestedKnowledgeType,
+      source: (item.metadata?.source || KnowledgeSourceType.MEMORY) as KnowledgeSourceType,
       content: item.content,
-      status: (item.metadata?.status || 'pending') as 'pending' | 'approved' | 'rejected',
-      suggestedType: (item.metadata?.suggestedType || 'concept') as SuggestedKnowledgeType,
-      sourceType: (item.metadata?.source || 'unknown') as KnowledgeSourceType,
-      sourceReference: item.metadata?.sourceReference || '',
-      suggestedCategory: item.metadata?.category || 'general',
-      confidence: item.metadata?.confidence || 0.8,
-      createdAt: item.timestamp.toISOString(),
-      updatedAt: item.metadata?.updatedAt || new Date().toISOString(),
-      description: item.content,
-      metadata: item.metadata,
-      suggestedProperties: {
-        type: 'concept',
-        name: item.content.split('\n')[0].substring(0, 50),
-        description: item.content
-      }
+      timestamp: new Date(item.timestamp || Date.now()).getTime(),
+      status: (item.metadata?.status || FlaggedItemStatus.PENDING) as FlaggedItemStatus,
+      metadata: {
+        title: item.content.substring(0, 100),
+        category: item.metadata?.category || 'general',
+        confidence: item.metadata?.confidence || 0.8,
+        sourceReference: item.metadata?.sourceReference || '',
+        updatedAt: item.metadata?.updatedAt || new Date().toISOString(),
+        suggestedProperties: {
+          type: 'concept',
+          name: item.content.split('\n')[0].substring(0, 50),
+          description: item.content
+        }
+      },
+      context: item.metadata?.context,
+      confidence: item.metadata?.confidence,
+      reviewer: item.metadata?.reviewer,
+      reviewNotes: item.metadata?.reviewNotes,
+      reviewTimestamp: item.metadata?.reviewTimestamp
     }));
   }, [flaggedItems]);
 

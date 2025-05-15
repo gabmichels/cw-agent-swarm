@@ -7,7 +7,14 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import { AbstractBaseManager } from '../base/managers/BaseManager';
-import { MemoryManager, MemoryManagerConfig } from '../base/managers/MemoryManager';
+import { 
+  MemoryManager, 
+  MemoryEntry,
+  MemoryManagerConfig,
+  MemorySearchOptions,
+  MemoryConsolidationResult,
+  MemoryPruningResult
+} from '../base/managers/MemoryManager.interface';
 import { AgentBase } from '../base/AgentBase.interface';
 import { 
   MemoryIsolationManager, 
@@ -22,6 +29,14 @@ import {
   createReadWritePermissionSet,
   createFullPermissionSet
 } from './MemoryScope';
+import { ManagerType } from '../base/managers/ManagerType';
+import { ManagerHealth } from '../base/managers/ManagerHealth';
+import { 
+  ConversationSummarizer,
+  ConversationSummaryOptions,
+  ConversationSummaryResult 
+} from './interfaces/ConversationSummarization.interface';
+import { DefaultConversationSummarizer } from './summarization/DefaultConversationSummarizer';
 
 /**
  * Extended memory manager configuration with isolation options
@@ -46,6 +61,13 @@ export interface AgentMemoryManagerConfig extends MemoryManagerConfig {
    * Memory types allowed in the agent's scopes
    */
   allowedMemoryTypes?: string[];
+  
+  /**
+   * Add any additional config properties here
+   */
+  maxMessageHistory?: number;
+  enableMonitoring?: boolean;
+  enableEncryption?: boolean;
 }
 
 /**
@@ -71,6 +93,9 @@ export const DEFAULT_AGENT_MEMORY_MANAGER_CONFIG: AgentMemoryManagerConfig = {
  * Agent memory manager implementation with isolation capabilities
  */
 export class AgentMemoryManager extends AbstractBaseManager implements MemoryManager {
+  protected _initialized = false;
+  private memoryStore: Map<string, MemoryEntry> = new Map();
+  
   /**
    * Memory isolation manager
    */
@@ -91,13 +116,15 @@ export class AgentMemoryManager extends AbstractBaseManager implements MemoryMan
    */
   protected config: AgentMemoryManagerConfig;
   
+  private conversationSummarizer: ConversationSummarizer;
+  
   /**
    * Creates a new agent memory manager
    * @param agent The agent this manager belongs to
    * @param config Configuration options
    */
-  constructor(agent: AgentBase, config: Partial<AgentMemoryManagerConfig> = {}) {
-    super(`memory-manager-${uuidv4()}`, 'memory', agent, { enabled: true });
+  constructor(agent: AgentBase, config: Partial<AgentMemoryManagerConfig> = { enabled: true }) {
+    super(`memory-manager-${uuidv4()}`, ManagerType.MEMORY, agent, { enabled: true, ...config });
     
     // Merge defaults with provided config
     this.config = {
@@ -109,6 +136,8 @@ export class AgentMemoryManager extends AbstractBaseManager implements MemoryMan
     this.isolationManager = new MemoryIsolationManager(
       this.config.isolation || DEFAULT_MEMORY_ISOLATION_CONFIG
     );
+    
+    this.conversationSummarizer = new DefaultConversationSummarizer();
   }
   
   /**
@@ -116,13 +145,17 @@ export class AgentMemoryManager extends AbstractBaseManager implements MemoryMan
    * @param initialized Whether the manager is initialized
    */
   protected setInitialized(initialized: boolean): void {
-    this.initialized = initialized;
+    this._initialized = initialized;
   }
   
   /**
    * Initializes the memory manager
    */
   async initialize(): Promise<boolean> {
+    if (this._initialized) {
+      return true;
+    }
+
     try {
       console.log(`Initializing AgentMemoryManager for agent ${this.getAgent().getAgentId()}`);
       
@@ -149,10 +182,12 @@ export class AgentMemoryManager extends AbstractBaseManager implements MemoryMan
         console.warn('No shared scope available');
       }
       
-      // Set as initialized
-      this.setInitialized(true);
+      // Initialize memory store
+      this.memoryStore.clear();
+      this._initialized = true;
       return true;
     } catch (error) {
+      this._initialized = false;
       console.error('Error initializing AgentMemoryManager:', error);
       return false;
     }
@@ -168,8 +203,8 @@ export class AgentMemoryManager extends AbstractBaseManager implements MemoryMan
    * @param metadata Additional metadata
    * @returns The added memory
    */
-  async addMemory(content: string, metadata: Record<string, unknown> = {}): Promise<Record<string, unknown>> {
-    if (!this.isInitialized()) {
+  async addMemory(content: string, metadata: Record<string, unknown> = {}): Promise<MemoryEntry> {
+    if (!this._initialized) {
       throw new Error('Memory manager not initialized');
     }
     
@@ -183,25 +218,25 @@ export class AgentMemoryManager extends AbstractBaseManager implements MemoryMan
       throw new Error('No valid memory scope available');
     }
     
-    // Extract memory type from metadata or use default
-    const type = metadata.type as string || 'general';
-    
-    // For now, since MemoryIsolationManager doesn't have a real implementation yet,
-    // we'll create a simple memory object for demonstration purposes
+    // Create a simple memory object for demonstration purposes
     const memoryId = `mem_${uuidv4()}`;
-    const memory = {
+    const memory: MemoryEntry = {
       id: memoryId,
       content,
-      type,
-      created: new Date(),
-      agentId: this.getAgent().getAgentId(),
-      scopeId,
-      ...metadata
+      metadata: {
+        agentId: this.getAgent().getAgentId(),
+        scopeId,
+        ...metadata
+      },
+      createdAt: new Date(),
+      lastAccessedAt: new Date(),
+      accessCount: 0
     };
     
     // In a real implementation, this would call isolationManager.addMemory()
     console.log(`Added memory ${memoryId} for agent ${this.getAgent().getAgentId()} in scope ${scopeId}`);
     
+    this.memoryStore.set(memory.id, memory);
     return memory;
   }
   
@@ -211,8 +246,8 @@ export class AgentMemoryManager extends AbstractBaseManager implements MemoryMan
    * @param options Search options
    * @returns Matching memories
    */
-  async searchMemories(query: string, options: Record<string, unknown> = {}): Promise<unknown[]> {
-    if (!this.isInitialized()) {
+  async searchMemories(query: string, options: Record<string, unknown> = {}): Promise<MemoryEntry[]> {
+    if (!this._initialized) {
       throw new Error('Memory manager not initialized');
     }
     
@@ -231,7 +266,18 @@ export class AgentMemoryManager extends AbstractBaseManager implements MemoryMan
     // In a real implementation, this would call isolationManager.getRelevantMemories()
     console.log(`Searching memories for agent ${this.getAgent().getAgentId()} in scope ${scopeId} with query: ${query}`);
     
-    return [];
+    // Simple search implementation
+    const searchResults: MemoryEntry[] = [];
+    const lowerQuery = query.toLowerCase();
+
+    const memories = Array.from(this.memoryStore.values());
+    for (const memory of memories) {
+      if (typeof memory.content === 'string' && memory.content.toLowerCase().includes(lowerQuery)) {
+        searchResults.push(memory);
+      }
+    }
+
+    return searchResults;
   }
   
   /**
@@ -241,7 +287,7 @@ export class AgentMemoryManager extends AbstractBaseManager implements MemoryMan
    * @returns Matching memories from all accessible scopes
    */
   async searchAllScopes(query: string, options: Record<string, unknown> = {}): Promise<unknown[]> {
-    if (!this.isInitialized()) {
+    if (!this._initialized) {
       throw new Error('Memory manager not initialized');
     }
     
@@ -287,8 +333,8 @@ export class AgentMemoryManager extends AbstractBaseManager implements MemoryMan
    * @param options Additional options
    * @returns Recent memories
    */
-  async getRecentMemories(limit: number = 10, options: Record<string, unknown> = {}): Promise<unknown[]> {
-    if (!this.isInitialized()) {
+  async getRecentMemories(limit: number = 10): Promise<MemoryEntry[]> {
+    if (!this._initialized) {
       throw new Error('Memory manager not initialized');
     }
     
@@ -297,7 +343,7 @@ export class AgentMemoryManager extends AbstractBaseManager implements MemoryMan
     }
     
     // Determine scope
-    const scopeId = this.getScopeId(options.scopeId as string);
+    const scopeId = this.getScopeId();
     if (!scopeId) {
       return [];
     }
@@ -312,8 +358,8 @@ export class AgentMemoryManager extends AbstractBaseManager implements MemoryMan
   /**
    * Consolidates memories
    */
-  async consolidateMemories(): Promise<void> {
-    if (!this.isInitialized()) {
+  async consolidateMemories(): Promise<MemoryConsolidationResult> {
+    if (!this._initialized) {
       throw new Error('Memory manager not initialized');
     }
     
@@ -322,15 +368,20 @@ export class AgentMemoryManager extends AbstractBaseManager implements MemoryMan
     }
     
     // In a real implementation, this would implement memory consolidation logic
-    // For now, this is a placeholder
     console.log(`Consolidating memories for agent ${this.getAgent().getAgentId()}`);
+    
+    return {
+      success: true,
+      consolidatedCount: 0,
+      message: 'Memory consolidation completed'
+    };
   }
   
   /**
    * Prunes memories
    */
-  async pruneMemories(): Promise<void> {
-    if (!this.isInitialized()) {
+  async pruneMemories(): Promise<MemoryPruningResult> {
+    if (!this._initialized) {
       throw new Error('Memory manager not initialized');
     }
     
@@ -339,8 +390,13 @@ export class AgentMemoryManager extends AbstractBaseManager implements MemoryMan
     }
     
     // In a real implementation, this would implement memory pruning logic
-    // For now, this is a placeholder
     console.log(`Pruning memories for agent ${this.getAgent().getAgentId()}`);
+    
+    return {
+      success: true,
+      prunedCount: 0,
+      message: 'Memory pruning completed'
+    };
   }
   
   /**
@@ -362,7 +418,7 @@ export class AgentMemoryManager extends AbstractBaseManager implements MemoryMan
       requireApproval?: boolean;
     } = {}
   ): Promise<Record<string, unknown>> {
-    if (!this.isInitialized()) {
+    if (!this._initialized) {
       throw new Error('Memory manager not initialized');
     }
     
@@ -446,7 +502,7 @@ export class AgentMemoryManager extends AbstractBaseManager implements MemoryMan
     approved: boolean,
     reason?: string
   ): Promise<boolean> {
-    if (!this.isInitialized()) {
+    if (!this._initialized) {
       throw new Error('Memory manager not initialized');
     }
     
@@ -462,7 +518,7 @@ export class AgentMemoryManager extends AbstractBaseManager implements MemoryMan
    * @returns Pending sharing requests
    */
   async getPendingSharingRequests(): Promise<unknown[]> {
-    if (!this.isInitialized()) {
+    if (!this._initialized) {
       throw new Error('Memory manager not initialized');
     }
     
@@ -478,7 +534,7 @@ export class AgentMemoryManager extends AbstractBaseManager implements MemoryMan
    * @returns Accessible memory scopes
    */
   async getAccessibleScopes(): Promise<unknown[]> {
-    if (!this.isInitialized()) {
+    if (!this._initialized) {
       throw new Error('Memory manager not initialized');
     }
     
@@ -503,8 +559,19 @@ export class AgentMemoryManager extends AbstractBaseManager implements MemoryMan
    * Shutdown the memory manager
    */
   async shutdown(): Promise<void> {
-    console.log(`Shutting down memory manager for agent ${this.getAgent().getAgentId()}`);
-    this.setInitialized(false);
+    if (!this._initialized) {
+      return;
+    }
+
+    try {
+      console.log(`Shutting down memory manager for agent ${this.getAgent().getAgentId()}`);
+      this.setInitialized(false);
+      
+      // Clear memory store
+      this.memoryStore.clear();
+    } catch (error) {
+      throw error;
+    }
   }
   
   /**
@@ -540,58 +607,47 @@ export class AgentMemoryManager extends AbstractBaseManager implements MemoryMan
   }
   
   /**
-   * Returns the agent's health status
+   * Get manager health status
    */
-  async getHealth(): Promise<{
-    status: 'healthy' | 'degraded' | 'unhealthy';
-    message?: string;
-    metrics?: Record<string, unknown>;
-  }> {
-    if (!this.isInitialized()) {
-      return {
-        status: 'unhealthy',
-        message: 'Memory manager not initialized'
-      };
-    }
+  async getHealth(): Promise<ManagerHealth> {
+    const isInitialized = this._initialized;
+    const isEnabled = this.isEnabled();
     
-    if (!this.isEnabled()) {
-      return {
-        status: 'degraded',
-        message: 'Memory manager is disabled'
-      };
-    }
-    
-    try {
-      // Get metrics from isolation manager
-      const metrics = this.isolationManager.getAccessMetrics();
-      
-      // Private scope availability
-      const privateScope = this.privateScope ? 'available' : 'unavailable';
-      
-      // Shared scope availability
-      const sharedScope = this.sharedScope ? 'available' : 'unavailable';
-      
-      return {
-        status: 'healthy',
-        message: 'Memory manager is healthy',
+    return {
+      status: isInitialized && isEnabled ? 'healthy' : 'unhealthy',
+      details: {
+        lastCheck: new Date(),
+        issues: isInitialized && isEnabled ? [] : [{
+          severity: 'high',
+          message: isInitialized ? 'Memory manager is disabled' : 'Memory manager is not initialized',
+          detectedAt: new Date()
+        }],
         metrics: {
-          totalRequests: metrics.totalRequests,
-          grantedRequests: metrics.grantedRequests,
-          deniedRequests: metrics.deniedRequests,
-          privateScope,
-          sharedScope
+          memoryCount: this.memoryStore.size,
+          averageMemoryAge: this.getAverageMemoryAge()
         }
-      };
-    } catch (error) {
-      return {
-        status: 'degraded',
-        message: `Memory manager is degraded: ${error instanceof Error ? error.message : String(error)}`
-      };
-    }
+      }
+    };
   }
   
   /**
-   * Resets the memory manager's state
+   * Calculate average age of memories in milliseconds
+   */
+  private getAverageMemoryAge(): number {
+    if (this.memoryStore.size === 0) return 0;
+    
+    const now = Date.now();
+    let totalAge = 0;
+    
+    this.memoryStore.forEach(memory => {
+      totalAge += now - memory.createdAt.getTime();
+    });
+    
+    return totalAge / this.memoryStore.size;
+  }
+  
+  /**
+   * Reset the memory manager
    */
   async reset(): Promise<boolean> {
     try {
@@ -602,5 +658,106 @@ export class AgentMemoryManager extends AbstractBaseManager implements MemoryMan
       console.error('Error resetting memory manager:', error);
       return false;
     }
+  }
+
+  /**
+   * Summarize a conversation
+   */
+  async summarizeConversation(options?: ConversationSummaryOptions): Promise<ConversationSummaryResult> {
+    if (!this._initialized) {
+      throw new Error('Memory manager not initialized');
+    }
+    
+    if (!this.isEnabled()) {
+      throw new Error('Memory manager is disabled');
+    }
+    
+    // In a real implementation, this would call the conversation summarizer
+    console.log(`Summarizing conversation for agent ${this.getAgent().getAgentId()}`);
+    
+    return {
+      summary: 'Basic conversation summary',
+      success: true,
+      stats: {
+        messageCount: 0,
+        userMessageCount: 0,
+        agentMessageCount: 0,
+        systemMessageCount: 0
+      }
+    };
+  }
+
+  /**
+   * Summarize multiple conversations
+   */
+  async summarizeMultipleConversations(
+    conversationIds: string[],
+    options?: ConversationSummaryOptions
+  ): Promise<Record<string, ConversationSummaryResult>> {
+    if (!this._initialized) {
+      throw new Error('Memory manager not initialized');
+    }
+    
+    if (!this.isEnabled()) {
+      throw new Error('Memory manager is disabled');
+    }
+    
+    // In a real implementation, this would call the conversation summarizer
+    console.log(`Summarizing multiple conversations for agent ${this.getAgent().getAgentId()}`);
+    
+    const results: Record<string, ConversationSummaryResult> = {};
+    
+    for (const id of conversationIds) {
+      results[id] = {
+        summary: `Basic summary for conversation ${id}`,
+        success: true,
+        stats: {
+          messageCount: 0,
+          userMessageCount: 0,
+          agentMessageCount: 0,
+          systemMessageCount: 0
+        }
+      };
+    }
+    
+    return results;
+  }
+
+  /**
+   * Get conversation topics
+   */
+  async getConversationTopics(
+    conversationId: string,
+    options?: { maxTopics?: number; minConfidence?: number }
+  ): Promise<string[]> {
+    if (!this._initialized) {
+      throw new Error('Memory manager not initialized');
+    }
+    
+    if (!this.isEnabled()) {
+      throw new Error('Memory manager is disabled');
+    }
+    
+    // In a real implementation, this would analyze conversation content
+    return ['topic1', 'topic2'];
+  }
+
+  /**
+   * Extract action items from conversation
+   */
+  async extractActionItems(
+    conversationId: string,
+    options?: { maxItems?: number; minConfidence?: number }
+  ): Promise<string[]> {
+    if (!this._initialized) {
+      throw new Error('Memory manager not initialized');
+    }
+    
+    if (!this.isEnabled()) {
+      throw new Error('Memory manager is disabled');
+    }
+    
+    // In a real implementation, this would analyze conversation content
+    return ['action1', 'action2'];
   }
 } 

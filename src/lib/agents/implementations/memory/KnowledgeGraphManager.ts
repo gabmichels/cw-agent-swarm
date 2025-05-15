@@ -443,43 +443,41 @@ export class KnowledgeGraphManager implements IKnowledgeGraphManager {
     try {
       // Add task nodes
       for (const task of tasks) {
-        const taskId = `task-${task.id}`;
-        
-        await this.addNode({
-          id: taskId,
+        const taskNode: KnowledgeNode = {
+          id: `task_${task.id}`,
           label: task.goal,
-          type: 'task',
-          description: `Task: ${task.goal}`,
+          type: KnowledgeNodeType.TASK,
+          description: task.goal,
           metadata: {
-            status: task.status,
             originalId: task.id,
-            subGoalCount: task.subGoals?.length || 0
+            status: task.status,
+            subGoals: task.subGoals
           }
-        });
+        };
+        await this.addNode(taskNode);
 
-        // Add sub-goals if any
-        if (task.subGoals?.length) {
-          for (let i = 0; i < task.subGoals.length; i++) {
-            const subGoal = task.subGoals[i];
-            const subGoalId = `subgoal-${task.id}-${i}`;
-
-            await this.addNode({
-              id: subGoalId,
-              label: subGoal.description || `Sub-goal ${i + 1}`,
-              type: 'task',
-              description: subGoal.description || `Sub-goal ${i + 1} for task: ${task.goal}`,
+        // Add task nodes for sub-goals
+        if (task.subGoals) {
+          for (const subGoal of task.subGoals) {
+            const subTaskNode: KnowledgeNode = {
+              id: `task_${task.id}_${subGoal.id}`,
+              label: subGoal.goal,
+              type: KnowledgeNodeType.TASK,
+              description: subGoal.goal,
               metadata: {
-                parentTaskId: task.id,
-                index: i
+                originalId: subGoal.id,
+                parentId: task.id,
+                status: subGoal.status
               }
-            });
+            };
+            await this.addNode(subTaskNode);
 
-            // Connect sub-goal to parent task
+            // Connect sub-task to parent task
             await this.addEdge({
-              from: subGoalId,
-              to: taskId,
-              type: 'depends_on',
-              label: 'Part of task'
+              from: taskNode.id,
+              to: subTaskNode.id,
+              type: KnowledgeEdgeType.DEPENDS_ON,
+              label: 'Sub-task'
             });
           }
         }
@@ -487,32 +485,27 @@ export class KnowledgeGraphManager implements IKnowledgeGraphManager {
 
       // Add memory nodes
       for (const memory of memories) {
-        const memoryId = `memory-${memory.id}`;
-        const label = memory.content.substring(0, 30) + (memory.content.length > 30 ? '...' : '');
-
-        await this.addNode({
-          id: memoryId,
-          label,
-          type: 'concept',
+        const memoryNode: KnowledgeNode = {
+          id: `memory_${memory.id}`,
+          label: memory.content.substring(0, 100),
+          type: KnowledgeNodeType.CONCEPT,
           description: memory.content,
           metadata: {
             originalId: memory.id,
             ...memory.metadata
           }
-        });
+        };
+        await this.addNode(memoryNode);
 
-        // Connect memories to related tasks
+        // Connect memory to task
         for (const task of tasks) {
-          const taskId = `task-${task.id}`;
-          const taskWords = task.goal.toLowerCase().split(/\s+/).filter(word => word.length > 3);
-          const isRelated = taskWords.some(word => memory.content.toLowerCase().includes(word));
-
-          if (isRelated) {
+          const taskNode = await this.getNode(`task_${task.id}`);
+          if (taskNode) {
             await this.addEdge({
-              from: memoryId,
-              to: taskId,
-              type: 'related_to',
-              label: 'Related to'
+              from: memoryNode.id,
+              to: taskNode.id,
+              type: KnowledgeEdgeType.RELATED_TO,
+              label: 'Task memory'
             });
           }
         }

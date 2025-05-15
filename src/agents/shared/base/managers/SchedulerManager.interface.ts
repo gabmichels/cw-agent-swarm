@@ -7,6 +7,7 @@
  */
 
 import { BaseManager, ManagerConfig } from './BaseManager';
+import { ManagerType } from './ManagerType';
 
 /**
  * Configuration options for scheduler managers
@@ -43,190 +44,154 @@ export interface SchedulerManagerConfig extends ManagerConfig {
 }
 
 /**
- * Task creation options
+ * Status of a scheduled task
  */
-export interface TaskCreationOptions {
-  /** Task title */
-  title: string;
-  
-  /** Task description */
-  description: string;
-  
-  /** Task type or category */
-  type?: string;
-  
-  /** When the task should start */
-  scheduledStartTime?: Date;
-  
-  /** Task deadline */
-  dueDate?: Date;
-  
-  /** Task priority (0-1) */
-  priority?: number;
-  
-  /** Task execution parameters */
-  parameters?: Record<string, unknown>;
-  
-  /** Parent task ID if this is a subtask */
-  parentTaskId?: string;
-  
-  /** Dependencies on other tasks (task IDs) */
-  dependencies?: string[];
-  
-  /** Additional metadata */
-  metadata?: Record<string, unknown>;
-}
+export type TaskStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled' | 'scheduled';
 
 /**
- * Task creation result
- */
-export interface TaskCreationResult {
-  /** Whether the operation was successful */
-  success: boolean;
-  
-  /** Created task (if successful) */
-  task?: ScheduledTask;
-  
-  /** Error message (if unsuccessful) */
-  error?: {
-    message: string;
-    code?: string;
-  };
-}
-
-/**
- * Scheduled task
+ * A task that can be scheduled and executed
  */
 export interface ScheduledTask {
-  /** Unique task identifier */
+  /**
+   * Unique identifier for the task
+   */
   id: string;
-  
-  /** Task title */
+
+  /**
+   * Title of the task
+   */
   title: string;
-  
-  /** Task description */
+
+  /**
+   * Description of what the task does
+   */
   description: string;
-  
-  /** Task type or category */
-  type?: string;
-  
-  /** When the task was created */
+
+  /**
+   * Type of task
+   */
+  type: string;
+
+  /**
+   * When the task was created
+   */
   createdAt: Date;
-  
-  /** When the task was last updated */
+
+  /**
+   * When the task was last updated
+   */
   updatedAt: Date;
-  
-  /** When the task should start */
-  scheduledStartTime?: Date;
-  
-  /** Task deadline */
-  dueDate?: Date;
-  
-  /** When the task started executing */
-  startedAt?: Date;
-  
-  /** When the task completed executing */
-  completedAt?: Date;
-  
-  /** Task status */
-  status: 'pending' | 'scheduled' | 'in_progress' | 'completed' | 'failed' | 'cancelled';
-  
-  /** Task priority (0-1) */
+
+  /**
+   * Current status of the task
+   */
+  status: TaskStatus;
+
+  /**
+   * Priority of the task (0-1)
+   */
   priority: number;
-  
-  /** Task execution parameters */
-  parameters?: Record<string, unknown>;
-  
-  /** Parent task ID if this is a subtask */
-  parentTaskId?: string;
-  
-  /** Dependencies on other tasks (task IDs) */
-  dependencies: string[];
-  
-  /** Task result (if completed) */
-  result?: unknown;
-  
-  /** Error details (if failed) */
-  error?: {
-    message: string;
-    code?: string;
-    stack?: string;
-  };
-  
-  /** Number of retry attempts */
+
+  /**
+   * Number of retry attempts made
+   */
   retryAttempts: number;
-  
-  /** Additional metadata */
+
+  /**
+   * IDs of tasks that must complete before this one
+   */
+  dependencies: string[];
+
+  /**
+   * Additional task metadata
+   */
   metadata: Record<string, unknown>;
 }
 
 /**
- * Task execution result
+ * Options for creating a new task
  */
-export interface TaskExecutionResult {
-  /** Whether execution was successful */
-  success: boolean;
-  
-  /** Task ID */
-  taskId: string;
-  
-  /** Execution result data (if successful) */
-  result?: unknown;
-  
-  /** Error details (if unsuccessful) */
-  error?: {
-    message: string;
-    code?: string;
-  };
-  
-  /** Execution duration in milliseconds */
-  durationMs: number;
-  
-  /** The task after execution */
-  task?: ScheduledTask;
+export interface TaskCreationOptions {
+  /**
+   * Title of the task
+   */
+  title: string;
+
+  /**
+   * Description of what the task does
+   */
+  description: string;
+
+  /**
+   * Type of task
+   */
+  type: string;
+
+  /**
+   * Priority of the task (0-1)
+   */
+  priority?: number;
+
+  /**
+   * IDs of tasks that must complete before this one
+   */
+  dependencies?: string[];
+
+  /**
+   * Additional task metadata
+   */
+  metadata?: Record<string, unknown>;
 }
 
 /**
- * Task batch
+ * Result of creating a task
+ */
+export interface TaskCreationResult {
+  /**
+   * Whether the task was created successfully
+   */
+  success: boolean;
+
+  /**
+   * The created task if successful
+   */
+  task: ScheduledTask;
+}
+
+/**
+ * Result of executing a task
+ */
+export interface TaskExecutionResult {
+  /**
+   * Whether the task executed successfully
+   */
+  success: boolean;
+
+  /**
+   * ID of the executed task
+   */
+  taskId: string;
+
+  /**
+   * Time taken to execute in milliseconds
+   */
+  durationMs?: number;
+
+  /**
+   * Error message if execution failed
+   */
+  error?: string;
+}
+
+/**
+ * Task batch interface
  */
 export interface TaskBatch {
-  /** Unique batch identifier */
   id: string;
-  
-  /** Batch name */
-  name: string;
-  
-  /** Batch description */
-  description?: string;
-  
-  /** Tasks in this batch */
-  taskIds: string[];
-  
-  /** When the batch was created */
+  tasks: ScheduledTask[];
+  status: 'pending' | 'in_progress' | 'completed' | 'failed';
   createdAt: Date;
-  
-  /** When the batch was last updated */
   updatedAt: Date;
-  
-  /** When the batch started executing */
-  startedAt?: Date;
-  
-  /** When the batch completed executing */
-  completedAt?: Date;
-  
-  /** Batch status */
-  status: 'pending' | 'in_progress' | 'completed' | 'failed' | 'cancelled' | 'partial';
-  
-  /** Batch priority (0-1) */
-  priority?: number;
-  
-  /** Success rate (0-1) */
-  successRate: number;
-  
-  /** Batch execution parameters */
-  parameters?: Record<string, unknown>;
-  
-  /** Additional metadata */
   metadata?: Record<string, unknown>;
 }
 
@@ -254,6 +219,14 @@ export interface ResourceUtilization {
   
   /** Number of pending tasks */
   pendingTasks: number;
+
+  /** Per-task resource utilization */
+  taskUtilization?: Record<string, {
+    cpuUtilization: number;
+    memoryBytes: number;
+    tokensPerMinute: number;
+    apiCallsPerMinute: number;
+  }>;
   
   /** Additional metrics */
   [key: string]: unknown;
@@ -332,57 +305,44 @@ export interface SchedulerMetrics {
 }
 
 /**
- * Scheduler manager interface
+ * Interface for scheduler managers
  */
 export interface SchedulerManager extends BaseManager {
   /**
    * Create a new task
-   * @param options Task creation options
-   * @returns Promise resolving to the task creation result
    */
   createTask(options: TaskCreationOptions): Promise<TaskCreationResult>;
-  
+
   /**
    * Get a task by ID
-   * @param taskId Task ID to retrieve
-   * @returns Promise resolving to the task or null if not found
    */
   getTask(taskId: string): Promise<ScheduledTask | null>;
-  
-  /**
-   * Get all tasks
-   * @returns Promise resolving to all tasks
-   */
-  getAllTasks(): Promise<ScheduledTask[]>;
-  
-  /**
-   * Update a task
-   * @param taskId Task ID to update
-   * @param updates Updates to apply
-   * @returns Promise resolving to the updated task or null if not found
-   */
-  updateTask(taskId: string, updates: Partial<ScheduledTask>): Promise<ScheduledTask | null>;
-  
-  /**
-   * Delete a task
-   * @param taskId Task ID to delete
-   * @returns Promise resolving to true if deleted, false if not found
-   */
-  deleteTask(taskId: string): Promise<boolean>;
-  
+
   /**
    * Execute a task
-   * @param taskId Task ID to execute
-   * @returns Promise resolving to the task execution result
    */
   executeTask(taskId: string): Promise<TaskExecutionResult>;
-  
+
+  /**
+   * Retry a failed task
+   */
+  retryTask(taskId: string): Promise<TaskExecutionResult>;
+
   /**
    * Cancel a task
-   * @param taskId Task ID to cancel
-   * @returns Promise resolving to true if cancelled, false if not found or not cancellable
    */
   cancelTask(taskId: string): Promise<boolean>;
+
+  /**
+   * Get all tasks
+   */
+  getTasks(): Promise<ScheduledTask[]>;
+
+  /**
+   * Get active tasks
+   * @returns Promise resolving to active tasks
+   */
+  getActiveTasks(): Promise<ScheduledTask[]>;
   
   /**
    * Get tasks that are due for execution
@@ -409,9 +369,7 @@ export interface SchedulerManager extends BaseManager {
   getFailedTasks(): Promise<ScheduledTask[]>;
   
   /**
-   * Retry a failed task
-   * @param taskId Task ID to retry
-   * @returns Promise resolving to the task execution result
+   * Reset the manager state
    */
-  retryTask(taskId: string): Promise<TaskExecutionResult>;
+  reset(): Promise<boolean>;
 } 

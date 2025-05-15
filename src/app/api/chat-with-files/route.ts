@@ -5,9 +5,8 @@ import { getMemoryServices } from '../../../server/memory/services';
 import { MemoryType } from '../../../server/memory/config';
 import { ImportanceLevel, MemorySource } from '../../../constants/memory';
 import process from 'process';
-// Import necessary services for flagging
-import { KnowledgeGraph } from '../../../lib/knowledge/KnowledgeGraph';
-import { KnowledgeFlaggingService } from '../../../lib/knowledge/flagging/KnowledgeFlaggingService';
+import { KnowledgeGraphManager } from '../../../lib/agents/implementations/memory/KnowledgeGraphManager';
+import { KnowledgeNodeType, KnowledgeEdgeType } from '../../../agents/shared/knowledge/interfaces/KnowledgeGraph.interface';
 import path from 'path';
 import fs from 'fs';
 
@@ -27,13 +26,24 @@ interface MemoryRecord {
   id: string;
   content: string;
   timestamp: string;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
+}
+
+// Define memory payload type
+interface MemoryPayload {
+  role?: string;
+  content?: string;
+  timestamp?: string;
+  importance?: ImportanceLevel;
+  userId?: string;
+  source?: MemorySource;
+  [key: string]: unknown;
 }
 
 // File processing cache to prevent duplicate operations
 // Key format: fileId:operation (e.g. "file123:read")
 const fileOperationCache = new Map<string, {
-  result: any;
+  result: unknown;
   timestamp: number;
   expiry: number;
 }>();
@@ -48,7 +58,7 @@ function useFileCache<T>(fileId: string, operation: string, executor: () => T): 
   
   if (cachedResult && cachedResult.expiry > Date.now()) {
     console.log(`Using cached file operation result for ${cacheKey}, age: ${Math.round((Date.now() - cachedResult.timestamp) / 1000)}s`);
-    return cachedResult.result;
+    return cachedResult.result as T;
   }
   
   // Execute the operation
@@ -64,25 +74,21 @@ function useFileCache<T>(fileId: string, operation: string, executor: () => T): 
   return result;
 }
 
-// --- Helper: Initialize Flagging Service --- 
-// Avoid initializing multiple times per request if possible
-let flaggingServiceInstance: KnowledgeFlaggingService | null = null;
-async function getFlaggingService(): Promise<KnowledgeFlaggingService | null> {
-    if (flaggingServiceInstance) {
-        return flaggingServiceInstance;
-    }
-    try {
-        // Assuming 'default' or a relevant domain for general file flagging
-        const knowledgeGraph = new KnowledgeGraph('default'); 
-        await knowledgeGraph.load(); // Ensure graph is loaded
-        flaggingServiceInstance = new KnowledgeFlaggingService(knowledgeGraph);
-        await flaggingServiceInstance.load(); // Load existing flagged items
-        console.log("Initialized KnowledgeFlaggingService for file processing.");
-        return flaggingServiceInstance;
-    } catch (error) {
-        console.error("Failed to initialize KnowledgeFlaggingService:", error);
-        return null;
-    }
+// --- Helper: Initialize Knowledge Graph Manager --- 
+let knowledgeGraphManager: KnowledgeGraphManager | null = null;
+async function getKnowledgeGraphManager(): Promise<KnowledgeGraphManager> {
+  if (knowledgeGraphManager) {
+    return knowledgeGraphManager;
+  }
+  try {
+    knowledgeGraphManager = new KnowledgeGraphManager();
+    await knowledgeGraphManager.initialize();
+    console.log("Initialized KnowledgeGraphManager for file processing.");
+    return knowledgeGraphManager;
+  } catch (error) {
+    console.error("Failed to initialize KnowledgeGraphManager:", error);
+    throw error;
+  }
 }
 
 // Function to ensure directory exists
@@ -121,8 +127,7 @@ async function getConversationHistory(userId: string) {
     // Convert to a more usable format
     const userMessages = recentMessages
       .map(result => {
-        // Cast payload to any to access its properties
-        const payload = result.point.payload as any;
+        const payload = result.point.payload as unknown as MemoryPayload;
         return {
           role: payload.role || 'user',
           content: payload.content || '',
@@ -199,10 +204,9 @@ async function processWithVisionModel(message: string, images: Array<{fileId: st
           const storageFilePath = path.join(process.cwd(), 'data', 'files', 'storage', image.fileId);
           
           if (fs.existsSync(storageFilePath)) {
-            // Found in storage, copy to uploads
             fileBuffer = fs.readFileSync(storageFilePath);
             // Save to uploads directory for future use
-            saveFileToFS(image.fileId, fileBuffer, 'uploads');
+            saveFileToFS(image.fileId, fileBuffer);
           } else {
             console.error(`File not found in storage either: ${storageFilePath}`);
             failedImages.push({id: image.fileId, reason: 'File not found'});
@@ -210,150 +214,58 @@ async function processWithVisionModel(message: string, images: Array<{fileId: st
           }
         }
         
-        // Convert buffer to base64
-        const base64Data = fileBuffer.toString('base64');
-        
-        // Determine mime type from metadata or file extension
-        const mimeType = metadata.mimeType || image.mimeType || 'image/jpeg';
-        
+        // Add to processed images
         processedImages.push({
-          base64Data,
-          mimeType,
           fileId: image.fileId,
-          filename: image.filename
+          filename: image.filename,
+          mimeType: image.mimeType,
+          buffer: fileBuffer
         });
-        
-        console.log(`Successfully processed image: ${image.filename} (${mimeType})`);
-      } catch (err: any) {
-        console.error(`Error processing image ${image.fileId}:`, err);
-        failedImages.push({id: image.fileId, reason: err.message || 'Unknown error'});
+      } catch (error) {
+        console.error(`Error processing image ${image.fileId}:`, error);
+        failedImages.push({id: image.fileId, reason: String(error)});
       }
     }
     
+    // If no images were processed successfully, return error
     if (processedImages.length === 0) {
-      if (failedImages.length > 0) {
-        const failureReasons = failedImages.map(img => `${img.id}: ${img.reason}`).join(', ');
-        throw new Error(`Failed to process any of the provided images. Reasons: ${failureReasons}`);
-      } else {
-        throw new Error('Failed to process any of the provided images');
-      }
+      return {
+        success: false,
+        error: `Failed to process any images. Errors: ${failedImages.map(f => `${f.id}: ${f.reason}`).join(', ')}`
+      };
     }
     
-    // Create a prompt that includes the message and processed image data
-    const promptWithImages = {
-      message: message,
-      images: processedImages,
-      userId: userId,
-      conversationHistory: conversationHistory
-    };
+    // Get knowledge graph manager
+    const graphManager = await getKnowledgeGraphManager();
     
-    // Generate a timestamp for tracking the vision response relationship
-    const requestTimestamp = new Date().toISOString();
-    
-    // Call the vision API endpoint that handles base64 encoding
-    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
-    const apiUrl = new URL('/api/vision', baseUrl).toString();
-    console.log(`Calling vision API at: ${apiUrl}`);
-    
-    const response = await fetch(apiUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(promptWithImages),
-    });
-    
-    if (!response.ok) {
-      throw new Error(`Vision API error: ${response.status}`);
-    }
-    
-    const responseData = await response.json();
-    
-    // Store this message in memory with proper metadata
-    try {
-      const { memoryService } = await getMemoryServices();
-      
-      // Add the user message with attachments
-      await memoryService.addMemory({
-        type: MemoryType.MESSAGE,
-        content: message,
+    // Add image nodes to knowledge graph
+    for (const image of processedImages) {
+      await graphManager.addNode({
+        id: `image-${image.fileId}`,
+        label: image.filename,
+        type: KnowledgeNodeType.RESOURCE as KnowledgeNodeType,
+        description: `Image file: ${image.filename}`,
+        tags: ['image', image.mimeType || 'unknown-type'],
         metadata: {
-          userId: userId || 'gab',
-          role: 'user',
-          source: MemorySource.USER,
-          attachments: images.map(img => ({
-            filename: img.filename,
-            type: 'image',
-            fileId: img.fileId
-          })),
-          timestamp: requestTimestamp,
-          importance: ImportanceLevel.MEDIUM
-        },
-        payload: {
-          userId,
-          role: 'user',
-          source: MemorySource.USER,
-          attachments: images.map(img => ({
-            filename: img.filename,
-            type: 'image',
-            fileId: img.fileId
-          })),
-          timestamp: requestTimestamp,
-          importance: ImportanceLevel.MEDIUM
+          fileId: image.fileId,
+          mimeType: image.mimeType || 'unknown',
+          createdAt: new Date(),
+          updatedAt: new Date()
         }
       });
-      
-      console.log(`Saved user message with images to memory with timestamp: ${requestTimestamp}`);
-      
-      // Add the assistant's response with reference to the user's message
-      await memoryService.addMemory({
-        type: MemoryType.MESSAGE,
-        content: responseData.reply,
-        metadata: {
-          userId: userId || 'gab',
-          role: 'assistant',
-          source: MemorySource.AGENT,
-          visionResponseFor: requestTimestamp,
-          importance: ImportanceLevel.MEDIUM
-        },
-        payload: {
-          userId,
-          role: 'assistant',
-          source: MemorySource.AGENT,
-          visionResponseFor: requestTimestamp,
-          importance: ImportanceLevel.MEDIUM
-        }
-      });
-      
-      console.log(`Saved assistant vision response to memory with reference to: ${requestTimestamp}`);
-    } catch (error) {
-      console.error('Error saving vision conversation to memory:', error);
-      // Continue anyway, non-critical error
     }
     
+    // Return success
     return {
-      ...responseData,
-      requestTimestamp // Include the timestamp for the client to use
+      success: true,
+      processedImages,
+      failedImages
     };
-  } catch (error: any) {
-    console.error('Error processing with vision model:', error);
-    
-    // Get detailed error information
-    let errorMessage = error.message || 'Unknown error';
-    if (error.cause) {
-      console.error('Caused by:', error.cause);
-      errorMessage += ` (${error.cause.message || 'Unknown cause'})`;
-    }
-    if (error.code) {
-      console.error('Error code:', error.code);
-      errorMessage += ` [${error.code}]`;
-    }
-    
-    // Provide a more helpful error message to the user
+  } catch (error) {
+    console.error('Error in processWithVisionModel:', error);
     return {
-      reply: `I encountered an error processing the images: ${errorMessage}. Could you try again or describe the image content?`,
-      memory: [],
-      thoughts: [`Error processing images: ${errorMessage}`, `Stack: ${error.stack || 'No stack trace'}`]
+      success: false,
+      error: String(error)
     };
   }
 }
@@ -509,49 +421,6 @@ export async function POST(request: NextRequest) {
     const chatResponse = await chatPost(chatRequest);
     const responseData = await chatResponse.json();
     
-    // --- **NEW: Asynchronous Knowledge Flagging for Files** --- 
-    const flaggingService = await getFlaggingService();
-    if (flaggingService) {
-        successfulFiles.forEach(fileData => {
-            if (fileData.fullText && fileData.metadata.processingStatus === 'completed') {
-                const metadataForFlagging = { 
-                    fileId: fileData.metadata.fileId,
-                    originalFilename: fileData.metadata.originalFilename,
-                    mimeType: fileData.metadata.mimeType,
-                    size: fileData.metadata.size,
-                    uploadDate: fileData.metadata.uploadDate.toISOString(),
-                    tags: fileData.metadata.tags,
-                    extractedMetadata: fileData.metadata.extractedMetadata, // Pass extracted PDF metadata etc.
-                    documentType: fileData.metadata.documentType || 'unknown', // Include document type classification
-                    language: fileData.metadata.language || 'unknown' // Include detected language
-                };
-
-                // Log detected document type and language for monitoring
-                console.log(`Flagging file "${fileData.metadata.filename}" - Type: ${fileData.metadata.documentType || 'unknown'}, Language: ${fileData.metadata.language || 'unknown'}`);
-
-                flaggingService.flagFromFile(
-                    fileData.fullText,
-                    fileData.metadata.filename,
-                    fileData.metadata.mimeType, 
-                    metadataForFlagging
-                )
-                .then(flaggingResult => {
-                    if (flaggingResult.success && flaggingResult.itemId) {
-                        console.log(`Successfully flagged knowledge from file: ${fileData.metadata.filename} (Item ID: ${flaggingResult.itemId})`);
-                    } else if (!flaggingResult.success && flaggingResult.error !== 'No relevant knowledge was extracted from the file') {
-                        console.warn(`Failed to flag knowledge from file ${fileData.metadata.filename}:`, flaggingResult.error);
-                    }
-                })
-                .catch(flaggingError => {
-                    console.error(`Error during async knowledge flagging for file ${fileData.metadata.filename}:`, flaggingError);
-                });
-            }
-        });
-    } else {
-        console.warn("Knowledge Flagging Service not available, skipping file flagging.");
-    }
-    // --- **END: Asynchronous Knowledge Flagging for Files** --- 
-
     // Return response with file processing metadata (not full text)
     return NextResponse.json({
       ...responseData,

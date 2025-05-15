@@ -31,6 +31,9 @@ export interface PlanAction {
   /** Unique identifier for this action */
   id: string;
   
+  /** Action name */
+  name: string;
+  
   /** Action description */
   description: string;
   
@@ -38,7 +41,7 @@ export interface PlanAction {
   type: string;
   
   /** Parameters for the action */
-  parameters?: Record<string, unknown>;
+  parameters: Record<string, unknown>;
   
   /** Expected result of the action */
   expectedResult?: unknown;
@@ -47,7 +50,7 @@ export interface PlanAction {
   result?: unknown;
   
   /** Action status */
-  status: 'pending' | 'in_progress' | 'completed' | 'failed' | 'skipped';
+  status: 'pending' | 'in_progress' | 'completed' | 'failed';
   
   /** When this action was created */
   createdAt: Date;
@@ -63,8 +66,8 @@ export interface PlanStep {
   /** Unique identifier for this step */
   id: string;
   
-  /** Step title */
-  title: string;
+  /** Step name */
+  name: string;
   
   /** Step description */
   description: string;
@@ -79,7 +82,7 @@ export interface PlanStep {
   actions: PlanAction[];
   
   /** Step status */
-  status: 'pending' | 'in_progress' | 'completed' | 'failed' | 'skipped';
+  status: 'pending' | 'in_progress' | 'completed' | 'failed';
   
   /** When this step was created */
   createdAt: Date;
@@ -89,7 +92,7 @@ export interface PlanStep {
 }
 
 /**
- * Plan structure
+ * Plan interface
  */
 export interface Plan {
   /** Unique identifier for this plan */

@@ -129,16 +129,17 @@ export function createKnowledgeManagerConfig(
     : preset;
   
   // Merge with base defaults and overrides
-  return {
+  const baseConfig: KnowledgeManagerConfig = {
     enabled: true,
     knowledgePaths: [],
     department: 'general',
-    enableKnowledgeGraph: true,
-    enableAutoRefresh: false,
     refreshIntervalMs: 3600000, // 1 hour
     maxKnowledgeEntries: 1000,
-    enableGapIdentification: true,
-    allowRuntimeUpdates: true,
+    allowRuntimeUpdates: true
+  };
+
+  return {
+    ...baseConfig,
     ...presetConfig,
     ...overrides
   } as KnowledgeManagerConfig;

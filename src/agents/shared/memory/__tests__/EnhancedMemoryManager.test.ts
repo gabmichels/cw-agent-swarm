@@ -31,15 +31,8 @@ describe('EnhancedMemoryManager', () => {
       enableVersionHistory: true
     });
     
-    // Mock initialization
-    manager.initialize = vi.fn().mockResolvedValue(true);
-    
     // Initialize manager
     await manager.initialize();
-    
-    // Set initialized flag directly since mocking doesn't set it
-    // @ts-ignore - Accessing private property for testing
-    manager.initialized = true;
   });
   
   afterEach(() => {
@@ -49,8 +42,8 @@ describe('EnhancedMemoryManager', () => {
   describe('Base manager functionality', () => {
     it('should be properly initialized', () => {
       expect(manager).toBeDefined();
-      expect(manager.getType()).toBe(ManagerType.MEMORY);
-      expect(manager.isInitialized()).toBe(true);
+      expect(manager.managerType).toBe(ManagerType.MEMORY);
+      expect(manager.isEnabled()).toBe(true);
     });
     
     it('should use composition for the base memory manager', () => {

@@ -1,8 +1,9 @@
 import axios from 'axios';
 import { v4 as uuidv4 } from 'uuid';
-import { KnowledgeFlaggingService } from './flagging/KnowledgeFlaggingService';
 import { CronJob } from 'cron';
 import { logger } from '../logging';
+import { KnowledgeGraphManager } from '../agents/implementations/memory/KnowledgeGraphManager';
+import { KnowledgeNodeType } from '../agents/shared/memory/types';
 
 // Interfaces for market scanning
 export interface WebSearchConfig {
@@ -65,14 +66,14 @@ export interface ScanResult {
  * Handles automated web searches, news scanning, and trend detection
  */
 export class MarketScanningService {
-  private flaggingService: KnowledgeFlaggingService;
+  private graphManager: KnowledgeGraphManager;
   private config: MarketScanConfig;
   private searchQueries: Map<string, SearchQuery> = new Map();
   private cronJobs: Map<string, CronJob> = new Map();
   private isAutonomyEnabled: boolean = false;
   
-  constructor(flaggingService: KnowledgeFlaggingService, config?: MarketScanConfig) {
-    this.flaggingService = flaggingService;
+  constructor(graphManager: KnowledgeGraphManager, config?: MarketScanConfig) {
+    this.graphManager = graphManager;
     
     // Default configuration
     this.config = config || {
@@ -158,7 +159,7 @@ export class MarketScanningService {
   }
   
   /**
-   * Run a web search and flag relevant knowledge
+   * Run a web search and add relevant knowledge
    */
   public async runWebSearch(query: string, category: string): Promise<ScanResult> {
     try {
@@ -175,162 +176,169 @@ export class MarketScanningService {
         count: results.length
       };
       
-      // Flag relevant knowledge for each result
+      // Add knowledge nodes for each result
       for (const result of results) {
         try {
-          await this.flaggingService.flagFromWebSearch(
-            query,
-            result.content,
-            result.source,
-            result.url,
-            {
-              category,
-              title: result.title,
+          const nodeId = `web-${uuidv4()}`;
+          await this.graphManager.addNode({
+            id: nodeId,
+            label: result.title,
+            type: 'resource' as KnowledgeNodeType,
+            description: result.content,
+            tags: [category, 'web_search', result.source],
+            metadata: {
+              url: result.url,
+              source: result.source,
               publishedAt: result.publishedAt,
-              scanType: 'web_search'
+              scanType: 'web_search',
+              query,
+              category,
+              addedAt: new Date().toISOString()
             }
-          );
+          });
           
-          logger.info(`Flagged knowledge from web search result: ${result.title}`);
-        } catch (flagError) {
-          logger.error(`Error flagging knowledge from web search: ${flagError}`);
+          logger.info(`Added knowledge node from web search result: ${result.title}`);
+        } catch (error) {
+          logger.error(`Error adding knowledge node from web search: ${error}`);
         }
       }
       
       return scanResult;
     } catch (error) {
-      logger.error(`Error running web search for "${query}": ${error}`);
+      logger.error(`Error in web search: ${error}`);
       throw error;
     }
   }
   
   /**
-   * Scan news sources for relevant updates
+   * Scan news sources for relevant information
    */
   public async scanNewsSource(category?: string): Promise<ScanResult> {
     try {
-      const defaultQuery = category ? 
-        `latest ${category} news and updates` : 
-        "latest marketing news and trends";
-        
-      logger.info(`Scanning news sources for: ${defaultQuery}`);
+      logger.info(`Scanning news sources${category ? ` for category: ${category}` : ''}`);
       
       // Implement news API call here
-      // For now, using a simulated result
-      const results = await this.simulateNewsResults(defaultQuery, category);
+      // For now, using simulated results
+      const results = await this.simulateNewsResults('', category);
       
       const scanResult: ScanResult = {
-        query: defaultQuery,
+        query: category || 'general',
         results,
         timestamp: new Date().toISOString(),
         count: results.length
       };
       
-      // Flag relevant knowledge for each result
+      // Add knowledge nodes for each result
       for (const result of results) {
         try {
-          await this.flaggingService.flagFromWebSearch(
-            defaultQuery,
-            result.content,
-            result.source,
-            result.url,
-            {
-              category: category || 'general_news',
-              title: result.title,
+          const nodeId = `news-${uuidv4()}`;
+          await this.graphManager.addNode({
+            id: nodeId,
+            label: result.title,
+            type: 'event' as KnowledgeNodeType,
+            description: result.content,
+            tags: [category || 'general', 'news', result.source],
+            metadata: {
+              url: result.url,
+              source: result.source,
               publishedAt: result.publishedAt,
-              scanType: 'news'
+              scanType: 'news_scan',
+              category: category || 'general',
+              addedAt: new Date().toISOString()
             }
-          );
+          });
           
-          logger.info(`Flagged knowledge from news source: ${result.title}`);
-        } catch (flagError) {
-          logger.error(`Error flagging knowledge from news source: ${flagError}`);
+          logger.info(`Added knowledge node from news result: ${result.title}`);
+        } catch (error) {
+          logger.error(`Error adding knowledge node from news: ${error}`);
         }
       }
       
       return scanResult;
     } catch (error) {
-      logger.error(`Error scanning news sources: ${error}`);
+      logger.error(`Error in news scan: ${error}`);
       throw error;
     }
   }
   
   /**
-   * Scan research papers for relevant insights
+   * Scan research papers for relevant information
    */
   public async scanResearchPapers(topic?: string): Promise<ScanResult> {
     try {
-      const defaultQuery = topic ? 
-        `latest ${topic} research papers` : 
-        "marketing automation research papers";
-        
-      logger.info(`Scanning research papers for: ${defaultQuery}`);
+      logger.info(`Scanning research papers${topic ? ` for topic: ${topic}` : ''}`);
       
-      // Implement research paper API call here
-      // For now, using a simulated result
-      const results = await this.simulateResearchResults(defaultQuery);
+      // Implement research API call here
+      // For now, using simulated results
+      const results = await this.simulateResearchResults(topic || '');
       
       const scanResult: ScanResult = {
-        query: defaultQuery,
+        query: topic || 'general',
         results,
         timestamp: new Date().toISOString(),
         count: results.length
       };
       
-      // Flag relevant knowledge for each result
+      // Add knowledge nodes for each result
       for (const result of results) {
         try {
-          await this.flaggingService.flagFromWebSearch(
-            defaultQuery,
-            result.content,
-            result.source,
-            result.url,
-            {
-              category: topic || 'research',
-              title: result.title,
+          const nodeId = `research-${uuidv4()}`;
+          await this.graphManager.addNode({
+            id: nodeId,
+            label: result.title,
+            type: 'resource' as KnowledgeNodeType,
+            description: result.content,
+            tags: [topic || 'general', 'research', result.source],
+            metadata: {
+              url: result.url,
+              source: result.source,
               publishedAt: result.publishedAt,
-              scanType: 'research_paper'
+              scanType: 'research_scan',
+              topic: topic || 'general',
+              addedAt: new Date().toISOString()
             }
-          );
+          });
           
-          logger.info(`Flagged knowledge from research paper: ${result.title}`);
-        } catch (flagError) {
-          logger.error(`Error flagging knowledge from research paper: ${flagError}`);
+          logger.info(`Added knowledge node from research result: ${result.title}`);
+        } catch (error) {
+          logger.error(`Error adding knowledge node from research: ${error}`);
         }
       }
       
       return scanResult;
     } catch (error) {
-      logger.error(`Error scanning research papers: ${error}`);
+      logger.error(`Error in research scan: ${error}`);
       throw error;
     }
   }
-
+  
   /**
-   * Detect trending topics based on recent scans
+   * Detect trending topics from recent knowledge nodes
    */
   public async detectTrendingTopics(): Promise<string[]> {
     try {
-      logger.info('Running trending topic detection');
+      // Get recent nodes
+      const recentNodes = await this.graphManager.findNodes('', undefined, 100);
       
-      // For a real implementation, this would analyze recently flagged items
-      // to identify emerging trends and patterns
+      // Extract topics from node tags and descriptions
+      const topics = new Map<string, number>();
       
-      // Simulated trending topics for now
-      const trendingTopics = [
-        'AI-powered content personalization',
-        'Zero-party data collection strategies',
-        'Voice search optimization',
-        'Social commerce integration',
-        'Privacy-first marketing approaches'
-      ];
+      for (const node of recentNodes) {
+        // Count tag occurrences
+        node.tags?.forEach(tag => {
+          if (tag !== 'web_search' && tag !== 'news' && tag !== 'research') {
+            topics.set(tag, (topics.get(tag) || 0) + 1);
+          }
+        });
+      }
       
-      // Log trending topics
-      trendingTopics.forEach(topic => {
-        logger.info(`Detected trending topic: ${topic}`);
-      });
+      // Sort topics by frequency
+      const sortedTopics = Array.from(topics.entries())
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 10)
+        .map(([topic]) => topic);
       
-      return trendingTopics;
+      return sortedTopics;
     } catch (error) {
       logger.error(`Error detecting trending topics: ${error}`);
       return [];
@@ -605,11 +613,11 @@ export class MarketScanningService {
 }
 
 /**
- * Create a new market scanning service
+ * Create a new instance of MarketScanningService
  */
 export function createMarketScanningService(
-  flaggingService: KnowledgeFlaggingService, 
+  graphManager: KnowledgeGraphManager,
   config?: MarketScanConfig
 ): MarketScanningService {
-  return new MarketScanningService(flaggingService, config);
+  return new MarketScanningService(graphManager, config);
 } 

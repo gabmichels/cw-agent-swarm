@@ -85,11 +85,41 @@ describe('Scheduler Manager Configuration', () => {
     expect(config.enabled).toBe(true);
   });
 
-  it('should create valid config with RESOURCE_CONSTRAINED preset', () => {
-    const config = createSchedulerManagerConfig('RESOURCE_CONSTRAINED');
+  it('should create valid config with HIGH_THROUGHPUT preset', () => {
+    const config = createSchedulerManagerConfig('HIGH_THROUGHPUT');
+    expect(config).toBeDefined();
+    expect(config.maxConcurrentTasks).toBe(20);
+    expect(config.schedulingAlgorithm).toBe('priority');
+    expect(config.resourceLimits?.maxCpuPercent).toBe(90);
+  });
+
+  it('should create valid config with RELIABLE preset', () => {
+    const config = createSchedulerManagerConfig('RELIABLE');
+    expect(config).toBeDefined();
+    expect(config.maxConcurrentTasks).toBe(5);
+    expect(config.maxRetryAttempts).toBe(5);
+    expect(config.resourceLimits?.maxCpuPercent).toBe(60);
+  });
+
+  it('should create valid config with CONSERVATIVE preset', () => {
+    const config = createSchedulerManagerConfig('CONSERVATIVE');
     expect(config).toBeDefined();
     expect(config.maxConcurrentTasks).toBe(3);
-    expect(config.schedulingAlgorithm).toBe('resource-aware');
+    expect(config.resourceLimits?.maxCpuPercent).toBe(40);
+  });
+
+  it('should override preset values with custom values', () => {
+    const config = createSchedulerManagerConfig('HIGH_THROUGHPUT', {
+      maxConcurrentTasks: 15,
+      resourceLimits: {
+        maxCpuPercent: 70
+      }
+    });
+    expect(config).toBeDefined();
+    expect(config.maxConcurrentTasks).toBe(15);
+    expect(config.resourceLimits?.maxCpuPercent).toBe(70);
+    // Should retain other preset values
+    expect(config.schedulingAlgorithm).toBe('priority');
   });
 });
 
@@ -196,5 +226,17 @@ describe('Config Factory', () => {
     
     expect(merged.name).toBe('merged-config');
     expect(merged.count).toBe(5); // Preserved
+  });
+});
+
+/**
+ * Unit tests for configuration validation
+ */
+describe('Configuration Validation', () => {
+  it('should create a valid scheduler manager config with preset', () => {
+    const config = createSchedulerManagerConfig('CONSERVATIVE');
+    expect(config).toBeDefined();
+    expect(config.maxConcurrentTasks).toBe(3);
+    expect(config.resourceLimits?.maxCpuPercent).toBe(40);
   });
 }); 

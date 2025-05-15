@@ -23,3 +23,11 @@ var __exportStar = (this && this.__exportStar) || function(m, exports) {
 Object.defineProperty(exports, "__esModule", { value: true });
 // Export existing types
 __exportStar(require("../../../../agents/shared/reflection/interfaces/SelfImprovement.interface"), exports);
+/**
+ * ReflectionManager.ts - Bridge export for Reflection Manager types
+ *
+ * This file re-exports the ReflectionManager interface and related types
+ * to maintain compatibility across the codebase.
+ */
+// Re-export everything from the shared implementation
+__exportStar(require("../../../../agents/shared/base/managers/ReflectionManager.interface"), exports);

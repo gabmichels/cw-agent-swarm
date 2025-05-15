@@ -20,6 +20,7 @@ import { AgentBase } from '../../base/AgentBase.interface';
 import { createConfigFactory } from '../../config';
 import { OutputProcessorConfigSchema } from '../config/OutputProcessorConfigSchema';
 import { ManagerType } from '../../base/managers/ManagerType';
+import { ManagerHealth } from '../../base/managers/ManagerHealth';
 
 /**
  * Default implementation of the OutputProcessor interface
@@ -139,14 +140,14 @@ export class DefaultOutputProcessor extends AbstractBaseManager implements Outpu
    * Initialize the manager
    */
   async initialize(): Promise<boolean> {
-    if (this.initialized) return true;
+    if (this._initialized) return true;
     
     try {
       // Re-initialize processor steps
       this.processorSteps.clear();
       this.initializeDefaultProcessorSteps();
       
-      this.initialized = true;
+      this._initialized = true;
       return true;
     } catch (error) {
       console.error(`[${this.managerId}] Failed to initialize output processor:`, error);
@@ -162,7 +163,7 @@ export class DefaultOutputProcessor extends AbstractBaseManager implements Outpu
     this.processorSteps.clear();
     this.history = [];
     this.templates.clear();
-    this.initialized = false;
+    this._initialized = false;
   }
   
   /**
@@ -202,22 +203,34 @@ export class DefaultOutputProcessor extends AbstractBaseManager implements Outpu
   /**
    * Get manager health status
    */
-  async getHealth(): Promise<{
-    status: 'healthy' | 'degraded' | 'unhealthy';
-    message?: string;
-    metrics?: Record<string, unknown>;
-  }> {
-    if (!this.initialized) {
+  async getHealth(): Promise<ManagerHealth> {
+    if (!this._initialized) {
       return {
         status: 'degraded',
-        message: 'Output processor not initialized'
+        details: {
+          lastCheck: new Date(),
+          issues: [{
+            severity: 'high',
+            message: 'Output processor not initialized',
+            detectedAt: new Date()
+          }],
+          metrics: {}
+        }
       };
     }
 
     if (!this.config.enabled) {
       return {
         status: 'degraded',
-        message: 'Output processor is disabled'
+        details: {
+          lastCheck: new Date(),
+          issues: [{
+            severity: 'medium',
+            message: 'Output processor is disabled',
+            detectedAt: new Date()
+          }],
+          metrics: {}
+        }
       };
     }
 
@@ -226,12 +239,15 @@ export class DefaultOutputProcessor extends AbstractBaseManager implements Outpu
     
     return {
       status: 'healthy',
-      message: 'Output processor is healthy',
-      metrics: {
-        ...stats,
-        processorStepCount: this.processorSteps.size,
-        templateCount: this.templates.size,
-        historySize: this.history.length
+      details: {
+        lastCheck: new Date(),
+        issues: [],
+        metrics: {
+          ...stats,
+          processorStepCount: this.processorSteps.size,
+          templateCount: this.templates.size,
+          historySize: this.history.length
+        }
       }
     };
   }

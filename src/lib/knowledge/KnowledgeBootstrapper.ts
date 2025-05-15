@@ -1,4 +1,6 @@
-import { KnowledgeGraph } from './KnowledgeGraph';
+import { KnowledgeGraphManager } from '../agents/implementations/memory/KnowledgeGraphManager';
+import { KnowledgeNodeType, KnowledgeNode } from '../agents/shared/memory/types';
+import { logger } from '../logging';
 import { KnowledgeBootstrapSource } from './types';
 import { OpenAI } from 'openai';
 import dotenv from 'dotenv';
@@ -13,9 +15,9 @@ const openai = new OpenAI({
  * Base class for bootstrapping a knowledge graph with initial data
  */
 export abstract class KnowledgeBootstrapper {
-  protected knowledgeGraph: KnowledgeGraph;
+  protected knowledgeGraph: KnowledgeGraphManager;
 
-  constructor(knowledgeGraph: KnowledgeGraph) {
+  constructor(knowledgeGraph: KnowledgeGraphManager) {
     this.knowledgeGraph = knowledgeGraph;
   }
 
@@ -23,7 +25,7 @@ export abstract class KnowledgeBootstrapper {
    * Bootstrap the knowledge graph with default sources
    */
   public async bootstrap(): Promise<void> {
-    console.log(`Bootstrapping ${this.knowledgeGraph.getDomain()} knowledge graph...`);
+    logger.info(`Bootstrapping knowledge graph...`);
     
     // Get the default sources for this domain
     const sources = this.getDefaultSources();
@@ -33,17 +35,18 @@ export abstract class KnowledgeBootstrapper {
     }
     
     // Save the knowledge graph after bootstrapping
-    await this.knowledgeGraph.save();
+    await this.knowledgeGraph.initialize();
     
-    console.log(`${this.knowledgeGraph.getDomain()} knowledge graph bootstrapped successfully.`);
-    console.log(this.knowledgeGraph.getSummary());
+    const stats = await this.knowledgeGraph.getStats();
+    logger.info(`Knowledge graph bootstrapped successfully.`);
+    logger.info(`Stats: ${JSON.stringify(stats, null, 2)}`);
   }
 
   /**
    * Process a single knowledge source
    */
   protected async processSource(source: KnowledgeBootstrapSource): Promise<void> {
-    console.log(`Processing source: ${source.name}`);
+    logger.info(`Processing source: ${source.name}`);
     
     // Extract concepts from the source
     const concepts = await this.extractConcepts(source);
@@ -51,15 +54,20 @@ export abstract class KnowledgeBootstrapper {
     // Add concepts to the knowledge graph
     for (const concept of concepts) {
       try {
-        this.knowledgeGraph.addConcept({
-          name: concept.name,
+        const node: KnowledgeNode = {
+          id: `concept_${concept.name.toLowerCase().replace(/\s+/g, '_')}`,
+          label: concept.name,
+          type: KnowledgeNodeType.CONCEPT,
           description: concept.description,
-          category: source.category,
-          subcategory: source.subcategory,
-          relatedConcepts: []
-        });
+          tags: ['concept'],
+          metadata: {
+            addedAt: new Date().toISOString(),
+            source: 'bootstrap'
+          }
+        };
+        await this.knowledgeGraph.addNode(node);
       } catch (error) {
-        console.error(`Error adding concept ${concept.name}:`, error);
+        logger.error(`Error adding concept ${concept.name}:`, error);
       }
     }
     
@@ -70,60 +78,69 @@ export abstract class KnowledgeBootstrapper {
       // Add principles to the knowledge graph
       for (const principle of principles) {
         try {
-          this.knowledgeGraph.addPrinciple({
-            name: principle.name,
+          const node: KnowledgeNode = {
+            id: `principle_${principle.name.toLowerCase().replace(/\s+/g, '_')}`,
+            label: principle.name,
+            type: KnowledgeNodeType.CONCEPT, // Using CONCEPT since PRINCIPLE is not in enum
             description: principle.description,
-            category: source.category,
-            importance: principle.importance,
+            tags: ['principle'],
             metadata: {
+              addedAt: new Date().toISOString(),
+              source: 'bootstrap',
               examples: principle.examples,
-              applications: principle.applications
+              applications: principle.applications,
+              importance: principle.importance
             }
-          });
+          };
+          await this.knowledgeGraph.addNode(node);
         } catch (error) {
-          console.error(`Error adding principle ${principle.name}:`, error);
+          logger.error(`Error adding principle ${principle.name}:`, error);
         }
       }
     }
     
-    // If the source is a framework, add it as a framework
+    // If the source is a framework, add it as a framework node
     if (source.type === 'framework') {
       const framework = await this.extractFramework(source);
       
       try {
-        this.knowledgeGraph.addFramework({
-          name: source.name,
+        const node: KnowledgeNode = {
+          id: `framework_${source.name.toLowerCase().replace(/\s+/g, '_')}`,
+          label: source.name,
+          type: KnowledgeNodeType.PROCESS, // Using PROCESS since FRAMEWORK is not in enum
           description: framework.description,
-          steps: framework.steps.map(step => ({
-            id: `step_${Date.now()}_${Math.random().toString(16).slice(2)}`,
-            name: step.name,
-            description: step.description,
-            order: step.order
-          })),
-          principles: [],
-          category: source.category
-        });
+          tags: ['framework'],
+          metadata: {
+            addedAt: new Date().toISOString(),
+            source: 'bootstrap',
+            steps: framework.steps,
+            applications: framework.applications
+          }
+        };
+        await this.knowledgeGraph.addNode(node);
       } catch (error) {
-        console.error(`Error adding framework ${source.name}:`, error);
+        logger.error(`Error adding framework ${source.name}:`, error);
       }
     }
     
     // If the source is research or case study, add as research
     if (source.type === 'research' || source.type === 'case_study') {
       try {
-        this.knowledgeGraph.addResearch({
-          title: source.name,
-          abstract: source.content.substring(0, 500),
-          findings: [],
-          authors: [source.author || 'Unknown'],
-          year: source.year || new Date().getFullYear(),
-          source: source.author || 'Unknown',
-          category: source.category,
-          relatedConcepts: [],
-          relevance: 0.9
-        });
+        const node: KnowledgeNode = {
+          id: `research_${source.name.toLowerCase().replace(/\s+/g, '_')}`,
+          label: source.name,
+          type: KnowledgeNodeType.INSIGHT, // Using INSIGHT since RESEARCH is not in enum
+          description: source.content.substring(0, 500),
+          tags: ['research'],
+          metadata: {
+            addedAt: new Date().toISOString(),
+            source: 'bootstrap',
+            fullContent: source.content
+          }
+        };
+        await this.knowledgeGraph.addNode(node);
       } catch (error) {
-        console.error(`Error adding research ${source.name}:`, error);
+        logger.error(`Error adding research ${source.name}:`, error);
       }
     }
   }
@@ -166,7 +183,7 @@ ${source.content.substring(0, 4000)}
       const parsed = JSON.parse(content);
       return parsed.concepts || [];
     } catch (error) {
-      console.error('Error extracting concepts:', error);
+      logger.error('Error extracting concepts:', error);
       return [];
     }
   }
@@ -189,7 +206,7 @@ For each principle, provide:
 2. Description: A clear explanation of the principle
 3. Examples: 2-3 examples of the principle in action
 4. Applications: 2-3 ways to apply this principle
-5. Importance: A number from 1-10 indicating how important this principle is in the domain of ${source.category}
+5. Importance: A number from 1-10 indicating how important this principle is
 
 Format as a JSON array of objects with these properties.
 
@@ -218,7 +235,7 @@ ${source.content.substring(0, 4000)}
       const parsed = JSON.parse(content);
       return parsed.principles || [];
     } catch (error) {
-      console.error('Error extracting principles:', error);
+      logger.error('Error extracting principles:', error);
       return [];
     }
   }
@@ -273,7 +290,7 @@ ${source.content.substring(0, 4000)}
         applications: parsed.applications || []
       };
     } catch (error) {
-      console.error('Error extracting framework:', error);
+      logger.error('Error extracting framework:', error);
       return { description: '', steps: [], applications: [] };
     }
   }

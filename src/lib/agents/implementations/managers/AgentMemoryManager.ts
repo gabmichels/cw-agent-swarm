@@ -8,13 +8,12 @@
 import { v4 as uuidv4 } from 'uuid';
 import { 
   MemoryManager, 
-  MemoryManagerConfig,
   MemoryEntry,
   MemorySearchOptions as BaseMemorySearchOptions,
   MemoryConsolidationResult,
   MemoryPruningResult
 } from '../../../agents/base/managers/MemoryManager';
-import { AbstractBaseManager } from '../../../agents/base/managers/BaseManager';
+import { AbstractBaseManager, ManagerConfig } from '../../../../agents/shared/base/managers/BaseManager';
 import type { AgentBase } from '../../../../agents/shared/base/AgentBase.interface';
 import { DefaultAgentMemory } from '../memory/DefaultAgentMemory';
 import { MemoryType, ImportanceLevel, MemorySource } from '../../../../lib/constants/memory';
@@ -22,6 +21,8 @@ import { QdrantMemoryClient } from '../../../../server/memory/services/client/qd
 import { EmbeddingService } from '../../../../server/memory/services/client/embedding-service';
 import { getMemoryServices } from '../../../../server/memory/services';
 import { MemoryEntry as SharedMemoryEntry, MemorySearchOptions } from '../../shared/memory/types';
+import { ManagerType } from '../../../../agents/shared/base/managers/ManagerType';
+import { ManagerHealth } from '../../../../agents/shared/base/managers/ManagerHealth';
 
 /**
  * Error class for agent memory-related errors
@@ -38,12 +39,15 @@ class MemoryError extends Error {
   }
 }
 
+export interface MemoryManagerConfig extends ManagerConfig {
+  // Add memory-specific configuration options here
+}
+
 /**
  * Adapter implementation of MemoryManager for agents
  */
-export class AgentMemoryManager extends AbstractBaseManager {
+export class AgentMemoryManager extends AbstractBaseManager implements MemoryManager {
   protected config: MemoryManagerConfig;
-  protected initialized = false;
   private memory: DefaultAgentMemory | null = null;
 
   /**
@@ -52,76 +56,25 @@ export class AgentMemoryManager extends AbstractBaseManager {
    * @param agent - The agent this manager belongs to
    * @param config - Configuration options
    */
-  constructor(agent: AgentBase, config: Partial<MemoryManagerConfig> = {}) {
-    const managerId = `agent-memory-manager-${uuidv4()}`;
-    super(managerId, 'memory', agent, {
-      enabled: config.enabled ?? true,
-      enableAutoPruning: config.enableAutoPruning ?? true,
-      pruningIntervalMs: config.pruningIntervalMs ?? 300000, // 5 minutes
-      maxShortTermEntries: config.maxShortTermEntries ?? 100,
-      relevanceThreshold: config.relevanceThreshold ?? 0.2,
-      enableAutoConsolidation: config.enableAutoConsolidation ?? true,
-      consolidationIntervalMs: config.consolidationIntervalMs ?? 600000, // 10 minutes
-      minMemoriesForConsolidation: config.minMemoriesForConsolidation ?? 5,
-      forgetSourceMemoriesAfterConsolidation: config.forgetSourceMemoriesAfterConsolidation ?? false,
-      enableMemoryInjection: config.enableMemoryInjection ?? true,
-      maxInjectedMemories: config.maxInjectedMemories ?? 5
-    });
-    this.config = {
-      enabled: config.enabled ?? true,
-      enableAutoPruning: config.enableAutoPruning ?? true,
-      pruningIntervalMs: config.pruningIntervalMs ?? 300000,
-      maxShortTermEntries: config.maxShortTermEntries ?? 100,
-      relevanceThreshold: config.relevanceThreshold ?? 0.2,
-      enableAutoConsolidation: config.enableAutoConsolidation ?? true,
-      consolidationIntervalMs: config.consolidationIntervalMs ?? 600000,
-      minMemoriesForConsolidation: config.minMemoriesForConsolidation ?? 5,
-      forgetSourceMemoriesAfterConsolidation: config.forgetSourceMemoriesAfterConsolidation ?? false,
-      enableMemoryInjection: config.enableMemoryInjection ?? true,
-      maxInjectedMemories: config.maxInjectedMemories ?? 5
-    };
-  }
-
-  /**
-   * Get the manager type
-   * Use managerType property to avoid infinite recursion
-   * instead of calling this.getType() which would cause an infinite loop
-   */
-  getType(): string {
-    // AbstractBaseManager uses managerType
-    return this.managerType;
-  }
-
-  /**
-   * Get the manager configuration
-   */
-  getConfig<T extends MemoryManagerConfig>(): T {
-    return this.config as T;
-  }
-
-  /**
-   * Update the manager configuration
-   */
-  updateConfig<T extends MemoryManagerConfig>(config: Partial<T>): T {
-    this.config = {
-      ...this.config,
-      ...config
-    };
-    return this.config as T;
+  constructor(agent: AgentBase, config: MemoryManagerConfig) {
+    super(`memory-manager-${uuidv4()}`, ManagerType.MEMORY, agent, config);
+    this.config = config;
   }
 
   /**
    * Initialize the manager
    */
   async initialize(): Promise<boolean> {
-    console.log(`[${this.getId()}] Initializing ${this.getType()} manager`);
-    
+    if (this._initialized) {
+      return true;
+    }
+
     try {
       // Initialize memory system
       this.memory = new DefaultAgentMemory(this.getAgent().getAgentId());
       await this.memory.initialize();
       
-      this.initialized = true;
+      this._initialized = true;
       return true;
     } catch (error) {
       throw new MemoryError(
@@ -136,13 +89,11 @@ export class AgentMemoryManager extends AbstractBaseManager {
    * Shutdown the manager and release resources
    */
   async shutdown(): Promise<void> {
-    console.log(`[${this.getId()}] Shutting down ${this.getType()} manager`);
-    
     if (this.memory) {
       await this.memory.shutdown();
     }
     
-    this.initialized = false;
+    this._initialized = false;
   }
 
   /**
@@ -155,28 +106,25 @@ export class AgentMemoryManager extends AbstractBaseManager {
   /**
    * Reset the manager to its initial state
    */
-  async reset(): Promise<void> {
-    console.log(`[${this.getId()}] Resetting ${this.getType()} manager`);
-    if (this.memory) {
-      await this.memory.shutdown();
-      this.memory = null;
-    }
-    this.initialized = false;
+  async reset(): Promise<boolean> {
+    // Implement memory manager reset logic
+    return true;
   }
 
   /**
    * Add a memory entry
    */
-  async addMemory(memory: MemoryEntry): Promise<void> {
-    if (!this.memory) {
+  async addMemory(content: string, metadata?: Record<string, unknown>): Promise<MemoryEntry> {
+    if (!this._initialized) {
       throw new MemoryError('Memory system not initialized', 'NOT_INITIALIZED');
     }
-    await this.memory.addMemory(
-      memory.content,
+
+    return await this.memory!.addMemory(
+      content,
       MemoryType.DOCUMENT,
       ImportanceLevel.MEDIUM,
       MemorySource.SYSTEM,
-      memory.metadata
+      metadata
     );
   }
 
@@ -184,7 +132,7 @@ export class AgentMemoryManager extends AbstractBaseManager {
    * Search for memories
    */
   async searchMemories(query: string, options?: BaseMemorySearchOptions): Promise<MemoryEntry[]> {
-    if (!this.memory) {
+    if (!this._initialized) {
       throw new MemoryError('Memory system not initialized', 'NOT_INITIALIZED');
     }
     const searchOptions: MemorySearchOptions = {
@@ -194,7 +142,7 @@ export class AgentMemoryManager extends AbstractBaseManager {
             options?.type === 'long-term' ? MemoryType.DOCUMENT : undefined,
       metadata: options?.metadata
     };
-    const results = await this.memory.search(query, searchOptions);
+    const results = await this.memory!.search(query, searchOptions);
     return results.map(result => ({
       id: result.id,
       content: result.content,
@@ -209,10 +157,10 @@ export class AgentMemoryManager extends AbstractBaseManager {
    * Get recent memories
    */
   async getRecentMemories(limit: number = 10): Promise<MemoryEntry[]> {
-    if (!this.memory) {
+    if (!this._initialized) {
       throw new MemoryError('Memory system not initialized', 'NOT_INITIALIZED');
     }
-    const memories = await this.memory.getRecentlyModifiedMemories(limit);
+    const memories = await this.memory!.getRecentlyModifiedMemories(limit);
     return memories.map(memory => ({
       id: memory.id,
       content: memory.content,
@@ -293,6 +241,75 @@ export class AgentMemoryManager extends AbstractBaseManager {
       pruningStats: {
         lastPruning: stats.pruningStats.lastPruning,
         totalPruned: stats.pruningStats.memoriesPruned
+      }
+    };
+  }
+
+  /**
+   * Get manager health status
+   */
+  async getHealth(): Promise<ManagerHealth> {
+    if (!this._initialized) {
+      return {
+        status: 'degraded',
+        details: {
+          lastCheck: new Date(),
+          issues: [{
+            severity: 'high',
+            message: 'Memory manager not initialized',
+            detectedAt: new Date()
+          }],
+          metrics: {}
+        }
+      };
+    }
+
+    const stats = await this.getStats();
+    const issues: Array<{ severity: 'low' | 'medium' | 'high' | 'critical'; message: string; detectedAt: Date }> = [];
+
+    // Check memory system health
+    if (!this.memory) {
+      issues.push({
+        severity: 'critical',
+        message: 'Memory system not available',
+        detectedAt: new Date()
+      });
+    }
+
+    // Check memory usage
+    if (stats.memoryUsage > 90) {
+      issues.push({
+        severity: 'high',
+        message: 'High memory usage detected',
+        detectedAt: new Date()
+      });
+    }
+
+    // Check consolidation status
+    if (!stats.consolidationStats.lastConsolidation || 
+        Date.now() - stats.consolidationStats.lastConsolidation.getTime() > 24 * 60 * 60 * 1000) {
+      issues.push({
+        severity: 'medium',
+        message: 'Memory consolidation overdue',
+        detectedAt: new Date()
+      });
+    }
+
+    return {
+      status: issues.some(i => i.severity === 'critical') ? 'unhealthy' :
+             issues.some(i => i.severity === 'high') ? 'degraded' : 'healthy',
+      details: {
+        lastCheck: new Date(),
+        issues,
+        metrics: {
+          totalMemories: stats.totalMemories,
+          shortTermMemories: stats.shortTermMemories,
+          longTermMemories: stats.longTermMemories,
+          memoryUsage: stats.memoryUsage,
+          avgMemorySize: stats.avgMemorySize,
+          consolidation: stats.consolidationStats,
+          pruning: stats.pruningStats
+        }
       }
     };
   }

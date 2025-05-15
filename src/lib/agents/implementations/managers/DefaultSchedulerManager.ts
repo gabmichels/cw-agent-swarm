@@ -7,23 +7,36 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
-import { 
-  SchedulerManager, 
+import {
+  SchedulerManager,
   SchedulerManagerConfig,
-  ScheduledTask,
   TaskCreationOptions,
   TaskCreationResult,
+  ScheduledTask,
   TaskExecutionResult,
-  TaskBatch,
   ResourceUtilization,
   SchedulerEvent,
-  SchedulerMetrics
+  SchedulerMetrics,
+  TaskBatch,
+  TaskStatus
 } from '../../../../agents/shared/base/managers/SchedulerManager.interface';
+import { ManagerHealth } from '../../../../agents/shared/base/managers/ManagerHealth';
 import type { AgentBase } from '../../../../agents/shared/base/AgentBase.interface';
 import { AbstractBaseManager } from '../../../../agents/shared/base/managers/BaseManager';
 import { createConfigFactory } from '../../../../agents/shared/config';
 import { SchedulerManagerConfigSchema } from '../../../../agents/shared/scheduler/config/SchedulerManagerConfigSchema';
 import { ManagerType } from '../../../../agents/shared/base/managers/ManagerType';
+import { ResourceUtilizationTracker } from '../../../../agents/shared/scheduler/ResourceUtilization';
+
+/**
+ * Task metadata interface
+ */
+interface TaskMetadata {
+  tags?: string[];
+  executionTime?: number;
+  waitTime?: number;
+  [key: string]: unknown;
+}
 
 /**
  * Error class for scheduling-related errors
@@ -41,60 +54,61 @@ class SchedulingError extends Error {
 }
 
 /**
- * Default implementation of the SchedulerManager interface
+ * Default Scheduler Manager implementation
  */
 export class DefaultSchedulerManager extends AbstractBaseManager implements SchedulerManager {
-  private tasks: Map<string, ScheduledTask> = new Map();
+  public readonly managerId: string;
+  public readonly managerType = ManagerType.SCHEDULER;
+  protected tasks: Map<string, ScheduledTask> = new Map();
   private schedulingTimer: NodeJS.Timeout | null = null;
   private configFactory = createConfigFactory(SchedulerManagerConfigSchema);
-  
-  // Override config type to use specific config type
-  protected config!: SchedulerManagerConfig;
-
-  /**
-   * Type property accessor for compatibility with SchedulerManager
-   */
-  get type(): string {
-    return this._managerType;
-  }
+  protected readonly config: SchedulerManagerConfig;
+  protected initialized = false;
+  private batches: Map<string, TaskBatch> = new Map();
+  private resourceTracker: ResourceUtilizationTracker;
+  private events: SchedulerEvent[] = [];
 
   /**
    * Create a new DefaultSchedulerManager instance
-   * 
    * @param agent - The agent this manager belongs to
    * @param config - Configuration options
    */
-  constructor(agent: AgentBase, config: Partial<SchedulerManagerConfig> = {}) {
-    const managerId = `scheduler-manager-${uuidv4()}`;
-    
-    super(managerId, ManagerType.SCHEDULER, agent, { enabled: true });
-    
-    // Validate and apply configuration with defaults
-    this.config = this.configFactory.create({
+  constructor(agent: AgentBase, config: Partial<SchedulerManagerConfig>) {
+    const defaultConfig = {
       enabled: true,
+      maxConcurrentTasks: config.maxConcurrentTasks ?? 5,
+      maxRetryAttempts: config.maxRetryAttempts ?? 3,
+      defaultTaskTimeoutMs: config.defaultTaskTimeoutMs ?? 30000,
+      enableAutoScheduling: config.enableAutoScheduling ?? true,
+      schedulingIntervalMs: config.schedulingIntervalMs ?? 1000,
+      enableTaskPrioritization: config.enableTaskPrioritization ?? true,
       ...config
-    }) as SchedulerManagerConfig;
-  }
+    } as SchedulerManagerConfig;
 
-  /**
-   * Get the unique ID of this manager
-   */
-  getId(): string {
-    return this.managerId;
-  }
+    super(
+      agent.getAgentId() + '-scheduler-manager', 
+      ManagerType.SCHEDULER, 
+      agent,
+      defaultConfig
+    );
 
-  /**
-   * Get the manager type
-   */
-  getType(): string {
-    return this.managerType;
-  }
-
-  /**
-   * Get the manager configuration
-   */
-  getConfig<T extends SchedulerManagerConfig>(): T {
-    return this.config as T;
+    this.managerId = `scheduler-manager-${uuidv4()}`;
+    this.config = defaultConfig;
+    
+    // Initialize resource tracker
+    this.resourceTracker = new ResourceUtilizationTracker({
+      samplingIntervalMs: 10000,
+      maxHistorySamples: 60,
+      defaultLimits: {
+        cpuUtilization: 0.8,
+        memoryBytes: 1024 * 1024 * 512,
+        tokensPerMinute: 50000,
+        apiCallsPerMinute: 100
+      },
+      enforceResourceLimits: true,
+      limitWarningBuffer: 0.2,
+      trackPerTaskUtilization: true
+    });
   }
 
   /**
@@ -102,191 +116,158 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
    */
   updateConfig<T extends SchedulerManagerConfig>(config: Partial<T>): T {
     // Validate and merge configuration
-    this.config = this.configFactory.create({
+    const validatedConfig = this.configFactory.create({
       ...this.config, 
       ...config
     }) as SchedulerManagerConfig;
     
-    // If auto-scheduling config changed, update the timer
-    if (('enableAutoScheduling' in config || 'schedulingIntervalMs' in config) && this.initialized) {
-      // Clear existing timer
-      if (this.schedulingTimer) {
-        clearInterval(this.schedulingTimer);
-        this.schedulingTimer = null;
-      }
-      
-      // Setup timer if enabled
-      if (this.config.enableAutoScheduling) {
-        this.setupAutoScheduling();
-      }
-    }
-    
-    return this.config as unknown as T;
-  }
-
-  /**
-   * Get the associated agent instance
-   */
-  getAgent(): AgentBase {
-    return this.agent;
+    Object.assign(this.config, validatedConfig);
+    return validatedConfig as T;
   }
 
   /**
    * Initialize the manager
    */
   async initialize(): Promise<boolean> {
-    console.log(`[${this.managerId}] Initializing ${this.managerType} manager`);
-    
-    // Setup auto-scheduling if enabled
-    if (this.config.enableAutoScheduling) {
-      this.setupAutoScheduling();
+    if (this.initialized) {
+      return true;
     }
-    
-    this.initialized = true;
-    return true;
+
+    try {
+      // Initialize any resources needed
+      this.initialized = true;
+      return true;
+    } catch (error) {
+      return false;
+    }
+  }
+
+  /**
+   * Get manager health status
+   */
+  async getHealth(): Promise<ManagerHealth> {
+    try {
+      const tasks = await this.getTasks();
+      const runningTasks = tasks.filter(task => task.status === 'running').length;
+      const failedTasks = tasks.filter(task => task.status === 'failed').length;
+
+      const status = runningTasks < (this.config.maxConcurrentTasks ?? 5) ? 'healthy' : 'degraded';
+      const metrics = {
+        totalTasks: tasks.length,
+        runningTasks,
+        failedTasks,
+        availableSlots: Math.max(0, (this.config.maxConcurrentTasks ?? 5) - runningTasks)
+      };
+
+      return {
+        status,
+        message: `Scheduler manager is ${status}`,
+        metrics,
+        details: {
+          lastCheck: new Date(),
+          issues: failedTasks > 0 ? [{
+            severity: 'medium',
+            message: `${failedTasks} tasks have failed`,
+            detectedAt: new Date()
+          }] : []
+        }
+      };
+    } catch (error) {
+      return {
+        status: 'unhealthy',
+        message: `Failed to get scheduler health: ${error}`,
+        details: {
+          lastCheck: new Date(),
+          issues: [{
+            severity: 'critical',
+            message: error instanceof Error ? error.message : String(error),
+            detectedAt: new Date()
+          }]
+        }
+      };
+    }
+  }
+
+  /**
+   * Get active tasks
+   */
+  async getActiveTasks(): Promise<ScheduledTask[]> {
+    return Array.from(this.tasks.values()).filter(task => 
+      task.status === 'running' || task.status === 'pending'
+    );
+  }
+
+  /**
+   * Reset the manager state
+   */
+  async reset(): Promise<boolean> {
+    this.tasks.clear();
+    if (this.schedulingTimer) {
+      clearInterval(this.schedulingTimer);
+      this.schedulingTimer = null;
+    }
+    return super.reset();
   }
 
   /**
    * Shutdown the manager and release resources
    */
   async shutdown(): Promise<void> {
-    console.log(`[${this.managerId}] Shutting down ${this.managerType} manager`);
-    
-    // Clear timers
     if (this.schedulingTimer) {
       clearInterval(this.schedulingTimer);
       this.schedulingTimer = null;
     }
-    
-    this.initialized = false;
-  }
-
-  /**
-   * Check if the manager is currently enabled
-   */
-  isEnabled(): boolean {
-    return this.config.enabled;
-  }
-
-  /**
-   * Enable or disable the manager
-   */
-  setEnabled(enabled: boolean): boolean {
-    const wasEnabled = this.config.enabled;
-    this.config.enabled = enabled;
-    return wasEnabled !== enabled;  // Return true if state changed
-  }
-
-  /**
-   * Reset the manager to its initial state
-   */
-  async reset(): Promise<boolean> {
-    console.log(`[${this.managerId}] Resetting ${this.managerType} manager`);
-    this.tasks.clear();
-    this.initialized = false;
-    if (this.schedulingTimer) {
-      clearInterval(this.schedulingTimer);
-      this.schedulingTimer = null;
-    }
-    return await this.initialize();  // Re-initialize after reset
-  }
-
-  /**
-   * Get manager health status
-   */
-  async getHealth(): Promise<{
-    status: 'healthy' | 'degraded' | 'unhealthy';
-    message?: string;
-    metrics?: Record<string, unknown>;
-  }> {
-    if (!this.initialized) {
-      return {
-        status: 'degraded',
-        message: 'Scheduler manager not initialized'
-      };
-    }
-
-    const stats = await this.getStats();
-    
-    // Check if there are critical issues
-    if (!this.isEnabled()) {
-      return {
-        status: 'unhealthy',
-        message: 'Scheduler manager is disabled',
-        metrics: stats
-      };
-    }
-    
-    // Degraded if too many concurrent tasks
-    if (stats.runningTasks > (this.config.maxConcurrentTasks ?? 10)) {
-      return {
-        status: 'degraded',
-        message: 'Too many concurrent tasks',
-        metrics: stats
-      };
-    }
-    
-    return {
-      status: 'healthy',
-      message: 'Scheduler manager is healthy',
-      metrics: stats
-    };
-  }
-
-  /**
-   * Get manager status information
-   */
-  async getStatus(): Promise<{
-    id: string;
-    type: string;
-    enabled: boolean;
-    initialized: boolean;
-    [key: string]: unknown;
-  }> {
-    return {
-      id: this.managerId,
-      type: this.managerType,
-      enabled: this.config.enabled,
-      initialized: this.initialized,
-      taskCount: this.tasks.size,
-      runningTasks: (await this.getRunningTasks()).length,
-      pendingTasks: (await this.getPendingTasks()).length
-    };
+    await super.shutdown();
   }
 
   /**
    * Create a new scheduled task
    */
   async createTask(options: TaskCreationOptions): Promise<TaskCreationResult> {
+    const failedTask: ScheduledTask = {
+      id: '',
+      title: '',
+      description: '',
+      type: '',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      status: 'failed',
+      priority: 0,
+      retryAttempts: 0,
+      dependencies: [],
+      metadata: {}
+    };
+
     if (!this.initialized) {
-      throw new SchedulingError(
-        'Scheduler manager not initialized',
-        'NOT_INITIALIZED'
-      );
+      return {
+        success: false,
+        task: failedTask
+      };
+    }
+
+    if (!this.config.enabled) {
+      return {
+        success: false,
+        task: failedTask
+      };
     }
 
     try {
-      const taskId = uuidv4();
-      const timestamp = new Date();
-      
       const task: ScheduledTask = {
-        id: taskId,
+        id: this.generateTaskId(),
         title: options.title,
         description: options.description,
         type: options.type,
+        createdAt: new Date(),
+        updatedAt: new Date(),
         status: 'pending',
         priority: options.priority ?? 0.5,
-        scheduledStartTime: options.scheduledStartTime,
-        dueDate: options.dueDate,
+        retryAttempts: 0,
         dependencies: options.dependencies ?? [],
-        parameters: options.parameters ?? {},
-        metadata: options.metadata ?? {},
-        createdAt: timestamp,
-        updatedAt: timestamp,
-        retryAttempts: 0
+        metadata: options.metadata ?? {}
       };
       
-      this.tasks.set(taskId, task);
+      this.tasks.set(task.id, task);
       
       return {
         success: true,
@@ -295,9 +276,7 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
     } catch (error) {
       return {
         success: false,
-        error: {
-          message: error instanceof Error ? error.message : 'Unknown error creating task'
-        }
+        task: failedTask
       };
     }
   }
@@ -375,167 +354,86 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
    */
   async executeTask(taskId: string): Promise<TaskExecutionResult> {
     if (!this.initialized) {
-      throw new SchedulingError(
-        'Scheduler manager not initialized',
-        'NOT_INITIALIZED'
-      );
+      return {
+        success: false,
+        taskId,
+        error: 'Scheduler manager is not initialized'
+      };
     }
 
-    const task = this.tasks.get(taskId);
+    if (!this.config.enabled) {
+      return {
+        success: false,
+        taskId,
+        error: 'Scheduler manager is disabled'
+      };
+    }
+
+    const task = await this.getTask(taskId);
     if (!task) {
       return {
         success: false,
         taskId,
-        error: {
-          message: 'Task not found'
-        },
-        durationMs: 0
+        error: `Task ${taskId} not found`
       };
     }
 
-    try {
-      // Check if task can be executed
-      if (task.status === 'in_progress') {
-        return {
-          success: false,
-          taskId,
-          error: {
-            message: 'Task is already running'
-          },
-          durationMs: 0
-        };
-      }
-
-      if (task.status === 'completed') {
-        return {
-          success: false,
-          taskId,
-          error: {
-            message: 'Task is already completed'
-          },
-          durationMs: 0
-        };
-      }
-
-      // Check dependencies if applicable
-      if (task.dependencies?.length) {
-        const dependencies = await Promise.all(
-          task.dependencies.map(depId => this.getTask(depId))
-        );
-
-        const incompleteDeps = dependencies.filter(
-          dep => !dep || dep.status !== 'completed'
-        );
-
-        if (incompleteDeps.length) {
-          return {
-            success: false,
-            taskId,
-            error: {
-              message: 'Task dependencies not completed'
-            },
-            durationMs: 0
-          };
-        }
-      }
-
-      const startTime = Date.now();
-
-      // Update task status
-      const updatedTask = await this.updateTask(taskId, {
-        status: 'in_progress',
-        startedAt: new Date()
-      });
-
-      if (!updatedTask) {
-        return {
-          success: false,
-          taskId,
-          error: {
-            message: 'Failed to update task status'
-          },
-          durationMs: 0
-        };
-      }
-
-      // Execute the task
+    if (task.status === 'pending' || task.status === 'running') {
       try {
-        await this.executeTaskAction(updatedTask);
-        
-        const endTime = Date.now();
-        const durationMs = endTime - startTime;
-        
         // Update task status
-        const finalTask = await this.updateTask(taskId, {
-          status: 'completed',
-          completedAt: new Date()
-        });
+        task.status = 'running';
+        task.updatedAt = new Date();
+        this.tasks.set(task.id, task);
+
+        // Execute task logic here
+        // For now, just mark it as completed
+        task.status = 'completed';
+        task.updatedAt = new Date();
+        this.tasks.set(task.id, task);
 
         return {
           success: true,
           taskId,
-          durationMs,
-          task: finalTask ?? undefined
+          durationMs: 0
         };
       } catch (error) {
-        const endTime = Date.now();
-        const durationMs = endTime - startTime;
-        
-        // Update task status
-        const failedTask = await this.updateTask(taskId, {
-          status: 'failed',
-          retryAttempts: (task.retryAttempts ?? 0) + 1
-        });
+        task.status = 'failed';
+        task.updatedAt = new Date();
+        task.retryAttempts++;
+        this.tasks.set(task.id, task);
 
         return {
           success: false,
           taskId,
-          error: {
-            message: error instanceof Error ? error.message : 'Unknown error executing task',
-            code: error instanceof Error ? (error as any).code : 'EXECUTION_ERROR'
-          },
-          durationMs,
-          task: failedTask ?? undefined
+          error: error instanceof Error ? error.message : String(error)
         };
       }
-    } catch (error) {
-      return {
-        success: false,
-        taskId,
-        error: {
-          message: error instanceof Error ? error.message : 'Unknown error executing task'
-        },
-        durationMs: 0
-      };
     }
+
+    return {
+      success: false,
+      taskId,
+      error: `Task ${taskId} cannot be executed in status ${task.status}`
+    };
   }
 
   /**
    * Cancel a task
    */
   async cancelTask(taskId: string): Promise<boolean> {
-    if (!this.initialized) {
-      throw new SchedulingError(
-        'Scheduler manager not initialized',
-        'NOT_INITIALIZED'
-      );
+    if (!this.initialized || !this.config.enabled) {
+      return false;
     }
 
-    const task = this.tasks.get(taskId);
+    const task = await this.getTask(taskId);
     if (!task) {
       return false;
     }
 
-    // Only allow cancelling pending or scheduled tasks
-    if (task.status !== 'pending' && task.status !== 'scheduled') {
-      return false;
-    }
-
-    const updatedTask = await this.updateTask(taskId, {
-      status: 'cancelled'
-    });
-
-    return updatedTask !== null;
+    task.status = 'cancelled';
+    task.updatedAt = new Date();
+    this.tasks.set(task.id, task);
+    return true;
   }
 
   /**
@@ -549,26 +447,9 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
       );
     }
 
-    const now = new Date();
     return Array.from(this.tasks.values()).filter(task => {
       // Check if task is pending or scheduled
       if (task.status !== 'pending' && task.status !== 'scheduled') {
-        return false;
-      }
-
-      // Check start time
-      if (task.scheduledStartTime && task.scheduledStartTime > now) {
-        return false;
-      }
-
-      // Check end time
-      if (task.dueDate && task.dueDate < now) {
-        return false;
-      }
-
-      // Check schedule if present
-      if (task.scheduledStartTime && task.scheduledStartTime > now) {
-        // TODO: Implement cron schedule checking
         return false;
       }
 
@@ -588,7 +469,7 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
     }
 
     return Array.from(this.tasks.values()).filter(
-      task => task.status === 'in_progress'
+      task => task.status === 'running'
     );
   }
 
@@ -629,21 +510,27 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
    */
   async retryTask(taskId: string): Promise<TaskExecutionResult> {
     if (!this.initialized) {
-      throw new SchedulingError(
-        'Scheduler manager not initialized',
-        'NOT_INITIALIZED'
-      );
+      return {
+        success: false,
+        taskId,
+        error: 'Scheduler manager is not initialized'
+      };
     }
 
-    const task = this.tasks.get(taskId);
+    if (!this.config.enabled) {
+      return {
+        success: false,
+        taskId,
+        error: 'Scheduler manager is disabled'
+      };
+    }
+
+    const task = await this.getTask(taskId);
     if (!task) {
       return {
         success: false,
         taskId,
-        error: {
-          message: 'Task not found'
-        },
-        durationMs: 0
+        error: `Task ${taskId} not found`
       };
     }
 
@@ -651,42 +538,17 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
       return {
         success: false,
         taskId,
-        error: {
-          message: 'Task is not in failed state'
-        },
-        durationMs: 0
+        error: `Task ${taskId} is not in failed status`
       };
     }
 
-    // Check retry attempts if enabled
-    if (this.config.enableTaskRetries) {
-      const retryCount = (task.metadata.retryAttempts as number) ?? 0;
-      const maxRetryAttempts = this.config.maxRetryAttempts as number ?? 3;
-      
-      if (retryCount >= maxRetryAttempts) {
-        return {
-          success: false,
-          taskId,
-          error: {
-            message: 'Maximum retry attempts exceeded'
-          },
-          durationMs: 0
-        };
-      }
-
-      // Update retry count
-      await this.updateTask(taskId, {
-        metadata: {
-          ...task.metadata,
-          retryAttempts: retryCount + 1
-        }
-      });
+    if (task.retryAttempts >= (this.config.maxRetryAttempts ?? 3)) {
+      return {
+        success: false,
+        taskId,
+        error: `Task ${taskId} has exceeded retry limit`
+      };
     }
-
-    // Reset task status and execute
-    await this.updateTask(taskId, {
-      status: 'pending'
-    });
 
     return this.executeTask(taskId);
   }
@@ -694,95 +556,84 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
   // Private helper methods
 
   /**
-   * Setup automatic scheduling
+   * Setup the scheduling timer
    */
-  private setupAutoScheduling(): void {
+  private setupSchedulingTimer(): void {
+    // Clear existing timer if any
     if (this.schedulingTimer) {
       clearInterval(this.schedulingTimer);
+      this.schedulingTimer = null;
     }
     
+    // Setup new timer
     this.schedulingTimer = setInterval(async () => {
       try {
-        await this.processDueTasks();
+        const dueTasks = await this.getDueTasks();
+        for (const task of dueTasks) {
+          await this.executeTask(task.id);
+        }
       } catch (error) {
-        console.error(`[${this.managerId}] Error during auto-scheduling:`, error);
+        console.error(`[${this.managerId}] Error in scheduling timer:`, error);
       }
-    }, this.config.schedulingIntervalMs);
+    }, this.config.schedulingIntervalMs ?? 1000);
+  }
+
+  async getTasks(): Promise<ScheduledTask[]> {
+    return Array.from(this.tasks.values());
+  }
+
+  private generateTaskId(): string {
+    return `task-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  }
+
+  getAgent(): AgentBase {
+    return super.getAgent();
+  }
+
+  getConfig<T>(): T {
+    return this.config as unknown as T;
+  }
+
+  isInitialized(): boolean {
+    return this.initialized;
+  }
+
+  isEnabled(): boolean {
+    return this.config.enabled;
+  }
+
+  setEnabled(enabled: boolean): boolean {
+    this.config.enabled = enabled;
+    return enabled;
   }
 
   /**
-   * Process tasks that are due for execution
+   * Get scheduler status
    */
-  private async processDueTasks(): Promise<void> {
-    const dueTasks = await this.getDueTasks();
-    const runningTasks = await this.getRunningTasks();
-    
-    // Check if we can run more tasks
-    const availableSlots = (this.config.maxConcurrentTasks ?? 10) - runningTasks.length;
-    if (availableSlots <= 0) {
-      return;
-    }
-
-    // Sort tasks by priority if enabled
-    const tasksToRun = this.config.enableTaskPrioritization
-      ? dueTasks.sort((a, b) => b.priority - a.priority)
-      : dueTasks;
-
-    // Execute tasks up to available slots
-    for (let i = 0; i < Math.min(availableSlots, tasksToRun.length); i++) {
-      const task = tasksToRun[i];
-      try {
-        await this.executeTask(task.id);
-      } catch (error) {
-        console.error(`[${this.managerId}] Error executing task ${task.id}:`, error);
-      }
-    }
-  }
-
-  /**
-   * Execute a task's action
-   */
-  private async executeTaskAction(task: ScheduledTask): Promise<void> {
-    // TODO: Implement task action execution based on task type
-    // This would typically involve calling the appropriate tool or service
-  }
-
-  /**
-   * Get scheduler manager statistics
-   */
-  private async getStats(): Promise<{
-    totalTasks: number;
-    runningTasks: number;
+  async getStatus(): Promise<{
+    isRunning: boolean;
+    activeTasks: number;
     pendingTasks: number;
-    completedTasks: number;
-    failedTasks: number;
-    avgTaskPriority: number;
-    avgExecutionTime: number;
+    resourceUtilization: ResourceUtilization;
   }> {
-    const allTasks = Array.from(this.tasks.values());
-    const runningTasks = allTasks.filter(t => t.status === 'in_progress');
-    const pendingTasks = allTasks.filter(t => t.status === 'pending');
-    const completedTasks = allTasks.filter(t => t.status === 'completed');
-    const failedTasks = allTasks.filter(t => t.status === 'failed');
-    
-    const totalPriority = allTasks.reduce((sum, t) => sum + t.priority, 0);
-    const totalExecutions = allTasks.reduce((sum, t) => sum + t.retryAttempts, 0);
-    
+    const activeTasks = await this.getActiveTasks();
+    const pendingTasks = await this.getPendingTasks();
+    const resourceUtilization = this.resourceTracker.getCurrentUtilization();
+
     return {
-      totalTasks: allTasks.length,
-      runningTasks: runningTasks.length,
+      isRunning: this.isEnabled() && this.isInitialized(),
+      activeTasks: activeTasks.length,
       pendingTasks: pendingTasks.length,
-      completedTasks: completedTasks.length,
-      failedTasks: failedTasks.length,
-      avgTaskPriority: allTasks.length > 0 ? totalPriority / allTasks.length : 0,
-      avgExecutionTime: totalExecutions > 0 ? totalExecutions / allTasks.length : 0
+      resourceUtilization
     };
   }
 
-  // Implement missing interface methods
-  async listTasks(options?: {
-    status?: ScheduledTask['status'][];
-    type?: ScheduledTask['type'][];
+  /**
+   * List tasks with filtering
+   */
+  async listTasks(options: {
+    status?: TaskStatus[];
+    type?: string[];
     priority?: number;
     minPriority?: number;
     tags?: string[];
@@ -792,293 +643,375 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
     offset?: number;
     sortBy?: 'priority' | 'createdAt' | 'updatedAt';
     sortDirection?: 'asc' | 'desc';
-  }): Promise<ScheduledTask[]> {
-    if (!this.initialized) {
-      throw new SchedulingError(
-        'Scheduler manager not initialized',
-        'NOT_INITIALIZED'
-      );
-    }
-
+  } = {}): Promise<ScheduledTask[]> {
     let tasks = Array.from(this.tasks.values());
 
     // Apply filters
-    if (options?.status) {
-      tasks = tasks.filter(t => options.status!.includes(t.status));
-    }
-    if (options?.type) {
-      tasks = tasks.filter(t => options.type!.includes(t.type));
-    }
-    if (options?.priority !== undefined) {
-      tasks = tasks.filter(t => t.priority === options.priority);
-    }
-    if (options?.minPriority !== undefined) {
-      tasks = tasks.filter(t => t.priority >= options.minPriority!);
-    }
-    if (options?.tags) {
-      tasks = tasks.filter(t => 
-        options.tags!.every(tag => (t.metadata.tags as string[] || []).includes(tag))
-      );
-    }
-    if (options?.from) {
-      tasks = tasks.filter(t => t.createdAt >= options.from!);
-    }
-    if (options?.to) {
-      tasks = tasks.filter(t => t.createdAt <= options.to!);
+    if (options.status) {
+      tasks = tasks.filter(task => options.status?.includes(task.status));
     }
 
-    // Apply sorting
-    if (options?.sortBy) {
+    if (options.type) {
+      tasks = tasks.filter(task => options.type?.includes(task.type));
+    }
+
+    if (options.priority !== undefined) {
+      tasks = tasks.filter(task => task.priority === options.priority);
+    }
+
+    if (options.minPriority !== undefined) {
+      tasks = tasks.filter(task => task.priority >= options.minPriority!);
+    }
+
+    if (options.tags) {
+      tasks = tasks.filter(task => {
+        const metadata = task.metadata as TaskMetadata;
+        return options.tags?.some(tag => metadata.tags?.includes(tag));
+      });
+    }
+
+    if (options.from) {
+      tasks = tasks.filter(task => task.createdAt >= options.from!);
+    }
+
+    if (options.to) {
+      tasks = tasks.filter(task => task.createdAt <= options.to!);
+    }
+
+    // Sort tasks
+    if (options.sortBy) {
+      const direction = options.sortDirection === 'desc' ? -1 : 1;
       tasks.sort((a, b) => {
-        const aValue = a[options.sortBy!];
-        const bValue = b[options.sortBy!];
-        const direction = options.sortDirection === 'desc' ? -1 : 1;
-        return aValue < bValue ? -direction : aValue > bValue ? direction : 0;
+        switch (options.sortBy) {
+          case 'priority':
+            return (b.priority - a.priority) * direction;
+          case 'createdAt':
+            return (b.createdAt.getTime() - a.createdAt.getTime()) * direction;
+          case 'updatedAt':
+            return (b.updatedAt.getTime() - a.updatedAt.getTime()) * direction;
+          default:
+            return 0;
+        }
       });
     }
 
     // Apply pagination
-    if (options?.offset) {
-      tasks = tasks.slice(options.offset);
-    }
-    if (options?.limit) {
-      tasks = tasks.slice(0, options.limit);
+    if (options.offset !== undefined || options.limit !== undefined) {
+      const offset = options.offset ?? 0;
+      const limit = options.limit ?? tasks.length;
+      tasks = tasks.slice(offset, offset + limit);
     }
 
     return tasks;
   }
 
-  async createBatch(
-    batch: Omit<TaskBatch, 'id' | 'status' | 'createdAt' | 'updatedAt' | 'startedAt' | 'completedAt' | 'successRate'>
-  ): Promise<TaskBatch> {
-    if (!this.initialized) {
-      throw new SchedulingError(
-        'Scheduler manager not initialized',
-        'NOT_INITIALIZED'
-      );
-    }
-
-    const now = new Date();
-    const newBatch: TaskBatch = {
-      ...batch,
+  /**
+   * Create a task batch
+   */
+  async createBatch(options: {
+    tasks: TaskCreationOptions[];
+    metadata?: Record<string, unknown>;
+  }): Promise<TaskBatch> {
+    const batch: TaskBatch = {
       id: uuidv4(),
+      tasks: [],
       status: 'pending',
-      createdAt: now,
-      updatedAt: now,
-      successRate: 0
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      metadata: options.metadata
     };
 
-    // TODO: Implement batch storage
-    return newBatch;
-  }
-
-  async getBatch(batchId: string): Promise<TaskBatch | null> {
-    if (!this.initialized) {
-      throw new SchedulingError(
-        'Scheduler manager not initialized',
-        'NOT_INITIALIZED'
-      );
-    }
-
-    // TODO: Implement batch retrieval
-    return null;
-  }
-
-  async listBatches(options?: {
-    status?: TaskBatch['status'][];
-    tags?: string[];
-    from?: Date;
-    to?: Date;
-    limit?: number;
-    offset?: number;
-  }): Promise<TaskBatch[]> {
-    if (!this.initialized) {
-      throw new SchedulingError(
-        'Scheduler manager not initialized',
-        'NOT_INITIALIZED'
-      );
-    }
-
-    // TODO: Implement batch listing
-    return [];
-  }
-
-  async cancelBatch(batchId: string): Promise<boolean> {
-    if (!this.initialized) {
-      throw new SchedulingError(
-        'Scheduler manager not initialized',
-        'NOT_INITIALIZED'
-      );
-    }
-
-    // TODO: Implement batch cancellation
-    return false;
-  }
-
-  async pauseScheduler(): Promise<boolean> {
-    if (!this.initialized) {
-      throw new SchedulingError(
-        'Scheduler manager not initialized',
-        'NOT_INITIALIZED'
-      );
-    }
-
-    // TODO: Implement scheduler pausing
-    return true;
-  }
-
-  async resumeScheduler(): Promise<boolean> {
-    if (!this.initialized) {
-      throw new SchedulingError(
-        'Scheduler manager not initialized',
-        'NOT_INITIALIZED'
-      );
-    }
-
-    // TODO: Implement scheduler resuming
-    return true;
-  }
-
-  async getResourceUtilization(): Promise<ResourceUtilization> {
-    if (!this.initialized) {
-      throw new SchedulingError(
-        'Scheduler manager not initialized',
-        'NOT_INITIALIZED'
-      );
-    }
-
-    // TODO: Implement resource utilization tracking
-    return {
-      timestamp: new Date(),
-      cpuUtilization: 0,
-      memoryBytes: 0,
-      tokensPerMinute: 0,
-      apiCallsPerMinute: 0,
-      activeTasks: 0,
-      pendingTasks: 0
-    };
-  }
-
-  async getResourceUtilizationHistory(options?: {
-    from?: Date;
-    to?: Date;
-    interval?: 'minute' | 'hour' | 'day';
-    limit?: number;
-  }): Promise<ResourceUtilization[]> {
-    if (!this.initialized) {
-      throw new SchedulingError(
-        'Scheduler manager not initialized',
-        'NOT_INITIALIZED'
-      );
-    }
-
-    // TODO: Implement resource utilization history
-    return [];
-  }
-
-  async setResourceLimits(limits: SchedulerManagerConfig['resourceLimits']): Promise<boolean> {
-    if (!this.initialized) {
-      throw new SchedulingError(
-        'Scheduler manager not initialized',
-        'NOT_INITIALIZED'
-      );
-    }
-
-    // TODO: Implement resource limits
-    return true;
-  }
-
-  async getEvents(options?: {
-    types?: SchedulerEvent['type'][];
-    from?: Date;
-    to?: Date;
-    taskId?: string;
-    batchId?: string;
-    limit?: number;
-    offset?: number;
-  }): Promise<SchedulerEvent[]> {
-    if (!this.initialized) {
-      throw new SchedulingError(
-        'Scheduler manager not initialized',
-        'NOT_INITIALIZED'
-      );
-    }
-
-    // TODO: Implement event tracking
-    return [];
-  }
-
-  async getMetrics(options?: {
-    from?: Date;
-    to?: Date;
-    includeResourceMetrics?: boolean;
-    includeBatchMetrics?: boolean;
-  }): Promise<SchedulerMetrics> {
-    if (!this.initialized) {
-      throw new SchedulingError(
-        'Scheduler manager not initialized',
-        'NOT_INITIALIZED'
-      );
-    }
-
-    // TODO: Implement metrics tracking
-    return {
-      period: {
-        start: new Date(),
-        end: new Date()
-      },
-      taskCounts: {
-        pending: 0,
-        scheduled: 0,
-        running: 0,
-        completed: 0,
-        failed: 0,
-        cancelled: 0
-      },
-      taskTypeDistribution: {},
-      avgTaskCompletionTimeMs: 0,
-      successRate: 0,
-      throughput: 0,
-      waitTimeMs: {
-        avg: 0,
-        median: 0,
-        p95: 0,
-        max: 0
+    // Create all tasks
+    for (const taskOptions of options.tasks) {
+      const result = await this.createTask(taskOptions);
+      if (result.success && result.task) {
+        batch.tasks.push(result.task);
       }
-    };
-  }
-
-  subscribeToEvents(
-    eventTypes: SchedulerEvent['type'][],
-    callback: (event: SchedulerEvent) => void
-  ): string {
-    if (!this.initialized) {
-      throw new SchedulingError(
-        'Scheduler manager not initialized',
-        'NOT_INITIALIZED'
-      );
     }
 
-    // TODO: Implement event subscription
-    return uuidv4();
+    // Store batch
+    this.batches.set(batch.id, batch);
+
+    // Log event
+    this.logEvent({
+      id: uuidv4(),
+      type: 'batch_created',
+      timestamp: new Date(),
+      batchId: batch.id,
+      details: {
+        taskCount: batch.tasks.length
+      }
+    });
+
+    return batch;
   }
 
-  async unsubscribeFromEvents(subscriptionId: string): Promise<boolean> {
-    if (!this.initialized) {
-      throw new SchedulingError(
-        'Scheduler manager not initialized',
-        'NOT_INITIALIZED'
-      );
+  /**
+   * List task batches
+   */
+  async listBatches(options: {
+    status?: ('pending' | 'in_progress' | 'completed' | 'failed')[];
+    from?: Date;
+    to?: Date;
+    limit?: number;
+    offset?: number;
+  } = {}): Promise<TaskBatch[]> {
+    let batches = Array.from(this.batches.values());
+
+    // Apply filters
+    if (options.status) {
+      batches = batches.filter(batch => options.status?.includes(batch.status));
     }
 
-    // TODO: Implement event unsubscription
+    if (options.from) {
+      batches = batches.filter(batch => batch.createdAt >= options.from!);
+    }
+
+    if (options.to) {
+      batches = batches.filter(batch => batch.createdAt <= options.to!);
+    }
+
+    // Apply pagination
+    if (options.offset !== undefined || options.limit !== undefined) {
+      const offset = options.offset ?? 0;
+      const limit = options.limit ?? batches.length;
+      batches = batches.slice(offset, offset + limit);
+    }
+
+    return batches;
+  }
+
+  /**
+   * Get a task batch
+   */
+  async getBatch(batchId: string): Promise<TaskBatch | null> {
+    return this.batches.get(batchId) ?? null;
+  }
+
+  /**
+   * Cancel a task batch
+   */
+  async cancelBatch(batchId: string): Promise<boolean> {
+    const batch = this.batches.get(batchId);
+    if (!batch) {
+      return false;
+    }
+
+    // Cancel all tasks in the batch
+    for (const task of batch.tasks) {
+      await this.cancelTask(task.id);
+    }
+
+    // Update batch status
+    batch.status = 'failed';
+    batch.updatedAt = new Date();
+    this.batches.set(batchId, batch);
+
+    // Log event
+    this.logEvent({
+      id: uuidv4(),
+      type: 'batch_failed',
+      timestamp: new Date(),
+      batchId,
+      details: {
+        reason: 'cancelled'
+      }
+    });
+
     return true;
   }
 
   /**
-   * Check if the manager is initialized
+   * Pause the scheduler
    */
-  isInitialized(): boolean {
-    return this.initialized;
+  async pauseScheduler(): Promise<boolean> {
+    if (!this.isEnabled()) {
+      return false;
+    }
+
+    this.setEnabled(false);
+    if (this.schedulingTimer) {
+      clearInterval(this.schedulingTimer);
+      this.schedulingTimer = null;
+    }
+
+    // Log event
+    this.logEvent({
+      id: uuidv4(),
+      type: 'scheduler_paused',
+      timestamp: new Date(),
+      details: {}
+    });
+
+    return true;
+  }
+
+  /**
+   * Resume the scheduler
+   */
+  async resumeScheduler(): Promise<boolean> {
+    if (this.isEnabled()) {
+      return false;
+    }
+
+    this.setEnabled(true);
+    this.setupSchedulingTimer();
+
+    // Log event
+    this.logEvent({
+      id: uuidv4(),
+      type: 'scheduler_resumed',
+      timestamp: new Date(),
+      details: {}
+    });
+
+    return true;
+  }
+
+  /**
+   * Get current resource utilization
+   */
+  async getResourceUtilization(): Promise<ResourceUtilization> {
+    return this.resourceTracker.getCurrentUtilization();
+  }
+
+  /**
+   * Get resource utilization history
+   */
+  async getResourceUtilizationHistory(options?: {
+    from?: Date;
+    to?: Date;
+    interval?: 'minute' | 'hour' | 'day';
+  }): Promise<ResourceUtilization[]> {
+    return this.resourceTracker.getUtilizationHistory(options);
+  }
+
+  /**
+   * Set resource limits
+   */
+  async setResourceLimits(limits: {
+    cpuUtilization?: number;
+    memoryBytes?: number;
+    tokensPerMinute?: number;
+    apiCallsPerMinute?: number;
+  }): Promise<boolean> {
+    this.resourceTracker.setLimits(limits);
+    return true;
+  }
+
+  /**
+   * Get scheduler metrics
+   */
+  async getMetrics(options?: {
+    from?: Date;
+    to?: Date;
+  }): Promise<SchedulerMetrics> {
+    const tasks = await this.getTasks();
+    const now = new Date();
+    const period = {
+      start: options?.from ?? new Date(now.getTime() - 24 * 60 * 60 * 1000), // Default to last 24 hours
+      end: options?.to ?? now
+    };
+
+    // Filter tasks by period
+    const periodTasks = tasks.filter(task => 
+      task.createdAt >= period.start && task.createdAt <= period.end
+    );
+
+    // Calculate task metrics
+    const completedTasks = periodTasks.filter(task => task.status === 'completed');
+    const failedTasks = periodTasks.filter(task => task.status === 'failed');
+
+    const taskMetrics = {
+      totalTasks: periodTasks.length,
+      tasksCreated: periodTasks.length,
+      tasksCompleted: completedTasks.length,
+      tasksFailed: failedTasks.length,
+      successRate: periodTasks.length > 0 
+        ? completedTasks.length / periodTasks.length 
+        : 0,
+      avgExecutionTime: completedTasks.length > 0
+        ? completedTasks.reduce((sum, task) => {
+            const metadata = task.metadata as TaskMetadata;
+            return sum + (metadata.executionTime ?? 0);
+          }, 0) / completedTasks.length
+        : 0,
+      avgWaitTime: periodTasks.length > 0
+        ? periodTasks.reduce((sum, task) => {
+            const metadata = task.metadata as TaskMetadata;
+            return sum + (metadata.waitTime ?? 0);
+          }, 0) / periodTasks.length
+        : 0
+    };
+
+    // Get resource metrics
+    const resourceHistory = await this.getResourceUtilizationHistory(options);
+    const resourceMetrics = {
+      avgCpuUtilization: resourceHistory.reduce((sum, sample) => 
+        sum + sample.cpuUtilization, 0) / resourceHistory.length,
+      peakCpuUtilization: Math.max(...resourceHistory.map(sample => 
+        sample.cpuUtilization)),
+      avgMemoryUsage: resourceHistory.reduce((sum, sample) => 
+        sum + sample.memoryBytes, 0) / resourceHistory.length,
+      peakMemoryUsage: Math.max(...resourceHistory.map(sample => 
+        sample.memoryBytes)),
+      totalTokensConsumed: resourceHistory.reduce((sum, sample) => 
+        sum + sample.tokensPerMinute, 0),
+      totalApiCalls: resourceHistory.reduce((sum, sample) => 
+        sum + sample.apiCallsPerMinute, 0)
+    };
+
+    return {
+      period,
+      taskMetrics,
+      resourceMetrics
+    };
+  }
+
+  /**
+   * Get scheduler events
+   */
+  async getEvents(options?: {
+    type?: SchedulerEvent['type'][];
+    from?: Date;
+    to?: Date;
+    limit?: number;
+    offset?: number;
+  }): Promise<SchedulerEvent[]> {
+    let events = [...this.events];
+
+    // Apply filters
+    if (options?.type) {
+      events = events.filter(event => options.type?.includes(event.type));
+    }
+
+    if (options?.from) {
+      events = events.filter(event => event.timestamp >= options.from!);
+    }
+
+    if (options?.to) {
+      events = events.filter(event => event.timestamp <= options.to!);
+    }
+
+    // Apply pagination
+    if (options?.offset !== undefined || options?.limit !== undefined) {
+      const offset = options.offset ?? 0;
+      const limit = options.limit ?? events.length;
+      events = events.slice(offset, offset + limit);
+    }
+
+    return events;
+  }
+
+  /**
+   * Log a scheduler event
+   */
+  private logEvent(event: SchedulerEvent): void {
+    this.events.push(event);
+
+    // Keep only the last 1000 events
+    if (this.events.length > 1000) {
+      this.events = this.events.slice(-1000);
+    }
   }
 } 

@@ -140,28 +140,28 @@ export const SchedulerManagerConfigSchema: ConfigSchema<SchedulerManagerConfig &
   resourceLimits: {
     type: 'object',
     properties: {
-      cpuUtilization: {
+      maxCpuPercent: {
         type: 'number',
         min: 0,
-        max: 1,
-        default: 0.8,
-        description: 'CPU utilization limit (0-1)'
+        max: 100,
+        default: 80,
+        description: 'CPU utilization limit (0-100%)'
       },
-      memoryBytes: {
+      maxMemoryBytes: {
         type: 'number',
         min: 1000000,      // 1MB
         max: 8000000000,   // 8GB
         default: 1073741824, // 1GB
         description: 'Memory limit in bytes'
       },
-      tokensPerMinute: {
+      maxTokensPerMinute: {
         type: 'number',
         min: 10,
         max: 100000,
         default: 10000,
         description: 'Token rate limit per minute'
       },
-      apiCallsPerMinute: {
+      maxApiCallsPerMinute: {
         type: 'number',
         min: 1,
         max: 1000,
@@ -170,10 +170,10 @@ export const SchedulerManagerConfigSchema: ConfigSchema<SchedulerManagerConfig &
       }
     },
     default: {
-      cpuUtilization: 0.8,
-      memoryBytes: 1073741824,
-      tokensPerMinute: 10000,
-      apiCallsPerMinute: 100
+      maxCpuPercent: 80,
+      maxMemoryBytes: 1073741824,
+      maxTokensPerMinute: 10000,
+      maxApiCallsPerMinute: 100
     },
     description: 'Resource limits for the scheduler'
   }
@@ -197,112 +197,74 @@ export const SchedulerManagerPresets = {
     enableBatching: true,
     maxBatchSize: 10,
     resourceLimits: {
-      cpuUtilization: 0.9,
-      tokensPerMinute: 20000
+      maxCpuPercent: 90,
+      maxMemoryBytes: 2147483648,    // 2GB
+      maxTokensPerMinute: 20000,
+      maxApiCallsPerMinute: 200
     }
   },
-  
-  // Preset for agents with resource constraints
-  RESOURCE_CONSTRAINED: {
+
+  // Preset for agents that need reliable scheduling
+  RELIABLE: {
+    maxConcurrentTasks: 5,
+    schedulingIntervalMs: 60000,     // 1 minute
+    enableTaskPrioritization: true,
+    enableTaskDependencies: true,
+    maxRetryAttempts: 5,
+    defaultTaskTimeoutMs: 600000,    // 10 minutes
+    schedulingAlgorithm: 'priority',
+    adaptiveScheduling: false,
+    preemptionAggressiveness: 0.3,
+    enableBatching: false,
+    resourceLimits: {
+      maxCpuPercent: 60,
+      maxMemoryBytes: 1073741824,    // 1GB
+      maxTokensPerMinute: 5000,
+      maxApiCallsPerMinute: 50
+    }
+  },
+
+  // Preset for agents that need to conserve resources
+  CONSERVATIVE: {
     maxConcurrentTasks: 3,
     schedulingIntervalMs: 120000,    // 2 minutes
     enableTaskPrioritization: true,
     enableTaskDependencies: false,
     maxRetryAttempts: 1,
-    defaultTaskTimeoutMs: 600000,    // 10 minutes
-    schedulingAlgorithm: 'resource-aware',
-    adaptiveScheduling: true,
-    enableBatching: false,
-    resourceLimits: {
-      cpuUtilization: 0.5,
-      memoryBytes: 536870912,        // 512MB
-      tokensPerMinute: 5000,
-      apiCallsPerMinute: 50
-    }
-  },
-  
-  // Preset for minimal scheduling needs
-  MINIMAL: {
-    maxConcurrentTasks: 1,
-    enableAutoScheduling: false,
-    enableTaskPrioritization: false,
-    enableTaskDependencies: false,
-    enableTaskRetries: false,
-    enableTaskTimeouts: true,
     defaultTaskTimeoutMs: 300000,    // 5 minutes
     schedulingAlgorithm: 'fifo',
     adaptiveScheduling: false,
-    trackResourceUtilization: false,
+    preemptionAggressiveness: 0.1,
     enableBatching: false,
-    persistTasks: false
-  },
-  
-  // Preset for deadline-driven tasks
-  DEADLINE_DRIVEN: {
-    maxConcurrentTasks: 8,
-    schedulingIntervalMs: 30000,     // 30 seconds
-    enableTaskPrioritization: true,
-    enableTaskDependencies: true,
-    maxRetryAttempts: 2,
-    defaultTaskTimeoutMs: 300000,    // 5 minutes
-    schedulingAlgorithm: 'deadline',
-    adaptiveScheduling: true,
-    preemptionAggressiveness: 0.8,
-    defaultDeadlineBufferMs: 60000,  // 1 minute
     resourceLimits: {
-      cpuUtilization: 0.8,
-      tokensPerMinute: 15000
+      maxCpuPercent: 40,
+      maxMemoryBytes: 536870912,     // 512MB
+      maxTokensPerMinute: 2000,
+      maxApiCallsPerMinute: 20
     }
   }
 };
 
-// Type for preset keys
+/**
+ * Type for scheduler manager preset keys
+ */
 type SchedulerManagerPresetKey = keyof typeof SchedulerManagerPresets;
 
 /**
- * Factory function to create a scheduler manager configuration with a preset
- * @param preset Preset name or configuration object
- * @param overrides Configuration overrides
- * @returns The merged configuration
+ * Create a scheduler manager configuration with preset and overrides
  */
 export function createSchedulerManagerConfig(
   preset: SchedulerManagerPresetKey | Partial<SchedulerManagerConfig> = 'HIGH_THROUGHPUT',
   overrides: Partial<SchedulerManagerConfig> = {}
 ): SchedulerManagerConfig {
-  // Get the preset configuration
+  // Get preset configuration
   const presetConfig = typeof preset === 'string'
-    ? SchedulerManagerPresets[preset as SchedulerManagerPresetKey]
+    ? SchedulerManagerPresets[preset]
     : preset;
-  
-  // Merge with base defaults and overrides
+
+  // Merge configurations
   return {
-    enabled: true,
-    enableAutoScheduling: true,
-    schedulingIntervalMs: 60000,      // 1 minute
-    maxConcurrentTasks: 10,
-    enableTaskPrioritization: true,
-    enableTaskDependencies: true,
-    enableTaskRetries: true,
-    maxRetryAttempts: 3,
-    enableTaskTimeouts: true,
-    defaultTaskTimeoutMs: 300000,     // 5 minutes
-    defaultPriority: 5,
-    adaptiveScheduling: false,
-    schedulingAlgorithm: 'priority',
-    preemptionAggressiveness: 0.5,
-    trackResourceUtilization: true,
-    trackDependencies: true,
-    enableBatching: false,
-    maxBatchSize: 5,
-    defaultDeadlineBufferMs: 300000,  // 5 minutes
-    defaultPeriodicIntervalMs: 3600000, // 1 hour
-    persistTasks: true,
-    resourceLimits: {
-      cpuUtilization: 0.8,
-      memoryBytes: 1073741824,       // 1GB
-      tokensPerMinute: 10000,
-      apiCallsPerMinute: 100
-    },
+    ...SchedulerManagerConfigSchema,
     ...presetConfig,
     ...overrides
   } as SchedulerManagerConfig;

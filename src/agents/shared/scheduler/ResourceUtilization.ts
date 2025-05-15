@@ -6,7 +6,7 @@
  * to ensure the scheduler operates within defined resource constraints.
  */
 
-import { ResourceUtilization } from '../../../lib/agents/base/managers/SchedulerManager';
+import type { ResourceUtilization } from '../base/managers/SchedulerManager.interface';
 
 /**
  * Options for resource utilization tracking
@@ -54,18 +54,23 @@ interface UtilizationBucket {
 }
 
 /**
+ * Interface for task-specific resource utilization
+ */
+interface TaskResourceUtilization {
+  cpuUtilization: number;
+  memoryBytes: number;
+  tokensPerMinute: number;
+  apiCallsPerMinute: number;
+}
+
+/**
  * Class to track and manage resource utilization
  */
 export class ResourceUtilizationTracker {
   private options: ResourceUtilizationTrackerOptions;
   private currentUtilization: ResourceUtilization;
   private utilizationHistory: ResourceUtilization[] = [];
-  private taskUtilization: Map<string, {
-    cpuUtilization: number;
-    memoryBytes: number;
-    tokensPerMinute: number;
-    apiCallsPerMinute: number;
-  }> = new Map();
+  private taskUtilization: Map<string, TaskResourceUtilization> = new Map();
   private limits: {
     cpuUtilization: number;
     memoryBytes: number;
@@ -74,8 +79,24 @@ export class ResourceUtilizationTracker {
   };
   private samplingInterval: NodeJS.Timeout | null = null;
   private listeners: ResourceUsageListener[] = [];
-  private warningFlags: Record<string, boolean> = {};
-  private exceedingFlags: Record<string, boolean> = {};
+  private warningFlags: Record<keyof ResourceUtilization, boolean> = {
+    cpuUtilization: false,
+    memoryBytes: false,
+    tokensPerMinute: false,
+    apiCallsPerMinute: false,
+    activeTasks: false,
+    pendingTasks: false,
+    timestamp: false
+  };
+  private exceedingFlags: Record<keyof ResourceUtilization, boolean> = {
+    cpuUtilization: false,
+    memoryBytes: false,
+    tokensPerMinute: false,
+    apiCallsPerMinute: false,
+    activeTasks: false,
+    pendingTasks: false,
+    timestamp: false
+  };
   
   /**
    * Create a new ResourceUtilizationTracker
@@ -254,6 +275,7 @@ export class ResourceUtilizationTracker {
    * Remove a utilization listener
    * 
    * @param listener The listener to remove
+   * @returns Whether the listener was found and removed
    */
   removeListener(listener: ResourceUsageListener): boolean {
     const index = this.listeners.indexOf(listener);
@@ -265,34 +287,28 @@ export class ResourceUtilizationTracker {
   }
   
   /**
-   * Record task utilization
+   * Record task-specific resource utilization
    * 
-   * @param taskId ID of the task
-   * @param metrics Utilization metrics for the task
+   * @param taskId Task identifier
+   * @param metrics Resource metrics to record
    */
   recordTaskUtilization(
     taskId: string,
-    metrics: Partial<{
-      cpuUtilization: number;
-      memoryBytes: number;
-      tokensPerMinute: number;
-      apiCallsPerMinute: number;
-    }>
+    metrics: Partial<TaskResourceUtilization>
   ): void {
     if (!this.options.trackPerTaskUtilization) {
       return;
     }
     
-    const existingMetrics = this.taskUtilization.get(taskId) || {
+    const current = this.taskUtilization.get(taskId) || {
       cpuUtilization: 0,
       memoryBytes: 0,
       tokensPerMinute: 0,
       apiCallsPerMinute: 0
     };
     
-    // Update metrics
     this.taskUtilization.set(taskId, {
-      ...existingMetrics,
+      ...current,
       ...metrics
     });
     
@@ -301,13 +317,14 @@ export class ResourceUtilizationTracker {
   }
   
   /**
-   * Clear task utilization record
+   * Clear task-specific resource utilization
    * 
-   * @param taskId ID of the task to clear
+   * @param taskId Task identifier
    */
   clearTaskUtilization(taskId: string): void {
-    this.taskUtilization.delete(taskId);
-    this.updateTotalUtilization();
+    if (this.taskUtilization.delete(taskId)) {
+      this.updateTotalUtilization();
+    }
   }
   
   /**
@@ -322,53 +339,39 @@ export class ResourceUtilizationTracker {
   }
   
   /**
-   * Check if a specific resource limit is currently exceeded
+   * Check if a specific resource limit is exceeded
    * 
-   * @param resource The resource to check
+   * @param resource Resource to check
    */
   isResourceLimitExceeded(resource: keyof typeof this.limits): boolean {
     return this.exceedingFlags[resource] || false;
   }
   
   /**
-   * Check if any resource limit is currently exceeded
+   * Check if any resource limits are exceeded
    */
   areAnyResourceLimitsExceeded(): boolean {
-    return Object.values(this.exceedingFlags).some(Boolean);
+    return Object.values(this.exceedingFlags).some(flag => flag);
   }
   
   /**
    * Sample current resource utilization
    */
   private sampleResourceUtilization(): void {
-    // Get process resource usage
-    const memoryUsage = process.memoryUsage();
+    // Update timestamp
+    this.currentUtilization.timestamp = new Date();
     
-    // Update current utilization with real metrics
-    const newSample: ResourceUtilization = {
-      timestamp: new Date(),
-      cpuUtilization: this.estimateCpuUtilization(),
-      memoryBytes: memoryUsage.heapUsed,
-      tokensPerMinute: this.currentUtilization.tokensPerMinute, // This needs to be updated by external API tracking
-      apiCallsPerMinute: this.currentUtilization.apiCallsPerMinute, // This needs to be updated by external API tracking
-      activeTasks: this.currentUtilization.activeTasks,
-      pendingTasks: this.currentUtilization.pendingTasks
-    };
+    // Sample CPU utilization
+    this.currentUtilization.cpuUtilization = this.estimateCpuUtilization();
     
-    // Add per-task utilization if enabled
-    if (this.options.trackPerTaskUtilization) {
-      newSample.taskUtilization = {};
-      
-      this.taskUtilization.forEach((metrics, taskId) => {
-        newSample.taskUtilization![taskId] = { ...metrics };
-      });
+    // Sample memory utilization
+    if (typeof process !== 'undefined' && process.memoryUsage) {
+      const memoryUsage = process.memoryUsage();
+      this.currentUtilization.memoryBytes = memoryUsage.heapUsed;
     }
     
-    // Update current utilization
-    this.currentUtilization = newSample;
-    
     // Add to history
-    this.utilizationHistory.push(newSample);
+    this.utilizationHistory.push({ ...this.currentUtilization });
     
     // Trim history if needed
     if (this.utilizationHistory.length > this.options.maxHistorySamples) {
@@ -376,14 +379,16 @@ export class ResourceUtilizationTracker {
     }
     
     // Check resource limits
-    this.checkResourceLimits();
+    if (this.options.enforceResourceLimits) {
+      this.checkResourceLimits();
+    }
   }
   
   /**
-   * Update total utilization based on per-task metrics
+   * Update total resource utilization based on task utilization
    */
   private updateTotalUtilization(): void {
-    if (!this.options.trackPerTaskUtilization || this.taskUtilization.size === 0) {
+    if (!this.options.trackPerTaskUtilization) {
       return;
     }
     
@@ -392,132 +397,95 @@ export class ResourceUtilizationTracker {
     let totalTokens = 0;
     let totalApiCalls = 0;
     
-    this.taskUtilization.forEach(metrics => {
+    // Use Array.from to convert Map values to array for iteration
+    Array.from(this.taskUtilization.values()).forEach(metrics => {
       totalCpu += metrics.cpuUtilization;
       totalMemory += metrics.memoryBytes;
       totalTokens += metrics.tokensPerMinute;
       totalApiCalls += metrics.apiCallsPerMinute;
     });
     
-    // Update current utilization
     this.currentUtilization.cpuUtilization = totalCpu;
     this.currentUtilization.memoryBytes = totalMemory;
     this.currentUtilization.tokensPerMinute = totalTokens;
     this.currentUtilization.apiCallsPerMinute = totalApiCalls;
     
     // Check resource limits
-    this.checkResourceLimits();
+    if (this.options.enforceResourceLimits) {
+      this.checkResourceLimits();
+    }
   }
   
   /**
-   * Calculate average sample from multiple samples
+   * Calculate average sample from a set of samples
    * 
-   * @param samples The samples to average
+   * @param samples Samples to average
    */
   private calculateAverageSample(samples: ResourceUtilization[]): ResourceUtilization {
     if (samples.length === 0) {
-      throw new Error('Cannot calculate average from empty sample set');
+      return {
+        timestamp: new Date(),
+        cpuUtilization: 0,
+        memoryBytes: 0,
+        tokensPerMinute: 0,
+        apiCallsPerMinute: 0,
+        activeTasks: 0,
+        pendingTasks: 0
+      };
     }
     
-    // Use the timestamp from the most recent sample
-    const lastSample = samples[samples.length - 1];
-    const result: ResourceUtilization = {
-      timestamp: lastSample.timestamp,
-      cpuUtilization: 0,
-      memoryBytes: 0,
-      tokensPerMinute: 0,
-      apiCallsPerMinute: 0,
-      activeTasks: 0,
-      pendingTasks: 0
+    let totalCpu = 0;
+    let totalMemory = 0;
+    let totalTokens = 0;
+    let totalApiCalls = 0;
+    let totalActiveTasks = 0;
+    let totalPendingTasks = 0;
+    
+    for (const sample of samples) {
+      totalCpu += sample.cpuUtilization;
+      totalMemory += sample.memoryBytes;
+      totalTokens += sample.tokensPerMinute;
+      totalApiCalls += sample.apiCallsPerMinute;
+      totalActiveTasks += sample.activeTasks;
+      totalPendingTasks += sample.pendingTasks;
+    }
+    
+    return {
+      timestamp: samples[samples.length - 1].timestamp,
+      cpuUtilization: totalCpu / samples.length,
+      memoryBytes: totalMemory / samples.length,
+      tokensPerMinute: totalTokens / samples.length,
+      apiCallsPerMinute: totalApiCalls / samples.length,
+      activeTasks: Math.round(totalActiveTasks / samples.length),
+      pendingTasks: Math.round(totalPendingTasks / samples.length)
     };
-    
-    // Calculate sums
-    samples.forEach(sample => {
-      result.cpuUtilization += sample.cpuUtilization;
-      result.memoryBytes += sample.memoryBytes;
-      result.tokensPerMinute += sample.tokensPerMinute;
-      result.apiCallsPerMinute += sample.apiCallsPerMinute;
-      result.activeTasks += sample.activeTasks;
-      result.pendingTasks += sample.pendingTasks;
-    });
-    
-    // Calculate averages
-    const count = samples.length;
-    result.cpuUtilization /= count;
-    result.memoryBytes /= count;
-    result.tokensPerMinute /= count;
-    result.apiCallsPerMinute /= count;
-    result.activeTasks = Math.round(result.activeTasks / count);
-    result.pendingTasks = Math.round(result.pendingTasks / count);
-    
-    // Merge task utilization if present
-    if (this.options.trackPerTaskUtilization) {
-      result.taskUtilization = {};
-      const taskSampleCounts: Record<string, number> = {};
-      
-      samples.forEach(sample => {
-        if (sample.taskUtilization) {
-          Object.entries(sample.taskUtilization).forEach(([taskId, metrics]) => {
-            if (!result.taskUtilization![taskId]) {
-              result.taskUtilization![taskId] = {
-                cpuUtilization: 0,
-                memoryBytes: 0,
-                tokensPerMinute: 0,
-                apiCallsPerMinute: 0
-              };
-              taskSampleCounts[taskId] = 0;
-            }
-            
-            taskSampleCounts[taskId]++;
-            result.taskUtilization![taskId].cpuUtilization! += metrics.cpuUtilization || 0;
-            result.taskUtilization![taskId].memoryBytes! += metrics.memoryBytes || 0;
-            result.taskUtilization![taskId].tokensPerMinute! += metrics.tokensPerMinute || 0;
-            result.taskUtilization![taskId].apiCallsPerMinute! += metrics.apiCallsPerMinute || 0;
-          });
-        }
-      });
-      
-      // Calculate per-task averages
-      Object.entries(result.taskUtilization).forEach(([taskId, metrics]) => {
-        const taskCount = taskSampleCounts[taskId];
-        if (taskCount > 0) {
-          metrics.cpuUtilization! /= taskCount;
-          metrics.memoryBytes! /= taskCount;
-          metrics.tokensPerMinute! /= taskCount;
-          metrics.apiCallsPerMinute! /= taskCount;
-        }
-      });
-    }
-    
-    return result;
   }
   
   /**
-   * Estimate CPU utilization
-   * 
-   * This is a simplified version - in a real implementation, this would
-   * use a more accurate way to measure CPU usage
+   * Estimate current CPU utilization
    */
   private estimateCpuUtilization(): number {
-    // Get current CPU usage - in a real implementation this would
-    // use a proper CPU usage monitoring approach
-    // For this implementation we'll use a simulated value based on active tasks
-    const simulatedCpuLoad = Math.min(
-      1.0,
-      0.1 + (this.currentUtilization.activeTasks * 0.15)
-    );
+    if (typeof process !== 'undefined' && process.cpuUsage) {
+      const startUsage = process.cpuUsage();
+      const startTime = process.hrtime();
+      
+      // Wait a short time to measure CPU usage
+      const endUsage = process.cpuUsage(startUsage);
+      const [seconds, nanoseconds] = process.hrtime(startTime);
+      const elapsedMs = seconds * 1000 + nanoseconds / 1e6;
+      
+      // Calculate percentage
+      const totalUsage = endUsage.user + endUsage.system;
+      return totalUsage / (elapsedMs * 1000); // Convert to percentage
+    }
     
-    return simulatedCpuLoad;
+    return 0;
   }
   
   /**
-   * Check if resource limits are being exceeded
+   * Check current resource utilization against limits
    */
   private checkResourceLimits(): void {
-    if (!this.options.enforceResourceLimits) {
-      return;
-    }
-    
     const metrics: Array<keyof typeof this.limits> = [
       'cpuUtilization',
       'memoryBytes',
@@ -525,36 +493,41 @@ export class ResourceUtilizationTracker {
       'apiCallsPerMinute'
     ];
     
-    metrics.forEach(metric => {
+    for (const metric of metrics) {
       const currentValue = this.currentUtilization[metric];
       const limit = this.limits[metric];
       const warningThreshold = limit * (1 - this.options.limitWarningBuffer);
       
       // Check if exceeding limit
-      if (currentValue >= limit) {
+      if (currentValue > limit) {
         if (!this.exceedingFlags[metric]) {
           this.exceedingFlags[metric] = true;
           this.notifyListeners('onResourceLimitExceeded', metric, currentValue, limit);
         }
-      } else if (currentValue >= warningThreshold) {
-        // Check if approaching limit
+      }
+      // Check if approaching limit
+      else if (currentValue > warningThreshold) {
         if (!this.warningFlags[metric]) {
           this.warningFlags[metric] = true;
           this.notifyListeners('onResourceWarning', metric, currentValue, limit);
         }
-      } else {
-        // Resource usage has normalized
-        if (this.exceedingFlags[metric] || this.warningFlags[metric]) {
-          this.exceedingFlags[metric] = false;
-          this.warningFlags[metric] = false;
-          this.notifyListeners('onResourceUsageNormalized', metric, currentValue, limit);
-        }
       }
-    });
+      // Check if returned to normal
+      else if (this.warningFlags[metric] || this.exceedingFlags[metric]) {
+        this.warningFlags[metric] = false;
+        this.exceedingFlags[metric] = false;
+        this.notifyListeners('onResourceUsageNormalized', metric, currentValue, limit);
+      }
+    }
   }
   
   /**
-   * Notify all listeners of an event
+   * Notify listeners of resource utilization events
+   * 
+   * @param eventName Event to notify
+   * @param metric Resource metric
+   * @param value Current value
+   * @param limit Resource limit
    */
   private notifyListeners(
     eventName: 'onResourceWarning' | 'onResourceLimitExceeded' | 'onResourceUsageNormalized',
@@ -562,12 +535,12 @@ export class ResourceUtilizationTracker {
     value: number,
     limit: number
   ): void {
-    this.listeners.forEach(listener => {
+    for (const listener of this.listeners) {
       try {
         listener[eventName](metric, value, limit);
       } catch (error) {
         console.error(`Error notifying listener of ${eventName}:`, error);
       }
-    });
+    }
   }
 } 

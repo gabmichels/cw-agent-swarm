@@ -18,6 +18,7 @@ import {
   KnowledgeGap,
   PerformanceMetrics
 } from '../../base/managers/ReflectionManager.interface';
+import { ManagerHealth } from '../../base/managers/ManagerHealth';
 import { AgentBase } from '../../base/AgentBase.interface';
 import { AbstractBaseManager } from '../../base/managers/BaseManager';
 import { createConfigFactory } from '../../config';
@@ -143,7 +144,7 @@ export class DefaultReflectionManager extends AbstractBaseManager implements Ref
       }
     }
     
-    this.initialized = true;
+    this._initialized = true;
     return true;
   }
 
@@ -162,7 +163,7 @@ export class DefaultReflectionManager extends AbstractBaseManager implements Ref
       }
     }
     
-    this.initialized = false;
+    this._initialized = false;
   }
 
   /**
@@ -185,26 +186,32 @@ export class DefaultReflectionManager extends AbstractBaseManager implements Ref
   /**
    * Get manager health status
    */
-  async getHealth(): Promise<{
-    status: 'healthy' | 'degraded' | 'unhealthy';
-    message?: string;
-    metrics?: Record<string, unknown>;
-  }> {
-    if (!this.initialized) {
+  async getHealth(): Promise<ManagerHealth> {
+    if (!this._initialized) {
       return {
         status: 'degraded',
-        message: 'Manager not initialized'
+        details: {
+          lastCheck: new Date(),
+          issues: [{
+            severity: 'high',
+            message: 'Manager not initialized',
+            detectedAt: new Date()
+          }]
+        }
       };
     }
 
     return {
       status: 'healthy',
-      message: 'Reflection manager is healthy',
-      metrics: {
-        reflectionCount: this.reflections.size,
-        insightCount: this.insights.size,
-        metrics: this.metrics,
-        lastReflectionTime: this.lastReflectionTime
+      details: {
+        lastCheck: new Date(),
+        issues: [],
+        metrics: {
+          reflectionCount: this.reflections.size,
+          insightCount: this.insights.size,
+          metrics: this.metrics,
+          lastReflectionTime: this.lastReflectionTime
+        }
       }
     };
   }
@@ -216,7 +223,7 @@ export class DefaultReflectionManager extends AbstractBaseManager implements Ref
     trigger: ReflectionTrigger,
     context?: Record<string, unknown>
   ): Promise<ReflectionResult> {
-    if (!this.initialized) {
+    if (!this._initialized) {
       throw new ReflectionError(
         'Cannot reflect: Manager not initialized',
         'NOT_INITIALIZED'

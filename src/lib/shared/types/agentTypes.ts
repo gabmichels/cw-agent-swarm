@@ -1,20 +1,23 @@
 /**
  * Comprehensive type definitions for the Chloe agent system
  */
-import { ChatOpenAI } from '@langchain/openai';
-import { StateGraph } from '@langchain/langgraph';
-import { TaskLogger } from '../../../agents/chloe/task-logger';
-import { MemoryManager } from '../../../agents/chloe/core/memoryManager';
-import { ToolManager } from '../../../agents/chloe/core/toolManager';
-import { PlanningManager } from '../../../agents/chloe/core/planningManager';
-import { ReflectionManager } from '../../../agents/chloe/core/reflectionManager';
-import { Notifier } from '../../../agents/chloe/notifiers';
-import { KnowledgeGapsManager } from '@/agents/chloe/core/knowledgeGapsManager';
-import { ImportanceLevel, MemoryType as BaseMemoryType, MemorySource as BaseMemorySource } from '../../../constants/memory';
-import { MemoryType as StandardMemoryType } from '../../../server/memory/config';
+import { MemoryManager } from '../../../agents/shared/base/managers/MemoryManager.interface';
+import { KnowledgeManager } from '../../../agents/shared/base/managers/KnowledgeManager.interface';
+import { PlanningManager } from '../../../agents/shared/base/managers/PlanningManager.interface';
+import { ToolManager } from '../../../agents/shared/base/managers/ToolManager.interface';
+import { ReflectionManager } from '../../../agents/shared/base/managers/ReflectionManager.interface';
+import { SchedulerManager } from '../../../agents/shared/base/managers/SchedulerManager.interface';
+import { InputProcessor } from '../../../agents/shared/base/managers/InputProcessor.interface';
+import { OutputProcessor } from '../../../agents/shared/base/managers/OutputProcessor.interface';
+import { AutonomyManager } from '../../../agents/shared/base/managers/AutonomyManager.interface';
+import { MemoryType } from '../../../server/memory/config/types';
+import { ImportanceLevel } from '../../../constants/memory';
 import { MessageRole } from '../../../agents/shared/types/MessageTypes';
 import { TaskStatus } from '../../../constants/task';
-import type { AgentMemory } from '../../../agents/chloe/memory';
+
+import { AgentMemory } from '../../../agents/shared/memory/AgentMemory.interface';
+import { TaskLogger } from '../../../agents/shared/logging/TaskLogger.interface';
+import { Notifier } from '../../../agents/shared/notifications/Notifier.interface';
 
 // ============= CORE INTERFACES =============
 
@@ -54,8 +57,8 @@ export interface IAgent {
   runWeeklyReflection(): Promise<string>;
   
   // Notifications
-  getNotifiers(): Notifier[];
-  addNotifier(notifier: Notifier): void;
+  getNotifiers(): Array<{ notify(message: string, type: string): Promise<void> }>;
+  addNotifier(notifier: { notify(message: string, type: string): Promise<void> }): void;
   removeNotifier(notifierId: string): void;
   notify(message: string): void;
 
@@ -129,25 +132,25 @@ export interface MemoryManagerOptions extends BaseManagerOptions {
   workingMemoryCapacity?: number;
   consolidationInterval?: number;
   useOpenAI?: boolean;
-  logger?: TaskLogger;
+  logger?: { logTask(task: string, status: string, details?: Record<string, unknown>): Promise<void> };
 }
 
 /**
  * Options for initializing the tool manager
  */
 export interface ToolManagerOptions extends BaseManagerOptions {
-  logger?: TaskLogger;
-  model: ChatOpenAI;
-  memory: AgentMemory;
+  logger?: { logTask(task: string, status: string, details?: Record<string, unknown>): Promise<void> };
+  model: any;
+  memory: any;
 }
 
 /**
  * Options for initializing the planning manager
  */
 export interface PlanningManagerOptions extends BaseManagerOptions {
-  memory: AgentMemory;
-  model: ChatOpenAI;
-  taskLogger: TaskLogger;
+  memory: any;
+  model: any;
+  taskLogger: { logTask(task: string, status: string, details?: Record<string, unknown>): Promise<void> };
   autonomySystem?: AutonomySystem;
   notifyFunction?: NotifyFunction;
 }
@@ -156,9 +159,9 @@ export interface PlanningManagerOptions extends BaseManagerOptions {
  * Options for initializing the reflection manager
  */
 export interface ReflectionManagerOptions extends BaseManagerOptions {
-  memory: AgentMemory;
-  model: ChatOpenAI;
-  taskLogger: TaskLogger;
+  memory: any;
+  model: any;
+  taskLogger: { logTask(task: string, status: string, details?: Record<string, unknown>): Promise<void> };
   notifyFunction?: NotifyFunction;
 }
 
@@ -166,18 +169,18 @@ export interface ReflectionManagerOptions extends BaseManagerOptions {
  * Options for initializing the thought manager
  */
 export interface ThoughtManagerOptions extends BaseManagerOptions {
-  memory: AgentMemory;
-  model: ChatOpenAI;
-  taskLogger: TaskLogger;
+  memory: any;
+  model: any;
+  taskLogger: { logTask(task: string, status: string, details?: Record<string, unknown>): Promise<void> };
 }
 
 /**
  * Options for initializing the market scanner manager
  */
 export interface MarketScannerManagerOptions extends BaseManagerOptions {
-  memory: AgentMemory;
-  model: ChatOpenAI;
-  taskLogger: TaskLogger;
+  memory: any;
+  model: any;
+  taskLogger: { logTask(task: string, status: string, details?: Record<string, unknown>): Promise<void> };
   notifyFunction?: NotifyFunction;
 }
 
@@ -185,13 +188,43 @@ export interface MarketScannerManagerOptions extends BaseManagerOptions {
  * Options for initializing the knowledge gaps manager
  */
 export interface KnowledgeGapsManagerOptions extends BaseManagerOptions {
-  memory: AgentMemory;
+  memory: any;
   openaiApiKey: string;
-  logger: TaskLogger;
+  logger: { logTask(task: string, status: string, details?: Record<string, unknown>): Promise<void> };
   notifyFunction: NotifyFunction;
 }
 
 // ============= MEMORY TYPES =============
+
+/**
+ * Memory search options
+ */
+export interface MemorySearchOptions {
+  limit?: number;
+  offset?: number;
+  minScore?: number;
+  type?: MemoryType;
+  metadata?: Record<string, unknown>;
+}
+
+/**
+ * Memory statistics
+ */
+export interface MemoryStats {
+  totalMemories: number;
+  shortTermMemories: number;
+  longTermMemories: number;
+  memoryUsageRatio: number;
+  averageMemorySize: number;
+  consolidationStats: {
+    lastConsolidation: Date;
+    memoriesConsolidated: number;
+  };
+  pruningStats: {
+    lastPruning: Date;
+    memoriesPruned: number;
+  };
+}
 
 /**
  * Options for configuring the AgentMemory system.
@@ -205,29 +238,40 @@ export interface AgentMemoryOptions {
 }
 
 /**
- * Memory entry interface
+ * Base memory entry interface
  */
 export interface MemoryEntry {
   id: string;
   content: string;
-  type: StandardMemoryType | string;
+  type: string;
   importance: ImportanceLevel;
-  source: BaseMemorySource;
-  context?: string;
+  source: string;
+  metadata: Record<string, unknown>;
   created: Date;
   lastAccessed?: Date;
   accessCount?: number;
 }
 
 /**
- * Message memory interface
+ * Memory entry with tags
+ */
+export interface TaggedMemory extends MemoryEntry {
+  tags: string[];
+  metadata: Record<string, unknown> & {
+    sentiment?: string;
+    entities?: string[];
+  };
+}
+
+/**
+ * Message memory entry
  */
 export interface MessageMemory extends MemoryEntry {
-  type: StandardMemoryType.MESSAGE;
-  sender: string;
-  recipient: string;
-  conversationId?: string;
-  metadata?: {
+  type: 'message';
+  metadata: Record<string, unknown> & {
+    sender: string;
+    recipient: string;
+    conversationId?: string;
     attachments?: Array<{
       type: string;
       url?: string;
@@ -235,64 +279,51 @@ export interface MessageMemory extends MemoryEntry {
       filename?: string;
       contentType?: string;
     }>;
-    [key: string]: unknown;
   };
 }
 
 /**
- * Thought memory interface
+ * Thought memory entry
  */
 export interface ThoughtMemory extends MemoryEntry {
-  type: StandardMemoryType.THOUGHT;
-  category: string;
-  confidence: number;
-  relatedThoughts?: string[];
-  metadata?: {
+  type: 'thought';
+  metadata: Record<string, unknown> & {
+    category: string;
+    confidence: number;
+    relatedThoughts?: string[];
     reasoning?: string;
     assumptions?: string[];
-    [key: string]: unknown;
   };
 }
 
 /**
- * Strategic insight memory interface
+ * Strategic insight memory entry
  */
 export interface StrategicInsightMemory extends MemoryEntry {
   type: 'strategic_insight';
-  category: string;
-  confidence: number;
-  impact: ImportanceLevel;
-  relatedInsights?: string[];
-  metadata?: {
+  metadata: Record<string, unknown> & {
+    category: string;
+    confidence: number;
+    impact: ImportanceLevel;
+    relatedInsights?: string[];
     evidence?: string[];
     recommendations?: string[];
-    [key: string]: unknown;
   };
 }
 
 /**
- * Task memory interface
+ * Task memory entry
  */
 export interface TaskMemory extends MemoryEntry {
-  type: StandardMemoryType.TASK;
-  status: TaskStatus;
-  priority: ImportanceLevel;
-  dueDate?: Date;
-  assignedTo?: string;
-  metadata?: {
+  type: 'task';
+  metadata: Record<string, unknown> & {
+    status: TaskStatus;
+    priority: ImportanceLevel;
+    dueDate?: Date;
+    assignedTo?: string;
     steps?: string[];
     dependencies?: string[];
-    [key: string]: unknown;
   };
-}
-
-/**
- * Tagged memory with additional metadata
- */
-export interface TaggedMemory extends MemoryEntry {
-  tags: string[];
-  sentiment?: string;
-  entities?: string[];
 }
 
 /**
@@ -574,14 +605,14 @@ export interface ChloeState {
  * Type guard for MessageMemory
  */
 export function isMessageMemory(memory: MemoryEntry): memory is MessageMemory {
-  return memory.type === StandardMemoryType.MESSAGE;
+  return memory.type === 'message';
 }
 
 /**
  * Type guard for ThoughtMemory
  */
 export function isThoughtMemory(memory: MemoryEntry): memory is ThoughtMemory {
-  return memory.type === StandardMemoryType.THOUGHT;
+  return memory.type === 'thought';
 }
 
 /**
@@ -595,7 +626,7 @@ export function isStrategicInsightMemory(memory: MemoryEntry): memory is Strateg
  * Type guard for TaskMemory
  */
 export function isTaskMemory(memory: MemoryEntry): memory is TaskMemory {
-  return memory.type === StandardMemoryType.TASK;
+  return memory.type === 'task';
 }
 
 /**
@@ -689,4 +720,184 @@ export interface ChloeAgent {
   getTasksWithTag?: (tag: string) => Promise<any[]>;
   queueTask?: (task: any) => Promise<any>;
   scheduleTask?: (task: any) => void;
+}
+
+export interface AgentProfile {
+  id: string;
+  name: string;
+  description: string;
+  getNotifiers(): Notifier[];
+  addNotifier(notifier: Notifier): void;
+  getKnowledgeManager(): KnowledgeManager | null;
+}
+
+export interface AgentConfig {
+  id: string;
+  name: string;
+  description: string;
+  managers: {
+    memory?: boolean;
+    knowledge?: boolean;
+    planning?: boolean;
+    tools?: boolean;
+    reflection?: boolean;
+    logger?: boolean;
+  };
+  [key: string]: unknown;
+}
+
+export interface AgentExecutorOptions {
+  memory: MemoryEntry;
+  taskLogger: Record<string, unknown>;
+}
+
+export interface AgentPlannerOptions {
+  memory: MemoryEntry;
+  taskLogger: Record<string, unknown>;
+}
+
+export interface AgentReflectorOptions {
+  memory: MemoryEntry;
+  taskLogger: Record<string, unknown>;
+}
+
+export interface AgentLearnerOptions {
+  memory: MemoryEntry;
+  taskLogger: Record<string, unknown>;
+}
+
+export interface AgentMonitorOptions {
+  memory: MemoryEntry;
+  taskLogger: Record<string, unknown>;
+}
+
+export interface AgentOptions {
+  memory: MemoryEntry;
+  logger: Record<string, unknown>;
+}
+
+export interface AgentBase {
+  getMemoryManager(): MemoryManager | null;
+  getPlanningManager(): PlanningManager | null;
+  getToolManager(): ToolManager | null;
+  getKnowledgeManager(): KnowledgeManager | null;
+  getReflectionManager(): ReflectionManager | null;
+  getSchedulerManager(): SchedulerManager | null;
+  getInputProcessor(): InputProcessor | null;
+  getOutputProcessor(): OutputProcessor | null;
+  getAutonomyManager(): AutonomyManager | null;
+  getMemory(): MemoryManager | null;
+  getTaskLogger(): Record<string, unknown> | null;
+  getKnowledgeGapsManager(): KnowledgeManager | null;
+}
+
+export interface KnowledgeGapsManager {
+  getMemoriesByImportance(importance: ImportanceLevel, limit: number): Promise<MemoryEntry[]>;
+  getRelevantMemories(query: string, limit: number): Promise<MemoryEntry[]>;
+}
+
+export interface ExtendedTaskLogger extends TaskLogger {
+  logError(task: string, error: Error, context?: Record<string, unknown>): Promise<void>;
+  logWarning(task: string, warning: string, context?: Record<string, unknown>): Promise<void>;
+  logProgress(task: string, progress: number, message?: string): Promise<void>;
+  logCompletion(task: string, results: Record<string, unknown>): Promise<void>;
+}
+
+export interface ExtendedNotifier extends Notifier {
+  getId(): string;
+  getType(): string;
+  isEnabled(): boolean;
+  setEnabled(enabled: boolean): void;
+}
+
+/**
+ * Knowledge graph manager interface
+ */
+export interface KnowledgeGraphManager {
+  initialize(): Promise<void>;
+  addNode(node: KnowledgeNode): Promise<void>;
+  addEdge(edge: KnowledgeEdge): Promise<void>;
+  getNode(id: string): Promise<KnowledgeNode | null>;
+  getEdges(nodeId: string, direction?: 'incoming' | 'outgoing' | 'both'): Promise<KnowledgeEdge[]>;
+  findNodes(query: string, type?: KnowledgeNodeType, limit?: number): Promise<KnowledgeNode[]>;
+  findPaths(fromId: string, toId: string, maxDepth?: number): Promise<KnowledgeEdge[][]>;
+  updateNode(id: string, updates: Partial<KnowledgeNode>): Promise<void>;
+  updateEdge(from: string, to: string, updates: Partial<KnowledgeEdge>): Promise<void>;
+  deleteNode(id: string): Promise<void>;
+  deleteEdge(from: string, to: string): Promise<void>;
+  getStats(): Promise<{
+    totalNodes: number;
+    totalEdges: number;
+    nodeTypes: Record<KnowledgeNodeType, number>;
+    edgeTypes: Record<KnowledgeEdgeType, number>;
+  }>;
+  buildGraphFromMemory(memories: Array<{ id: string; content: string; metadata?: any }>, tasks: Array<{ id: string; goal: string; subGoals?: any[]; status: string }>): Promise<void>;
+  injectGraphContextIntoPlan(goal: string, maxNodes?: number): Promise<string>;
+  getGraphVisualizationData(): { nodes: KnowledgeNode[]; edges: KnowledgeEdge[] };
+  clear(): void;
+  shutdown(): Promise<void>;
+}
+
+/**
+ * Knowledge graph node types
+ */
+export enum KnowledgeNodeType {
+  TASK = 'task',
+  CONCEPT = 'concept',
+  TREND = 'trend',
+  TOOL = 'tool',
+  STRATEGY = 'strategy',
+  INSIGHT = 'insight',
+  PROJECT = 'project',
+  AGENT = 'agent',
+  ENTITY = 'entity',
+  PROCESS = 'process',
+  RESOURCE = 'resource',
+  METRIC = 'metric',
+  EVENT = 'event',
+  DECISION = 'decision'
+}
+
+/**
+ * Knowledge graph edge types
+ */
+export enum KnowledgeEdgeType {
+  RELATED_TO = 'related_to',
+  DEPENDS_ON = 'depends_on',
+  CONTRADICTS = 'contradicts',
+  SUPPORTS = 'supports',
+  USED_BY = 'used_by',
+  REPORTED_BY = 'reported_by',
+  PRODUCED_BY = 'produced_by',
+  PART_OF = 'part_of',
+  LEADS_TO = 'leads_to',
+  SIMILAR_TO = 'similar_to',
+  DERIVED_FROM = 'derived_from',
+  INFLUENCES = 'influences',
+  CATEGORIZES = 'categorizes',
+  REFERENCES = 'references'
+}
+
+/**
+ * Knowledge graph node
+ */
+export interface KnowledgeNode {
+  id: string;
+  label: string;
+  type: KnowledgeNodeType;
+  description?: string;
+  tags?: string[];
+  metadata?: Record<string, unknown>;
+}
+
+/**
+ * Knowledge graph edge
+ */
+export interface KnowledgeEdge {
+  from: string;
+  to: string;
+  type: KnowledgeEdgeType;
+  label?: string;
+  strength?: number;
+  metadata?: Record<string, unknown>;
 } 

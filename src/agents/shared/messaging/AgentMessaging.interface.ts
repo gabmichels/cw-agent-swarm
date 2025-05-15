@@ -357,6 +357,21 @@ export interface SendMessageOptions {
    * Additional metadata for the message
    */
   metadata?: Record<string, unknown>;
+
+  /**
+   * Timeout in milliseconds for request messages
+   */
+  timeout?: number;
+
+  /**
+   * Callback for successful response to request messages
+   */
+  onResponse?: (result: SendMessageResult) => void;
+
+  /**
+   * Callback for errors in request messages
+   */
+  onError?: (error: Error) => void;
 }
 
 /**

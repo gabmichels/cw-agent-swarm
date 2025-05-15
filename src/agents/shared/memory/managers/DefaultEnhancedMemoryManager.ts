@@ -15,6 +15,9 @@ import { DefaultConversationSummarizer } from '../summarization/DefaultConversat
 import { MemoryEntry, MemorySearchOptions, MemoryConsolidationResult, MemoryPruningResult } from '../../../../lib/agents/base/managers/MemoryManager';
 import { MemoryVersionHistory, MemoryChangeType, MemoryVersion, MemoryDiff, RollbackOptions, RollbackResult, BatchHistoryOptions, BatchHistoryResult } from '../interfaces/MemoryVersionHistory.interface';
 import { DefaultMemoryVersionHistory } from '../history/DefaultMemoryVersionHistory';
+import { AbstractBaseManager } from '../../base/managers/BaseManager';
+import { ManagerType } from '../../base/managers/ManagerType';
+import { ManagerHealth } from '../../base/managers/ManagerHealth';
 
 /**
  * Error class for enhanced memory manager
@@ -28,15 +31,17 @@ class EnhancedMemoryError extends Error {
 
 /**
  * Default implementation of the EnhancedMemoryManager interface.
- * Extends DefaultMemoryManager with cognitive capabilities and more advanced features.
+ * Uses composition with DefaultMemoryManager for core memory functionality.
  */
-export class DefaultEnhancedMemoryManager extends DefaultMemoryManager implements EnhancedMemoryManager {
+export class DefaultEnhancedMemoryManager extends AbstractBaseManager implements EnhancedMemoryManager {
+  protected baseMemoryManager: DefaultMemoryManager;
   protected conversationSummarizer: ConversationSummarizer;
   protected associations: Map<string, MemoryAssociation> = new Map();
   protected syntheses: Map<string, MemorySynthesis> = new Map();
   protected reasonings: Map<string, MemoryReasoning> = new Map();
   protected enhancedMemories: Map<string, EnhancedMemoryEntry> = new Map();
   protected versionHistory: MemoryVersionHistory;
+  protected _config: EnhancedMemoryManagerConfig;
 
   /**
    * Create a new DefaultEnhancedMemoryManager
@@ -48,10 +53,16 @@ export class DefaultEnhancedMemoryManager extends DefaultMemoryManager implement
     agent: AgentBase,
     config: Partial<EnhancedMemoryManagerConfig> = {}
   ) {
-    // Initialize the base memory manager
-    const enhancedConfig: Partial<EnhancedMemoryManagerConfig> = {
-      ...config,
-      // Ensure these properties are present
+    super(
+      `enhanced-memory-manager-${uuidv4()}`,
+      ManagerType.MEMORY,
+      agent,
+      { enabled: true }
+    );
+
+    // Initialize configuration
+    this._config = {
+      enabled: true,
       enableCognitiveMemory: config.enableCognitiveMemory ?? true,
       enableConversationSummarization: config.enableConversationSummarization ?? true,
       maxAssociationsPerMemory: config.maxAssociationsPerMemory ?? 20,
@@ -64,10 +75,12 @@ export class DefaultEnhancedMemoryManager extends DefaultMemoryManager implement
       autoAssociationIntervalMs: config.autoAssociationIntervalMs ?? 3600000, // 1 hour
       enableVersionHistory: config.enableVersionHistory ?? true,
       maxVersionsPerMemory: config.maxVersionsPerMemory ?? 10,
-      autoCreateVersions: config.autoCreateVersions ?? true
+      autoCreateVersions: config.autoCreateVersions ?? true,
+      ...config
     };
     
-    super(agent, enhancedConfig);
+    // Initialize base memory manager
+    this.baseMemoryManager = new DefaultMemoryManager(agent, this._config);
 
     // Initialize the conversation summarizer
     this.conversationSummarizer = new DefaultConversationSummarizer({
@@ -81,8 +94,8 @@ export class DefaultEnhancedMemoryManager extends DefaultMemoryManager implement
     // Initialize the version history manager
     this.versionHistory = new DefaultMemoryVersionHistory({
       memoryManager: this,
-      maxVersionsPerMemory: config.maxVersionsPerMemory ?? 10,
-      autoCreateVersions: config.autoCreateVersions ?? true,
+      maxVersionsPerMemory: this._config.maxVersionsPerMemory ?? 10,
+      autoCreateVersions: this._config.autoCreateVersions ?? true,
       logger: (message, data) => console.log(`[VersionHistory] ${message}`, data)
     });
   }
@@ -91,15 +104,21 @@ export class DefaultEnhancedMemoryManager extends DefaultMemoryManager implement
    * Initialize the manager
    */
   async initialize(): Promise<boolean> {
-    const result = await super.initialize();
-    if (!result) {
-      return false;
+    if (this._initialized) {
+      return true;
     }
 
-    // Additional initialization for the enhanced memory manager
     try {
+      // Initialize base memory manager
+      const baseInitialized = await this.baseMemoryManager.initialize();
+      if (!baseInitialized) {
+        return false;
+      }
+
       // Initialize data stores (in a real implementation, this might load from a database)
       await this.loadEnhancedMemoryData();
+      
+      this._initialized = true;
       return true;
     } catch (error) {
       console.error('Failed to initialize enhanced memory manager:', error);
@@ -114,12 +133,90 @@ export class DefaultEnhancedMemoryManager extends DefaultMemoryManager implement
     try {
       // Persist any in-memory data before shutting down
       await this.persistEnhancedMemoryData();
+      await this.baseMemoryManager.shutdown();
     } catch (error) {
-      console.error('Error persisting enhanced memory data during shutdown:', error);
+      console.error('Error during enhanced memory manager shutdown:', error);
     }
-
-    await super.shutdown();
   }
+
+  /**
+   * Reset the manager
+   */
+  async reset(): Promise<boolean> {
+    try {
+      await this.baseMemoryManager.reset();
+      this.associations.clear();
+      this.syntheses.clear();
+      this.reasonings.clear();
+      this.enhancedMemories.clear();
+      return true;
+    } catch (error) {
+      console.error('Error resetting enhanced memory manager:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Get manager health status
+   */
+  async getHealth(): Promise<ManagerHealth> {
+    const baseHealth = await this.baseMemoryManager.getHealth();
+    return {
+      status: this._initialized ? 'healthy' : 'unhealthy',
+      message: `Enhanced memory manager is ${this._initialized ? 'healthy' : 'unhealthy'}`,
+      details: {
+        ...baseHealth.details,
+        metrics: {
+          ...baseHealth.details.metrics,
+          associations: this.associations.size,
+          syntheses: this.syntheses.size,
+          reasonings: this.reasonings.size,
+          enhancedMemories: this.enhancedMemories.size
+        }
+      }
+    };
+  }
+
+  // #region Base Memory Operations (delegated to baseMemoryManager)
+
+  async addMemory(content: string, metadata?: Record<string, unknown>): Promise<MemoryEntry> {
+    const memory = await this.baseMemoryManager.addMemory(content, metadata);
+    
+    // Check if version history is enabled
+    if (this._config.enableVersionHistory && this._config.autoCreateVersions) {
+      try {
+        // Create initial version for this memory
+        await this.versionHistory.createVersion(
+          memory.id,
+          content,
+          MemoryChangeType.CREATED,
+          { ...metadata, createdAt: memory.createdAt }
+        );
+      } catch (error) {
+        console.error('Error creating memory version:', error);
+      }
+    }
+    
+    return memory;
+  }
+
+  async getRecentMemories(limit?: number): Promise<MemoryEntry[]> {
+    return this.baseMemoryManager.getRecentMemories(limit);
+  }
+
+  async searchMemories(query: string, options?: MemorySearchOptions): Promise<MemoryEntry[]> {
+    return this.baseMemoryManager.searchMemories(query, options);
+  }
+
+  async consolidateMemories(): Promise<MemoryConsolidationResult> {
+    return this.baseMemoryManager.consolidateMemories();
+  }
+
+  async pruneMemories(): Promise<MemoryPruningResult> {
+    return this.baseMemoryManager.pruneMemories();
+  }
+
+  // #endregion
 
   /**
    * Load enhanced memory data from storage
@@ -164,32 +261,7 @@ export class DefaultEnhancedMemoryManager extends DefaultMemoryManager implement
    * Get the config with the correct type
    */
   getEnhancedConfig(): EnhancedMemoryManagerConfig {
-    // Use the config from the parent class (DefaultMemoryManager)
-    return super['config'] as EnhancedMemoryManagerConfig;
-  }
-
-  // Override the addMemory method to capture versions
-  async addMemory(content: string, metadata?: Record<string, unknown>): Promise<MemoryEntry> {
-    // Call the parent implementation to add the memory
-    const memory = await super.addMemory(content, metadata);
-    
-    // Check if version history is enabled
-    const config = this.getEnhancedConfig();
-    if (config.enableVersionHistory && config.autoCreateVersions) {
-      try {
-        // Create initial version for this memory
-        await this.versionHistory.createVersion(
-          memory.id,
-          content,
-          MemoryChangeType.CREATED,
-          { ...metadata, createdAt: memory.createdAt }
-        );
-      } catch (error) {
-        console.error('Error creating memory version:', error);
-      }
-    }
-    
-    return memory;
+    return this._config;
   }
 
   // #region Memory Version History Methods

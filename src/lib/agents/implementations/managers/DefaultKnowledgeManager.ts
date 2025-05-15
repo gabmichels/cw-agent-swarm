@@ -20,6 +20,7 @@ import { AbstractBaseManager } from '../../../../agents/shared/base/managers/Bas
 import { createConfigFactory } from '../../../../agents/shared/config';
 import { KnowledgeManagerConfigSchema } from '../../../../agents/shared/knowledge/config/KnowledgeManagerConfigSchema';
 import { ManagerType } from '../../../../agents/shared/base/managers/ManagerType';
+import { ManagerHealth } from '../../../../agents/shared/base/managers/ManagerHealth';
 
 /**
  * Error class for knowledge-related errors
@@ -45,15 +46,12 @@ export class DefaultKnowledgeManager extends AbstractBaseManager implements Know
   private refreshTimer: NodeJS.Timeout | null = null;
   private configFactory = createConfigFactory(KnowledgeManagerConfigSchema);
   
-  // Override config type to use specific config type
-  protected config!: KnowledgeManagerConfig;
-
   /**
    * Type property accessor for compatibility with KnowledgeManager
-   * Use _managerType from the parent class to avoid infinite recursion
+   * Use managerType from the parent class
    */
   get type(): string {
-    return this._managerType;
+    return this.managerType;
   }
 
   /**
@@ -63,18 +61,19 @@ export class DefaultKnowledgeManager extends AbstractBaseManager implements Know
    * @param config - Configuration options
    */
   constructor(agent: AgentBase, config: Partial<KnowledgeManagerConfig> = {}) {
+    const managerId = `knowledge-manager-${uuidv4()}`;
     super(
-      `knowledge-manager-${uuidv4()}`,
+      managerId,
       ManagerType.KNOWLEDGE,
       agent,
-      { enabled: true }
+      {
+        enabled: true,
+        enableAutoRefresh: true,
+        refreshIntervalMs: 300000,
+        maxKnowledgeItems: 1000,
+        ...config
+      }
     );
-    
-    // Validate and apply configuration with defaults
-    this.config = this.configFactory.create({
-      enabled: true,
-      ...config
-    }) as KnowledgeManagerConfig;
   }
 
   /**
@@ -82,13 +81,15 @@ export class DefaultKnowledgeManager extends AbstractBaseManager implements Know
    */
   updateConfig<T extends KnowledgeManagerConfig>(config: Partial<T>): T {
     // Validate and merge configuration
-    this.config = this.configFactory.create({
-      ...this.config, 
+    const validatedConfig = this.configFactory.create({
+      ...this._config, 
       ...config
     }) as KnowledgeManagerConfig;
     
+    this._config = validatedConfig;
+    
     // If auto-refresh config changed, update the timer
-    if (('enableAutoRefresh' in config || 'refreshIntervalMs' in config) && this.initialized) {
+    if (('enableAutoRefresh' in config || 'refreshIntervalMs' in config) && this._initialized) {
       // Clear existing timer
       if (this.refreshTimer) {
         clearInterval(this.refreshTimer);
@@ -96,31 +97,29 @@ export class DefaultKnowledgeManager extends AbstractBaseManager implements Know
       }
       
       // Setup timer if enabled
-      if (this.config.enableAutoRefresh) {
+      if (validatedConfig.enableAutoRefresh) {
         this.setupAutoRefresh();
       }
     }
     
-    return this.config as unknown as T;
+    return validatedConfig as T;
   }
 
   /**
    * Initialize the manager
    */
   async initialize(): Promise<boolean> {
-    console.log(`[${this.managerId}] Initializing ${this.managerType} manager`);
-    
-    // Load initial knowledge if paths are specified
-    if (this.config.knowledgePaths && this.config.knowledgePaths.length > 0) {
-      await this.loadKnowledge();
+    const initialized = await super.initialize();
+    if (!initialized) {
+      return false;
     }
-    
+
     // Setup auto-refresh if enabled
-    if (this.config.enableAutoRefresh) {
+    const config = this.getConfig<KnowledgeManagerConfig>();
+    if (config.enableAutoRefresh) {
       this.setupAutoRefresh();
     }
-    
-    this.initialized = true;
+
     return true;
   }
 
@@ -136,7 +135,7 @@ export class DefaultKnowledgeManager extends AbstractBaseManager implements Know
       this.refreshTimer = null;
     }
     
-    this.initialized = false;
+    await super.shutdown();
   }
 
   /**
@@ -146,39 +145,56 @@ export class DefaultKnowledgeManager extends AbstractBaseManager implements Know
     console.log(`[${this.managerId}] Resetting ${this.managerType} manager`);
     this.knowledge.clear();
     this.gaps.clear();
-    return true;
+    if (this.refreshTimer) {
+      clearInterval(this.refreshTimer);
+      this.refreshTimer = null;
+    }
+    return super.reset();
   }
 
   /**
    * Get manager health status
    */
-  async getHealth(): Promise<{
-    status: 'healthy' | 'degraded' | 'unhealthy';
-    message?: string;
-    metrics?: Record<string, unknown>;
-  }> {
-    if (!this.initialized) {
+  async getHealth(): Promise<ManagerHealth> {
+    if (!this._initialized) {
       return {
         status: 'degraded',
-        message: 'Knowledge manager not initialized'
+        details: {
+          lastCheck: new Date(),
+          issues: [{
+            severity: 'high',
+            message: 'Knowledge manager not initialized',
+            detectedAt: new Date()
+          }],
+          metrics: {}
+        }
       };
     }
 
     const stats = await this.getStats();
     
-    // Check if there are critical issues
     if (!this.isEnabled()) {
       return {
         status: 'unhealthy',
-        message: 'Knowledge manager is disabled',
-        metrics: stats
+        details: {
+          lastCheck: new Date(),
+          issues: [{
+            severity: 'critical',
+            message: 'Knowledge manager is disabled',
+            detectedAt: new Date()
+          }],
+          metrics: stats
+        }
       };
     }
-    
+
     return {
       status: 'healthy',
-      message: 'Knowledge manager is healthy',
-      metrics: stats
+      details: {
+        lastCheck: new Date(),
+        issues: [],
+        metrics: stats
+      }
     };
   }
 
@@ -186,15 +202,15 @@ export class DefaultKnowledgeManager extends AbstractBaseManager implements Know
    * Load knowledge from configured sources
    */
   async loadKnowledge(): Promise<void> {
-    if (!this.initialized) {
+    if (!this._initialized) {
       throw new KnowledgeError(
         'Knowledge manager not initialized',
         'NOT_INITIALIZED'
       );
     }
 
-    // Basic implementation - this would typically load from files, databases, etc.
-    console.log(`[${this.managerId}] Loading knowledge from paths:`, this.config.knowledgePaths);
+    const config = this.getConfig<KnowledgeManagerConfig>();
+    console.log(`[${this.managerId}] Loading knowledge from paths:`, config.knowledgePaths);
     
     // In a real implementation, this would load from the specified paths
     // For now, it's just a placeholder
@@ -204,7 +220,7 @@ export class DefaultKnowledgeManager extends AbstractBaseManager implements Know
    * Search knowledge with the given query
    */
   async searchKnowledge(query: string, options: KnowledgeSearchOptions = {}): Promise<KnowledgeSearchResult[]> {
-    if (!this.initialized) {
+    if (!this._initialized) {
       throw new KnowledgeError(
         'Knowledge manager not initialized',
         'NOT_INITIALIZED'
@@ -300,18 +316,26 @@ export class DefaultKnowledgeManager extends AbstractBaseManager implements Know
    * Add a new knowledge entry
    */
   async addKnowledgeEntry(entry: Omit<KnowledgeEntry, 'id' | 'timestamp'>): Promise<KnowledgeEntry> {
-    if (!this.initialized) {
+    if (!this._initialized) {
       throw new KnowledgeError(
         'Knowledge manager not initialized',
         'NOT_INITIALIZED'
       );
     }
 
-    if (!this.config.allowRuntimeUpdates) {
+    if (!this._config.allowRuntimeUpdates) {
       throw new KnowledgeError(
         'Runtime knowledge updates are disabled',
         'UPDATES_DISABLED'
       );
+    }
+
+    const config = this.getConfig<KnowledgeManagerConfig>();
+    const maxEntries = config.maxKnowledgeEntries ?? 1000;
+    
+    // Check if we need to prune entries
+    if (this.knowledge.size > maxEntries) {
+      this.pruneKnowledge();
     }
 
     const id = uuidv4();
@@ -332,11 +356,6 @@ export class DefaultKnowledgeManager extends AbstractBaseManager implements Know
     
     this.knowledge.set(id, newEntry);
     
-    // Check if we need to prune entries
-    if (this.knowledge.size > (this.config.maxKnowledgeEntries ?? 1000)) {
-      this.pruneKnowledge();
-    }
-    
     return newEntry;
   }
 
@@ -344,7 +363,7 @@ export class DefaultKnowledgeManager extends AbstractBaseManager implements Know
    * Get a knowledge entry by ID
    */
   async getKnowledgeEntry(id: string): Promise<KnowledgeEntry | null> {
-    if (!this.initialized) {
+    if (!this._initialized) {
       throw new KnowledgeError(
         'Knowledge manager not initialized',
         'NOT_INITIALIZED'
@@ -358,14 +377,14 @@ export class DefaultKnowledgeManager extends AbstractBaseManager implements Know
    * Delete a knowledge entry
    */
   async deleteKnowledgeEntry(id: string): Promise<boolean> {
-    if (!this.initialized) {
+    if (!this._initialized) {
       throw new KnowledgeError(
         'Knowledge manager not initialized',
         'NOT_INITIALIZED'
       );
     }
 
-    if (!this.config.allowRuntimeUpdates) {
+    if (!this._config.allowRuntimeUpdates) {
       throw new KnowledgeError(
         'Runtime knowledge updates are disabled',
         'UPDATES_DISABLED'
@@ -379,14 +398,14 @@ export class DefaultKnowledgeManager extends AbstractBaseManager implements Know
    * Update a knowledge entry
    */
   async updateKnowledgeEntry(id: string, updates: Partial<KnowledgeEntry>): Promise<KnowledgeEntry> {
-    if (!this.initialized) {
+    if (!this._initialized) {
       throw new KnowledgeError(
         'Knowledge manager not initialized',
         'NOT_INITIALIZED'
       );
     }
 
-    if (!this.config.allowRuntimeUpdates) {
+    if (!this._config.allowRuntimeUpdates) {
       throw new KnowledgeError(
         'Runtime knowledge updates are disabled',
         'UPDATES_DISABLED'
@@ -423,7 +442,7 @@ export class DefaultKnowledgeManager extends AbstractBaseManager implements Know
     limit?: number;
     offset?: number;
   }): Promise<KnowledgeEntry[]> {
-    if (!this.initialized) {
+    if (!this._initialized) {
       throw new KnowledgeError(
         'Knowledge manager not initialized',
         'NOT_INITIALIZED'
@@ -462,14 +481,14 @@ export class DefaultKnowledgeManager extends AbstractBaseManager implements Know
    * Identify knowledge gaps
    */
   async identifyKnowledgeGaps(): Promise<KnowledgeGap[]> {
-    if (!this.initialized) {
+    if (!this._initialized) {
       throw new KnowledgeError(
         'Knowledge manager not initialized',
         'NOT_INITIALIZED'
       );
     }
 
-    if (!this.config.enableGapIdentification) {
+    if (!this._config.enableGapIdentification) {
       return [];
     }
 
@@ -485,7 +504,7 @@ export class DefaultKnowledgeManager extends AbstractBaseManager implements Know
    * Get a knowledge gap by ID
    */
   async getKnowledgeGap(id: string): Promise<KnowledgeGap | null> {
-    if (!this.initialized) {
+    if (!this._initialized) {
       throw new KnowledgeError(
         'Knowledge manager not initialized',
         'NOT_INITIALIZED'
@@ -499,7 +518,7 @@ export class DefaultKnowledgeManager extends AbstractBaseManager implements Know
    * Check if the manager is initialized
    */
   public isInitialized(): boolean {
-    return this.initialized;
+    return this._initialized;
   }
 
   // Private helper methods
@@ -512,32 +531,38 @@ export class DefaultKnowledgeManager extends AbstractBaseManager implements Know
       clearInterval(this.refreshTimer);
     }
     
+    const config = this.getConfig<KnowledgeManagerConfig>();
     this.refreshTimer = setInterval(async () => {
       try {
         await this.loadKnowledge();
       } catch (error) {
         console.error(`[${this.managerId}] Error during auto-refresh:`, error);
       }
-    }, this.config.refreshIntervalMs ?? 3600000); // Default to 1 hour
+    }, config.refreshIntervalMs ?? 300000);
   }
 
   /**
    * Prune knowledge entries to stay within limits
    */
   private pruneKnowledge(): void {
-    const maxEntries = this.config.maxKnowledgeEntries ?? 1000;
+    const config = this.getConfig<KnowledgeManagerConfig>();
+    const maxEntries = config.maxKnowledgeEntries ?? 1000;
+    
     if (this.knowledge.size <= maxEntries) {
       return;
     }
+
+    // Sort entries by timestamp (most recent first)
+    const entries = Array.from(this.knowledge.entries())
+      .sort(([, a], [, b]) => b.timestamp.getTime() - a.timestamp.getTime());
+
+    // Keep only the most recent entries up to maxEntries
+    const entriesToKeep = entries.slice(0, maxEntries);
     
-    // Sort entries by timestamp (oldest first)
-    const entries = Array.from(this.knowledge.values())
-      .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
-    
-    // Remove oldest entries to get back to the limit
-    const entriesToRemove = entries.slice(0, this.knowledge.size - maxEntries);
-    for (const entry of entriesToRemove) {
-      this.knowledge.delete(entry.id);
+    // Clear and rebuild the map
+    this.knowledge.clear();
+    for (const [id, entry] of entriesToKeep) {
+      this.knowledge.set(id, entry);
     }
   }
 
@@ -545,37 +570,23 @@ export class DefaultKnowledgeManager extends AbstractBaseManager implements Know
    * Get knowledge manager statistics
    */
   private async getStats(): Promise<{
-    totalEntries: number;
-    entriesByCategory: Record<string, number>;
-    entriesBySource: Record<string, number>;
-    verifiedCount: number;
-    unverifiedCount: number;
-    knowledgeGaps: number;
-    lastRefreshTime?: Date;
+    totalItems: number;
+    itemsByType: Record<string, number>;
+    avgConfidence: number;
+    lastRefreshAt?: Date;
   }> {
-    const allEntries = Array.from(this.knowledge.values());
-    const verifiedEntries = allEntries.filter(entry => entry.verified);
-    
-    // Count entries by category
-    const entriesByCategory: Record<string, number> = {};
-    for (const entry of allEntries) {
-      const category = entry.category ?? 'uncategorized';
-      entriesByCategory[category] = (entriesByCategory[category] ?? 0) + 1;
-    }
-    
-    // Count entries by source
-    const entriesBySource: Record<string, number> = {};
-    for (const entry of allEntries) {
-      entriesBySource[entry.source] = (entriesBySource[entry.source] ?? 0) + 1;
-    }
-    
+    const items = Array.from(this.knowledge.values());
+    const itemsByType = items.reduce((acc, item) => {
+      const type = typeof item;
+      acc[type] = (acc[type] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+
     return {
-      totalEntries: allEntries.length,
-      entriesByCategory,
-      entriesBySource,
-      verifiedCount: verifiedEntries.length,
-      unverifiedCount: allEntries.length - verifiedEntries.length,
-      knowledgeGaps: this.gaps.size
+      totalItems: items.length,
+      itemsByType,
+      avgConfidence: 1.0, // TODO: Implement confidence tracking
+      lastRefreshAt: new Date()
     };
   }
 } 

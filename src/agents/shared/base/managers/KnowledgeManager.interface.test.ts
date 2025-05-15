@@ -6,21 +6,175 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { KnowledgeManager, KnowledgeManagerConfig } from './KnowledgeManager.interface';
+import { 
+  KnowledgeManager, 
+  KnowledgeManagerConfig,
+  KnowledgeEntry,
+  KnowledgeSearchOptions,
+  KnowledgeSearchResult,
+  KnowledgeGap
+} from './KnowledgeManager.interface';
 import { BaseManager, AbstractBaseManager } from './BaseManager';
 import { AgentBase } from '../AgentBase.interface';
 import { ManagerType } from './ManagerType';
+import { ManagerHealth } from './ManagerHealth';
 
 describe('KnowledgeManager interface', () => {
-  // Type tests to ensure KnowledgeManager extends BaseManager
+  // Mock implementation to ensure interface can be implemented
+  class MockKnowledgeManager extends AbstractBaseManager implements KnowledgeManager {
+    constructor() {
+      super('mock-knowledge-manager', ManagerType.KNOWLEDGE, {} as AgentBase, { enabled: true });
+    }
+
+    async initialize(): Promise<boolean> {
+      this._initialized = true;
+      return true;
+    }
+
+    async shutdown(): Promise<void> {
+      this._initialized = false;
+    }
+
+    async getHealth(): Promise<ManagerHealth> {
+      return {
+        status: 'healthy',
+        details: {
+          lastCheck: new Date(),
+          issues: [],
+          metrics: {}
+        }
+      };
+    }
+
+    async loadKnowledge(): Promise<void> {
+      // Mock implementation
+    }
+
+    async searchKnowledge(query: string, options?: KnowledgeSearchOptions): Promise<KnowledgeSearchResult[]> {
+      return [{
+        entry: {
+          id: '1',
+          title: 'Mock Entry',
+          content: 'Mock content',
+          category: 'test',
+          tags: ['test'],
+          timestamp: new Date(),
+          source: 'test',
+          metadata: {}
+        },
+        relevance: 1.0
+      }];
+    }
+
+    async addKnowledgeEntry(entry: Omit<KnowledgeEntry, 'id' | 'timestamp'>): Promise<KnowledgeEntry> {
+      return {
+        id: '1',
+        timestamp: new Date(),
+        title: entry.title,
+        content: entry.content,
+        category: entry.category,
+        tags: entry.tags,
+        source: entry.source,
+        metadata: entry.metadata || {}
+      };
+    }
+
+    async getKnowledgeEntry(id: string): Promise<KnowledgeEntry | null> {
+      return null;
+    }
+
+    async updateKnowledgeEntry(id: string, updates: Partial<KnowledgeEntry>): Promise<KnowledgeEntry> {
+      return {
+        id,
+        title: 'Updated Entry',
+        content: 'Updated content',
+        category: 'test',
+        tags: ['test'],
+        timestamp: new Date(),
+        source: 'test',
+        metadata: {}
+      };
+    }
+
+    async deleteKnowledgeEntry(id: string): Promise<boolean> {
+      return true;
+    }
+
+    async getKnowledgeEntries(options?: {
+      category?: string;
+      tags?: string[];
+      source?: string;
+      verified?: boolean;
+      limit?: number;
+      offset?: number;
+    }): Promise<KnowledgeEntry[]> {
+      return [];
+    }
+
+    async identifyKnowledgeGaps(): Promise<KnowledgeGap[]> {
+      return [{
+        id: '1',
+        description: 'Test gap',
+        domain: 'test',
+        importance: 1,
+        status: 'identified',
+        identifiedAt: new Date(),
+        priority: 1,
+        source: 'test',
+        metadata: {}
+      }];
+    }
+
+    async getKnowledgeGap(id: string): Promise<KnowledgeGap | null> {
+      return {
+        id,
+        description: 'Test gap',
+        domain: 'test',
+        importance: 1,
+        status: 'identified',
+        identifiedAt: new Date(),
+        priority: 1,
+        source: 'test',
+        metadata: {}
+      };
+    }
+
+    async reset(): Promise<boolean> {
+      // Clear all knowledge and reset state
+      this._initialized = false;
+      return true;
+    }
+  }
+
   it('should extend BaseManager interface', () => {
     // Create a type that checks if KnowledgeManager extends BaseManager
     type CheckKnowledgeManagerExtendsBaseManager = KnowledgeManager extends BaseManager ? true : false;
-    
-    // This assignment will fail compilation if KnowledgeManager doesn't extend BaseManager
     const extendsBaseManager: CheckKnowledgeManagerExtendsBaseManager = true;
-    
     expect(extendsBaseManager).toBe(true);
+  });
+
+  it('should allow implementation of the interface', () => {
+    const knowledgeManager = new MockKnowledgeManager();
+    expect(knowledgeManager).toBeDefined();
+    expect(knowledgeManager.managerType).toBe(ManagerType.KNOWLEDGE);
+  });
+
+  it('should handle initialization correctly', async () => {
+    const knowledgeManager = new MockKnowledgeManager();
+    const initialized = await knowledgeManager.initialize();
+    expect(initialized).toBe(true);
+  });
+
+  it('should handle shutdown correctly', async () => {
+    const knowledgeManager = new MockKnowledgeManager();
+    await knowledgeManager.initialize();
+    await knowledgeManager.shutdown();
+    expect(knowledgeManager.isEnabled()).toBe(true); // Enabled state is separate from initialization
+  });
+
+  it('should have correct manager type', () => {
+    const knowledgeManager = new MockKnowledgeManager();
+    expect(knowledgeManager.managerType).toBe(ManagerType.KNOWLEDGE);
   });
 
   // Testing config type correctly extends ManagerConfig
@@ -41,99 +195,13 @@ describe('KnowledgeManager interface', () => {
     expect(config.knowledgePaths).toEqual(['/knowledge', '/data']);
   });
 
-  // Mock implementation to ensure interface can be implemented
   it('should allow implementation of the interface', () => {
     // Create a mock agent
     const mockAgent = {} as AgentBase;
     
-    // Create a mock implementation that extends AbstractBaseManager and implements KnowledgeManager
-    class MockKnowledgeManager extends AbstractBaseManager implements KnowledgeManager {
-      constructor() {
-        super('mock-knowledge-manager', ManagerType.KNOWLEDGE, mockAgent, { enabled: true });
-      }
-      
-      async initialize(): Promise<boolean> {
-        this.initialized = true;
-        return true;
-      }
-      
-      async shutdown(): Promise<void> {
-        this.initialized = false;
-      }
-      
-      async loadKnowledge(): Promise<void> {
-        // Implementation would load knowledge
-      }
-      
-      async searchKnowledge(query: string, options?: any): Promise<any[]> {
-        return [{ 
-          entry: { id: '1', title: 'Test', content: 'Content', source: 'test' },
-          relevance: 0.9
-        }];
-      }
-      
-      async addKnowledgeEntry(entry: any): Promise<any> {
-        return {
-          id: '1',
-          ...entry,
-          timestamp: new Date()
-        };
-      }
-      
-      async getKnowledgeEntry(id: string): Promise<any> {
-        return { id, title: 'Test', content: 'Content', source: 'test' };
-      }
-      
-      async updateKnowledgeEntry(id: string, updates: any): Promise<any> {
-        return { 
-          id, 
-          ...updates,
-          timestamp: new Date()
-        };
-      }
-      
-      async deleteKnowledgeEntry(id: string): Promise<boolean> {
-        return true;
-      }
-      
-      async getKnowledgeEntries(options?: any): Promise<any[]> {
-        return [
-          { id: '1', title: 'Test', content: 'Content', source: 'test' }
-        ];
-      }
-      
-      async identifyKnowledgeGaps(): Promise<any[]> {
-        return [
-          { 
-            id: '1', 
-            description: 'Missing knowledge',
-            domain: 'test',
-            importance: 0.8,
-            status: 'identified',
-            identifiedAt: new Date(),
-            priority: 0.9,
-            source: 'analysis'
-          }
-        ];
-      }
-      
-      async getKnowledgeGap(id: string): Promise<any> {
-        return { 
-          id, 
-          description: 'Missing knowledge',
-          domain: 'test',
-          importance: 0.8,
-          status: 'identified',
-          identifiedAt: new Date(),
-          priority: 0.9,
-          source: 'analysis'
-        };
-      }
-    }
-    
     // Create an instance to confirm the class satisfies the interface
     const knowledgeManager = new MockKnowledgeManager();
     expect(knowledgeManager).toBeDefined();
-    expect(knowledgeManager.getType()).toBe(ManagerType.KNOWLEDGE);
+    expect(knowledgeManager.managerType).toBe(ManagerType.KNOWLEDGE);
   });
 }); 

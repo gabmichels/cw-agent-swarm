@@ -58,6 +58,9 @@ export interface Tool {
   /** Timeout for this tool in milliseconds */
   timeoutMs?: number;
   
+  /** Additional tool metadata */
+  metadata?: Record<string, unknown>;
+  
   /** Tool execution function */
   execute: (params: unknown, context?: unknown) => Promise<unknown>;
 }

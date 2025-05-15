@@ -5,84 +5,141 @@
  * and extends the BaseManager interface correctly.
  */
 
-import { describe, it, expect } from 'vitest';
-import { MemoryManager, MemoryManagerConfig } from './MemoryManager.interface';
+import { describe, it, expect, beforeEach } from 'vitest';
+import { 
+  MemoryManager, 
+  MemoryManagerConfig, 
+  MemoryEntry, 
+  MemorySearchOptions,
+  MemoryConsolidationResult,
+  MemoryPruningResult
+} from './MemoryManager.interface';
 import { BaseManager, AbstractBaseManager } from './BaseManager';
 import { AgentBase } from '../AgentBase.interface';
 import { ManagerType } from './ManagerType';
+import { ManagerHealth } from './ManagerHealth';
 
-describe('MemoryManager interface', () => {
-  // Type tests to ensure MemoryManager extends BaseManager
-  it('should extend BaseManager interface', () => {
-    // Create a type that checks if MemoryManager extends BaseManager
-    type CheckMemoryManagerExtendsBaseManager = MemoryManager extends BaseManager ? true : false;
-    
-    // This assignment will fail compilation if MemoryManager doesn't extend BaseManager
-    const extendsBaseManager: CheckMemoryManagerExtendsBaseManager = true;
-    
-    expect(extendsBaseManager).toBe(true);
-  });
+// Mock implementation of the MemoryManager interface for testing
+class MockMemoryManager extends AbstractBaseManager implements MemoryManager {
+  private memories: Map<string, MemoryEntry> = new Map();
 
-  // Testing config type correctly extends ManagerConfig
-  it('should have config that extends ManagerConfig', () => {
-    // Check that specific MemoryManagerConfig properties are present
-    const config: MemoryManagerConfig = {
-      enabled: true,
-      enableAutoPruning: true,
-      pruningIntervalMs: 300000,
-      maxShortTermEntries: 100,
-      enableAutoConsolidation: true
+  constructor() {
+    super('mock-memory-manager', ManagerType.MEMORY, {} as AgentBase, { enabled: true });
+  }
+
+  async initialize(): Promise<boolean> {
+    this._initialized = true;
+    return true;
+  }
+
+  async shutdown(): Promise<void> {
+    this._initialized = false;
+  }
+
+  async getHealth(): Promise<ManagerHealth> {
+    return {
+      status: 'healthy',
+      details: {
+        lastCheck: new Date(),
+        issues: [],
+        metrics: {
+          memoryCount: this.memories.size
+        }
+      }
     };
-    
-    expect(config.enabled).toBe(true);
-    expect(config.enableAutoPruning).toBe(true);
-    expect(config.pruningIntervalMs).toBe(300000);
+  }
+
+  async addMemory(content: string, metadata: Record<string, unknown>): Promise<MemoryEntry> {
+    const memory: MemoryEntry = {
+      id: `mem-${Date.now()}`,
+      content,
+      createdAt: new Date(),
+      lastAccessedAt: new Date(),
+      accessCount: 0,
+      metadata
+    };
+    this.memories.set(memory.id, memory);
+    return memory;
+  }
+
+  async searchMemories(query: string, options: MemorySearchOptions): Promise<MemoryEntry[]> {
+    // Simple mock implementation that returns all memories containing the query string
+    return Array.from(this.memories.values())
+      .filter(memory => memory.content.toLowerCase().includes(query.toLowerCase()));
+  }
+
+  async getRecentMemories(limit: number): Promise<MemoryEntry[]> {
+    return Array.from(this.memories.values())
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .slice(0, limit);
+  }
+
+  async consolidateMemories(): Promise<MemoryConsolidationResult> {
+    return {
+      success: true,
+      consolidatedCount: 0,
+      message: 'No memories to consolidate'
+    };
+  }
+
+  async pruneMemories(): Promise<MemoryPruningResult> {
+    return {
+      success: true,
+      prunedCount: 0,
+      message: 'No memories to prune'
+    };
+  }
+}
+
+describe('MemoryManager Interface', () => {
+  let memoryManager: MemoryManager;
+
+  beforeEach(() => {
+    memoryManager = new MockMemoryManager();
   });
 
-  // Mock implementation to ensure interface can be implemented
-  it('should allow implementation of the interface', () => {
-    // Create a mock agent
-    const mockAgent = {} as AgentBase;
-    
-    // Create a mock implementation that extends AbstractBaseManager and implements MemoryManager
-    class MockMemoryManager extends AbstractBaseManager implements MemoryManager {
-      constructor() {
-        super('mock-memory-manager', ManagerType.MEMORY, mockAgent, { enabled: true });
-      }
-      
-      async initialize(): Promise<boolean> {
-        this.initialized = true;
-        return true;
-      }
-      
-      async shutdown(): Promise<void> {
-        this.initialized = false;
-      }
-      
-      async addMemory(content: string, metadata?: Record<string, unknown>): Promise<any> {
-        return { id: '1', content };
-      }
-      
-      async searchMemories(query: string, options?: any): Promise<any[]> {
-        return [];
-      }
-      
-      async getRecentMemories(limit?: number): Promise<any[]> {
-        return [];
-      }
-      
-      async consolidateMemories(): Promise<any> {
-        return { success: true, consolidatedCount: 0, message: '' };
-      }
-      
-      async pruneMemories(): Promise<any> {
-        return { success: true, prunedCount: 0, message: '' };
-      }
-    }
-    
-    // Create an instance to confirm the class satisfies the interface
-    const memoryManager = new MockMemoryManager();
-    expect(memoryManager).toBeDefined();
-    expect(memoryManager.getType()).toBe(ManagerType.MEMORY);
+  it('should implement BaseManager interface', () => {
+    // Type check that MemoryManager extends BaseManager
+    const manager: BaseManager = memoryManager;
+    expect(manager).toBeDefined();
+  });
+
+  it('should have the correct manager type', () => {
+    expect(memoryManager.managerType).toBe(ManagerType.MEMORY);
+  });
+
+  it('should initialize successfully', async () => {
+    const result = await memoryManager.initialize();
+    expect(result).toBe(true);
+    expect(memoryManager.isEnabled()).toBe(true);
+  });
+
+  it('should add and retrieve memories', async () => {
+    const memory = await memoryManager.addMemory('test memory', { type: 'test' });
+    expect(memory).toHaveProperty('id');
+    expect(memory.content).toBe('test memory');
+
+    const recentMemories = await memoryManager.getRecentMemories(1);
+    expect(recentMemories).toHaveLength(1);
+    expect(recentMemories[0].id).toBe(memory.id);
+  });
+
+  it('should search memories', async () => {
+    await memoryManager.addMemory('test memory one', { type: 'test' });
+    await memoryManager.addMemory('test memory two', { type: 'test' });
+    await memoryManager.addMemory('different memory', { type: 'test' });
+
+    const results = await memoryManager.searchMemories('test memory');
+    expect(results).toHaveLength(2);
+  });
+
+  it('should consolidate memories', async () => {
+    const result = await memoryManager.consolidateMemories();
+    expect(result.success).toBe(true);
+  });
+
+  it('should prune memories', async () => {
+    const result = await memoryManager.pruneMemories();
+    expect(result.success).toBe(true);
   });
 }); 

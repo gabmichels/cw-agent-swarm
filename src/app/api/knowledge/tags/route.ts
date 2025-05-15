@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getMemoryServices } from '../../../../server/memory/services';
 import { MemoryType } from '../../../../server/memory/config/types';
-import { KnowledgeGraph } from '../../../../lib/knowledge/KnowledgeGraph';
-import { KnowledgeFlaggingService } from '../../../../lib/knowledge/flagging/KnowledgeFlaggingService';
+import { KnowledgeGraphManager } from '../../../../lib/agents/implementations/memory/KnowledgeGraphManager';
 
 interface TagCount {
   tag: string;
@@ -80,50 +79,20 @@ export async function GET(request: NextRequest) {
       }
     }
     
-    // Get tags from knowledge flagging system if requested
+    // Get tags from knowledge graph if requested
     if (includeKnowledge) {
       try {
-        // Initialize Knowledge Graph and Flagging Service
-        const knowledgeGraph = new KnowledgeGraph('default');
-        await knowledgeGraph.load();
-        const flaggingService = new KnowledgeFlaggingService(knowledgeGraph);
-        await flaggingService.load();
+        // Initialize Knowledge Graph Manager
+        const graphManager = new KnowledgeGraphManager();
+        await graphManager.initialize();
         
-        // Get all flagged items
-        const flaggedItems = flaggingService.getFlaggedItems();
+        // Get all nodes
+        const nodes = await graphManager.findNodes('', undefined, 1000);
         
-        // Process tags from flagged items
-        flaggedItems.forEach(item => {
-          // Extract tags from metadata if available
-          const itemTags = item.metadata?.tags || [];
-          
-          if (Array.isArray(itemTags)) {
-            itemTags.forEach(tag => {
-              const tagStr = String(tag).toLowerCase();
-              if (!tagStr) return;
-              
-              if (tagMap.has(tagStr)) {
-                const tagCount = tagMap.get(tagStr)!;
-                tagCount.count += 1;
-                tagCount.sources.knowledge += 1;
-              } else {
-                tagMap.set(tagStr, {
-                  tag: tagStr,
-                  count: 1,
-                  sources: {
-                    memory: 0,
-                    knowledge: 1
-                  }
-                });
-              }
-            });
-          }
-          
-          // Also extract from research properties if it's a research type
-          if (item.suggestedType === 'research' && 
-              item.suggestedProperties?.type === 'research' &&
-              Array.isArray(item.suggestedProperties.tags)) {
-            item.suggestedProperties.tags.forEach(tag => {
+        // Process tags from nodes
+        nodes.forEach(node => {
+          if (node.tags && Array.isArray(node.tags)) {
+            node.tags.forEach(tag => {
               const tagStr = String(tag).toLowerCase();
               if (!tagStr) return;
               
@@ -145,7 +114,7 @@ export async function GET(request: NextRequest) {
           }
         });
       } catch (error) {
-        console.error('Error getting tags from knowledge system:', error);
+        console.error('Error getting tags from knowledge graph:', error);
         // Continue without knowledge tags
       }
     }

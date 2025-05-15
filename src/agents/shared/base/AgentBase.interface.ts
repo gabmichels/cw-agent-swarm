@@ -2,7 +2,12 @@ import type { AgentStatus, AgentBaseConfig, AgentCapability } from './types';
 import type { DefaultSchedulerManager } from '../../../lib/agents/implementations/managers/DefaultSchedulerManager';
 import type { ManagersConfig } from './ManagersConfig.interface';
 import type { BaseManager } from './managers/BaseManager';
-import type { MemoryManager } from './managers/MemoryManager';
+import type { 
+  MemoryManager, 
+  MemoryEntry,
+  MemoryConsolidationResult,
+  MemoryPruningResult
+} from './managers/MemoryManager';
 import type { PlanningManager, PlanCreationOptions, PlanCreationResult, Plan, PlanExecutionResult } from './managers/PlanningManager.interface';
 import type { 
   ToolManager, 
@@ -28,15 +33,35 @@ import type {
 import { ManagerType } from './managers/ManagerType';
 
 export interface AgentBase {
+  getId(): string;
   getAgentId(): string;
+  getType(): string;
   getName(): string;
-  getConfig(): AgentBaseConfig;
-  updateConfig(config: Partial<AgentBaseConfig>): void;
+  getDescription(): string;
+  getVersion(): string;
+  getCapabilities(): Promise<string[]>;
+  getStatus(): { status: string; message?: string };
   initialize(): Promise<boolean>;
   shutdown(): Promise<void>;
-  registerManager<T extends BaseManager>(manager: T): T;
-  getManager<T extends BaseManager>(managerType: ManagerType): T | undefined;
+  reset(): Promise<void>;
+  registerTool(tool: Tool): Promise<Tool>;
+  unregisterTool(toolId: string): Promise<boolean>;
+  getTool(toolId: string): Promise<Tool | null>;
+  getTools(): Promise<Tool[]>;
+  setToolEnabled(toolId: string, enabled: boolean): Promise<Tool>;
+  getManager<T extends BaseManager>(type: ManagerType): T | null;
   getManagers(): BaseManager[];
+  setManager<T extends BaseManager>(manager: T): void;
+  removeManager(type: ManagerType): void;
+  hasManager(type: ManagerType): boolean;
+  createTask(options: Record<string, unknown>): Promise<TaskCreationResult>;
+  getTask(taskId: string): Promise<Record<string, unknown> | null>;
+  getTasks(): Promise<Record<string, unknown>[]>;
+  executeTask(taskId: string): Promise<TaskExecutionResult>;
+  cancelTask(taskId: string): Promise<boolean>;
+  retryTask(taskId: string): Promise<TaskExecutionResult>;
+  getConfig(): Record<string, unknown>;
+  updateConfig(config: Record<string, unknown>): void;
   isEnabled(): boolean;
   setEnabled(enabled: boolean): boolean;
   hasCapability(capabilityId: string): boolean;
@@ -55,11 +80,11 @@ export interface AgentBase {
   shutdownManagers(): Promise<void>;
   
   // Memory Manager delegations
-  addMemory(content: string, metadata: Record<string, unknown>): Promise<unknown>;
-  searchMemories(query: string, options: Record<string, unknown>): Promise<unknown[]>;
-  getRecentMemories(limit: number): Promise<unknown[]>;
-  consolidateMemories(): Promise<void>;
-  pruneMemories(): Promise<void>;
+  addMemory(content: string, metadata: Record<string, unknown>): Promise<MemoryEntry>;
+  searchMemories(query: string, options: Record<string, unknown>): Promise<MemoryEntry[]>;
+  getRecentMemories(limit: number): Promise<MemoryEntry[]>;
+  consolidateMemories(): Promise<MemoryConsolidationResult>;
+  pruneMemories(): Promise<MemoryPruningResult>;
   
   // Planning Manager delegations
   createPlan(options: PlanCreationOptions): Promise<PlanCreationResult>;
@@ -73,26 +98,6 @@ export interface AgentBase {
   optimizePlan(planId: string): Promise<Plan | null>;
 
   // Tool Manager delegations
-  registerTool(tool: Tool): Promise<Tool>;
-  unregisterTool(toolId: string): Promise<boolean>;
-  getTool(toolId: string): Promise<Tool | null>;
-  getTools(filter?: {
-    enabled?: boolean;
-    categories?: string[];
-    capabilities?: string[];
-    experimental?: boolean;
-  }): Promise<Tool[]>;
-  setToolEnabled(toolId: string, enabled: boolean): Promise<Tool>;
-  executeTool(
-    toolId: string,
-    params: unknown,
-    options?: {
-      context?: unknown;
-      timeoutMs?: number;
-      retries?: number;
-      useFallbacks?: boolean;
-    }
-  ): Promise<ToolExecutionResult>;
   getToolMetrics(toolId?: string): Promise<ToolUsageMetrics[]>;
   findBestToolForTask(taskDescription: string, context?: unknown): Promise<Tool | null>;
   
@@ -115,16 +120,11 @@ export interface AgentBase {
   getKnowledgeGap(id: string): Promise<KnowledgeGap | null>;
   
   // Scheduler Manager delegations
-  createTask(options: TaskCreationOptions): Promise<TaskCreationResult>;
-  getTask(taskId: string): Promise<ScheduledTask | null>;
   getAllTasks(): Promise<ScheduledTask[]>;
   updateTask(taskId: string, updates: Partial<ScheduledTask>): Promise<ScheduledTask | null>;
   deleteTask(taskId: string): Promise<boolean>;
-  executeTask(taskId: string): Promise<TaskExecutionResult>;
-  cancelTask(taskId: string): Promise<boolean>;
   getDueTasks(): Promise<ScheduledTask[]>;
   getRunningTasks(): Promise<ScheduledTask[]>;
   getPendingTasks(): Promise<ScheduledTask[]>;
   getFailedTasks(): Promise<ScheduledTask[]>;
-  retryTask(taskId: string): Promise<TaskExecutionResult>;
 } 

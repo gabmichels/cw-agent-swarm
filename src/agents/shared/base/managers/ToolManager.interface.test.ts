@@ -10,6 +10,7 @@ import { ToolManager, ToolManagerConfig, Tool } from './ToolManager.interface';
 import { BaseManager, AbstractBaseManager } from './BaseManager';
 import { AgentBase } from '../AgentBase.interface';
 import { ManagerType } from './ManagerType';
+import { ManagerHealth } from './ManagerHealth';
 
 describe('ToolManager interface', () => {
   // Type tests to ensure ToolManager extends BaseManager
@@ -61,12 +62,27 @@ describe('ToolManager interface', () => {
       }
       
       async initialize(): Promise<boolean> {
-        this.initialized = true;
+        this._initialized = true;
         return true;
       }
       
       async shutdown(): Promise<void> {
-        this.initialized = false;
+        this._initialized = false;
+      }
+
+      async getHealth(): Promise<ManagerHealth> {
+        return {
+          status: 'healthy',
+          message: 'Tool manager is healthy',
+          details: {
+            lastCheck: new Date(),
+            issues: []
+          }
+        };
+      }
+
+      getType(): ManagerType {
+        return ManagerType.TOOL;
       }
       
       async registerTool(tool: Tool): Promise<Tool> {

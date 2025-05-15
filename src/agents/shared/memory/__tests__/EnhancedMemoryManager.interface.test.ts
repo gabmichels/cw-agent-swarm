@@ -25,8 +25,11 @@ import {
 } from '../interfaces/MemoryVersionHistory.interface';
 import { CognitivePatternType, CognitiveReasoningType, MemoryAssociation, MemorySynthesis, MemoryReasoning, AssociationStrength } from '../interfaces/CognitiveMemory.interface';
 import { ConversationSummaryOptions, ConversationSummaryResult } from '../interfaces/ConversationSummarization.interface';
-import { AgentBase } from '../../../shared/base/AgentBase.interface';
-import { AbstractBaseManager } from '../../../shared/base/managers/BaseManager';
+import { AgentBase } from '../../base/AgentBase.interface';
+import { AbstractBaseManager, BaseManager, ManagerConfig } from '../../base/managers/BaseManager';
+import { ManagerType } from '../../base/managers/ManagerType';
+import { ManagerHealth } from '../../base/managers/ManagerHealth';
+import { EnhancedMemoryManager as EnhancedMemoryManagerImplementation } from '../managers/EnhancedMemoryManager';
 
 // Mock agent for testing
 const mockAgent: AgentBase = {
@@ -43,8 +46,42 @@ const mockAgent: AgentBase = {
 
 // Create mock for EnhancedMemoryManager with necessary interfaces
 class MockEnhancedMemoryManager extends AbstractBaseManager implements EnhancedMemoryManager {
+  protected _initialized = false;
+  protected readonly _id = 'mock-enhanced-memory-manager';
+  protected _config: EnhancedMemoryManagerConfig & ManagerConfig;
+  protected _enabled = true;
+
   constructor(config: EnhancedMemoryManagerConfig = { enabled: true }) {
-    super('mock-enhanced-memory-manager', 'memory', mockAgent, config);
+    const fullConfig: EnhancedMemoryManagerConfig & ManagerConfig = {
+      enableCognitiveMemory: true,
+      maxAssociationsPerMemory: 10,
+      enableConversationSummarization: true,
+      ...config
+    };
+    super('mock-enhanced-memory-manager', ManagerType.MEMORY, mockAgent, fullConfig);
+    this._config = fullConfig;
+  }
+  
+  getConfig<T extends ManagerConfig>(): T {
+    return this._config as T;
+  }
+
+  updateConfig<T extends ManagerConfig>(config: Partial<T>): T {
+    this._config = { ...this._config, ...config };
+    return this._config as T;
+  }
+
+  isEnabled(): boolean {
+    return this._enabled;
+  }
+
+  setEnabled(enabled: boolean): boolean {
+    this._enabled = enabled;
+    return this._enabled;
+  }
+
+  getAgent(): AgentBase {
+    return this.agent;
   }
   
   // Additional methods required by EnhancedMemoryManager interface
@@ -468,14 +505,39 @@ class MockEnhancedMemoryManager extends AbstractBaseManager implements EnhancedM
     }));
   }
   
-  // Override abstract methods from AbstractBaseManager
+  async getHealth(): Promise<ManagerHealth> {
+    return {
+      status: 'healthy',
+      details: {
+        lastCheck: new Date(),
+        issues: [],
+        metrics: {
+          memoryCount: 0,
+          associationCount: 0
+        }
+      }
+    };
+  }
+
+  getId(): string {
+    return this._id;
+  }
+
+  getType(): ManagerType {
+    return ManagerType.MEMORY;
+  }
+
+  isInitialized(): boolean {
+    return this._initialized;
+  }
+
   async initialize(): Promise<boolean> {
-    this.initialized = true;
+    this._initialized = true;
     return true;
   }
-  
+
   async shutdown(): Promise<void> {
-    this.initialized = false;
+    this._initialized = false;
   }
 }
 

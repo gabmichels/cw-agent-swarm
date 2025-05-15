@@ -6,151 +6,156 @@
  */
 
 import { ConfigSchema } from '../../../../lib/config/types';
-import { 
-  ReflectionManagerConfig, 
-  ImprovementAreaType 
-} from '../../../../lib/agents/base/managers/ReflectionManager';
+import { ReflectionManagerConfig } from '../../../../lib/agents/base/managers/ReflectionManager';
+import { ImprovementAreaType } from '../interfaces/SelfImprovement.interface';
+
+type ReflectionDepth = 'light' | 'standard' | 'deep';
 
 /**
  * Schema for reflection manager configuration
  */
-export const ReflectionManagerConfigSchema: ConfigSchema<ReflectionManagerConfig & Record<string, unknown>> = {
-  type: 'object',
-  properties: {
-    // Base manager options
-    enabled: {
-      type: 'boolean',
-      description: 'Whether this manager is enabled',
-      default: true
-    },
-    
-    // Reflection depth options
-    reflectionDepth: {
-      type: 'string',
-      enum: ['light', 'standard', 'deep'],
-      description: 'Depth/thoroughness level for reflections',
-      default: 'standard'
-    },
-    
-    // Reflection frequency settings
-    reflectionFrequency: {
-      type: 'object',
-      description: 'Settings for reflection frequency',
-      properties: {
-        interval: {
-          type: 'number',
-          description: 'How often to perform reflections (in ms)',
-          default: 3600000 // 1 hour
-        },
-        afterEachInteraction: {
-          type: 'boolean',
-          description: 'Whether to reflect after each interaction',
-          default: false
-        },
-        afterErrors: {
-          type: 'boolean',
-          description: 'Whether to reflect after errors',
-          default: true
-        },
-        minIntervalMs: {
-          type: 'number',
-          description: 'Minimum time between reflections (in ms)',
-          default: 60000 // 1 minute
-        }
+export const ReflectionManagerConfigSchema: ConfigSchema<ReflectionManagerConfig> = {
+  enabled: {
+    type: 'boolean',
+    required: true,
+    default: true,
+    description: 'Whether this manager is enabled'
+  },
+  
+  reflectionFrequency: {
+    type: 'object',
+    required: true,
+    properties: {
+      interval: {
+        type: 'number',
+        required: true,
+        default: 3600000, // 1 hour
+        description: 'How often to perform reflections (in ms)'
       },
-      default: {
-        interval: 3600000,
-        afterEachInteraction: false,
-        afterErrors: true,
-        minIntervalMs: 60000
+      afterEachInteraction: {
+        type: 'boolean',
+        required: true,
+        default: false,
+        description: 'Whether to reflect after each interaction'
+      },
+      afterErrors: {
+        type: 'boolean',
+        required: true,
+        default: true,
+        description: 'Whether to reflect after errors'
+      },
+      minIntervalMs: {
+        type: 'number',
+        required: true,
+        default: 60000, // 1 minute
+        description: 'Minimum time between reflections (in ms)'
       }
     },
-    
-    // Adaptive behavior options
-    adaptiveBehavior: {
-      type: 'boolean',
-      description: 'Whether to adapt behavior based on reflections',
-      default: true
-    },
-    
-    adaptationRate: {
-      type: 'number',
-      description: 'How aggressively to change behavior based on reflections (0-1)',
-      minimum: 0,
-      maximum: 1,
-      default: 0.3
-    },
-    
-    // Storage options
-    persistReflections: {
-      type: 'boolean',
-      description: 'Whether to persist reflections across sessions',
-      default: true
-    },
-    
-    maxHistoryItems: {
-      type: 'number',
-      description: 'Maximum reflection history items to maintain',
-      default: 100
-    },
-    
-    // Metrics to track
-    metricsToTrack: {
-      type: 'array',
-      description: 'Metrics to track for reflection',
-      items: {
-        type: 'string'
-      },
-      default: ['success', 'efficiency', 'satisfaction', 'errors']
-    },
-    
-    // Improvement goals
-    improvementGoals: {
-      type: 'array',
-      description: 'Self-improvement goals',
-      items: {
-        type: 'string'
-      },
-      default: []
-    },
-    
-    // Enhanced options
-    enablePeriodicReflections: {
-      type: 'boolean',
-      description: 'Whether to enable periodic reflections',
-      default: false
-    },
-    
-    periodicReflectionSchedule: {
-      type: 'string',
-      description: 'Default periodic reflection schedule (cron expression or interval)',
-      default: '0 0 * * *' // Daily at midnight
-    },
-    
-    enableSelfImprovement: {
-      type: 'boolean',
-      description: 'Whether to enable self-improvement capabilities',
-      default: false
-    },
-    
-    defaultImprovementAreas: {
-      type: 'array',
-      description: 'Default improvement areas to focus on',
-      items: {
-        type: 'string',
-        enum: ['knowledge', 'skill', 'strategy', 'behavior', 'tool', 'process']
-      },
-      default: ['knowledge', 'skill', 'behavior']
-    }
+    description: 'Settings for reflection frequency'
   },
-  required: ['enabled'],
-  additionalProperties: true
+  
+  reflectionDepth: {
+    type: 'enum',
+    enum: ['light', 'standard', 'deep'] as ReflectionDepth[],
+    required: true,
+    default: 'standard' as ReflectionDepth,
+    description: 'Depth/thoroughness level for reflections'
+  },
+  
+  maxHistoryItems: {
+    type: 'number',
+    required: true,
+    default: 100,
+    description: 'Maximum reflection history items to maintain'
+  },
+  
+  adaptiveBehavior: {
+    type: 'boolean',
+    required: true,
+    default: true,
+    description: 'Whether to adapt behavior based on reflections'
+  },
+  
+  adaptationRate: {
+    type: 'number',
+    required: true,
+    default: 0.3,
+    min: 0,
+    max: 1,
+    description: 'How aggressively to change behavior based on reflections (0-1)'
+  },
+  
+  metricsToTrack: {
+    type: 'array',
+    required: true,
+    items: {
+      type: 'string'
+    },
+    default: ['success', 'efficiency', 'satisfaction', 'errors'],
+    description: 'Metrics to track for reflection'
+  },
+  
+  improvementGoals: {
+    type: 'array',
+    required: true,
+    items: {
+      type: 'string'
+    },
+    default: [],
+    description: 'Self-improvement goals'
+  },
+  
+  persistReflections: {
+    type: 'boolean',
+    required: true,
+    default: true,
+    description: 'Whether to persist reflections across sessions'
+  },
+  
+  enablePeriodicReflections: {
+    type: 'boolean',
+    required: true,
+    default: false,
+    description: 'Whether to enable periodic reflections'
+  },
+  
+  periodicReflectionSchedule: {
+    type: 'string',
+    required: false,
+    default: '0 0 * * *', // Daily at midnight
+    description: 'Default periodic reflection schedule (cron expression or interval)'
+  },
+  
+  enableSelfImprovement: {
+    type: 'boolean',
+    required: true,
+    default: false,
+    description: 'Whether to enable self-improvement capabilities'
+  },
+  
+  defaultImprovementAreas: {
+    type: 'array',
+    required: false,
+    items: {
+      type: 'enum',
+      enum: [
+        ImprovementAreaType.KNOWLEDGE,
+        ImprovementAreaType.SKILL,
+        ImprovementAreaType.STRATEGY,
+        ImprovementAreaType.BEHAVIOR,
+        ImprovementAreaType.TOOL,
+        ImprovementAreaType.PROCESS
+      ]
+    },
+    default: [ImprovementAreaType.KNOWLEDGE, ImprovementAreaType.SKILL, ImprovementAreaType.BEHAVIOR],
+    description: 'Default improvement areas to focus on'
+  }
 };
 
 /**
  * Reflection manager configuration presets for different agent roles
  */
-export const ReflectionManagerPresets = {
+export const ReflectionManagerPresets: Record<string, Partial<ReflectionManagerConfig>> = {
   // Preset for agents focused on deep learning and improvement
   DEEP_LEARNER: {
     reflectionFrequency: {
@@ -159,7 +164,7 @@ export const ReflectionManagerPresets = {
       afterErrors: true,
       minIntervalMs: 60000     // 1 minute
     },
-    reflectionDepth: 'deep',
+    reflectionDepth: 'deep' as ReflectionDepth,
     maxHistoryItems: 500,
     adaptiveBehavior: true,
     adaptationRate: 0.4,
@@ -171,8 +176,8 @@ export const ReflectionManagerPresets = {
     defaultImprovementAreas: [
       ImprovementAreaType.KNOWLEDGE,
       ImprovementAreaType.SKILL,
-      ImprovementAreaType.PROCESS,
-      ImprovementAreaType.PERFORMANCE
+      ImprovementAreaType.STRATEGY,
+      ImprovementAreaType.TOOL
     ]
   },
   
@@ -184,7 +189,7 @@ export const ReflectionManagerPresets = {
       afterErrors: true,
       minIntervalMs: 300000    // 5 minutes
     },
-    reflectionDepth: 'light',
+    reflectionDepth: 'light' as ReflectionDepth,
     maxHistoryItems: 50,
     adaptiveBehavior: true,
     adaptationRate: 0.2,
@@ -194,8 +199,8 @@ export const ReflectionManagerPresets = {
     periodicReflectionSchedule: '0 0 * * *', // Once a day at midnight
     enableSelfImprovement: true,
     defaultImprovementAreas: [
-      ImprovementAreaType.PERFORMANCE,
-      ImprovementAreaType.COMMUNICATION
+      ImprovementAreaType.BEHAVIOR,
+      ImprovementAreaType.STRATEGY
     ]
   },
   
@@ -237,7 +242,7 @@ export const ReflectionManagerPresets = {
     enableSelfImprovement: true,
     defaultImprovementAreas: [
       ImprovementAreaType.PROCESS,
-      ImprovementAreaType.PERFORMANCE
+      ImprovementAreaType.STRATEGY
     ]
   },
   
@@ -258,15 +263,24 @@ export const ReflectionManagerPresets = {
     enablePeriodicReflections: true,
     periodicReflectionSchedule: '0 */2 * * *', // Every 2 hours
     enableSelfImprovement: true,
-    defaultImprovementAreas: Object.values(ImprovementAreaType)
+    defaultImprovementAreas: [
+      ImprovementAreaType.KNOWLEDGE,
+      ImprovementAreaType.SKILL,
+      ImprovementAreaType.STRATEGY,
+      ImprovementAreaType.BEHAVIOR,
+      ImprovementAreaType.TOOL,
+      ImprovementAreaType.PROCESS
+    ]
   }
 };
 
-// Type for preset keys
+/**
+ * Type for preset keys
+ */
 type ReflectionManagerPresetKey = keyof typeof ReflectionManagerPresets;
 
 /**
- * Factory function to create a reflection manager configuration with a preset
+ * Factory function to create a reflection manager configuration
  * @param preset Preset name or configuration object
  * @param overrides Configuration overrides
  * @returns The merged configuration
@@ -277,33 +291,32 @@ export function createReflectionManagerConfig(
 ): ReflectionManagerConfig {
   // Get the preset configuration
   const presetConfig = typeof preset === 'string'
-    ? ReflectionManagerPresets[preset as ReflectionManagerPresetKey]
+    ? ReflectionManagerPresets[preset]
     : preset;
   
   // Merge with base defaults and overrides
-  return {
+  const baseConfig: ReflectionManagerConfig = {
     enabled: true,
     reflectionFrequency: {
-      interval: 3600000,        // 1 hour
+      interval: 3600000, // 1 hour
       afterEachInteraction: false,
       afterErrors: true,
-      minIntervalMs: 60000      // 1 minute
+      minIntervalMs: 60000 // 1 minute
     },
-    reflectionDepth: 'standard',
+    reflectionDepth: 'standard' as ReflectionDepth,
     maxHistoryItems: 100,
     adaptiveBehavior: true,
     adaptationRate: 0.3,
     metricsToTrack: ['success', 'efficiency', 'satisfaction', 'errors'],
     improvementGoals: [],
     persistReflections: true,
-    enablePeriodicReflections: true,
-    periodicReflectionSchedule: '0 0 * * *', // Every day at midnight
-    enableSelfImprovement: true,
-    defaultImprovementAreas: [
-      ImprovementAreaType.KNOWLEDGE,
-      ImprovementAreaType.SKILL,
-      ImprovementAreaType.PROCESS
-    ],
+    enablePeriodicReflections: false,
+    enableSelfImprovement: false,
+    defaultImprovementAreas: []
+  };
+
+  return {
+    ...baseConfig,
     ...presetConfig,
     ...overrides
   } as ReflectionManagerConfig;

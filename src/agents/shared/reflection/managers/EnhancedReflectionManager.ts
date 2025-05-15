@@ -40,6 +40,7 @@ import {
   PeriodicTask
 } from '../../tasks/PeriodicTaskRunner.interface';
 import { DefaultPeriodicTaskRunner } from '../../tasks/DefaultPeriodicTaskRunner';
+import { ManagerHealth } from '../../base/managers/ManagerHealth';
 
 /**
  * Interface for periodic reflection tasks 
@@ -198,7 +199,7 @@ export class EnhancedReflectionManager extends AbstractBaseManager implements Re
       }
     }
     
-    this.initialized = true;
+    this._initialized = true;
     return true;
   }
   
@@ -223,7 +224,7 @@ export class EnhancedReflectionManager extends AbstractBaseManager implements Re
     // Call base shutdown
     await this.baseReflectionManager.shutdown();
     
-    this.initialized = false;
+    this._initialized = false;
   }
   
   /**
@@ -1045,7 +1046,7 @@ export class EnhancedReflectionManager extends AbstractBaseManager implements Re
       context?: Record<string, unknown>;
     }
   ): Promise<PeriodicReflectionTask> {
-    if (!this.initialized) {
+    if (!this._initialized) {
       throw new EnhancedReflectionError(
         'Cannot schedule reflection: Manager not initialized',
         'NOT_INITIALIZED'
@@ -1339,4 +1340,69 @@ export class EnhancedReflectionManager extends AbstractBaseManager implements Re
   }
   
   // #endregion Periodic reflection methods
+
+  /**
+   * Get manager health status
+   */
+  async getHealth(): Promise<ManagerHealth> {
+    if (!this._initialized) {
+      return {
+        status: 'degraded',
+        details: {
+          lastCheck: new Date(),
+          issues: [{
+            severity: 'high',
+            message: 'Enhanced reflection manager not initialized',
+            detectedAt: new Date()
+          }],
+          metrics: {}
+        }
+      };
+    }
+
+    // Get base manager health
+    const baseHealth = await this.baseReflectionManager.getHealth();
+    
+    // Get enhanced manager stats
+    const stats = await this.getStats();
+    const periodicTasks = await this.periodicTaskRunner.listPeriodicTasks();
+    const runningTasks = periodicTasks.filter(t => t.status === PeriodicTaskStatus.RUNNING);
+    const isRunning = runningTasks.length > 0;
+
+    // Combine issues and metrics
+    const issues = [
+      ...baseHealth.details.issues,
+      ...(this.config.enablePeriodicReflections && !isRunning ? [{
+        severity: 'medium' as const,
+        message: 'No periodic reflection tasks are currently running',
+        detectedAt: new Date()
+      }] : [])
+    ];
+
+    return {
+      status: issues.some(i => i.severity === 'critical') ? 'unhealthy' :
+             issues.some(i => i.severity === 'high') ? 'degraded' : 'healthy',
+      details: {
+        lastCheck: new Date(),
+        issues,
+        metrics: {
+          ...baseHealth.details.metrics,
+          ...stats,
+          periodicTasks: {
+            isRunning,
+            totalTasks: periodicTasks.length,
+            runningTasks: periodicTasks.filter(t => t.status === PeriodicTaskStatus.RUNNING).length,
+            pendingTasks: periodicTasks.filter(t => t.status === PeriodicTaskStatus.PENDING).length,
+            completedTasks: periodicTasks.filter(t => t.status === PeriodicTaskStatus.COMPLETED).length,
+            failedTasks: periodicTasks.filter(t => t.status === PeriodicTaskStatus.FAILED).length
+          },
+          selfImprovement: {
+            improvementPlans: this.improvementPlans.size,
+            learningActivities: this.learningActivities.size,
+            learningOutcomes: this.learningOutcomes.size
+          }
+        }
+      }
+    };
+  }
 } 

@@ -20,6 +20,7 @@ import { AbstractBaseManager } from '../../../../agents/shared/base/managers/Bas
 import { createConfigFactory } from '../../../../agents/shared/config';
 import { ToolManagerConfigSchema } from '../../../../agents/shared/tools/config/ToolManagerConfigSchema';
 import { ManagerType } from '../../../../agents/shared/base/managers/ManagerType';
+import { ManagerHealth } from '../../../../agents/shared/base/managers/ManagerHealth';
 
 /**
  * Error class for tool-related errors
@@ -50,10 +51,9 @@ export class DefaultToolManager extends AbstractBaseManager implements ToolManag
 
   /**
    * Type property accessor for compatibility with ToolManager
-   * Use _managerType from the parent class to avoid infinite recursion
    */
   get type(): string {
-    return this._managerType;
+    return this.managerType;
   }
 
   /**
@@ -63,18 +63,20 @@ export class DefaultToolManager extends AbstractBaseManager implements ToolManag
    * @param config - Configuration options
    */
   constructor(agent: AgentBase, config: Partial<ToolManagerConfig> = {}) {
-    super(
-      `tool-manager-${uuidv4()}`,
-      ManagerType.TOOL,
-      agent,
-      { enabled: true }
-    );
-    
-    // Validate and apply configuration with defaults
-    this.config = this.configFactory.create({
+    const managerId = `tool-manager-${uuidv4()}`;
+    const validatedConfig = createConfigFactory(ToolManagerConfigSchema).create({
       enabled: true,
+      enableToolValidation: true,
+      maxConcurrentTools: 5,
       ...config
     }) as ToolManagerConfig;
+
+    super(
+      managerId,
+      ManagerType.TOOL,
+      agent,
+      validatedConfig
+    );
   }
 
   /**
@@ -82,12 +84,13 @@ export class DefaultToolManager extends AbstractBaseManager implements ToolManag
    */
   updateConfig<T extends ToolManagerConfig>(config: Partial<T>): T {
     // Validate and merge configuration
-    this.config = this.configFactory.create({
-      ...this.config, 
+    const validatedConfig = this.configFactory.create({
+      ...this._config, 
       ...config
     }) as ToolManagerConfig;
     
-    return this.config as unknown as T;
+    this._config = validatedConfig;
+    return validatedConfig as T;
   }
 
   /**
@@ -96,8 +99,14 @@ export class DefaultToolManager extends AbstractBaseManager implements ToolManag
   async initialize(): Promise<boolean> {
     console.log(`[${this.managerId}] Initializing ${this.managerType} manager`);
     
+    const initialized = await super.initialize();
+    if (!initialized) {
+      return false;
+    }
+    
     // Initialize metrics for all registered tools
-    if (this.config.trackToolPerformance) {
+    const config = this.getConfig<ToolManagerConfig>();
+    if (config.trackToolPerformance) {
       // Convert to array to avoid iteration issues
       const toolEntries = Array.from(this.tools.entries());
       for (const [toolId, tool] of toolEntries) {
@@ -107,7 +116,6 @@ export class DefaultToolManager extends AbstractBaseManager implements ToolManag
       }
     }
     
-    this.initialized = true;
     return true;
   }
 
@@ -116,7 +124,7 @@ export class DefaultToolManager extends AbstractBaseManager implements ToolManag
    */
   async shutdown(): Promise<void> {
     console.log(`[${this.managerId}] Shutting down ${this.managerType} manager`);
-    this.initialized = false;
+    this._initialized = false;
   }
 
   /**
@@ -133,71 +141,45 @@ export class DefaultToolManager extends AbstractBaseManager implements ToolManag
   /**
    * Get manager health status
    */
-  async getHealth(): Promise<{
-    status: 'healthy' | 'degraded' | 'unhealthy';
-    message?: string;
-    metrics?: Record<string, unknown>;
-  }> {
-    if (!this.initialized) {
+  async getHealth(): Promise<ManagerHealth> {
+    if (!this._initialized) {
       return {
         status: 'degraded',
-        message: 'Tool manager not initialized'
+        details: {
+          lastCheck: new Date(),
+          issues: [{
+            severity: 'high',
+            message: 'Tool manager not initialized',
+            detectedAt: new Date()
+          }],
+          metrics: {}
+        }
       };
     }
 
-    const enabledTools = Array.from(this.tools.values()).filter(tool => tool.enabled).length;
-    const totalTools = this.tools.size;
-    
     const stats = await this.getStats();
     
-    // Check if there are critical issues
     if (!this.isEnabled()) {
       return {
         status: 'unhealthy',
-        message: 'Tool manager is disabled',
-        metrics: {
-          totalTools,
-          enabledTools,
-          successRate: stats.overallSuccessRate,
-          executionStats: {
-            totalExecutions: stats.totalExecutions,
-            successfulExecutions: stats.successfulExecutions,
-            failedExecutions: stats.failedExecutions
-          }
+        details: {
+          lastCheck: new Date(),
+          issues: [{
+            severity: 'critical',
+            message: 'Tool manager is disabled',
+            detectedAt: new Date()
+          }],
+          metrics: stats
         }
       };
     }
-    
-    // Degraded if less than 50% success rate
-    if (stats.overallSuccessRate < 0.5 && stats.totalExecutions > 10) {
-      return {
-        status: 'degraded',
-        message: 'Tool execution success rate is low',
-        metrics: {
-          totalTools,
-          enabledTools,
-          successRate: stats.overallSuccessRate,
-          executionStats: {
-            totalExecutions: stats.totalExecutions,
-            successfulExecutions: stats.successfulExecutions,
-            failedExecutions: stats.failedExecutions
-          }
-        }
-      };
-    }
-    
+
     return {
       status: 'healthy',
-      message: 'Tool manager is healthy',
-      metrics: {
-        totalTools,
-        enabledTools,
-        successRate: stats.overallSuccessRate,
-        executionStats: {
-          totalExecutions: stats.totalExecutions,
-          successfulExecutions: stats.successfulExecutions,
-          failedExecutions: stats.failedExecutions
-        }
+      details: {
+        lastCheck: new Date(),
+        issues: [],
+        metrics: stats
       }
     };
   }
@@ -206,6 +188,13 @@ export class DefaultToolManager extends AbstractBaseManager implements ToolManag
    * Register a new tool
    */
   async registerTool(tool: Tool): Promise<Tool> {
+    if (!this._initialized) {
+      throw new ToolError(
+        'Tool manager not initialized',
+        'NOT_INITIALIZED'
+      );
+    }
+
     if (this.tools.has(tool.id)) {
       throw new ToolError(
         `Tool with ID ${tool.id} already exists`,
@@ -228,7 +217,8 @@ export class DefaultToolManager extends AbstractBaseManager implements ToolManag
     this.tools.set(tool.id, validatedTool);
     
     // Initialize metrics for this tool
-    if (this.config.trackToolPerformance && !this.metrics.has(tool.id)) {
+    const config = this.getConfig<ToolManagerConfig>();
+    if (config.trackToolPerformance && !this.metrics.has(tool.id)) {
       this.initializeToolMetrics(tool.id, tool.name);
     }
     
@@ -634,68 +624,22 @@ export class DefaultToolManager extends AbstractBaseManager implements ToolManag
    */
   async getStats(): Promise<{
     totalTools: number;
-    enabledTools: number;
-    disabledTools: number;
-    totalExecutions: number;
-    successfulExecutions: number;
-    failedExecutions: number;
-    overallSuccessRate: number;
-    avgExecutionTimeMs: number;
-    mostUsedTools: Array<{
-      toolId: string;
-      name: string;
-      executionCount: number;
-    }>;
-    fallbackRules: number;
-    fallbacksTriggered: number;
+    toolsByType: Record<string, number>;
+    avgToolHealth: number;
+    lastHealthCheck?: Date;
   }> {
-    const allTools = Array.from(this.tools.values());
-    const enabledTools = allTools.filter(tool => tool.enabled).length;
-    const disabledTools = allTools.length - enabledTools;
-    
-    let totalExecutions = 0;
-    let successfulExecutions = 0;
-    let totalExecutionTime = 0;
-    const executionCounts: Array<{ toolId: string; name: string; executionCount: number }> = [];
-    
-    for (const [toolId, metrics] of Array.from(this.metrics.entries())) {
-      totalExecutions += metrics.totalExecutions;
-      successfulExecutions += metrics.successfulExecutions;
-      totalExecutionTime += metrics.avgDurationMs * metrics.totalExecutions;
-      
-      const tool = this.tools.get(toolId);
-      if (tool && metrics.totalExecutions > 0) {
-        executionCounts.push({
-          toolId,
-          name: tool.name,
-          executionCount: metrics.totalExecutions
-        });
-      }
-    }
-    
-    // Sort by execution count, descending
-    executionCounts.sort((a, b) => b.executionCount - a.executionCount);
-    
-    const failedExecutions = totalExecutions - successfulExecutions;
-    const overallSuccessRate = totalExecutions > 0 
-      ? successfulExecutions / totalExecutions 
-      : 0;
-    const avgExecutionTimeMs = totalExecutions > 0 
-      ? totalExecutionTime / totalExecutions 
-      : 0;
-    
+    const tools = Array.from(this.tools.values());
+    const toolsByType = tools.reduce((acc, tool) => {
+      const type = typeof tool;
+      acc[type] = (acc[type] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+
     return {
-      totalTools: allTools.length,
-      enabledTools,
-      disabledTools,
-      totalExecutions,
-      successfulExecutions,
-      failedExecutions,
-      overallSuccessRate,
-      avgExecutionTimeMs,
-      mostUsedTools: executionCounts.slice(0, 5), // Top 5 most used tools
-      fallbackRules: this.fallbackRules.size,
-      fallbacksTriggered: 0 // To be implemented with fallback tracking
+      totalTools: tools.length,
+      toolsByType,
+      avgToolHealth: 1.0, // TODO: Implement tool health tracking
+      lastHealthCheck: new Date()
     };
   }
 
@@ -903,6 +847,6 @@ export class DefaultToolManager extends AbstractBaseManager implements ToolManag
    * Check if the manager is initialized
    */
   public isInitialized(): boolean {
-    return this.initialized;
+    return this._initialized;
   }
 } 

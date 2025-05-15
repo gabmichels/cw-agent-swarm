@@ -1,17 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { KnowledgeGraph } from '../../../../lib/knowledge/KnowledgeGraph';
+import { KnowledgeGraphManager } from '../../../../lib/agents/implementations/memory/KnowledgeGraphManager';
 import { SemanticSearchService } from '../../../../lib/knowledge/SemanticSearchService';
 import { logger } from '../../../../lib/logging';
+import { KnowledgeNodeType } from '../../../../lib/agents/shared/memory/types';
 
-let knowledgeGraph: KnowledgeGraph | null = null;
+let graphManager: KnowledgeGraphManager | null = null;
 let searchService: SemanticSearchService | null = null;
 
-function getSearchService(domain: string = 'marketing'): SemanticSearchService {
+async function getSearchService(): Promise<SemanticSearchService> {
   if (!searchService) {
-    if (!knowledgeGraph) {
-      knowledgeGraph = new KnowledgeGraph(domain);
+    if (!graphManager) {
+      graphManager = new KnowledgeGraphManager();
+      await graphManager.initialize();
     }
-    searchService = new SemanticSearchService(knowledgeGraph);
+    searchService = new SemanticSearchService(graphManager);
   }
   return searchService;
 }
@@ -22,8 +24,7 @@ function getSearchService(domain: string = 'marketing'): SemanticSearchService {
  * Query parameters:
  * - q: search query (required)
  * - limit: max number of results (default: 10)
- * - types: comma-separated list of item types to search (concept,principle,framework,research)
- * - categories: comma-separated list of categories/domains to filter by
+ * - types: comma-separated list of node types to search
  * - threshold: minimum relevance score threshold (0-1, default: 0.6)
  * - augment: whether to augment the query with domain knowledge (default: false)
  */
@@ -43,11 +44,10 @@ export async function GET(request: NextRequest) {
     const threshold = parseFloat(searchParams.get('threshold') || '0.6');
     const augment = searchParams.get('augment') === 'true';
     
-    // Parse types and categories from query params
-    const types = searchParams.get('types')?.split(',').filter(Boolean) as any[] || undefined;
-    const categories = searchParams.get('categories')?.split(',').filter(Boolean) || undefined;
+    // Parse types from query params
+    const types = searchParams.get('types')?.split(',').filter(Boolean) as KnowledgeNodeType[] || undefined;
     
-    const searchService = getSearchService();
+    const searchService = await getSearchService();
     
     // Apply query augmentation if requested
     let finalQuery = query;
@@ -55,8 +55,7 @@ export async function GET(request: NextRequest) {
     
     if (augment) {
       const { augmentedQuery, usedItems } = await searchService.augmentQuery(query, {
-        types,
-        categories,
+        types
       });
       finalQuery = augmentedQuery;
       augmentationInfo = {
@@ -64,8 +63,9 @@ export async function GET(request: NextRequest) {
         augmentedQuery: finalQuery,
         usedItems: usedItems.map(item => ({
           id: item.id,
-          name: item.name || item.title,
-          type: item._type
+          label: item.label,
+          type: item.type,
+          description: item.description
         }))
       };
     }
@@ -74,7 +74,6 @@ export async function GET(request: NextRequest) {
     const results = await searchService.searchKnowledge(finalQuery, {
       limit,
       types,
-      categories,
       threshold
     });
     
@@ -85,12 +84,11 @@ export async function GET(request: NextRequest) {
       augmentation: augmentationInfo,
       results: results.map(result => ({
         id: result.item.id,
-        name: result.item.name || result.item.title,
-        type: result.item._type,
+        label: result.item.label,
+        type: result.item.type,
+        description: result.item.description,
         score: result.score,
-        highlights: result.highlights,
-        // Include a preview of the content depending on item type
-        preview: result.item.description || result.item.content?.substring(0, 150) || ''
+        highlights: result.highlights
       }))
     });
     
@@ -107,8 +105,8 @@ export async function GET(request: NextRequest) {
  * Record relevance feedback for search results
  * 
  * Body:
- * - itemId: ID of the knowledge item
- * - isRelevant: whether the item was relevant to the query
+ * - itemId: ID of the knowledge node
+ * - isRelevant: whether the node was relevant to the query
  * - userQuery: the original search query
  * - explanation: optional user feedback explanation
  */
@@ -124,7 +122,7 @@ export async function POST(request: NextRequest) {
       );
     }
     
-    const searchService = getSearchService();
+    const searchService = await getSearchService();
     const success = await searchService.recordRelevanceFeedback({
       itemId,
       isRelevant,
@@ -133,7 +131,7 @@ export async function POST(request: NextRequest) {
     });
     
     if (success) {
-      logger.info(`Recorded relevance feedback for item ${itemId}: ${isRelevant ? 'relevant' : 'not relevant'}`);
+      logger.info(`Recorded relevance feedback for node ${itemId}: ${isRelevant ? 'relevant' : 'not relevant'}`);
       return NextResponse.json({ success: true });
     } else {
       return NextResponse.json(

@@ -1,5 +1,5 @@
 import { OpenAI } from 'openai';
-import { KnowledgeGraph } from '../KnowledgeGraph';
+import { KnowledgeGraphManager } from '../../agents/implementations/memory/KnowledgeGraphManager';
 import { SemanticSearchService } from '../SemanticSearchService';
 import { logger } from '../../logging';
 import { v4 as uuidv4 } from 'uuid';
@@ -59,14 +59,14 @@ export interface GapAnalysisOptions {
  * Implements Milestone 5.2: Knowledge Gaps Identification
  */
 export class KnowledgeGapsService {
-  private knowledgeGraph: KnowledgeGraph;
+  private graphManager: KnowledgeGraphManager;
   private searchService: SemanticSearchService;
   private knowledgeGaps: Map<string, KnowledgeGap> = new Map();
   private learningPriorities: Map<string, LearningPriority> = new Map();
   private dataDir: string;
 
-  constructor(knowledgeGraph: KnowledgeGraph, searchService: SemanticSearchService, dataDir?: string) {
-    this.knowledgeGraph = knowledgeGraph;
+  constructor(graphManager: KnowledgeGraphManager, searchService: SemanticSearchService, dataDir?: string) {
+    this.graphManager = graphManager;
     this.searchService = searchService;
     this.dataDir = dataDir || path.join(process.cwd(), 'data', 'knowledge-gaps');
     this.ensureDirectoryExists();
@@ -154,7 +154,7 @@ export class KnowledgeGapsService {
         messages: [
           {
             role: "system",
-            content: `You are a knowledge gap analyzer for a ${this.knowledgeGraph.getDomain()} knowledge graph. 
+            content: `You are a knowledge gap analyzer for a knowledge graph. 
 Your task is to identify potential gaps in knowledge based on the conversation.
 Look for:
 1. Questions the AI couldn't answer well or expressed uncertainty about
@@ -200,32 +200,24 @@ Analyze the conversation and return a JSON array of knowledge gaps, with each ga
       // Check if these gaps are actually covered in our knowledge graph
       const validatedGaps = await this.validateKnowledgeGaps(filteredGaps);
 
-      // Convert to KnowledgeGap objects and store them
-      const knowledgeGaps = validatedGaps.map(gap => {
-        const existingGap = this.findSimilarGap(gap.topic);
-        
-        if (existingGap) {
+      // Create knowledge gap objects
+      const newGaps: KnowledgeGap[] = [];
+
+      for (const gap of validatedGaps) {
+        // Check for similar existing gaps
+        const similarGap = this.findSimilarGap(gap.topic);
+
+        if (similarGap) {
           // Update existing gap
-          existingGap.frequency += 1;
-          existingGap.importance = Math.max(existingGap.importance, gap.importance);
-          existingGap.confidence = Math.max(existingGap.confidence, gap.confidence);
-          existingGap.updatedAt = new Date().toISOString();
-          
-          // Add new related queries if they don't already exist
-          gap.relatedQueries.forEach((query: string) => {
-            if (!existingGap.relatedQueries.includes(query)) {
-              existingGap.relatedQueries.push(query);
-            }
-          });
-          
-          // Add new suggested actions if they don't already exist
-          gap.suggestedActions.forEach((action: string) => {
-            if (!existingGap.suggestedActions.includes(action)) {
-              existingGap.suggestedActions.push(action);
-            }
-          });
-          
-          return existingGap;
+          similarGap.frequency += 1;
+          similarGap.updatedAt = new Date().toISOString();
+          if (gap.confidence > similarGap.confidence) {
+            similarGap.confidence = gap.confidence;
+            similarGap.description = gap.description;
+            similarGap.suggestedActions = gap.suggestedActions;
+            similarGap.relatedQueries = gap.relatedQueries;
+          }
+          newGaps.push(similarGap);
         } else {
           // Create new gap
           const newGap: KnowledgeGap = {
@@ -237,24 +229,20 @@ Analyze the conversation and return a JSON array of knowledge gaps, with each ga
             importance: gap.importance,
             suggestedActions: gap.suggestedActions,
             relatedQueries: gap.relatedQueries,
-            category: gap.category,
+            category: gap.category || options.category || 'general',
             status: 'new',
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString()
           };
-          
           this.knowledgeGaps.set(newGap.id, newGap);
-          return newGap;
+          newGaps.push(newGap);
         }
-      });
+      }
 
-      // Save after updates
+      // Save changes
       await this.save();
-      
-      // Generate learning priorities for new gaps
-      await this.generateLearningPriorities();
 
-      return knowledgeGaps;
+      return newGaps;
     } catch (error) {
       logger.error(`Error analyzing conversation for knowledge gaps: ${error}`);
       return [];
@@ -262,30 +250,28 @@ Analyze the conversation and return a JSON array of knowledge gaps, with each ga
   }
 
   /**
-   * Validate knowledge gaps against the existing knowledge graph
-   * to ensure they're actually gaps and not covered knowledge
+   * Validate potential knowledge gaps against the knowledge graph
    */
   private async validateKnowledgeGaps(potentialGaps: any[]): Promise<any[]> {
     const validatedGaps = [];
-    
+
     for (const gap of potentialGaps) {
-      // Use semantic search to see if this topic is already covered
-      const searchResults = await this.searchService.searchKnowledge(
-        gap.topic,
-        { threshold: 0.75, limit: 5 }
-      );
-      
-      // Check if any results are highly relevant to this topic
-      const isKnowledgeCovered = searchResults.some(result => result.score > 0.85);
-      
-      if (!isKnowledgeCovered) {
-        // This is a real knowledge gap
+      // Search for related nodes in the knowledge graph
+      const searchResults = await this.searchService.searchKnowledge(gap.topic, {
+        threshold: 0.7,
+        limit: 5
+      });
+
+      // If we find highly relevant content, this might not be a real gap
+      const hasRelevantContent = searchResults.some(result => result.score > 0.8);
+
+      if (!hasRelevantContent) {
         validatedGaps.push(gap);
       } else {
-        logger.info(`Filtered out potential knowledge gap "${gap.topic}" as it's already covered in the knowledge graph`);
+        logger.info(`Filtered out potential gap "${gap.topic}" as relevant content exists`);
       }
     }
-    
+
     return validatedGaps;
   }
 

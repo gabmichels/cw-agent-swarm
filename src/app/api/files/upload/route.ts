@@ -3,6 +3,8 @@ import { writeFile } from 'fs/promises';
 import { join } from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { AgentService } from '../../../../services/AgentService';
+import { FileProcessingManager } from '../../../../lib/agents/implementations/managers/FileProcessingManager';
+import { AgentBase } from '../../../../agents/shared/base/AgentBase.interface';
 
 export const runtime = 'nodejs';
 
@@ -11,7 +13,7 @@ export async function POST(request: NextRequest) {
     // Parse FormData
     const data = await request.formData();
     const file = data.get('file') as File;
-    const agentId = data.get('agentId') as string || 'chloe';
+    const agentId = data.get('agentId') as string || 'default';
     
     if (!file) {
       return NextResponse.json(
@@ -21,13 +23,16 @@ export async function POST(request: NextRequest) {
     }
     
     // Get the agent
-    const agent = await AgentService.getAgent(agentId);
+    const agentProfile = await AgentService.getAgent(agentId);
     
-    if (!agent) {
+    if (!agentProfile) {
       return NextResponse.json({ 
         error: `Agent with ID ${agentId} not found` 
       }, { status: 404 });
     }
+
+    // Cast to AgentBase
+    const agent = agentProfile as unknown as AgentBase;
     
     // Generate a unique filename
     const bytes = await file.arrayBuffer();
@@ -45,10 +50,14 @@ export async function POST(request: NextRequest) {
     // Save the file
     await writeFile(filePath, buffer);
     
-    // Process the file with the agent if it has the processUploadedFile method
+    // Process the file using the FileProcessingManager
     let processingResult = null;
-    if (typeof agent.processUploadedFile === 'function') {
-      processingResult = await agent.processUploadedFile(filePath, file.name);
+    try {
+      const fileProcessor = new FileProcessingManager(agent);
+      await fileProcessor.initialize();
+      processingResult = await fileProcessor.processFile(filePath, file.name);
+    } catch (error) {
+      console.error('Error processing file:', error);
     }
     
     return NextResponse.json({

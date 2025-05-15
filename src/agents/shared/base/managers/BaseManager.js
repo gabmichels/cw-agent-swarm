@@ -1,26 +1,11 @@
 "use strict";
 /**
- * Base Manager Interface
+ * Base Manager Interface and Implementation
  *
- * This file defines the base manager interface that all specialized
- * agent managers extend from. It provides core functionality common
- * to all manager types.
+ * This file defines the base manager interface and abstract implementation
+ * that all specialized agent managers extend from. It provides core functionality
+ * common to all manager types.
  */
-var __extends = (this && this.__extends) || (function () {
-    var extendStatics = function (d, b) {
-        extendStatics = Object.setPrototypeOf ||
-            ({ __proto__: [] } instanceof Array && function (d, b) { d.__proto__ = b; }) ||
-            function (d, b) { for (var p in b) if (Object.prototype.hasOwnProperty.call(b, p)) d[p] = b[p]; };
-        return extendStatics(d, b);
-    };
-    return function (d, b) {
-        if (typeof b !== "function" && b !== null)
-            throw new TypeError("Class extends value " + String(b) + " is not a constructor or null");
-        extendStatics(d, b);
-        function __() { this.constructor = d; }
-        d.prototype = b === null ? Object.create(b) : (__.prototype = b.prototype, new __());
-    };
-})();
 var __assign = (this && this.__assign) || function () {
     __assign = Object.assign || function(t) {
         for (var s, i = 1, n = arguments.length; i < n; i++) {
@@ -69,146 +54,59 @@ var __generator = (this && this.__generator) || function (thisArg, body) {
     }
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.AbstractBaseManager = exports.BaseManager = void 0;
+exports.AbstractBaseManager = void 0;
 /**
- * BaseManager.ts - Base manager implementation
- *
- * This file provides the base manager implementation that all managers should extend.
+ * Abstract base manager implementation that provides common functionality
  */
-var BaseManager = /** @class */ (function () {
-    function BaseManager(agent, type) {
-        this.initialized = false;
+var AbstractBaseManager = /** @class */ (function () {
+    function AbstractBaseManager(managerId, managerType, agent, config) {
+        this.managerId = managerId;
+        this.managerType = managerType;
         this.agent = agent;
-        this._managerType = type;
+        this._config = config;
+        this._initialized = false;
     }
-    BaseManager.prototype.getType = function () {
-        return this._managerType;
+    AbstractBaseManager.prototype.getConfig = function () {
+        return this._config;
     };
-    BaseManager.prototype.isInitialized = function () {
-        return this.initialized;
+    AbstractBaseManager.prototype.updateConfig = function (config) {
+        this._config = __assign(__assign({}, this._config), config);
+        return this._config;
     };
-    BaseManager.prototype.getAgent = function () {
+    AbstractBaseManager.prototype.getAgent = function () {
         return this.agent;
     };
-    return BaseManager;
-}());
-exports.BaseManager = BaseManager;
-/**
- * Abstract implementation of the BaseManager interface
- * Provides common functionality for concrete manager implementations
- */
-var AbstractBaseManager = /** @class */ (function (_super) {
-    __extends(AbstractBaseManager, _super);
-    /**
-     * Create a new manager instance
-     * @param managerId Unique ID for this manager
-     * @param managerType Type of manager
-     * @param agent The agent this manager belongs to
-     * @param config Manager configuration
-     */
-    function AbstractBaseManager(managerId, managerType, agent, config) {
-        var _a;
-        var _this = _super.call(this, agent, managerType) || this;
-        /** Whether the manager is initialized */
-        _this.initialized = false;
-        _this.managerId = managerId;
-        _this.managerType = managerType;
-        _this.config = __assign(__assign({}, config), { enabled: (_a = config.enabled) !== null && _a !== void 0 ? _a : true });
-        return _this;
-    }
-    /**
-     * Get the manager's unique identifier
-     */
-    AbstractBaseManager.prototype.getId = function () {
-        return this.managerId;
+    AbstractBaseManager.prototype.initialize = function () {
+        return __awaiter(this, void 0, void 0, function () {
+            return __generator(this, function (_a) {
+                this._initialized = true;
+                return [2 /*return*/, true];
+            });
+        });
     };
-    /**
-     * Get the manager's type
-     */
-    AbstractBaseManager.prototype.getType = function () {
-        return this.managerType;
+    AbstractBaseManager.prototype.shutdown = function () {
+        return __awaiter(this, void 0, void 0, function () {
+            return __generator(this, function (_a) {
+                this._initialized = false;
+                return [2 /*return*/];
+            });
+        });
     };
-    /**
-     * Get the manager's configuration
-     */
-    AbstractBaseManager.prototype.getConfig = function () {
-        return this.config;
-    };
-    /**
-     * Update the manager configuration
-     */
-    AbstractBaseManager.prototype.updateConfig = function (config) {
-        this.config = __assign(__assign({}, this.config), config);
-        return this.config;
-    };
-    /**
-     * Check if the manager is initialized
-     */
-    AbstractBaseManager.prototype.isInitialized = function () {
-        return this.initialized;
-    };
-    /**
-     * Check if the manager is enabled
-     */
     AbstractBaseManager.prototype.isEnabled = function () {
-        return this.config.enabled;
+        return this._config.enabled;
     };
-    /**
-     * Enable or disable the manager
-     */
     AbstractBaseManager.prototype.setEnabled = function (enabled) {
-        var wasEnabled = this.config.enabled;
-        this.config.enabled = enabled;
-        return wasEnabled !== enabled; // Return true if state changed
+        this._config.enabled = enabled;
+        return enabled;
     };
-    /**
-     * Reset the manager to its initial state
-     */
     AbstractBaseManager.prototype.reset = function () {
         return __awaiter(this, void 0, void 0, function () {
-            var success;
             return __generator(this, function (_a) {
-                switch (_a.label) {
-                    case 0: return [4 /*yield*/, this.shutdown()];
-                    case 1:
-                        _a.sent();
-                        return [4 /*yield*/, this.initialize()];
-                    case 2:
-                        success = _a.sent();
-                        return [2 /*return*/, success];
-                }
-            });
-        });
-    };
-    /**
-     * Get manager status information
-     */
-    AbstractBaseManager.prototype.getStatus = function () {
-        return __awaiter(this, void 0, void 0, function () {
-            return __generator(this, function (_a) {
-                return [2 /*return*/, {
-                        id: this.managerId,
-                        type: this.managerType,
-                        enabled: this.isEnabled(),
-                        initialized: this.isInitialized()
-                    }];
-            });
-        });
-    };
-    /**
-     * Get manager health status
-     * @returns The current health status
-     */
-    AbstractBaseManager.prototype.getHealth = function () {
-        return __awaiter(this, void 0, void 0, function () {
-            return __generator(this, function (_a) {
-                return [2 /*return*/, {
-                        status: 'healthy',
-                        message: "".concat(this.managerType, " manager is healthy")
-                    }];
+                this._initialized = false;
+                return [2 /*return*/, true];
             });
         });
     };
     return AbstractBaseManager;
-}(BaseManager));
+}());
 exports.AbstractBaseManager = AbstractBaseManager;

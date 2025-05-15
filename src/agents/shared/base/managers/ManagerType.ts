@@ -14,5 +14,8 @@ export enum ManagerType {
   SCHEDULER = 'scheduler',
   INPUT = 'input',
   OUTPUT = 'output',
-  AUTONOMY = 'autonomy'
+  AUTONOMY = 'autonomy',
+  MESSAGING = 'messaging',
+  LOGGER = 'logger',
+  FILE_PROCESSING = 'file_processing'
 } 

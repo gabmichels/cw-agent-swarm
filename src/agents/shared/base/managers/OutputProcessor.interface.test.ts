@@ -5,7 +5,7 @@
  * and ensure proper implementation by concrete classes.
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { 
   OutputProcessor, 
   OutputProcessorConfig, 
@@ -16,80 +16,38 @@ import {
   OutputValidationResult
 } from './OutputProcessor.interface';
 import { ManagerType } from './ManagerType';
-import { BaseManager } from './BaseManager';
+import { BaseManager, AbstractBaseManager } from './BaseManager';
+import { ManagerHealth } from './ManagerHealth';
+import { AgentBase } from '../AgentBase.interface';
 
 // Mock implementation of the OutputProcessor interface for testing
-// @ts-ignore - Intentionally not implementing all BaseManager properties for testing
-class MockOutputProcessor implements OutputProcessor {
-  managerId: string;
-  managerType: ManagerType;
-  config: OutputProcessorConfig;
-  initialized: boolean;
+class MockOutputProcessor extends AbstractBaseManager implements OutputProcessor {
   private history: ProcessedOutput[] = [];
   private templates: Map<string, OutputTemplate> = new Map();
   private processorSteps: Map<string, OutputProcessorStep> = new Map();
 
   constructor() {
-    this.managerId = 'mock-output-processor-123';
-    this.managerType = ManagerType.OUTPUT;
-    this.config = {
-      enabled: true
-    };
-    this.initialized = false;
-  }
-
-  getId(): string {
-    return this.managerId;
-  }
-
-  getType(): ManagerType {
-    return this.managerType;
-  }
-
-  getAgent(): any {
-    return null;
+    super('mock-output-processor-123', ManagerType.OUTPUT, {} as AgentBase, { enabled: true });
   }
 
   async initialize(): Promise<boolean> {
-    this.initialized = true;
-    return true;
-  }
-
-  isEnabled(): boolean {
-    return this.config.enabled;
-  }
-
-  setEnabled(enabled: boolean): boolean {
-    this.config.enabled = enabled;
+    this._initialized = true;
     return true;
   }
 
   async shutdown(): Promise<void> {
-    // Shutdown implementation
+    this._initialized = false;
   }
 
-  async reset(): Promise<boolean> {
-    return true;
-  }
-
-  async getHealth(): Promise<{
-    status: 'healthy' | 'degraded' | 'unhealthy';
-    message?: string;
-    metrics?: Record<string, unknown>;
-  }> {
+  async getHealth(): Promise<ManagerHealth> {
     return {
       status: 'healthy',
-      message: 'Output processor is healthy'
+      details: {
+        lastCheck: new Date(),
+        issues: [],
+        metrics: {}
+      }
     };
-  }
-
-  getConfig<T extends OutputProcessorConfig>(): T {
-    return this.config as T;
-  }
-
-  updateConfig<T extends OutputProcessorConfig>(config: Partial<T>): T {
-    this.config = { ...this.config, ...config };
-    return this.config as T;
   }
 
   async processOutput(
@@ -102,7 +60,7 @@ class MockOutputProcessor implements OutputProcessor {
   ): Promise<ProcessedOutput> {
     return {
       originalMessage: message,
-      processedContent: message.content,
+      processedContent: message.content as string,
       wasModified: false,
       appliedProcessingSteps: [],
       processingMetadata: {
@@ -147,28 +105,32 @@ class MockOutputProcessor implements OutputProcessor {
     }
   ): Promise<OutputMessage> {
     return {
-      id: 'msg-123',
+      id: 'test-message',
+      content,
       recipientId,
       timestamp: new Date(),
-      content,
-      modality: options?.modality || 'text'
+      modality: options?.modality || 'text',
+      context: options?.context,
+      attachments: options?.attachments?.map(att => ({
+        id: `att-${Date.now()}`,
+        type: att.type,
+        data: att.data,
+        metadata: {}
+      })) || [],
+      tags: options?.tags || []
     };
   }
 
   async setProcessorStepEnabled(stepId: string, enabled: boolean): Promise<OutputProcessorStep> {
-    const step = this.processorSteps.get(stepId);
-    if (!step) {
-      throw new Error(`Step not found: ${stepId}`);
-    }
+    const step = await this.getProcessorStep(stepId);
+    if (!step) throw new Error(`Step ${stepId} not found`);
     step.enabled = enabled;
     return step;
   }
 
   async setProcessorStepOrder(stepId: string, order: number): Promise<OutputProcessorStep> {
-    const step = this.processorSteps.get(stepId);
-    if (!step) {
-      throw new Error(`Step not found: ${stepId}`);
-    }
+    const step = await this.getProcessorStep(stepId);
+    if (!step) throw new Error(`Step ${stepId} not found`);
     step.order = order;
     return step;
   }
@@ -212,9 +174,9 @@ class MockOutputProcessor implements OutputProcessor {
     olderThan?: Date;
     conversationId?: string;
   }): Promise<number> {
-    const oldLength = this.history.length;
+    const count = this.history.length;
     this.history = [];
-    return oldLength;
+    return count;
   }
 
   async formatContent(
@@ -233,43 +195,54 @@ class MockOutputProcessor implements OutputProcessor {
       format?: 'text' | 'markdown' | 'html' | 'json' | 'image' | 'audio' | 'structured';
     }
   ): Promise<OutputMessage> {
+    const template = this.templates.get(templateId);
+    if (!template) {
+      throw new Error(`Template ${templateId} not found`);
+    }
+
+    let content = template.content;
+    content = content.replace(/\{\{(\w+)\}\}/g, (_, key) => {
+      return variables[key] !== undefined ? String(variables[key]) : `{{${key}}}`;
+    });
+
     return {
-      id: 'msg-from-template-123',
+      id: `msg-${Date.now()}`,
       recipientId: variables.recipientId as string || 'user',
       timestamp: new Date(),
-      content: 'Content from template',
-      modality: options?.format || 'text'
+      content,
+      modality: options?.format || template.modality
     };
   }
 
   async registerTemplate(
     template: Omit<OutputTemplate, 'id' | 'createdAt' | 'updatedAt'>
   ): Promise<OutputTemplate> {
+    const id = template.name.toLowerCase().replace(/\s+/g, '_');
     const newTemplate: OutputTemplate = {
       ...template,
-      id: 'template-123',
+      id,
       createdAt: new Date(),
       updatedAt: new Date()
     };
-    this.templates.set(newTemplate.id, newTemplate);
+    this.templates.set(id, newTemplate);
     return newTemplate;
   }
 
   async updateTemplate(
-    templateId: string, 
+    templateId: string,
     updates: Partial<Omit<OutputTemplate, 'id' | 'createdAt' | 'updatedAt'>>
   ): Promise<OutputTemplate> {
     const template = this.templates.get(templateId);
     if (!template) {
-      throw new Error(`Template not found: ${templateId}`);
+      throw new Error(`Template ${templateId} not found`);
     }
-    const updated: OutputTemplate = {
+    const updatedTemplate: OutputTemplate = {
       ...template,
       ...updates,
       updatedAt: new Date()
     };
-    this.templates.set(templateId, updated);
-    return updated;
+    this.templates.set(templateId, updatedTemplate);
+    return updatedTemplate;
   }
 
   async getTemplate(templateId: string): Promise<OutputTemplate | null> {
@@ -305,10 +278,23 @@ class MockOutputProcessor implements OutputProcessor {
       averageChunkCount: number;
     };
   }> {
+    const totalOutputs = this.history.length;
+    
+    // Count outputs by modality
+    const outputsByModality = this.history.reduce((acc, item) => {
+      const modality = item.originalMessage.modality;
+      acc[modality] = (acc[modality] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+    
+    // Calculate average processing time
+    const averageProcessingTimeMs = totalOutputs > 0 ?
+      this.history.reduce((sum, item) => sum + item.processingMetadata.processingTimeMs, 0) / totalOutputs : 0;
+    
     return {
-      totalProcessedOutputs: this.history.length,
-      outputsByModality: { text: this.history.length },
-      averageProcessingTimeMs: 10
+      totalProcessedOutputs: totalOutputs,
+      outputsByModality,
+      averageProcessingTimeMs
     };
   }
 }
@@ -317,7 +303,6 @@ describe('OutputProcessor Interface', () => {
   let outputProcessor: OutputProcessor;
 
   beforeEach(() => {
-    // @ts-ignore - Using mock implementation for testing
     outputProcessor = new MockOutputProcessor();
   });
 
@@ -328,7 +313,7 @@ describe('OutputProcessor Interface', () => {
   });
 
   it('should have the correct manager type', () => {
-    expect(outputProcessor.getType()).toBe(ManagerType.OUTPUT);
+    expect(outputProcessor.managerType).toBe(ManagerType.OUTPUT);
   });
 
   it('should initialize successfully', async () => {
@@ -354,84 +339,69 @@ describe('OutputProcessor Interface', () => {
     expect(result.valid).toBe(true);
   });
 
-  it('should format content', async () => {
-    const result = await outputProcessor.formatContent('test output', 'markdown');
-    
-    expect(typeof result).toBe('string');
-  });
-
-  it('should create output message', async () => {
-    const message = await outputProcessor.createOutputMessage('test content', 'user123');
-    
-    expect(message).toHaveProperty('id');
-    expect(message).toHaveProperty('content');
-    expect(message).toHaveProperty('recipientId');
-    expect(message.recipientId).toBe('user123');
-  });
-
-  it('should generate from template', async () => {
-    const message = await outputProcessor.generateFromTemplate('template1', { 
-      name: 'User',
-      recipientId: 'user123'
-    });
-    
-    expect(message).toHaveProperty('id');
-    expect(message).toHaveProperty('content');
-    expect(message.recipientId).toBe('user123');
-  });
-
-  it('should register and retrieve templates', async () => {
-    const template = await outputProcessor.registerTemplate({
-      name: 'Greeting',
-      description: 'Simple greeting template',
-      content: 'Hello {{name}}!',
-      variables: [{ name: 'name' }],
-      category: 'greetings',
-      version: '1.0',
-      modality: 'text',
-      enabled: true
-    });
-    
-    expect(template).toHaveProperty('id');
-    
-    const retrieved = await outputProcessor.getTemplate(template.id);
-    expect(retrieved).not.toBeNull();
-  });
-
   it('should manage processor steps', async () => {
-    const step = await outputProcessor.registerProcessorStep({
-      id: 'format',
-      name: 'Formatter',
-      description: 'Formats the output',
-      process: async (content) => content,
+    const step: OutputProcessorStep = {
+      id: 'test-step',
+      name: 'Test Step',
+      description: 'A test step',
+      process: async (content: string) => content,
       enabled: true,
       order: 1,
-      category: 'formatting'
-    });
-    
-    expect(step).toHaveProperty('id');
-    
-    const steps = await outputProcessor.listProcessorSteps();
-    expect(steps.length).toBeGreaterThan(0);
+      category: 'test'
+    };
+
+    await outputProcessor.registerProcessorStep(step);
+    const retrievedStep = await outputProcessor.getProcessorStep(step.id);
+    expect(retrievedStep).toBeDefined();
+    expect(retrievedStep?.id).toBe(step.id);
   });
 
   it('should manage history', async () => {
-    const message = await outputProcessor.createOutputMessage('test', 'user');
+    const message = await outputProcessor.createOutputMessage('test output', 'user');
     const processed = await outputProcessor.processOutput(message);
     await outputProcessor.addToHistory(processed);
-    
+
     const history = await outputProcessor.getHistory();
-    expect(history.length).toBeGreaterThan(0);
-    
+    expect(history).toHaveLength(1);
+    expect(history[0]).toBe(processed);
+
     const cleared = await outputProcessor.clearHistory();
-    expect(cleared).toBeGreaterThan(0);
+    expect(cleared).toBe(1);
+
+    const emptyHistory = await outputProcessor.getHistory();
+    expect(emptyHistory).toHaveLength(0);
   });
 
-  it('should get statistics', async () => {
+  it('should manage templates', async () => {
+    const template = await outputProcessor.registerTemplate({
+      name: 'test-template',
+      description: 'A test template',
+      content: 'Hello {{name}}!',
+      variables: [{ name: 'name' }],
+      category: 'test',
+      version: '1.0.0',
+      modality: 'text',
+      enabled: true
+    });
+
+    expect(template.id).toBe('test_template');
+
+    const message = await outputProcessor.generateFromTemplate(template.id, {
+      name: 'World',
+      recipientId: 'user123'
+    });
+
+    expect(message.content).toBe('Hello World!');
+  });
+
+  it('should provide statistics', async () => {
+    const message = await outputProcessor.createOutputMessage('test output', 'user');
+    const processed = await outputProcessor.processOutput(message);
+    await outputProcessor.addToHistory(processed);
+
     const stats = await outputProcessor.getStats();
-    
-    expect(stats).toHaveProperty('totalProcessedOutputs');
-    expect(stats).toHaveProperty('outputsByModality');
-    expect(stats).toHaveProperty('averageProcessingTimeMs');
+    expect(stats.totalProcessedOutputs).toBe(1);
+    expect(stats.outputsByModality).toHaveProperty('text');
+    expect(stats.averageProcessingTimeMs).toBeGreaterThanOrEqual(0);
   });
 }); 

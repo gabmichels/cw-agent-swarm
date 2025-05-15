@@ -107,29 +107,29 @@ exports.OutputProcessorConfigSchema = {
                 default: true,
                 description: 'Auto-format code blocks'
             },
-            codeBlockStyle: {
-                type: 'string',
-                default: 'markdown',
-                description: 'Code block style (markdown, html, etc.)'
-            },
-            syntaxHighlighting: {
+            smartFormatting: {
                 type: 'boolean',
                 default: true,
-                description: 'Whether to include syntax highlighting'
+                description: 'Whether to apply smart formatting'
             },
-            indentSize: {
+            maxLength: {
                 type: 'number',
-                min: 1,
-                max: 8,
-                default: 2,
-                description: 'Default indent size'
+                min: 100,
+                max: 100000,
+                default: 10000,
+                description: 'Maximum output length'
+            },
+            encoding: {
+                type: 'string',
+                default: 'utf-8',
+                description: 'Character encoding to use'
             }
         },
         default: {
             formatCodeBlocks: true,
-            codeBlockStyle: 'markdown',
-            syntaxHighlighting: true,
-            indentSize: 2
+            smartFormatting: true,
+            maxLength: 10000,
+            encoding: 'utf-8'
         },
         description: 'Formatting options'
     }
@@ -151,9 +151,9 @@ exports.OutputProcessorPresets = {
         maxOutputSizeBytes: 10485760, // 10MB
         formatting: {
             formatCodeBlocks: true,
-            codeBlockStyle: 'markdown',
-            syntaxHighlighting: true,
-            indentSize: 2
+            smartFormatting: true,
+            maxLength: 10000,
+            encoding: 'utf-8'
         }
     },
     // Preset for markdown-focused output
@@ -169,9 +169,9 @@ exports.OutputProcessorPresets = {
         maxOutputSizeBytes: 524288, // 512KB
         formatting: {
             formatCodeBlocks: true,
-            codeBlockStyle: 'markdown',
-            syntaxHighlighting: true,
-            indentSize: 2
+            smartFormatting: true,
+            maxLength: 10000,
+            encoding: 'utf-8'
         }
     },
     // Preset for minimal output processing
@@ -187,9 +187,9 @@ exports.OutputProcessorPresets = {
         maxOutputSizeBytes: 262144, // 256KB
         formatting: {
             formatCodeBlocks: false,
-            codeBlockStyle: 'markdown',
-            syntaxHighlighting: false,
-            indentSize: 2
+            smartFormatting: false,
+            maxLength: 10000,
+            encoding: 'utf-8'
         }
     },
     // Preset for structured data output
@@ -205,9 +205,9 @@ exports.OutputProcessorPresets = {
         maxOutputSizeBytes: 1048576, // 1MB
         formatting: {
             formatCodeBlocks: true,
-            codeBlockStyle: 'json',
-            syntaxHighlighting: true,
-            indentSize: 2
+            smartFormatting: true,
+            maxLength: 10000,
+            encoding: 'utf-8'
         }
     },
     // Preset for high security output
@@ -223,9 +223,9 @@ exports.OutputProcessorPresets = {
         maxOutputSizeBytes: 524288, // 512KB
         formatting: {
             formatCodeBlocks: true,
-            codeBlockStyle: 'markdown',
-            syntaxHighlighting: true,
-            indentSize: 2
+            smartFormatting: true,
+            maxLength: 10000,
+            encoding: 'utf-8'
         }
     }
 };
@@ -242,11 +242,27 @@ function createOutputProcessorConfig(preset, overrides) {
     var presetConfig = typeof preset === 'string'
         ? exports.OutputProcessorPresets[preset]
         : preset;
-    // Merge with base defaults and overrides
-    return __assign(__assign({ enabled: true, supportedModalities: ['text', 'markdown'], defaultFormat: 'markdown', defaultLanguage: 'en', processingSteps: ['format', 'validate'], maintainHistory: true, maxHistoryItems: 100, contentModerationLevel: 'medium', includeMetadata: false, enableStreaming: true, defaultTemplates: {}, maxOutputSizeBytes: 1048576, formatting: {
+    // Define base defaults
+    var baseDefaults = {
+        enabled: true,
+        supportedModalities: ['text', 'markdown'],
+        defaultFormat: 'markdown',
+        defaultLanguage: 'en',
+        processingSteps: ['format', 'validate'],
+        maintainHistory: true,
+        maxHistoryItems: 100,
+        contentModerationLevel: 'medium',
+        includeMetadata: false,
+        enableStreaming: true,
+        defaultTemplates: {},
+        maxOutputSizeBytes: 1048576, // 1MB
+        formatting: {
             formatCodeBlocks: true,
-            codeBlockStyle: 'markdown',
-            syntaxHighlighting: true,
-            indentSize: 2
-        } }, presetConfig), overrides);
+            smartFormatting: true,
+            maxLength: 10000,
+            encoding: 'utf-8'
+        }
+    };
+    // Merge in this order: baseDefaults, presetConfig, overrides
+    return __assign(__assign(__assign({}, baseDefaults), presetConfig), overrides);
 }

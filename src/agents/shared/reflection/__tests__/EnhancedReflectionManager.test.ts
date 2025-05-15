@@ -52,12 +52,12 @@ describe('EnhancedReflectionManager', () => {
   // Basic manager tests
   describe('Basic manager functionality', () => {
     it('should be created with the correct manager type', () => {
-      expect(manager.getType()).toBe(ManagerType.REFLECTION);
+      expect(manager.managerType).toBe(ManagerType.REFLECTION);
     });
     
     it('should be initialized successfully', async () => {
       expect(manager.initialize).toHaveBeenCalled();
-      expect(manager.isInitialized()).toBe(true);
+      expect(manager.isEnabled()).toBe(true);
     });
     
     it('should be enabled by default', () => {

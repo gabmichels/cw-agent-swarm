@@ -228,6 +228,14 @@ export interface MemoryDecayStats {
 }
 
 /**
+ * Memory decay result
+ */
+export interface MemoryDecayResult {
+  decayedMemories: MemoryEntry[];
+  decayStats: MemoryDecayStats;
+}
+
+/**
  * Strategic insight
  */
 export interface StrategicInsight {
@@ -258,27 +266,42 @@ export interface MemoryRelationship {
 /**
  * Knowledge graph node types
  */
-export type KnowledgeNodeType =
-  | 'task'
-  | 'concept'
-  | 'trend'
-  | 'tool'
-  | 'strategy'
-  | 'insight'
-  | 'project'
-  | 'agent';
+export enum KnowledgeNodeType {
+  TASK = 'task',
+  CONCEPT = 'concept',
+  TREND = 'trend',
+  TOOL = 'tool',
+  STRATEGY = 'strategy',
+  INSIGHT = 'insight',
+  PROJECT = 'project',
+  AGENT = 'agent',
+  ENTITY = 'entity',
+  PROCESS = 'process',
+  RESOURCE = 'resource',
+  METRIC = 'metric',
+  EVENT = 'event',
+  DECISION = 'decision'
+}
 
 /**
  * Knowledge graph edge types
  */
-export type KnowledgeEdgeType =
-  | 'related_to'
-  | 'depends_on'
-  | 'contradicts'
-  | 'supports'
-  | 'used_by'
-  | 'reported_by'
-  | 'produced_by';
+export enum KnowledgeEdgeType {
+  RELATED_TO = 'related_to',
+  DEPENDS_ON = 'depends_on',
+  CONTRADICTS = 'contradicts',
+  SUPPORTS = 'supports',
+  USED_BY = 'used_by',
+  REPORTED_BY = 'reported_by',
+  PRODUCED_BY = 'produced_by',
+  PART_OF = 'part_of',
+  LEADS_TO = 'leads_to',
+  SIMILAR_TO = 'similar_to',
+  DERIVED_FROM = 'derived_from',
+  INFLUENCES = 'influences',
+  CATEGORIZES = 'categorizes',
+  REFERENCES = 'references'
+}
 
 /**
  * Knowledge graph node

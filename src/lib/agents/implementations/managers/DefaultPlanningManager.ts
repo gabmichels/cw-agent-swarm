@@ -33,6 +33,7 @@ import { AbstractBaseManager } from '../../../../agents/shared/base/managers/Bas
 import { createConfigFactory } from '../../../../agents/shared/config';
 import { PlanningManagerConfigSchema } from '../../../../agents/shared/planning/config/PlanningManagerConfigSchema';
 import { ManagerType } from '../../../../agents/shared/base/managers/ManagerType';
+import { ManagerHealth } from '../../../../agents/shared/base/managers/ManagerHealth';
 
 /**
  * Error class for planning-related errors
@@ -54,7 +55,6 @@ class PlanningError extends Error {
  */
 export class DefaultPlanningManager extends AbstractBaseManager implements PlanningManager {
   private plans: Map<string, Plan> = new Map();
-  protected initialized = false;
   private planningTimer: NodeJS.Timeout | null = null;
   private adaptationMetrics = new AdaptationMetricsCalculatorImpl(calculateTotalTime);
   private optimizationMetrics = new OptimizationMetricsCalculatorImpl(calculateTotalTime, calculateResourceUsage, calculateReliabilityScore);
@@ -67,18 +67,6 @@ export class DefaultPlanningManager extends AbstractBaseManager implements Plann
   private resourceValidator = new DefaultResourceValidator();
   private planValidator = new DefaultPlanValidator();
   private configFactory = createConfigFactory(PlanningManagerConfigSchema);
-  
-  // Override config type to use specific config type
-  protected config!: PlanningManagerConfig;
-
-  /**
-   * Type property accessor for compatibility with PlanningManager
-   * Use _managerType from the parent class instead of calling getType(),
-   * which was causing infinite recursion
-   */
-  get type(): string {
-    return this._managerType;
-  }
 
   /**
    * Create a new DefaultPlanningManager instance
@@ -87,171 +75,65 @@ export class DefaultPlanningManager extends AbstractBaseManager implements Plann
    * @param config - Configuration options
    */
   constructor(agent: AgentBase, config: Partial<PlanningManagerConfig> = {}) {
+    const managerId = `planning-manager-${uuidv4()}`;
     super(
-      `planning-manager-${uuidv4()}`,
+      managerId,
       ManagerType.PLANNING,
       agent,
-      { enabled: true }
+      {
+        enabled: true,
+        enableAutoPlanning: true,
+        planningIntervalMs: 300000,
+        maxConcurrentPlans: 5,
+        maxAdaptationAttempts: 3,
+        ...config
+      }
     );
-
-    // Validate and apply configuration with defaults
-    this.config = this.configFactory.create({
-      enabled: true,
-      ...config
-    }) as PlanningManagerConfig;
-    
-    this.plans = new Map();
-    this.planningTimer = null;
-  }
-
-  /**
-   * Get the unique ID of this manager
-   */
-  getId(): string {
-    return this.managerId;
-  }
-
-  /**
-   * Get the manager type
-   */
-  getType(): string {
-    return this.managerType;
-  }
-
-  /**
-   * Get the manager configuration
-   */
-  getConfig<T extends PlanningManagerConfig>(): T {
-    return this.config as T;
-  }
-
-  /**
-   * Update the manager configuration
-   */
-  updateConfig<T extends PlanningManagerConfig>(config: Partial<T>): T {
-    // Validate and merge configuration
-    this.config = this.configFactory.create({
-      ...this.config, 
-      ...config
-    }) as PlanningManagerConfig;
-    
-    // If auto-planning config changed, update the timer
-    if (('enableAutoPlanning' in config || 'planningIntervalMs' in config) && this.initialized) {
-      // Clear existing timer
-      if (this.planningTimer) {
-        clearInterval(this.planningTimer);
-        this.planningTimer = null;
-      }
-      
-      // Setup timer if enabled
-      if (this.config.enableAutoPlanning) {
-        this.setupAutoPlanning();
-      }
-    }
-    
-    return this.config as T;
-  }
-
-  /**
-   * Get the associated agent instance
-   */
-  getAgent(): AgentBase {
-    return this.agent;
-  }
-
-  /**
-   * Initialize the manager
-   */
-  async initialize(): Promise<boolean> {
-    console.log(`[${this.managerId}] Initializing ${this.type} manager`);
-    
-    // Setup auto-planning if enabled
-    if (this.config.enableAutoPlanning) {
-      this.setupAutoPlanning();
-    }
-    
-    this.initialized = true;
-    return true;
-  }
-
-  /**
-   * Shutdown the manager and release resources
-   */
-  async shutdown(): Promise<void> {
-    console.log(`[${this.managerId}] Shutting down ${this.type} manager`);
-    
-    // Clear timers
-    if (this.planningTimer) {
-      clearInterval(this.planningTimer);
-      this.planningTimer = null;
-    }
-    
-    this.initialized = false;
-  }
-
-  /**
-   * Check if the manager is currently enabled
-   */
-  isEnabled(): boolean {
-    return this.config.enabled;
-  }
-
-  /**
-   * Enable or disable the manager
-   */
-  setEnabled(enabled: boolean): boolean {
-    this.config.enabled = enabled;
-    return this.config.enabled;
-  }
-
-  /**
-   * Reset the manager to its initial state
-   */
-  async reset(): Promise<boolean> {
-    console.log(`[${this.managerId}] Resetting ${this.type} manager`);
-    this.plans.clear();
-    return true;
   }
 
   /**
    * Get manager health status
    */
-  async getHealth(): Promise<{
-    status: 'healthy' | 'degraded' | 'unhealthy';
-    message?: string;
-    metrics?: Record<string, unknown>;
-  }> {
-    if (!this.initialized) {
+  async getHealth(): Promise<ManagerHealth> {
+    if (!this._initialized) {
       return {
         status: 'degraded',
-        message: 'Planning manager not initialized'
+        details: {
+          lastCheck: new Date(),
+          issues: [{
+            severity: 'high',
+            message: 'Planning manager not initialized',
+            detectedAt: new Date()
+          }],
+          metrics: {}
+        }
       };
     }
 
     const stats = await this.getStats();
     
-    // Check if there are critical issues
     if (!this.isEnabled()) {
       return {
         status: 'unhealthy',
-        message: 'Planning manager is disabled',
-        metrics: stats
+        details: {
+          lastCheck: new Date(),
+          issues: [{
+            severity: 'critical',
+            message: 'Planning manager is disabled',
+            detectedAt: new Date()
+          }],
+          metrics: stats
+        }
       };
     }
-    
-    // Degraded if too many concurrent plans
-    if (stats.activePlans > (this.config.maxConcurrentPlans as number ?? 5)) {
-      return {
-        status: 'degraded',
-        message: 'Too many concurrent plans',
-        metrics: stats
-      };
-    }
-    
+
     return {
       status: 'healthy',
-      message: 'Planning manager is healthy',
-      metrics: stats
+      details: {
+        lastCheck: new Date(),
+        issues: [],
+        metrics: stats
+      }
     };
   }
 
@@ -259,7 +141,7 @@ export class DefaultPlanningManager extends AbstractBaseManager implements Plann
    * Create a new plan
    */
   async createPlan(options: PlanCreationOptions): Promise<PlanCreationResult> {
-    if (!this.initialized) {
+    if (!this._initialized) {
       throw new PlanningError(
         'Planning manager not initialized',
         'NOT_INITIALIZED'
@@ -267,25 +149,23 @@ export class DefaultPlanningManager extends AbstractBaseManager implements Plann
     }
 
     try {
-      const planId = uuidv4();
-      const timestamp = new Date();
-      
       const plan: Plan = {
-        id: planId,
+        id: uuidv4(),
         name: options.name,
         description: options.description,
         goals: options.goals,
         steps: [],
         status: 'pending',
-        priority: options.priority ?? 0.5,
-        confidence: 0.5, // Initial confidence
-        createdAt: timestamp,
-        updatedAt: timestamp,
-        metadata: options.metadata ?? {}
+        priority: options.priority ?? 0,
+        confidence: 1.0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        metadata: options.metadata || {}
       };
-      
-      this.plans.set(planId, plan);
-      
+
+      // Store the plan
+      this.plans.set(plan.id, plan);
+
       return {
         success: true,
         plan
@@ -293,7 +173,7 @@ export class DefaultPlanningManager extends AbstractBaseManager implements Plann
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Unknown error creating plan'
+        error: error instanceof Error ? error.message : 'Failed to create plan'
       };
     }
   }
@@ -302,7 +182,7 @@ export class DefaultPlanningManager extends AbstractBaseManager implements Plann
    * Get a plan by ID
    */
   async getPlan(planId: string): Promise<Plan | null> {
-    if (!this.initialized) {
+    if (!this._initialized) {
       throw new PlanningError(
         'Planning manager not initialized',
         'NOT_INITIALIZED'
@@ -316,7 +196,7 @@ export class DefaultPlanningManager extends AbstractBaseManager implements Plann
    * Get all plans
    */
   async getAllPlans(): Promise<Plan[]> {
-    if (!this.initialized) {
+    if (!this._initialized) {
       throw new PlanningError(
         'Planning manager not initialized',
         'NOT_INITIALIZED'
@@ -327,16 +207,9 @@ export class DefaultPlanningManager extends AbstractBaseManager implements Plann
   }
 
   /**
-   * Update a plan
+   * Update an existing plan
    */
   async updatePlan(planId: string, updates: Partial<Plan>): Promise<Plan | null> {
-    if (!this.initialized) {
-      throw new PlanningError(
-        'Planning manager not initialized',
-        'NOT_INITIALIZED'
-      );
-    }
-
     const plan = this.plans.get(planId);
     if (!plan) {
       return null;
@@ -345,6 +218,7 @@ export class DefaultPlanningManager extends AbstractBaseManager implements Plann
     const updatedPlan: Plan = {
       ...plan,
       ...updates,
+      metadata: { ...plan.metadata, ...updates.metadata },
       updatedAt: new Date()
     };
 
@@ -356,7 +230,7 @@ export class DefaultPlanningManager extends AbstractBaseManager implements Plann
    * Delete a plan
    */
   async deletePlan(planId: string): Promise<boolean> {
-    if (!this.initialized) {
+    if (!this._initialized) {
       throw new PlanningError(
         'Planning manager not initialized',
         'NOT_INITIALIZED'
@@ -370,7 +244,7 @@ export class DefaultPlanningManager extends AbstractBaseManager implements Plann
    * Execute a plan
    */
   async executePlan(planId: string): Promise<PlanExecutionResult> {
-    if (!this.initialized) {
+    if (!this._initialized) {
       throw new PlanningError(
         'Planning manager not initialized',
         'NOT_INITIALIZED'
@@ -459,7 +333,7 @@ export class DefaultPlanningManager extends AbstractBaseManager implements Plann
    * Adapt a plan
    */
   async adaptPlan(planId: string, reason: string): Promise<Plan | null> {
-    if (!this.initialized) {
+    if (!this._initialized) {
       throw new PlanningError(
         'Planning manager not initialized',
         'NOT_INITIALIZED'
@@ -472,8 +346,9 @@ export class DefaultPlanningManager extends AbstractBaseManager implements Plann
     }
 
     // Check if we've exceeded adaptation attempts
+    const config = this.getConfig<PlanningManagerConfig>();
     const adaptationCount = (plan.metadata.adaptationCount as number) ?? 0;
-    if (adaptationCount >= (this.config.maxAdaptationAttempts as number ?? 3)) {
+    if (adaptationCount >= (config.maxAdaptationAttempts ?? 3)) {
       throw new PlanningError(
         'Maximum adaptation attempts exceeded',
         'MAX_ADAPTATIONS_EXCEEDED'
@@ -500,7 +375,7 @@ export class DefaultPlanningManager extends AbstractBaseManager implements Plann
    * Validate a plan
    */
   async validatePlan(planId: string): Promise<boolean> {
-    if (!this.initialized) {
+    if (!this._initialized) {
       throw new PlanningError(
         'Planning manager not initialized',
         'NOT_INITIALIZED'
@@ -571,7 +446,7 @@ export class DefaultPlanningManager extends AbstractBaseManager implements Plann
    * Optimize a plan
    */
   async optimizePlan(planId: string): Promise<Plan | null> {
-    if (!this.initialized) {
+    if (!this._initialized) {
       throw new PlanningError(
         'Planning manager not initialized',
         'NOT_INITIALIZED'
@@ -592,38 +467,30 @@ export class DefaultPlanningManager extends AbstractBaseManager implements Plann
     });
   }
 
-  // Private helper methods
-
   /**
-   * Setup automatic planning
+   * Reset the manager state
    */
-  private setupAutoPlanning(): void {
+  async reset(): Promise<boolean> {
+    this.plans.clear();
     if (this.planningTimer) {
       clearInterval(this.planningTimer);
+      this.planningTimer = null;
     }
-    
-    this.planningTimer = setInterval(async () => {
-      try {
-        await this.autoPlan();
-      } catch (error) {
-        console.error(`[${this.managerId}] Error during auto-planning:`, error);
-      }
-    }, this.config.planningIntervalMs as number ?? 300000);
+    return super.reset();
   }
 
   /**
-   * Perform automatic planning
+   * Shutdown the manager
    */
-  private async autoPlan(): Promise<void> {
-    const activePlans = Array.from(this.plans.values())
-      .filter(p => p.status === 'in_progress');
-    
-    if (activePlans.length >= (this.config.maxConcurrentPlans as number ?? 5)) {
-      return;
+  async shutdown(): Promise<void> {
+    if (this.planningTimer) {
+      clearInterval(this.planningTimer);
+      this.planningTimer = null;
     }
-
-    // TODO: Implement automatic plan creation based on agent goals
+    await super.shutdown();
   }
+
+  // Private helper methods
 
   /**
    * Execute an action
@@ -670,6 +537,4 @@ export class DefaultPlanningManager extends AbstractBaseManager implements Plann
       avgPlanConfidence: allPlans.length > 0 ? totalConfidence / allPlans.length : 0
     };
   }
-
-  public isInitialized(): boolean { return this.initialized; }
 } 

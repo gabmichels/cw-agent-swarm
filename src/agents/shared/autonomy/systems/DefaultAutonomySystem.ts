@@ -9,13 +9,14 @@ import { CronJob } from 'cron';
 import { v4 as uuidv4 } from 'uuid';
 import { AgentBase } from '../../base/AgentBase.interface';
 import { MemoryManager } from '../../base/managers/MemoryManager';
-import { PlanningManager } from '../../base/managers/PlanningManager.interface';
-import { SchedulerManager, ScheduledTask } from '../../../../lib/agents/base/managers/SchedulerManager';
+import { PlanningManager, PlanStep as SharedPlanStep } from '../../base/managers/PlanningManager.interface';
+import { ManagerType } from '../../base/managers/ManagerType';
+import { SchedulerManager } from '../../../../lib/agents/base/managers/SchedulerManager';
 import { 
   AutonomySystem, AutonomySystemConfig, AutonomyStatus, AutonomyCapabilities, 
   AutonomyDiagnostics, TaskStatistics, AutonomousExecutionOptions, AutonomousExecutionResult
 } from '../interfaces/AutonomySystem.interface';
-import { PlanAndExecuteOptions, PlanAndExecuteResult } from '../../../../lib/shared/types/agentTypes';
+import { PlanAndExecuteOptions, PlanAndExecuteResult, ScheduledTask } from '../../../../lib/shared/types/agentTypes';
 
 /**
  * Internal extension of ScheduledTask with additional properties for the autonomy system
@@ -64,9 +65,9 @@ export class DefaultAutonomySystem implements AutonomySystem {
   async initialize(): Promise<boolean> {
     try {
       // Check if managers we depend on are available
-      const memoryManagerAvailable = !!this.agent.getManager('memory');
-      const planningManagerAvailable = !!this.agent.getManager('planning');
-      const schedulerManagerAvailable = !!this.agent.getManager('scheduler');
+      const memoryManagerAvailable = !!this.agent.getManager(ManagerType.MEMORY);
+      const planningManagerAvailable = !!this.agent.getManager(ManagerType.PLANNING);
+      const schedulerManagerAvailable = !!this.agent.getManager(ManagerType.SCHEDULER);
       
       // Set up default schedules
       await this.setupDefaultTasks();
@@ -107,21 +108,9 @@ export class DefaultAutonomySystem implements AutonomySystem {
         name: 'Daily Reflection',
         description: 'Review recent activities and generate insights',
         schedule: dailySchedule,
-        priority: 0.7,
-        status: 'scheduled',
-        type: 'system',
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        executionCount: 0,
-        failureCount: 0,
-        parameters: {
-          prompt: 'Review my recent activities and generate insights. What patterns do you notice? What could be improved?',
-          maxResults: 3
-        },
-        metadata: {
-          category: 'reflection',
-          tags: ['system', 'automated', 'reflection', 'daily']
-        }
+        enabled: true,
+        goalPrompt: 'Review my recent activities and generate insights. What patterns do you notice? What could be improved?',
+        tags: ['system', 'automated', 'reflection', 'daily']
       });
       
       // Weekly reflection task at 3:00 AM on Sundays
@@ -132,22 +121,9 @@ export class DefaultAutonomySystem implements AutonomySystem {
         name: 'Weekly Reflection',
         description: 'Perform a deep reflection on the week\'s activities',
         schedule: weeklySchedule,
-        priority: 0.8,
-        status: 'scheduled',
-        type: 'system',
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        executionCount: 0,
-        failureCount: 0,
-        parameters: {
-          prompt: 'Perform a deep reflection on this week\'s activities. What were the major accomplishments? What challenges were faced? What could be improved next week?',
-          maxResults: 5,
-          includeActionItems: true
-        },
-        metadata: {
-          category: 'reflection',
-          tags: ['system', 'automated', 'reflection', 'weekly']
-        }
+        enabled: true,
+        goalPrompt: 'Perform a deep reflection on this week\'s activities. What were the major accomplishments? What challenges were faced? What could be improved next week?',
+        tags: ['system', 'automated', 'reflection', 'weekly']
       });
       
       // Maintenance tasks
@@ -156,20 +132,9 @@ export class DefaultAutonomySystem implements AutonomySystem {
         name: 'Memory Maintenance',
         description: 'Consolidate and optimize memory storage',
         schedule: '0 4 * * 0', // 4:00 AM on Sundays
-        priority: 0.6,
-        status: 'scheduled',
-        type: 'system',
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        executionCount: 0,
-        failureCount: 0,
-        parameters: {
-          operations: ['consolidate', 'optimize', 'prune']
-        },
-        metadata: {
-          category: 'maintenance',
-          tags: ['system', 'automated', 'maintenance', 'memory']
-        }
+        enabled: true,
+        goalPrompt: 'Consolidate and optimize memory storage',
+        tags: ['system', 'automated', 'maintenance', 'memory']
       });
     }
   }
@@ -213,7 +178,7 @@ export class DefaultAutonomySystem implements AutonomySystem {
         this.status = AutonomyStatus.ACTIVE;
         
         // Log to memory if available
-        const memoryManager = this.agent.getManager('memory') as MemoryManager;
+        const memoryManager = this.agent.getManager(ManagerType.MEMORY) as MemoryManager;
         if (memoryManager) {
           await memoryManager.addMemory(
             'Autonomy mode enabled', 
@@ -236,7 +201,7 @@ export class DefaultAutonomySystem implements AutonomySystem {
         this.status = AutonomyStatus.STANDBY;
         
         // Log to memory if available
-        const memoryManager = this.agent.getManager('memory') as MemoryManager;
+        const memoryManager = this.agent.getManager(ManagerType.MEMORY) as MemoryManager;
         if (memoryManager) {
           await memoryManager.addMemory(
             'Autonomy mode disabled', 
@@ -270,12 +235,7 @@ export class DefaultAutonomySystem implements AutonomySystem {
    */
   getScheduledTasks(): ScheduledTask[] {
     // Return the ScheduledTask part of our internal task objects
-    // This ensures we're returning the expected interface
-    return Array.from(this.scheduledTasks.values()).map(internalTask => {
-      // Extract only the ScheduledTask properties
-      const { enabled, lastRun, ...scheduledTask } = internalTask;
-      return scheduledTask;
-    });
+    return Array.from(this.scheduledTasks.values());
   }
   
   /**
@@ -323,7 +283,7 @@ export class DefaultAutonomySystem implements AutonomySystem {
       
       // Create a new CronJob
       const job = new CronJob(
-        task.schedule || '0 0 * * *', // Default to midnight every day if schedule not specified
+        task.schedule, // Use the schedule from the task
         async () => {
           console.log(`[AutonomySystem] Executing scheduled task: ${task.name} (${taskId})`);
           try {
@@ -371,7 +331,6 @@ export class DefaultAutonomySystem implements AutonomySystem {
     
     // Update task in map
     task.lastRun = new Date();
-    task.status = 'running';
     this.scheduledTasks.set(taskId, task);
     
     const startTime = Date.now();
@@ -380,19 +339,15 @@ export class DefaultAutonomySystem implements AutonomySystem {
       
       // Initialize task execution options
       const executionOptions: AutonomousExecutionOptions = {
-        goalPrompt: task.description,
+        goalPrompt: task.goalPrompt || task.description,
         autonomyMode: true,
-        category: task.metadata?.category as string || "scheduled",
-        tags: (task.metadata?.tags as string[]) || [],
+        tags: task.tags || [],
         requireApproval: false,
         recordReasoning: true
       };
       
-      // Extract a standard ScheduledTask to pass to the planning system
-      const { enabled, lastRun, ...standardTask } = task;
-      
       // Execute the task
-      const result = await this.planAndExecuteTask(standardTask, executionOptions);
+      const result = await this.planAndExecuteTask(task, executionOptions);
       
       // Update task stats
       const endTime = Date.now();
@@ -402,21 +357,11 @@ export class DefaultAutonomySystem implements AutonomySystem {
         taskStats.successes++;
         this.taskHistory.set(taskId, taskStats);
         
-        // Update execution count and status
-        task.executionCount = (task.executionCount || 0) + 1;
-        task.status = 'completed';
-        this.scheduledTasks.set(taskId, task);
-        
         console.log(`[AutonomySystem] Task ${task.name} (${taskId}) completed successfully`);
         return true;
       } else {
         taskStats.failures++;
         this.taskHistory.set(taskId, taskStats);
-        
-        // Update failure count and status
-        task.failureCount = (task.failureCount || 0) + 1;
-        task.status = 'failed';
-        this.scheduledTasks.set(taskId, task);
         
         console.error(`[AutonomySystem] Task ${task.name} (${taskId}) failed: ${result.message}`);
         return false;
@@ -426,11 +371,6 @@ export class DefaultAutonomySystem implements AutonomySystem {
       taskStats.totalTimeMs += (endTime - startTime);
       taskStats.failures++;
       this.taskHistory.set(taskId, taskStats);
-      
-      // Update failure count and status
-      task.failureCount = (task.failureCount || 0) + 1;
-      task.status = 'failed';
-      this.scheduledTasks.set(taskId, task);
       
       console.error(`[AutonomySystem] Error executing task ${task.name} (${taskId}):`, error);
       return false;
@@ -446,7 +386,7 @@ export class DefaultAutonomySystem implements AutonomySystem {
   ): Promise<AutonomousExecutionResult> {
     try {
       // Get the planning manager
-      const planningManager = this.agent.getManager('planning') as PlanningManager;
+      const planningManager = this.agent.getManager(ManagerType.PLANNING) as PlanningManager;
       if (!planningManager) {
         return {
           success: false,
@@ -458,21 +398,19 @@ export class DefaultAutonomySystem implements AutonomySystem {
       // Combine task parameters with options
       const executionOptions: PlanAndExecuteOptions = {
         ...options,
-        goalPrompt: task.description,
-        requireApproval: options.requireApproval || false,
-        // Add task-specific parameters
-        ...task.parameters
+        goalPrompt: task.description
       };
       
-      // Execute the plan
-      const result = await planningManager.planAndExecute(executionOptions.goalPrompt, executionOptions);
+      // Execute the plan - adding a cast to any since some Planning Managers might have this method
+      // This is a temporary solution until PlanningManager interface is updated with this method
+      const result = await (planningManager as any).planAndExecute(executionOptions.goalPrompt, executionOptions);
       
       // Add analytics data
       const analyticsResult: AutonomousExecutionResult = {
         ...result,
         analytics: {
           totalTimeMs: 0, // Will be calculated by caller
-          stepsExecuted: result.plan?.steps.filter((s: any) => s.status === 'completed').length || 0,
+          stepsExecuted: result.plan?.steps.filter((s: SharedPlanStep) => s.status === 'completed').length || 0,
           resourceUsage: {
             cpuTime: 0, // Not tracked
             memoryBytes: 0, // Not tracked
@@ -520,7 +458,6 @@ export class DefaultAutonomySystem implements AutonomySystem {
       // Mark task as cancelled if it exists
       const task = this.scheduledTasks.get(taskId);
       if (task) {
-        task.status = 'cancelled';
         this.scheduledTasks.set(taskId, task);
       }
       
@@ -574,9 +511,9 @@ export class DefaultAutonomySystem implements AutonomySystem {
   async diagnose(): Promise<AutonomyDiagnostics> {
     try {
       // Get manager references
-      const memoryManager = this.agent.getManager('memory') as MemoryManager;
-      const planningManager = this.agent.getManager('planning') as PlanningManager;
-      const schedulerManager = this.agent.getManager('scheduler') as SchedulerManager;
+      const memoryManager = this.agent.getManager(ManagerType.MEMORY) as MemoryManager;
+      const planningManager = this.agent.getManager(ManagerType.PLANNING) as PlanningManager;
+      const schedulerManager = this.agent.getManager(ManagerType.SCHEDULER) as SchedulerManager;
       
       // Memory diagnostics
       let memoryDiagnostics = {
@@ -638,12 +575,17 @@ export class DefaultAutonomySystem implements AutonomySystem {
       };
       
       if (schedulerManager) {
-        const utilization = await schedulerManager.getResourceUtilization();
-        resourceUtilization = {
-          cpuUtilization: utilization.cpuUtilization,
-          memoryUtilization: utilization.memoryBytes / (1024 * 1024 * 1024), // Convert to GB
-          apiCallsPerMinute: utilization.apiCallsPerMinute
-        };
+        try {
+          // This may not exist in all implementations
+          const utilization = await (schedulerManager as any).getResourceUtilization();
+          resourceUtilization = {
+            cpuUtilization: utilization.cpuUtilization,
+            memoryUtilization: utilization.memoryBytes / (1024 * 1024 * 1024), // Convert to GB
+            apiCallsPerMinute: utilization.apiCallsPerMinute
+          };
+        } catch (error) {
+          console.warn('[AutonomySystem] Resource utilization not available:', error);
+        }
       }
       
       // Generate overall diagnostics
@@ -701,7 +643,7 @@ export class DefaultAutonomySystem implements AutonomySystem {
     typeDistribution: Record<string, number>;
   }> {
     try {
-      const memoryManager = this.agent.getManager('memory') as MemoryManager;
+      const memoryManager = this.agent.getManager(ManagerType.MEMORY) as MemoryManager;
       if (!memoryManager) {
         return {
           totalMemories: 0,
@@ -745,7 +687,7 @@ export class DefaultAutonomySystem implements AutonomySystem {
       }
       
       // Get the planning manager
-      const planningManager = this.agent.getManager('planning') as PlanningManager;
+      const planningManager = this.agent.getManager(ManagerType.PLANNING) as PlanningManager;
       if (!planningManager) {
         return {
           success: false,
@@ -756,8 +698,9 @@ export class DefaultAutonomySystem implements AutonomySystem {
       
       const startTime = Date.now();
       
-      // Execute the plan
-      const result = await planningManager.planAndExecute(options.goalPrompt, options);
+      // Execute the plan - adding a cast to any since some Planning Managers might have this method
+      // This is a temporary solution until PlanningManager interface is updated with this method
+      const result = await (planningManager as any).planAndExecute(options.goalPrompt, options);
       
       const endTime = Date.now();
       const executionTime = endTime - startTime;
@@ -767,7 +710,7 @@ export class DefaultAutonomySystem implements AutonomySystem {
         ...result,
         analytics: {
           totalTimeMs: executionTime,
-          stepsExecuted: result.plan?.steps.filter((s: any) => s.status === 'completed').length || 0,
+          stepsExecuted: result.plan?.steps.filter((s: SharedPlanStep) => s.status === 'completed').length || 0,
           resourceUsage: {
             cpuTime: 0, // Not tracked
             memoryBytes: 0, // Not tracked
@@ -795,8 +738,8 @@ export class DefaultAutonomySystem implements AutonomySystem {
     try {
       // Find daily tasks
       const dailyTasks = Array.from(this.scheduledTasks.values())
-        .filter(task => task.metadata?.tags && 
-                (task.metadata.tags as string[]).includes('daily'));
+        .filter(task => task.tags && 
+                task.tags.includes('daily'));
       
       // Execute each task
       const results = await Promise.all(
@@ -858,11 +801,16 @@ export class DefaultAutonomySystem implements AutonomySystem {
         totalExecutionTime += stats.totalTimeMs;
       }
       
-      // Calculate task categories
+      // Calculate task categories based on tags
       const tasksByCategory: Record<string, number> = {};
       for (const task of tasks) {
-        const category = task.metadata?.category as string || 'uncategorized';
-        tasksByCategory[category] = (tasksByCategory[category] || 0) + 1;
+        if (task.tags && task.tags.length > 0) {
+          // Use the first tag as category for simplicity
+          const category = task.tags[0];
+          tasksByCategory[category] = (tasksByCategory[category] || 0) + 1;
+        } else {
+          tasksByCategory['uncategorized'] = (tasksByCategory['uncategorized'] || 0) + 1;
+        }
       }
       
       // Calculate statistics
@@ -929,18 +877,9 @@ export class DefaultAutonomySystem implements AutonomySystem {
         name: `Task: ${goal.length > 30 ? goal.substring(0, 30) + '...' : goal}`,
         description: goal,
         schedule: options?.schedule || '0 0 * * *', // Default to midnight every day
-        priority: options?.priority || 0.5, // Default priority
-        status: 'scheduled', // Always provide a status
-        type: 'user',
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        executionCount: 0,
-        failureCount: 0,
-        parameters: {},
-        metadata: {
-          category: options?.category || this.config.defaultCategory || 'generated',
-          tags: options?.tags || ['generated', 'autonomous']
-        }
+        enabled: true,
+        goalPrompt: goal,
+        tags: options?.tags || ['generated', 'autonomous']
       };
       
       // Schedule the task

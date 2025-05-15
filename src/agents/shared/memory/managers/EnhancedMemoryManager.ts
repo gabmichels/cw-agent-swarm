@@ -9,6 +9,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { AbstractBaseManager } from '../../base/managers/BaseManager';
 import { AgentBase } from '../../base/AgentBase.interface';
 import { ManagerType } from '../../base/managers/ManagerType';
+import { ManagerHealth } from '../../base/managers/ManagerHealth';
 import { 
   MemoryManager, 
   MemoryEntry, 
@@ -145,7 +146,7 @@ export class EnhancedMemoryManager extends AbstractBaseManager implements IEnhan
     // Initialize enhanced features
     try {
       await this.loadEnhancedMemoryData();
-      this.initialized = true;
+      this._initialized = true;
       return true;
     } catch (error) {
       console.error('Failed to initialize enhanced memory manager:', error);
@@ -168,7 +169,7 @@ export class EnhancedMemoryManager extends AbstractBaseManager implements IEnhan
     
     // Shut down the base memory manager
     await this.baseMemoryManager.shutdown();
-    this.initialized = false;
+    this._initialized = false;
   }
   
   /**
@@ -185,6 +186,29 @@ export class EnhancedMemoryManager extends AbstractBaseManager implements IEnhan
     this.reasonings.clear();
     
     return true;
+  }
+  
+  /**
+   * Get the health status of the manager
+   */
+  async getHealth(): Promise<ManagerHealth> {
+    const baseHealth = await this.baseMemoryManager.getHealth();
+    
+    return {
+      status: this._initialized ? 'healthy' : 'unhealthy',
+      message: `Enhanced memory manager is ${this._initialized ? 'healthy' : 'unhealthy'}`,
+      details: {
+        lastCheck: new Date(),
+        issues: baseHealth.details.issues,
+        metrics: {
+          enhancedMemoryCount: this.enhancedMemories.size,
+          associationCount: this.associations.size,
+          synthesisCount: this.syntheses.size,
+          reasoningCount: this.reasonings.size,
+          ...baseHealth.details.metrics
+        }
+      }
+    };
   }
   
   /**

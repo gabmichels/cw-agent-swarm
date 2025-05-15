@@ -5,8 +5,7 @@
  * operation, scheduling, and proactive task management.
  */
 
-import { ScheduledTask } from '../../../../lib/agents/base/managers/SchedulerManager';
-import { PlanAndExecuteOptions, PlanAndExecuteResult } from '../../../../lib/shared/types/agentTypes';
+import { PlanAndExecuteOptions, PlanAndExecuteResult, ScheduledTask } from '../../../../lib/shared/types/agentTypes';
 
 /**
  * Configuration options for the autonomy system

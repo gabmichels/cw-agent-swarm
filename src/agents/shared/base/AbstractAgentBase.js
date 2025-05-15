@@ -59,7 +59,9 @@ var __generator = (this && this.__generator) || function (thisArg, body) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.AbstractAgentBase = void 0;
-var types_1 = require("./types");
+var DefaultSchedulerManager_1 = require("../../../lib/agents/implementations/managers/DefaultSchedulerManager");
+var ManagerType_1 = require("./managers/ManagerType");
+var agent_1 = require("../../../server/memory/schema/agent");
 /**
  * Abstract implementation of the AgentBase interface
  * Provides common functionality for concrete agent implementations
@@ -68,18 +70,23 @@ var AbstractAgentBase = /** @class */ (function () {
     /**
      * Create a new agent instance
      * @param config Agent configuration
+     * @param managers Optional managers to inject during construction
      */
-    function AbstractAgentBase(config) {
+    function AbstractAgentBase(config, managers) {
+        var _this = this;
         /** Registered managers */
         this.managers = new Map();
         this.config = config;
+        // Initialize managers if provided (dependency injection)
+        if (managers && Array.isArray(managers)) {
+            managers.forEach(function (manager) { return _this.registerManager(manager); });
+        }
     }
     /**
      * Get the unique ID of this agent
      */
     AbstractAgentBase.prototype.getAgentId = function () {
-        // Use the string id from StructuredId
-        return typeof this.config.id === 'object' ? this.config.id.id : String(this.config.id);
+        return this.config.id.id;
     };
     /**
      * Get the agent name
@@ -91,13 +98,14 @@ var AbstractAgentBase = /** @class */ (function () {
      * Get the agent configuration
      */
     AbstractAgentBase.prototype.getConfig = function () {
-        return this.config;
+        return __assign(__assign({}, this.config), { status: this.config.status, capabilities: this.config.capabilities });
     };
     /**
      * Update the agent configuration
      */
     AbstractAgentBase.prototype.updateConfig = function (config) {
-        this.config = __assign(__assign({}, this.config), config);
+        var _a;
+        this.config = __assign(__assign(__assign({}, this.config), config), { status: (_a = config === null || config === void 0 ? void 0 : config.status) !== null && _a !== void 0 ? _a : this.config.status });
     };
     /**
      * Initialize the agent
@@ -105,9 +113,15 @@ var AbstractAgentBase = /** @class */ (function () {
     AbstractAgentBase.prototype.initialize = function () {
         return __awaiter(this, void 0, void 0, function () {
             return __generator(this, function (_a) {
-                // ... existing initialization logic ...
-                // ... rest of initialization ...
-                return [2 /*return*/, true];
+                switch (_a.label) {
+                    case 0: 
+                    // Initialize all registered managers
+                    return [4 /*yield*/, this.initializeManagers()];
+                    case 1:
+                        // Initialize all registered managers
+                        _a.sent();
+                        return [2 /*return*/, true];
+                }
             });
         });
     };
@@ -115,14 +129,20 @@ var AbstractAgentBase = /** @class */ (function () {
      * Register a manager with this agent
      */
     AbstractAgentBase.prototype.registerManager = function (manager) {
-        this.managers.set(manager.getType(), manager);
+        var managerType = manager.managerType;
+        this.managers.set(managerType, manager);
+        // Store specialized references for frequently used managers
+        if (managerType === ManagerType_1.ManagerType.SCHEDULER && manager instanceof DefaultSchedulerManager_1.DefaultSchedulerManager) {
+            this.schedulerManager = manager;
+        }
         return manager;
     };
     /**
      * Get a registered manager by type
      */
     AbstractAgentBase.prototype.getManager = function (managerType) {
-        return this.managers.get(managerType);
+        var manager = this.managers.get(managerType);
+        return manager ? manager : null;
     };
     /**
      * Get all registered managers
@@ -135,14 +155,14 @@ var AbstractAgentBase = /** @class */ (function () {
      */
     AbstractAgentBase.prototype.isEnabled = function () {
         // Treat status OFFLINE as not enabled
-        return this.config.status !== types_1.AgentStatus.OFFLINE;
+        return this.config.status !== agent_1.AgentStatus.OFFLINE;
     };
     /**
      * Enable or disable the agent
      */
     AbstractAgentBase.prototype.setEnabled = function (enabled) {
         // Set status based on enabled flag
-        this.config.status = enabled ? types_1.AgentStatus.AVAILABLE : types_1.AgentStatus.OFFLINE;
+        this.config.status = enabled ? agent_1.AgentStatus.AVAILABLE : agent_1.AgentStatus.OFFLINE;
         return this.isEnabled();
     };
     /**
@@ -189,11 +209,11 @@ var AbstractAgentBase = /** @class */ (function () {
                                         return [4 /*yield*/, manager.getHealth()];
                                     case 1:
                                         health = _a.sent();
-                                        return [2 /*return*/, [manager.getType(), health]];
+                                        return [2 /*return*/, [manager.managerType, health]];
                                     case 2:
                                         error_1 = _a.sent();
                                         return [2 /*return*/, [
-                                                manager.getType(),
+                                                manager.managerType,
                                                 {
                                                     status: 'unhealthy',
                                                     message: "Failed to get health: ".concat(error_1)
@@ -224,9 +244,15 @@ var AbstractAgentBase = /** @class */ (function () {
             });
         });
     };
+    /**
+     * Get the scheduler manager instance
+     */
     AbstractAgentBase.prototype.getSchedulerManager = function () {
         return this.schedulerManager;
     };
+    /**
+     * Initialize all registered managers
+     */
     AbstractAgentBase.prototype.initializeManagers = function () {
         return __awaiter(this, void 0, void 0, function () {
             var _i, _a, manager;
@@ -251,6 +277,9 @@ var AbstractAgentBase = /** @class */ (function () {
             });
         });
     };
+    /**
+     * Shut down all registered managers
+     */
     AbstractAgentBase.prototype.shutdownManagers = function () {
         return __awaiter(this, void 0, void 0, function () {
             var _i, _a, manager;
@@ -282,10 +311,10 @@ var AbstractAgentBase = /** @class */ (function () {
         return __awaiter(this, void 0, void 0, function () {
             var memoryManager;
             return __generator(this, function (_a) {
-                memoryManager = this.getManager('memory');
+                memoryManager = this.getManager(ManagerType_1.ManagerType.MEMORY);
                 if (!memoryManager)
                     throw new Error('MemoryManager not registered');
-                if (!memoryManager.isInitialized())
+                if (!memoryManager.initialize)
                     throw new Error('MemoryManager not initialized');
                 return [2 /*return*/, memoryManager.addMemory(content, metadata)];
             });
@@ -298,10 +327,10 @@ var AbstractAgentBase = /** @class */ (function () {
         return __awaiter(this, void 0, void 0, function () {
             var memoryManager;
             return __generator(this, function (_a) {
-                memoryManager = this.getManager('memory');
+                memoryManager = this.getManager(ManagerType_1.ManagerType.MEMORY);
                 if (!memoryManager)
                     throw new Error('MemoryManager not registered');
-                if (!memoryManager.isInitialized())
+                if (!memoryManager.initialize)
                     throw new Error('MemoryManager not initialized');
                 return [2 /*return*/, memoryManager.searchMemories(query, options)];
             });
@@ -314,10 +343,10 @@ var AbstractAgentBase = /** @class */ (function () {
         return __awaiter(this, void 0, void 0, function () {
             var memoryManager;
             return __generator(this, function (_a) {
-                memoryManager = this.getManager('memory');
+                memoryManager = this.getManager(ManagerType_1.ManagerType.MEMORY);
                 if (!memoryManager)
                     throw new Error('MemoryManager not registered');
-                if (!memoryManager.isInitialized())
+                if (!memoryManager.initialize)
                     throw new Error('MemoryManager not initialized');
                 return [2 /*return*/, memoryManager.getRecentMemories(limit)];
             });
@@ -330,10 +359,10 @@ var AbstractAgentBase = /** @class */ (function () {
         return __awaiter(this, void 0, void 0, function () {
             var memoryManager;
             return __generator(this, function (_a) {
-                memoryManager = this.getManager('memory');
+                memoryManager = this.getManager(ManagerType_1.ManagerType.MEMORY);
                 if (!memoryManager)
                     throw new Error('MemoryManager not registered');
-                if (!memoryManager.isInitialized())
+                if (!memoryManager.initialize)
                     throw new Error('MemoryManager not initialized');
                 return [2 /*return*/, memoryManager.consolidateMemories()];
             });
@@ -346,10 +375,10 @@ var AbstractAgentBase = /** @class */ (function () {
         return __awaiter(this, void 0, void 0, function () {
             var memoryManager;
             return __generator(this, function (_a) {
-                memoryManager = this.getManager('memory');
+                memoryManager = this.getManager(ManagerType_1.ManagerType.MEMORY);
                 if (!memoryManager)
                     throw new Error('MemoryManager not registered');
-                if (!memoryManager.isInitialized())
+                if (!memoryManager.initialize)
                     throw new Error('MemoryManager not initialized');
                 return [2 /*return*/, memoryManager.pruneMemories()];
             });
@@ -362,10 +391,10 @@ var AbstractAgentBase = /** @class */ (function () {
         return __awaiter(this, void 0, void 0, function () {
             var planningManager;
             return __generator(this, function (_a) {
-                planningManager = this.getManager('planning');
+                planningManager = this.getManager(ManagerType_1.ManagerType.PLANNING);
                 if (!planningManager)
                     throw new Error('PlanningManager not registered');
-                if (!planningManager.isInitialized())
+                if (!planningManager.initialize)
                     throw new Error('PlanningManager not initialized');
                 return [2 /*return*/, planningManager.createPlan(options)];
             });
@@ -378,10 +407,10 @@ var AbstractAgentBase = /** @class */ (function () {
         return __awaiter(this, void 0, void 0, function () {
             var planningManager;
             return __generator(this, function (_a) {
-                planningManager = this.getManager('planning');
+                planningManager = this.getManager(ManagerType_1.ManagerType.PLANNING);
                 if (!planningManager)
                     throw new Error('PlanningManager not registered');
-                if (!planningManager.isInitialized())
+                if (!planningManager.initialize)
                     throw new Error('PlanningManager not initialized');
                 return [2 /*return*/, planningManager.getPlan(planId)];
             });
@@ -394,10 +423,10 @@ var AbstractAgentBase = /** @class */ (function () {
         return __awaiter(this, void 0, void 0, function () {
             var planningManager;
             return __generator(this, function (_a) {
-                planningManager = this.getManager('planning');
+                planningManager = this.getManager(ManagerType_1.ManagerType.PLANNING);
                 if (!planningManager)
                     throw new Error('PlanningManager not registered');
-                if (!planningManager.isInitialized())
+                if (!planningManager.initialize)
                     throw new Error('PlanningManager not initialized');
                 return [2 /*return*/, planningManager.getAllPlans()];
             });
@@ -410,10 +439,10 @@ var AbstractAgentBase = /** @class */ (function () {
         return __awaiter(this, void 0, void 0, function () {
             var planningManager;
             return __generator(this, function (_a) {
-                planningManager = this.getManager('planning');
+                planningManager = this.getManager(ManagerType_1.ManagerType.PLANNING);
                 if (!planningManager)
                     throw new Error('PlanningManager not registered');
-                if (!planningManager.isInitialized())
+                if (!planningManager.initialize)
                     throw new Error('PlanningManager not initialized');
                 return [2 /*return*/, planningManager.updatePlan(planId, updates)];
             });
@@ -426,10 +455,10 @@ var AbstractAgentBase = /** @class */ (function () {
         return __awaiter(this, void 0, void 0, function () {
             var planningManager;
             return __generator(this, function (_a) {
-                planningManager = this.getManager('planning');
+                planningManager = this.getManager(ManagerType_1.ManagerType.PLANNING);
                 if (!planningManager)
                     throw new Error('PlanningManager not registered');
-                if (!planningManager.isInitialized())
+                if (!planningManager.initialize)
                     throw new Error('PlanningManager not initialized');
                 return [2 /*return*/, planningManager.deletePlan(planId)];
             });
@@ -442,10 +471,10 @@ var AbstractAgentBase = /** @class */ (function () {
         return __awaiter(this, void 0, void 0, function () {
             var planningManager;
             return __generator(this, function (_a) {
-                planningManager = this.getManager('planning');
+                planningManager = this.getManager(ManagerType_1.ManagerType.PLANNING);
                 if (!planningManager)
                     throw new Error('PlanningManager not registered');
-                if (!planningManager.isInitialized())
+                if (!planningManager.initialize)
                     throw new Error('PlanningManager not initialized');
                 return [2 /*return*/, planningManager.executePlan(planId)];
             });
@@ -458,10 +487,10 @@ var AbstractAgentBase = /** @class */ (function () {
         return __awaiter(this, void 0, void 0, function () {
             var planningManager;
             return __generator(this, function (_a) {
-                planningManager = this.getManager('planning');
+                planningManager = this.getManager(ManagerType_1.ManagerType.PLANNING);
                 if (!planningManager)
                     throw new Error('PlanningManager not registered');
-                if (!planningManager.isInitialized())
+                if (!planningManager.initialize)
                     throw new Error('PlanningManager not initialized');
                 return [2 /*return*/, planningManager.adaptPlan(planId, reason)];
             });
@@ -474,10 +503,10 @@ var AbstractAgentBase = /** @class */ (function () {
         return __awaiter(this, void 0, void 0, function () {
             var planningManager;
             return __generator(this, function (_a) {
-                planningManager = this.getManager('planning');
+                planningManager = this.getManager(ManagerType_1.ManagerType.PLANNING);
                 if (!planningManager)
                     throw new Error('PlanningManager not registered');
-                if (!planningManager.isInitialized())
+                if (!planningManager.initialize)
                     throw new Error('PlanningManager not initialized');
                 return [2 /*return*/, planningManager.validatePlan(planId)];
             });
@@ -490,10 +519,10 @@ var AbstractAgentBase = /** @class */ (function () {
         return __awaiter(this, void 0, void 0, function () {
             var planningManager;
             return __generator(this, function (_a) {
-                planningManager = this.getManager('planning');
+                planningManager = this.getManager(ManagerType_1.ManagerType.PLANNING);
                 if (!planningManager)
                     throw new Error('PlanningManager not registered');
-                if (!planningManager.isInitialized())
+                if (!planningManager.initialize)
                     throw new Error('PlanningManager not initialized');
                 return [2 /*return*/, planningManager.optimizePlan(planId)];
             });
@@ -506,10 +535,10 @@ var AbstractAgentBase = /** @class */ (function () {
         return __awaiter(this, void 0, void 0, function () {
             var toolManager;
             return __generator(this, function (_a) {
-                toolManager = this.getManager('tools');
+                toolManager = this.getManager(ManagerType_1.ManagerType.TOOL);
                 if (!toolManager)
                     throw new Error('ToolManager not registered');
-                if (!toolManager.isInitialized())
+                if (!toolManager.initialize)
                     throw new Error('ToolManager not initialized');
                 return [2 /*return*/, toolManager.registerTool(tool)];
             });
@@ -522,10 +551,10 @@ var AbstractAgentBase = /** @class */ (function () {
         return __awaiter(this, void 0, void 0, function () {
             var toolManager;
             return __generator(this, function (_a) {
-                toolManager = this.getManager('tools');
+                toolManager = this.getManager(ManagerType_1.ManagerType.TOOL);
                 if (!toolManager)
                     throw new Error('ToolManager not registered');
-                if (!toolManager.isInitialized())
+                if (!toolManager.initialize)
                     throw new Error('ToolManager not initialized');
                 return [2 /*return*/, toolManager.unregisterTool(toolId)];
             });
@@ -538,10 +567,10 @@ var AbstractAgentBase = /** @class */ (function () {
         return __awaiter(this, void 0, void 0, function () {
             var toolManager;
             return __generator(this, function (_a) {
-                toolManager = this.getManager('tools');
+                toolManager = this.getManager(ManagerType_1.ManagerType.TOOL);
                 if (!toolManager)
                     throw new Error('ToolManager not registered');
-                if (!toolManager.isInitialized())
+                if (!toolManager.initialize)
                     throw new Error('ToolManager not initialized');
                 return [2 /*return*/, toolManager.getTool(toolId)];
             });
@@ -554,10 +583,10 @@ var AbstractAgentBase = /** @class */ (function () {
         return __awaiter(this, void 0, void 0, function () {
             var toolManager;
             return __generator(this, function (_a) {
-                toolManager = this.getManager('tools');
+                toolManager = this.getManager(ManagerType_1.ManagerType.TOOL);
                 if (!toolManager)
                     throw new Error('ToolManager not registered');
-                if (!toolManager.isInitialized())
+                if (!toolManager.initialize)
                     throw new Error('ToolManager not initialized');
                 return [2 /*return*/, toolManager.getTools(filter)];
             });
@@ -570,10 +599,10 @@ var AbstractAgentBase = /** @class */ (function () {
         return __awaiter(this, void 0, void 0, function () {
             var toolManager;
             return __generator(this, function (_a) {
-                toolManager = this.getManager('tools');
+                toolManager = this.getManager(ManagerType_1.ManagerType.TOOL);
                 if (!toolManager)
                     throw new Error('ToolManager not registered');
-                if (!toolManager.isInitialized())
+                if (!toolManager.initialize)
                     throw new Error('ToolManager not initialized');
                 return [2 /*return*/, toolManager.setToolEnabled(toolId, enabled)];
             });
@@ -586,10 +615,10 @@ var AbstractAgentBase = /** @class */ (function () {
         return __awaiter(this, void 0, void 0, function () {
             var toolManager;
             return __generator(this, function (_a) {
-                toolManager = this.getManager('tools');
+                toolManager = this.getManager(ManagerType_1.ManagerType.TOOL);
                 if (!toolManager)
                     throw new Error('ToolManager not registered');
-                if (!toolManager.isInitialized())
+                if (!toolManager.initialize)
                     throw new Error('ToolManager not initialized');
                 return [2 /*return*/, toolManager.executeTool(toolId, params, options)];
             });
@@ -602,10 +631,10 @@ var AbstractAgentBase = /** @class */ (function () {
         return __awaiter(this, void 0, void 0, function () {
             var toolManager;
             return __generator(this, function (_a) {
-                toolManager = this.getManager('tools');
+                toolManager = this.getManager(ManagerType_1.ManagerType.TOOL);
                 if (!toolManager)
                     throw new Error('ToolManager not registered');
-                if (!toolManager.isInitialized())
+                if (!toolManager.initialize)
                     throw new Error('ToolManager not initialized');
                 return [2 /*return*/, toolManager.getToolMetrics(toolId)];
             });
@@ -618,10 +647,10 @@ var AbstractAgentBase = /** @class */ (function () {
         return __awaiter(this, void 0, void 0, function () {
             var toolManager;
             return __generator(this, function (_a) {
-                toolManager = this.getManager('tools');
+                toolManager = this.getManager(ManagerType_1.ManagerType.TOOL);
                 if (!toolManager)
                     throw new Error('ToolManager not registered');
-                if (!toolManager.isInitialized())
+                if (!toolManager.initialize)
                     throw new Error('ToolManager not initialized');
                 return [2 /*return*/, toolManager.findBestToolForTask(taskDescription, context)];
             });
@@ -634,10 +663,10 @@ var AbstractAgentBase = /** @class */ (function () {
         return __awaiter(this, void 0, void 0, function () {
             var knowledgeManager;
             return __generator(this, function (_a) {
-                knowledgeManager = this.getManager('knowledge');
+                knowledgeManager = this.getManager(ManagerType_1.ManagerType.KNOWLEDGE);
                 if (!knowledgeManager)
                     throw new Error('KnowledgeManager not registered');
-                if (!knowledgeManager.isInitialized())
+                if (!knowledgeManager.initialize)
                     throw new Error('KnowledgeManager not initialized');
                 return [2 /*return*/, knowledgeManager.loadKnowledge()];
             });
@@ -650,10 +679,10 @@ var AbstractAgentBase = /** @class */ (function () {
         return __awaiter(this, void 0, void 0, function () {
             var knowledgeManager;
             return __generator(this, function (_a) {
-                knowledgeManager = this.getManager('knowledge');
+                knowledgeManager = this.getManager(ManagerType_1.ManagerType.KNOWLEDGE);
                 if (!knowledgeManager)
                     throw new Error('KnowledgeManager not registered');
-                if (!knowledgeManager.isInitialized())
+                if (!knowledgeManager.initialize)
                     throw new Error('KnowledgeManager not initialized');
                 return [2 /*return*/, knowledgeManager.searchKnowledge(query, options)];
             });
@@ -666,10 +695,10 @@ var AbstractAgentBase = /** @class */ (function () {
         return __awaiter(this, void 0, void 0, function () {
             var knowledgeManager;
             return __generator(this, function (_a) {
-                knowledgeManager = this.getManager('knowledge');
+                knowledgeManager = this.getManager(ManagerType_1.ManagerType.KNOWLEDGE);
                 if (!knowledgeManager)
                     throw new Error('KnowledgeManager not registered');
-                if (!knowledgeManager.isInitialized())
+                if (!knowledgeManager.initialize)
                     throw new Error('KnowledgeManager not initialized');
                 return [2 /*return*/, knowledgeManager.addKnowledgeEntry(entry)];
             });
@@ -682,10 +711,10 @@ var AbstractAgentBase = /** @class */ (function () {
         return __awaiter(this, void 0, void 0, function () {
             var knowledgeManager;
             return __generator(this, function (_a) {
-                knowledgeManager = this.getManager('knowledge');
+                knowledgeManager = this.getManager(ManagerType_1.ManagerType.KNOWLEDGE);
                 if (!knowledgeManager)
                     throw new Error('KnowledgeManager not registered');
-                if (!knowledgeManager.isInitialized())
+                if (!knowledgeManager.initialize)
                     throw new Error('KnowledgeManager not initialized');
                 return [2 /*return*/, knowledgeManager.getKnowledgeEntry(id)];
             });
@@ -698,10 +727,10 @@ var AbstractAgentBase = /** @class */ (function () {
         return __awaiter(this, void 0, void 0, function () {
             var knowledgeManager;
             return __generator(this, function (_a) {
-                knowledgeManager = this.getManager('knowledge');
+                knowledgeManager = this.getManager(ManagerType_1.ManagerType.KNOWLEDGE);
                 if (!knowledgeManager)
                     throw new Error('KnowledgeManager not registered');
-                if (!knowledgeManager.isInitialized())
+                if (!knowledgeManager.initialize)
                     throw new Error('KnowledgeManager not initialized');
                 return [2 /*return*/, knowledgeManager.updateKnowledgeEntry(id, updates)];
             });
@@ -714,10 +743,10 @@ var AbstractAgentBase = /** @class */ (function () {
         return __awaiter(this, void 0, void 0, function () {
             var knowledgeManager;
             return __generator(this, function (_a) {
-                knowledgeManager = this.getManager('knowledge');
+                knowledgeManager = this.getManager(ManagerType_1.ManagerType.KNOWLEDGE);
                 if (!knowledgeManager)
                     throw new Error('KnowledgeManager not registered');
-                if (!knowledgeManager.isInitialized())
+                if (!knowledgeManager.initialize)
                     throw new Error('KnowledgeManager not initialized');
                 return [2 /*return*/, knowledgeManager.deleteKnowledgeEntry(id)];
             });
@@ -730,10 +759,10 @@ var AbstractAgentBase = /** @class */ (function () {
         return __awaiter(this, void 0, void 0, function () {
             var knowledgeManager;
             return __generator(this, function (_a) {
-                knowledgeManager = this.getManager('knowledge');
+                knowledgeManager = this.getManager(ManagerType_1.ManagerType.KNOWLEDGE);
                 if (!knowledgeManager)
                     throw new Error('KnowledgeManager not registered');
-                if (!knowledgeManager.isInitialized())
+                if (!knowledgeManager.initialize)
                     throw new Error('KnowledgeManager not initialized');
                 return [2 /*return*/, knowledgeManager.getKnowledgeEntries(options)];
             });
@@ -746,10 +775,10 @@ var AbstractAgentBase = /** @class */ (function () {
         return __awaiter(this, void 0, void 0, function () {
             var knowledgeManager;
             return __generator(this, function (_a) {
-                knowledgeManager = this.getManager('knowledge');
+                knowledgeManager = this.getManager(ManagerType_1.ManagerType.KNOWLEDGE);
                 if (!knowledgeManager)
                     throw new Error('KnowledgeManager not registered');
-                if (!knowledgeManager.isInitialized())
+                if (!knowledgeManager.initialize)
                     throw new Error('KnowledgeManager not initialized');
                 return [2 /*return*/, knowledgeManager.identifyKnowledgeGaps()];
             });
@@ -762,44 +791,50 @@ var AbstractAgentBase = /** @class */ (function () {
         return __awaiter(this, void 0, void 0, function () {
             var knowledgeManager;
             return __generator(this, function (_a) {
-                knowledgeManager = this.getManager('knowledge');
+                knowledgeManager = this.getManager(ManagerType_1.ManagerType.KNOWLEDGE);
                 if (!knowledgeManager)
                     throw new Error('KnowledgeManager not registered');
-                if (!knowledgeManager.isInitialized())
+                if (!knowledgeManager.initialize)
                     throw new Error('KnowledgeManager not initialized');
                 return [2 /*return*/, knowledgeManager.getKnowledgeGap(id)];
             });
         });
     };
     /**
-     * Create a task via the registered SchedulerManager
+     * Create a new task via the registered SchedulerManager
      */
     AbstractAgentBase.prototype.createTask = function (options) {
         return __awaiter(this, void 0, void 0, function () {
             var schedulerManager;
             return __generator(this, function (_a) {
-                schedulerManager = this.getManager('scheduler');
+                schedulerManager = this.getManager(ManagerType_1.ManagerType.SCHEDULER);
                 if (!schedulerManager)
                     throw new Error('SchedulerManager not registered');
-                if (!schedulerManager.isInitialized())
+                if (!schedulerManager.initialize)
                     throw new Error('SchedulerManager not initialized');
                 return [2 /*return*/, schedulerManager.createTask(options)];
             });
         });
     };
     /**
-     * Get a task via the registered SchedulerManager
+     * Get a task by ID via the registered SchedulerManager
      */
     AbstractAgentBase.prototype.getTask = function (taskId) {
         return __awaiter(this, void 0, void 0, function () {
-            var schedulerManager;
+            var schedulerManager, task;
             return __generator(this, function (_a) {
-                schedulerManager = this.getManager('scheduler');
-                if (!schedulerManager)
-                    throw new Error('SchedulerManager not registered');
-                if (!schedulerManager.isInitialized())
-                    throw new Error('SchedulerManager not initialized');
-                return [2 /*return*/, schedulerManager.getTask(taskId)];
+                switch (_a.label) {
+                    case 0:
+                        schedulerManager = this.getManager(ManagerType_1.ManagerType.SCHEDULER);
+                        if (!schedulerManager)
+                            throw new Error('SchedulerManager not registered');
+                        if (!schedulerManager.initialize)
+                            throw new Error('SchedulerManager not initialized');
+                        return [4 /*yield*/, schedulerManager.getTask(taskId)];
+                    case 1:
+                        task = _a.sent();
+                        return [2 /*return*/, task ? __assign({}, task) : null];
+                }
             });
         });
     };
@@ -810,10 +845,10 @@ var AbstractAgentBase = /** @class */ (function () {
         return __awaiter(this, void 0, void 0, function () {
             var schedulerManager;
             return __generator(this, function (_a) {
-                schedulerManager = this.getManager('scheduler');
+                schedulerManager = this.getManager(ManagerType_1.ManagerType.SCHEDULER);
                 if (!schedulerManager)
                     throw new Error('SchedulerManager not registered');
-                if (!schedulerManager.isInitialized())
+                if (!schedulerManager.initialize)
                     throw new Error('SchedulerManager not initialized');
                 return [2 /*return*/, schedulerManager.getAllTasks()];
             });
@@ -826,10 +861,10 @@ var AbstractAgentBase = /** @class */ (function () {
         return __awaiter(this, void 0, void 0, function () {
             var schedulerManager;
             return __generator(this, function (_a) {
-                schedulerManager = this.getManager('scheduler');
+                schedulerManager = this.getManager(ManagerType_1.ManagerType.SCHEDULER);
                 if (!schedulerManager)
                     throw new Error('SchedulerManager not registered');
-                if (!schedulerManager.isInitialized())
+                if (!schedulerManager.initialize)
                     throw new Error('SchedulerManager not initialized');
                 return [2 /*return*/, schedulerManager.updateTask(taskId, updates)];
             });
@@ -842,10 +877,10 @@ var AbstractAgentBase = /** @class */ (function () {
         return __awaiter(this, void 0, void 0, function () {
             var schedulerManager;
             return __generator(this, function (_a) {
-                schedulerManager = this.getManager('scheduler');
+                schedulerManager = this.getManager(ManagerType_1.ManagerType.SCHEDULER);
                 if (!schedulerManager)
                     throw new Error('SchedulerManager not registered');
-                if (!schedulerManager.isInitialized())
+                if (!schedulerManager.initialize)
                     throw new Error('SchedulerManager not initialized');
                 return [2 /*return*/, schedulerManager.deleteTask(taskId)];
             });
@@ -858,10 +893,10 @@ var AbstractAgentBase = /** @class */ (function () {
         return __awaiter(this, void 0, void 0, function () {
             var schedulerManager;
             return __generator(this, function (_a) {
-                schedulerManager = this.getManager('scheduler');
+                schedulerManager = this.getManager(ManagerType_1.ManagerType.SCHEDULER);
                 if (!schedulerManager)
                     throw new Error('SchedulerManager not registered');
-                if (!schedulerManager.isInitialized())
+                if (!schedulerManager.initialize)
                     throw new Error('SchedulerManager not initialized');
                 return [2 /*return*/, schedulerManager.executeTask(taskId)];
             });
@@ -874,10 +909,10 @@ var AbstractAgentBase = /** @class */ (function () {
         return __awaiter(this, void 0, void 0, function () {
             var schedulerManager;
             return __generator(this, function (_a) {
-                schedulerManager = this.getManager('scheduler');
+                schedulerManager = this.getManager(ManagerType_1.ManagerType.SCHEDULER);
                 if (!schedulerManager)
                     throw new Error('SchedulerManager not registered');
-                if (!schedulerManager.isInitialized())
+                if (!schedulerManager.initialize)
                     throw new Error('SchedulerManager not initialized');
                 return [2 /*return*/, schedulerManager.cancelTask(taskId)];
             });
@@ -890,10 +925,10 @@ var AbstractAgentBase = /** @class */ (function () {
         return __awaiter(this, void 0, void 0, function () {
             var schedulerManager;
             return __generator(this, function (_a) {
-                schedulerManager = this.getManager('scheduler');
+                schedulerManager = this.getManager(ManagerType_1.ManagerType.SCHEDULER);
                 if (!schedulerManager)
                     throw new Error('SchedulerManager not registered');
-                if (!schedulerManager.isInitialized())
+                if (!schedulerManager.initialize)
                     throw new Error('SchedulerManager not initialized');
                 return [2 /*return*/, schedulerManager.getDueTasks()];
             });
@@ -906,10 +941,10 @@ var AbstractAgentBase = /** @class */ (function () {
         return __awaiter(this, void 0, void 0, function () {
             var schedulerManager;
             return __generator(this, function (_a) {
-                schedulerManager = this.getManager('scheduler');
+                schedulerManager = this.getManager(ManagerType_1.ManagerType.SCHEDULER);
                 if (!schedulerManager)
                     throw new Error('SchedulerManager not registered');
-                if (!schedulerManager.isInitialized())
+                if (!schedulerManager.initialize)
                     throw new Error('SchedulerManager not initialized');
                 return [2 /*return*/, schedulerManager.getRunningTasks()];
             });
@@ -922,10 +957,10 @@ var AbstractAgentBase = /** @class */ (function () {
         return __awaiter(this, void 0, void 0, function () {
             var schedulerManager;
             return __generator(this, function (_a) {
-                schedulerManager = this.getManager('scheduler');
+                schedulerManager = this.getManager(ManagerType_1.ManagerType.SCHEDULER);
                 if (!schedulerManager)
                     throw new Error('SchedulerManager not registered');
-                if (!schedulerManager.isInitialized())
+                if (!schedulerManager.initialize)
                     throw new Error('SchedulerManager not initialized');
                 return [2 /*return*/, schedulerManager.getPendingTasks()];
             });
@@ -938,10 +973,10 @@ var AbstractAgentBase = /** @class */ (function () {
         return __awaiter(this, void 0, void 0, function () {
             var schedulerManager;
             return __generator(this, function (_a) {
-                schedulerManager = this.getManager('scheduler');
+                schedulerManager = this.getManager(ManagerType_1.ManagerType.SCHEDULER);
                 if (!schedulerManager)
                     throw new Error('SchedulerManager not registered');
-                if (!schedulerManager.isInitialized())
+                if (!schedulerManager.initialize)
                     throw new Error('SchedulerManager not initialized');
                 return [2 /*return*/, schedulerManager.getFailedTasks()];
             });
@@ -954,12 +989,115 @@ var AbstractAgentBase = /** @class */ (function () {
         return __awaiter(this, void 0, void 0, function () {
             var schedulerManager;
             return __generator(this, function (_a) {
-                schedulerManager = this.getManager('scheduler');
+                schedulerManager = this.getManager(ManagerType_1.ManagerType.SCHEDULER);
                 if (!schedulerManager)
                     throw new Error('SchedulerManager not registered');
-                if (!schedulerManager.isInitialized())
+                if (!schedulerManager.initialize)
                     throw new Error('SchedulerManager not initialized');
                 return [2 /*return*/, schedulerManager.retryTask(taskId)];
+            });
+        });
+    };
+    /**
+     * Get the agent's ID (alias for getAgentId)
+     */
+    AbstractAgentBase.prototype.getId = function () {
+        return this.getAgentId();
+    };
+    /**
+     * Get the agent's type
+     */
+    AbstractAgentBase.prototype.getType = function () {
+        return 'agent';
+    };
+    /**
+     * Get the agent's description
+     */
+    AbstractAgentBase.prototype.getDescription = function () {
+        return this.config.description || '';
+    };
+    /**
+     * Get the agent's version
+     */
+    AbstractAgentBase.prototype.getVersion = function () {
+        return this.config.metadata.version;
+    };
+    /**
+     * Get the agent's capabilities
+     */
+    AbstractAgentBase.prototype.getCapabilities = function () {
+        return __awaiter(this, void 0, void 0, function () {
+            return __generator(this, function (_a) {
+                return [2 /*return*/, this.config.capabilities.map(function (cap) { return cap.id; })];
+            });
+        });
+    };
+    /**
+     * Get the agent's status
+     */
+    AbstractAgentBase.prototype.getStatus = function () {
+        return {
+            status: this.config.status,
+            message: "Agent ".concat(this.getName(), " is ").concat(this.config.status)
+        };
+    };
+    /**
+     * Reset the agent to initial state
+     */
+    AbstractAgentBase.prototype.reset = function () {
+        return __awaiter(this, void 0, void 0, function () {
+            var _i, _a, manager;
+            return __generator(this, function (_b) {
+                switch (_b.label) {
+                    case 0:
+                        _i = 0, _a = this.getManagers();
+                        _b.label = 1;
+                    case 1:
+                        if (!(_i < _a.length)) return [3 /*break*/, 4];
+                        manager = _a[_i];
+                        return [4 /*yield*/, manager.reset()];
+                    case 2:
+                        _b.sent();
+                        _b.label = 3;
+                    case 3:
+                        _i++;
+                        return [3 /*break*/, 1];
+                    case 4: return [2 /*return*/];
+                }
+            });
+        });
+    };
+    /**
+     * Set a manager
+     */
+    AbstractAgentBase.prototype.setManager = function (manager) {
+        this.registerManager(manager);
+    };
+    /**
+     * Remove a manager
+     */
+    AbstractAgentBase.prototype.removeManager = function (type) {
+        this.managers.delete(type);
+    };
+    /**
+     * Check if a manager exists
+     */
+    AbstractAgentBase.prototype.hasManager = function (type) {
+        return this.managers.has(type);
+    };
+    /**
+     * Get all tasks
+     */
+    AbstractAgentBase.prototype.getTasks = function () {
+        return __awaiter(this, void 0, void 0, function () {
+            var tasks;
+            return __generator(this, function (_a) {
+                switch (_a.label) {
+                    case 0: return [4 /*yield*/, this.getAllTasks()];
+                    case 1:
+                        tasks = _a.sent();
+                        return [2 /*return*/, tasks.map(function (task) { return (__assign({}, task)); })];
+                }
             });
         });
     };

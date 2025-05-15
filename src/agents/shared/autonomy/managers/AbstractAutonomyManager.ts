@@ -4,22 +4,29 @@
  * Abstract base class for the AutonomyManager interface.
  */
 
-import { BaseManager, ManagerConfig } from '../../base/managers/BaseManager';
-import { AgentBase } from '../../base/AgentBase.interface';
+import { AbstractBaseManager, ManagerConfig } from '../../base/managers/BaseManager';
+import { ManagerType } from '../../base/managers/ManagerType';
 import { AutonomyManager, AutonomyManagerConfig } from '../interfaces/AutonomyManager.interface';
 import { 
   AutonomySystem, AutonomyStatus, AutonomyCapabilities, AutonomyDiagnostics, 
   TaskStatistics, AutonomousExecutionOptions, AutonomousExecutionResult 
 } from '../interfaces/AutonomySystem.interface';
-import { ScheduledTask } from '../../../../lib/agents/base/managers/SchedulerManager';
+import { ScheduledTask, TaskCreationOptions, TaskExecutionResult } from '../../base/managers/SchedulerManager.interface';
+import { ManagerHealth } from '../../base/managers/ManagerHealth';
+import { AgentBase } from '../../base/AgentBase.interface';
+import { LoggerManager } from '../../base/managers/LoggerManager.interface';
+import { ScheduledTask as AgentScheduledTask } from '../../../../lib/shared/types/agentTypes';
 
 /**
  * Abstract implementation of the AutonomyManager interface
  */
-export abstract class AbstractAutonomyManager extends BaseManager
+export abstract class AbstractAutonomyManager extends AbstractBaseManager
   implements AutonomyManager {
   
-  protected autonomySystem: AutonomySystem | null = null;
+  protected readonly agent: AgentBase;
+  public readonly autonomySystem: AutonomySystem;
+  public readonly managerType = ManagerType.AUTONOMY;
+  public readonly managerId: string;
   protected config: AutonomyManagerConfig;
   protected initialized: boolean = false;
   protected enabled: boolean = true;
@@ -28,11 +35,15 @@ export abstract class AbstractAutonomyManager extends BaseManager
    * Create a new AbstractAutonomyManager
    * 
    * @param agent The agent this manager belongs to
+   * @param autonomySystem The autonomy system this manager manages
    * @param config Configuration for this manager
    */
-  constructor(agent: AgentBase, config: AutonomyManagerConfig) {
-    super(agent, "autonomy");
+  constructor(agent: AgentBase, autonomySystem: AutonomySystem, config: AutonomyManagerConfig) {
+    super(agent.getAgentId() + '-autonomy-manager', ManagerType.AUTONOMY, agent, { enabled: true });
+    this.agent = agent;
+    this.autonomySystem = autonomySystem;
     this.config = config;
+    this.managerId = `${agent.getAgentId()}-autonomy-manager`;
   }
   
   /**
@@ -73,7 +84,7 @@ export abstract class AbstractAutonomyManager extends BaseManager
    */
   setEnabled(enabled: boolean): boolean {
     this.enabled = enabled;
-    return true;
+    return enabled;
   }
   
   /**
@@ -87,11 +98,33 @@ export abstract class AbstractAutonomyManager extends BaseManager
   /**
    * Get the health status of the manager
    */
-  getHealth(): Promise<{ status: "healthy" | "degraded" | "unhealthy"; message?: string; metrics?: Record<string, unknown> }> {
-    return Promise.resolve({
-      status: this.initialized ? (this.enabled ? "healthy" : "degraded") : "unhealthy",
-      message: this.initialized ? (this.enabled ? "Autonomy manager is healthy" : "Autonomy manager is disabled") : "Autonomy manager is not initialized"
-    });
+  async getHealth(): Promise<ManagerHealth> {
+    try {
+      const metrics = await this.getMetrics();
+      return {
+        status: 'healthy',
+        message: 'Autonomy manager is healthy',
+        metrics,
+        details: {
+          lastCheck: new Date(),
+          issues: [],
+          metrics
+        }
+      };
+    } catch (error) {
+      return {
+        status: 'unhealthy',
+        message: `Autonomy manager health check failed: ${error}`,
+        details: {
+          lastCheck: new Date(),
+          issues: [{
+            severity: 'critical',
+            message: error instanceof Error ? error.message : String(error),
+            detectedAt: new Date()
+          }]
+        }
+      };
+    }
   }
   
   /**
@@ -106,11 +139,6 @@ export abstract class AbstractAutonomyManager extends BaseManager
     
     try {
       // Create and initialize the autonomy system
-      this.autonomySystem = await this.createAutonomySystem();
-      if (!this.autonomySystem) {
-        return false;
-      }
-      
       const success = await this.autonomySystem.initialize();
       this.initialized = success;
       
@@ -173,19 +201,32 @@ export abstract class AbstractAutonomyManager extends BaseManager
   /**
    * Get the scheduled tasks managed by the autonomy system
    */
-  getScheduledTasks(): ScheduledTask[] {
+  async getTasks(): Promise<AgentScheduledTask[]> {
     if (!this.autonomySystem) {
       return [];
     }
-    return this.autonomySystem.getScheduledTasks();
+    const tasks = await this.autonomySystem.getScheduledTasks();
+    return tasks.map(task => ({
+      id: task.id,
+      name: task.name,
+      description: task.description,
+      schedule: task.schedule,
+      goalPrompt: task.goalPrompt,
+      lastRun: task.lastRun,
+      nextRun: task.nextRun,
+      enabled: task.enabled,
+      tags: task.tags,
+      interval: task.interval,
+      intervalId: task.intervalId
+    }));
   }
 
   /**
    * Schedule a new task
    */
-  async scheduleTask(task: ScheduledTask): Promise<boolean> {
+  async scheduleTask(task: AgentScheduledTask): Promise<boolean> {
     if (!this.autonomySystem) {
-      return false;
+      throw new Error('Autonomy system not initialized');
     }
     return this.autonomySystem.scheduleTask(task);
   }
@@ -341,7 +382,7 @@ export abstract class AbstractAutonomyManager extends BaseManager
     priority?: number;
     category?: string;
     tags?: string[];
-  }): Promise<ScheduledTask | null> {
+  }): Promise<AgentScheduledTask | null> {
     if (!this.autonomySystem) {
       return null;
     }
@@ -354,7 +395,6 @@ export abstract class AbstractAutonomyManager extends BaseManager
   async shutdown(): Promise<void> {
     if (this.autonomySystem) {
       await this.autonomySystem.shutdown();
-      this.autonomySystem = null;
     }
     this.initialized = false;
   }
@@ -362,16 +402,21 @@ export abstract class AbstractAutonomyManager extends BaseManager
   /**
    * Log an action taken by this manager
    */
-  logAction(action: string, metadata?: Record<string, unknown>): void {
+  protected logAction(action: string, metadata?: Record<string, unknown>): void {
     if (this.agent) {
-      const loggerManager = this.agent.getManager('logger');
-      if (loggerManager && typeof (loggerManager as any).logAction === 'function') {
-        (loggerManager as any).logAction(`[AutonomyManager] ${action}`, metadata);
+      const loggerManager = this.agent.getManager<LoggerManager>(ManagerType.LOGGER);
+      if (loggerManager) {
+        loggerManager.log(action, metadata);
         return;
       }
     }
     
-    // Fallback to console log
     console.log(`[${this.agent.getAgentId()}][AutonomyManager] ${action}`, metadata || '');
   }
+
+  getAgent(): AgentBase {
+    return this.agent;
+  }
+
+  abstract getMetrics(): Promise<Record<string, unknown>>;
 } 

@@ -5,22 +5,22 @@
  * operation, scheduling, and proactive task management.
  */
 
-import { BaseManager } from '../../base/managers/BaseManager';
+import { BaseManager, ManagerConfig } from '../../base/managers/BaseManager';
 import { AgentBase } from '../../base/AgentBase.interface';
 import { AutonomySystem, AutonomySystemConfig, AutonomyStatus, AutonomyCapabilities, 
   AutonomyDiagnostics, TaskStatistics, AutonomousExecutionOptions, AutonomousExecutionResult 
 } from './AutonomySystem.interface';
-import { ScheduledTask } from '../../../../lib/agents/base/managers/SchedulerManager';
+import { ScheduledTask } from '../../../../lib/shared/types/agentTypes';
 
 /**
  * Configuration for the autonomy manager
  */
-export interface AutonomyManagerConfig {
-  /** Whether this manager is enabled */
-  enabled: boolean;
-  
+export interface AutonomyManagerConfig extends ManagerConfig {
   /** Core autonomy system configuration */
   autonomyConfig: AutonomySystemConfig;
+  
+  /** Additional configuration properties */
+  [key: string]: unknown;
 }
 
 /**
@@ -60,7 +60,7 @@ export interface AutonomyManager extends BaseManager {
    * 
    * @returns Array of scheduled tasks
    */
-  getScheduledTasks(): ScheduledTask[];
+  getTasks(): Promise<ScheduledTask[]>;
   
   /**
    * Schedule a new task

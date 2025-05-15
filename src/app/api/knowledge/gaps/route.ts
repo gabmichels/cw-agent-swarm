@@ -1,28 +1,29 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { KnowledgeGraph } from '../../../../lib/knowledge/KnowledgeGraph';
+import { KnowledgeGraphManager } from '../../../../lib/agents/implementations/memory/KnowledgeGraphManager';
 import { SemanticSearchService } from '../../../../lib/knowledge/SemanticSearchService';
 import { KnowledgeGapsService } from '../../../../lib/knowledge/gaps/KnowledgeGapsService';
 import { logger } from '../../../../lib/logging';
 
-let knowledgeGraph: KnowledgeGraph | null = null;
+let graphManager: KnowledgeGraphManager | null = null;
 let searchService: SemanticSearchService | null = null;
 let gapsService: KnowledgeGapsService | null = null;
 
 /**
  * Initialize or get the knowledge gaps service
  */
-function getGapsService(domain: string = 'marketing'): KnowledgeGapsService {
+async function getGapsService(): Promise<KnowledgeGapsService> {
   if (!gapsService) {
-    if (!knowledgeGraph) {
-      knowledgeGraph = new KnowledgeGraph(domain);
+    if (!graphManager) {
+      graphManager = new KnowledgeGraphManager();
+      await graphManager.initialize();
     }
     
     if (!searchService) {
-      searchService = new SemanticSearchService(knowledgeGraph);
+      searchService = new SemanticSearchService(graphManager);
     }
     
-    gapsService = new KnowledgeGapsService(knowledgeGraph, searchService);
-    gapsService.load(); // Load existing gaps and priorities
+    gapsService = new KnowledgeGapsService(graphManager, searchService);
+    await gapsService.load(); // Load existing gaps and priorities
   }
   
   return gapsService;
@@ -44,7 +45,7 @@ export async function GET(request: NextRequest) {
     const limitStr = searchParams.get('limit');
     const limit = limitStr ? parseInt(limitStr, 10) : undefined;
     
-    const service = getGapsService();
+    const service = await getGapsService();
     let gaps = service.getAllKnowledgeGaps();
     
     // Apply filters
@@ -104,7 +105,7 @@ export async function POST(request: NextRequest) {
       category
     };
     
-    const service = getGapsService();
+    const service = await getGapsService();
     const gaps = await service.analyzeConversation(conversation, options);
     
     // Get learning priorities for these gaps
@@ -146,7 +147,7 @@ export async function PATCH(request: NextRequest) {
       );
     }
     
-    const service = getGapsService();
+    const service = await getGapsService();
     let result: any = null;
     
     if (type === 'gap') {

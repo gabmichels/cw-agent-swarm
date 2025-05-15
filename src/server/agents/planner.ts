@@ -1,5 +1,11 @@
-import { ChloeMemory } from '../../agents/chloe/memory';
+import { MemoryManager } from '../../agents/shared/base/managers/MemoryManager.interface';
 import { getLLM } from '../../lib/core/llm';
+import { AgentPlannerOptions } from '../../lib/shared/types/agentTypes';
+import { MemoryType } from '../../server/memory/config/types';
+import { getMemoryServices } from '../memory/services';
+import { MemoryEntry } from '../../agents/shared/base/managers/MemoryManager.interface';
+import { SearchResult } from '../memory/services/search/types';
+import { BaseMemorySchema } from '../memory/models/base-schema';
 
 export interface PlanResult {
   plan: string[];
@@ -16,7 +22,7 @@ export interface PlanResult {
 export async function planTask(
   task: string,
   options: {
-    memory?: ChloeMemory;
+    memory?: MemoryManager;
     maxSteps?: number;
     includeReasoning?: boolean;
   } = {}
@@ -27,12 +33,28 @@ export async function planTask(
   console.log(`Planning task: ${task}`);
   
   try {
+    // Get memory services
+    const { searchService } = await getMemoryServices();
+    
+    // Search for relevant memories
+    const memories: SearchResult<BaseMemorySchema>[] = await searchService.search(task, {
+      types: [MemoryType.TASK, MemoryType.THOUGHT],
+      limit: 3
+    });
+    
+    // Format memories for context
+    const memoryContext = memories.length > 0
+      ? '\n\nRelevant memories:\n' + memories
+          .map(memory => `RELEVANT MEMORY: ${memory.point.payload.text}`)
+          .join('\n')
+      : '';
+    
     // Get relevant memories if memory system is provided
     let relevantContext = '';
     if (options.memory) {
-      const memories = await options.memory.getRelevantMemories(task, 3);
-      if (memories && memories.length > 0) {
-        relevantContext = `\nRelevant context from memory:\n${memories.join('\n')}`;
+      const relevantMemories = await options.memory.searchMemories(task, { limit: 3 });
+      if (relevantMemories && relevantMemories.length > 0) {
+        relevantContext = `\nRelevant context from memory:\n${relevantMemories.map(memory => memory.content).join('\n')}`;
       }
     }
     
@@ -56,7 +78,7 @@ PLAN:
 ${includeReasoning ? 'REASONING:\n[Your reasoning for this plan structure]' : ''}
 \`\`\`
 
-TASK: ${task}${relevantContext}`;
+TASK: ${task}${memoryContext}${relevantContext}`;
 
     // Get the LLM
     const llm = getLLM({
