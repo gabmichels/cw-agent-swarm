@@ -18,6 +18,10 @@ import { formatConversationToMessages } from './messaging/formatters';
 import { HumanMessage, SystemMessage, AIMessage } from '@langchain/core/messages';
 import { ChatPromptTemplate, MessagesPlaceholder } from '@langchain/core/prompts';
 import { StringOutputParser } from '@langchain/core/output_parsers';
+import { tagExtractor } from '../../utils/tagExtractor';
+import { EnhancedMemoryManager } from './memory/managers/EnhancedMemoryManager';
+import { Executor } from './execution/Executor';
+import { ToolManager } from './base/managers/ToolManager.interface';
 
 // Define the necessary types that we need
 const AGENT_STATUS = {
@@ -81,6 +85,10 @@ interface ExtendedAgentConfig {
   enableOutputProcessor?: boolean;
   enableResourceTracking?: boolean;
   
+  // Enhanced manager flags
+  useEnhancedMemory?: boolean;
+  useEnhancedReflection?: boolean;
+  
   // Manager configurations
   managersConfig?: {
     memoryManager?: ManagerConfig;
@@ -106,6 +114,7 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
   private agentType: string = 'default';
   private version: string = '1.0.0';
   private model: ChatOpenAI;
+  private executor: Executor | null = null;
   protected schedulerManager?: DefaultSchedulerManager;
   protected initialized: boolean = false;
   
@@ -351,12 +360,24 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
     try {
       // Register all managers based on configuration
       if (this.extendedConfig.enableMemoryManager) {
-        const memoryManager = new DefaultMemoryManager(
-          this, 
-          this.extendedConfig.managersConfig?.memoryManager || {}
-        );
-        await memoryManager.initialize();
-        this.registerManager(memoryManager);
+        // Check if enhanced memory is enabled
+        if (this.extendedConfig.useEnhancedMemory) {
+          // Use EnhancedMemoryManager instead of DefaultMemoryManager
+          const enhancedMemoryManager = new EnhancedMemoryManager(
+            this,
+            this.extendedConfig.managersConfig?.memoryManager || {}
+          );
+          await enhancedMemoryManager.initialize();
+          this.registerManager(enhancedMemoryManager);
+        } else {
+          // Use DefaultMemoryManager
+          const memoryManager = new DefaultMemoryManager(
+            this, 
+            this.extendedConfig.managersConfig?.memoryManager || {}
+          );
+          await memoryManager.initialize();
+          this.registerManager(memoryManager);
+        }
       }
 
       if (this.extendedConfig.enablePlanningManager) {
@@ -375,6 +396,17 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
         );
         await toolManager.initialize();
         this.registerManager(toolManager);
+        
+        // Initialize Executor with the agent's model and tool router
+        const toolManagerInstance = this.getManager<ToolManager>(ManagerType.TOOL);
+        if (toolManagerInstance) {
+          // Need to use any to avoid TypeScript errors since getToolRouter is not in the interface
+          const toolRouter = (toolManagerInstance as any).getToolRouter?.();
+          if (toolRouter) {
+            this.executor = new Executor(this.model, toolRouter);
+            await this.executor.initialize();
+          }
+        }
       }
 
       if (this.extendedConfig.enableKnowledgeManager) {
@@ -403,11 +435,25 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
       // For now we'll skip input/output processor initialization due to type issues
       // We'll implement them properly when needed for actual input/output processing
 
+      // Set up communication channels between managers
+      this.wireManagersTogether();
+
       return super.initialize();
     } catch (error) {
       console.error('Error initializing DefaultAgent:', error);
       return false;
     }
+  }
+
+  /**
+   * Wire managers together to enable communication
+   */
+  private wireManagersTogether(): void {
+    // Connect memory manager to reflection manager
+    const memoryManager = this.getManager<MemoryManager>(ManagerType.MEMORY);
+    
+    // Connect other managers as needed
+    // This method will be expanded in subsequent implementations
   }
 
   /**
@@ -447,6 +493,11 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
       this.resourceTracker = null;
     }
     
+    // Shutdown the executor if initialized
+    if (this.executor) {
+      await this.executor.shutdown();
+    }
+    
     // Shutdown all registered managers
     await this.shutdownManagers();
     
@@ -467,8 +518,8 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
         throw new Error('Memory manager not initialized');
       }
       
-      // Store input as a memory
-      await memoryManager.addMemory(input, { type: 'user_input', ...context || {} });
+      // Store input as a memory with tags
+      await this.addTaggedMemory(input, { type: 'user_input', ...context || {} });
       
       // Get conversation history from memory manager
       const conversationHistory = await memoryManager.searchMemories('', { 
@@ -503,14 +554,70 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
       // Execute the chain with the input
       const response = await chain.invoke({ input });
       
-      // Store response in memory
-      await memoryManager.addMemory(response, { type: 'agent_response', ...context || {} });
+      // Store response in memory using tag extraction
+      await this.addTaggedMemory(response, { type: 'agent_response', ...context || {} });
       
       return response;
     } catch (error) {
       console.error('Error processing input:', error);
       return null;
     }
+  }
+  
+  /**
+   * Add memory with tags extracted from content
+   * @param content Content to store
+   * @param metadata Additional metadata
+   * @returns Promise resolving to the added memory
+   */
+  async addTaggedMemory(content: string, metadata: Record<string, unknown> = {}): Promise<void> {
+    try {
+      const memoryManager = this.getManager<MemoryManager>(ManagerType.MEMORY);
+      if (!memoryManager) {
+        throw new Error('Memory manager not initialized');
+      }
+      
+      // Extract tags using existing tagExtractor
+      const taggingResult = await tagExtractor.extractTags(content);
+      
+      // Add memory with extracted tags
+      await memoryManager.addMemory(content, {
+        ...metadata,
+        tags: taggingResult.tags.map(t => t.text),
+        // The TagExtractionResult interface doesn't include entities
+        // so we only add tags from the tags field
+        analysis: {
+          tags: taggingResult.tags,
+          extractionSuccess: taggingResult.success
+        }
+      });
+    } catch (error) {
+      console.error('Error adding tagged memory:', error);
+      // Fallback to storing memory without tags
+      const memoryManager = this.getManager<MemoryManager>(ManagerType.MEMORY);
+      if (memoryManager) {
+        await memoryManager.addMemory(content, metadata);
+      }
+    }
+  }
+  
+  /**
+   * Retrieve memories by tags
+   * @param tags Tags to search for
+   * @param options Search options
+   * @returns Matching memories
+   */
+  async getMemoriesByTags(tags: string[], options: { limit?: number } = {}): Promise<any[]> {
+    const memoryManager = this.getManager<MemoryManager>(ManagerType.MEMORY);
+    if (!memoryManager) {
+      throw new Error('Memory manager not initialized');
+    }
+    
+    // Use searchMemories method with tag filter
+    return await memoryManager.searchMemories('', {
+      metadata: { tags },
+      limit: options.limit || 10
+    });
   }
   
   /**
@@ -686,6 +793,80 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
       // Resume scheduling by enabling the manager
       this.schedulerManager.setEnabled(true);
       console.info(`Resource usage normalized for ${metric}`);
+    }
+  }
+
+  /**
+   * Rate the importance, novelty, and emotional content of a message
+   * Uses EnhancedMemoryManager if available, otherwise returns default values
+   * 
+   * @param memoryId ID of the memory to rate
+   * @returns Object containing importance, novelty, and emotion scores
+   */
+  async rateMessageImportance(memoryId: string): Promise<{
+    importance: number;
+    novelty: number;
+    emotion: number;
+  }> {
+    try {
+      const memoryManager = this.getManager<MemoryManager>(ManagerType.MEMORY);
+      
+      // Check if we have an EnhancedMemoryManager with rating capabilities
+      if (memoryManager && 
+          'rateMemoryImportance' in memoryManager && 
+          'rateMemoryNovelty' in memoryManager && 
+          'analyzeMemoryEmotion' in memoryManager) {
+        
+        // Cast to any to avoid TypeScript errors since these methods aren't in the base interface
+        const enhancedManager = memoryManager as any;
+        
+        // Get the importance, novelty, and emotion scores
+        const importance = await enhancedManager.rateMemoryImportance(memoryId);
+        const novelty = await enhancedManager.rateMemoryNovelty(memoryId);
+        const emotion = await enhancedManager.analyzeMemoryEmotion(memoryId);
+        
+        return { importance, novelty, emotion };
+      }
+      
+      // Return default values if EnhancedMemoryManager is not available
+      return { importance: 0.5, novelty: 0.5, emotion: 0.5 };
+    } catch (error) {
+      console.error('Error rating message importance:', error);
+      return { importance: 0.5, novelty: 0.5, emotion: 0.5 };
+    }
+  }
+
+  /**
+   * Process a batch of memories to rate their importance, analyze patterns, etc.
+   * Uses EnhancedMemoryManager's cognitive processing capabilities if available
+   * 
+   * @param memoryIds IDs of memories to process
+   * @returns Enhanced memory entries or null if EnhancedMemoryManager is not available
+   */
+  async processMemoriesCognitively(memoryIds: string[]): Promise<any[] | null> {
+    try {
+      const memoryManager = this.getManager<MemoryManager>(ManagerType.MEMORY);
+      
+      // Check if we have an EnhancedMemoryManager with cognitive processing capabilities
+      if (memoryManager && 'batchProcessMemoriesCognitively' in memoryManager) {
+        // Cast to any to avoid TypeScript errors
+        const enhancedManager = memoryManager as any;
+        
+        // Process memories with all cognitive processing types
+        return await enhancedManager.batchProcessMemoriesCognitively(
+          memoryIds,
+          {
+            processingTypes: ['associations', 'importance', 'novelty', 'emotion', 'categorization'],
+            forceReprocess: false,
+            maxConcurrent: 5
+          }
+        );
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('Error in cognitive memory processing:', error);
+      return null;
     }
   }
 } 
