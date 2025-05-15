@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getMemoryServices } from '../../../../../../server/memory/services';
-import { MemoryType, ImportanceLevel } from '../../../../../../server/memory/config';
 import { MessageRole } from '../../../../../../agents/shared/types/MessageTypes';
 import { createUserId, createAgentId, createChatId } from '../../../../../../types/structured-id';
 import { addMessageMemory } from '../../../../../../server/memory/services/memory/memory-service-wrappers';
@@ -35,56 +34,59 @@ interface AgentResponse {
   metadata?: Record<string, unknown>;
 }
 
-// Define interface for a processable agent
-interface ProcessableAgent {
-  id: string;
-  name?: string;
-  processMessage(message: string, options: MessageProcessingOptions): Promise<string | AgentResponse>;
-}
-
-// Define interface for an initializable agent
-interface InitializableAgent extends ProcessableAgent {
-  initialized: boolean;
-  initialize(): Promise<void>;
-}
-
 // Track the last user message ID to maintain thread relationships
 let lastUserMessageId: string | null = null;
-
-/**
- * GET /api/multi-agent/chats/[chatId]/messages
- * Returns all messages for a chat, or an empty array if none exist
- */
-export async function GET(
-  request: NextRequest,
-  context: { params: { chatId: string } }
-) {
-  const chatId = context.params.chatId;
-  try {
-    // TODO: Replace with real message fetching logic
-    // For now, always return an empty array for new chats
-    // In production, fetch messages from your DB or memory service
-    return NextResponse.json({ messages: [] });
-  } catch (error) {
-    return NextResponse.json({ messages: [] });
-  }
-}
 
 export async function POST(
   request: Request,
   { params }: { params: { chatId: string } }
 ) {
   try {
-    const { content, metadata } = await request.json();
-    const { userId, agentId, attachments = [] } = metadata;
+    // Access param directly without awaiting it
     const chatId = params.chatId;
-
-    if (!content?.trim()) {
-      return NextResponse.json(
-        { error: 'Message content is required' },
-        { status: 400 }
-      );
+    
+    // Parse form data
+    const formData = await request.formData();
+    const message = formData.get('message') as string || '';
+    const userId = formData.get('userId') as string || '';
+    const agentId = formData.get('agentId') as string || '';
+    
+    // Process file attachments
+    const attachments: MessageAttachment[] = [];
+    const fileEntries = Array.from(formData.entries()).filter(([key]) => key.startsWith('file_'));
+    
+    for (let i = 0; i < fileEntries.length; i++) {
+      const fileKey = `file_${i}`;
+      const typeKey = `metadata_${i}_type`;
+      const fileIdKey = `metadata_${i}_fileId`;
+      
+      const file = formData.get(fileKey) as File;
+      const type = formData.get(typeKey) as string || 'other';
+      const fileId = formData.get(fileIdKey) as string || '';
+      
+      if (file) {
+        // Process file attachment
+        const attachment: MessageAttachment = {
+          filename: file.name,
+          type,
+          size: file.size,
+          mimeType: file.type,
+          fileId
+        };
+        
+        // For image files, we could optionally process them further
+        if (file.type.startsWith('image/')) {
+          // Read file as buffer for processing if needed
+          const buffer = await file.arrayBuffer();
+          // Store additional image data if needed
+          // You might want to save the image to a storage service here
+        }
+        
+        attachments.push(attachment);
+      }
     }
+    
+    console.log(`Processed ${attachments.length} file attachments`);
 
     // Initialize memory services
     const { memoryService, client } = await getMemoryServices();
@@ -96,7 +98,7 @@ export async function POST(
       await client.initialize();
     }
     
-    // Get or create a chat session for this conversation
+    // Get or create a chat session
     let chatSession: any = null;
     try {
       const chatService = await getChatService();
@@ -125,32 +127,11 @@ export async function POST(
       }
     } catch (chatError) {
       console.error('Error creating chat session:', chatError);
-      // Continue without a chat session - the conversation will still work
-      // Get agent info for title
-      let agentName = 'Assistant';
-      try {
-        const agent = await AgentService.getAgent(agentId);
-        if (agent) {
-          agentName = agent.name || 'Assistant';
-        }
-      } catch (agentError) {
-        console.warn('Error getting agent info:', agentError);
-      }
-      
+      // Continue with a minimal fallback session
       chatSession = {
         id: chatId,
         type: 'direct',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        status: 'active',
-        participants: [
-          { id: userId, type: 'user', joinedAt: new Date().toISOString() },
-          { id: agentId, type: 'agent', joinedAt: new Date().toISOString() }
-        ],
-        metadata: {
-          title: `Chat with ${agentName}`,
-          description: `Conversation between user ${userId} and agent ${agentName}`
-        }
+        status: 'active'
       };
     }
     
@@ -159,52 +140,35 @@ export async function POST(
     const agentStructuredId = createAgentId(agentId);
     const chatStructuredId = createChatId(chatId);
 
-    // Process any attachments
-    let processedAttachments = attachments;
-    if (attachments && attachments.length > 0) {
-      console.log(`Message has ${attachments.length} attachments`);
-      
-      // For each attachment, ensure preview URLs aren't too long
-      processedAttachments = attachments.map((attachment: MessageAttachment) => {
-        // If it has a data URL preview that's too long, truncate it or remove it
-        if (attachment.preview && attachment.preview.length > 1000 && attachment.preview.startsWith('data:')) {
-          // For image attachments, keep a token part of the data URL to indicate it exists
-          const truncatedPreview = attachment.preview.substring(0, 100) + '...[truncated for storage]';
-          return {
-            ...attachment,
-            preview: truncatedPreview,
-            has_full_preview: true // Flag to indicate there was a preview
-          };
-        }
-        return attachment;
-      });
-      
-      console.log(`Processed attachments for storage:`, JSON.stringify(processedAttachments).substring(0, 200) + '...');
-    }
-
     // Create thread info for user message
     const userThreadInfo = getOrCreateThreadInfo(chatId, 'user');
     console.log(`Created user message with thread ID: ${userThreadInfo.id}, position: ${userThreadInfo.position}`);
     
+    // Define message content - include description of files
+    const fileDescriptions = attachments.map(a => `- ${a.filename} (${a.type})`).join('\n');
+    const messageContent = message ? 
+      `${message}\n\n[Attached files:\n${fileDescriptions}]` : 
+      `[Shared files without additional context:\n${fileDescriptions}]`;
+    
     // Save user message to memory
     const userMemoryResult = await addMessageMemory(
       memoryService,
-      content,
+      messageContent,
       MessageRole.USER,
       userStructuredId,
       agentStructuredId,
       chatStructuredId,
       userThreadInfo,
       {
-        attachments: processedAttachments,
-        messageType: 'user_message'
+        attachments,
+        messageType: 'user_message_with_files'
       }
     );
 
     // Store user message ID for assistant response
     if (userMemoryResult && userMemoryResult.id) {
       lastUserMessageId = userMemoryResult.id;
-      console.log(`Saved user message to memory with ID: ${lastUserMessageId}`);
+      console.log(`Saved user message with files to memory with ID: ${lastUserMessageId}`);
     }
 
     // Get the agent instance
@@ -218,14 +182,14 @@ export async function POST(
     try {
       // Create message processing options
       const processingOptions: MessageProcessingOptions = {
-        attachments: processedAttachments,
+        attachments,
         userId,
         userMessageId: lastUserMessageId || undefined,
         skipResponseMemoryStorage: true // We'll handle memory storage here
       };
       
       // Process message with proper timeout handling
-      const processingPromise = AgentService.processMessage(agentId, content, processingOptions);
+      const processingPromise = AgentService.processMessage(agentId, messageContent, processingOptions);
       
       // Set a reasonable timeout (30 seconds instead of 60)
       const timeoutPromise = new Promise<never>((_, reject) => {
@@ -263,7 +227,7 @@ export async function POST(
         } else {
           // Fallback for null or undefined response
           agentResponse = {
-            content: "The agent did not produce a response.",
+            content: "The agent could not process the files you shared.",
             thoughts: ["No response received from agent."]
           };
         }
@@ -276,7 +240,7 @@ export async function POST(
             typeof raceError.message === 'string' && 
             raceError.message.includes('timed out')) {
           agentResponse = {
-            content: "I'm sorry, but it's taking me longer than expected to process your request. Please try again with a simpler query.",
+            content: "I'm sorry, but it's taking me longer than expected to process your files. Please try again with smaller files or fewer attachments.",
             thoughts: [`Timeout error: ${String(raceError.message)}`]
           };
         } else {
@@ -287,24 +251,24 @@ export async function POST(
       console.error('Error from agent process:', agentError);
       // Provide a fallback response
       agentResponse = {
-        content: "I'm experiencing some technical difficulties at the moment. Please try again later.",
+        content: "I'm experiencing some technical difficulties processing your files at the moment. Please try again later.",
         thoughts: [`Error: ${agentError instanceof Error ? agentError.message : String(agentError)}`]
       };
     }
 
     // Extract response components
-    const responseContent = agentResponse.content || "I couldn't generate a response.";
+    const responseContent = agentResponse.content || "I couldn't process the files you shared.";
     const thoughts = agentResponse.thoughts || [];
     const memories = agentResponse.memories || [];
 
-    // Create thread info for the assistant response
+    // Create thread info for assistant response
     let assistantThreadInfo;
     if (lastUserMessageId) {
       assistantThreadInfo = await createResponseThreadInfo(lastUserMessageId);
     } else {
       assistantThreadInfo = getOrCreateThreadInfo(chatId, 'assistant');
     }
-
+      
     if (assistantThreadInfo) {
       console.log(`Created assistant response with thread ID: ${assistantThreadInfo.id}, position: ${assistantThreadInfo.position}, parentId: ${assistantThreadInfo.parentId || 'none'}`);
     }
@@ -319,15 +283,17 @@ export async function POST(
       chatStructuredId,
       assistantThreadInfo,
       {
-        messageType: 'assistant_response',
+        messageType: 'assistant_response_to_file',
         metadata: {
           // Use standard fields for custom data
-          tags: ['agent_response'],
-          category: 'response',
-          // Store agent thoughts and memories as part of the conversation context
+          tags: ['file_response', ...attachments.map(a => a.type)],
+          category: 'file_response',
+          // Store file information in the conversation context
           conversationContext: {
-            purpose: 'user_query_response',
+            purpose: 'file_analysis',
             sharedContext: {
+              processedFiles: attachments.map(a => a.filename),
+              fileTypes: attachments.map(a => a.type),
               thoughts,
               memories
             }
@@ -349,16 +315,19 @@ export async function POST(
           threadId: assistantThreadInfo.id,
           parentMessageId: lastUserMessageId,
           thoughts,
-          memories
+          memories,
+          messageType: 'assistant_response_to_file',
+          processedFiles: attachments.map(a => a.filename)
         }
       }
     });
+
   } catch (error) {
-    console.error('Error processing message:', error);
+    console.error('Error processing files:', error);
     return NextResponse.json(
       { 
         success: false, 
-        error: error instanceof Error ? error.message : 'Unknown error processing message'
+        error: error instanceof Error ? error.message : 'Unknown error' 
       },
       { status: 500 }
     );

@@ -615,8 +615,11 @@ export async function POST(req: Request) {
         }
         
         // Set up a timeout to ensure we always respond
-        const timeoutPromise = new Promise<any>((_, reject) => {
-          setTimeout(() => reject(new Error('Request timed out after 60 seconds')), 60000);
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          const timeoutId = setTimeout(() => {
+            clearTimeout(timeoutId); // Clean up the timeout
+            reject(new Error('Request timed out after 30 seconds'));
+          }, 30000);
         });
         
         // Choose agent based on agentId parameter

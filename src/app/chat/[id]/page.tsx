@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, FormEvent } from 'react';
 import { useParams } from 'next/navigation';
 import Header from '@/components/Header';
 import Sidebar from '@/components/Sidebar';
@@ -8,8 +8,9 @@ import TabsNavigation from '@/components/TabsNavigation';
 import ChatInput from '@/components/ChatInput';
 import ChatMessages from '@/components/ChatMessages';
 import DevModeToggle from '@/components/DevModeToggle';
-import { Message } from '@/types';
+import { Message, FileAttachment } from '@/types';
 import { getCurrentUser } from '@/lib/user';
+import MessageHandlerService from '@/services/MessageHandlerService';
 
 const user = getCurrentUser();
 const userId = user.id;
@@ -27,6 +28,18 @@ const agentsByDepartment: Record<string, string[]> = {
   HR: ['Emma (Soon)'],
   Finance: ['Alex (Soon)'],
   Sales: ['Sam (Soon)'],
+};
+
+// Add WelcomeScreen component at the top level of the file
+const WelcomeScreen = () => {
+  return (
+    <div className="flex flex-col items-center justify-center h-full py-16 px-4 text-center">
+      <h1 className="text-3xl font-bold mb-4">Welcome to Chat</h1>
+      <p className="text-xl text-gray-400 mb-8 max-w-2xl">
+        Start a conversation with your AI assistant.
+      </p>
+    </div>
+  );
 };
 
 const ChatPage: React.FC = () => {
@@ -47,6 +60,10 @@ const ChatPage: React.FC = () => {
   const [isAgentDropdownOpen, setIsAgentDropdownOpen] = useState<boolean>(false);
   const [isDebugMode, setIsDebugMode] = useState<boolean>(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const [pendingAttachments, setPendingAttachments] = useState<FileAttachment[]>([]);
+
+  // Get message handler instance
+  const messageHandler = MessageHandlerService.getInstance();
 
   // Sidebar agent selection handler (optional, can be a no-op here)
   const setSelectedAgent = () => {};
@@ -176,6 +193,52 @@ const ChatPage: React.FC = () => {
     if (agentId) fetchOrCreateChat();
   }, [agentId]);
 
+  // Update handleSendMessage to use the service
+  const handleSendMessage = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    
+    try {
+      await messageHandler.handleSendMessage(
+        inputMessage,
+        pendingAttachments,
+        messages,
+        userId,
+        agentId,
+        setMessages,
+        setIsLoading,
+        setInputMessage,
+        setPendingAttachments,
+        chat?.id
+      );
+    } catch (error) {
+      console.error('Error sending message:', error);
+      // Error is handled by the service
+    }
+  };
+
+  // Update handleFileSelect to use the service
+  const handleFileSelect = async (file: File) => {
+    try {
+      await messageHandler.handleFileSelect(file, setPendingAttachments, inputRef);
+    } catch (error) {
+      console.error('Error handling file:', error);
+      // Handle error appropriately
+    }
+  };
+
+  // Add removePendingAttachment handler
+  const removePendingAttachment = (index: number) => {
+    setPendingAttachments(prev => {
+      const updated = [...prev];
+      // Revoke the object URL if it's an image to prevent memory leaks
+      if (updated[index].preview) {
+        URL.revokeObjectURL(updated[index].preview);
+      }
+      updated.splice(index, 1);
+      return updated;
+    });
+  };
+
   // UI matches main page
   return (
     <div className="flex flex-col h-screen">
@@ -217,30 +280,41 @@ const ChatPage: React.FC = () => {
             {selectedTab === 'chat' && (
               <div className="flex flex-col h-full overflow-hidden">
                 <div className="flex-1 h-full">
-                  {isLoading ? (
-                    <div className="flex justify-center items-center h-full">
-                      <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
-                    </div>
-                  ) : error ? (
-                    <div className="text-red-500">{error}</div>
+                  {(!agentId || agentId.includes('Soon') || messages.length === 0) ? (
+                    <WelcomeScreen />
                   ) : (
-                    <ChatMessages
-                      messages={messages}
-                      isLoading={isLoading}
-                      onImageClick={() => {}}
-                      showInternalMessages={showInternalMessages}
-                    />
+                    <>
+                      {process.env.NODE_ENV !== 'production' && messages.length > 0 && (
+                        <div className="text-xs text-gray-500 mb-2 p-2 border border-gray-700 rounded">
+                          Passing {messages.length} messages to ChatMessages component
+                          {chat?.id && <div>Chat ID: {chat.id}</div>}
+                        </div>
+                      )}
+                      
+                      <ChatMessages 
+                        messages={messages} 
+                        isLoading={isLoading}
+                        onImageClick={() => {}}
+                        showInternalMessages={showInternalMessages}
+                        pageSize={20}
+                        preloadCount={10}
+                        searchQuery={''}
+                        initialMessageId={''}
+                      />
+                    </>
                   )}
+                  
+                  <div ref={messagesEndRef} className="h-1" />
                 </div>
                 <div className="border-t border-gray-700 p-4">
                   <ChatInput
                     inputMessage={inputMessage}
                     setInputMessage={setInputMessage}
-                    pendingAttachments={[]}
-                    removePendingAttachment={() => {}}
-                    handleSendMessage={() => {}}
+                    pendingAttachments={pendingAttachments}
+                    removePendingAttachment={removePendingAttachment}
+                    handleSendMessage={handleSendMessage}
                     isLoading={isLoading}
-                    handleFileSelect={() => {}}
+                    handleFileSelect={handleFileSelect}
                     inputRef={inputRef}
                   />
                 </div>

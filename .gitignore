@@ -36,6 +36,7 @@ simple-api-test.js
 /build
 /dist
 
+
 # misc
 .DS_Store
 *.pem
@@ -92,3 +93,6 @@ data/files/file_metadata.json
 data/cache/markdown-cache.json
 .cursor/rules/no-any.mdc
 data/cache/markdown-initialized.flag
+
+# Reference code (not part of the main codebase)
+src/agents/chloe/
