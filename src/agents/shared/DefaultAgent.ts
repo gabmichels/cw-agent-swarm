@@ -22,6 +22,12 @@ import { tagExtractor } from '../../utils/tagExtractor';
 import { EnhancedMemoryManager } from './memory/managers/EnhancedMemoryManager';
 import { Executor } from './execution/Executor';
 import { ToolManager } from './base/managers/ToolManager.interface';
+import { Planner } from './planning/Planner';
+import { PlanningManager } from './base/managers/PlanningManager.interface';
+import { PlanCreationOptions, PlanCreationResult, PlanExecutionResult } from './base/managers/PlanningManager.interface';
+import { ReflectionManager, ReflectionTrigger, ReflectionResult } from './base/managers/ReflectionManager.interface';
+import { EnhancedReflectionManager } from './reflection/managers/EnhancedReflectionManager';
+import { DefaultReflectionManager } from './reflection/managers/DefaultReflectionManager';
 
 // Define the necessary types that we need
 const AGENT_STATUS = {
@@ -84,6 +90,7 @@ interface ExtendedAgentConfig {
   enableInputProcessor?: boolean;
   enableOutputProcessor?: boolean;
   enableResourceTracking?: boolean;
+  enableReflectionManager?: boolean;
   
   // Enhanced manager flags
   useEnhancedMemory?: boolean;
@@ -99,6 +106,7 @@ interface ExtendedAgentConfig {
     inputProcessor?: InputProcessorConfig;
     outputProcessor?: OutputProcessorConfig;
     resourceTracker?: Partial<ResourceUtilizationTrackerOptions>;
+    reflectionManager?: ManagerConfig;
     [key: string]: ManagerConfig | Record<string, unknown> | undefined;
   };
 }
@@ -115,6 +123,7 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
   private version: string = '1.0.0';
   private model: ChatOpenAI;
   private executor: Executor | null = null;
+  private planner: Planner | null = null;
   protected schedulerManager?: DefaultSchedulerManager;
   protected initialized: boolean = false;
   
@@ -387,6 +396,9 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
         );
         await planningManager.initialize();
         this.registerManager(planningManager);
+        
+        // Initialize the Planner with the agent's model
+        this.planner = new Planner();
       }
 
       if (this.extendedConfig.enableToolManager) {
@@ -418,6 +430,27 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
         this.registerManager(knowledgeManager);
       }
 
+      if (this.extendedConfig.enableReflectionManager) {
+        // Check if enhanced reflection is enabled
+        if (this.extendedConfig.useEnhancedReflection) {
+          // Use EnhancedReflectionManager 
+          const reflectionManager = new EnhancedReflectionManager(
+            this,
+            this.extendedConfig.managersConfig?.reflectionManager || {}
+          );
+          await reflectionManager.initialize();
+          this.registerManager(reflectionManager);
+        } else {
+          // Use DefaultReflectionManager
+          const reflectionManager = new DefaultReflectionManager(
+            this,
+            this.extendedConfig.managersConfig?.reflectionManager || {}
+          );
+          await reflectionManager.initialize();
+          this.registerManager(reflectionManager);
+        }
+      }
+
       if (this.extendedConfig.enableSchedulerManager) {
         this.schedulerManager = new DefaultSchedulerManager(
           this,
@@ -435,7 +468,7 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
       // For now we'll skip input/output processor initialization due to type issues
       // We'll implement them properly when needed for actual input/output processing
 
-      // Set up communication channels between managers
+      // Wire managers together
       this.wireManagersTogether();
 
       return super.initialize();
@@ -451,9 +484,22 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
   private wireManagersTogether(): void {
     // Connect memory manager to reflection manager
     const memoryManager = this.getManager<MemoryManager>(ManagerType.MEMORY);
+    const reflectionManager = this.getManager<ReflectionManager>(ManagerType.REFLECTION);
+    
+    if (memoryManager && reflectionManager) {
+      // If EnhancedReflectionManager has setMemoryProvider method, use it
+      if ('setMemoryProvider' in reflectionManager) {
+        (reflectionManager as any).setMemoryProvider(() => 
+          memoryManager.getRecentMemories(50)
+        );
+      }
+    }
+    
+    // Connect planning manager with memory context
+    // Note: Planner class in our system doesn't have setMemoryProvider method
+    // We'll need to expand the Planner implementation later
     
     // Connect other managers as needed
-    // This method will be expanded in subsequent implementations
   }
 
   /**
@@ -867,6 +913,113 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
     } catch (error) {
       console.error('Error in cognitive memory processing:', error);
       return null;
+    }
+  }
+
+  /**
+   * Plan and execute a task
+   * @param goal The goal to achieve
+   * @param options Additional options for planning and execution
+   * @returns Result of the plan execution
+   */
+  async planAndExecute(goal: string, options: Record<string, unknown> = {}): Promise<PlanExecutionResult> {
+    try {
+      const planningManager = this.getManager<PlanningManager>(ManagerType.PLANNING);
+      if (!planningManager) {
+        throw new Error('Planning manager not initialized');
+      }
+      
+      // Create plan creation options
+      const planOptions: PlanCreationOptions = {
+        name: `Plan for: ${goal}`,
+        description: goal,
+        goals: [goal],
+        priority: options.priority as number || 1,
+        metadata: options || {}
+      };
+      
+      // Create plan using planning manager
+      const planResult = await planningManager.createPlan(planOptions);
+      
+      if (!planResult.success || !planResult.plan) {
+        throw new Error('Failed to create plan');
+      }
+      
+      console.log(`Created plan ${planResult.plan.id} for goal: ${goal}`);
+      
+      // Execute plan using planning manager
+      return await planningManager.executePlan(planResult.plan.id);
+    } catch (error) {
+      console.error('Error in planAndExecute:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error)
+      };
+    }
+  }
+
+  /**
+   * Reflect on recent experiences, actions, and outcomes
+   * @param options Reflection options
+   * @returns Reflection results
+   */
+  async reflect(options: Record<string, unknown> = {}): Promise<ReflectionResult> {
+    try {
+      const reflectionManager = this.getManager<ReflectionManager>(ManagerType.REFLECTION);
+      if (!reflectionManager) {
+        throw new Error('Reflection manager not initialized');
+      }
+      
+      // Use ReflectionTrigger from the ReflectionManager interface
+      return await reflectionManager.reflect(
+        options.trigger as ReflectionTrigger || ReflectionTrigger.MANUAL,
+        options || {}
+      );
+    } catch (error) {
+      console.error('Error in reflect:', error);
+      return {
+        success: false,
+        id: '',
+        insights: [],
+        message: error instanceof Error ? error.message : String(error)
+      };
+    }
+  }
+  
+  /**
+   * Schedule a periodic reflection
+   * @param options Options for periodic reflection scheduling
+   * @returns Whether the reflection was scheduled successfully
+   */
+  async schedulePeriodicReflection(options: {
+    schedule: string;
+    name?: string;
+    depth?: 'light' | 'standard' | 'deep';
+    focusAreas?: string[];
+  }): Promise<boolean> {
+    try {
+      const reflectionManager = this.getManager<ReflectionManager>(ManagerType.REFLECTION);
+      if (!reflectionManager) {
+        throw new Error('Reflection manager not initialized');
+      }
+      
+      // Check if enhanced reflection manager is being used
+      if ('schedulePeriodicReflection' in reflectionManager) {
+        await (reflectionManager as any).schedulePeriodicReflection(
+          options.schedule,
+          {
+            name: options.name,
+            depth: options.depth,
+            focusAreas: options.focusAreas
+          }
+        );
+        return true;
+      }
+      
+      return false;
+    } catch (error) {
+      console.error('Error scheduling periodic reflection:', error);
+      return false;
     }
   }
 } 

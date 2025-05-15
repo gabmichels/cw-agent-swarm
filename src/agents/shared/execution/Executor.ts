@@ -15,6 +15,7 @@ import { ToolRouter, ToolResult } from '../tools/ToolRouter';
 import { AgentMonitor } from '../monitoring/AgentMonitor';
 import { TaskStatus as ConstantsTaskStatus } from '../../../constants/task';
 import { TaskStatus } from '../../../agents/shared/types/TaskTypes';
+import { ExecutionErrorHandler } from './ExecutionErrorHandler';
 
 // Execution status enum
 export enum ExecutionStatus {
@@ -167,10 +168,12 @@ export class Executor {
   private toolRouter: ToolRouter;
   private initialized: boolean = false;
   private activeExecutions: Map<string, ExecutionResult> = new Map();
+  private errorHandler: ExecutionErrorHandler;
   
   constructor(model: ChatOpenAI, toolRouter: ToolRouter) {
     this.model = model;
     this.toolRouter = toolRouter;
+    this.errorHandler = new ExecutionErrorHandler();
   }
   
   /**
@@ -180,7 +183,8 @@ export class Executor {
     try {
       console.log('Initializing Executor...');
       
-      // Initialization logic will be added here
+      // Initialize error handler
+      await this.errorHandler.initialize();
       
       this.initialized = true;
       console.log('Executor initialized successfully');
@@ -513,7 +517,7 @@ export class Executor {
         
         const toolStartTime = Date.now();
         
-        // Execute the tool with a local timeout if specified
+        // Execute the tool with better error handling
         let toolResult: ToolResult;
         try {
           // Execute the tool with better error handling
@@ -523,16 +527,59 @@ export class Executor {
             params,
             { step, context }
           );
-        } catch (error) {
-          // Handle tool execution errors
-          const errorMessage = error instanceof Error ? error.message : String(error);
-          console.error(`Tool execution error for ${toolName}:`, error);
+        } catch (toolError) {
+          // Use the error handler to handle and potentially recover from the error
+          const errorHandlingResult = await this.errorHandler.handleError(
+            toolError instanceof Error ? toolError : new Error(String(toolError)),
+            {
+              taskId: step.id, // Use step.id as the task ID
+              stepId: step.id,
+              agentId: context.agentId,
+              toolName,
+              toolParams: params,
+              sessionId: context.sessionId
+            },
+            {
+              maxRetries: step.retryCount || 2,
+              baseDelayMs: step.retryDelayMs || 1000,
+              fallbackAction: async () => {
+                console.log(`Using fallback action for tool ${toolName}`);
+                // Return a generic error result as fallback
+                return {
+                  success: false,
+                  error: `Tool execution failed with fallback: ${toolError instanceof Error ? toolError.message : String(toolError)}`,
+                  data: null
+                };
+              }
+            }
+          );
           
-          toolResult = {
-            success: false,
-            error: `Tool execution failed: ${errorMessage}`,
-            data: null
-          };
+          if (errorHandlingResult.success && errorHandlingResult.result) {
+            // If error handling succeeded and provided a result, use it
+            if (typeof errorHandlingResult.result === 'object' && 
+                errorHandlingResult.result !== null &&
+                'success' in errorHandlingResult.result) {
+              // If the result is already a ToolResult-like object, use it directly
+              toolResult = errorHandlingResult.result as ToolResult;
+            } else {
+              // Otherwise, wrap the result in a ToolResult object
+              toolResult = {
+                success: true,
+                data: errorHandlingResult.result,
+                message: `Recovered from error using ${errorHandlingResult.strategy}`
+              };
+            }
+          } else {
+            // Handle tool execution errors
+            const errorMessage = toolError instanceof Error ? toolError.message : String(toolError);
+            console.error(`Tool execution error for ${toolName}:`, toolError);
+            
+            toolResult = {
+              success: false,
+              error: `Tool execution failed: ${errorMessage}`,
+              data: null
+            };
+          }
         }
         
         // Log tool end
@@ -654,6 +701,9 @@ export class Executor {
    */
   async shutdown(): Promise<void> {
     console.log('Shutting down Executor...');
+    
+    // Shutdown error handler
+    await this.errorHandler.shutdown();
     
     // Cancel any active executions
     Array.from(this.activeExecutions.entries()).forEach(([executionId, execution]) => {

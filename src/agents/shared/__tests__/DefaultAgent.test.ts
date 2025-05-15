@@ -7,6 +7,8 @@ import { DefaultAgent } from '../DefaultAgent';
 import { StringOutputParser } from '@langchain/core/output_parsers';
 import { ManagerType } from '../base/managers/ManagerType';
 import { MemoryManager } from '../base/managers/MemoryManager.interface';
+import { PlanningManager } from '../base/managers/PlanningManager.interface';
+import { ReflectionManager, ReflectionTrigger } from '../base/managers/ReflectionManager.interface';
 
 // Mock StringOutputParser to fix the error
 vi.mock('@langchain/core/output_parsers', () => {
@@ -47,6 +49,56 @@ vi.mock('../../../lib/agents/implementations/managers/DefaultMemoryManager', () 
   };
 });
 
+// Mock the planning manager for testing
+vi.mock('../../../lib/agents/implementations/managers/DefaultPlanningManager', () => {
+  return {
+    DefaultPlanningManager: vi.fn().mockImplementation(() => ({
+      initialize: vi.fn().mockResolvedValue(true),
+      managerType: 'planning',
+      createPlan: vi.fn().mockResolvedValue({
+        success: true,
+        plan: {
+          id: 'test-plan-id',
+          name: 'Test Plan',
+          goals: ['Test goal'],
+          steps: []
+        }
+      }),
+      executePlan: vi.fn().mockResolvedValue({
+        success: true,
+        plan: {
+          id: 'test-plan-id',
+          status: 'completed'
+        }
+      }),
+      reset: vi.fn().mockResolvedValue(true),
+    }))
+  };
+});
+
+// Mock the reflection manager for testing
+vi.mock('../reflection/managers/DefaultReflectionManager', () => {
+  return {
+    DefaultReflectionManager: vi.fn().mockImplementation(() => ({
+      initialize: vi.fn().mockResolvedValue(true),
+      managerType: 'reflection',
+      reflect: vi.fn().mockResolvedValue({
+        success: true,
+        id: 'test-reflection-id',
+        insights: [
+          {
+            id: 'test-insight-1',
+            content: 'Test insight',
+            type: 'learning'
+          }
+        ],
+        message: 'Reflection completed successfully'
+      }),
+      reset: vi.fn().mockResolvedValue(true),
+    }))
+  };
+});
+
 // Mock ChatPromptTemplate
 vi.mock('@langchain/core/prompts', () => {
   return {
@@ -79,9 +131,62 @@ vi.mock('../../../utils/tagExtractor', () => {
   };
 });
 
+// Mock server memory services module
+vi.mock('../../../server/memory/services', () => {
+  return {
+    getMemoryServices: vi.fn().mockResolvedValue({
+      searchService: {
+        search: vi.fn().mockResolvedValue([])
+      }
+    })
+  };
+});
+
+// Mock memory types
+vi.mock('../../../server/memory/config', () => {
+  return {
+    MemoryType: {
+      THOUGHT: 'thought',
+      TASK: 'task',
+      DOCUMENT: 'document',
+      MESSAGE: 'message'
+    }
+  };
+});
+
+// Mock ethics middleware
+vi.mock('../ethics/EthicsMiddleware', () => {
+  return {
+    enforceEthics: vi.fn().mockResolvedValue({
+      output: 'Ethics-checked plan',
+      violations: []
+    })
+  };
+});
+
+// Mock the Planner to prevent actual server calls
+vi.mock('../planning/Planner', () => {
+  return {
+    Planner: vi.fn().mockImplementation(() => ({
+      setMemoryProvider: vi.fn(),
+      createPlan: vi.fn().mockResolvedValue({
+        title: 'Test Plan',
+        steps: [
+          { description: 'Step 1', difficulty: 2, estimatedTimeMinutes: 15 }
+        ],
+        reasoning: 'Test reasoning',
+        estimatedTotalTimeMinutes: 15,
+        context: { goal: 'Test goal' }
+      })
+    }))
+  };
+});
+
 describe('DefaultAgent', () => {
   let agent: DefaultAgent;
   let mockMemoryManager: any;
+  let mockPlanningManager: any;
+  let mockReflectionManager: any;
 
   beforeEach(async () => {
     // Reset mocks
@@ -94,7 +199,9 @@ describe('DefaultAgent', () => {
       modelName: 'gpt-4',
       temperature: 0.7,
       maxTokens: 1000,
-      enableMemoryManager: true
+      enableMemoryManager: true,
+      enablePlanningManager: true,
+      enableReflectionManager: true
     });
     
     await agent.initialize();
@@ -102,6 +209,14 @@ describe('DefaultAgent', () => {
     // Get the mock memory manager for assertions
     const memoryManagerModule = await import('../../../lib/agents/implementations/managers/DefaultMemoryManager');
     mockMemoryManager = (memoryManagerModule.DefaultMemoryManager as unknown as MockInstance).mock.results[0].value;
+    
+    // Get the mock planning manager for assertions
+    const planningManagerModule = await import('../../../lib/agents/implementations/managers/DefaultPlanningManager');
+    mockPlanningManager = (planningManagerModule.DefaultPlanningManager as unknown as MockInstance).mock.results[0].value;
+    
+    // Get the mock reflection manager for assertions
+    const reflectionManagerModule = await import('../reflection/managers/DefaultReflectionManager');
+    mockReflectionManager = (reflectionManagerModule.DefaultReflectionManager as unknown as MockInstance).mock.results[0].value;
   });
 
   afterEach(() => {
@@ -229,6 +344,116 @@ describe('DefaultAgent', () => {
       expect(result).toHaveLength(2);
       expect(result?.[0].id).toEqual('memory-1');
       expect(result?.[1].id).toEqual('memory-2');
+    });
+  });
+  
+  describe('Planning and Execution', () => {
+    it('planAndExecute should create and execute a plan', async () => {
+      const result = await agent.planAndExecute('Create a report about AI trends');
+      
+      // Verify createPlan was called with the correct parameters
+      expect(mockPlanningManager.createPlan).toHaveBeenCalledWith({
+        name: 'Plan for: Create a report about AI trends',
+        description: 'Create a report about AI trends',
+        goals: ['Create a report about AI trends'],
+        priority: 1,
+        metadata: {}
+      });
+      
+      // Verify executePlan was called with the correct plan ID
+      expect(mockPlanningManager.executePlan).toHaveBeenCalledWith('test-plan-id');
+      
+      // Verify the result structure
+      expect(result).toEqual({
+        success: true,
+        plan: {
+          id: 'test-plan-id',
+          status: 'completed'
+        }
+      });
+    });
+    
+    it('planAndExecute should handle errors properly', async () => {
+      // Override the createPlan method to simulate an error
+      mockPlanningManager.createPlan = vi.fn().mockResolvedValue({
+        success: false,
+        error: 'Failed to create plan due to insufficient context'
+      });
+      
+      const result = await agent.planAndExecute('Invalid goal');
+      
+      // Verify createPlan was called
+      expect(mockPlanningManager.createPlan).toHaveBeenCalled();
+      
+      // Verify executePlan was not called
+      expect(mockPlanningManager.executePlan).not.toHaveBeenCalled();
+      
+      // Verify the error result
+      expect(result.success).toBe(false);
+      expect(result.error).toBeTruthy();
+    });
+  });
+  
+  describe('Reflection', () => {
+    it('reflect should call reflection manager and return results', async () => {
+      const result = await agent.reflect({ trigger: ReflectionTrigger.MANUAL });
+      
+      // Verify reflect was called with the correct parameters
+      expect(mockReflectionManager.reflect).toHaveBeenCalledWith(ReflectionTrigger.MANUAL, { trigger: ReflectionTrigger.MANUAL });
+      
+      // Verify the result structure
+      expect(result).toEqual({
+        success: true,
+        id: 'test-reflection-id',
+        insights: [
+          {
+            id: 'test-insight-1',
+            content: 'Test insight',
+            type: 'learning'
+          }
+        ],
+        message: 'Reflection completed successfully'
+      });
+    });
+    
+    it('reflect should handle errors properly', async () => {
+      // Override the reflect method to simulate an error
+      mockReflectionManager.reflect = vi.fn().mockRejectedValue(new Error('Reflection failed'));
+      
+      const result = await agent.reflect();
+      
+      // Verify reflect was called
+      expect(mockReflectionManager.reflect).toHaveBeenCalled();
+      
+      // Verify the error result
+      expect(result.success).toBe(false);
+      expect(result.message).toEqual('Reflection failed');
+      expect(result.insights).toEqual([]);
+    });
+    
+    it('schedulePeriodicReflection should delegate to reflection manager if supported', async () => {
+      // Add the schedulePeriodicReflection mock method to the reflection manager
+      mockReflectionManager.schedulePeriodicReflection = vi.fn().mockResolvedValue(true);
+      
+      const result = await agent.schedulePeriodicReflection({
+        schedule: '0 0 * * *', // Every day at midnight
+        name: 'Daily Reflection',
+        depth: 'standard',
+        focusAreas: ['memory', 'planning']
+      });
+      
+      // Verify schedulePeriodicReflection was called with the correct parameters
+      expect(mockReflectionManager.schedulePeriodicReflection).toHaveBeenCalledWith(
+        '0 0 * * *',
+        {
+          name: 'Daily Reflection',
+          depth: 'standard',
+          focusAreas: ['memory', 'planning']
+        }
+      );
+      
+      // Verify the result
+      expect(result).toBe(true);
     });
   });
 }); 
