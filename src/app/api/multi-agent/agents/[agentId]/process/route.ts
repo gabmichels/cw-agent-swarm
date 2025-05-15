@@ -13,7 +13,8 @@ export async function POST(
   { params }: { params: { agentId: string } }
 ) {
   try {
-    const agentId = params.agentId;
+    const dynamicParams = await params;
+    const agentId = dynamicParams.agentId;
     
     if (!agentId) {
       return NextResponse.json(

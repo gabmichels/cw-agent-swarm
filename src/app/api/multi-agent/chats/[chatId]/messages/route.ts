@@ -59,7 +59,8 @@ export async function GET(
   request: NextRequest,
   context: { params: { chatId: string } }
 ) {
-  const chatId = context.params.chatId;
+  const params = await context.params;
+  const chatId = params.chatId;
   try {
     // TODO: Replace with real message fetching logic
     // For now, always return an empty array for new chats
@@ -77,7 +78,8 @@ export async function POST(
   try {
     const { content, metadata } = await request.json();
     const { userId, agentId, attachments = [] } = metadata;
-    const chatId = params.chatId;
+    const dynamicParams = await params;
+    const chatId = dynamicParams.chatId;
 
     if (!content?.trim()) {
       return NextResponse.json(

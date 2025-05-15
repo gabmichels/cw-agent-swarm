@@ -11,7 +11,8 @@ export async function GET(
   request: NextRequest,
   context: { params: { agentId: string } }
 ) {
-  const agentId = context.params.agentId;
+  const params = await context.params;
+  const agentId = params.agentId;
   try {
     if (!agentId) {
       return NextResponse.json({ 
