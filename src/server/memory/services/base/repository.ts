@@ -15,9 +15,10 @@ import { IdGenerator } from '../../../../utils/ulid';
 
 /**
  * Create a structured ID
+ * @deprecated Use IdGenerator.generate('memory') directly
  */
 function createStructuredId(): string {
-  return IdGenerator.generate('memory').toString();
+  return IdGenerator.generate('memory');
 }
 
 /**

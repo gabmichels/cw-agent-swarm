@@ -2,7 +2,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { DefaultAgent } from './DefaultAgent';
 import { AgentCapability as ApiAgentCapability, AgentProfile } from '@/lib/multi-agent/types/agent';
 import { AgentMemoryEntity, AgentCapability as DbAgentCapability, AgentTool, AgentStatus } from '@/server/memory/schema/agent';
-import { StructuredId, IdGenerator } from '@/utils/ulid';
+import { IdGenerator } from '@/utils/ulid';
 import { AgentService } from '@/services/AgentService';
 
 /**
@@ -154,15 +154,8 @@ export class AgentFactory {
       requiredPermissions: []
     }));
     
-    // Create structured ID if needed
-    let agentId: string;
-    try {
-      const structuredId = IdGenerator.parse(profile.id);
-      agentId = structuredId ? structuredId.toString() : IdGenerator.generate('agent').toString();
-    } catch (error) {
-      // If parsing fails, generate a new ID
-      agentId = IdGenerator.generate('agent').toString();
-    }
+    // Generate new agent ID or use existing one
+    const agentId = profile.id || IdGenerator.generate('agent');
     
     // Create agent data conforming to the DB entity format
     const agentData: Partial<AgentMemoryEntity> = {

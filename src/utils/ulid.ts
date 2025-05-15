@@ -5,26 +5,14 @@
 import { ulid, decodeTime } from 'ulid';
 
 /**
- * Interface for structured identifiers with prefix and ULID
+ * @deprecated Use string IDs directly instead of StructuredId objects. 
+ * This interface will be removed in a future version.
  */
 export interface StructuredId {
-  // The complete ULID string (26 characters)
+  namespace: string;
+  type: string;
   id: string;
-  
-  // Namespace/type prefix (e.g., 'user', 'memory', 'chat')
-  prefix: string;
-  
-  // Extracted timestamp from the ULID
-  timestamp: Date;
-  
-  // String representation that combines prefix and ULID
-  toString(): string;
-  
-  // Get raw ULID without prefix
-  toULID(): string;
-  
-  // Get creation timestamp
-  getTimestamp(): Date;
+  version?: number;
 }
 
 /**
@@ -42,25 +30,41 @@ export enum IdPrefix {
   EMBEDDING = 'embd',
 }
 
+// Add logging utility
+function logDeprecatedUsage(functionName: string) {
+  console.warn(
+    `[DEPRECATED] ${functionName} using StructuredId is deprecated and will be removed in a future version. ` +
+    'Use string IDs directly instead.'
+  );
+  // Log stack trace to help identify usage locations
+  console.warn(new Error().stack);
+}
+
 /**
- * Implementation of a structured ID
+ * @deprecated Use IdGenerator.generate(prefix).toString() directly instead
  */
 class StructuredIdImpl implements StructuredId {
-  constructor(
-    public readonly id: string,
-    public readonly prefix: string,
-    public readonly timestamp: Date
-  ) {}
+  public readonly namespace: string;
+  public readonly type: string;
+  public readonly id: string;
+  public readonly version?: number;
+
+  constructor(id: string, prefix: string, timestamp: Date) {
+    logDeprecatedUsage('StructuredIdImpl constructor');
+    this.id = id;
+    this.namespace = prefix;
+    this.type = prefix;
+  }
 
   /**
    * Get the string representation (prefix_ulid)
    */
   toString(): string {
-    return `${this.prefix}_${this.id}`;
+    return `${this.namespace}_${this.id}`;
   }
 
   /**
-   * Get the raw ULID without prefix
+   * Get the raw ULID
    */
   toULID(): string {
     return this.id;
@@ -70,7 +74,7 @@ class StructuredIdImpl implements StructuredId {
    * Get the timestamp from the ULID
    */
   getTimestamp(): Date {
-    return this.timestamp;
+    return new Date(this.id);
   }
 }
 
@@ -79,33 +83,10 @@ class StructuredIdImpl implements StructuredId {
  */
 export class IdGenerator {
   /**
-   * Create a new ID with the given prefix
-   * @param prefix The prefix to use (e.g., 'user', 'chat')
-   * @returns A new structured ID
-   */
-  static generate(prefix: string): StructuredId {
-    const timestamp = new Date();
-    const id = ulid(timestamp.getTime());
-    return new StructuredIdImpl(id, prefix, timestamp);
-  }
-  
-  /**
-   * Create an ID with the given prefix at a specific timestamp
-   * @param prefix The prefix to use
-   * @param timestamp The timestamp to use
-   * @returns A new structured ID with the specified timestamp
-   */
-  static generateWithTimestamp(prefix: string, timestamp: Date): StructuredId {
-    const id = ulid(timestamp.getTime());
-    return new StructuredIdImpl(id, prefix, timestamp);
-  }
-  
-  /**
-   * Parse an existing ID string into a StructuredId object
-   * @param idString The ID string to parse (format: prefix_ulid)
-   * @returns The parsed StructuredId or null if invalid
+   * @deprecated Use generate(prefix).toString() directly instead
    */
   static parse(idString: string): StructuredId | null {
+    logDeprecatedUsage('IdGenerator.parse');
     const parts = idString.split('_');
     if (parts.length !== 2) return null;
     
@@ -116,6 +97,26 @@ export class IdGenerator {
     
     const timestamp = IdGenerator.getTimestamp(id);
     return new StructuredIdImpl(id, prefix, timestamp);
+  }
+  
+  /**
+   * Generate a new ID with the given prefix
+   * @param prefix The prefix to use for the ID
+   * @returns A string ID
+   */
+  static generate(prefix: string): string {
+    const timestamp = new Date();
+    const id = ulid(timestamp.getTime());
+    return `${prefix}_${id}`;
+  }
+  
+  /**
+   * @deprecated Use generate(prefix) directly instead
+   */
+  static generateWithTimestamp(prefix: string, timestamp: Date): string {
+    logDeprecatedUsage('IdGenerator.generateWithTimestamp');
+    const id = ulid(timestamp.getTime());
+    return `${prefix}_${id}`;
   }
   
   /**
@@ -140,76 +141,74 @@ export class IdGenerator {
   }
 }
 
-// Helper factory functions for common types
-
 /**
- * Create a new user ID
- * @returns A structured user ID
+ * @deprecated Use IdGenerator.generate('user').toString() directly
  */
-export function createUserId(): StructuredId {
-  return IdGenerator.generate(IdPrefix.USER);
+export function createUserId(): string {
+  logDeprecatedUsage('createUserId');
+  return IdGenerator.generate('user');
 }
 
 /**
- * Create a new agent ID
- * @returns A structured agent ID
+ * @deprecated Use IdGenerator.generate('agent').toString() directly
  */
-export function createAgentId(): StructuredId {
-  return IdGenerator.generate(IdPrefix.AGENT);
+export function createAgentId(): string {
+  logDeprecatedUsage('createAgentId');
+  return IdGenerator.generate('agent');
 }
 
 /**
- * Create a new chat ID
- * @returns A structured chat ID
+ * @deprecated Use IdGenerator.generate('chat').toString() directly
  */
-export function createChatId(): StructuredId {
-  return IdGenerator.generate(IdPrefix.CHAT);
+export function createChatId(): string {
+  logDeprecatedUsage('createChatId');
+  return IdGenerator.generate('chat');
 }
 
 /**
- * Create a new message ID
- * @returns A structured message ID
+ * @deprecated Use IdGenerator.generate('message').toString() directly
  */
-export function createMessageId(): StructuredId {
-  return IdGenerator.generate(IdPrefix.MESSAGE);
+export function createMessageId(): string {
+  logDeprecatedUsage('createMessageId');
+  return IdGenerator.generate('message');
 }
 
 /**
- * Create a new memory ID
- * @returns A structured memory ID
+ * @deprecated Use IdGenerator.generate('memory').toString() directly
  */
-export function createMemoryId(): StructuredId {
-  return IdGenerator.generate(IdPrefix.MEMORY);
+export function createMemoryId(): string {
+  logDeprecatedUsage('createMemoryId');
+  return IdGenerator.generate('memory');
 }
 
 /**
- * Create a new knowledge ID
- * @returns A structured knowledge ID
+ * @deprecated Use IdGenerator.generate('knowledge').toString() directly
  */
-export function createKnowledgeId(): StructuredId {
-  return IdGenerator.generate(IdPrefix.KNOWLEDGE);
+export function createKnowledgeId(): string {
+  logDeprecatedUsage('createKnowledgeId');
+  return IdGenerator.generate('knowledge');
 }
 
 /**
- * Create a new document ID
- * @returns A structured document ID
+ * @deprecated Use IdGenerator.generate('document').toString() directly
  */
-export function createDocumentId(): StructuredId {
-  return IdGenerator.generate(IdPrefix.DOCUMENT);
+export function createDocumentId(): string {
+  logDeprecatedUsage('createDocumentId');
+  return IdGenerator.generate('document');
 }
 
 /**
- * Create a new thought ID
- * @returns A structured thought ID
+ * @deprecated Use IdGenerator.generate('thought').toString() directly
  */
-export function createThoughtId(): StructuredId {
-  return IdGenerator.generate(IdPrefix.THOUGHT);
+export function createThoughtId(): string {
+  logDeprecatedUsage('createThoughtId');
+  return IdGenerator.generate('thought');
 }
 
 /**
- * Create a new embedding ID
- * @returns A structured embedding ID
+ * @deprecated Use IdGenerator.generate('embedding').toString() directly
  */
-export function createEmbeddingId(): StructuredId {
-  return IdGenerator.generate(IdPrefix.EMBEDDING);
+export function createEmbeddingId(): string {
+  logDeprecatedUsage('createEmbeddingId');
+  return IdGenerator.generate('embedding');
 } 
