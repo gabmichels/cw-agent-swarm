@@ -89,6 +89,12 @@ export interface PlanStep {
   
   /** When this step was last updated */
   updatedAt: Date;
+
+  /** Required tools for this step */
+  requiredTools?: string[];
+
+  /** Estimated time in minutes */
+  estimatedTimeMinutes?: number;
 }
 
 /**
