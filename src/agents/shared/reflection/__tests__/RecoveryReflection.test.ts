@@ -1,3 +1,4 @@
+import { describe, it, expect, beforeEach, afterEach, vi, type MockInstance } from 'vitest';
 import { AgentBase } from "../..";
 import { ManagerType } from "../../base/managers/ManagerType";
 import { DefaultReflectionManager } from "../managers";

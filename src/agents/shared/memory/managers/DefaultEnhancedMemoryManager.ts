@@ -18,6 +18,10 @@ import { DefaultMemoryVersionHistory } from '../history/DefaultMemoryVersionHist
 import { AbstractBaseManager } from '../../base/managers/BaseManager';
 import { ManagerType } from '../../base/managers/ManagerType';
 import { ManagerHealth } from '../../base/managers/ManagerHealth';
+import { SemanticSearchService } from '../../../../lib/knowledge/SemanticSearchService';
+import { KnowledgeGraphManager } from '../../../../lib/agents/implementations/memory/KnowledgeGraphManager';
+import { tagExtractor } from '../../../../utils/tagExtractor';
+import { Tag } from '../../../../lib/memory/TagExtractor';
 
 /**
  * Error class for enhanced memory manager
@@ -42,6 +46,8 @@ export class DefaultEnhancedMemoryManager extends AbstractBaseManager implements
   protected enhancedMemories: Map<string, EnhancedMemoryEntry> = new Map();
   protected versionHistory: MemoryVersionHistory;
   protected _config: EnhancedMemoryManagerConfig;
+  protected semanticSearch: SemanticSearchService;
+  protected knowledgeGraphManager: KnowledgeGraphManager;
 
   /**
    * Create a new DefaultEnhancedMemoryManager
@@ -98,6 +104,12 @@ export class DefaultEnhancedMemoryManager extends AbstractBaseManager implements
       autoCreateVersions: this._config.autoCreateVersions ?? true,
       logger: (message, data) => console.log(`[VersionHistory] ${message}`, data)
     });
+
+    // Initialize knowledge graph manager
+    this.knowledgeGraphManager = new KnowledgeGraphManager();
+
+    // Initialize semantic search service
+    this.semanticSearch = new SemanticSearchService(this.knowledgeGraphManager);
   }
 
   /**
@@ -114,6 +126,9 @@ export class DefaultEnhancedMemoryManager extends AbstractBaseManager implements
       if (!baseInitialized) {
         return false;
       }
+
+      // Initialize knowledge graph manager
+      await this.knowledgeGraphManager.initialize();
 
       // Initialize data stores (in a real implementation, this might load from a database)
       await this.loadEnhancedMemoryData();
@@ -133,7 +148,12 @@ export class DefaultEnhancedMemoryManager extends AbstractBaseManager implements
     try {
       // Persist any in-memory data before shutting down
       await this.persistEnhancedMemoryData();
-      await this.baseMemoryManager.shutdown();
+      
+      // Shut down all managers
+      await Promise.all([
+        this.baseMemoryManager.shutdown(),
+        this.knowledgeGraphManager.shutdown()
+      ]);
     } catch (error) {
       console.error('Error during enhanced memory manager shutdown:', error);
     }
@@ -149,6 +169,10 @@ export class DefaultEnhancedMemoryManager extends AbstractBaseManager implements
       this.syntheses.clear();
       this.reasonings.clear();
       this.enhancedMemories.clear();
+      
+      // Clear knowledge graph
+      this.knowledgeGraphManager.clear();
+      
       return true;
     } catch (error) {
       console.error('Error resetting enhanced memory manager:', error);
@@ -179,7 +203,7 @@ export class DefaultEnhancedMemoryManager extends AbstractBaseManager implements
 
   // #region Base Memory Operations (delegated to baseMemoryManager)
 
-  async addMemory(content: string, metadata?: Record<string, unknown>): Promise<MemoryEntry> {
+  async addMemory(content: string, metadata: Record<string, unknown> = {}): Promise<MemoryEntry> {
     const memory = await this.baseMemoryManager.addMemory(content, metadata);
     
     // Check if version history is enabled
@@ -205,7 +229,25 @@ export class DefaultEnhancedMemoryManager extends AbstractBaseManager implements
   }
 
   async searchMemories(query: string, options?: MemorySearchOptions): Promise<MemoryEntry[]> {
-    return this.baseMemoryManager.searchMemories(query, options);
+    try {
+      // Try semantic search first
+      const semanticResults = await this.searchMemoriesSemanticly(query, {
+        ...options,
+        minScore: 0.6
+      });
+
+      // If semantic search found results, return them
+      if (semanticResults.length > 0) {
+        return semanticResults;
+      }
+
+      // Fall back to base memory search
+      return this.baseMemoryManager.searchMemories(query, options);
+    } catch (error) {
+      console.error('Error in enhanced memory search:', error);
+      // Fall back to base memory search on error
+      return this.baseMemoryManager.searchMemories(query, options);
+    }
   }
 
   async consolidateMemories(): Promise<MemoryConsolidationResult> {
@@ -1491,5 +1533,80 @@ export class DefaultEnhancedMemoryManager extends AbstractBaseManager implements
     }
     
     return results;
+  }
+
+  /**
+   * Search memories using semantic search
+   */
+  async searchMemoriesSemanticly(
+    query: string,
+    options: MemorySearchOptions & {
+      minScore?: number;
+      includeMetadata?: boolean;
+    } = {}
+  ): Promise<MemoryEntry[]> {
+    try {
+      // Get semantic search results
+      const searchResults = await this.semanticSearch.searchKnowledge(query, {
+        limit: options.limit,
+        threshold: options.minScore || 0.6
+      });
+
+      // Map search results to memory entries
+      const memories = await Promise.all(
+        searchResults.map(async result => {
+          const memory = await this.baseMemoryManager.getMemory(result.item.id);
+          if (!memory) {
+            throw new Error(`Memory ${result.item.id} not found`);
+          }
+          return {
+            ...memory,
+            metadata: {
+              ...memory.metadata,
+              semanticScore: result.score,
+              highlights: result.highlights
+            }
+          };
+        })
+      );
+
+      return memories;
+    } catch (error) {
+      console.error('Error in semantic memory search:', error);
+      // Fall back to base memory search
+      return this.baseMemoryManager.searchMemories(query, options);
+    }
+  }
+
+  /**
+   * Add a memory with automatic tagging and semantic processing
+   */
+  async addMemoryWithProcessing(
+    content: string,
+    metadata: Record<string, unknown> = {}
+  ): Promise<EnhancedMemoryEntry> {
+    try {
+      // Extract tags using tagExtractor
+      const taggingResult = await tagExtractor.extractTags(content, {
+        maxTags: 10,
+        minConfidence: 0.3
+      });
+      
+      // Add memory with extracted tags
+      const memory = await this.addMemory(content, {
+        ...metadata,
+        tags: taggingResult.tags.map((t: Tag) => t.text)
+      });
+
+      // Process memory cognitively
+      const enhancedMemory = await this.processMemoryCognitively(memory.id, {
+        processingTypes: ['associations', 'importance', 'novelty', 'emotion', 'categorization']
+      });
+
+      return enhancedMemory;
+    } catch (error) {
+      console.error('Error adding memory with processing:', error);
+      throw new EnhancedMemoryError('Failed to add and process memory');
+    }
   }
 } 

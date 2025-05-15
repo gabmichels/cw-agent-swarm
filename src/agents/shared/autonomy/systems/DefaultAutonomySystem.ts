@@ -17,6 +17,9 @@ import {
   AutonomyDiagnostics, TaskStatistics, AutonomousExecutionOptions, AutonomousExecutionResult
 } from '../interfaces/AutonomySystem.interface';
 import { PlanAndExecuteOptions, PlanAndExecuteResult, ScheduledTask } from '../../../../lib/shared/types/agentTypes';
+import { DefaultOpportunityIdentifier } from './DefaultOpportunityIdentifier';
+import { OpportunityIdentifier, OpportunityType, OpportunityPriority } from '../interfaces/OpportunityIdentification.interface';
+import { IdentifiedOpportunity } from '../interfaces/OpportunityIdentification.interface';
 
 /**
  * Internal extension of ScheduledTask with additional properties for the autonomy system
@@ -26,6 +29,8 @@ interface InternalScheduledTask extends ScheduledTask {
   // Additional properties for internal use
   enabled: boolean;
   lastRun?: Date;
+  metadata?: Record<string, unknown>;
+  tags?: string[];
 }
 
 /**
@@ -46,6 +51,7 @@ export class DefaultAutonomySystem implements AutonomySystem {
     totalTimeMs: number;
     lastRunTime?: Date;
   }> = new Map();
+  private opportunityIdentifier: OpportunityIdentifier;
   
   /**
    * Create a new DefaultAutonomySystem
@@ -57,6 +63,7 @@ export class DefaultAutonomySystem implements AutonomySystem {
     this.agent = agent;
     this.config = config;
     this.autonomyMode = config.enableAutonomyOnStartup || false;
+    this.opportunityIdentifier = new DefaultOpportunityIdentifier(agent);
   }
   
   /**
@@ -64,6 +71,13 @@ export class DefaultAutonomySystem implements AutonomySystem {
    */
   async initialize(): Promise<boolean> {
     try {
+      // Initialize opportunity identifier
+      const opportunityInitialized = await this.opportunityIdentifier.initialize();
+      if (!opportunityInitialized) {
+        console.error('[AutonomySystem] Failed to initialize opportunity identifier');
+        return false;
+      }
+
       // Check if managers we depend on are available
       const memoryManagerAvailable = !!this.agent.getManager(ManagerType.MEMORY);
       const planningManagerAvailable = !!this.agent.getManager(ManagerType.PLANNING);
@@ -71,6 +85,11 @@ export class DefaultAutonomySystem implements AutonomySystem {
       
       // Set up default schedules
       await this.setupDefaultTasks();
+      
+      // Set up periodic opportunity detection if enabled
+      if (this.config.enableOpportunityDetection) {
+        this.setupOpportunityDetection();
+      }
       
       // Update status based on manager availability
       if (memoryManagerAvailable && planningManagerAvailable && schedulerManagerAvailable) {
@@ -137,6 +156,127 @@ export class DefaultAutonomySystem implements AutonomySystem {
         tags: ['system', 'automated', 'maintenance', 'memory']
       });
     }
+  }
+  
+  /**
+   * Set up periodic opportunity detection
+   */
+  private setupOpportunityDetection(): void {
+    // Run opportunity detection every 5 minutes
+    const job = new CronJob(
+      '*/5 * * * *',
+      async () => {
+        if (!this.autonomyMode) {
+          return;
+        }
+
+        try {
+          // Get recent memories to analyze
+          const memoryManager = this.agent.getManager<MemoryManager>(ManagerType.MEMORY);
+          if (!memoryManager) {
+            return;
+          }
+
+          const recentMemories = await memoryManager.getRecentMemories(10);
+          for (const memory of recentMemories) {
+            // Detect triggers in memory content
+            const triggers = await this.opportunityIdentifier.detectTriggers(
+              memory.content,
+              {
+                source: 'memory',
+                context: { memoryId: memory.id }
+              }
+            );
+
+            if (triggers.length > 0) {
+              // Identify opportunities from triggers
+              const result = await this.opportunityIdentifier.identifyOpportunities(triggers);
+              
+              // Process high priority opportunities immediately
+              for (const opportunity of result.opportunities) {
+                if (opportunity.priority === OpportunityPriority.HIGH) {
+                  await this.processOpportunity(opportunity);
+                }
+              }
+            }
+          }
+        } catch (error) {
+          console.error('[AutonomySystem] Error in opportunity detection:', error);
+        }
+      },
+      null, // onComplete
+      true, // start
+      'UTC' // timeZone
+    );
+
+    // No need to call job.start() since we pass true to start parameter
+  }
+  
+  /**
+   * Process an identified opportunity
+   */
+  private async processOpportunity(opportunity: IdentifiedOpportunity): Promise<void> {
+    try {
+      // Create a task based on the opportunity type
+      const task: InternalScheduledTask = {
+        id: uuidv4(),
+        name: `Opportunity: ${opportunity.type}`,
+        description: `Auto-generated task for ${opportunity.type} opportunity`,
+        goalPrompt: this.createGoalPromptForOpportunity(opportunity),
+        schedule: '* * * * *', // Run immediately
+        enabled: true,
+        tags: ['auto-generated', 'opportunity', opportunity.type],
+        metadata: {
+          opportunityId: opportunity.id,
+          opportunityType: opportunity.type,
+          opportunityContext: opportunity.context
+        }
+      };
+
+      // Add task to scheduled tasks
+      this.scheduledTasks.set(task.id, task);
+
+      // Start the task
+      await this.startTask(task.id);
+
+      // Update opportunity status
+      await this.opportunityIdentifier.updateOpportunityStatus(
+        opportunity.id,
+        'processing',
+        { taskId: task.id }
+      );
+    } catch (error) {
+      console.error('[AutonomySystem] Error processing opportunity:', error);
+      await this.opportunityIdentifier.updateOpportunityStatus(
+        opportunity.id,
+        'failed',
+        { error: String(error) }
+      );
+    }
+  }
+  
+  /**
+   * Create a goal prompt for an opportunity
+   */
+  private createGoalPromptForOpportunity(opportunity: IdentifiedOpportunity): string {
+    const basePrompt = 'You are an autonomous agent tasked with handling an identified opportunity. ';
+    
+    const typePrompts: Record<OpportunityType, string> = {
+      [OpportunityType.TASK_OPTIMIZATION]: 'Analyze and optimize the task execution process to improve efficiency.',
+      [OpportunityType.ERROR_PREVENTION]: 'Implement preventive measures to avoid potential errors.',
+      [OpportunityType.RESOURCE_OPTIMIZATION]: 'Optimize resource allocation and usage.',
+      [OpportunityType.USER_ASSISTANCE]: 'Provide proactive assistance to the user.',
+      [OpportunityType.SCHEDULE_OPTIMIZATION]: 'Optimize task scheduling and timing.',
+      [OpportunityType.KNOWLEDGE_ACQUISITION]: 'Acquire and integrate new knowledge.',
+      [OpportunityType.PERFORMANCE_OPTIMIZATION]: 'Improve system performance.',
+      [OpportunityType.SYSTEM_OPTIMIZATION]: 'Optimize overall system operation.'
+    };
+
+    const contextPrompt = opportunity.context.trigger.content
+      ? `\n\nContext: ${opportunity.context.trigger.content}`
+      : '';
+
+    return `${basePrompt}${typePrompts[opportunity.type]}${contextPrompt}`;
   }
   
   /**

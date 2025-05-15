@@ -14,6 +14,9 @@ export interface AutonomySystemConfig {
   /** Enable autonomous mode on startup */
   enableAutonomyOnStartup?: boolean;
   
+  /** Enable opportunity detection */
+  enableOpportunityDetection?: boolean;
+  
   /** Maximum number of concurrent autonomous tasks */
   maxConcurrentTasks?: number;
   
@@ -54,6 +57,21 @@ export interface AutonomySystemConfig {
     
     /** Safe domains for autonomous operation */
     safeDomains?: string[];
+  };
+  
+  /** Opportunity detection settings */
+  opportunityDetection?: {
+    /** Minimum confidence threshold for triggers */
+    minTriggerConfidence?: number;
+    
+    /** Detection interval in minutes */
+    detectionIntervalMinutes?: number;
+    
+    /** Maximum opportunities to process concurrently */
+    maxConcurrentOpportunities?: number;
+    
+    /** Opportunity types to monitor */
+    enabledOpportunityTypes?: string[];
   };
 }
 
