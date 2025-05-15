@@ -41,23 +41,26 @@ const ChatInput: React.FC<ChatInputProps> = ({
         if (form) form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
       }
     }
-    // SHIFT+ENTER adds a newline (default textarea behavior, no action needed)
   };
 
   // Auto-resize textarea based on content height
   useEffect(() => {
     if (inputRef.current) {
-      // Reset height to auto to get the correct scrollHeight
+      // Reset height to default single line height
       inputRef.current.style.height = 'auto';
       
       // Calculate required height (with maximum)
-      const newHeight = isFocused 
-        ? Math.min(inputRef.current.scrollHeight, 150) 
-        : Math.min(40, inputRef.current.scrollHeight);
+      const scrollHeight = inputRef.current.scrollHeight;
+      const maxHeight = 150;
+      
+      // Only expand if content exists and exceeds single line
+      const newHeight = isFocused && inputMessage.length > 0 && scrollHeight > 40 
+        ? Math.min(scrollHeight, maxHeight) 
+        : 40;
       
       inputRef.current.style.height = `${newHeight}px`;
     }
-  }, [inputMessage, isFocused, inputRef]);
+  }, [inputMessage, inputRef, isFocused]);
 
   return (
     <div>
@@ -104,7 +107,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
       )}
       
       {/* Message input form */}
-      <form onSubmit={handleSendMessage} className="flex items-center chat-input-area">
+      <form onSubmit={handleSendMessage} className="flex items-center chat-input-area !pb-0">
         <input
           type="file"
           id="hidden-file-input"
@@ -154,7 +157,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
             rows={1}
             style={{ 
               minHeight: '40px', 
-              maxHeight: '150px', 
+              maxHeight: '150px',
               height: isFocused ? 'auto' : '40px',
               overflow: isFocused ? 'auto' : 'hidden',
               textOverflow: isFocused ? 'clip' : 'ellipsis',
