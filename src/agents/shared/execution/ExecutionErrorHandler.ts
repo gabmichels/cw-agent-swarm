@@ -6,6 +6,7 @@
  * - Context-aware recovery strategies
  * - Automatic recovery attempt management
  * - Integration with plan recovery system
+ * - Reflection-triggered learning after recovery attempts
  */
 
 import { v4 as uuidv4 } from 'uuid';
@@ -18,6 +19,9 @@ import {
   RecoveryExecutionResult,
   RecoveryStrategy
 } from '../planning/interfaces/PlanRecovery.interface';
+import { ReflectionManager, ReflectionTrigger } from '../base/managers/ReflectionManager.interface';
+import { ManagerType } from '../base/managers/ManagerType';
+import { AgentBase } from '../base/AgentBase.interface';
 
 // Execution error categories
 export enum ExecutionErrorCategory {
@@ -62,6 +66,8 @@ export interface ErrorHandlingResult {
   action?: string;
   error?: Error;
   result?: any;
+  reflectionPerformed?: boolean;
+  reflectionId?: string;
 }
 
 /**
@@ -71,13 +77,22 @@ export class ExecutionErrorHandler {
   private recoverySystem: DefaultPlanRecoverySystem;
   private errorHistory: Map<string, RecoveryContext[]> = new Map();
   private initialized: boolean = false;
+  private agent?: AgentBase;
 
   /**
    * Create a new ExecutionErrorHandler
    */
-  constructor(recoverySystem?: DefaultPlanRecoverySystem) {
+  constructor(recoverySystem?: DefaultPlanRecoverySystem, agent?: AgentBase) {
     // Use provided recovery system or create a new one
     this.recoverySystem = recoverySystem || new DefaultPlanRecoverySystem();
+    this.agent = agent;
+  }
+
+  /**
+   * Set the agent instance for reflection capabilities
+   */
+  setAgent(agent: AgentBase): void {
+    this.agent = agent;
   }
 
   /**
@@ -397,13 +412,41 @@ export class ExecutionErrorHandler {
         recoveryAction.parameters
       );
       
+      // Whether the recovery was successful or not, trigger a reflection
+      // but don't block the recovery process on the reflection completion
+      type ReflectionResultInfo = { 
+        reflectionPerformed: boolean; 
+        reflectionId?: string 
+      };
+
+      let reflectionResult: ReflectionResultInfo = { 
+        reflectionPerformed: false,
+        reflectionId: undefined 
+      };
+      
+      if (this.agent) {
+        try {
+          // Trigger a reflection with the error and recovery context
+          reflectionResult = await this.triggerRecoveryReflection(
+            error,
+            recoveryContext,
+            recoveryResult,
+            { failureId, failureCategory, recoveryAction }
+          );
+        } catch (reflectionError) {
+          console.error('Error during recovery reflection:', reflectionError);
+          // Keep the default reflectionResult value
+        }
+      }
+      
       if (recoveryResult.success) {
         return {
           success: true,
           recoveryApplied: true,
           strategy: recoveryResult.action.type,
           action: recoveryResult.action.description,
-          result: recoveryResult
+          result: recoveryResult,
+          ...reflectionResult
         };
       } else {
         return {
@@ -411,7 +454,8 @@ export class ExecutionErrorHandler {
           recoveryApplied: true,
           strategy: recoveryResult.action.type,
           action: recoveryResult.action.description,
-          error: new Error(typeof recoveryResult.error === 'string' ? recoveryResult.error : 'Recovery failed')
+          error: new Error(typeof recoveryResult.error === 'string' ? recoveryResult.error : 'Recovery failed'),
+          ...reflectionResult
         };
       }
     } catch (recoveryError) {
@@ -442,6 +486,77 @@ export class ExecutionErrorHandler {
         recoveryApplied: false,
         error: recoveryError instanceof Error ? recoveryError : new Error(String(recoveryError))
       };
+    }
+  }
+  
+  /**
+   * Trigger a reflection based on error recovery
+   * @param error The original error
+   * @param context The recovery context
+   * @param recoveryResult The recovery execution result
+   * @param additionalContext Additional context information
+   * @returns Promise resolving to reflection result info
+   */
+  private async triggerRecoveryReflection(
+    error: Error,
+    context: RecoveryContext,
+    recoveryResult: RecoveryExecutionResult,
+    additionalContext: {
+      failureId: string;
+      failureCategory: PlanFailureCategory;
+      recoveryAction: any;
+    }
+  ): Promise<{ reflectionPerformed: boolean; reflectionId?: string }> {
+    if (!this.agent) {
+      return { reflectionPerformed: false };
+    }
+
+    // Get the reflection manager from the agent
+    const reflectionManager = this.agent.getManager<ReflectionManager>(ManagerType.REFLECTION);
+    if (!reflectionManager) {
+      return { reflectionPerformed: false };
+    }
+
+    try {
+      // Create context for reflection including error, recovery attempts, and outcome
+      const reflectionContext = {
+        error: {
+          message: error.message,
+          name: error.name,
+          stack: error.stack
+        },
+        recoveryContext: {
+          taskId: context.taskId,
+          stepId: context.stepId,
+          errorCategory: context.errorCategory,
+          attemptCount: context.attemptCount,
+          previousActions: context.previousActions
+        },
+        recoveryResult: {
+          success: recoveryResult.success,
+          action: recoveryResult.action,
+          error: recoveryResult.error,
+          duration: recoveryResult.durationMs
+        },
+        failure: {
+          id: additionalContext.failureId,
+          category: additionalContext.failureCategory
+        }
+      };
+
+      // Trigger reflection with ERROR trigger type
+      const result = await reflectionManager.reflect(
+        ReflectionTrigger.ERROR,
+        reflectionContext
+      );
+
+      return {
+        reflectionPerformed: result.success,
+        reflectionId: result.success ? result.id : undefined
+      };
+    } catch (reflectionError) {
+      console.error('Error during recovery reflection:', reflectionError);
+      return { reflectionPerformed: false };
     }
   }
   

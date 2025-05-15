@@ -25,9 +25,11 @@ import { ToolManager } from './base/managers/ToolManager.interface';
 import { Planner } from './planning/Planner';
 import { PlanningManager } from './base/managers/PlanningManager.interface';
 import { PlanCreationOptions, PlanCreationResult, PlanExecutionResult } from './base/managers/PlanningManager.interface';
-import { ReflectionManager, ReflectionTrigger, ReflectionResult } from './base/managers/ReflectionManager.interface';
+import { ReflectionManager, ReflectionTrigger, ReflectionResult, ReflectionInsight } from './base/managers/ReflectionManager.interface';
 import { EnhancedReflectionManager } from './reflection/managers/EnhancedReflectionManager';
 import { DefaultReflectionManager } from './reflection/managers/DefaultReflectionManager';
+import { ExecutionErrorHandler } from './execution/ExecutionErrorHandler';
+import { ToolRouter, ToolDefinition } from './tools/ToolRouter';
 
 // Define the necessary types that we need
 const AGENT_STATUS = {
@@ -96,6 +98,9 @@ interface ExtendedAgentConfig {
   useEnhancedMemory?: boolean;
   useEnhancedReflection?: boolean;
   
+  // Behavior configuration
+  adaptiveBehavior?: boolean;
+  
   // Manager configurations
   managersConfig?: {
     memoryManager?: ManagerConfig;
@@ -126,6 +131,7 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
   private planner: Planner | null = null;
   protected schedulerManager?: DefaultSchedulerManager;
   protected initialized: boolean = false;
+  private executionErrorHandler: ExecutionErrorHandler | null = null;
   
   /**
    * Create a new DefaultAgent
@@ -409,16 +415,8 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
         await toolManager.initialize();
         this.registerManager(toolManager);
         
-        // Initialize Executor with the agent's model and tool router
-        const toolManagerInstance = this.getManager<ToolManager>(ManagerType.TOOL);
-        if (toolManagerInstance) {
-          // Need to use any to avoid TypeScript errors since getToolRouter is not in the interface
-          const toolRouter = (toolManagerInstance as any).getToolRouter?.();
-          if (toolRouter) {
-            this.executor = new Executor(this.model, toolRouter);
-            await this.executor.initialize();
-          }
-        }
+        // Initialize executor with error handling
+        this.setupExecutor();
       }
 
       if (this.extendedConfig.enableKnowledgeManager) {
@@ -971,10 +969,17 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
       }
       
       // Use ReflectionTrigger from the ReflectionManager interface
-      return await reflectionManager.reflect(
+      const result = await reflectionManager.reflect(
         options.trigger as ReflectionTrigger || ReflectionTrigger.MANUAL,
         options || {}
       );
+
+      // If reflection was successful and adaptation is enabled, adapt behavior
+      if (result.success && this.extendedConfig.adaptiveBehavior) {
+        await this.adaptBehaviorFromReflection(result);
+      }
+
+      return result;
     } catch (error) {
       console.error('Error in reflect:', error);
       return {
@@ -1020,6 +1025,227 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
     } catch (error) {
       console.error('Error scheduling periodic reflection:', error);
       return false;
+    }
+  }
+
+  /**
+   * Initialize executor with error handling
+   */
+  private setupExecutor(): void {
+    if (!this.model) {
+      throw new Error('Cannot set up executor: Model not initialized');
+    }
+
+    try {
+      const toolManager = this.getManager<ToolManager>(ManagerType.TOOL);
+      
+      if (!toolManager) {
+        throw new Error('Tool manager not found');
+      }
+      
+      // Create error handler with reference to this agent
+      const errorHandler = new ExecutionErrorHandler(undefined, this);
+      
+      // Initialize error handler first
+      errorHandler.initialize().catch(err => {
+        console.error('Error initializing executor error handler:', err);
+      });
+      
+      // Create tool router from tool manager
+      const toolRouter = new ToolRouter();
+      
+      // Initialize tool router
+      toolRouter.initialize().catch(err => {
+        console.error('Error initializing tool router:', err);
+      });
+      
+      // Register tools from tool manager
+      toolManager.getTools().then(tools => {
+        tools.forEach(tool => {
+          // Convert Tool to ToolDefinition
+          const toolDef: ToolDefinition = {
+            name: tool.name,
+            description: tool.description,
+            parameters: (tool.metadata?.parameters as Record<string, unknown>) || {},
+            requiredParams: (tool.metadata?.requiredParams as string[]) || [],
+            execute: async (params: Record<string, unknown>, agentContext?: Record<string, unknown>) => {
+              try {
+                const result = await tool.execute(params);
+                return {
+                  success: true,
+                  data: result
+                };
+              } catch (error) {
+                return {
+                  success: false,
+                  error: error instanceof Error ? error.message : String(error)
+                };
+              }
+            },
+            category: tool.categories?.[0] || 'general',
+            requiredCapabilityLevel: (tool.metadata?.requiredCapabilityLevel as string) || 'basic'
+          };
+          
+          toolRouter.registerTool(toolDef);
+        });
+        
+        // Set tool permissions for this agent
+        toolRouter.setAgentToolPermissions(this.getId(), tools.map(t => t.name));
+      }).catch(err => {
+        console.error('Error registering tools:', err);
+      });
+      
+      // Initialize executor with tool router
+      this.executor = new Executor(this.model, toolRouter);
+      
+      // Store error handler reference
+      this.executionErrorHandler = errorHandler;
+      
+    } catch (error) {
+      console.error('Error setting up executor:', error);
+      throw error;
+    }
+  }
+
+  // Add method to handle reflection-based behavior adaptation
+  private async adaptBehaviorFromReflection(reflectionResult: ReflectionResult): Promise<void> {
+    if (!reflectionResult.success || !reflectionResult.insights.length) {
+      return;
+    }
+
+    try {
+      const reflectionManager = this.getManager<ReflectionManager>(ManagerType.REFLECTION);
+      if (!reflectionManager) {
+        return;
+      }
+
+      // Process each insight for potential behavior adaptation
+      for (const insight of reflectionResult.insights) {
+        if (insight.metadata?.category === 'error_handling') {
+          // Update error handling strategies based on insights
+          await this.updateErrorHandlingStrategies(insight);
+        } else if (insight.metadata?.category === 'improvement') {
+          // Apply general improvements
+          await this.applyImprovementInsight(insight);
+        }
+      }
+    } catch (error) {
+      console.error('Error adapting behavior from reflection:', error);
+    }
+  }
+
+  // Add method to update error handling strategies
+  private async updateErrorHandlingStrategies(insight: ReflectionInsight): Promise<void> {
+    try {
+      if (!this.executionErrorHandler) {
+        return;
+      }
+
+      // Register new recovery strategies based on insights
+      if (insight.metadata?.recoveryStrategy) {
+        // Create recovery context from insight
+        const recoveryContext = {
+          taskId: insight.metadata.taskId as string || 'unknown',
+          errorCategory: insight.metadata.errorCategory as string || 'unknown',
+          originalError: new Error(insight.content),
+          attemptCount: 0,
+          previousActions: [],
+          errorContext: insight.metadata
+        };
+
+        // Record the failure and get failure ID
+        const failureId = await this.executionErrorHandler.handleError(
+          new Error(insight.content),
+          {
+            taskId: insight.metadata.taskId as string || 'unknown',
+            agentId: this.getId(),
+            errorCategory: insight.metadata.errorCategory as string || 'unknown'
+          }
+        );
+
+        // Apply any recovery actions from the insight
+        if (insight.metadata.recoveryActions) {
+          for (const action of insight.metadata.recoveryActions as Array<Record<string, unknown>>) {
+            await this.executionErrorHandler.handleError(
+              new Error(action.description as string || insight.content),
+              {
+                taskId: insight.metadata.taskId as string || 'unknown',
+                agentId: this.getId(),
+                errorCategory: insight.metadata.errorCategory as string || 'unknown',
+                recoveryAction: action
+              }
+            );
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error updating error handling strategies:', error);
+    }
+  }
+
+  // Add method to apply improvement insights
+  private async applyImprovementInsight(insight: ReflectionInsight): Promise<void> {
+    try {
+      // Get relevant manager based on insight target area
+      const targetArea = insight.metadata?.targetArea;
+      if (!targetArea) {
+        return;
+      }
+
+      switch (targetArea) {
+        case 'memory':
+          await this.updateMemorySystem(insight);
+          break;
+        case 'planning':
+          await this.updatePlanningSystem(insight);
+          break;
+        case 'execution':
+          await this.updateExecutionSystem(insight);
+          break;
+        default:
+          console.log(`No implementation for target area: ${targetArea}`);
+      }
+    } catch (error) {
+      console.error('Error applying improvement insight:', error);
+    }
+  }
+
+  // Add system update methods
+  private async updateMemorySystem(insight: ReflectionInsight): Promise<void> {
+    const memoryManager = this.getManager<MemoryManager>(ManagerType.MEMORY);
+    if (!memoryManager) {
+      return;
+    }
+    
+    // Apply memory system improvements based on insight
+    if (insight.metadata?.improvements) {
+      // Implementation would go here
+      console.log('Applying memory system improvements:', insight.content);
+    }
+  }
+
+  private async updatePlanningSystem(insight: ReflectionInsight): Promise<void> {
+    const planningManager = this.getManager<PlanningManager>(ManagerType.PLANNING);
+    if (!planningManager) {
+      return;
+    }
+    
+    // Apply planning system improvements based on insight
+    if (insight.metadata?.improvements) {
+      // Implementation would go here
+      console.log('Applying planning system improvements:', insight.content);
+    }
+  }
+
+  private async updateExecutionSystem(insight: ReflectionInsight): Promise<void> {
+    if (!this.executor) {
+      return;
+    }
+    
+    // Apply execution system improvements based on insight
+    if (insight.metadata?.improvements) {
+      // Implementation would go here
+      console.log('Applying execution system improvements:', insight.content);
     }
   }
 } 

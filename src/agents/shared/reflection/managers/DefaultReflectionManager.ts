@@ -9,14 +9,12 @@ import { v4 as uuidv4 } from 'uuid';
 import { 
   ReflectionManager, 
   ReflectionManagerConfig,
-  ReflectionInsight,
-  ReflectionResult,
   ReflectionTrigger,
   Reflection,
-  ImprovementAction,
-  ReflectionStrategy,
   KnowledgeGap,
-  PerformanceMetrics
+  PerformanceMetrics,
+  ReflectionStrategy,
+  ReflectionResult
 } from '../../base/managers/ReflectionManager.interface';
 import { ManagerHealth } from '../../base/managers/ManagerHealth';
 import { AgentBase } from '../../base/AgentBase.interface';
@@ -40,6 +38,43 @@ class ReflectionError extends Error {
   }
 }
 
+// Update the base ReflectionInsight interface
+interface ReflectionInsightMetadata extends Record<string, unknown> {
+  source: string;
+  applicationStatus: 'pending' | 'applied' | 'rejected';
+  category: 'error_handling' | 'knowledge_gap' | 'improvement' | 'tool' | 'general';
+  relatedInsights: string[];
+  appliedAt?: Date;
+}
+
+interface LocalReflectionInsight {
+  id: string;
+  type: 'error' | 'learning' | 'pattern' | 'improvement' | 'warning';
+  content: string;
+  timestamp: Date;
+  reflectionId: string;
+  confidence: number;
+  metadata: ReflectionInsightMetadata;
+}
+
+interface ImprovementAction {
+  id: string;
+  title: string;
+  description: string;
+  createdAt: Date;
+  updatedAt: Date;
+  sourceInsightId: string;
+  status: 'suggested' | 'accepted' | 'in_progress' | 'completed' | 'rejected';
+  priority: 'low' | 'medium' | 'high' | 'critical';
+  targetArea: 'tools' | 'planning' | 'learning' | 'knowledge' | 'execution' | 'interaction';
+  expectedImpact: number;
+  difficulty: number;
+  implementationSteps: Array<{
+    description: string;
+    status: 'pending' | 'completed' | 'failed';
+  }>;
+}
+
 /**
  * Default implementation of the ReflectionManager interface
  */
@@ -47,12 +82,22 @@ export class DefaultReflectionManager extends AbstractBaseManager implements Ref
   // Private members specific to this manager
   private configFactory = createConfigFactory(ReflectionManagerConfigSchema);
   private reflections: Map<string, Reflection> = new Map();
-  private insights: Map<string, ReflectionInsight> = new Map();
+  private insights: Map<string, LocalReflectionInsight> = new Map();
   private lastReflectionTime: Date | null = null;
   private metrics: Record<string, number> = {};
   
   // Override config type to use specific config type
   protected config!: ReflectionManagerConfig & Record<string, unknown>;
+
+  // Track error recovery reflections for learning
+  private errorRecoveryReflections: Map<string, {
+    taskId: string,
+    errorCategory: string,
+    reflectionId: string,
+    insights: string[],
+    timestamp: Date,
+    recoverySuccessful: boolean
+  }[]> = new Map();
 
   /**
    * Create a new DefaultReflectionManager instance
@@ -257,9 +302,14 @@ export class DefaultReflectionManager extends AbstractBaseManager implements Ref
       this.reflections.set(reflectionId, reflection);
       this.lastReflectionTime = reflection.timestamp;
 
-      // Generate insights based on reflection depth
+      // Generate insights based on reflection depth and trigger type
       const insights = await this.generateInsights(reflection);
       reflection.insights = insights.map(insight => insight.id);
+
+      // For error-triggered reflections, track them for learning
+      if (trigger === ReflectionTrigger.ERROR && context) {
+        await this.trackErrorRecoveryReflection(reflectionId, context, insights);
+      }
 
       // Apply insights if adaptive behavior is enabled
       if (this.config.adaptiveBehavior) {
@@ -291,6 +341,297 @@ export class DefaultReflectionManager extends AbstractBaseManager implements Ref
         insights: [],
         message: `Reflection failed: ${error instanceof Error ? error.message : String(error)}`
       };
+    }
+  }
+
+  /**
+   * Track error recovery reflections for learning patterns
+   */
+  private async trackErrorRecoveryReflection(
+    reflectionId: string,
+    context: Record<string, unknown>,
+    insights: LocalReflectionInsight[]
+  ): Promise<void> {
+    try {
+      // Extract error recovery context
+      const recoveryContext = context.recoveryContext as Record<string, unknown> | undefined;
+      if (!recoveryContext || !recoveryContext.taskId) {
+        return;
+      }
+
+      const taskId = String(recoveryContext.taskId);
+      const errorCategory = recoveryContext.errorCategory ? String(recoveryContext.errorCategory) : 'unknown';
+      
+      // Extract recovery result
+      const recoveryResult = context.recoveryResult as Record<string, unknown> | undefined;
+      const recoverySuccessful = recoveryResult ? Boolean(recoveryResult.success) : false;
+
+      // Create entry
+      const entry = {
+        taskId,
+        errorCategory,
+        reflectionId,
+        insights: insights.map(i => i.id),
+        timestamp: new Date(),
+        recoverySuccessful
+      };
+
+      // Get existing entries for this task or create new array
+      const existingEntries = this.errorRecoveryReflections.get(taskId) || [];
+      existingEntries.push(entry);
+      
+      // Update map
+      this.errorRecoveryReflections.set(taskId, existingEntries);
+      
+      // If we have multiple reflections for the same task, analyze patterns
+      if (existingEntries.length >= 2) {
+        await this.analyzeErrorRecoveryPatterns(taskId, existingEntries);
+      }
+    } catch (error) {
+      console.error('Error tracking error recovery reflection:', error);
+    }
+  }
+
+  /**
+   * Analyze patterns in error recoveries for a task to improve future handling
+   */
+  private async analyzeErrorRecoveryPatterns(
+    taskId: string,
+    entries: {
+      taskId: string,
+      errorCategory: string,
+      reflectionId: string,
+      insights: string[],
+      timestamp: Date,
+      recoverySuccessful: boolean
+    }[]
+  ): Promise<void> {
+    try {
+      // Get details for all reflections
+      const reflectionDetails = entries.map(entry => {
+        const reflection = this.reflections.get(entry.reflectionId);
+        return {
+          ...entry,
+          context: reflection?.context || {},
+          fullReflection: reflection
+        };
+      });
+      
+      // Create a new reflection about the patterns in error recovery
+      const metaReflectionId = uuidv4();
+      const metaReflection: Reflection = {
+        id: metaReflectionId,
+        timestamp: new Date(),
+        trigger: ReflectionTrigger.INSIGHT,
+        context: {
+          taskId,
+          reflectionType: 'error_recovery_pattern_analysis',
+          recoveryAttempts: entries.length,
+          successfulRecoveries: entries.filter(e => e.recoverySuccessful).length,
+          errorCategories: Array.from(new Set(entries.map(e => e.errorCategory)))
+        },
+        depth: 'deep',
+        insights: [],
+        metrics: { ...this.metrics }
+      };
+      
+      // Generate meta-insights about error recovery patterns
+      const metaInsights = await this.generateErrorRecoveryInsights(reflectionDetails, metaReflection);
+      metaReflection.insights = metaInsights.map(insight => insight.id);
+      
+      // Store the meta-reflection
+      this.reflections.set(metaReflectionId, metaReflection);
+      
+      // If adaptive behavior is enabled, apply these meta-insights
+      if (this.config.adaptiveBehavior) {
+        await this.applyInsights(metaInsights, true); // true = higher priority for adaptation
+      }
+    } catch (error) {
+      console.error('Error analyzing error recovery patterns:', error);
+    }
+  }
+
+  /**
+   * Generate insights about error recovery patterns
+   */
+  private async generateErrorRecoveryInsights(
+    reflectionDetails: Array<{
+      taskId: string,
+      errorCategory: string,
+      reflectionId: string,
+      insights: string[],
+      timestamp: Date,
+      recoverySuccessful: boolean,
+      context: Record<string, unknown>,
+      fullReflection?: Reflection
+    }>,
+    metaReflection: Reflection
+  ): Promise<LocalReflectionInsight[]> {
+    const insights: LocalReflectionInsight[] = [];
+    
+    try {
+      // Extract all previous insights for reference
+      const allPreviousInsights = reflectionDetails
+        .flatMap(rd => rd.insights)
+        .map(insightId => this.insights.get(insightId))
+        .filter(Boolean) as LocalReflectionInsight[];
+      
+      // Get error categories as string array
+      const errorCategories = Array.from(new Set(reflectionDetails.map(rd => rd.errorCategory)));
+      
+      // 1. Create insight about common error patterns
+      const commonErrorInsight: LocalReflectionInsight = {
+        id: uuidv4(),
+        type: 'pattern',
+        content: `Task ${metaReflection.context.taskId} experienced ${reflectionDetails.length} error recovery attempts, with patterns in error categories: ${errorCategories.join(', ')}`,
+        timestamp: new Date(),
+        reflectionId: metaReflection.id,
+        confidence: 0.8,
+        metadata: {
+          source: 'error_pattern_analysis',
+          applicationStatus: 'pending',
+          category: 'error_handling',
+          relatedInsights: allPreviousInsights.map(i => i.id)
+        }
+      };
+      
+      insights.push(commonErrorInsight);
+      this.insights.set(commonErrorInsight.id, commonErrorInsight);
+      
+      // 2. Create insight about successful vs failed recovery approaches
+      const successfulRecoveries = reflectionDetails.filter(rd => rd.recoverySuccessful);
+      const failedRecoveries = reflectionDetails.filter(rd => !rd.recoverySuccessful);
+      
+      if (successfulRecoveries.length > 0 && failedRecoveries.length > 0) {
+        const recoveryComparisonInsight: LocalReflectionInsight = {
+          id: uuidv4(),
+          type: 'learning',
+          content: `Analysis of successful vs. failed recovery approaches for task ${metaReflection.context.taskId}. ${successfulRecoveries.length} successful and ${failedRecoveries.length} failed recovery attempts.`,
+          timestamp: new Date(),
+          reflectionId: metaReflection.id,
+          confidence: 0.75,
+          metadata: {
+            source: 'recovery_comparison',
+            applicationStatus: 'pending',
+            category: 'error_handling',
+            relatedInsights: [commonErrorInsight.id]
+          }
+        };
+        
+        insights.push(recoveryComparisonInsight);
+        this.insights.set(recoveryComparisonInsight.id, recoveryComparisonInsight);
+      }
+      
+      // 3. Create an action recommendation insight
+      const actionRecommendationInsight: LocalReflectionInsight = {
+        id: uuidv4(),
+        type: 'improvement',
+        content: `Based on ${reflectionDetails.length} error recovery attempts for task ${metaReflection.context.taskId}, recommend improving error handling for error categories: ${errorCategories.join(', ')}`,
+        timestamp: new Date(),
+        reflectionId: metaReflection.id,
+        confidence: 0.7,
+        metadata: {
+          source: 'error_recovery_learning',
+          applicationStatus: 'pending',
+          category: 'improvement',
+          relatedInsights: insights.map(i => i.id)
+        }
+      };
+      
+      insights.push(actionRecommendationInsight);
+      this.insights.set(actionRecommendationInsight.id, actionRecommendationInsight);
+      
+    } catch (error) {
+      console.error('Error generating error recovery insights:', error);
+    }
+    
+    return insights;
+  }
+
+  /**
+   * Apply insights to agent behavior
+   */
+  private async applyInsights(
+    insights: LocalReflectionInsight[], 
+    highPriority = false
+  ): Promise<void> {
+    // Here we'll implement more sophisticated insight application
+    try {
+      for (const insight of insights) {
+        // Mark the insight as applied if metadata exists
+        if (insight.metadata) {
+          insight.metadata.applicationStatus = 'applied';
+          insight.metadata.appliedAt = new Date();
+          this.insights.set(insight.id, insight);
+        }
+        
+        // If it's an error handling insight, create improvement actions
+        const category = insight.metadata?.category as string | undefined;
+        const source = insight.metadata?.source as string | undefined;
+        
+        if (category === 'error_handling' || 
+            (source && (source.includes('error') || source.includes('recovery')))) {
+          await this.createImprovementActionFromInsight(insight, highPriority);
+        }
+      }
+    } catch (error) {
+      console.error('Error applying insights:', error);
+    }
+  }
+
+  /**
+   * Create an improvement action from an insight
+   */
+  private async createImprovementActionFromInsight(
+    insight: LocalReflectionInsight,
+    highPriority = false
+  ): Promise<string | null> {
+    try {
+      const actionId = uuidv4();
+      
+      let priority: 'low' | 'medium' | 'high' | 'critical' = 'medium';
+      
+      if (highPriority) {
+        priority = insight.confidence > 0.8 ? 'critical' : 'high';
+      } else {
+        priority = insight.confidence > 0.8 ? 'high' : 
+                  insight.confidence > 0.6 ? 'medium' : 'low';
+      }
+      
+      let targetArea: 'tools' | 'planning' | 'learning' | 'knowledge' | 'execution' | 'interaction' = 'execution';
+      
+      if (insight.metadata.category === 'knowledge_gap') {
+        targetArea = 'knowledge';
+      } else if (insight.metadata.category === 'improvement') {
+        targetArea = 'learning';
+      } else if (insight.metadata.category === 'tool') {
+        targetArea = 'tools';
+      }
+      
+      const action: ImprovementAction = {
+        id: actionId,
+        title: `Improvement from ${insight.type} insight`,
+        description: insight.content,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        sourceInsightId: insight.id,
+        status: 'suggested',
+        priority,
+        targetArea,
+        expectedImpact: insight.confidence,
+        difficulty: 3,
+        implementationSteps: [
+          {
+            description: `Apply learning from insight: ${insight.content}`,
+            status: 'pending'
+          }
+        ]
+      };
+      
+      return actionId;
+    } catch (error) {
+      console.error('Error creating improvement action:', error);
+      return null;
     }
   }
 
@@ -334,33 +675,158 @@ export class DefaultReflectionManager extends AbstractBaseManager implements Ref
   }
 
   /**
-   * Generate insights based on reflection
+   * Generate insights for a reflection with enhanced error handling support
    */
-  private async generateInsights(reflection: Reflection): Promise<ReflectionInsight[]> {
-    const insights: ReflectionInsight[] = [];
+  private async generateInsights(reflection: Reflection): Promise<LocalReflectionInsight[]> {
+    const insights: LocalReflectionInsight[] = [];
     
-    // In a real implementation, this would analyze agent history, memory, etc.
-    // For now, we'll create some placeholder insights
+    const insightCount = this.getInsightCountForDepth(reflection.depth as 'light' | 'standard' | 'deep');
     
-    const insightCount = this.getInsightCountForDepth(reflection.depth);
+    try {
+      if (reflection.trigger === ReflectionTrigger.ERROR) {
+        return await this.generateErrorReflectionInsights(reflection);
+      }
+      
+      for (let i = 0; i < insightCount; i++) {
+        const insight: LocalReflectionInsight = {
+          id: uuidv4(),
+          type: 'learning',
+          content: `Insight ${i + 1} from ${reflection.trigger} reflection`,
+          timestamp: new Date(),
+          reflectionId: reflection.id,
+          confidence: 0.7 + (Math.random() * 0.3),
+          metadata: {
+            source: reflection.trigger,
+            applicationStatus: 'pending',
+            category: 'general',
+            relatedInsights: []
+          }
+        };
+        
+        insights.push(insight);
+        this.insights.set(insight.id, insight);
+      }
+    } catch (error) {
+      console.error('Error generating insights:', error);
+    }
     
-    for (let i = 0; i < insightCount; i++) {
-      const insightId = uuidv4();
-      const insight: ReflectionInsight = {
-        id: insightId,
-        reflectionId: reflection.id,
-        timestamp: new Date(),
+    return insights;
+  }
+
+  /**
+   * Generate specialized insights for error-triggered reflections
+   */
+  private async generateErrorReflectionInsights(reflection: Reflection): Promise<LocalReflectionInsight[]> {
+    const insights: LocalReflectionInsight[] = [];
+    
+    try {
+      // Extract error and recovery context
+      const error = reflection.context.error as Record<string, unknown> | undefined;
+      const recoveryContext = reflection.context.recoveryContext as Record<string, unknown> | undefined;
+      const recoveryResult = reflection.context.recoveryResult as Record<string, unknown> | undefined;
+      
+      if (!error || !recoveryContext) {
+        // If missing critical context, generate general error insights
+        const generalInsight: LocalReflectionInsight = {
+          id: uuidv4(),
+          type: 'learning',
+          content: `An error occurred related to task ${recoveryContext?.taskId || 'unknown'}`,
+          timestamp: new Date(),
+          reflectionId: reflection.id,
+          confidence: 0.7,
+          metadata: {
+            source: 'error_reflection',
+            applicationStatus: 'pending',
+            category: 'error_handling',
+            relatedInsights: []
+          }
+        };
+        
+        insights.push(generalInsight);
+        this.insights.set(generalInsight.id, generalInsight);
+        
+        return insights;
+      }
+      
+      // 1. Generate insight about the error itself
+      const errorInsight: LocalReflectionInsight = {
+        id: uuidv4(),
         type: 'learning',
-        content: `Insight ${i + 1} from ${reflection.depth} reflection`,
-        confidence: 0.7 + (Math.random() * 0.3), // 0.7-1.0
+        content: `Analysis of error "${error.message || 'unknown error'}" of type ${error.name || 'unknown'} in task ${recoveryContext.taskId}`,
+        timestamp: new Date(),
+        reflectionId: reflection.id,
+        confidence: 0.85,
         metadata: {
-          source: reflection.trigger,
-          depth: reflection.depth
+          source: 'error_analysis',
+          applicationStatus: 'pending',
+          category: 'error_handling',
+          relatedInsights: []
         }
       };
       
-      this.insights.set(insightId, insight);
-      insights.push(insight);
+      insights.push(errorInsight);
+      this.insights.set(errorInsight.id, errorInsight);
+      
+      // 2. Generate insight about the recovery attempt
+      const recoveryInsight: LocalReflectionInsight = {
+        id: uuidv4(),
+        type: 'learning',
+        content: `Recovery attempt ${recoveryContext.attemptCount || 1} for error category ${recoveryContext.errorCategory || 'unknown'} was ${recoveryResult?.success ? 'successful' : 'unsuccessful'}`,
+        timestamp: new Date(),
+        reflectionId: reflection.id,
+        confidence: 0.8,
+        metadata: {
+          source: 'recovery_analysis',
+          applicationStatus: 'pending',
+          category: 'error_handling',
+          relatedInsights: [errorInsight.id]
+        }
+      };
+      
+      insights.push(recoveryInsight);
+      this.insights.set(recoveryInsight.id, recoveryInsight);
+      
+      // 3. Generate recommendation insight
+      const recommendationInsight: LocalReflectionInsight = {
+        id: uuidv4(),
+        type: 'improvement',
+        content: `Recommendation for handling ${recoveryContext.errorCategory || 'unknown'} errors in future tasks similar to ${recoveryContext.taskId}`,
+        timestamp: new Date(),
+        reflectionId: reflection.id,
+        confidence: 0.75,
+        metadata: {
+          source: 'error_recommendation',
+          applicationStatus: 'pending',
+          category: 'improvement',
+          relatedInsights: [errorInsight.id, recoveryInsight.id]
+        }
+      };
+      
+      insights.push(recommendationInsight);
+      this.insights.set(recommendationInsight.id, recommendationInsight);
+      
+      // If there are previous recovery attempts, generate comparative insight
+      if (recoveryContext.previousActions && Array.isArray(recoveryContext.previousActions) && recoveryContext.previousActions.length > 0) {
+        const patternInsight: LocalReflectionInsight = {
+          id: uuidv4(),
+          type: 'pattern',
+          content: `Pattern detected in multiple recovery attempts for task ${recoveryContext.taskId}`,
+          timestamp: new Date(),
+          reflectionId: reflection.id,
+          confidence: 0.7,
+          metadata: {
+            source: 'error_pattern',
+            applicationStatus: 'pending',
+            category: 'error_handling',
+            relatedInsights: insights.map(i => i.id)
+          }
+        };
+        
+        insights.push(patternInsight);
+        this.insights.set(patternInsight.id, patternInsight);
+      }
+    } catch (error) {
+      console.error('Error generating error reflection insights:', error);
     }
     
     return insights;
@@ -383,18 +849,9 @@ export class DefaultReflectionManager extends AbstractBaseManager implements Ref
   }
 
   /**
-   * Apply insights to modify agent behavior
-   */
-  private async applyInsights(insights: ReflectionInsight[]): Promise<void> {
-    // In a real implementation, this would adjust agent behavior
-    // For now, this is a placeholder
-    console.log(`Applying ${insights.length} insights with adaptation rate ${this.config.adaptationRate}`);
-  }
-
-  /**
    * Update metrics based on reflection and insights
    */
-  private updateMetrics(reflection: Reflection, insights: ReflectionInsight[]): void {
+  private updateMetrics(reflection: Reflection, insights: LocalReflectionInsight[]): void {
     // Update success metric if tracked
     if ('success' in this.metrics) {
       this.metrics.success = (this.metrics.success + (insights.length > 0 ? 1 : 0)) / 2;
@@ -506,7 +963,7 @@ export class DefaultReflectionManager extends AbstractBaseManager implements Ref
   /**
    * Get an insight by ID
    */
-  async getInsight(id: string): Promise<ReflectionInsight | null> {
+  async getInsight(id: string): Promise<LocalReflectionInsight | null> {
     return this.insights.get(id) || null;
   }
 
@@ -519,7 +976,7 @@ export class DefaultReflectionManager extends AbstractBaseManager implements Ref
     offset?: number;
     sortBy?: 'timestamp' | 'confidence' | 'type';
     sortDirection?: 'asc' | 'desc';
-  } = {}): Promise<ReflectionInsight[]> {
+  } = {}): Promise<LocalReflectionInsight[]> {
     let insights = Array.from(this.insights.values());
     
     // Filter by reflection ID if specified
@@ -818,7 +1275,25 @@ export class DefaultReflectionManager extends AbstractBaseManager implements Ref
    * Adapt agent behavior based on reflections
    */
   async adaptBehavior(): Promise<boolean> {
-    return false;
+    try {
+      // Find all pending improvement actions
+      const pendingActions = Array.from(this.errorRecoveryReflections.values())
+        .flat()
+        .filter(entry => entry.recoverySuccessful)
+        .slice(0, 10); // Limit to 10 most recent successful recoveries
+      
+      if (pendingActions.length === 0) {
+        return false;
+      }
+      
+      // For now, just log that adaptation would happen
+      console.log(`[${this.managerId}] Adapting behavior based on ${pendingActions.length} error recovery reflections`);
+      
+      return true;
+    } catch (error) {
+      console.error('Error adapting behavior:', error);
+      return false;
+    }
   }
   
   /**
