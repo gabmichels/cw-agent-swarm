@@ -106,7 +106,7 @@ export interface BatchResult<T extends BaseMemoryEntity> {
   
   /** Results for each item */
   results: Array<{
-    id: StructuredId;
+    id: string;
     success: boolean;
     result?: T;
     error?: {

@@ -185,7 +185,7 @@ export interface BaseMemoryEntity {
   /**
    * Entity ID
    */
-  id: StructuredId;
+  id: string;
   
   /**
    * Entity content

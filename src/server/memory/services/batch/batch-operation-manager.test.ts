@@ -43,7 +43,7 @@ const testConfig: BatchConfig = {
 // Test data generator
 function generateTestEntities(count: number): BaseMemoryEntity[] {
   return Array.from({ length: count }, (_, i) => ({
-    id: IdGenerator.parse(`memory_${i.toString().padStart(24, '0')}`)!,
+    id: IdGenerator.parse(`memory_${i.toString().padStart(24, '0')}`)!.toString(),
     createdAt: new Date(),
     updatedAt: new Date(),
     schemaVersion: '1.0.0',
@@ -65,24 +65,30 @@ describe('BatchOperationManager', () => {
     
     // Setup default mock implementations
     mockCreate.mockImplementation(async (entity, options) => {
-      const result: BaseMemoryEntity = {
+      const result = {
         ...entity,
-        id: IdGenerator.generate('memory'),
+        id: IdGenerator.generate('memory').toString(),
         createdAt: new Date(),
         updatedAt: new Date(),
-        schemaVersion: '1.0.0'
-      };
+        schemaVersion: '1.0.0',
+        type: entity.type || 'test',
+        content: entity.content || '',
+        metadata: entity.metadata || {}
+      } satisfies BaseMemoryEntity;
       return successResult(result);
     });
     
     mockUpdate.mockImplementation(async (id, updates, options) => {
-      const result: BaseMemoryEntity = {
+      const result = {
         ...updates,
-        id: typeof id === 'string' ? IdGenerator.parse(id)! : id,
+        id: typeof id === 'string' ? id : id.toString(),
         createdAt: new Date(),
         updatedAt: new Date(),
-        schemaVersion: '1.0.0'
-      } as BaseMemoryEntity;
+        schemaVersion: '1.0.0',
+        type: updates.type || 'test',
+        content: updates.content || '',
+        metadata: updates.metadata || {}
+      } satisfies BaseMemoryEntity;
       return successResult(result);
     });
     
@@ -217,35 +223,44 @@ describe('BatchOperationManager', () => {
       // Make some operations fail by throwing errors
       mockCreate
         .mockImplementationOnce(async (entity) => {
-          const result: BaseMemoryEntity = {
+          const result = {
             ...entity,
-            id: IdGenerator.generate('memory'),
+            id: IdGenerator.generate('memory').toString(),
             createdAt: new Date(),
             updatedAt: new Date(),
-            schemaVersion: '1.0.0'
-          };
+            schemaVersion: '1.0.0',
+            type: entity.type || 'test',
+            content: entity.content || '',
+            metadata: entity.metadata || {}
+          } satisfies BaseMemoryEntity;
           return successResult(result);
         })
         .mockImplementationOnce(async () => { throw new Error('Test error 1'); })
         .mockImplementationOnce(async (entity) => {
-          const result: BaseMemoryEntity = {
+          const result = {
             ...entity,
-            id: IdGenerator.generate('memory'),
+            id: IdGenerator.generate('memory').toString(),
             createdAt: new Date(),
             updatedAt: new Date(),
-            schemaVersion: '1.0.0'
-          };
+            schemaVersion: '1.0.0',
+            type: entity.type || 'test',
+            content: entity.content || '',
+            metadata: entity.metadata || {}
+          } satisfies BaseMemoryEntity;
           return successResult(result);
         })
         .mockImplementationOnce(async () => { throw new Error('Test error 2'); })
         .mockImplementationOnce(async (entity) => {
-          const result: BaseMemoryEntity = {
+          const result = {
             ...entity,
-            id: IdGenerator.generate('memory'),
+            id: IdGenerator.generate('memory').toString(),
             createdAt: new Date(),
             updatedAt: new Date(),
-            schemaVersion: '1.0.0'
-          };
+            schemaVersion: '1.0.0',
+            type: entity.type || 'test',
+            content: entity.content || '',
+            metadata: entity.metadata || {}
+          } satisfies BaseMemoryEntity;
           return successResult(result);
         });
       
@@ -282,7 +297,7 @@ describe('BatchOperationManager', () => {
         await new Promise(resolve => setTimeout(resolve, 50));
         const result: BaseMemoryEntity = {
           ...entity,
-          id: IdGenerator.generate('memory'),
+          id: IdGenerator.generate('memory').toString(),
           createdAt: new Date(),
           updatedAt: new Date(),
           schemaVersion: '1.0.0'
@@ -332,7 +347,7 @@ describe('BatchOperationManager', () => {
         await new Promise(resolve => setTimeout(resolve, 50));
         const result: BaseMemoryEntity = {
           ...entity,
-          id: IdGenerator.generate('memory'),
+          id: IdGenerator.generate('memory').toString(),
           createdAt: new Date(),
           updatedAt: new Date(),
           schemaVersion: '1.0.0'

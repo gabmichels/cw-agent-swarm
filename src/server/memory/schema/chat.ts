@@ -101,7 +101,7 @@ export interface ChatMemoryEntity extends BaseMemoryEntity {
   
   // Context and purpose
   purpose: string;
-  contextIds: StructuredId[]; // Related contexts or resources
+  contextIds: string[]; // Related contexts or resources
   
   // Metadata for vector search and filtering
   metadata: ChatMetadata;
@@ -207,14 +207,7 @@ export const chatSchemaJSON: JSONSchema7 = {
     contextIds: {
       type: "array",
       items: {
-        type: "object",
-        required: ["namespace", "type", "id"],
-        properties: {
-          namespace: { type: "string" },
-          type: { type: "string" },
-          id: { type: "string" },
-          version: { type: "number" }
-        }
+        type: "string"
       }
     },
     metadata: {

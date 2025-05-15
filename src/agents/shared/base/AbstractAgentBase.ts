@@ -82,7 +82,7 @@ export abstract class AbstractAgentBase implements AgentBase {
    * Get the unique ID of this agent
    */
   getAgentId(): string {
-    return this.config.id.id;
+    return this.config.id;
   }
   
   /**

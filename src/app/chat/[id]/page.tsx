@@ -88,14 +88,14 @@ const ChatPage: React.FC = () => {
           // 2. If not found, fetch agent profile for chat creation fields
           let agentProfile: any = null;
           try {
-            const agentRes = await fetch(`/api/multi-agent/agents?id=${agentId}`);
+            const agentRes = await fetch(`/api/multi-agent/agents/${agentId}`);
             const agentJson = await agentRes.json();
-            if (!agentRes.ok || !agentJson.agents || agentJson.agents.length === 0) {
+            if (!agentRes.ok || !agentJson.success || !agentJson.agent) {
               setError('Agent not found. Please select a valid agent.');
               setIsLoading(false);
               return;
             }
-            agentProfile = agentJson.agents[0];
+            agentProfile = agentJson.agent;
           } catch {
             setError('Agent not found. Please select a valid agent.');
             setIsLoading(false);
@@ -149,10 +149,10 @@ const ChatPage: React.FC = () => {
             // Always try to use the agent's name for the welcome message
             let agentName = '';
             try {
-              const agentRes = await fetch(`/api/multi-agent/agents?id=${agentId}`);
+              const agentRes = await fetch(`/api/multi-agent/agents/${agentId}`);
               const agentJson = await agentRes.json();
-              if (agentRes.ok && agentJson.agents && agentJson.agents.length > 0) {
-                agentName = agentJson.agents[0].name;
+              if (agentRes.ok && agentJson.success && agentJson.agent) {
+                agentName = agentJson.agent.name;
               }
             } catch {}
             if (!agentName) {

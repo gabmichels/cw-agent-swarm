@@ -14,7 +14,7 @@ import { StructuredId } from '../../../../../utils/ulid';
  * Chat memory entity interface
  */
 export interface ChatMemoryEntity {
-  id: StructuredId;
+  id: string;
   content: string;
   type: 'chat';
   createdAt: Date;
@@ -55,7 +55,7 @@ export class ChatMemoryRepository extends BaseMemoryRepository<ChatMemoryEntity>
     const metadata = payload.metadata as Record<string, unknown> || {};
     
     return {
-      id: payload.id as StructuredId,
+      id: (payload.id as StructuredId).toString(),
       content: payload.content as string,
       type: 'chat',
       createdAt: new Date(payload.createdAt as string),

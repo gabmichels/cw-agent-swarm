@@ -11,28 +11,13 @@ import { BaseMemoryEntity, Schema, ValidationResult } from '../../schema/types';
 import { AppError } from '../../../../lib/errors/base';
 import { StructuredId } from '../../../../utils/ulid';
 import { SchemaError, ValidationError } from '../../schema/errors';
+import { IdGenerator } from '../../../../utils/ulid';
 
 /**
  * Create a structured ID
  */
-function createStructuredId(): StructuredId {
-  // For this example, we'll create a simple ID
-  // In a real implementation, this would use the ULID library
-  const id = `id_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`;
-  const prefix = 'mem';
-  const timestamp = new Date();
-  
-  // Create a basic structured ID
-  // Note: This is a simplified version for the example
-  return {
-    id,
-    prefix,
-    timestamp,
-    toString: () => `${prefix}_${id}`,
-    // Add missing methods required by StructuredId interface
-    toULID: () => id,
-    getTimestamp: () => timestamp
-  } as StructuredId;
+function createStructuredId(): string {
+  return IdGenerator.generate('memory').toString();
 }
 
 /**
@@ -102,12 +87,9 @@ export abstract class BaseMemoryRepository<T extends BaseMemoryEntity> implement
   /**
    * Get entity by ID
    */
-  async getById(id: StructuredId | string): Promise<T | null> {
-    // Normalize ID to string
-    const idString = typeof id === 'string' ? id : id.toString();
-    
+  async getById(id: string): Promise<T | null> {
     // Get from database
-    const records = await this.databaseClient.getPoints(this.collectionName, [idString]);
+    const records = await this.databaseClient.getPoints(this.collectionName, [id]);
     
     // Return null if not found
     if (records.length === 0) {
@@ -122,15 +104,12 @@ export abstract class BaseMemoryRepository<T extends BaseMemoryEntity> implement
    * Update entity by ID
    */
   async update(
-    id: StructuredId | string,
+    id: string,
     updates: Partial<Omit<T, 'id' | 'createdAt' | 'updatedAt' | 'schemaVersion'>>,
     options: UpdateOptions = {}
   ): Promise<T | null> {
-    // Normalize ID to string
-    const idString = typeof id === 'string' ? id : id.toString();
-    
     // Get existing entity
-    const existingEntity = await this.getById(idString);
+    const existingEntity = await this.getById(id);
     if (!existingEntity) {
       return null;
     }
@@ -173,7 +152,7 @@ export abstract class BaseMemoryRepository<T extends BaseMemoryEntity> implement
     // Update in database
     const success = await this.databaseClient.updatePoint(
       this.collectionName,
-      idString,
+      id,
       dbUpdates
     );
     
@@ -188,16 +167,13 @@ export abstract class BaseMemoryRepository<T extends BaseMemoryEntity> implement
    * Delete entity by ID
    */
   async delete(
-    id: StructuredId | string,
+    id: string,
     options: DeleteOptions = {}
   ): Promise<boolean> {
-    // Normalize ID to string
-    const idString = typeof id === 'string' ? id : id.toString();
-    
     // Delete from database
     return this.databaseClient.deletePoint(
       this.collectionName,
-      idString,
+      id,
       options
     );
   }
@@ -256,7 +232,7 @@ export abstract class BaseMemoryRepository<T extends BaseMemoryEntity> implement
   /**
    * Check if entity exists
    */
-  async exists(id: StructuredId | string): Promise<boolean> {
+  async exists(id: string): Promise<boolean> {
     const entity = await this.getById(id);
     return entity !== null;
   }
@@ -269,11 +245,10 @@ export abstract class BaseMemoryRepository<T extends BaseMemoryEntity> implement
 
   /**
    * Map entity to database record
-   * Can be overridden by subclasses
    */
   protected mapToRecord(entity: T, vector: number[]): DatabaseRecord {
     return {
-      id: typeof entity.id === 'string' ? entity.id : entity.id.toString(),
+      id: entity.id,
       vector,
       payload: this.extractPayload(entity)
     };
@@ -281,15 +256,16 @@ export abstract class BaseMemoryRepository<T extends BaseMemoryEntity> implement
 
   /**
    * Extract payload from entity
-   * Can be overridden by subclasses
    */
   protected extractPayload(entity: T): Record<string, unknown> {
-    // Create a plain object copy without the vector
-    const { id, ...rest } = entity;
-    
     return {
-      ...rest,
-      id: typeof id === 'string' ? id : id.toString()
+      id: entity.id,
+      content: entity.content,
+      type: entity.type,
+      createdAt: entity.createdAt.toISOString(),
+      updatedAt: entity.updatedAt.toISOString(),
+      schemaVersion: entity.schemaVersion,
+      metadata: entity.metadata
     };
   }
 

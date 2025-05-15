@@ -65,9 +65,9 @@ class SpecializedAgent implements AgentBase {
     domains: string[] = [],
     roles: string[] = []
   ) {
-    const structuredId = createAgentId();
+    const agentId = createAgentId().toString();
     this._config = {
-      id: structuredId,
+      id: agentId,
       name: `${id.charAt(0).toUpperCase()}${id.slice(1)}`,
       description: `Specialized agent for ${roles.join(', ')}`,
       capabilities: [
@@ -129,7 +129,7 @@ class SpecializedAgent implements AgentBase {
   }
 
   getAgentId(): string {
-    return this._config.id.id;
+    return this._config.id;
   }
 
   getType(): string {

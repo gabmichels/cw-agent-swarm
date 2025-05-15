@@ -431,7 +431,7 @@ export async function GET(request: Request) {
       console.log(`Retrieved ${agentData.length} agents from agent service`);
       
       if (agentData.length > 0) {
-        console.log('Agent IDs retrieved:', agentData.map((agent: AgentMemoryEntity) => typeof agent.id === 'object' ? agent.id.id : agent.id).join(', '));
+        console.log('Agent IDs retrieved:', agentData.map((agent: AgentMemoryEntity) => agent.id).join(', '));
         console.log('First agent details:', JSON.stringify(agentData[0], null, 2));
       } else {
         console.log('No agents found in the database. Check collection existence and search logic.');
@@ -439,7 +439,7 @@ export async function GET(request: Request) {
       
       // Convert to simplified agent profile format
       const agents = agentData.map((agent: AgentMemoryEntity) => ({
-        id: typeof agent.id === 'object' ? agent.id.id : agent.id,
+        id: agent.id,
         name: agent.name,
         description: agent.description,
         status: agent.status,

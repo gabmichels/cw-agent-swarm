@@ -90,9 +90,9 @@ export interface AgentMemoryEntity extends BaseMemoryEntity {
   status: AgentStatus;
   lastActive: Date;
   
-  // Relationships
-  chatIds: StructuredId[];
-  teamIds: StructuredId[];
+  // Relationships - using string IDs instead of StructuredId
+  chatIds: string[];
+  teamIds: string[];
   
   // Metadata for vector search and filtering
   metadata: AgentMetadata;
@@ -201,27 +201,13 @@ export const agentSchemaJSON: JSONSchema7 = {
     chatIds: {
       type: "array",
       items: {
-        type: "object",
-        required: ["namespace", "type", "id"],
-        properties: {
-          namespace: { type: "string" },
-          type: { type: "string" },
-          id: { type: "string" },
-          version: { type: "number" }
-        }
+        type: "string"
       }
     },
     teamIds: {
       type: "array",
       items: {
-        type: "object",
-        required: ["namespace", "type", "id"],
-        properties: {
-          namespace: { type: "string" },
-          type: { type: "string" },
-          id: { type: "string" },
-          version: { type: "number" }
-        }
+        type: "string"
       }
     },
     metadata: {

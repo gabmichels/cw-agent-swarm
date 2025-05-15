@@ -81,14 +81,7 @@ describe('AgentFactory', () => {
     mockCreate.mockImplementation(async (data) => {
       return {
         ...data,
-        id: {
-          id: 'test-agent-id',
-          prefix: 'agent',
-          timestamp: new Date(),
-          toString: () => 'agent_test-agent-id',
-          toULID: () => 'test-agent-id',
-          getTimestamp: () => new Date()
-        },
+        id: 'agent_test-agent-id',
         createdAt: new Date(),
         updatedAt: new Date(),
         schemaVersion: 'v1.0'
@@ -102,14 +95,7 @@ describe('AgentFactory', () => {
       }
       
       return {
-        id: {
-          id: typeof id === 'string' ? id : id.id,
-          prefix: 'agent',
-          timestamp: new Date(),
-          toString: () => `agent_${typeof id === 'string' ? id : id.id}`,
-          toULID: () => typeof id === 'string' ? id : id.id,
-          getTimestamp: () => new Date()
-        },
+        id: typeof id === 'string' ? id : id.toString(),
         name: 'Test Agent',
         description: 'Test agent description',
         capabilities: [

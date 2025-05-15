@@ -81,16 +81,10 @@ describe('ConversationManager', () => {
     
     // Mock the repository create method
     mockCreate.mockImplementation(async (data) => {
+      const id = IdGenerator.generate('chat').toString();
       return {
         ...data,
-        id: {
-          id: 'test-chat-id',
-          prefix: 'chat',
-          timestamp: new Date(),
-          toString: () => 'chat_test-chat-id',
-          toULID: () => 'test-chat-id',
-          getTimestamp: () => new Date()
-        },
+        id,
         createdAt: new Date(),
         updatedAt: new Date(),
         schemaVersion: 'v1.0'
@@ -104,15 +98,9 @@ describe('ConversationManager', () => {
       }
       
       const now = new Date();
+      const chatId = typeof id === 'string' ? id : id.toString();
       return {
-        id: {
-          id: typeof id === 'string' ? id : id.id,
-          prefix: 'chat',
-          timestamp: now,
-          toString: () => `chat_${typeof id === 'string' ? id : id.id}`,
-          toULID: () => typeof id === 'string' ? id : id.id,
-          getTimestamp: () => now
-        },
+        id: chatId,
         name: 'Test Chat',
         description: 'Test chat description',
         purpose: 'Testing',

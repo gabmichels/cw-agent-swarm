@@ -72,9 +72,9 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
    */
   constructor(config: ExtendedAgentConfig) {
     // Create AgentMemoryEntity from ExtendedAgentConfig
-    const structuredId = createAgentId();
+    const agentId = createAgentId().toString();
     const agentConfig: AgentMemoryEntity = {
-      id: structuredId,
+      id: agentId,
       name: 'Default Agent',
       description: 'A general-purpose agent that can be used for various tasks',
       createdBy: 'system',
@@ -113,7 +113,7 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
     
     // Store extended config for use in initialization
     this.extendedConfig = config;
-    this.agentId = structuredId.id;
+    this.agentId = agentId;
   }
 
   /**

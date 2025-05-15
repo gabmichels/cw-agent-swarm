@@ -155,17 +155,18 @@ export class AgentFactory {
     }));
     
     // Create structured ID if needed
-    let structuredId: StructuredId;
+    let agentId: string;
     try {
-      structuredId = IdGenerator.parse(profile.id) || IdGenerator.generate('agent');
+      const structuredId = IdGenerator.parse(profile.id);
+      agentId = structuredId ? structuredId.toString() : IdGenerator.generate('agent').toString();
     } catch (error) {
       // If parsing fails, generate a new ID
-      structuredId = IdGenerator.generate('agent');
+      agentId = IdGenerator.generate('agent').toString();
     }
     
     // Create agent data conforming to the DB entity format
     const agentData: Partial<AgentMemoryEntity> = {
-      id: structuredId,
+      id: agentId,
       name: profile.name,
       description: profile.description,
       createdBy: 'user',
