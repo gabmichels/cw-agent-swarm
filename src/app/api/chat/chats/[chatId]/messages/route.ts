@@ -63,6 +63,17 @@ export async function GET(
       // Properly type the metadata
       const metadata = (payload.metadata || {}) as MessageMetadata;
       
+      // Log the raw data from Qdrant
+      console.log('-------------------------');
+      console.log('RAW QDRANT MESSAGE DATA:');
+      console.log('Point ID:', point.id);
+      console.log('Raw payload:', JSON.stringify(payload, null, 2));
+      console.log('Raw timestamp:', payload.timestamp);
+      console.log('Timestamp type:', typeof payload.timestamp);
+      console.log('Timestamp value (if number):', typeof payload.timestamp === 'number' ? new Date(payload.timestamp).toISOString() : 'N/A');
+      console.log('Timestamp value (if string):', typeof payload.timestamp === 'string' ? new Date(payload.timestamp).toISOString() : 'N/A');
+      console.log('-------------------------');
+      
       return {
         id: point.id,
         content: payload.text,
@@ -70,6 +81,18 @@ export async function GET(
         timestamp: payload.timestamp,
         metadata: metadata
       };
+    });
+    
+    // Log the final messages being returned
+    console.log('FINAL MESSAGES BEING RETURNED TO CLIENT:');
+    messages.forEach((msg, idx) => {
+      console.log(`Message ${idx + 1}:`, {
+        id: msg.id,
+        sender: msg.sender,
+        timestamp: msg.timestamp,
+        timestampISO: new Date(msg.timestamp).toISOString(),
+        localTime: new Date(msg.timestamp).toLocaleTimeString()
+      });
     });
     
     return NextResponse.json({

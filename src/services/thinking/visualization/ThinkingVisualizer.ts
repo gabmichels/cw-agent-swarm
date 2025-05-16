@@ -22,8 +22,7 @@ export enum VisualizationNodeType {
  */
 export enum VisualizationEdgeType {
   FLOW = 'flow',
-  DELEGATION = 'delegation',
-  TOOL_USE = 'tool_use',
+  DEPENDENCY = 'dependency',
   ERROR = 'error'
 }
 
@@ -133,14 +132,14 @@ export class ThinkingVisualizer {
    * Adds a node to the visualization
    * 
    * @param requestId The request ID
-   * @param nodeType The node type
+   * @param type The node type
    * @param label The node label
-   * @param data Node data
+   * @param data Additional data for the node
    * @returns The node ID
    */
   addNode(
     requestId: string,
-    nodeType: VisualizationNodeType,
+    type: VisualizationNodeType,
     label: string,
     data: Record<string, any> = {}
   ): string {
@@ -152,7 +151,7 @@ export class ThinkingVisualizer {
     const nodeId = IdGenerator.generateString('node');
     const node: VisualizationNode = {
       id: nodeId,
-      type: nodeType,
+      type,
       label,
       data,
       metrics: {
@@ -163,97 +162,19 @@ export class ThinkingVisualizer {
 
     visualization.nodes.push(node);
 
-    // Add edge from the last node if it exists
+    // If this isn't the first node, add an edge from the previous node
     if (visualization.nodes.length > 1) {
-      const lastNode = visualization.nodes[visualization.nodes.length - 2];
-      
-      // Don't create an edge from an error node
-      if (lastNode.type !== VisualizationNodeType.ERROR) {
-        const edgeType = this.determineEdgeType(lastNode.type, nodeType);
-        
-        const edge: VisualizationEdge = {
-          id: IdGenerator.generateString('edge'),
-          type: edgeType,
-          source: lastNode.id,
-          target: nodeId,
-          label: this.getEdgeLabel(edgeType)
-        };
-        
-        visualization.edges.push(edge);
-      }
+      const previousNode = visualization.nodes[visualization.nodes.length - 2];
+      const edge: VisualizationEdge = {
+        id: IdGenerator.generateString('edge'),
+        type: VisualizationEdgeType.FLOW,
+        source: previousNode.id,
+        target: nodeId
+      };
+      visualization.edges.push(edge);
     }
 
     return nodeId;
-  }
-
-  /**
-   * Completes a node in the visualization
-   * 
-   * @param requestId The request ID
-   * @param nodeId The node ID
-   * @param data Additional data to add to the node
-   * @param error Error information if the node failed
-   */
-  completeNode(
-    requestId: string,
-    nodeId: string,
-    data: Record<string, any> = {},
-    error?: Error
-  ): void {
-    const visualization = this.activeVisualizations.get(requestId);
-    if (!visualization) {
-      throw new Error(`No active visualization found for request ${requestId}`);
-    }
-
-    const node = visualization.nodes.find(n => n.id === nodeId);
-    if (!node) {
-      throw new Error(`Node ${nodeId} not found in visualization for request ${requestId}`);
-    }
-
-    node.metrics = {
-      ...node.metrics,
-      endTime: Date.now(),
-      duration: Date.now() - (node.metrics?.startTime || Date.now())
-    };
-
-    node.data = {
-      ...node.data,
-      ...data
-    };
-
-    if (error) {
-      node.status = 'error';
-      node.data.error = {
-        message: error.message,
-        stack: error.stack
-      };
-
-      // Add an error node
-      const errorNodeId = this.addNode(
-        requestId,
-        VisualizationNodeType.ERROR,
-        'Error Occurred',
-        {
-          error: {
-            message: error.message,
-            stack: error.stack
-          }
-        }
-      );
-
-      // Complete the error node
-      const errorNode = visualization.nodes.find(n => n.id === errorNodeId);
-      if (errorNode) {
-        errorNode.status = 'completed';
-        errorNode.metrics = {
-          ...errorNode.metrics,
-          endTime: Date.now(),
-          duration: 0
-        };
-      }
-    } else {
-      node.status = 'completed';
-    }
   }
 
   /**
@@ -286,7 +207,7 @@ export class ThinkingVisualizer {
       endNode.metrics = {
         ...endNode.metrics,
         endTime: Date.now(),
-        duration: 0
+        duration: endNode.metrics?.startTime ? Date.now() - endNode.metrics.startTime : 0
       };
     }
 
@@ -348,36 +269,44 @@ export class ThinkingVisualizer {
         }
       };
 
+      // Create edge between nodes
+      const startNode = viz.nodes[0];
+      const errorNode = viz.nodes[1];
+      viz.edges = [
+        {
+          id: IdGenerator.generateString('edge'),
+          type: VisualizationEdgeType.ERROR,
+          source: startNode.id,
+          target: errorNode.id
+        }
+      ];
+
       this.visualizations.set(requestId, viz);
       return;
     }
 
-    // Add error node if not already the last node
-    const lastNode = visualization.nodes[visualization.nodes.length - 1];
-    if (lastNode.type !== VisualizationNodeType.ERROR) {
-      // Add error node
-      const errorNodeId = this.addNode(
-        requestId,
-        VisualizationNodeType.ERROR,
-        'Error Occurred',
-        {
-          error: {
-            message: error.message,
-            stack: error.stack
-          }
+    // Add error node
+    const errorNodeId = this.addNode(
+      requestId,
+      VisualizationNodeType.ERROR,
+      'Error Occurred',
+      {
+        error: {
+          message: error.message,
+          stack: error.stack
         }
-      );
-
-      // Complete the error node
-      const errorNode = visualization.nodes.find(n => n.id === errorNodeId);
-      if (errorNode) {
-        errorNode.status = 'completed';
-        errorNode.metrics = {
-          ...errorNode.metrics,
-          endTime: Date.now(),
-          duration: 0
-        };
       }
+    );
+
+    // Update the error node status
+    const errorNode = visualization.nodes.find(n => n.id === errorNodeId);
+    if (errorNode) {
+      errorNode.status = 'error';
+      errorNode.metrics = {
+        ...errorNode.metrics,
+        endTime: Date.now(),
+        duration: errorNode.metrics?.startTime ? Date.now() - errorNode.metrics.startTime : 0
+      };
     }
 
     // Update visualization metrics
@@ -413,60 +342,5 @@ export class ThinkingVisualizer {
    */
   getAllVisualizations(): ThinkingVisualization[] {
     return Array.from(this.visualizations.values());
-  }
-
-  /**
-   * Clears all visualizations
-   */
-  clearVisualizations(): void {
-    this.visualizations.clear();
-    this.activeVisualizations.clear();
-  }
-
-  /**
-   * Determines the edge type based on source and target node types
-   * 
-   * @param sourceType Source node type
-   * @param targetType Target node type
-   * @returns The edge type
-   */
-  private determineEdgeType(
-    sourceType: VisualizationNodeType,
-    targetType: VisualizationNodeType
-  ): VisualizationEdgeType {
-    if (targetType === VisualizationNodeType.ERROR) {
-      return VisualizationEdgeType.ERROR;
-    }
-
-    if (targetType === VisualizationNodeType.TOOL_EXECUTION) {
-      return VisualizationEdgeType.TOOL_USE;
-    }
-
-    if (targetType === VisualizationNodeType.DELEGATION_DECISION || 
-        sourceType === VisualizationNodeType.DELEGATION_DECISION) {
-      return VisualizationEdgeType.DELEGATION;
-    }
-
-    return VisualizationEdgeType.FLOW;
-  }
-
-  /**
-   * Gets a label for an edge based on its type
-   * 
-   * @param edgeType The edge type
-   * @returns The edge label
-   */
-  private getEdgeLabel(edgeType: VisualizationEdgeType): string {
-    switch (edgeType) {
-      case VisualizationEdgeType.DELEGATION:
-        return 'Delegation';
-      case VisualizationEdgeType.TOOL_USE:
-        return 'Tool Use';
-      case VisualizationEdgeType.ERROR:
-        return 'Error';
-      case VisualizationEdgeType.FLOW:
-      default:
-        return 'Flow';
-    }
   }
 } 

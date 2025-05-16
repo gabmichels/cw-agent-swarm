@@ -137,7 +137,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
           },
           body: JSON.stringify({
             content,
-            timestamp: message.timestamp?.toISOString() || new Date().toISOString()
+            timestamp: message.timestamp
           }),
         });
         
@@ -167,7 +167,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
         body: JSON.stringify({
           content,
           messageId: message.id,
-          timestamp: message.timestamp?.toISOString() || new Date().toISOString()
+          timestamp: message.timestamp
         }),
       });
       
@@ -196,7 +196,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
         body: JSON.stringify({
           messageId: message.id,
           avoidContent: content,
-          timestamp: message.timestamp?.toISOString() || new Date().toISOString()
+          timestamp: message.timestamp
         }),
       });
       
@@ -258,7 +258,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
           metadata: {
             source: 'chat',
             sourceId: message.id || undefined,
-            sourceTimestamp: message.timestamp?.toISOString() || new Date().toISOString(),
+            sourceTimestamp: message.timestamp,
             tags: tags,
             importance: 'medium',
             category,
@@ -339,12 +339,58 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
     senderName = 'Unknown';
   }
     
-  // Handle timestamp display
-  const formattedTime = message.timestamp instanceof Date 
-    ? message.timestamp.toLocaleTimeString() 
-    : typeof message.timestamp === 'string'
-    ? new Date(message.timestamp).toLocaleTimeString()
-    : 'Unknown time';
+  // Handle timestamp display - improved validation with debug logging
+  const formattedTime = (() => {
+    // Debug log the raw timestamp
+    console.log(`ChatBubble raw timestamp for message ${message.id}:`, {
+      value: message.timestamp,
+      type: typeof message.timestamp
+    });
+    
+    try {
+      // First validate what type of timestamp we have and create a valid date
+      let date: Date | null = null;
+      
+      if (message.timestamp instanceof Date) {
+        date = message.timestamp;
+        console.log(`Date instance: ${date.toISOString()}`);
+      }
+      else if (typeof message.timestamp === 'number') {
+        date = new Date(message.timestamp);
+        console.log(`Numeric timestamp ${message.timestamp} -> ${date.toISOString()}`);
+      }
+      else if (typeof message.timestamp === 'string') {
+        // Handle numeric strings first (most common from database)
+        if (/^\d+$/.test(message.timestamp)) {
+          const parsedTimestamp = parseInt(message.timestamp, 10);
+          date = new Date(parsedTimestamp);
+          console.log(`String-numeric timestamp ${message.timestamp} -> ${parsedTimestamp} -> ${date.toISOString()}`);
+        } else {
+          // Try standard date parsing
+          date = new Date(message.timestamp);
+          console.log(`String date timestamp ${message.timestamp} -> ${date.toISOString()}`);
+        }
+      }
+      
+      // Validate the date before using it
+      if (!date || isNaN(date.getTime())) {
+        console.error('Invalid date from timestamp:', message.timestamp);
+        return 'Unknown time';
+      }
+      
+      // Format a valid date
+      const formatted = date.toLocaleTimeString(undefined, {
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true
+      });
+      console.log(`Final formatted time: ${formatted}`);
+      return formatted;
+    } catch (err) {
+      console.error('Error formatting time:', err, 'for timestamp:', message.timestamp);
+      return 'Unknown time';
+    }
+  })();
 
   // Check if this is an assistant message (not a user message)
   const isAssistantMessage = senderName !== 'You';
@@ -378,10 +424,31 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
     ? 'bg-blue-600 text-white' 
     : 'bg-gray-800 text-white';
 
-  // Get timestamp from message
-  const timestamp = message.timestamp instanceof Date 
-    ? message.timestamp 
-    : new Date(message.timestamp || Date.now());
+  // Get timestamp from message with proper validation
+  const timestamp = (() => {
+    try {
+      if (message.timestamp instanceof Date) {
+        return message.timestamp;
+      }
+      
+      if (typeof message.timestamp === 'number') {
+        return new Date(message.timestamp);
+      }
+      
+      if (typeof message.timestamp === 'string') {
+        const date = new Date(message.timestamp);
+        if (!isNaN(date.getTime())) {
+          return date;
+        }
+      }
+      
+      // Default fallback
+      return new Date();
+    } catch (err) {
+      console.warn('Error processing timestamp:', err);
+      return new Date();
+    }
+  })();
 
   const mainContent = highlightedContent || messageVersions[currentVersionIndex];
   

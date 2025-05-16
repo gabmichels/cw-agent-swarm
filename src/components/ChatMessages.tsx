@@ -56,32 +56,43 @@ const ChatMessages: React.FC<ChatMessagesProps> = ({
         : msg.sender
     }));
     
+    // Create a temporary type that includes our sorting property
+    type MessageWithSortTime = Message & { _sortTime?: number };
+    
     // Ensure all messages have valid timestamps
-    sortedMessages = sortedMessages.map((message, index) => {
-      let timestamp = message.timestamp;
-      
-      // Convert string timestamps to Date objects
-      if (typeof timestamp === 'string') {
-        timestamp = new Date(timestamp);
-      }
-      
-      // Handle invalid dates by using current time
-      if (!timestamp || !(timestamp instanceof Date) || isNaN(timestamp.getTime())) {
-        console.warn(`Message at index ${index} has invalid timestamp:`, message.timestamp);
-        timestamp = new Date();
-      }
-      
+    sortedMessages = sortedMessages.map((message) => {
+      // Instead of converting, just use the original timestamp for sorting purposes
       return {
         ...message,
-        timestamp
-      };
+        // Just add a _sortTime property for sorting, but keep the original timestamp intact
+        _sortTime: (() => {
+          try {
+            if (typeof message.timestamp === 'number') {
+              return message.timestamp;
+            }
+            if (typeof message.timestamp === 'string' && /^\d+$/.test(message.timestamp)) {
+              return parseInt(message.timestamp, 10);
+            }
+            if (typeof message.timestamp === 'string') {
+              const parsed = Date.parse(message.timestamp);
+              if (!isNaN(parsed)) return parsed;
+            }
+            if (message.timestamp instanceof Date) {
+              return message.timestamp.getTime();
+            }
+            return 0;
+          } catch (err) {
+            return 0;
+          }
+        })()
+      } as MessageWithSortTime;
     });
     
     // Sort messages by timestamp (oldest first)
     sortedMessages.sort((a, b) => {
-      // Get timestamp values safely
-      const timeA = a.timestamp instanceof Date ? a.timestamp.getTime() : 0;
-      const timeB = b.timestamp instanceof Date ? b.timestamp.getTime() : 0;
+      // Get timestamp values safely using the _sortTime property
+      const timeA = (a as MessageWithSortTime)._sortTime || 0;
+      const timeB = (b as MessageWithSortTime)._sortTime || 0;
       
       // Primary sort by timestamp
       if (timeA !== timeB) {
@@ -254,11 +265,11 @@ const ChatMessages: React.FC<ChatMessagesProps> = ({
     
       {sortedMessages.map((message, index) => (
         <ChatBubble
-          key={message.id || `msg_${index}_${Date.now()}`}
+          key={message.id || `msg_${index}`}
           message={message}
           onImageClick={onImageClick}
           onDeleteMessage={handleDeleteMessage}
-          data-message-id={message.id || `msg_${index}_${Date.now()}`}
+          data-message-id={message.id || `msg_${index}`}
         />
       ))}
       

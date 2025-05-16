@@ -8,6 +8,8 @@ import { MessageType } from '../constants/message';
 import useChatMemory from '../hooks/useChatMemory';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { ServerEvent } from '../server/websocket/types';
+import TabsNavigation from './TabsNavigation';
+import VisualizationsContainer from './VisualizationsContainer';
 
 // Extend the Message type to add the missing properties
 interface ExtendedMessage extends Message {
@@ -45,6 +47,7 @@ export default function MultiAgentChatInterface({
   const [availableAgents, setAvailableAgents] = useState<Agent[]>([]);
   const [showAgentSelector, setShowAgentSelector] = useState(false);
   const [showAgentCapabilities, setShowAgentCapabilities] = useState<string | null>(null);
+  const [selectedTab, setSelectedTab] = useState<string>('chat');
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   
@@ -306,6 +309,16 @@ export default function MultiAgentChatInterface({
         </div>
       </div>
       
+      {/* Add Tabs Navigation */}
+      <TabsNavigation 
+        selectedTab={selectedTab}
+        setSelectedTab={setSelectedTab}
+        isFullscreen={false}
+        toggleFullscreen={() => {}}
+        agentId={selectedAgentId || ''}
+        agentName={agents.find(a => a.id === selectedAgentId)?.name || 'Agent'}
+      />
+      
       {/* Agent Selector Dropdown */}
       {showAgentSelector && (
         <div className="absolute right-4 top-24 w-64 bg-gray-800 rounded-lg shadow-lg z-10 border border-gray-700 overflow-hidden">
@@ -389,88 +402,73 @@ export default function MultiAgentChatInterface({
         ))}
       </div>
       
-      {/* Messages Area */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {isLoadingHistory ? (
-          <div className="flex justify-center items-center h-full">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
-          </div>
-        ) : extendedMessages.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-gray-400">
-            <p>No messages yet</p>
-            <p className="text-sm">Start the conversation by sending a message</p>
-          </div>
-        ) : (
-          extendedMessages.map((message) => (
-            <div 
-              key={message.id || `${message.senderId}-${message.timestamp}`}
-              className={`flex flex-col ${
-                message.senderId === userId ? 'items-end' : 'items-start'
-              }`}
-            >
-              <div className="flex items-center mb-1">
-                <span className="text-sm font-semibold mr-2">
-                  {message.senderId === userId 
-                    ? 'You' 
-                    : agents.find(a => a.id === message.senderId)?.name || message.senderId}
-                </span>
-                <span className="text-xs text-gray-400">
-                  {new Date(message.timestamp).toLocaleTimeString()}
-                </span>
-              </div>
-              <div 
-                className={`max-w-3/4 rounded-lg py-2 px-3 ${
-                  message.senderId === userId 
-                    ? 'bg-blue-600 text-white' 
-                    : message.messageType === MessageType.SYSTEM
-                    ? 'bg-gray-700 text-gray-300 italic'
-                    : 'bg-gray-700 text-white'
-                }`}
-              >
-                {message.content}
-              </div>
+      {/* Messages Area or Tab Content */}
+      {selectedTab === 'chat' ? (
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          {isLoadingHistory ? (
+            <div className="flex justify-center items-center h-full">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
             </div>
-          ))
-        )}
-        <div ref={messagesEndRef} />
-      </div>
-      
-      {/* Input Area */}
-      <form onSubmit={handleSendMessage} className="border-t border-gray-700 p-4">
-        <div className="flex items-center">
-          {selectedAgentId && (
-            <div className="mr-2 px-2 py-1 bg-blue-600 text-sm rounded-full flex items-center">
-              <span>To: {agents.find(a => a.id === selectedAgentId)?.name}</span>
-              <button 
-                className="ml-1 text-white opacity-70 hover:opacity-100"
-                onClick={() => setSelectedAgentId(null)}
-              >
-                ×
-              </button>
+          ) : extendedMessages.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full text-gray-400">
+              <p className="text-lg mb-2">No messages yet</p>
+              <p className="text-sm">Start a conversation to see messages here</p>
+            </div>
+          ) : (
+            <div>
+              <ChatMessages 
+                messages={extendedMessages} 
+                onImageClick={(attachment, e) => {
+                  // Handle image click, e.g. show in lightbox
+                  console.log('Image clicked:', attachment);
+                }}
+                showInternalMessages={true}
+              />
+              <div ref={messagesEndRef} />
             </div>
           )}
-          <div className="relative flex-1">
-            <input
-              type="text"
-              className="w-full px-4 py-2 bg-gray-800 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder={selectedAgentId 
-                ? `Message to ${agents.find(a => a.id === selectedAgentId)?.name}...` 
-                : "Type a message..."
-              }
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              disabled={isLoading}
-            />
-            <button
-              type="submit"
-              className="absolute right-2 top-1/2 transform -translate-y-1/2 bg-blue-600 hover:bg-blue-700 rounded-full p-1.5"
-              disabled={isLoading || !input.trim()}
-            >
-              <Send size={18} />
-            </button>
-          </div>
         </div>
-      </form>
+      ) : selectedTab === 'visualizations' ? (
+        <div className="flex-1 overflow-y-auto bg-gray-100 text-gray-900">
+          <VisualizationsContainer chatId={chatId} />
+        </div>
+      ) : (
+        <div className="flex-1 overflow-y-auto p-4 bg-gray-100 text-gray-800 flex items-center justify-center">
+          <p className="text-lg font-medium">{selectedTab.charAt(0).toUpperCase() + selectedTab.slice(1)} tab content will appear here</p>
+        </div>
+      )}
+      
+      {/* Message Input Area - Only show when chat tab is active */}
+      {selectedTab === 'chat' && (
+        <form 
+          onSubmit={handleSendMessage} 
+          className="p-4 border-t border-gray-700 flex space-x-2"
+        >
+          <input
+            type="text"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder={
+              selectedAgentId 
+                ? `Message ${agents.find(a => a.id === selectedAgentId)?.name}...` 
+                : "Type a message..."
+            }
+            className="flex-1 px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg focus:outline-none focus:border-blue-500"
+            disabled={isLoading}
+          />
+          <button
+            type="submit"
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+            disabled={isLoading || !input.trim()}
+          >
+            {isLoading ? (
+              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+            ) : (
+              <Send size={18} />
+            )}
+          </button>
+        </form>
+      )}
     </div>
   );
 } 

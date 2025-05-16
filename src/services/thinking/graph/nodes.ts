@@ -956,7 +956,7 @@ export async function generateResponseNode(
       };
     }
     
-    // Define system prompt for response generation
+    // Define system prompt for response generation with enhanced persona handling
     let systemPrompt = `You are a helpful AI assistant generating a thoughtful response to the user.
 Based on your understanding of the user's intent, the entities extracted, and the reasoning process,
 create a clear, helpful, and accurate response.
@@ -975,24 +975,29 @@ Your response should be:
 
 DO NOT include any JSON formatting in your response. Just provide the plain text response.`;
 
-    // Add agent persona information if available
+    // Add agent persona information if available - with high priority for systemPrompt
     if (state.agentPersona) {
       const persona = state.agentPersona;
       
-      systemPrompt = `${persona.systemPrompt || systemPrompt}
+      // If there's a custom system prompt, it overrides the default
+      if (persona.systemPrompt && persona.systemPrompt.trim()) {
+        systemPrompt = persona.systemPrompt;
+      } else {
+        // Otherwise build a persona-aware system prompt
+        systemPrompt = `You are ${persona.name}, ${persona.description || 'an AI assistant'}.
 
-You are ${persona.name}, ${persona.description || 'an AI assistant'}.
-
-${persona.traits ? `Your personality traits include: ${persona.traits.join(', ')}` : ''}
-${persona.capabilities ? `Your capabilities include: ${persona.capabilities.join(', ')}` : ''}
+${persona.traits && persona.traits.length > 0 ? `Your personality traits include: ${persona.traits.join(', ')}` : ''}
+${persona.capabilities && persona.capabilities.length > 0 ? `Your capabilities include: ${persona.capabilities.join(', ')}` : ''}
 
 Based on your understanding of the user's intent, the entities extracted, and the reasoning process,
 create a response that reflects your persona and capabilities.
 
 ${state.toolResults && Object.keys(state.toolResults).length > 0 ? 
-  `I have used tools to gather information for you. Use this information to provide a more accurate response.` : ''}
-
-DO NOT include any JSON formatting in your response. Just provide the plain text response.`;
+  `I have used tools to gather information for you. Use this information to provide a more accurate response.` : ''}`;
+      }
+      
+      // Add reminder to not include JSON formatting
+      systemPrompt += "\n\nDO NOT include any JSON formatting in your response. Just provide the plain text response.";
     }
 
     // Prepare context with all the thinking information
@@ -1043,7 +1048,8 @@ Based on this analysis, generate a helpful response to the user's request.
       
       // Use persona for fallback if available
       if (state.agentPersona) {
-        response = `Hi, I'm ${state.agentPersona.name}. ${state.agentPersona.description || 'I am here to assist you.'}`;
+        // Create a more persona-appropriate fallback response
+        response = `I'm ${state.agentPersona.name}${state.agentPersona.description ? `, ${state.agentPersona.description}` : ''}.`;
         
         if (state.intent) {
           response += ` I'll help you with ${state.intent.name}.`;
@@ -1060,11 +1066,11 @@ Based on this analysis, generate a helpful response to the user's request.
   } catch (error) {
     console.error('Error in generateResponseNode:', error);
     
-    // Fallback response that includes persona if available
+    // Improved fallback response that uses persona properly if available
     let fallbackResponse = "I apologize, but I encountered an issue processing your request.";
     
     if (state.agentPersona) {
-      fallbackResponse = `Hi, I'm ${state.agentPersona.name}. ${state.agentPersona.description || 'I am here to assist you.'}`;
+      fallbackResponse = `I'm ${state.agentPersona.name}${state.agentPersona.description ? `, ${state.agentPersona.description}` : ''}.`;
       fallbackResponse += " I'm experiencing some technical difficulties at the moment, but I'm still here to help. Could you try rephrasing your request?";
     }
     

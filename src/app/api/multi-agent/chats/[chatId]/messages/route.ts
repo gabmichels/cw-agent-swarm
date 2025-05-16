@@ -10,6 +10,9 @@ import { getChatService } from '../../../../../../server/memory/services/chat-se
 import { MessageMetadata } from '../../../../../../types/metadata';
 import { ThinkingService } from '@/services/thinking';
 import { toolRegistry } from '@/services/thinking/tools';
+import { ThinkingVisualizer, VisualizationNodeType } from '../../../../../../services/thinking/visualization';
+import { UnifiedAgentResponse } from '@/services/thinking/UnifiedAgentService';
+import { AgentProfile } from '@/lib/multi-agent/types/agent';
 
 // Define interface for message attachments
 interface MessageAttachment {
@@ -57,6 +60,9 @@ let lastUserMessageId: string | null = null;
 
 // Cache the ThinkingService instance
 const thinkingService = new ThinkingService();
+
+// Create a singleton instance of ThinkingVisualizer
+const thinkingVisualizer = new ThinkingVisualizer();
 
 // Initialize the tool registry (make sure executors are registered)
 console.log('Initializing tool registry with default executors...');
@@ -131,20 +137,44 @@ export async function GET(
       // Properly type the metadata
       const metadata = (payload.metadata || {}) as MessageMetadata;
       
+      // Log the raw data from Qdrant
+      console.log('-------------------------');
+      console.log('MULTI-AGENT RAW QDRANT MESSAGE DATA:');
+      console.log('Point ID:', point.id);
+      console.log('Raw payload:', JSON.stringify(payload, null, 2));
+      console.log('Raw timestamp:', payload.timestamp);
+      console.log('Timestamp type:', typeof payload.timestamp);
+      
+      // Fix timestamp parsing for numeric strings
+      let parsedTimestamp: number | null = null;
+      try {
+        if (typeof payload.timestamp === 'number') {
+          parsedTimestamp = payload.timestamp;
+        } else if (typeof payload.timestamp === 'string' && /^\d+$/.test(payload.timestamp)) {
+          parsedTimestamp = parseInt(payload.timestamp, 10);
+        }
+        
+        console.log('Parsed timestamp:', parsedTimestamp);
+        console.log('Timestamp as date:', parsedTimestamp ? new Date(parsedTimestamp).toISOString() : 'Invalid timestamp');
+      } catch (err) {
+        console.error('Error parsing timestamp:', err);
+      }
+      console.log('-------------------------');
+      
+      // Return message with correctly parsed timestamp
       return {
         id: point.id,
         content: payload.text,
-        sender: metadata.role === 'user' ? { 
-          id: metadata.userId || 'user',
-          name: 'You',
-          role: 'user'
-        } : {
-          id: metadata.senderAgentId || metadata.agentId || 'assistant',
-          name: 'Assistant',
-          role: 'assistant'
+        sender: {
+          id: metadata.role === 'user' ? metadata.userId.id : metadata.agentId.id,
+          name: metadata.role === 'user' ? 'You' : metadata.agentId.id,
+          role: metadata.role
         },
-        timestamp: payload.timestamp,
-        metadata: metadata,
+        // Convert numeric string timestamps to numbers for the client
+        timestamp: typeof payload.timestamp === 'string' && /^\d+$/.test(payload.timestamp) 
+          ? parseInt(payload.timestamp, 10) 
+          : payload.timestamp,
+        status: 'delivered',
         attachments: metadata.attachments || []
       };
     });
@@ -325,46 +355,88 @@ export async function POST(
       
       // Add thinking step if enabled
       let thoughts: string[] = [];
+      
+      // Run thinking process if enabled
       if (thinking) {
         try {
           console.log('Performing initial thinking analysis using ThinkingService...');
           
+          // Initialize visualization
+          const visualizationId = thinkingVisualizer.initializeVisualization(
+            lastUserMessageId || 'unknown-msg', 
+            userId,
+            content
+          );
+          
+          console.log(`Initialized thinking visualization with ID: ${visualizationId}`);
+          
           // Get agent information for persona
           let agentInfo;
+          let agentSystemPrompt;
           try {
             if (agent) {
               // Extract agent properties for proper type handling
               const agentName = agent.name || 'Assistant';
               const agentDescription = agent.description || 'A helpful AI assistant';
               
-              // Map complex capability types to simple string array
-              const capabilityStrings = Array.isArray(agent.capabilities) 
-                ? agent.capabilities.map(cap => typeof cap === 'string' ? cap : cap.name || cap.id || String(cap))
-                : [];
+              // Extract system prompt if available from parameters
+              agentSystemPrompt = (agent.parameters as { systemPrompt?: string })?.systemPrompt;
+              
+              // Add visualization data node for agent info
+              const agentInfoNodeId = thinkingVisualizer.addNode(
+                lastUserMessageId || 'unknown-msg',
+                VisualizationNodeType.THINKING,
+                'Agent Information',
+                {
+                  agentName,
+                  agentDescription,
+                  hasSystemPrompt: !!agentSystemPrompt,
+                  chatId
+                }
+              );
               
               agentInfo = {
                 name: agentName,
                 description: agentDescription,
-                // We won't reference systemPrompt or traits if they don't exist in the type
-                capabilities: capabilityStrings
+                systemPrompt: agentSystemPrompt
               };
             }
           } catch (agentInfoError) {
             console.warn('Error getting agent info for persona:', agentInfoError);
+            
+            // Add error node to visualization
+            thinkingVisualizer.handleError(
+              lastUserMessageId || 'unknown-msg',
+              new Error(`Failed to get agent info: ${agentInfoError}`)
+            );
           }
           
-          // Use our new ThinkingService for advanced thinking analysis
-          const thinkingResult = await thinkingService.processRequest(userId, content, {
+          // Use our thinking service for advanced thinking analysis
+          const thinkingResult = await thinkingService.processRequest(
             userId,
-            contextFiles: processedAttachments?.map((attachment: MessageAttachment) => ({
-              id: attachment.fileId || '',
-              name: attachment.filename,
-              type: attachment.type,
-              path: '',
-              metadata: attachment
-            })),
-            agentInfo // Pass agent information for persona-based responses
-          });
+            content,
+            {
+              debug: true,
+              agentInfo
+            }
+          );
+          
+          // Complete thinking visualization with proper UnifiedAgentResponse structure
+          thinkingVisualizer.finalizeVisualization(
+            lastUserMessageId || 'unknown-msg',
+            {
+              id: lastUserMessageId || 'unknown-msg',
+              response: thinkingResult.reasoning?.[0] || 'No response generated',
+              thinking: thinkingResult,
+              metrics: {
+                totalTime: 0,
+                thinkingTime: 0,
+                retrievalTime: 0,
+                toolExecutionTime: 0,
+                llmTime: 0
+              }
+            }
+          );
           
           // Extract reasoning for context thoughts
           if (thinkingResult && thinkingResult.reasoning.length > 0) {
@@ -388,12 +460,22 @@ export async function POST(
         }
       }
       
-      // Process message with proper timeout handling
-      const processingPromise = AgentService.processMessage(agentId, content, {
+      // Prepare enhanced processing options with thinking results
+      const enhancedOptions: MessageProcessingOptions & Record<string, any> = {
         ...processingOptions,
         // Include thinking results if available
-        contextThoughts: thoughts.length > 0 ? thoughts : undefined
-      });
+        contextThoughts: thoughts.length > 0 ? thoughts : undefined,
+        // Pass agent persona information as additional context
+        persona: {
+          systemPrompt: agent.parameters?.systemPrompt || '',
+          name: agent.name || 'Assistant',
+          description: agent.description || 'A helpful AI assistant',
+          traits: agent.metadata?.traits || []
+        }
+      };
+
+      // Process message with proper timeout handling
+      const processingPromise = AgentService.processMessage(agentId, content, enhancedOptions);
       
       // Set a reasonable timeout (30 seconds instead of 60)
       const timeoutPromise = new Promise<never>((_, reject) => {
