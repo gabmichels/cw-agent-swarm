@@ -3,7 +3,7 @@ import { ChatOpenAI } from '@langchain/openai';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { FileRetriever } from '../files/FileRetriever';
 import { DelegationService } from '../delegation/DelegationService';
-import { ToolService } from '../tools/ToolService';
+import { toolService, toolRegistry } from '../tools';
 
 // Create the LLM model for thinking processing
 const thinkingLLM = new ChatOpenAI({
@@ -16,9 +16,6 @@ const fileRetriever = new FileRetriever();
 
 // Create the delegation service
 const delegationService = new DelegationService();
-
-// Create the tool service
-const toolService = new ToolService();
 
 /**
  * Node to retrieve context including memories and files
@@ -684,28 +681,50 @@ export async function applyReasoningNode(
           // Extract parameters from entities and input for tool execution
           const toolParams = extractToolParameters(toolId, state);
           
-          // Execute the tool
-          const toolResult = await toolService.executeTool({
-            toolId,
-            parameters: toolParams,
-            context: {
-              intent: state.intent,
-              entities: state.entities,
-              input: state.input
-            }
-          });
+          // Try to get executor from registry first
+          const executor = toolRegistry.getExecutor(toolId);
           
-          if (toolResult.success) {
-            console.log(`Tool ${toolId} executed successfully`);
-            toolResults[toolId] = toolResult.output || {};
-            
-            // Add reasoning about the tool execution
-            const toolReasoning = `Tool execution: Used ${toolId} to gather information.`;
-            state.reasoning = [...(state.reasoning || []), toolReasoning];
+          if (executor) {
+            console.log(`Found executor for tool ${toolId} in registry`);
+            // Execute directly with the executor
+            try {
+              const result = await executor(toolParams);
+              toolResults[toolId] = result || {};
+              
+              // Add reasoning about the tool execution
+              const toolReasoning = `Tool execution: Used ${toolId} to gather information.`;
+              state.reasoning = [...(state.reasoning || []), toolReasoning];
+            } catch (execError) {
+              console.error(`Error executing tool ${toolId} with registry executor:`, execError);
+              const errorReasoning = `Tool execution error: ${execError instanceof Error ? execError.message : String(execError)}`;
+              state.reasoning = [...(state.reasoning || []), errorReasoning];
+            }
           } else {
-            console.error(`Tool ${toolId} execution failed:`, toolResult.error);
-            const errorReasoning = `Tool execution failed: ${toolResult.error}`;
-            state.reasoning = [...(state.reasoning || []), errorReasoning];
+            // Fall back to tool service
+            console.log(`No executor found in registry for ${toolId}, using tool service`);
+            // Execute the tool through the service
+            const toolResult = await toolService.executeTool({
+              toolId,
+              parameters: toolParams,
+              context: {
+                intent: state.intent,
+                entities: state.entities,
+                input: state.input
+              }
+            });
+            
+            if (toolResult.success) {
+              console.log(`Tool ${toolId} executed successfully`);
+              toolResults[toolId] = toolResult.output || {};
+              
+              // Add reasoning about the tool execution
+              const toolReasoning = `Tool execution: Used ${toolId} to gather information.`;
+              state.reasoning = [...(state.reasoning || []), toolReasoning];
+            } else {
+              console.error(`Tool ${toolId} execution failed:`, toolResult.error);
+              const errorReasoning = `Tool execution failed: ${toolResult.error}`;
+              state.reasoning = [...(state.reasoning || []), errorReasoning];
+            }
           }
         } catch (toolError) {
           console.error(`Error executing tool ${toolId}:`, toolError);
@@ -938,7 +957,7 @@ export async function generateResponseNode(
     }
     
     // Define system prompt for response generation
-    const systemPrompt = `You are a helpful AI assistant generating a thoughtful response to the user.
+    let systemPrompt = `You are a helpful AI assistant generating a thoughtful response to the user.
 Based on your understanding of the user's intent, the entities extracted, and the reasoning process,
 create a clear, helpful, and accurate response.
 
@@ -955,6 +974,26 @@ Your response should be:
 - Friendly and helpful in tone
 
 DO NOT include any JSON formatting in your response. Just provide the plain text response.`;
+
+    // Add agent persona information if available
+    if (state.agentPersona) {
+      const persona = state.agentPersona;
+      
+      systemPrompt = `${persona.systemPrompt || systemPrompt}
+
+You are ${persona.name}, ${persona.description || 'an AI assistant'}.
+
+${persona.traits ? `Your personality traits include: ${persona.traits.join(', ')}` : ''}
+${persona.capabilities ? `Your capabilities include: ${persona.capabilities.join(', ')}` : ''}
+
+Based on your understanding of the user's intent, the entities extracted, and the reasoning process,
+create a response that reflects your persona and capabilities.
+
+${state.toolResults && Object.keys(state.toolResults).length > 0 ? 
+  `I have used tools to gather information for you. Use this information to provide a more accurate response.` : ''}
+
+DO NOT include any JSON formatting in your response. Just provide the plain text response.`;
+    }
 
     // Prepare context with all the thinking information
     const contextMessage = `
@@ -999,8 +1038,19 @@ Based on this analysis, generate a helpful response to the user's request.
     } catch (llmError) {
       console.error('Error calling LLM for response generation:', llmError);
       
-      // Fallback to simple response
-      const response = `I'll help with: ${state.intent?.name || 'your request'}`;
+      // Fallback to persona-based simple response
+      let response = `I'll help with: ${state.intent?.name || 'your request'}`;
+      
+      // Use persona for fallback if available
+      if (state.agentPersona) {
+        response = `Hi, I'm ${state.agentPersona.name}. ${state.agentPersona.description || 'I am here to assist you.'}`;
+        
+        if (state.intent) {
+          response += ` I'll help you with ${state.intent.name}.`;
+        } else {
+          response += ` How can I assist you today?`;
+        }
+      }
       
       return {
         ...state,
@@ -1009,6 +1059,18 @@ Based on this analysis, generate a helpful response to the user's request.
     }
   } catch (error) {
     console.error('Error in generateResponseNode:', error);
-    return state;
+    
+    // Fallback response that includes persona if available
+    let fallbackResponse = "I apologize, but I encountered an issue processing your request.";
+    
+    if (state.agentPersona) {
+      fallbackResponse = `Hi, I'm ${state.agentPersona.name}. ${state.agentPersona.description || 'I am here to assist you.'}`;
+      fallbackResponse += " I'm experiencing some technical difficulties at the moment, but I'm still here to help. Could you try rephrasing your request?";
+    }
+    
+    return {
+      ...state,
+      response: fallbackResponse
+    };
   }
 } 

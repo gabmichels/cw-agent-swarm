@@ -397,10 +397,10 @@ export class UnifiedAgentService {
       temperature: 0.7
     });
 
-    // Initialize services
-    this.toolRegistry = new ToolRegistry();
-    this.pluginSystem = new PluginSystem(this.toolRegistry);
+    // Initialize services in the correct order
     this.toolService = new ToolService();
+    this.toolRegistry = new ToolRegistry(this.toolService);
+    this.pluginSystem = new PluginSystem(this.toolRegistry);
     this.toolFeedbackService = new ToolFeedbackService();
     
     this.taskProgressTracker = new TaskProgressTracker();

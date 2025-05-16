@@ -37,6 +37,36 @@ export interface ToolReference {
 }
 
 /**
+ * Agent persona information
+ */
+export interface AgentPersona {
+  /**
+   * Agent name
+   */
+  name: string;
+  
+  /**
+   * Agent description/role
+   */
+  description: string;
+  
+  /**
+   * Agent capabilities
+   */
+  capabilities?: string[];
+  
+  /**
+   * Agent system prompt
+   */
+  systemPrompt?: string;
+  
+  /**
+   * Agent personality traits
+   */
+  traits?: string[];
+}
+
+/**
  * State object for the thinking workflow
  */
 export interface ThinkingState {
@@ -49,6 +79,11 @@ export interface ThinkingState {
    * User ID
    */
   userId: string;
+  
+  /**
+   * Agent persona information
+   */
+  agentPersona?: AgentPersona;
   
   /**
    * Memories retrieved for context

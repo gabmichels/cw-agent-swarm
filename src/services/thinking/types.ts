@@ -111,6 +111,36 @@ export interface ThinkingOptions {
    * Whether to include debugging information
    */
   debug?: boolean;
+  
+  /**
+   * Agent information for persona-based responses
+   */
+  agentInfo?: {
+    /**
+     * Agent name
+     */
+    name?: string;
+    
+    /**
+     * Agent description
+     */
+    description?: string;
+    
+    /**
+     * Agent system prompt
+     */
+    systemPrompt?: string;
+    
+    /**
+     * Agent capabilities
+     */
+    capabilities?: string[];
+    
+    /**
+     * Agent personality traits
+     */
+    traits?: string[];
+  };
 }
 
 /**

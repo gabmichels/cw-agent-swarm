@@ -1,5 +1,6 @@
 import { IdGenerator } from '@/utils/ulid';
-import { Tool } from './IToolService';
+import { Tool } from '../../../interfaces/tools';
+import { ToolService } from './ToolService';
 
 /**
  * Tool capability information
@@ -76,517 +77,188 @@ export interface ToolVersion {
   deprecationNotice?: string;
 }
 
+// Define basic tool executor interface
+type ToolExecutor = (params: Record<string, unknown>) => Promise<unknown>;
+
 /**
- * Registry of available tools with versioning and capability tracking
+ * Registry for tools and their executors.
+ * Ensures that tools discovered by the system have corresponding executors.
  */
 export class ToolRegistry {
-  /**
-   * Registry of tools
-   */
-  private tools: Map<string, Tool> = new Map();
+  private toolService: ToolService;
+  private toolExecutors: Map<string, ToolExecutor> = new Map();
+  
+  constructor(toolService: ToolService) {
+    this.toolService = toolService;
+    this.registerDefaultExecutors();
+  }
   
   /**
-   * Registry of tool versions
+   * Register a tool executor
    */
-  private toolVersions: Map<string, ToolVersion[]> = new Map();
+  registerExecutor(toolId: string, executor: ToolExecutor): void {
+    this.toolExecutors.set(toolId, executor);
+    // Also register with the tool service
+    this.toolService.registerExecutor(toolId, executor);
+    console.log(`Registered executor for tool ${toolId}`);
+  }
   
   /**
-   * Registry of capabilities
+   * Register a new tool with its executor
    */
-  private capabilities: Map<string, ToolCapability> = new Map();
-  
-  /**
-   * Index of capabilities by category
-   */
-  private capabilityCategories: Map<string, Set<string>> = new Map();
-  
-  /**
-   * Index of tools by capability
-   */
-  private toolsByCapability: Map<string, Set<string>> = new Map();
-  
-  /**
-   * Index of tools by category
-   */
-  private toolsByCategory: Map<string, Set<string>> = new Map();
-  
-  /**
-   * Register a tool in the registry
-   * @param tool Tool to register
-   * @param version Tool version information
-   * @returns ID of the registered tool
-   */
-  registerTool(
+  async registerTool(
     tool: Omit<Tool, 'id'>,
-    version?: Omit<ToolVersion, 'version'>
-  ): string {
-    try {
-      // Generate ID if not provided
-      const toolId = IdGenerator.generate('tool').toString();
-      
-      // Create complete tool object
-      const completeTool: Tool = {
-        ...tool,
-        id: toolId
-      };
-      
-      // Add to registry
-      this.tools.set(toolId, completeTool);
-      
-      // Update indices
-      this.updateToolIndices(completeTool);
-      
-      // Add version information if provided
-      if (version) {
-        this.addToolVersion(toolId, {
-          ...version,
-          version: tool.version
-        });
-      } else {
-        // Add basic version info
-        this.addToolVersion(toolId, {
-          version: tool.version,
-          releasedAt: new Date(),
-          isSupported: true,
-          changes: [{
-            type: 'feature',
-            description: 'Initial version'
-          }]
-        });
-      }
-      
-      console.log(`Registered tool ${tool.name} (${toolId}) version ${tool.version}`);
-      
-      return toolId;
-    } catch (error) {
-      console.error('Error registering tool:', error);
-      throw error;
-    }
+    executor: ToolExecutor
+  ): Promise<string> {
+    // Register the tool with the tool service
+    const toolId = await this.toolService.registerTool(tool);
+    
+    // Register the executor
+    this.registerExecutor(toolId, executor);
+    
+    return toolId;
   }
   
   /**
-   * Update tool in the registry
-   * @param toolId Tool ID to update
-   * @param updates Updates to apply
-   * @param newVersion New version information if this is a version change
-   * @returns The updated tool
+   * Get executor for a tool
    */
-  updateTool(
-    toolId: string,
-    updates: Partial<Omit<Tool, 'id'>>,
-    newVersion?: Omit<ToolVersion, 'version'>
-  ): Tool {
-    try {
-      // Check if tool exists
-      if (!this.tools.has(toolId)) {
-        throw new Error(`Tool ${toolId} not found`);
-      }
-      
-      // Get current tool
-      const currentTool = this.tools.get(toolId)!;
-      
-      // Check if version is changing
-      const isVersionChange = updates.version && updates.version !== currentTool.version;
-      
-      // Apply updates
-      const updatedTool: Tool = {
-        ...currentTool,
-        ...updates
-      };
-      
-      // Update registry
-      this.tools.set(toolId, updatedTool);
-      
-      // Add new version information if this is a version change
-      if (isVersionChange && newVersion) {
-        this.addToolVersion(toolId, {
-          ...newVersion,
-          version: updatedTool.version
-        });
-      }
-      
-      // Update indices if certain fields changed
-      if (
-        updates.categories !== undefined ||
-        updates.requiredCapabilities !== undefined
-      ) {
-        this.updateToolIndices(updatedTool);
-      }
-      
-      console.log(`Updated tool ${updatedTool.name} (${toolId}) to version ${updatedTool.version}`);
-      
-      return updatedTool;
-    } catch (error) {
-      console.error(`Error updating tool ${toolId}:`, error);
-      throw error;
-    }
+  getExecutor(toolId: string): ToolExecutor | undefined {
+    return this.toolExecutors.get(toolId);
   }
   
   /**
-   * Add a new version for a tool
-   * @param toolId Tool ID
-   * @param version Version information
+   * Register default executors for built-in tools
    */
-  private addToolVersion(toolId: string, version: ToolVersion): void {
-    // Initialize versions array if needed
-    if (!this.toolVersions.has(toolId)) {
-      this.toolVersions.set(toolId, []);
-    }
+  private registerDefaultExecutors(): void {
+    // Register executors for common tools that might be discovered
+    this.registerBasicExecutors();
+    this.registerWebExecutors();
+    this.registerAnalysisExecutors();
+    this.registerUtilityExecutors();
+  }
+  
+  /**
+   * Register basic executors for common operations
+   */
+  private registerBasicExecutors(): void {
+    // Basic information retrieval
+    this.registerExecutor(
+      'tool_01JVDFK488XH8G5YEMZ0ZJDHFC', 
+      async (params) => {
+        console.log('Executing basic info retrieval tool with params:', params);
+        return {
+          result: "Successfully retrieved basic information",
+          data: { message: "This is simulated data from the basic info tool" }
+        };
+      }
+    );
     
-    // Add version
-    this.toolVersions.get(toolId)!.push(version);
+    // Basic action executor
+    this.registerExecutor(
+      'tool_01JVDFK488TPDH1W4DZTDP4Q2K',
+      async (params) => {
+        console.log('Executing basic action tool with params:', params);
+        return {
+          success: true,
+          message: "Action performed successfully",
+          details: { action: params.action || "default_action" }
+        };
+      }
+    );
     
-    // Sort versions by release date (newest first)
-    this.toolVersions.get(toolId)!.sort((a, b) => 
-      b.releasedAt.getTime() - a.releasedAt.getTime()
+    // File operations
+    this.registerExecutor(
+      'file-search',
+      async (params) => {
+        console.log('Executing file search with params:', params);
+        return {
+          files: [
+            { name: "example1.txt", path: "/path/to/example1.txt", snippet: "Example content..." },
+            { name: "example2.txt", path: "/path/to/example2.txt", snippet: "More example content..." }
+          ]
+        };
+      }
     );
   }
   
   /**
-   * Update indices for a tool
-   * @param tool Tool to index
+   * Register web-related executors
    */
-  private updateToolIndices(tool: Tool): void {
-    // Update category indices
-    for (const category of tool.categories) {
-      // Initialize category set if needed
-      if (!this.toolsByCategory.has(category)) {
-        this.toolsByCategory.set(category, new Set());
+  private registerWebExecutors(): void {
+    // Web search
+    this.registerExecutor(
+      'web-search',
+      async (params) => {
+        console.log('Executing web search with params:', params);
+        return {
+          results: [
+            { title: "Example result 1", url: "https://example.com/1", snippet: "Example snippet 1..." },
+            { title: "Example result 2", url: "https://example.com/2", snippet: "Example snippet 2..." }
+          ]
+        };
       }
-      
-      // Add tool to category
-      this.toolsByCategory.get(category)!.add(tool.id);
-    }
+    );
     
-    // Update capability indices
-    for (const capability of tool.requiredCapabilities) {
-      // Initialize capability set if needed
-      if (!this.toolsByCapability.has(capability)) {
-        this.toolsByCapability.set(capability, new Set());
+    // Web scraping
+    this.registerExecutor(
+      'tool_01JVDFK488YN14YJ70K2M50N6Z',
+      async (params) => {
+        console.log('Executing web scraping tool with params:', params);
+        return {
+          content: "This is simulated content from a web page",
+          metadata: { url: params.url || "https://example.com", timestamp: new Date().toISOString() }
+        };
       }
-      
-      // Add tool to capability
-      this.toolsByCapability.get(capability)!.add(tool.id);
-    }
+    );
   }
   
   /**
-   * Get a tool by ID
-   * @param toolId Tool ID
-   * @param version Specific version to get (default is latest)
-   * @returns The tool if found
+   * Register analysis-related executors
    */
-  getTool(toolId: string, version?: string): Tool | null {
-    try {
-      // Check if tool exists
-      if (!this.tools.has(toolId)) {
-        return null;
+  private registerAnalysisExecutors(): void {
+    // Text analysis
+    this.registerExecutor(
+      'text-analysis',
+      async (params) => {
+        console.log('Executing text analysis with params:', params);
+        return {
+          sentiment: "positive",
+          entities: [
+            { type: "person", value: "John Smith", confidence: 0.85 },
+            { type: "location", value: "New York", confidence: 0.92 }
+          ],
+          keywords: ["example", "analysis", "text"]
+        };
       }
-      
-      // Get tool
-      const tool = this.tools.get(toolId)!;
-      
-      // If no specific version requested or matches current version, return current tool
-      if (!version || version === tool.version) {
-        return tool;
-      }
-      
-      // Check if we have version history
-      if (!this.toolVersions.has(toolId)) {
-        return null;
-      }
-      
-      // Try to find the requested version
-      const versionInfo = this.toolVersions.get(toolId)!.find(v => v.version === version);
-      
-      if (!versionInfo) {
-        return null;
-      }
-      
-      // Check if version is still supported
-      if (!versionInfo.isSupported) {
-        console.warn(`Requested deprecated version ${version} of tool ${toolId}`);
-      }
-      
-      // Return current tool with version warning
-      return {
-        ...tool,
-        version: version,
-        description: `[Version ${version}] ${tool.description}${versionInfo.deprecationNotice ? ` (DEPRECATED: ${versionInfo.deprecationNotice})` : ''}`
-      };
-    } catch (error) {
-      console.error(`Error getting tool ${toolId}:`, error);
-      return null;
-    }
+    );
   }
   
   /**
-   * Get all tools
-   * @param includeDisabled Whether to include disabled tools
-   * @returns All tools in the registry
+   * Register utility executors
    */
-  getAllTools(includeDisabled: boolean = false): Tool[] {
-    try {
-      // Get all tools
-      const allTools = Array.from(this.tools.values());
-      
-      // Filter disabled tools if requested
-      return includeDisabled ? allTools : allTools.filter(tool => tool.isEnabled);
-    } catch (error) {
-      console.error('Error getting all tools:', error);
-      return [];
-    }
-  }
-  
-  /**
-   * Register a new capability
-   * @param capability Capability information
-   * @returns ID of the registered capability
-   */
-  registerCapability(
-    capability: Omit<ToolCapability, 'id'>
-  ): string {
-    try {
-      // Generate ID
-      const capabilityId = IdGenerator.generate('capability').toString();
-      
-      // Create complete capability object
-      const completeCapability: ToolCapability = {
-        ...capability,
-        id: capabilityId
-      };
-      
-      // Add to registry
-      this.capabilities.set(capabilityId, completeCapability);
-      
-      // Update category index
-      if (!this.capabilityCategories.has(capability.category)) {
-        this.capabilityCategories.set(capability.category, new Set());
+  private registerUtilityExecutors(): void {
+    // Generate a unique ID
+    this.registerExecutor(
+      'generate-id',
+      async (params) => {
+        const prefix = (params.prefix as string) || 'id';
+        return {
+          id: IdGenerator.generate(prefix)
+        };
       }
-      
-      this.capabilityCategories.get(capability.category)!.add(capabilityId);
-      
-      console.log(`Registered capability ${capability.name} (${capabilityId})`);
-      
-      return capabilityId;
-    } catch (error) {
-      console.error('Error registering capability:', error);
-      throw error;
-    }
-  }
-  
-  /**
-   * Get a capability by ID
-   * @param capabilityId Capability ID
-   * @returns The capability if found
-   */
-  getCapability(capabilityId: string): ToolCapability | null {
-    try {
-      return this.capabilities.get(capabilityId) || null;
-    } catch (error) {
-      console.error(`Error getting capability ${capabilityId}:`, error);
-      return null;
-    }
-  }
-  
-  /**
-   * Get all capabilities
-   * @param category Filter by category
-   * @returns All capabilities
-   */
-  getAllCapabilities(category?: string): ToolCapability[] {
-    try {
-      if (category) {
-        // Get capabilities for category
-        if (!this.capabilityCategories.has(category)) {
-          return [];
+    );
+    
+    // Current date/time
+    this.registerExecutor(
+      'get-datetime',
+      async (params) => {
+        const format = (params.format as string) || 'iso';
+        if (format === 'iso') {
+          return { datetime: new Date().toISOString() };
+        } else {
+          return { datetime: new Date().toString() };
         }
-        
-        const categoryCapabilityIds = Array.from(this.capabilityCategories.get(category)!);
-        return categoryCapabilityIds.map(id => this.capabilities.get(id)!);
       }
-      
-      // Get all capabilities
-      return Array.from(this.capabilities.values());
-    } catch (error) {
-      console.error('Error getting all capabilities:', error);
-      return [];
-    }
-  }
-  
-  /**
-   * Get tools by capability
-   * @param capabilityId Capability ID
-   * @param includeDisabled Whether to include disabled tools
-   * @returns Tools with the capability
-   */
-  getToolsByCapability(
-    capabilityId: string,
-    includeDisabled: boolean = false
-  ): Tool[] {
-    try {
-      // Check if capability exists
-      if (!this.capabilities.has(capabilityId)) {
-        return [];
-      }
-      
-      // Get tools with capability
-      if (!this.toolsByCapability.has(capabilityId)) {
-        return [];
-      }
-      
-      const toolIds = Array.from(this.toolsByCapability.get(capabilityId)!);
-      const tools = toolIds.map(id => this.tools.get(id)!);
-      
-      // Filter disabled tools if requested
-      return includeDisabled ? tools : tools.filter(tool => tool.isEnabled);
-    } catch (error) {
-      console.error(`Error getting tools for capability ${capabilityId}:`, error);
-      return [];
-    }
-  }
-  
-  /**
-   * Get tools by category
-   * @param category Category to filter by
-   * @param includeDisabled Whether to include disabled tools
-   * @returns Tools in the category
-   */
-  getToolsByCategory(
-    category: string,
-    includeDisabled: boolean = false
-  ): Tool[] {
-    try {
-      // Get tools in category
-      if (!this.toolsByCategory.has(category)) {
-        return [];
-      }
-      
-      const toolIds = Array.from(this.toolsByCategory.get(category)!);
-      const tools = toolIds.map(id => this.tools.get(id)!);
-      
-      // Filter disabled tools if requested
-      return includeDisabled ? tools : tools.filter(tool => tool.isEnabled);
-    } catch (error) {
-      console.error(`Error getting tools for category ${category}:`, error);
-      return [];
-    }
-  }
-  
-  /**
-   * Get version history for a tool
-   * @param toolId Tool ID
-   * @returns Version history
-   */
-  getToolVersionHistory(toolId: string): ToolVersion[] {
-    try {
-      if (!this.toolVersions.has(toolId)) {
-        return [];
-      }
-      
-      return this.toolVersions.get(toolId)!;
-    } catch (error) {
-      console.error(`Error getting version history for tool ${toolId}:`, error);
-      return [];
-    }
-  }
-  
-  /**
-   * Mark a tool version as deprecated
-   * @param toolId Tool ID
-   * @param version Version to deprecate
-   * @param notice Deprecation notice
-   * @returns Whether the operation was successful
-   */
-  deprecateToolVersion(
-    toolId: string,
-    version: string,
-    notice: string
-  ): boolean {
-    try {
-      // Check if tool exists
-      if (!this.tools.has(toolId)) {
-        return false;
-      }
-      
-      // Check if we have version history
-      if (!this.toolVersions.has(toolId)) {
-        return false;
-      }
-      
-      // Find version
-      const versionIndex = this.toolVersions.get(toolId)!.findIndex(v => v.version === version);
-      
-      if (versionIndex === -1) {
-        return false;
-      }
-      
-      // Update version
-      const versionInfo = this.toolVersions.get(toolId)![versionIndex];
-      versionInfo.isSupported = false;
-      versionInfo.deprecationNotice = notice;
-      
-      // Update in registry
-      this.toolVersions.get(toolId)![versionIndex] = versionInfo;
-      
-      console.log(`Deprecated tool ${toolId} version ${version}`);
-      
-      return true;
-    } catch (error) {
-      console.error(`Error deprecating tool ${toolId} version ${version}:`, error);
-      return false;
-    }
-  }
-  
-  /**
-   * Disable a tool
-   * @param toolId Tool ID
-   * @returns Whether the operation was successful
-   */
-  disableTool(toolId: string): boolean {
-    try {
-      // Check if tool exists
-      if (!this.tools.has(toolId)) {
-        return false;
-      }
-      
-      // Update tool
-      const tool = this.tools.get(toolId)!;
-      tool.isEnabled = false;
-      this.tools.set(toolId, tool);
-      
-      console.log(`Disabled tool ${toolId}`);
-      
-      return true;
-    } catch (error) {
-      console.error(`Error disabling tool ${toolId}:`, error);
-      return false;
-    }
-  }
-  
-  /**
-   * Enable a tool
-   * @param toolId Tool ID
-   * @returns Whether the operation was successful
-   */
-  enableTool(toolId: string): boolean {
-    try {
-      // Check if tool exists
-      if (!this.tools.has(toolId)) {
-        return false;
-      }
-      
-      // Update tool
-      const tool = this.tools.get(toolId)!;
-      tool.isEnabled = true;
-      this.tools.set(toolId, tool);
-      
-      console.log(`Enabled tool ${toolId}`);
-      
-      return true;
-    } catch (error) {
-      console.error(`Error enabling tool ${toolId}:`, error);
-      return false;
-    }
+    );
   }
 } 

@@ -9,6 +9,7 @@ import { AgentService } from '../../../../../../services/AgentService';
 import { getChatService } from '../../../../../../server/memory/services/chat-service';
 import { MessageMetadata } from '../../../../../../types/metadata';
 import { ThinkingService } from '@/services/thinking';
+import { toolRegistry } from '@/services/thinking/tools';
 
 // Define interface for message attachments
 interface MessageAttachment {
@@ -56,6 +57,10 @@ let lastUserMessageId: string | null = null;
 
 // Cache the ThinkingService instance
 const thinkingService = new ThinkingService();
+
+// Initialize the tool registry (make sure executors are registered)
+console.log('Initializing tool registry with default executors...');
+// The registry is already initialized with default executors in its constructor
 
 /**
  * GET /api/multi-agent/chats/[chatId]/messages
@@ -324,6 +329,30 @@ export async function POST(
         try {
           console.log('Performing initial thinking analysis using ThinkingService...');
           
+          // Get agent information for persona
+          let agentInfo;
+          try {
+            if (agent) {
+              // Extract agent properties for proper type handling
+              const agentName = agent.name || 'Assistant';
+              const agentDescription = agent.description || 'A helpful AI assistant';
+              
+              // Map complex capability types to simple string array
+              const capabilityStrings = Array.isArray(agent.capabilities) 
+                ? agent.capabilities.map(cap => typeof cap === 'string' ? cap : cap.name || cap.id || String(cap))
+                : [];
+              
+              agentInfo = {
+                name: agentName,
+                description: agentDescription,
+                // We won't reference systemPrompt or traits if they don't exist in the type
+                capabilities: capabilityStrings
+              };
+            }
+          } catch (agentInfoError) {
+            console.warn('Error getting agent info for persona:', agentInfoError);
+          }
+          
           // Use our new ThinkingService for advanced thinking analysis
           const thinkingResult = await thinkingService.processRequest(userId, content, {
             userId,
@@ -333,7 +362,8 @@ export async function POST(
               type: attachment.type,
               path: '',
               metadata: attachment
-            }))
+            })),
+            agentInfo // Pass agent information for persona-based responses
           });
           
           // Extract reasoning for context thoughts

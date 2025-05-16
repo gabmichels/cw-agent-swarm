@@ -1,4 +1,4 @@
-import { ThinkingState } from './types';
+import { ThinkingState, AgentPersona } from './types';
 import {
   retrieveContextNode,
   analyzeIntentNode,
@@ -14,10 +14,15 @@ import {
 /**
  * Create initial state for the thinking process
  */
-export function createInitialState(userId: string, input: string): ThinkingState {
+export function createInitialState(
+  userId: string, 
+  input: string, 
+  agentPersona?: AgentPersona
+): ThinkingState {
   return {
     userId,
     input,
+    agentPersona,
     contextMemories: [],
     contextFiles: [],
     entities: [],
@@ -31,11 +36,12 @@ export function createInitialState(userId: string, input: string): ThinkingState
  */
 export async function executeThinkingWorkflow(
   userId: string, 
-  input: string
+  input: string,
+  agentPersona?: AgentPersona
 ): Promise<ThinkingState> {
   try {
     // Create initial state
-    let state = createInitialState(userId, input);
+    let state = createInitialState(userId, input, agentPersona);
     
     // Execute the workflow steps sequentially
     state = await retrieveContextNode(state);

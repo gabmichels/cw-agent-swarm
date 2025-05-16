@@ -412,10 +412,8 @@ export class PluginSystem {
       for (const tool of plugin.tools) {
         try {
           // Register the tool with the ToolRegistry
-          this.toolRegistry.registerTool({
-            ...tool,
-            // Add plugin information to the description
-            description: `[Plugin: ${plugin.name}] ${tool.description}`
+          this.toolRegistry.registerExecutor(tool.id, async (params) => {
+            return await plugin.executeTool(tool.id, params, {});
           });
           
           console.log(`Registered tool ${tool.name} from plugin ${plugin.name}`);
@@ -618,7 +616,9 @@ export class PluginSystem {
     };
   }
 
-  // Update the error case in handlePluginError
+  /**
+   * Handle plugin errors consistently
+   */
   private handlePluginError(error: Error, toolId: string, parameters: Record<string, any>): ToolExecutionResult {
     const startTime = new Date().toISOString();
     const endTime = new Date().toISOString();

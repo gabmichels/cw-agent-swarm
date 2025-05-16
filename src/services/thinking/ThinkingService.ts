@@ -203,8 +203,17 @@ export class ThinkingService implements IThinkingService {
     options?: ThinkingOptions
   ): Promise<ThinkingResult> {
     try {
+      // Extract agent persona from options if available
+      const agentPersona = options?.agentInfo ? {
+        name: options.agentInfo.name || 'AI Assistant',
+        description: options.agentInfo.description || 'A helpful AI assistant',
+        systemPrompt: options.agentInfo.systemPrompt,
+        capabilities: options.agentInfo.capabilities || [],
+        traits: options.agentInfo.traits || []
+      } : undefined;
+      
       // Use the LangGraph workflow for complete thinking process
-      const graphResult = await executeThinkingWorkflow(userId, message);
+      const graphResult = await executeThinkingWorkflow(userId, message, agentPersona);
       
       // Convert the graph result to ThinkingResult format
       const thinkingResult = this.convertGraphResultToThinkingResult(graphResult);
