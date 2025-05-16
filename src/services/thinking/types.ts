@@ -146,6 +146,11 @@ export interface WorkingMemoryItem {
    * User ID this memory belongs to
    */
   userId: string;
+  
+  /**
+   * Original relevance score from retrieval (for internal use)
+   */
+  _relevanceScore?: number;
 }
 
 /**

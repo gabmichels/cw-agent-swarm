@@ -1,12 +1,24 @@
 import { ThinkingState, Entity } from '../graph/types';
 import { ChatOpenAI } from '@langchain/openai';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
+import { FileRetriever } from '../files/FileRetriever';
+import { DelegationService } from '../delegation/DelegationService';
+import { ToolService } from '../tools/ToolService';
 
 // Create the LLM model for thinking processing
 const thinkingLLM = new ChatOpenAI({
   modelName: "gpt-3.5-turbo",
   temperature: 0.2
 });
+
+// Create the file retriever
+const fileRetriever = new FileRetriever();
+
+// Create the delegation service
+const delegationService = new DelegationService();
+
+// Create the tool service
+const toolService = new ToolService();
 
 /**
  * Node to retrieve context including memories and files
@@ -17,11 +29,64 @@ export async function retrieveContextNode(
   try {
     console.log('Retrieving context:', state.userId, state.input.substring(0, 50));
     
-    // Placeholder implementation - will be replaced with actual memory retrieval
+    // Retrieve relevant files
+    const fileOptions = {
+      query: state.input,
+      userId: state.userId,
+      limit: 3, // Limit to top 3 most relevant files
+      searchMethod: 'hybrid' as const
+    };
+    
+    let contextFiles = state.contextFiles || [];
+    
+    try {
+      // Get files relevant to the query
+      const { files } = await fileRetriever.retrieveRelevantFiles(fileOptions);
+      
+      if (files && files.length > 0) {
+        console.log(`Retrieved ${files.length} files for context`);
+        
+        // Search within the files for relevant content
+        const searchResults = await fileRetriever.searchWithinFiles(
+          files,
+          state.input,
+          { limit: 5 } // Limit chunks to avoid context overflow
+        );
+        
+        // Add file content snippets to file metadata for better context
+        const enhancedFiles = searchResults.files.map(file => {
+          // Find chunks for this file
+          const fileChunks = searchResults.chunks.filter(chunk => 
+            chunk.fileId === file.id
+          );
+          
+          // Extract content snippets
+          const snippets = fileChunks.map(chunk => chunk.content);
+          
+          // Return enhanced file with content snippets
+          return {
+            ...file,
+            metadata: {
+              ...file.metadata,
+              contentSnippets: snippets
+            }
+          };
+        });
+        
+        // Update context files
+        contextFiles = enhancedFiles;
+      }
+    } catch (fileError) {
+      console.error('Error retrieving file context:', fileError);
+    }
+    
+    // Placeholder implementation for memory retrieval
+    // In a real implementation, this would be replaced with the MemoryRetriever
+    
     return {
       ...state,
       contextMemories: state.contextMemories || [],
-      contextFiles: state.contextFiles || []
+      contextFiles
     };
   } catch (error) {
     console.error('Error in retrieveContextNode:', error);
@@ -302,14 +367,84 @@ export async function delegateTaskNode(
   try {
     console.log('Delegating task to:', state.delegationTarget);
     
-    // Placeholder implementation - will be replaced with actual delegation
-    return {
-      ...state,
-      response: `Task delegated to ${state.delegationTarget}`
+    if (!state.delegationTarget || !state.intent) {
+      console.error('Missing delegation target or intent');
+      return {
+        ...state,
+        response: 'Unable to delegate task: missing required information.'
+      };
+    }
+    
+    // Extract required capabilities based on delegation target
+    let requiredCapabilities: string[] = [];
+    
+    // Map delegation target to capabilities
+    switch (state.delegationTarget) {
+      case 'research-agent':
+        requiredCapabilities = ['research', 'information_retrieval'];
+        break;
+      case 'creative-agent':
+        requiredCapabilities = ['content_creation', 'writing'];
+        break;
+      case 'coding-agent':
+        requiredCapabilities = ['coding', 'debugging'];
+        break;
+      case 'data-agent':
+        requiredCapabilities = ['data_analysis', 'visualization'];
+        break;
+      default:
+        // Extract capabilities from the target string if not a known agent
+        requiredCapabilities = [state.delegationTarget];
+    }
+    
+    // Decide if this is an urgent task based on intent
+    // For demonstration, we'll consider certain keywords as indicators of urgency
+    const isUrgent = state.input.toLowerCase().includes('urgent') || 
+                      state.input.toLowerCase().includes('asap') ||
+                      state.input.toLowerCase().includes('immediately');
+    
+    // Get priority from intent confidence
+    const priority = Math.round(state.intent.confidence * 10);
+    
+    // Collect context for delegation
+    const context = {
+      entities: state.entities || [],
+      intent: state.intent,
+      reasoning: state.reasoning || [],
+      files: state.contextFiles?.map(file => file.id) || []
     };
+    
+    // Delegate the task using the delegation service
+    const delegationResult = await delegationService.delegateTask(
+      state.userId,
+      state.input,
+      requiredCapabilities,
+      priority,
+      isUrgent,
+      context
+    );
+    
+    if (delegationResult.success) {
+      return {
+        ...state,
+        response: `Task delegated to a specialized agent (${delegationResult.agentId}). ${
+          delegationResult.estimatedWaitTime 
+            ? `Estimated processing time: ${Math.round(delegationResult.estimatedWaitTime / 1000)} seconds.` 
+            : ''
+        }`
+      };
+    } else {
+      return {
+        ...state,
+        response: `Task delegation status: ${delegationResult.reason}`
+      };
+    }
   } catch (error) {
     console.error('Error in delegateTaskNode:', error);
-    return state;
+    return {
+      ...state,
+      response: `Error delegating task: ${error instanceof Error ? error.message : String(error)}`
+    };
   }
 }
 
@@ -429,25 +564,95 @@ export async function selectToolsNode(
   try {
     console.log('Selecting tools for:', state.intent?.name);
     
-    // Placeholder implementation - will be replaced with LLM-based tool selection
-    const tools: string[] = [];
-    
-    // Simple rule-based tool selection for demonstration
-    if (state.input.toLowerCase().includes('file') || state.input.toLowerCase().includes('document')) {
-      tools.push('file_manager');
+    // Skip if no intent is available
+    if (!state.intent) {
+      return {
+        ...state,
+        tools: []
+      };
     }
     
-    if (state.input.toLowerCase().includes('search') || state.input.toLowerCase().includes('find')) {
-      tools.push('search_tool');
+    // Extract category and capability hints from the input and entities
+    const categories: string[] = [];
+    const capabilities: string[] = [];
+    
+    // Look for file-related keywords
+    if (state.input.toLowerCase().includes('file') || 
+        state.input.toLowerCase().includes('document')) {
+      categories.push('files');
+      capabilities.push('file_access');
     }
     
-    return {
-      ...state,
-      tools
-    };
+    // Look for search-related keywords
+    if (state.input.toLowerCase().includes('search') || 
+        state.input.toLowerCase().includes('find') ||
+        state.input.toLowerCase().includes('look up')) {
+      categories.push('search');
+    }
+    
+    // Look for web-related keywords
+    if (state.input.toLowerCase().includes('web') || 
+        state.input.toLowerCase().includes('internet') ||
+        state.input.toLowerCase().includes('online')) {
+      categories.push('web');
+      capabilities.push('web_access');
+    }
+    
+    // Look for analysis-related keywords
+    if (state.input.toLowerCase().includes('analyze') || 
+        state.input.toLowerCase().includes('sentiment') ||
+        state.input.toLowerCase().includes('extract')) {
+      categories.push('analysis');
+      capabilities.push('text_analysis');
+    }
+    
+    try {
+      // Use the ToolService to discover relevant tools
+      const discoveredTools = await toolService.discoverTools({
+        intent: state.intent.name,
+        categories: categories.length > 0 ? categories : undefined,
+        requiredCapabilities: capabilities.length > 0 ? capabilities : undefined,
+        limit: 3 // Limit to top 3 tools
+      });
+      
+      console.log(`Discovered ${discoveredTools.length} tools for intent: ${state.intent.name}`);
+      
+      // Extract tool IDs for the state
+      const toolIds = discoveredTools.map(tool => tool.id);
+      
+      return {
+        ...state,
+        tools: toolIds
+      };
+    } catch (toolError) {
+      console.error('Error discovering tools:', toolError);
+      
+      // Fallback to simple rule-based selection
+      const tools: string[] = [];
+      
+      if (categories.includes('files')) {
+        tools.push('file-search');
+      }
+      
+      if (categories.includes('web')) {
+        tools.push('web-search');
+      }
+      
+      if (categories.includes('analysis')) {
+        tools.push('text-analysis');
+      }
+      
+      return {
+        ...state,
+        tools
+      };
+    }
   } catch (error) {
     console.error('Error in selectToolsNode:', error);
-    return state;
+    return {
+      ...state,
+      tools: []
+    };
   }
 }
 
@@ -468,10 +673,54 @@ export async function applyReasoningNode(
       };
     }
     
+    // Execute selected tools if available
+    const toolResults: Record<string, any> = {};
+    
+    if (state.tools && state.tools.length > 0) {
+      console.log(`Executing ${state.tools.length} tools`);
+      
+      for (const toolId of state.tools) {
+        try {
+          // Extract parameters from entities and input for tool execution
+          const toolParams = extractToolParameters(toolId, state);
+          
+          // Execute the tool
+          const toolResult = await toolService.executeTool({
+            toolId,
+            parameters: toolParams,
+            context: {
+              intent: state.intent,
+              entities: state.entities,
+              input: state.input
+            }
+          });
+          
+          if (toolResult.success) {
+            console.log(`Tool ${toolId} executed successfully`);
+            toolResults[toolId] = toolResult.data;
+            
+            // Add reasoning about the tool execution
+            const toolReasoning = `Tool execution: Used ${toolId} to gather information.`;
+            state.reasoning = [...(state.reasoning || []), toolReasoning];
+          } else {
+            console.error(`Tool ${toolId} execution failed:`, toolResult.error);
+            const errorReasoning = `Tool execution failed: ${toolResult.error}`;
+            state.reasoning = [...(state.reasoning || []), errorReasoning];
+          }
+        } catch (toolError) {
+          console.error(`Error executing tool ${toolId}:`, toolError);
+          const errorReasoning = `Tool execution error: ${toolError instanceof Error ? toolError.message : String(toolError)}`;
+          state.reasoning = [...(state.reasoning || []), errorReasoning];
+        }
+      }
+    }
+    
     // Define system prompt for advanced reasoning
     const systemPrompt = `You are an AI assistant that uses advanced reasoning to solve problems.
 Use a step-by-step Chain-of-Thought approach to reason through the user's request.
 Consider multiple perspectives and potential approaches.
+
+${state.tools && state.tools.length > 0 ? `I have already executed tools to gather information. Use the tool results in your reasoning.` : ''}
 
 For complex problems, explore different branches of thought (Tree-of-Thought).
 For each reasoning step, consider:
@@ -507,6 +756,11 @@ Intent: ${state.intent.name} (${state.intent.confidence})
 User message: ${state.input}
 Entities: ${state.entities?.map(e => `${e.type}: ${e.value}`).join(', ') || 'None'}
 Tools selected: ${state.tools?.join(', ') || 'None'}
+
+${Object.keys(toolResults).length > 0 ? `Tool Results:
+${Object.entries(toolResults).map(([toolId, result]) => 
+  `Tool ${toolId}: ${JSON.stringify(result).substring(0, 200)}${JSON.stringify(result).length > 200 ? '...' : ''}`
+).join('\n')}` : ''}
 
 Execution plan:
 ${state.plan.map((step, index) => `${index + 1}. ${step}`).join('\n')}
@@ -547,7 +801,8 @@ ${state.reasoning?.join('\n') || 'None'}
       
       return {
         ...state,
-        reasoning: allReasoning
+        reasoning: allReasoning,
+        toolResults
       };
     } catch (llmError) {
       console.error('Error calling LLM for advanced reasoning:', llmError);
@@ -556,18 +811,113 @@ ${state.reasoning?.join('\n') || 'None'}
       const reasoning = [
         `Intent: ${state.intent?.name}`,
         `Entities: ${state.entities?.map((e: Entity) => e.value).join(', ') || 'None'}`,
-        `Tools: ${state.tools?.join(', ') || 'None'}`
+        `Tools: ${state.tools?.join(', ') || 'None'}`,
+        ...Object.entries(toolResults).map(([toolId, result]) => 
+          `Tool ${toolId} result: ${typeof result === 'object' ? 'Data retrieved successfully' : String(result)}`
+        )
       ];
       
       return {
         ...state,
-        reasoning: [...(state.reasoning || []), ...reasoning]
+        reasoning: [...(state.reasoning || []), ...reasoning],
+        toolResults
       };
     }
   } catch (error) {
     console.error('Error in applyReasoningNode:', error);
     return state;
   }
+}
+
+/**
+ * Helper function to extract parameters for a tool from the state
+ */
+function extractToolParameters(toolId: string, state: ThinkingState): Record<string, any> {
+  // Get the tool to understand required parameters
+  const tool = toolService.getToolById(toolId);
+  
+  // Default parameters
+  const params: Record<string, any> = {};
+  
+  // For file search tool
+  if (toolId === 'file-search') {
+    // Find an entity that might be a search query
+    const searchEntity = state.entities?.find(e => 
+      e.type === 'query' || e.type === 'search_term' || e.type === 'keyword'
+    );
+    
+    // If we found a specific search entity, use it
+    if (searchEntity) {
+      params.query = searchEntity.value;
+    } else {
+      // Otherwise, use the most relevant part of the input
+      // This is a simplification - in a real system, we'd do more sophisticated extraction
+      params.query = extractSearchQuery(state.input, state.intent?.name || '');
+    }
+    
+    // Look for file type entities
+    const fileTypeEntity = state.entities?.find(e => e.type === 'file_type');
+    if (fileTypeEntity) {
+      params.fileTypes = [fileTypeEntity.value];
+    }
+  }
+  
+  // For web search tool
+  else if (toolId === 'web-search') {
+    // Similar approach as with file search
+    const searchEntity = state.entities?.find(e => 
+      e.type === 'query' || e.type === 'search_term' || e.type === 'keyword'
+    );
+    
+    if (searchEntity) {
+      params.query = searchEntity.value;
+    } else {
+      params.query = extractSearchQuery(state.input, state.intent?.name || '');
+    }
+  }
+  
+  // For text analysis tool
+  else if (toolId === 'text-analysis') {
+    // Find a text entity to analyze
+    const textEntity = state.entities?.find(e => e.type === 'text' || e.type === 'content');
+    
+    if (textEntity) {
+      params.text = textEntity.value;
+    } else {
+      // If no specific text entity found, use the entire input
+      params.text = state.input;
+    }
+    
+    // Set default analysis types
+    params.analysisTypes = ['sentiment', 'entities', 'keywords'];
+  }
+  
+  return params;
+}
+
+/**
+ * Helper function to extract a search query from text
+ */
+function extractSearchQuery(input: string, intent: string): string {
+  // This is a basic extraction - in a real system, we'd use more advanced NLP
+  
+  // Look for common search patterns
+  const searchPatterns = [
+    /find (?:information about|details on|) (.*?)(?:\.|\?|$)/i,
+    /search (?:for|) (.*?)(?:\.|\?|$)/i,
+    /look up (.*?)(?:\.|\?|$)/i,
+    /tell me about (.*?)(?:\.|\?|$)/i
+  ];
+  
+  for (const pattern of searchPatterns) {
+    const match = input.match(pattern);
+    if (match && match[1]) {
+      return match[1].trim();
+    }
+  }
+  
+  // If no pattern matched, combine intent with input
+  return `${intent} ${input.substring(0, 100)}`;
 }
 
 /**
@@ -592,6 +942,9 @@ export async function generateResponseNode(
 Based on your understanding of the user's intent, the entities extracted, and the reasoning process,
 create a clear, helpful, and accurate response.
 
+${state.toolResults && Object.keys(state.toolResults).length > 0 ? 
+  `I have used tools to gather information for you. Use this information to provide a more accurate response.` : ''}
+
 Do not mention your internal reasoning process or the fact that you've analyzed their intent.
 Simply respond as a helpful assistant addressing their needs.
 
@@ -612,6 +965,13 @@ Entities: ${state.entities?.map(e => `${e.type}: ${e.value}`).join(', ') || 'Non
 
 Execution plan:
 ${state.plan?.map((step, index) => `${index + 1}. ${step}`).join('\n') || 'No plan available'}
+
+${state.toolResults && Object.keys(state.toolResults).length > 0 ? `
+Tool Results:
+${Object.entries(state.toolResults).map(([toolId, result]) => 
+  `Tool ${toolId}: ${JSON.stringify(result, null, 2).substring(0, 300)}${JSON.stringify(result).length > 300 ? '...' : ''}`
+).join('\n\n')}
+` : ''}
 
 Key reasoning insights:
 ${state.reasoning?.slice(-3)?.join('\n') || 'No reasoning available'}

@@ -9,6 +9,8 @@ import {
 import { IdGenerator } from '@/utils/ulid';
 import { executeThinkingWorkflow } from './graph';
 import { ThinkingState as GraphState } from './graph/types';
+import { DelegationService } from './delegation/DelegationService';
+import { DelegationFeedback } from './delegation/DelegationManager';
 
 /**
  * Implementation of the ThinkingService
@@ -16,6 +18,12 @@ import { ThinkingState as GraphState } from './graph/types';
  */
 export class ThinkingService implements IThinkingService {
   private workingMemoryStore: Record<string, WorkingMemoryItem[]> = {};
+  private delegationService: DelegationService;
+  private delegatedTasks: Map<string, { taskId: string, agentId: string }> = new Map();
+  
+  constructor() {
+    this.delegationService = new DelegationService();
+  }
   
   /**
    * Analyze user intent from a message
@@ -74,7 +82,30 @@ export class ThinkingService implements IThinkingService {
     confidence: number;
     reason: string;
   }> {
-    // Simple implementation - will be enhanced with LLM reasoning
+    // If the thinking result already has delegation information, use it
+    if (thinkingResult.shouldDelegate && thinkingResult.delegateToCapability) {
+      // Check if these capabilities are available in the system
+      const capabilitiesAvailable = await this.delegationService.hasCapabilities(
+        thinkingResult.delegateToCapability
+      );
+      
+      if (!capabilitiesAvailable) {
+        return {
+          delegate: false,
+          confidence: 0.7,
+          reason: 'Required capabilities not available in the system'
+        };
+      }
+      
+      return {
+        delegate: true,
+        requiredCapabilities: thinkingResult.delegateToCapability,
+        confidence: 0.85,
+        reason: 'Based on intent analysis and capability availability'
+      };
+    }
+    
+    // Basic implementation - can be enhanced with more sophisticated logic
     return {
       delegate: thinkingResult.shouldDelegate,
       confidence: 0.7,
@@ -120,10 +151,24 @@ export class ThinkingService implements IThinkingService {
       confidence: thinkingResult.intent.confidence,
       userId
     });
+    
+    // If there's delegation information, store it in working memory
+    if (thinkingResult.shouldDelegate && thinkingResult.delegateToCapability) {
+      await this.storeWorkingMemoryItem(userId, {
+        content: `Delegated to ${thinkingResult.delegateToCapability.join(', ')}`,
+        type: 'task',
+        tags: ['delegation', 'task_status'],
+        addedAt: new Date(),
+        priority: 8, // High priority
+        expiresAt: null,
+        confidence: 1.0,
+        userId
+      });
+    }
   }
   
   /**
-   * Create an execution plan for handling the user's request
+   * Create execution plan for handling the user's request
    */
   async createExecutionPlan(
     intent: string,
@@ -164,11 +209,63 @@ export class ThinkingService implements IThinkingService {
       // Update working memory with the results
       await this.updateWorkingMemory(userId, thinkingResult);
       
+      // If task was delegated, store the delegation information for future feedback
+      if (graphResult.response && graphResult.response.includes('Task delegated to a specialized agent')) {
+        // Extract taskId from response (assuming it's in the format)
+        const match = graphResult.response.match(/Task delegated to a specialized agent \(([^)]+)\)/);
+        if (match && match[1]) {
+          const agentId = match[1];
+          const requestId = IdGenerator.generate('req').toString();
+          
+          // Store delegation for future feedback
+          this.delegatedTasks.set(requestId, {
+            taskId: graphResult.response.split('Task delegated')[1].trim(),
+            agentId
+          });
+        }
+      }
+      
       return thinkingResult;
     } catch (error) {
       console.error('Error in thinking process:', error);
       throw new Error(`Thinking process failed: ${error instanceof Error ? error.message : String(error)}`);
     }
+  }
+  
+  /**
+   * Record feedback on a delegated task
+   */
+  async recordDelegationFeedback(
+    requestId: string,
+    wasSuccessful: boolean,
+    executionTime: number,
+    userSatisfaction?: number
+  ): Promise<boolean> {
+    const delegation = this.delegatedTasks.get(requestId);
+    
+    if (!delegation) {
+      console.error(`No delegation found for request ID ${requestId}`);
+      return false;
+    }
+    
+    const feedback: DelegationFeedback = {
+      taskId: delegation.taskId,
+      agentId: delegation.agentId,
+      wasSuccessful,
+      executionTime,
+      userSatisfaction,
+      details: `Feedback recorded for request ${requestId}`
+    };
+    
+    // Record feedback using delegation service
+    const result = await this.delegationService.recordFeedback(feedback);
+    
+    // Remove from tracking if feedback was recorded
+    if (result) {
+      this.delegatedTasks.delete(requestId);
+    }
+    
+    return result;
   }
   
   /**

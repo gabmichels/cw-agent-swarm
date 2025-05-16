@@ -76,6 +76,21 @@ export interface IThinkingService {
   ): Promise<ThinkingResult>;
   
   /**
+   * Record feedback on a delegated task
+   * @param requestId ID of the original request
+   * @param wasSuccessful Whether the delegation was successful
+   * @param executionTime Time taken to execute the task in ms
+   * @param userSatisfaction Optional user satisfaction score (0-1)
+   * @returns Whether feedback was successfully recorded
+   */
+  recordDelegationFeedback(
+    requestId: string,
+    wasSuccessful: boolean,
+    executionTime: number,
+    userSatisfaction?: number
+  ): Promise<boolean>;
+  
+  /**
    * Retrieve working memory for a user
    * @param userId The user ID
    * @returns Working memory items

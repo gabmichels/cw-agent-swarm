@@ -106,6 +106,11 @@ export interface ThinkingState {
   tools?: string[];
   
   /**
+   * Results from executed tools
+   */
+  toolResults?: Record<string, any>;
+  
+  /**
    * Final response
    */
   response?: string;

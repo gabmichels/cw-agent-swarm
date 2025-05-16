@@ -20,6 +20,14 @@ export interface MemoryRetrievalOptions {
     hours?: number;
   };
   
+  // Importance weighting
+  importanceWeighting?: {
+    enabled: boolean;
+    priorityWeight?: number;
+    confidenceWeight?: number;
+    useTypeWeights?: boolean;
+  };
+  
   // Formatting options
   maxTokens?: number;
   includeMetadata?: boolean;
@@ -29,6 +37,17 @@ export interface MemoryRetrievalOptions {
  * Service for retrieving relevant memories during the thinking process
  */
 export class MemoryRetriever {
+  /**
+   * Type-based importance weights
+   */
+  private typeWeights: Record<string, number> = {
+    'goal': 2.0,   // Goals are highest priority
+    'fact': 1.5,   // Facts are important for context
+    'entity': 1.3, // Entities are key information
+    'preference': 1.2, // User preferences are important
+    'task': 1.0    // Tasks are standard weight
+  };
+  
   /**
    * Retrieve relevant memories based on the query
    */
@@ -74,7 +93,7 @@ export class MemoryRetriever {
       console.log(`Retrieved ${searchResults.length} memories for thinking context`);
       
       // Convert search results to working memory items
-      const memories: WorkingMemoryItem[] = [];
+      let memories: WorkingMemoryItem[] = [];
       const memoryIds: string[] = [];
       
       // Process each search result
@@ -89,6 +108,9 @@ export class MemoryRetriever {
                 content: string;
                 metadata?: {
                   tags?: string[];
+                  type?: string;
+                  priority?: number;
+                  confidence?: number;
                 };
               };
             };
@@ -97,19 +119,26 @@ export class MemoryRetriever {
           
           const memoryId = String(resultData.point?.id || IdGenerator.generate("memory"));
           
+          // Extract metadata for importance weighting
+          const memoryType = String(resultData.point?.payload?.metadata?.type || 'fact');
+          const priority = Number(resultData.point?.payload?.metadata?.priority || 5);
+          const confidence = Number(resultData.point?.payload?.metadata?.confidence || 0.7);
+          
           // Create a working memory item
           memories.push({
             id: memoryId,
-            type: 'fact', // Default type for retrieved memories
+            type: memoryType as 'entity' | 'fact' | 'preference' | 'task' | 'goal',
             content: String(resultData.point?.payload?.content || ''),
             tags: Array.isArray(resultData.point?.payload?.metadata?.tags) 
               ? resultData.point.payload.metadata.tags 
               : [],
             addedAt: new Date(),
-            priority: 1,
+            priority: priority,
             expiresAt: null,
-            confidence: resultData.score || 0.9,
-            userId: options.userId
+            confidence: confidence,
+            userId: options.userId,
+            // Store original relevance score for ranking
+            _relevanceScore: resultData.score || 0.5
           });
           
           memoryIds.push(memoryId);
@@ -118,11 +147,57 @@ export class MemoryRetriever {
         }
       }
       
+      // Apply importance weighting if enabled
+      if (options.importanceWeighting?.enabled) {
+        memories = this.applyImportanceWeighting(memories, options.importanceWeighting);
+      }
+      
       return { memories, memoryIds };
     } catch (error) {
       console.error('Error retrieving memories:', error);
       return { memories: [], memoryIds: [] };
     }
+  }
+  
+  /**
+   * Apply importance weighting to retrieved memories
+   */
+  private applyImportanceWeighting(
+    memories: WorkingMemoryItem[], 
+    weightingOptions: {
+      priorityWeight?: number;
+      confidenceWeight?: number;
+      useTypeWeights?: boolean;
+    }
+  ): WorkingMemoryItem[] {
+    // Default weights if not provided
+    const priorityWeight = weightingOptions.priorityWeight ?? 1.0;
+    const confidenceWeight = weightingOptions.confidenceWeight ?? 1.0;
+    const useTypeWeights = weightingOptions.useTypeWeights ?? true;
+    
+    // Calculate weighted scores for each memory
+    const scoredMemories = memories.map(memory => {
+      // Start with base relevance score (from semantic search)
+      let score = memory._relevanceScore || 0.5;
+      
+      // Apply priority weighting
+      score += (memory.priority / 10) * priorityWeight; // Normalize priority to 0-1 scale
+      
+      // Apply confidence weighting
+      score *= (memory.confidence * confidenceWeight);
+      
+      // Apply type-based weighting if enabled
+      if (useTypeWeights && this.typeWeights[memory.type]) {
+        score *= this.typeWeights[memory.type];
+      }
+      
+      return { memory, score };
+    });
+    
+    // Sort by final score (descending)
+    return scoredMemories
+      .sort((a, b) => b.score - a.score)
+      .map(item => item.memory);
   }
 
   /**
