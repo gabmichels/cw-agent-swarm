@@ -15,6 +15,11 @@ export interface Message {
   metadata?: Record<string, unknown>;
   messageType?: string;
   attachments?: FileAttachment[];
+  // Add properties for debugging/development
+  memory?: any;
+  thoughts?: any;
+  visionResponseFor?: Date;
+  isInternalMessage?: boolean;
 }
 
 // Define interface for file attachment

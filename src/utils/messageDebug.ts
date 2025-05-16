@@ -5,6 +5,7 @@
 
 import { Message } from '../types';
 import { MessageType } from '../constants/message';
+import { isInternalMessage } from './messageFilters';
 
 /**
  * Analyzes all messages and logs stats about message types
@@ -23,8 +24,8 @@ export function analyzeMessageTypes(messages: Message[]): void {
     counts[type] = (counts[type] || 0) + 1;
   });
   
-  // Count internal vs visible
-  const internalCount = messages.filter(m => m.isInternalMessage).length;
+  // Count internal vs visible messages using the filter function
+  const internalCount = messages.filter(m => isInternalMessage(m)).length;
   const visibleCount = messages.length - internalCount;
   
   // Log results
@@ -42,9 +43,9 @@ export function analyzeMessageTypes(messages: Message[]): void {
 export function exportDebugMessages(messages: Message[]): void {
   const debugData = messages.map(msg => ({
     type: msg.messageType || 'unspecified',
-    sender: msg.sender,
+    sender: typeof msg.sender === 'string' ? msg.sender : `${msg.sender.name} (${msg.sender.role})`,
     content: msg.content.substring(0, 50) + (msg.content.length > 50 ? '...' : ''),
-    isInternal: msg.isInternalMessage || false,
+    isInternal: isInternalMessage(msg),
     timestamp: msg.timestamp
   }));
   

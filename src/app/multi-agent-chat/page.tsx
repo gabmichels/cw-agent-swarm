@@ -1,27 +1,36 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 import MultiAgentChatInterface from '../../components/MultiAgentChatInterface';
 import AgentRelationshipGraph from '../../components/AgentRelationshipGraph';
 
-export default function MultiAgentChatPage() {
-  const searchParams = useSearchParams();
+export default function MultiAgentChatPage({ 
+  searchParams 
+}: { 
+  searchParams?: { [key: string]: string | string[] | undefined } 
+}) {
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [chat, setChat] = useState<any>(null);
+  const router = useRouter();
   const [userId, setUserId] = useState('user_admin');
   const [chatId, setChatId] = useState<string>('');
   
   // Use a chatId from URL if available, otherwise generate a new one
   useEffect(() => {
-    const paramChatId = searchParams.get('chatId');
+    // Extract chatId from searchParams
+    const paramChatId = searchParams && 'chatId' in searchParams ? 
+                        Array.isArray(searchParams.chatId) ? 
+                        searchParams.chatId[0] : 
+                        searchParams.chatId : null;
+
     if (paramChatId) {
       setChatId(paramChatId);
     } else {
-      // Generate a new chat ID if none is provided
-      const generatedChatId = `chat_${new Date().getTime()}`;
-      setChatId(generatedChatId);
-      
-      // Create a new chat via API
-      createNewChat(generatedChatId);
+      // Generate random chatId
+      const newChatId = `chat_${Math.random().toString(36).substring(2, 15)}`;
+      setChatId(newChatId);
     }
   }, [searchParams]);
   

@@ -159,13 +159,20 @@ export default function useChatMemory({
         };
       }) => ({
         id: memory.id,
-        sender: memory.payload.metadata?.role === 'user' ? 'You' : 'Assistant',
+        sender: {
+          id: memory.payload.metadata?.role === 'user' ? 'user-id' : 'assistant-id',
+          name: memory.payload.metadata?.role === 'user' ? 'You' : 'Assistant',
+          role: memory.payload.metadata?.role === 'user' ? 'user' : 'assistant'
+        },
         content: memory.payload.text,
         timestamp: new Date(memory.payload.timestamp),
         messageType: memory.payload.metadata?.role === 'user' 
           ? MessageType.USER 
           : MessageType.AGENT,
-        metadata: memory.payload.metadata
+        metadata: {
+          ...memory.payload.metadata,
+          isInternalMessage: memory.payload.metadata?.isInternalMessage || false
+        }
       }));
       
       // Sort messages by timestamp
@@ -187,7 +194,8 @@ export default function useChatMemory({
   const addChatMessage = useCallback(async (message: Message) => {
     try {
       // Determine role from message type or sender
-      const role = message.messageType === MessageType.USER || message.sender === 'You' 
+      const role = message.messageType === MessageType.USER || 
+        (message.sender && message.sender.role === 'user')
         ? 'user' 
         : 'assistant';
       
@@ -199,8 +207,10 @@ export default function useChatMemory({
           role,
           userId,
           timestamp: message.timestamp.toISOString(),
-          isInternalMessage: message.isInternalMessage || false,
+          isInternalMessage: message.metadata?.isInternalMessage || false,
           messageType: message.messageType,
+          senderName: message.sender.name,
+          senderRole: message.sender.role,
           ...(message.metadata || {})
         }
       });

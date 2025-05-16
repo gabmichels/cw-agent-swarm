@@ -223,28 +223,38 @@ const ChatBubbleMenu: React.FC<ChatBubbleMenuProps> = ({
   }, [message, reliabilityService]);
 
   const handleDelete = useCallback(async () => {
-    if (!onDeleteMessage || !message.timestamp) return;
-    
     setDeleteState({ isLoading: true, error: null });
     try {
       // Call the API endpoint directly
-      const response = await fetch(`/api/chat/message?${message.id ? `messageId=${message.id}` : `timestamp=${message.timestamp.toISOString()}`}`, {
+      const response = await fetch(`/api/chat/message?${message.id ? `messageId=${message.id}` : `timestamp=${message.timestamp?.toISOString()}`}`, {
         method: 'DELETE',
       });
 
       const data = await response.json();
       
       if (data.success) {
-        // Call the parent handler to update UI
-        const success = await onDeleteMessage(message.timestamp);
-        if (!success) {
-          throw new Error('Failed to update UI after message deletion');
+        // Try to call the parent handler to update UI, but don't fail if it's not available or fails
+        if (onDeleteMessage && message.timestamp) {
+          try {
+            await onDeleteMessage(message.timestamp);
+          } catch (e) {
+            console.warn('UI update callback failed, but message was deleted:', e);
+          }
         }
+        
         Toast.show({ message: 'Message deleted successfully', type: 'success', duration: 3000 });
         setShowDeleteDialog(false);
         
-        // Trigger a page refresh to reload messages
-        window.location.reload();
+        // Dispatch a custom event that can be listened for by parent components
+        const event = new CustomEvent('messageDeleted', {
+          detail: { id: message.id, timestamp: message.timestamp }
+        });
+        document.dispatchEvent(event);
+        
+        // Wait a moment, then reload the page to refresh messages
+        setTimeout(() => {
+          window.location.reload();
+        }, 500);
       } else {
         throw new Error(data.error || 'Failed to delete message');
       }

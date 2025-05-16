@@ -111,7 +111,7 @@ const SearchResults: React.FC<SearchResultsProps> = ({
                     {highlightTerm(context, searchQuery)}
                   </div>
                   <div className="text-xs text-gray-500">
-                    {format(timestamp, 'MMM d, yyyy • h:mm a')} • {message.sender}
+                    {format(timestamp, 'MMM d, yyyy • h:mm a')} • {message.sender.name}
                   </div>
                 </div>
               </div>

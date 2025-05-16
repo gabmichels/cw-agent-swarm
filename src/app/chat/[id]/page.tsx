@@ -81,9 +81,9 @@ const WelcomeScreen = () => {
   );
 };
 
-const ChatPage: React.FC = () => {
-  const params = useParams();
-  const agentId = params.id as string;
+export default function ChatPage({ params }: { params: { id?: string } }) {
+  // Add null check for params.id
+  const agentId = params?.id || 'default';
   const [chat, setChat] = useState<Chat | null>(null);
   const [messages, setMessages] = useState<MessageWithId[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -670,6 +670,4 @@ const ChatPage: React.FC = () => {
       )}
     </div>
   );
-};
-
-export default ChatPage;
+}

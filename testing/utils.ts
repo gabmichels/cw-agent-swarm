@@ -289,6 +289,33 @@ export class MockMemoryClient implements IMemoryClient {
   clearAll(): void {
     this.collections.clear();
   }
+
+  /**
+   * Get collection information
+   */
+  async getCollectionInfo(collectionName: string): Promise<{ 
+    name: string; 
+    dimensions: number; 
+    pointsCount: number; 
+    createdAt: Date 
+  } | null> {
+    if (!this.collections.has(collectionName)) {
+      return null;
+    }
+    
+    const collection = this.collections.get(collectionName)!;
+    // Use the first point to get dimensions, or default to 1536
+    const firstPoint = collection.size > 0 ? 
+      Array.from(collection.values())[0] : 
+      null;
+    
+    return {
+      name: collectionName,
+      dimensions: firstPoint?.vector.length || 1536,
+      pointsCount: collection.size,
+      createdAt: new Date()
+    };
+  }
 }
 
 /**

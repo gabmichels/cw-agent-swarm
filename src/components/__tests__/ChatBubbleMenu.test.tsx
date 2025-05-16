@@ -34,7 +34,18 @@ describe('ChatBubbleMenu', () => {
     isAssistantMessage: true,
     showVersionControls: false,
     currentVersionIndex: 0,
-    totalVersions: 1
+    totalVersions: 1,
+    onCopyText: jest.fn(),
+    onFlagUnreliable: jest.fn().mockResolvedValue(undefined),
+    onRegenerate: jest.fn().mockResolvedValue(undefined),
+    onFlagImportant: jest.fn().mockResolvedValue(undefined),
+    onAddToKnowledge: jest.fn().mockResolvedValue(undefined),
+    onExportToCoda: jest.fn().mockResolvedValue(undefined),
+    onDeleteMessage: jest.fn().mockResolvedValue(true),
+    onDeleteMemory: jest.fn().mockResolvedValue(undefined),
+    onPreviousVersion: jest.fn(),
+    onNextVersion: jest.fn(),
+    messageId: 'test-message-id'
   };
 
   beforeEach(() => {

@@ -71,12 +71,12 @@ When implementing file attachment functionality for the chat/[id] endpoint, foll
   - [x] Test capability metadata handling
 
 ### Integration Tests
-- [ ] Add integration tests for the complete registration process:
-  - [ ] Test end-to-end agent registration flow
-  - [ ] Test knowledge processing during registration
-  - [ ] Test capability assignment during registration
-  - [ ] Test error handling and recovery
-  - [ ] Test processing status updates
+- [x] Add integration tests for the complete registration process:
+  - [x] Test end-to-end agent registration flow
+  - [x] Test knowledge processing during registration
+  - [x] Test capability assignment during registration
+  - [x] Test error handling and recovery
+  - [x] Test processing status updates
 
 ### End-to-End Tests
 - [ ] Develop end-to-end tests for agent creation and operation:
@@ -159,4 +159,5 @@ After implementing the above plan, we should evaluate the effectiveness of the e
 - [x] Created API endpoint for processing knowledge files during agent finalization
 - [x] Added processing status tracking during agent finalization
 - [x] Added unit tests for capability storage and retrieval
-- [ ] Next task: Integration Tests - Test end-to-end agent registration flow
+- [x] Added integration tests for end-to-end agent registration flow
+- [ ] Next task: Develop end-to-end tests for agent creation and operation

@@ -6,9 +6,8 @@ import Link from 'next/link';
 import { AgentProfile } from '@/lib/multi-agent/types/agent';
 import CreateChatButton from '@/components/chat/CreateChatButton';
 
-const AgentDetailPage: React.FC = () => {
-  const params = useParams();
-  const agentId = params.id as string;
+export default function AgentPage({ params }: { params: { id?: string } }) {
+  const agentId = params?.id || 'default';
   const [agent, setAgent] = useState<AgentProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -209,6 +208,4 @@ const AgentDetailPage: React.FC = () => {
       </div>
     </div>
   );
-};
-
-export default AgentDetailPage; 
+} 

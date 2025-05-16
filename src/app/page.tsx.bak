@@ -149,22 +149,22 @@ export default function Home() {
   return (
     <div className="flex flex-col h-screen bg-gray-900 text-white">
       {/* Header */}
-        <Header
-          selectedDepartment={selectedDepartment}
-          selectedAgent={selectedAgent}
-          isDeptDropdownOpen={isDeptDropdownOpen}
-          isAgentDropdownOpen={isAgentDropdownOpen}
-          isDebugMode={isDebugMode}
-          isSidebarOpen={isSidebarOpen}
-          toggleSidebar={toggleSidebar}
-          toggleDeptDropdown={toggleDeptDropdown}
-          toggleAgentDropdown={toggleAgentDropdown}
-          handleDepartmentChange={handleDepartmentChange}
-          handleAgentChange={handleAgentChange}
-          setIsDebugMode={setIsDebugMode}
-          departments={departments}
-          agentsByDepartment={agentsByDepartment}
-        />
+      <Header
+        selectedDepartment={selectedDepartment}
+        selectedAgent={selectedAgent}
+        isDeptDropdownOpen={isDeptDropdownOpen}
+        isAgentDropdownOpen={isAgentDropdownOpen}
+        isDebugMode={isDebugMode}
+        isSidebarOpen={isSidebarOpen}
+        toggleSidebar={toggleSidebar}
+        toggleDeptDropdown={toggleDeptDropdown}
+        toggleAgentDropdown={toggleAgentDropdown}
+        handleDepartmentChange={handleDepartmentChange}
+        handleAgentChange={handleAgentChange}
+        setIsDebugMode={setIsDebugMode}
+        departments={departments}
+        agentsByDepartment={agentsByDepartment}
+      />
 
       {/* Main content area */}
       <div className="flex flex-1 overflow-hidden">
@@ -179,15 +179,15 @@ export default function Home() {
               setSelectedAgent={setSelectedAgent}
             />
           )}
-          </div>
+        </div>
 
         {/* Main content */}
-          <div className="flex-1 flex flex-col overflow-hidden">
+        <div className="flex-1 flex flex-col overflow-hidden">
           <div className="flex-1 overflow-hidden flex items-center justify-center">
-                      <WelcomeScreen />
-                          </div>
-                  </div>
-                </div>
+            <WelcomeScreen />
+          </div>
+        </div>
+      </div>
     </div>
   );
 } 

@@ -6,25 +6,41 @@ import { Search } from 'lucide-react';
 // Mock data for testing
 const mockMessages: Message[] = [
   {
-    sender: 'Chloe',
+    sender: {
+      id: '1',
+      name: 'Chloe',
+      role: 'assistant'
+    },
     content: 'Hello! I can help you with your questions.',
     timestamp: new Date(),
     messageType: MessageType.AGENT,
   },
   {
-    sender: 'User',
+    sender: {
+      id: '2',
+      name: 'User',
+      role: 'user'
+    },
     content: 'I need help with search functionality.',
     timestamp: new Date(),
     messageType: MessageType.USER,
   },
   {
-    sender: 'Chloe',
+    sender: {
+      id: '1',
+      name: 'Chloe',
+      role: 'assistant'
+    },
     content: 'We can implement fuzzy search that handles misspellings.',
     timestamp: new Date(),
     messageType: MessageType.AGENT,
   },
   {
-    sender: 'User',
+    sender: {
+      id: '2',
+      name: 'User',
+      role: 'user'
+    },
     content: 'How does the smart search work?',
     timestamp: new Date(),
     messageType: MessageType.USER,
@@ -94,12 +110,12 @@ const TestSearch: React.FC = () => {
           <div 
             key={index}
             className={`p-3 rounded-lg ${
-              message.sender === 'User' 
+              message.sender.role === 'user' 
                 ? 'bg-blue-700 ml-12' 
                 : 'bg-gray-800 mr-12'
             }`}
           >
-            <div className="font-bold text-sm mb-1">{message.sender}</div>
+            <div className="font-bold text-sm mb-1">{message.sender.name}</div>
             <div>
               {highlightSearchMatches(message.content, searchQuery)}
             </div>

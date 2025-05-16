@@ -81,7 +81,8 @@ export class KnowledgeGapsProcessor {
    */
   private formatConversationForAnalysis(messages: Message[]): string {
     return messages.map(message => {
-      const role = message.sender === 'You' ? 'User' : 'Assistant';
+      // Use the sender.role property to determine the role
+      const role = message.sender.role === 'user' ? 'User' : 'Assistant';
       return `${role}: ${message.content}`;
     }).join('\n\n');
   }

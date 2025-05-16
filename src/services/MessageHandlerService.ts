@@ -48,7 +48,7 @@ export class MessageHandlerService {
     
     // Create user message
     const userMessage: Message = {
-      sender: 'You',
+      sender: this.createSender('You'),
       content: messageContent,
       timestamp: new Date(),
       attachments: currentAttachments.length > 0 ? currentAttachments : undefined,
@@ -126,7 +126,7 @@ export class MessageHandlerService {
 
       // Create agent response from multi-agent data
       const agentResponse: Message = {
-        sender: data.message.metadata?.agentName || 'Assistant',
+        sender: this.createSender(data.message.metadata?.agentName || 'Assistant'),
         content: data.message.content,
         timestamp: new Date(data.message.timestamp || Date.now()),
         messageType: MessageType.AGENT,
@@ -144,7 +144,7 @@ export class MessageHandlerService {
           content: thought,
           timestamp: new Date(),
           messageType: MessageType.THOUGHT,
-          isInternalMessage: true
+          metadata: { isInternalMessage: true }
         });
       });
 
@@ -155,7 +155,7 @@ export class MessageHandlerService {
       
       // Show error message
       const errorResponse: Message = {
-        sender: 'System',
+        sender: this.createSender('System'),
         content: "I apologize, but I'm having trouble responding right now. Please try again.",
         timestamp: new Date(),
         messageType: MessageType.SYSTEM
@@ -296,6 +296,23 @@ export class MessageHandlerService {
       img.onerror = () => reject(new Error('Failed to load image'));
       img.src = dataUrl;
     });
+  }
+
+  /**
+   * Helper function to create a sender object from string names
+   */
+  private createSender(name: string): { id: string; name: string; role: 'user' | 'assistant' | 'system' } {
+    // Map common sender names to standard roles
+    let role: 'user' | 'assistant' | 'system' = 'system';
+    let id = name.toLowerCase().replace(/\s+/g, '-');
+    
+    if (name === 'You') {
+      role = 'user';
+    } else if (['Chloe', 'Assistant'].includes(name) || name.startsWith('Agent-')) {
+      role = 'assistant';
+    }
+    
+    return { id, name, role };
   }
 }
 

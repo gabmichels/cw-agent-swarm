@@ -29,23 +29,25 @@ export function isMessageVisibleInChat(message: Message): boolean {
     }
     
     // Handle nested metadata structure
-    if (message.metadata.metadata) {
-      if (message.metadata.metadata.isForChat === true) {
+    if (message.metadata.metadata && typeof message.metadata.metadata === 'object') {
+      const nestedMetadata = message.metadata.metadata as Record<string, unknown>;
+      
+      if (nestedMetadata.isForChat === true) {
         return true;
       }
       
-      if (message.metadata.metadata.isForChat === false) {
+      if (nestedMetadata.isForChat === false) {
         return false;
       }
       
-      if (message.metadata.metadata.isInternal === true) {
+      if (nestedMetadata.isInternal === true) {
         return false;
       }
     }
   }
   
-  // If message has explicit internal flag, respect that
-  if (message.isInternalMessage === true) {
+  // Check for internal flag in metadata
+  if (message.metadata?.isInternalMessage === true) {
     return false;
   }
   
@@ -55,11 +57,11 @@ export function isMessageVisibleInChat(message: Message): boolean {
            message.messageType === MessageType.AGENT;
   }
   
-  // IMPORTANT: Only show legacy messages if they are from expected senders
+  // IMPORTANT: Only show messages if they are from expected roles
   // Avoid showing any internal processing messages
   if (message.sender) {
-    const allowedSenders = ['user', 'agent', 'assistant', 'You'];
-    return allowedSenders.includes(message.sender);
+    const allowedRoles = ['user', 'assistant'];
+    return allowedRoles.includes(message.sender.role);
   }
   
   // Default to not showing messages with unclear origin
@@ -92,29 +94,31 @@ export function filterChatVisibleMessages(messages: Message[]): Message[] {
  * @returns boolean indicating if the message is internal
  */
 export function isInternalMessage(message: Message): boolean {
-  // Check explicit flag first
-  if (message.isInternalMessage === true) {
-    return true;
-  }
-  
-  // Check for new metadata properties (added for compatibility with proxy.ts changes)
+  // Check metadata properties 
   if (message.metadata) {
-    // New format: Check metadata.isInternal flag
+    // Check metadata.isInternal flag
     if (message.metadata.isInternal === true) {
       return true;
     }
     
-    // New format: Check metadata.isForChat flag (inverse logic)
+    // Check metadata.isForChat flag (inverse logic)
     if (message.metadata.isForChat === false) {
+      return true;
+    }
+    
+    // Check for isInternalMessage in metadata
+    if (message.metadata.isInternalMessage === true) {
       return true;
     }
 
     // Check for nested metadata.metadata structure
-    if (message.metadata.metadata) {
-      if (message.metadata.metadata.isInternal === true) {
+    if (message.metadata.metadata && typeof message.metadata.metadata === 'object') {
+      const nestedMetadata = message.metadata.metadata as Record<string, unknown>;
+      
+      if (nestedMetadata.isInternal === true) {
         return true;
       }
-      if (message.metadata.metadata.isForChat === false) {
+      if (nestedMetadata.isForChat === false) {
         return true;
       }
     }
@@ -127,6 +131,11 @@ export function isInternalMessage(message: Message): boolean {
            message.messageType === MessageType.SYSTEM ||
            message.messageType === MessageType.TOOL_LOG ||
            message.messageType === MessageType.MEMORY_LOG;
+  }
+  
+  // Check sender role - system messages are generally internal
+  if (message.sender && message.sender.role === 'system') {
+    return true;
   }
   
   // For backwards compatibility

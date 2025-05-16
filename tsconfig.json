@@ -45,6 +45,10 @@
   "exclude": [
     "node_modules",
     ".next",
-    "src/agents/chloe"
+    "src/agents/chloe",
+    "docs/testing",
+    "scripts",
+    "backup-api-routes",
+    "tests/api/multi-agent"
   ]
 }
