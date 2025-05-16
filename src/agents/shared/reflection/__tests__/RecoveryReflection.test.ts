@@ -31,7 +31,7 @@ class MockAgent extends AbstractAgentBase {
       createdBy: 'test',
       capabilities: [],
       parameters: {
-        model: 'gpt-3.5-turbo',
+        model: process.env.OPENAI_MODEL_NAME,
         temperature: 0.7,
         maxTokens: 2048,
         tools: [],

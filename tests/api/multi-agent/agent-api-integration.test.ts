@@ -56,7 +56,7 @@ async function testAgentCreation(): Promise<void> {
       { name: 'basic_conversation', description: 'Can have a basic conversation' }
     ],
     parameters: {
-      model: 'gpt-3.5-turbo'
+      model: process.env.OPENAI_MODEL_NAME
     },
     metadata: {
       test: true

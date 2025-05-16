@@ -61,7 +61,7 @@ async function testChatCreationAndRetrieval() {
       { name: 'chat', description: 'Can participate in chat conversations' }
     ],
     parameters: {
-      model: 'gpt-3.5-turbo'
+      model: process.env.OPENAI_MODEL_NAME
     },
     metadata: {
       tags: ['test', 'chat']

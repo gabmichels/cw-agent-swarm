@@ -343,7 +343,9 @@ export async function POST(
     }
 
     // Process message with agent
-    let agentResponse: AgentResponse;
+    // Initialize agentResponse variable but don't set default content
+    let agentResponse: AgentResponse | undefined;
+    
     try {
       // Create message processing options
       const processingOptions: MessageProcessingOptions = {
@@ -380,7 +382,8 @@ export async function POST(
               const agentDescription = agent.description || 'A helpful AI assistant';
               
               // Extract system prompt if available from parameters
-              agentSystemPrompt = (agent.parameters as { systemPrompt?: string })?.systemPrompt;
+              agentSystemPrompt = (agent.parameters as { systemPrompt?: string })?.systemPrompt || 
+                                  (agent.parameters as { customInstructions?: string })?.customInstructions;
               
               // Add visualization data node for agent info
               const agentInfoNodeId = thinkingVisualizer.addNode(
@@ -394,12 +397,21 @@ export async function POST(
                   chatId
                 }
               );
+
+              // Get persona information from metadata.persona if it exists
+              const personaFromMetadata = agent.metadata?.persona;
               
               agentInfo = {
                 name: agentName,
                 description: agentDescription,
                 systemPrompt: agentSystemPrompt
               };
+
+              // Log the agent info (including persona separately for debugging)
+              console.log('AGENT INFO BEING SENT TO LLM:', JSON.stringify({
+                ...agentInfo, 
+                persona: personaFromMetadata
+              }, null, 2));
             }
           } catch (agentInfoError) {
             console.warn('Error getting agent info for persona:', agentInfoError);
@@ -453,6 +465,100 @@ export async function POST(
             if (thinkingResult.planSteps && thinkingResult.planSteps.length > 0) {
               console.log(`- Execution plan: ${thinkingResult.planSteps.join(' → ')}`);
             }
+            
+            // Prepare enhanced processing options with thinking results
+            const enhancedOptions: MessageProcessingOptions & Record<string, any> = {
+              ...processingOptions,
+              // Include thinking results if available
+              contextThoughts: thoughts.length > 0 ? thoughts : undefined,
+              // Include original user message for context
+              originalMessage: content,
+              // Pass agent persona information as additional context
+              persona: agent.metadata?.persona || {
+                systemPrompt: agent.parameters?.systemPrompt || agent.parameters?.customInstructions || '',
+                name: agent.name || 'Assistant',
+                description: agent.description || 'A helpful AI assistant',
+                traits: agent.metadata?.traits || []
+              },
+              // Pass thinking results directly
+              thinkingResults: {
+                intent: thinkingResult?.intent?.primary || 'general_query',
+                entities: thinkingResult?.entities || [],
+                context: thinkingResult?.context || {},
+                planSteps: thinkingResult?.planSteps || [],
+                shouldDelegate: thinkingResult?.shouldDelegate || false,
+                requiredCapabilities: thinkingResult?.requiredCapabilities || []
+              },
+              // Add explicit instructions to use thinking context
+              processingInstructions: [
+                "Use the provided thinking analysis to inform your response",
+                "Address the user's specific message content and intent",
+                "Maintain a conversational and personalized tone"
+              ]
+            };
+
+            // Log what we're sending to the LLM
+            console.log('ENHANCED OPTIONS BEING SENT TO LLM:', JSON.stringify(enhancedOptions, null, 2));
+
+            // Process message with proper timeout handling
+            const processingPromise = AgentService.processMessage(agentId, content, enhancedOptions);
+            
+            // Set a reasonable timeout (30 seconds instead of 60)
+            const timeoutPromise = new Promise<never>((_, reject) => {
+              const timeoutId = setTimeout(() => {
+                clearTimeout(timeoutId); // Clean up the timeout
+                reject(new Error('Request timed out after 30 seconds'));
+              }, 30000);
+            });
+            
+            // Use Promise.race with proper error handling
+            try {
+              console.log(`Processing message with agent ${agentId} via AgentService (with 30s timeout)`);
+              const result = await Promise.race([processingPromise, timeoutPromise]);
+              
+              // Parse response based on its structure
+              if (typeof result === 'string') {
+                agentResponse = { content: result };
+              } else if (result && typeof result === 'object') {
+                if ('response' in result && result.response) {
+                  // Handle response wrapped in a container object
+                  const response = result.response;
+                  agentResponse = typeof response === 'string' 
+                    ? { content: response } 
+                    : response as AgentResponse;
+                } else if ('content' in result) {
+                  // Handle direct response object
+                  agentResponse = result as AgentResponse;
+                } else {
+                  // Fallback for unexpected response structure
+                  agentResponse = {
+                    content: "The agent returned an unexpected response format.",
+                    thoughts: ["Response format error: " + JSON.stringify(result).substring(0, 100)]
+                  };
+                }
+              } else {
+                // Fallback for null or undefined response
+                agentResponse = {
+                  content: "The agent did not produce a response.",
+                  thoughts: ["No response received from agent."]
+                };
+              }
+            } catch (raceError: unknown) {
+              // Handle timeout and other race-related errors
+              console.error('Error in Promise.race:', raceError);
+              if (typeof raceError === 'object' && 
+                  raceError !== null && 
+                  'message' in raceError && 
+                  typeof raceError.message === 'string' && 
+                  raceError.message.includes('timed out')) {
+                agentResponse = {
+                  content: "I'm sorry, but it's taking me longer than expected to process your request. Please try again with a simpler query.",
+                  thoughts: [`Timeout error: ${String(raceError.message)}`]
+                };
+              } else {
+                throw raceError; // Re-throw unexpected errors
+              }
+            }
           }
         } catch (thinkingError) {
           console.warn('Error during ThinkingService analysis:', thinkingError);
@@ -460,83 +566,102 @@ export async function POST(
         }
       }
       
-      // Prepare enhanced processing options with thinking results
-      const enhancedOptions: MessageProcessingOptions & Record<string, any> = {
-        ...processingOptions,
-        // Include thinking results if available
-        contextThoughts: thoughts.length > 0 ? thoughts : undefined,
-        // Pass agent persona information as additional context
-        persona: {
-          systemPrompt: agent.parameters?.systemPrompt || '',
-          name: agent.name || 'Assistant',
-          description: agent.description || 'A helpful AI assistant',
-          traits: agent.metadata?.traits || []
-        }
-      };
+      // If we didn't get an agent response yet, generate a basic one
+      if (!agentResponse) {
+        console.log('No agent response generated yet, creating a basic one');
+        // Prepare enhanced processing options with thinking results
+        const enhancedOptions: MessageProcessingOptions & Record<string, any> = {
+          ...processingOptions,
+          // Include thinking results if available
+          contextThoughts: thoughts.length > 0 ? thoughts : undefined,
+          // Include original user message for context
+          originalMessage: content,
+          // Pass agent persona information as additional context
+          persona: agent.metadata?.persona || {
+            systemPrompt: agent.parameters?.systemPrompt || agent.parameters?.customInstructions || '',
+            name: agent.name || 'Assistant',
+            description: agent.description || 'A helpful AI assistant',
+            traits: agent.metadata?.traits || []
+          },
+          // Pass thinking results directly - this is a fallback when actual thinking failed
+          thinkingResults: {
+            intent: 'general_query',
+            entities: [],
+            context: {},
+            planSteps: [],
+            shouldDelegate: false,
+            requiredCapabilities: []
+          },
+          // Add explicit instructions to use thinking context
+          processingInstructions: [
+            "Use the provided thinking analysis to inform your response",
+            "Address the user's specific message content and intent",
+            "Maintain a conversational and personalized tone"
+          ]
+        };
 
-      // Process message with proper timeout handling
-      const processingPromise = AgentService.processMessage(agentId, content, enhancedOptions);
-      
-      // Set a reasonable timeout (30 seconds instead of 60)
-      const timeoutPromise = new Promise<never>((_, reject) => {
-        const timeoutId = setTimeout(() => {
-          clearTimeout(timeoutId); // Clean up the timeout
-          reject(new Error('Request timed out after 30 seconds'));
-        }, 30000);
-      });
-      
-      // Use Promise.race with proper error handling
-      try {
-        console.log(`Processing message with agent ${agentId} via AgentService (with 30s timeout)`);
-        const result = await Promise.race([processingPromise, timeoutPromise]);
+        // Log what we're sending to the LLM
+        console.log('FALLBACK ENHANCED OPTIONS BEING SENT TO LLM:', JSON.stringify(enhancedOptions, null, 2));
         
-        // Parse response based on its structure
-        if (typeof result === 'string') {
-          agentResponse = { content: result };
-        } else if (result && typeof result === 'object') {
-          if ('response' in result && result.response) {
-            // Handle response wrapped in a container object
-            const response = result.response;
-            agentResponse = typeof response === 'string' 
-              ? { content: response } 
-              : response as AgentResponse;
-          } else if ('content' in result) {
-            // Handle direct response object
-            agentResponse = result as AgentResponse;
+        // Process message with proper timeout handling
+        const processingPromise = AgentService.processMessage(agentId, content, enhancedOptions);
+        
+        // Set a reasonable timeout (30 seconds instead of 60)
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          const timeoutId = setTimeout(() => {
+            clearTimeout(timeoutId); // Clean up the timeout
+            reject(new Error('Request timed out after 30 seconds'));
+          }, 30000);
+        });
+        
+        // Use Promise.race with proper error handling
+        try {
+          console.log(`Processing message with agent ${agentId} via AgentService (with 30s timeout)`);
+          const result = await Promise.race([processingPromise, timeoutPromise]);
+          
+          // Parse response based on its structure
+          if (typeof result === 'string') {
+            agentResponse = { content: result };
+          } else if (result && typeof result === 'object') {
+            if ('response' in result && result.response) {
+              // Handle response wrapped in a container object
+              const response = result.response;
+              agentResponse = typeof response === 'string' 
+                ? { content: response } 
+                : response as AgentResponse;
+            } else if ('content' in result) {
+              // Handle direct response object
+              agentResponse = result as AgentResponse;
+            } else {
+              // Fallback for unexpected response structure
+              agentResponse = {
+                content: "The agent returned an unexpected response format.",
+                thoughts: ["Response format error: " + JSON.stringify(result).substring(0, 100)]
+              };
+            }
           } else {
-            // Fallback for unexpected response structure
+            // Fallback for null or undefined response
             agentResponse = {
-              content: "The agent returned an unexpected response format.",
-              thoughts: ["Response format error: " + JSON.stringify(result).substring(0, 100)]
+              content: "The agent did not produce a response.",
+              thoughts: ["No response received from agent."]
             };
           }
-        } else {
-          // Fallback for null or undefined response
-          agentResponse = {
-            content: "The agent did not produce a response.",
-            thoughts: ["No response received from agent."]
-          };
+        } catch (raceError: unknown) {
+          // Handle timeout and other race-related errors
+          console.error('Error in Promise.race:', raceError);
+          if (typeof raceError === 'object' && 
+              raceError !== null && 
+              'message' in raceError && 
+              typeof raceError.message === 'string' && 
+              raceError.message.includes('timed out')) {
+            agentResponse = {
+              content: "I'm sorry, but it's taking me longer than expected to process your request. Please try again with a simpler query.",
+              thoughts: [`Timeout error: ${String(raceError.message)}`]
+            };
+          } else {
+            throw raceError; // Re-throw unexpected errors
+          }
         }
-      } catch (raceError: unknown) {
-        // Handle timeout and other race-related errors
-        console.error('Error in Promise.race:', raceError);
-        if (typeof raceError === 'object' && 
-            raceError !== null && 
-            'message' in raceError && 
-            typeof raceError.message === 'string' && 
-            raceError.message.includes('timed out')) {
-          agentResponse = {
-            content: "I'm sorry, but it's taking me longer than expected to process your request. Please try again with a simpler query.",
-            thoughts: [`Timeout error: ${String(raceError.message)}`]
-          };
-        } else {
-          throw raceError; // Re-throw unexpected errors
-        }
-      }
-
-      // Add thinking results to agent response
-      if (thoughts.length > 0) {
-        agentResponse.thoughts = [...(agentResponse.thoughts || []), ...thoughts];
       }
     } catch (agentError) {
       console.error('Error from agent process:', agentError);
@@ -547,10 +672,19 @@ export async function POST(
       };
     }
 
+    // Ensure we always have a valid agentResponse
+    if (!agentResponse) {
+      console.warn('No agent response was generated by any method, using default response');
+      agentResponse = {
+        content: "I apologize, but I couldn't generate a proper response for your message. Please try again or rephrase your question.",
+        thoughts: ["No response was generated through the normal processing flow"]
+      };
+    }
+
     // Extract response components
-    const responseContent = agentResponse.content || "I couldn't generate a response.";
-    const thoughts = agentResponse.thoughts || [];
-    const memories = agentResponse.memories || [];
+    const responseContent = agentResponse?.content || "I couldn't generate a response.";
+    const thoughts = agentResponse?.thoughts || [];
+    const memories = agentResponse?.memories || [];
 
     // Create thread info for the assistant response
     let assistantThreadInfo;
@@ -590,6 +724,11 @@ export async function POST(
       }
     );
 
+    // Add thinking results to agent response
+    if (thoughts.length > 0 && agentResponse) {
+      agentResponse.thoughts = [...(agentResponse.thoughts || []), ...thoughts];
+    }
+
     // Return the response with all metadata
     return NextResponse.json({
       success: true,
@@ -617,4 +756,4 @@ export async function POST(
       { status: 500 }
     );
   }
-} 
+}

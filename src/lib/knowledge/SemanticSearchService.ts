@@ -320,7 +320,7 @@ export class SemanticSearchService {
       
       // Use OpenAI to augment the query with the relevant information
       const response = await openai.chat.completions.create({
-        model: 'gpt-3.5-turbo',
+        model: process.env.OPENAI_MODEL_NAME,
         messages: [
           {
             role: 'system',

@@ -97,14 +97,14 @@ export class ThinkingVisualizer {
    */
   initializeVisualization(requestId: string, userId: string, message: string): string {
     const visualization: ThinkingVisualization = {
-      id: IdGenerator.generateString('viz'),
+      id: IdGenerator.generate('viz').toString(),
       requestId,
       userId,
       message,
       timestamp: Date.now(),
       nodes: [
         {
-          id: IdGenerator.generateString('node'),
+          id: IdGenerator.generate('node').toString(),
           type: VisualizationNodeType.START,
           label: 'Start Processing',
           data: {
@@ -148,7 +148,7 @@ export class ThinkingVisualizer {
       throw new Error(`No active visualization found for request ${requestId}`);
     }
 
-    const nodeId = IdGenerator.generateString('node');
+    const nodeId = IdGenerator.generate('node').toString();
     const node: VisualizationNode = {
       id: nodeId,
       type,
@@ -166,7 +166,7 @@ export class ThinkingVisualizer {
     if (visualization.nodes.length > 1) {
       const previousNode = visualization.nodes[visualization.nodes.length - 2];
       const edge: VisualizationEdge = {
-        id: IdGenerator.generateString('edge'),
+        id: IdGenerator.generate('edge').toString(),
         type: VisualizationEdgeType.FLOW,
         source: previousNode.id,
         target: nodeId
@@ -235,21 +235,21 @@ export class ThinkingVisualizer {
     if (!visualization) {
       // Create a new visualization if none exists
       const viz: ThinkingVisualization = {
-        id: IdGenerator.generateString('viz'),
+        id: IdGenerator.generate('viz').toString(),
         requestId,
         userId: 'unknown',
         message: 'Unknown message',
         timestamp: Date.now(),
         nodes: [
           {
-            id: IdGenerator.generateString('node'),
+            id: IdGenerator.generate('node').toString(),
             type: VisualizationNodeType.START,
             label: 'Start Processing',
             data: {},
             status: 'completed'
           },
           {
-            id: IdGenerator.generateString('node'),
+            id: IdGenerator.generate('node').toString(),
             type: VisualizationNodeType.ERROR,
             label: 'Error Occurred',
             data: {
@@ -274,7 +274,7 @@ export class ThinkingVisualizer {
       const errorNode = viz.nodes[1];
       viz.edges = [
         {
-          id: IdGenerator.generateString('edge'),
+          id: IdGenerator.generate('edge').toString(),
           type: VisualizationEdgeType.ERROR,
           source: startNode.id,
           target: errorNode.id

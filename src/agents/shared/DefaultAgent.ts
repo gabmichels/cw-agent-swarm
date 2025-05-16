@@ -668,7 +668,7 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
       await this.addTaggedMemory(input, { type: 'user_input', ...context || {} });
       
       // Create a relevance scorer
-      const relevanceScorer = new RelevanceScorer(memoryManager, this.extendedConfig.modelName || 'gpt-3.5-turbo');
+      const relevanceScorer = new RelevanceScorer(memoryManager, this.extendedConfig.modelName || process.env.OPENAI_MODEL_NAME);
       
       // Get relevant memories for this input
       const relevantMemoryOptions: RelevantMemoryOptions = {
@@ -705,11 +705,26 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
       // Get agent capabilities for context
       const capabilities = await this.getCapabilities();
       
+      // Check for customInstructions in parameters
+      const customInstructions = this.config.parameters?.customInstructions || 
+                               (context?.persona as Record<string, any>)?.systemPrompt || 
+                               this.extendedConfig.systemPrompt || 
+                               "You are a helpful assistant. Provide concise, accurate, and helpful responses.";
+      
+      // Check for persona data in metadata
+      const metadataPersona = this.config.metadata?.persona || {};
+      
+      // Merge persona information from all sources, prioritizing context
+      const persona: PersonaInfo = {
+        ...(metadataPersona as Record<string, any>),
+        ...(this.extendedConfig.persona || {}),
+        ...(context?.persona as Record<string, any> || {})
+      };
+      
       // Build the system prompt with persona information if available
       const systemPromptOptions: SystemPromptOptions = {
-        basePrompt: this.extendedConfig.systemPrompt || 
-          "You are a helpful assistant. Provide concise, accurate, and helpful responses.",
-        persona: this.extendedConfig.persona,
+        basePrompt: customInstructions,
+        persona: persona,
         includeCapabilities: true,
         additionalContext: [
           `Available capabilities: ${capabilities.join(', ')}`
@@ -717,7 +732,43 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
       };
       
       // Format the system prompt
-      const systemPrompt = PromptFormatter.formatSystemPrompt(systemPromptOptions);
+      let systemPrompt = PromptFormatter.formatSystemPrompt(systemPromptOptions);
+      
+      // Add thinking results to the system prompt if available
+      if (context?.thinkingResults) {
+        const thinkingResults = context.thinkingResults as Record<string, any>;
+        systemPrompt += '\n\n## THINKING ANALYSIS RESULTS';
+        
+        if (thinkingResults.intent) {
+          systemPrompt += `\n\nDetected intent: ${thinkingResults.intent}`;
+        }
+        
+        if (thinkingResults.entities && Array.isArray(thinkingResults.entities)) {
+          systemPrompt += '\n\nDetected entities:';
+          for (const entity of thinkingResults.entities) {
+            systemPrompt += `\n- ${entity.text} (${entity.type})`;
+          }
+        }
+        
+        if (thinkingResults.planSteps && Array.isArray(thinkingResults.planSteps)) {
+          systemPrompt += '\n\nExecution plan:';
+          for (const step of thinkingResults.planSteps) {
+            systemPrompt += `\n- ${step}`;
+          }
+        }
+        
+        if (context.processingInstructions && Array.isArray(context.processingInstructions)) {
+          systemPrompt += '\n\n## RESPONSE INSTRUCTIONS';
+          for (const instruction of context.processingInstructions as string[]) {
+            systemPrompt += `\n- ${instruction}`;
+          }
+        }
+
+        // Make sure to reference original message for context
+        if (context.originalMessage) {
+          systemPrompt += `\n\nOriginal user message: "${context.originalMessage}"`;
+        }
+      }
       
       // Create input prompt options
       const inputPromptOptions: InputPromptOptions = {

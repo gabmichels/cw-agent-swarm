@@ -152,7 +152,7 @@ const createMockAgentPayload = (name = 'Test Agent') => ({
   status: 'available',
   capabilities: [],
   parameters: {
-    model: 'gpt-3.5-turbo',
+    model: process.env.OPENAI_MODEL_NAME,
     temperature: 0.7,
     maxTokens: 1024,
     tools: []
@@ -446,7 +446,7 @@ describe('Agent Registration Integration Tests', () => {
         }
       ],
       parameters: {
-        model: 'gpt-3.5-turbo',
+        model: process.env.OPENAI_MODEL_NAME,
         temperature: 0.7,
         maxTokens: 1024,
         tools: []
@@ -666,7 +666,7 @@ describe('Agent Registration Integration Tests', () => {
       status: AgentStatus.AVAILABLE,
       capabilities: [],
       parameters: {
-        model: 'gpt-3.5-turbo',
+        model: process.env.OPENAI_MODEL_NAME,
         temperature: 0.7,
         maxTokens: 1024,
         tools: []
@@ -738,7 +738,7 @@ describe('Agent Registration Integration Tests', () => {
       status: AgentStatus.AVAILABLE,
       capabilities: [],
       parameters: {
-        model: 'gpt-3.5-turbo',
+        model: process.env.OPENAI_MODEL_NAME,
         temperature: 0.7,
         maxTokens: 1024,
         tools: []
@@ -831,7 +831,7 @@ describe('Agent Registration Integration Tests', () => {
         description: 'Tests capability assignment',
         status: 'available',
         parameters: {
-          model: 'gpt-3.5-turbo',
+          model: process.env.OPENAI_MODEL_NAME,
           temperature: 0.7,
           maxTokens: 1024,
           tools: []

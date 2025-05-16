@@ -201,7 +201,7 @@ export async function POST(request: Request) {
     // Helper function to create schema-compatible parameters
     const createSchemaParameters = (): AgentMemoryEntity['parameters'] => {
       return {
-        model: agent.parameters?.model || 'gpt-3.5-turbo',
+        model: agent.parameters?.model || process.env.OPENAI_MODEL_NAME,
         temperature: agent.parameters?.temperature || 0.7,
         maxTokens: agent.parameters?.maxTokens || 1024,
         tools: [], // Convert string[] to AgentTool[]
