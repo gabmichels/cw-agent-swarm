@@ -33,6 +33,9 @@ export async function POST(
       );
     }
     
+    // Check if this is a thinking request
+    const isThinking = message.startsWith('[THINKING MODE]') || options.internal === true;
+    
     // Get the agent from the memory service
     const { memoryService } = await getMemoryServices();
     const agentService: AgentMemoryService = await createAgentMemoryService(memoryService);
@@ -56,14 +59,26 @@ export async function POST(
       // Initialize the agent (if not already initialized)
       await agent.initialize();
       
+      // Modified options for thinking mode
+      const processOptions = {
+        ...options,
+        // If this is thinking mode, set a flag to indicate internal thought process
+        isThinking,
+        // Include any context thoughts passed from previous thinking steps
+        contextThoughts: options.contextThoughts || [],
+        // Include thinking flag
+        thinking: isThinking || options.thinking === true,
+      };
+      
       // Process the message
-      const response = await agent.processInput(message, options);
+      const response = await agent.processInput(message, processOptions);
       
       return NextResponse.json({
         success: true,
         agentId: agentId,
         message: message,
         response: response,
+        isThinking,
         timestamp: new Date()
       });
     } catch (error) {

@@ -26,6 +26,7 @@ interface MessageProcessingOptions {
   userId?: string;
   userMessageId?: string;
   skipResponseMemoryStorage?: boolean;
+  internal?: boolean;
 }
 
 // Define interface for agent response
@@ -161,7 +162,7 @@ export async function POST(
 ) {
   try {
     const { content, metadata } = await request.json();
-    const { userId, agentId, attachments = [] } = metadata;
+    const { userId, agentId, attachments = [], thinking = false } = metadata;
     const dynamicParams = await params;
     const chatId = dynamicParams.chatId;
 
@@ -313,8 +314,57 @@ export async function POST(
         skipResponseMemoryStorage: true // We'll handle memory storage here
       };
       
+      // Add thinking step if enabled
+      let thoughts: string[] = [];
+      if (thinking) {
+        try {
+          console.log('Performing initial thinking analysis...');
+          
+          // First, analyze what the user really wants (thinking step)
+          const thinkingPromise = AgentService.processMessage(agentId, 
+            `[THINKING MODE] Analyze what the user really wants with this message and extract key information.\n\nUser message: "${content}"\n\nThink about:\n1. What is the user's intent?\n2. What key information should I extract and remember?\n3. How does this relate to previous context?\n4. What specific needs or goals is the user expressing?\n\nProvide your analysis in detail before responding to the user.`, 
+            { ...processingOptions, internal: true }
+          );
+          
+          // Set thinking timeout (15 seconds)
+          const thinkingTimeoutPromise = new Promise<never>((_, reject) => {
+            const timeoutId = setTimeout(() => {
+              clearTimeout(timeoutId);
+              reject(new Error('Thinking step timed out after 15 seconds'));
+            }, 15000);
+          });
+          
+          // Get thinking results
+          const thinkingResult = await Promise.race([thinkingPromise, thinkingTimeoutPromise]);
+          
+          if (thinkingResult && typeof thinkingResult === 'object') {
+            if ('response' in thinkingResult && thinkingResult.response) {
+              const response = thinkingResult.response;
+              const thinkingResponse = typeof response === 'string' 
+                ? { content: response } 
+                : response as AgentResponse;
+              
+              if (thinkingResponse.content) {
+                thoughts = [thinkingResponse.content];
+                console.log('Thinking analysis completed:', thinkingResponse.content.substring(0, 100) + '...');
+              }
+            } else if ('content' in thinkingResult) {
+              thoughts = [thinkingResult.content];
+              console.log('Thinking analysis completed:', thinkingResult.content.substring(0, 100) + '...');
+            }
+          }
+        } catch (thinkingError) {
+          console.warn('Error during thinking step:', thinkingError);
+          thoughts = [`Error in thinking: ${thinkingError instanceof Error ? thinkingError.message : String(thinkingError)}`];
+        }
+      }
+      
       // Process message with proper timeout handling
-      const processingPromise = AgentService.processMessage(agentId, content, processingOptions);
+      const processingPromise = AgentService.processMessage(agentId, content, {
+        ...processingOptions,
+        // Include thinking results if available
+        contextThoughts: thoughts.length > 0 ? thoughts : undefined
+      });
       
       // Set a reasonable timeout (30 seconds instead of 60)
       const timeoutPromise = new Promise<never>((_, reject) => {
@@ -371,6 +421,11 @@ export async function POST(
         } else {
           throw raceError; // Re-throw unexpected errors
         }
+      }
+
+      // Add thinking results to agent response
+      if (thoughts.length > 0) {
+        agentResponse.thoughts = [...(agentResponse.thoughts || []), ...thoughts];
       }
     } catch (agentError) {
       console.error('Error from agent process:', agentError);

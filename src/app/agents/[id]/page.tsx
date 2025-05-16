@@ -7,7 +7,11 @@ import { AgentProfile } from '@/lib/multi-agent/types/agent';
 import CreateChatButton from '@/components/chat/CreateChatButton';
 
 export default function AgentPage({ params }: { params: { id?: string } }) {
-  const agentId = params?.id || 'default';
+  // Use nextjs navigation hook for route params
+  const routeParams = useParams();
+  // Convert route params to expected type and provide default
+  const agentId = (typeof routeParams.id === 'string' ? routeParams.id : params?.id) || 'default';
+  
   const [agent, setAgent] = useState<AgentProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

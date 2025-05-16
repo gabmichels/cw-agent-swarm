@@ -40,6 +40,11 @@ This document provides detailed guidelines for implementing the architecture ref
 - Minimize database round-trips
 - Consider memory usage and garbage collection
 
+### 5. Don't overengineer
+
+- Keep it simple
+- Stick to the defined scope
+
 ## Component-Specific Guidelines
 
 ### Memory System Implementation

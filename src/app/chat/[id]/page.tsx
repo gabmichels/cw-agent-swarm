@@ -82,8 +82,11 @@ const WelcomeScreen = () => {
 };
 
 export default function ChatPage({ params }: { params: { id?: string } }) {
-  // Add null check for params.id
-  const agentId = params?.id || 'default';
+  // Use nextjs navigation hook for route params
+  const routeParams = useParams();
+  // Convert route params to expected type and provide default
+  const agentId = (typeof routeParams.id === 'string' ? routeParams.id : params?.id) || 'default';
+  
   const [chat, setChat] = useState<Chat | null>(null);
   const [messages, setMessages] = useState<MessageWithId[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -407,36 +410,139 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
   // Update handleSendMessage to convert attachments
   const handleSendMessage = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!messageHandler.current || (!inputMessage.trim() && pendingAttachments.length === 0)) return;
-
-    const messageAttachments = pendingAttachments.map(convertToMessageAttachment);
-
-    const newMessage: ChatMessage = {
-      id: generateMessageId(),
-      chatId: chat?.id || '',
-      senderId: userId,
-      senderType: ParticipantType.USER,
-      content: inputMessage.trim(),
-      type: pendingAttachments.length > 0 ? MessageType.FILE : MessageType.TEXT,
-      role: MessageRole.USER,
-      status: MessageStatus.PENDING,
-      attachments: messageAttachments,
-      createdAt: new Date(),
-      updatedAt: new Date()
-    };
+    if (!chat?.id || (!inputMessage.trim() && pendingAttachments.length === 0)) return;
 
     try {
-      const handlerMessage = convertToHandlerMessage(newMessage);
-      const sentHandlerMessage = await messageHandler.current.sendMessage(handlerMessage);
-      const sentMessage = convertToChatMessage(sentHandlerMessage);
-      const messageWithId = convertToMessageWithId(sentMessage);
-      
+      // Create message object for UI update
+      const messageWithId = {
+        id: generateMessageId(),
+        content: inputMessage.trim(),
+        sender: {
+          id: userId,
+          name: 'You',
+          role: 'user' as const
+        },
+        timestamp: new Date(),
+        attachments: pendingAttachments
+      };
+
+      // Update UI immediately
       setMessages(prev => [...prev, messageWithId]);
       setInputMessage('');
       setPendingAttachments([]);
+      
+      // Set loading state to show "thinking..." bubble
+      setIsLoading(true);
+
+      // Different handling for messages with vs. without attachments
+      let response;
+      if (pendingAttachments.length > 0) {
+        // Handle file attachments via multi-part form
+        const formData = new FormData();
+        formData.append('message', inputMessage.trim());
+        formData.append('userId', userId);
+        formData.append('agentId', agentId);
+        formData.append('thinking', 'true'); // Enable thinking mode
+
+        // Add each attachment to the form
+        pendingAttachments.forEach((attachment, index) => {
+          if (attachment.file) {
+            formData.append(`file_${index}`, attachment.file);
+            formData.append(`metadata_${index}_type`, attachment.type);
+            formData.append(`metadata_${index}_fileId`, attachment.fileId || '');
+          }
+        });
+
+        response = await fetch(`/api/multi-agent/chats/${chat.id}/files`, {
+          method: 'POST',
+          body: formData
+        });
+      } else {
+        // Normal message without attachments
+        response = await fetch(`/api/multi-agent/chats/${chat.id}/messages`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            content: inputMessage.trim(),
+            senderId: userId,
+            senderType: ParticipantType.USER,
+            type: MessageType.TEXT,
+            metadata: {
+              userId,
+              agentId,
+              thinking: true // Enable thinking mode
+            }
+          })
+        });
+      }
+
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      
+      if (!data.success) {
+        throw new Error(data.error || 'Failed to send message');
+      }
+
+      // If there's an agent response, add it
+      if (data.message) {
+        // If there are thoughts, add them as separate messages with system role
+        if (data.message.metadata?.thoughts && Array.isArray(data.message.metadata.thoughts)) {
+          // Only show thoughts in debug mode
+          if (isDebugMode) {
+            data.message.metadata.thoughts.forEach((thought: string) => {
+              setMessages(prev => [...prev, {
+                id: generateMessageId(),
+                content: thought,
+                sender: {
+                  id: 'system',
+                  name: 'System (Thinking)',
+                  role: 'system' as const
+                },
+                timestamp: new Date(),
+                attachments: []
+              }]);
+            });
+          }
+        }
+
+        // Add the actual agent response
+        const agentResponse = {
+          id: data.message.id,
+          content: data.message.content,
+          sender: {
+            id: agentId,
+            name: data.message.metadata?.agentName || 'Assistant',
+            role: 'assistant' as const
+          },
+          timestamp: new Date(data.message.timestamp || Date.now()),
+          attachments: data.message.attachments?.map(convertMessageToUIAttachment) || []
+        };
+
+        setMessages(prev => [...prev, agentResponse]);
+      }
+
     } catch (error) {
       console.error('Error sending message:', error);
-      setError(error instanceof Error ? error.message : 'Failed to send message');
+      // Add error message to chat
+      setMessages(prev => [...prev, {
+        id: generateMessageId(),
+        content: "Failed to send message. Please try again.",
+        sender: {
+          id: 'system',
+          name: 'System',
+          role: 'system' as const
+        },
+        timestamp: new Date(),
+        attachments: []
+      }]);
+    } finally {
+      // Always reset loading state
+      setIsLoading(false);
     }
   };
 
