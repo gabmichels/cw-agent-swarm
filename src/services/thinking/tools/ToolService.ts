@@ -1,7 +1,65 @@
-import { IToolService, Tool, ToolDiscoveryOptions, ToolExecutionOptions, ToolExecutionResult, ToolFeedback, ToolUsageStats } from './IToolService';
+import { IToolService, Tool as IToolBase, ToolExecutionOptions, ToolExecutionResult as IToolExecutionResult, ToolDiscoveryOptions, ToolFeedback, ToolParameter } from '../../../interfaces/tools';
 import { IdGenerator } from '@/utils/ulid';
 import { ChatOpenAI } from '@langchain/openai';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
+import { ApifyWebSearchTool } from '../../../agents/shared/tools/web/ApifyWebSearchTool';
+
+/**
+ * Extended tool definition
+ */
+export interface Tool extends IToolBase {
+  parameters: Record<string, ToolParameter>;
+  returns: string;
+  version: string;
+  author: string;
+  tags: string[];
+  metadata: {
+    createdAt: string;
+    updatedAt: string;
+    lastUsed?: string;
+    usageCount: number;
+    averageExecutionTime: number;
+    successRate: number;
+  };
+}
+
+/**
+ * Extended tool execution result
+ */
+export interface ToolExecutionResult extends IToolExecutionResult {
+  metadata: {
+    toolId: string;
+    startTime: string;
+    endTime: string;
+    parameters: Record<string, unknown>;
+  };
+}
+
+/**
+ * Extended tool feedback interface
+ */
+interface ExtendedToolFeedback extends ToolFeedback {
+  intent: string;
+  wasSuccessful: boolean;
+  wasUseful: boolean;
+  executionTime: number;
+  parameters: Record<string, unknown>;
+}
+
+/**
+ * Tool usage statistics
+ */
+interface ToolUsageStats {
+  totalExecutions: number;
+  successfulExecutions: number;
+  usefulExecutions: number;
+  avgExecutionTime: number;
+  topIntents: Array<{
+    intent: string;
+    count: number;
+  }>;
+  commonParameters: Record<string, unknown[]>;
+}
 
 /**
  * Implementation of the ToolService
@@ -10,17 +68,17 @@ export class ToolService implements IToolService {
   /**
    * Registry of available tools
    */
-  private tools: Map<string, Tool> = new Map();
+  private tools: Map<string, IToolBase> = new Map();
   
   /**
    * Tool execution handlers
    */
-  private executors: Map<string, (params: Record<string, any>, context?: any) => Promise<any>> = new Map();
+  private executors: Map<string, (params: Record<string, unknown>) => Promise<unknown>> = new Map();
   
   /**
    * Tool usage history for feedback and recommendations
    */
-  private toolUsage: Map<string, ToolFeedback[]> = new Map();
+  private toolUsage: Map<string, ExtendedToolFeedback[]> = new Map();
   
   /**
    * Intent to tool mapping for quick recommendations
@@ -37,7 +95,7 @@ export class ToolService implements IToolService {
    */
   constructor() {
     this.llm = new ChatOpenAI({
-      modelName: "gpt-3.5-turbo",
+      modelName: process.env.OPENAI_CHEAP_MODEL || "gpt-4.1-nano-2025-04-14",
       temperature: 0.1
     });
     
@@ -55,27 +113,38 @@ export class ToolService implements IToolService {
       description: 'Search for files based on content or metadata',
       categories: ['files', 'search'],
       requiredCapabilities: ['file_access'],
-      parameters: [
-        {
+      parameters: {
+        query: {
           name: 'query',
           description: 'Search query',
           type: 'string',
           required: true
         },
-        {
+        fileTypes: {
           name: 'fileTypes',
           description: 'Types of files to search',
           type: 'array',
-          required: false
+          required: false,
+          default: []
         },
-        {
+        limit: {
           name: 'limit',
           description: 'Maximum number of results',
           type: 'number',
           required: false,
-          defaultValue: 10
+          default: 10
         }
-      ],
+      },
+      returns: 'FileSearchResult[]',
+      author: 'system',
+      tags: ['files', 'search', 'content'],
+      metadata: {
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        usageCount: 0,
+        averageExecutionTime: 0,
+        successRate: 1
+      },
       isEnabled: true,
       version: '1.0.0'
     });
@@ -86,21 +155,31 @@ export class ToolService implements IToolService {
       description: 'Search the web for information',
       categories: ['web', 'search'],
       requiredCapabilities: ['web_access'],
-      parameters: [
-        {
+      parameters: {
+        query: {
           name: 'query',
           description: 'Search query',
           type: 'string',
           required: true
         },
-        {
+        limit: {
           name: 'limit',
           description: 'Maximum number of results',
           type: 'number',
           required: false,
-          defaultValue: 5
+          default: 5
         }
-      ],
+      },
+      returns: 'WebSearchResult[]',
+      author: 'system',
+      tags: ['web', 'search', 'external'],
+      metadata: {
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        usageCount: 0,
+        averageExecutionTime: 0,
+        successRate: 1
+      },
       isEnabled: true,
       version: '1.0.0'
     });
@@ -111,21 +190,31 @@ export class ToolService implements IToolService {
       description: 'Analyze text for sentiment, entities, and key information',
       categories: ['analysis', 'nlp'],
       requiredCapabilities: ['text_analysis'],
-      parameters: [
-        {
+      parameters: {
+        text: {
           name: 'text',
           description: 'Text to analyze',
           type: 'string',
           required: true
         },
-        {
+        analysisTypes: {
           name: 'analysisTypes',
           description: 'Types of analysis to perform',
           type: 'array',
           required: false,
-          defaultValue: ['sentiment', 'entities', 'keywords']
+          default: ['sentiment', 'entities', 'keywords']
         }
-      ],
+      },
+      returns: 'TextAnalysisResult',
+      author: 'system',
+      tags: ['nlp', 'analysis', 'text'],
+      metadata: {
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        usageCount: 0,
+        averageExecutionTime: 0,
+        successRate: 1
+      },
       isEnabled: true,
       version: '1.0.0'
     });
@@ -137,10 +226,171 @@ export class ToolService implements IToolService {
   }
   
   /**
+   * Register a new tool
+   */
+  async registerTool(toolBase: Omit<IToolBase, 'id'>): Promise<string> {
+    // Generate ID for the tool
+    const id = String(IdGenerator.generate('tool'));
+    
+    // Create tool with ID
+    const tool: IToolBase = {
+      ...toolBase,
+      id
+    };
+    
+    // Add the tool to the registry
+    this.tools.set(id, tool);
+    
+    return id;
+  }
+  
+  /**
+   * Register a tool executor
+   */
+  registerExecutor(
+    toolId: string,
+    executor: (params: Record<string, unknown>) => Promise<unknown>
+  ): void {
+    this.executors.set(toolId, executor);
+  }
+  
+  /**
    * Get all registered tools
    */
-  async getAllTools(): Promise<Tool[]> {
-    return Array.from(this.tools.values()).filter(tool => tool.isEnabled);
+  async getAllTools(): Promise<IToolBase[]> {
+    return Array.from(this.tools.values());
+  }
+  
+  /**
+   * Execute a tool
+   */
+  async executeTool(options: ToolExecutionOptions): Promise<IToolExecutionResult> {
+    const tool = this.tools.get(options.toolId);
+    if (!tool) {
+      throw new Error(`Tool ${options.toolId} not found`);
+    }
+    
+    const executor = this.executors.get(options.toolId);
+    if (!executor) {
+      throw new Error(`Executor for tool ${options.toolId} not found`);
+    }
+    
+    const startTime = new Date();
+    
+    try {
+      // Validate parameters
+      this.validateParameters(tool, options.parameters);
+      
+      // Execute tool
+      const output = await executor(options.parameters);
+      
+      const endTime = new Date();
+      
+      // Update tool metadata
+      if (tool.metadata) {
+        tool.metadata.lastUsed = startTime.toISOString();
+        tool.metadata.usageCount++;
+        tool.metadata.averageExecutionTime = 
+          (tool.metadata.averageExecutionTime * (tool.metadata.usageCount - 1) + 
+           (endTime.getTime() - startTime.getTime())) / tool.metadata.usageCount;
+        tool.metadata.successRate = 
+          (tool.metadata.successRate * (tool.metadata.usageCount - 1) + 1) / 
+          tool.metadata.usageCount;
+      }
+      
+      return {
+        success: true,
+        output,
+        duration: endTime.getTime() - startTime.getTime(),
+        metadata: {
+          toolId: options.toolId,
+          startTime: startTime.toISOString(),
+          endTime: endTime.toISOString(),
+          parameters: options.parameters
+        }
+      };
+      
+    } catch (error) {
+      const endTime = new Date();
+      
+      // Update tool metadata
+      if (tool.metadata) {
+        tool.metadata.lastUsed = startTime.toISOString();
+        tool.metadata.usageCount++;
+        tool.metadata.successRate = 
+          (tool.metadata.successRate * (tool.metadata.usageCount - 1)) / 
+          tool.metadata.usageCount;
+      }
+      
+      return {
+        success: false,
+        output: null,
+        error: error instanceof Error ? error.message : String(error),
+        duration: endTime.getTime() - startTime.getTime(),
+        metadata: {
+          toolId: options.toolId,
+          startTime: startTime.toISOString(),
+          endTime: endTime.toISOString(),
+          parameters: options.parameters
+        }
+      };
+    }
+  }
+  
+  /**
+   * Validate tool parameters
+   */
+  private validateParameters(
+    tool: IToolBase,
+    parameters: Record<string, unknown>
+  ): void {
+    if (!tool.parameters) {
+      return;
+    }
+    
+    // Check required parameters
+    for (const [name, param] of Object.entries(tool.parameters)) {
+      if (param.required && !(name in parameters)) {
+        throw new Error(`Missing required parameter: ${name}`);
+      }
+    }
+    
+    // Check parameter types (basic validation)
+    for (const [name, value] of Object.entries(parameters)) {
+      const param = tool.parameters[name];
+      if (!param) {
+        throw new Error(`Unknown parameter: ${name}`);
+      }
+      
+      // Basic type checking
+      switch (param.type) {
+        case 'string':
+          if (typeof value !== 'string') {
+            throw new Error(`Parameter ${name} must be a string`);
+          }
+          break;
+        case 'number':
+          if (typeof value !== 'number') {
+            throw new Error(`Parameter ${name} must be a number`);
+          }
+          break;
+        case 'boolean':
+          if (typeof value !== 'boolean') {
+            throw new Error(`Parameter ${name} must be a boolean`);
+          }
+          break;
+        case 'array':
+          if (!Array.isArray(value)) {
+            throw new Error(`Parameter ${name} must be an array`);
+          }
+          break;
+        case 'object':
+          if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+            throw new Error(`Parameter ${name} must be an object`);
+          }
+          break;
+      }
+    }
   }
   
   /**
@@ -160,17 +410,17 @@ export class ToolService implements IToolService {
             
             if (options.requiredCapabilities && options.requiredCapabilities.length > 0) {
               filteredRecommendations = filteredRecommendations.filter(rec => 
-                options.requiredCapabilities!.every(cap => 
-                  rec.tool.requiredCapabilities.includes(cap)
-                )
+                rec.tool.requiredCapabilities?.every(cap => 
+                  options.requiredCapabilities!.includes(cap)
+                ) ?? false
               );
             }
             
             if (options.categories && options.categories.length > 0) {
               filteredRecommendations = filteredRecommendations.filter(rec => 
-                options.categories!.some(cat => 
-                  rec.tool.categories.includes(cat)
-                )
+                rec.tool.categories?.some(cat => 
+                  options.categories!.includes(cat)
+                ) ?? false
               );
             }
             
@@ -191,7 +441,6 @@ export class ToolService implements IToolService {
         }
       }
       
-      // Proceed with normal discovery (existing code)
       // Get all tools
       const allTools = await this.getAllTools();
       
@@ -199,19 +448,23 @@ export class ToolService implements IToolService {
       let filteredTools = allTools;
       if (options.requiredCapabilities && options.requiredCapabilities.length > 0) {
         filteredTools = filteredTools.filter(tool => 
-          options.requiredCapabilities!.every(cap => tool.requiredCapabilities.includes(cap))
+          tool.requiredCapabilities?.every(cap => 
+            options.requiredCapabilities!.includes(cap)
+          ) ?? false
         );
       }
       
       // Apply category filter if provided
       if (options.categories && options.categories.length > 0) {
         filteredTools = filteredTools.filter(tool => 
-          options.categories!.some(cat => tool.categories.includes(cat))
+          tool.categories?.some(cat => 
+            options.categories!.includes(cat)
+          ) ?? false
         );
       }
       
       // If we have a small number of tools, use LLM to rank them
-      if (filteredTools.length > 0 && filteredTools.length <= 10) {
+      if (filteredTools.length > 0 && filteredTools.length <= 10 && options.intent) {
         // Use LLM to match intent to tools
         const rankedTools = await this.rankToolsForIntent(options.intent, filteredTools);
         
@@ -221,7 +474,7 @@ export class ToolService implements IToolService {
         }
         
         return rankedTools;
-      } 
+      }
       
       // If we have too many tools or no tools, just return the filtered list
       if (options.limit && options.limit < filteredTools.length) {
@@ -254,8 +507,8 @@ Respond in the following JSON format only:
       const toolsDescription = tools.map(tool => `ID: ${tool.id}
 Name: ${tool.name}
 Description: ${tool.description}
-Categories: ${tool.categories.join(', ')}
-Parameters: ${tool.parameters.map(p => p.name).join(', ')}
+Categories: ${tool.categories?.join(', ') || 'none'}
+Parameters: ${Object.values(tool.parameters).map(p => p.name).join(', ')}
 `).join('\n\n');
 
       const humanMessage = `User intent: "${intent}"
@@ -301,95 +554,6 @@ Rank these tools based on their relevance to the user's intent, from most releva
   }
   
   /**
-   * Execute a tool
-   */
-  async executeTool(options: ToolExecutionOptions): Promise<ToolExecutionResult> {
-    try {
-      const tool = await this.getToolById(options.toolId);
-      
-      if (!tool) {
-        return {
-          success: false,
-          error: `Tool with ID ${options.toolId} not found`,
-          executionTime: 0
-        };
-      }
-      
-      // Check if tool is enabled
-      if (!tool.isEnabled) {
-        return {
-          success: false,
-          error: `Tool ${tool.name} is currently disabled`,
-          executionTime: 0
-        };
-      }
-      
-      // Check if we have an executor for this tool
-      const executor = this.executors.get(options.toolId);
-      
-      if (!executor) {
-        return {
-          success: false,
-          error: `No executor registered for tool ${tool.name}`,
-          executionTime: 0
-        };
-      }
-      
-      // Validate parameters
-      for (const param of tool.parameters) {
-        if (param.required && (options.parameters[param.name] === undefined)) {
-          return {
-            success: false,
-            error: `Required parameter '${param.name}' is missing`,
-            executionTime: 0
-          };
-        }
-      }
-      
-      // Execute the tool
-      const startTime = Date.now();
-      
-      try {
-        const result = await executor(options.parameters, options.context);
-        
-        const executionTime = Date.now() - startTime;
-        
-        // Create anonymous usage data for improving recommendations
-        if (options.context?.intent && typeof options.context.intent === 'string') {
-          this.updateIntentToolMapping(options.context.intent, options.toolId, true);
-        }
-        
-        return {
-          success: true,
-          data: result,
-          executionTime
-        };
-      } catch (execError) {
-        const executionTime = Date.now() - startTime;
-        
-        // Record failure in intent mapping
-        if (options.context?.intent && typeof options.context.intent === 'string') {
-          this.updateIntentToolMapping(options.context.intent, options.toolId, false);
-        }
-        
-        return {
-          success: false,
-          error: `Error executing tool ${tool.name}: ${execError instanceof Error ? execError.message : String(execError)}`,
-          executionTime
-        };
-      }
-    } catch (error) {
-      console.error('Error in executeTool:', error);
-      
-      return {
-        success: false,
-        error: `Internal error: ${error instanceof Error ? error.message : String(error)}`,
-        executionTime: 0
-      };
-    }
-  }
-  
-  /**
    * Create a chain of tools for a complex operation
    */
   async createToolChain(
@@ -409,9 +573,19 @@ Rank these tools based on their relevance to the user's intent, from most releva
       description: `Chain of tools: ${allTools.filter(Boolean).map(t => t!.name).join(' → ')}`,
       categories: ['composite', 'chain'],
       requiredCapabilities: Array.from(new Set(
-        allTools.filter(Boolean).flatMap(t => t!.requiredCapabilities)
+        allTools.filter(Boolean).flatMap(t => t!.requiredCapabilities || [])
       )),
       parameters: allTools[0]!.parameters,
+      returns: 'ChainExecutionResult',
+      author: 'system',
+      tags: ['composite', 'chain', 'automation'],
+      metadata: {
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        usageCount: 0,
+        averageExecutionTime: 0,
+        successRate: 1
+      },
       isEnabled: true,
       version: '1.0.0'
     };
@@ -420,15 +594,15 @@ Rank these tools based on their relevance to the user's intent, from most releva
     const compositeToolId = await this.registerTool(compositeTool);
     
     // Register the executor for this composite tool
-    this.executors.set(compositeToolId, async (params, context) => {
-      let currentContext = { ...context, ...params };
+    this.executors.set(compositeToolId, async (params: Record<string, unknown>) => {
+      let currentContext = { ...params };
       
       let results = [];
       
       // Execute each tool in sequence
       for (const toolId of toolIds) {
         // Map context to tool parameters based on contextMapping
-        const toolParams: Record<string, any> = {};
+        const toolParams: Record<string, unknown> = {};
         
         // Get the tool
         const tool = await this.getToolById(toolId);
@@ -438,7 +612,7 @@ Rank these tools based on their relevance to the user's intent, from most releva
         }
         
         // Map parameters from context based on contextMapping
-        for (const param of tool.parameters) {
+        for (const param of Object.values(tool.parameters)) {
           const mappingKey = `${toolId}.${param.name}`;
           
           if (contextMapping[mappingKey]) {
@@ -453,8 +627,7 @@ Rank these tools based on their relevance to the user's intent, from most releva
         // Execute the tool
         const result = await this.executeTool({
           toolId,
-          parameters: toolParams,
-          context: currentContext
+          parameters: toolParams
         });
         
         if (!result.success) {
@@ -464,13 +637,13 @@ Rank these tools based on their relevance to the user's intent, from most releva
         // Add result to context for next tool
         currentContext = {
           ...currentContext,
-          [`result_${toolId}`]: result.data,
-          lastResult: result.data
+          [`result_${toolId}`]: result.output,
+          lastResult: result.output
         };
         
         results.push({
           toolId,
-          result: result.data
+          result: result.output
         });
       }
       
@@ -481,24 +654,6 @@ Rank these tools based on their relevance to the user's intent, from most releva
     });
     
     return (await this.getToolById(compositeToolId))!;
-  }
-  
-  /**
-   * Register a new tool
-   */
-  async registerTool(tool: Omit<Tool, 'id'>): Promise<string> {
-    // Generate ID for the tool
-    const id = IdGenerator.generate('tool').toString();
-    
-    // Add the tool to the registry
-    this.tools.set(id, {
-      ...tool,
-      id
-    });
-    
-    console.log(`Registered tool: ${tool.name} (${id})`);
-    
-    return id;
   }
   
   /**
@@ -541,62 +696,109 @@ Rank these tools based on their relevance to the user's intent, from most releva
    * Web search tool implementation
    */
   private async executeWebSearch(params: Record<string, any>): Promise<any> {
-    // Placeholder implementation
-    console.log(`Executing web search with query: ${params.query}`);
+    const startTime = Date.now();
     
-    // In a real implementation, this would connect to a search API
-    return {
-      results: [
-        {
-          title: 'Example Search Result 1',
-          url: 'https://example.com/result1',
-          snippet: 'This is a snippet from the first search result...'
-        },
-        {
-          title: 'Example Search Result 2',
-          url: 'https://example.com/result2',
-          snippet: 'This is a snippet from the second search result...'
-        }
-      ],
-      query: params.query,
-      totalResults: 2
-    };
+    try {
+      // Create an instance of ApifyWebSearchTool
+      const webSearchTool = new ApifyWebSearchTool();
+      
+      // Execute the search
+      const result = await webSearchTool.execute({
+        query: params.query,
+        maxResults: params.limit || 5,
+        country: params.country || 'US',
+        safeSearch: params.safeSearch !== false
+      });
+      
+      if (!result.success) {
+        return {
+          success: false,
+          error: result.error?.message || 'Web search failed',
+          duration: Date.now() - startTime
+        };
+      }
+      
+      return {
+        success: true,
+        output: result.data,
+        duration: Date.now() - startTime
+      };
+      
+    } catch (error) {
+      console.error('Error in web search:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+        duration: Date.now() - startTime
+      };
+    }
   }
   
   /**
    * Text analysis tool implementation
    */
   private async executeTextAnalysis(params: Record<string, any>): Promise<any> {
-    // Placeholder implementation
-    console.log(`Executing text analysis on ${params.text.substring(0, 50)}...`);
+    const startTime = Date.now();
     
-    // In a real implementation, this would use NLP libraries or APIs
-    return {
-      sentiment: {
-        score: 0.8,
-        label: 'positive'
-      },
-      entities: [
-        {
-          type: 'person',
-          value: 'John Doe',
-          confidence: 0.9
-        },
-        {
-          type: 'organization',
-          value: 'Acme Corp',
-          confidence: 0.85
-        }
-      ],
-      keywords: ['example', 'analysis', 'text'],
-      text: params.text.substring(0, 100) + (params.text.length > 100 ? '...' : '')
-    };
+    try {
+      const text = params.text;
+      if (!text) {
+        return {
+          success: false,
+          error: 'No text provided for analysis',
+          duration: Date.now() - startTime
+        };
+      }
+
+      const analysisTypes = params.analysisTypes || ['sentiment', 'entities', 'keywords'];
+      
+      // Use cheap model for analysis
+      const prompt = `Analyze the following text and provide results in JSON format with these aspects: ${analysisTypes.join(', ')}
+
+Text to analyze:
+${text}
+
+Respond only with a JSON object containing the analysis results.`;
+
+      const messages = [
+        new SystemMessage('You are a text analysis assistant that responds only in JSON format.'),
+        new HumanMessage(prompt)
+      ];
+
+      const response = await this.llm.invoke(messages as any); // Type assertion needed due to LangChain types
+      const content = response.content;
+      
+      if (typeof content !== 'string') {
+        throw new Error('Invalid response format from LLM');
+      }
+
+      const jsonMatch = content.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        throw new Error('Invalid analysis response format');
+      }
+
+      const analysis = JSON.parse(jsonMatch[0]);
+
+      return {
+        success: true,
+        output: analysis,
+        duration: Date.now() - startTime
+      };
+      
+    } catch (error) {
+      console.error('Error in text analysis:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+        duration: Date.now() - startTime
+      };
+    }
   }
   
   /**
    * Record feedback about a tool execution
    */
-  async recordToolFeedback(feedback: ToolFeedback): Promise<boolean> {
+  async recordToolFeedback(feedback: ExtendedToolFeedback): Promise<boolean> {
     try {
       // Validate that the tool exists
       const tool = await this.getToolById(feedback.toolId);

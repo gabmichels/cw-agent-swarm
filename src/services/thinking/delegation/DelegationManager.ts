@@ -1,518 +1,452 @@
+import { ChatOpenAI } from '@langchain/openai';
+import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { IdGenerator } from '@/utils/ulid';
+import { ClassifiedIntent } from '../intent/IntentClassifier';
+import { ExtractedEntity } from '../memory/EntityExtractor';
 
 /**
- * Information about a specialized agent
+ * Agent capability definition
  */
-export interface AgentInfo {
-  /**
-   * Unique identifier for the agent
-   */
+export interface AgentCapability {
   id: string;
-  
-  /**
-   * Display name of the agent
-   */
   name: string;
-  
-  /**
-   * Agent capabilities
-   */
-  capabilities: string[];
-  
-  /**
-   * Current load (0-1, where 0 is idle and 1 is fully loaded)
-   */
-  currentLoad: number;
-  
-  /**
-   * Maximum capacity
-   */
-  maxCapacity: number;
-  
-  /**
-   * Success rate (0-1)
-   */
-  successRate: number;
-  
-  /**
-   * Average response time in milliseconds
-   */
-  avgResponseTime: number;
-  
-  /**
-   * Whether the agent is currently available
-   */
-  isAvailable: boolean;
-}
-
-/**
- * Task to be delegated
- */
-export interface DelegationTask {
-  /**
-   * Unique identifier for the task
-   */
-  id: string;
-  
-  /**
-   * User who initiated the task
-   */
-  userId: string;
-  
-  /**
-   * Original query from the user
-   */
-  query: string;
-  
-  /**
-   * Required capabilities for this task
-   */
-  requiredCapabilities: string[];
-  
-  /**
-   * Priority of the task (higher = more important)
-   */
-  priority: number;
-  
-  /**
-   * Estimated complexity (0-1)
-   */
-  complexity: number;
-  
-  /**
-   * When the task was created
-   */
-  createdAt: Date;
-  
-  /**
-   * Task deadline, if any
-   */
-  deadline?: Date;
-  
-  /**
-   * Whether this is a time-sensitive task
-   */
-  isUrgent: boolean;
-  
-  /**
-   * Additional context for the task
-   */
-  context?: {
-    entities?: any[];
-    files?: any[];
-    memories?: any[];
+  description: string;
+  skills: string[];
+  performance: {
+    successRate: number;
+    averageResponseTime: number;
+    lastNTasks: number;
+  };
+  constraints: {
+    maxConcurrentTasks: number;
+    maxTaskComplexity: number;
+    specializations: string[];
   };
 }
 
 /**
- * Result of a delegation operation
+ * Task priority levels
+ */
+export enum TaskPriority {
+  LOW = 'low',
+  MEDIUM = 'medium',
+  HIGH = 'high',
+  URGENT = 'urgent'
+}
+
+/**
+ * Task status
+ */
+export enum TaskStatus {
+  PENDING = 'pending',
+  ASSIGNED = 'assigned',
+  IN_PROGRESS = 'in_progress',
+  COMPLETED = 'completed',
+  FAILED = 'failed'
+}
+
+/**
+ * Task definition
+ */
+export interface DelegatedTask {
+  id: string;
+  intent: ClassifiedIntent;
+  entities: ExtractedEntity[];
+  priority: TaskPriority;
+  status: TaskStatus;
+  assignedAgent?: string;
+  requiredCapabilities: string[];
+  complexity: number;
+  deadline?: Date;
+  metadata: {
+    createdAt: string;
+    updatedAt: string;
+    estimatedDuration: number;
+    actualDuration?: number;
+    attempts: number;
+    parentTaskId?: string;
+  };
+}
+
+/**
+ * Agent status and metrics
+ */
+export interface AgentStatus {
+  id: string;
+  name: string;
+  capabilities: AgentCapability[];
+  currentLoad: number;
+  activeTasks: string[];
+  performance: {
+    successRate: number;
+    averageResponseTime: number;
+    taskHistory: Array<{
+      taskId: string;
+      success: boolean;
+      duration: number;
+    }>;
+  };
+  health: {
+    isAvailable: boolean;
+    lastHeartbeat: string;
+    errorRate: number;
+  };
+  metadata: {
+    createdAt: string;
+    updatedAt: string;
+    lastAssignedTask?: string;
+    totalTasksHandled: number;
+  };
+}
+
+/**
+ * Delegation result
  */
 export interface DelegationResult {
-  /**
-   * Whether delegation was successful
-   */
   success: boolean;
-  
-  /**
-   * ID of the assigned agent, if successful
-   */
-  agentId?: string;
-  
-  /**
-   * Estimated time until task execution
-   */
-  estimatedWaitTime?: number;
-  
-  /**
-   * Reason for delegation decision
-   */
+  assignedAgent?: string;
+  confidence: number;
   reason: string;
-  
-  /**
-   * Task ID
-   */
-  taskId: string;
+  estimatedStartTime?: Date;
+  estimatedDuration?: number;
 }
 
 /**
- * Feedback on delegation outcome
- */
-export interface DelegationFeedback {
-  /**
-   * Task ID
-   */
-  taskId: string;
-  
-  /**
-   * Agent ID
-   */
-  agentId: string;
-  
-  /**
-   * Whether the task was completed successfully
-   */
-  wasSuccessful: boolean;
-  
-  /**
-   * Execution time in milliseconds
-   */
-  executionTime: number;
-  
-  /**
-   * User satisfaction score (0-1)
-   */
-  userSatisfaction?: number;
-  
-  /**
-   * Feedback details
-   */
-  details?: string;
-}
-
-/**
- * Manages task delegation to specialized agents
+ * Service for managing task delegation to specialized agents
  */
 export class DelegationManager {
-  /**
-   * Registry of available agents
-   */
-  private agents: Map<string, AgentInfo> = new Map();
+  private llm: ChatOpenAI;
+  private agents: Map<string, AgentStatus>;
+  private tasks: Map<string, DelegatedTask>;
   
-  /**
-   * Queue of pending tasks
-   */
-  private taskQueue: DelegationTask[] = [];
-  
-  /**
-   * History of task delegations
-   */
-  private delegationHistory: Map<string, {
-    task: DelegationTask;
-    assignedTo: string;
-    timestamp: Date;
-    result?: DelegationFeedback;
-  }> = new Map();
-  
-  /**
-   * Default agent information for demonstration purposes
-   */
   constructor() {
-    // Initialize with mock agents
-    this.registerAgent({
-      id: "research-agent",
-      name: "Research Specialist",
-      capabilities: ["research", "information_retrieval", "summarization"],
-      currentLoad: 0.2,
-      maxCapacity: 10,
-      successRate: 0.95,
-      avgResponseTime: 5000,
-      isAvailable: true
+    this.llm = new ChatOpenAI({
+      modelName: "gpt-4",
+      temperature: 0.2
     });
-    
-    this.registerAgent({
-      id: "creative-agent",
-      name: "Content Creator",
-      capabilities: ["content_creation", "writing", "creative_tasks"],
-      currentLoad: 0.3,
-      maxCapacity: 8,
-      successRate: 0.9,
-      avgResponseTime: 8000,
-      isAvailable: true
-    });
-    
-    this.registerAgent({
-      id: "coding-agent",
-      name: "Code Developer",
-      capabilities: ["coding", "debugging", "code_review"],
-      currentLoad: 0.5,
-      maxCapacity: 5,
-      successRate: 0.85,
-      avgResponseTime: 10000,
-      isAvailable: true
-    });
-    
-    this.registerAgent({
-      id: "data-agent",
-      name: "Data Analyst",
-      capabilities: ["data_analysis", "visualization", "statistics"],
-      currentLoad: 0.1,
-      maxCapacity: 7,
-      successRate: 0.92,
-      avgResponseTime: 7000,
-      isAvailable: true
-    });
+    this.agents = new Map();
+    this.tasks = new Map();
   }
   
   /**
-   * Register a new agent
+   * Register a new agent with its capabilities
    */
-  registerAgent(agent: AgentInfo): void {
+  registerAgent(agent: AgentStatus): void {
     this.agents.set(agent.id, agent);
-    console.log(`Registered agent: ${agent.name} (${agent.id})`);
   }
   
   /**
-   * Update agent status
+   * Update agent status and metrics
    */
   updateAgentStatus(
-    agentId: string, 
-    updates: Partial<AgentInfo>
-  ): boolean {
+    agentId: string,
+    update: Partial<AgentStatus>
+  ): void {
     const agent = this.agents.get(agentId);
-    
-    if (!agent) {
-      console.error(`Agent ${agentId} not found`);
-      return false;
-    }
-    
-    Object.assign(agent, updates);
-    return true;
-  }
-  
-  /**
-   * Get all registered agents
-   */
-  getAgents(): AgentInfo[] {
-    return Array.from(this.agents.values());
-  }
-  
-  /**
-   * Get agent by ID
-   */
-  getAgent(agentId: string): AgentInfo | undefined {
-    return this.agents.get(agentId);
-  }
-  
-  /**
-   * Find the best agent for a task based on capabilities and load
-   */
-  private findBestAgent(task: DelegationTask): AgentInfo | null {
-    // Find agents with matching capabilities
-    const candidateAgents = Array.from(this.agents.values()).filter(agent => {
-      // Skip unavailable agents
-      if (!agent.isAvailable) return false;
-      
-      // Check if agent has all required capabilities
-      return task.requiredCapabilities.every(cap => 
-        agent.capabilities.includes(cap)
-      );
-    });
-    
-    if (candidateAgents.length === 0) {
-      return null;
-    }
-    
-    // Calculate a score for each agent based on multiple factors
-    const scoredAgents = candidateAgents.map(agent => {
-      // Load factor (lower load is better)
-      const loadFactor = 1 - (agent.currentLoad / agent.maxCapacity);
-      
-      // Success rate factor (higher success rate is better)
-      const successFactor = agent.successRate;
-      
-      // Response time factor (lower response time is better)
-      const responseTimeFactor = 1 - (agent.avgResponseTime / 30000); // Normalize to 30s max
-      
-      // Calculate overall score
-      const score = (loadFactor * 0.4) + (successFactor * 0.4) + (responseTimeFactor * 0.2);
-      
-      return { agent, score };
-    });
-    
-    // Sort by score (highest first)
-    scoredAgents.sort((a, b) => b.score - a.score);
-    
-    // Return the highest scoring agent
-    return scoredAgents[0]?.agent || null;
-  }
-  
-  /**
-   * Delegate a task to the most appropriate agent
-   */
-  delegateTask(task: Omit<DelegationTask, 'id' | 'createdAt'>): DelegationResult {
-    try {
-      // Create task with ID and timestamp
-      const taskId = IdGenerator.generate("task");
-      const fullTask: DelegationTask = {
-        ...task,
-        id: taskId.toString(),
-        createdAt: new Date()
+    if (agent) {
+      Object.assign(agent, update);
+      agent.metadata = {
+        ...agent.metadata,
+        updatedAt: new Date().toISOString()
       };
+    }
+  }
+  
+  /**
+   * Evaluate if a task should be delegated
+   */
+  async shouldDelegate(
+    intent: ClassifiedIntent,
+    entities: ExtractedEntity[]
+  ): Promise<{
+    shouldDelegate: boolean;
+    confidence: number;
+    requiredCapabilities: string[];
+    reason: string;
+  }> {
+    try {
+      // Build evaluation prompt
+      const systemPrompt = `You are an AI assistant that evaluates whether tasks should be delegated to specialized agents.
+Your task is to analyze the user's intent and entities to determine:
+1. If the task requires specialized capabilities
+2. What specific capabilities are needed
+3. How confident you are in the delegation decision
+
+Available agent capabilities:
+${Array.from(this.agents.values()).map(agent => `
+${agent.name}:
+- Capabilities: ${agent.capabilities.map(c => c.name).join(', ')}
+- Specializations: ${agent.capabilities.flatMap(c => c.constraints.specializations).join(', ')}
+`).join('\n')}
+
+Respond in JSON format:
+{
+  "shouldDelegate": true/false,
+  "confidence": 0.9,
+  "requiredCapabilities": ["capability1", "capability2"],
+  "reason": "Detailed explanation of the decision"
+}`;
+
+      // Call LLM for evaluation
+      const messages = [
+        new SystemMessage(systemPrompt),
+        new HumanMessage(`Evaluate delegation for:
+Intent: ${intent.name} (${intent.description})
+Entities: ${entities.map(e => `${e.type}:${e.value}`).join(', ')}`)
+      ];
       
-      // Find the best agent for the task
-      const bestAgent = this.findBestAgent(fullTask);
+      // @ts-ignore - LangChain types may not be up to date
+      const response = await this.llm.call(messages);
       
-      if (!bestAgent) {
-        // No suitable agent found, queue the task for later
-        this.taskQueue.push(fullTask);
+      // Parse response
+      const responseContent = response.content.toString();
+      const jsonMatch = responseContent.match(/\{[\s\S]*\}/);
+      
+      if (!jsonMatch) {
+        throw new Error('Invalid evaluation response format');
+      }
+      
+      return JSON.parse(jsonMatch[0]);
+      
+    } catch (error) {
+      console.error('Error evaluating delegation:', error);
+      return {
+        shouldDelegate: false,
+        confidence: 0,
+        requiredCapabilities: [],
+        reason: 'Error during evaluation'
+      };
+    }
+  }
+  
+  /**
+   * Find the best agent for a task
+   */
+  async findBestAgent(
+    task: DelegatedTask
+  ): Promise<{
+    agentId?: string;
+    confidence: number;
+    reason: string;
+  }> {
+    try {
+      // Filter agents by required capabilities
+      const eligibleAgents = Array.from(this.agents.values()).filter(agent => {
+        // Check if agent has all required capabilities
+        const hasCapabilities = task.requiredCapabilities.every(required =>
+          agent.capabilities.some(cap => 
+            cap.skills.includes(required) || 
+            cap.constraints.specializations.includes(required)
+          )
+        );
         
-        return {
-          success: false,
-          reason: 'No suitable agent available. Task queued for later processing.',
-          taskId: fullTask.id
-        };
-      }
-      
-      // Check if agent has capacity
-      const currentTaskCount = bestAgent.currentLoad * bestAgent.maxCapacity;
-      const isAtCapacity = currentTaskCount >= bestAgent.maxCapacity;
-      
-      // If urgent task and agent at capacity, try to prioritize
-      if (fullTask.isUrgent && isAtCapacity) {
-        // For urgent tasks, we might still assign if the agent isn't too overloaded
-        if (bestAgent.currentLoad < 0.9) {
-          // Can squeeze in the urgent task
-          bestAgent.currentLoad = Math.min(1.0, bestAgent.currentLoad + (1 / bestAgent.maxCapacity));
-        } else {
-          // Even urgent tasks can't be accommodated
-          this.taskQueue.push(fullTask);
-          return {
-            success: false,
-            reason: 'All suitable agents are at full capacity. Urgent task queued with high priority.',
-            taskId: fullTask.id
-          };
-        }
-      } else if (isAtCapacity) {
-        // Non-urgent task and agent at capacity
-        this.taskQueue.push(fullTask);
-        return {
-          success: false,
-          reason: 'Selected agent is at capacity. Task queued for later processing.',
-          taskId: fullTask.id,
-          estimatedWaitTime: this.estimateWaitTime(bestAgent)
-        };
-      }
-      
-      // Assign task to the agent
-      bestAgent.currentLoad = Math.min(1.0, bestAgent.currentLoad + (1 / bestAgent.maxCapacity));
-      
-      // Record delegation in history
-      this.delegationHistory.set(fullTask.id, {
-        task: fullTask,
-        assignedTo: bestAgent.id,
-        timestamp: new Date()
+        // Check if agent has capacity
+        const hasCapacity = agent.currentLoad < 
+          agent.capabilities.reduce((max, cap) => 
+            Math.max(max, cap.constraints.maxConcurrentTasks), 0);
+            
+        // Check if agent can handle task complexity
+        const canHandleComplexity = agent.capabilities.some(cap =>
+          cap.constraints.maxTaskComplexity >= task.complexity
+        );
+        
+        return hasCapabilities && hasCapacity && canHandleComplexity;
       });
       
-      // Calculate estimated wait time
-      const estimatedWaitTime = this.estimateWaitTime(bestAgent);
+      if (eligibleAgents.length === 0) {
+        return {
+          confidence: 0,
+          reason: 'No eligible agents found'
+        };
+      }
+      
+      // Build agent selection prompt
+      const systemPrompt = `You are an AI assistant that selects the best agent for a task.
+Your task is to analyze the eligible agents and select the most suitable one based on:
+1. Capability match
+2. Current load
+3. Performance history
+4. Task requirements
+
+Task details:
+${JSON.stringify(task, null, 2)}
+
+Eligible agents:
+${eligibleAgents.map(agent => JSON.stringify(agent, null, 2)).join('\n\n')}
+
+Respond in JSON format:
+{
+  "selectedAgentId": "agent_id",
+  "confidence": 0.9,
+  "reason": "Detailed explanation of the selection"
+}`;
+
+      // Call LLM for selection
+      const messages = [
+        new SystemMessage(systemPrompt),
+        new HumanMessage('Select the best agent for this task.')
+      ];
+      
+      // @ts-ignore - LangChain types may not be up to date
+      const response = await this.llm.call(messages);
+      
+      // Parse response
+      const responseContent = response.content.toString();
+      const jsonMatch = responseContent.match(/\{[\s\S]*\}/);
+      
+      if (!jsonMatch) {
+        throw new Error('Invalid selection response format');
+      }
+      
+      const result = JSON.parse(jsonMatch[0]);
+      
+      return {
+        agentId: result.selectedAgentId,
+        confidence: result.confidence,
+        reason: result.reason
+      };
+      
+    } catch (error) {
+      console.error('Error finding best agent:', error);
+      return {
+        confidence: 0,
+        reason: 'Error during agent selection'
+      };
+    }
+  }
+  
+  /**
+   * Delegate a task to an agent
+   */
+  async delegateTask(
+    intent: ClassifiedIntent,
+    entities: ExtractedEntity[],
+    priority: TaskPriority = TaskPriority.MEDIUM
+  ): Promise<DelegationResult> {
+    try {
+      // Check if task should be delegated
+      const delegationCheck = await this.shouldDelegate(intent, entities);
+      
+      if (!delegationCheck.shouldDelegate) {
+        return {
+          success: false,
+          confidence: delegationCheck.confidence,
+          reason: delegationCheck.reason
+        };
+      }
+      
+      // Create task
+      const task: DelegatedTask = {
+        id: String(IdGenerator.generate('task')),
+        intent,
+        entities,
+        priority,
+        status: TaskStatus.PENDING,
+        requiredCapabilities: delegationCheck.requiredCapabilities,
+        complexity: this.calculateTaskComplexity(intent, entities),
+        metadata: {
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          estimatedDuration: this.estimateTaskDuration(intent, entities),
+          attempts: 0
+        }
+      };
+      
+      // Find best agent
+      const agentSelection = await this.findBestAgent(task);
+      
+      if (!agentSelection.agentId) {
+        return {
+          success: false,
+          confidence: agentSelection.confidence,
+          reason: agentSelection.reason
+        };
+      }
+      
+      // Assign task to agent
+      task.assignedAgent = agentSelection.agentId;
+      task.status = TaskStatus.ASSIGNED;
+      this.tasks.set(task.id, task);
+      
+      // Update agent status
+      const agent = this.agents.get(agentSelection.agentId);
+      if (agent) {
+        agent.currentLoad++;
+        agent.activeTasks.push(task.id);
+        this.updateAgentStatus(agent.id, agent);
+      }
       
       return {
         success: true,
-        agentId: bestAgent.id,
-        taskId: fullTask.id,
-        estimatedWaitTime,
-        reason: `Task delegated to ${bestAgent.name} based on capabilities and current load.`
+        assignedAgent: agentSelection.agentId,
+        confidence: agentSelection.confidence,
+        reason: agentSelection.reason,
+        estimatedStartTime: new Date(),
+        estimatedDuration: task.metadata.estimatedDuration
       };
+      
     } catch (error) {
-      console.error('Error in delegateTask:', error);
-      const fallbackId = IdGenerator.generate("task");
+      console.error('Error delegating task:', error);
       return {
         success: false,
-        reason: `Delegation failed: ${error instanceof Error ? error.message : String(error)}`,
-        taskId: fallbackId.toString()
+        confidence: 0,
+        reason: 'Error during delegation'
       };
     }
   }
   
   /**
-   * Process the task queue
+   * Calculate task complexity score
    */
-  processQueue(): void {
-    if (this.taskQueue.length === 0) {
-      return;
-    }
+  private calculateTaskComplexity(
+    intent: ClassifiedIntent,
+    entities: ExtractedEntity[]
+  ): number {
+    // Base complexity from intent
+    let complexity = 0.5;
     
-    console.log(`Processing delegation queue, ${this.taskQueue.length} tasks pending`);
+    // Adjust based on intent parameters
+    complexity += 0.1 * Object.keys(intent.parameters).length;
     
-    // Sort queue by priority and creation time
-    this.taskQueue.sort((a, b) => {
-      // First by urgency
-      if (a.isUrgent !== b.isUrgent) {
-        return a.isUrgent ? -1 : 1;
-      }
-      
-      // Then by priority
-      if (a.priority !== b.priority) {
-        return b.priority - a.priority;
-      }
-      
-      // Finally by creation time
-      return a.createdAt.getTime() - b.createdAt.getTime();
-    });
+    // Adjust based on entities
+    complexity += 0.05 * entities.length;
     
-    // Try to process each task
-    const remainingTasks: DelegationTask[] = [];
+    // Adjust based on relationships between entities
+    const relatedEntities = entities.filter(e => e.relatedEntities && e.relatedEntities.length > 0);
+    complexity += 0.1 * relatedEntities.length;
     
-    for (const task of this.taskQueue) {
-      const bestAgent = this.findBestAgent(task);
-      
-      if (!bestAgent || bestAgent.currentLoad * bestAgent.maxCapacity >= bestAgent.maxCapacity) {
-        // Can't process this task now, keep it in the queue
-        remainingTasks.push(task);
-        continue;
-      }
-      
-      // Assign task to the agent
-      bestAgent.currentLoad = Math.min(1.0, bestAgent.currentLoad + (1 / bestAgent.maxCapacity));
-      
-      // Record delegation in history
-      this.delegationHistory.set(task.id, {
-        task,
-        assignedTo: bestAgent.id,
-        timestamp: new Date()
-      });
-      
-      console.log(`Assigned queued task ${task.id} to ${bestAgent.name}`);
-    }
-    
-    // Update queue with remaining tasks
-    this.taskQueue = remainingTasks;
-    console.log(`Delegation queue processing complete, ${this.taskQueue.length} tasks still pending`);
+    return Math.min(1, complexity);
   }
   
   /**
-   * Record feedback on a delegated task
+   * Estimate task duration in milliseconds
    */
-  recordFeedback(feedback: DelegationFeedback): boolean {
-    const delegation = this.delegationHistory.get(feedback.taskId);
+  private estimateTaskDuration(
+    intent: ClassifiedIntent,
+    entities: ExtractedEntity[]
+  ): number {
+    // Base duration of 1 minute
+    let duration = 60000;
     
-    if (!delegation) {
-      console.error(`No delegation record found for task ${feedback.taskId}`);
-      return false;
+    // Adjust based on intent type
+    switch (intent.name) {
+      case 'create_task':
+      case 'update_task':
+        duration += 30000;
+        break;
+      case 'write_code':
+      case 'debug_code':
+        duration += 300000;
+        break;
+      case 'research':
+        duration += 600000;
+        break;
     }
     
-    // Record feedback
-    delegation.result = feedback;
+    // Adjust based on complexity
+    const complexity = this.calculateTaskComplexity(intent, entities);
+    duration *= (1 + complexity);
     
-    // Update agent statistics
-    const agent = this.agents.get(feedback.agentId);
-    
-    if (agent) {
-      // Decrease load
-      agent.currentLoad = Math.max(0, agent.currentLoad - (1 / agent.maxCapacity));
-      
-      // Update success rate with exponential moving average
-      const alpha = 0.1; // Weight for new data
-      agent.successRate = (alpha * (feedback.wasSuccessful ? 1 : 0)) + ((1 - alpha) * agent.successRate);
-      
-      // Update response time with exponential moving average
-      agent.avgResponseTime = (alpha * feedback.executionTime) + ((1 - alpha) * agent.avgResponseTime);
-      
-      console.log(`Updated agent ${agent.name} stats based on feedback. New success rate: ${agent.successRate.toFixed(2)}, avg response time: ${agent.avgResponseTime.toFixed(0)}ms`);
-    }
-    
-    // Process queue after handling feedback
-    this.processQueue();
-    
-    return true;
-  }
-  
-  /**
-   * Estimate wait time for a task based on agent load
-   */
-  private estimateWaitTime(agent: AgentInfo): number {
-    // Simple estimation based on load and average response time
-    const tasksAhead = Math.ceil(agent.currentLoad * agent.maxCapacity);
-    return tasksAhead * agent.avgResponseTime;
+    return duration;
   }
 } 
