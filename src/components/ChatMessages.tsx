@@ -2,13 +2,8 @@ import React, { useEffect, useRef, useMemo, useState, useCallback } from 'react'
 import { Message, FileAttachment } from '../types';
 import ChatBubble from './ChatBubble';
 
-// Simplified Message interface
-interface MessageWithId extends Message {
-  id?: string;
-}
-
 interface ChatMessagesProps {
-  messages: MessageWithId[];
+  messages: Message[];
   isLoading?: boolean;
   onImageClick: (attachment: FileAttachment, e: React.MouseEvent) => void;
   onDeleteMessage?: (messageId: string) => Promise<boolean>;
@@ -35,7 +30,12 @@ const ChatMessages: React.FC<ChatMessagesProps> = ({
   
   // Log the raw messages received for debugging
   useEffect(() => {
-    console.log('ChatMessages received raw messages:', messages.length, messages);
+    console.log('ChatMessages received raw messages:', messages.length, 
+      messages.map(msg => ({
+        ...msg,
+        sender: typeof msg.sender === 'object' ? { ...msg.sender } : msg.sender
+      }))
+    );
   }, [messages]);
   
   // Simplified message processing - just sort by timestamp
@@ -48,7 +48,13 @@ const ChatMessages: React.FC<ChatMessagesProps> = ({
     console.log('Processing messages for display, count:', messages.length);
     
     // Create a copy of messages to avoid mutating props
-    let sortedMessages = [...messages];
+    let sortedMessages = [...messages].map(msg => ({
+      ...msg,
+      // Ensure sender is consistently an object
+      sender: typeof msg.sender === 'string'
+        ? { id: msg.sender, name: msg.sender, role: msg.sender === 'You' ? 'user' : 'assistant' as 'user' | 'assistant' | 'system' }
+        : msg.sender
+    }));
     
     // Ensure all messages have valid timestamps
     sortedMessages = sortedMessages.map((message, index) => {
@@ -92,7 +98,7 @@ const ChatMessages: React.FC<ChatMessagesProps> = ({
     
     // Debug: Log all message IDs
     sortedMessages.forEach((msg, idx) => {
-      console.log(`Message ${idx + 1}/${sortedMessages.length}: ID=${msg.id}, timestamp=${msg.timestamp}, sender=${msg.sender}`);
+      console.log(`Message ${idx + 1}/${sortedMessages.length}: ID=${msg.id}, timestamp=${msg.timestamp}, sender=${typeof msg.sender === 'object' ? msg.sender.name : msg.sender}`);
     });
     
     return sortedMessages;
@@ -240,20 +246,15 @@ const ChatMessages: React.FC<ChatMessagesProps> = ({
         </div>
       </div>
     
-      {sortedMessages.map((message, index) => {
-        // Generate a unique ID for this message if it doesn't have one
-        const messageId = message.id || `msg_${index}_${Date.now()}`;
-        
-        return (
-          <ChatBubble
-            key={messageId}
-            message={message}
-            onImageClick={onImageClick}
-            onDeleteMessage={handleDeleteMessage}
-            data-message-id={messageId}
-          />
-        );
-      })}
+      {sortedMessages.map((message, index) => (
+        <ChatBubble
+          key={message.id || `msg_${index}_${Date.now()}`}
+          message={message}
+          onImageClick={onImageClick}
+          onDeleteMessage={handleDeleteMessage}
+          data-message-id={message.id || `msg_${index}_${Date.now()}`}
+        />
+      ))}
       
       {/* Loading indicator */}
       {isLoading && (

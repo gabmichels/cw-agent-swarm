@@ -277,7 +277,7 @@ const ChatPage: React.FC = () => {
               {
                 id: generateMessageId(),
                 content: `Hi, I am ${agentName}. How can I assist you?`,
-                sender: { id: agentName, name: agentName, role: 'assistant' },
+                sender: { id: agentId, name: agentName, role: 'assistant' },
                 timestamp: new Date(),
                 attachments: []
               },
@@ -536,10 +536,25 @@ const ChatPage: React.FC = () => {
                       
                       <ChatMessages 
                         messages={messages.map(msg => {
-                          // Convert string sender to MessageSender object if needed
-                          const sender = typeof msg.sender === 'string'
-                            ? { id: msg.sender, name: msg.sender, role: msg.sender === 'You' ? 'user' : 'assistant' as 'user' | 'assistant' | 'system' }
-                            : msg.sender;
+                          // Ensure sender is properly formatted as an object with correct properties
+                          let sender;
+                          if (typeof msg.sender === 'string') {
+                            sender = { 
+                              id: msg.sender, 
+                              name: msg.sender, 
+                              role: msg.sender === 'You' ? 'user' : 'assistant' as 'user' | 'assistant' | 'system' 
+                            };
+                          } else if (msg.sender && typeof msg.sender === 'object') {
+                            // Make sure the sender object has all required fields
+                            sender = {
+                              id: msg.sender.id || '',
+                              name: msg.sender.name || '',
+                              role: msg.sender.role || 'assistant' as 'user' | 'assistant' | 'system'
+                            };
+                          } else {
+                            // Default sender if missing or invalid
+                            sender = { id: 'unknown', name: 'Unknown', role: 'assistant' as 'user' | 'assistant' | 'system' };
+                          }
                           return { ...msg, sender };
                         })} 
                         isLoading={isLoading}

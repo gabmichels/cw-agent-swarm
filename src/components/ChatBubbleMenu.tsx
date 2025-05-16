@@ -19,6 +19,15 @@ interface ChatBubbleMenuProps {
   totalVersions?: number;
   onPreviousVersion?: () => void;
   onNextVersion?: () => void;
+  onCopyText: (text: string) => void;
+  onFlagUnreliable: (content: string) => Promise<void>;
+  onRegenerate: (content: string) => Promise<void>;
+  onFlagImportant: (content: string) => Promise<void>;
+  onAddToKnowledge: (content: string) => Promise<void>;
+  onExportToCoda: (content: string) => Promise<void>;
+  onDeleteMessage?: (timestamp: Date) => Promise<boolean>;
+  messageId?: string;
+  onDeleteMemory?: () => Promise<void>;
 }
 
 interface ActionState {
@@ -33,7 +42,16 @@ const ChatBubbleMenu: React.FC<ChatBubbleMenuProps> = ({
   currentVersionIndex = 0,
   totalVersions = 1,
   onPreviousVersion,
-  onNextVersion
+  onNextVersion,
+  onCopyText,
+  onFlagUnreliable,
+  onRegenerate,
+  onFlagImportant,
+  onAddToKnowledge,
+  onExportToCoda,
+  onDeleteMessage,
+  messageId,
+  onDeleteMemory
 }) => {
   // Initialize services
   const [messageActionHandler] = useState(() => new MessageActionHandler());

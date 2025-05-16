@@ -6,6 +6,7 @@ import ChatBubbleMenu from './ChatBubbleMenu';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import ConfirmationDialog from './ConfirmationDialog';
 import { FileAttachmentType } from '../constants/file';
+import { toast } from 'react-hot-toast';
 
 interface ChatBubbleProps {
   message: Message;
@@ -31,6 +32,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
   const [currentVersionIndex, setCurrentVersionIndex] = useState(0);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteConfirmCallback, setDeleteConfirmCallback] = useState<((confirmed: boolean) => Promise<void>) | null>(null);
   
   // Process search highlighting when content or search terms change
   useEffect(() => {
@@ -53,7 +55,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
   useEffect(() => {
     if (process.env.NODE_ENV === 'development') {
       console.debug('Rendering message:', {
-        sender: message.sender,
+        sender: typeof message.sender === 'object' ? message.sender.name : message.sender,
         content: message.content?.substring(0, 30),
         isInternal: isInternalMessage,
         type: message.messageType,
@@ -68,7 +70,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
 
     // Special handling for markdown content in user messages
     // This ensures markdown with code blocks displays properly in user bubbles
-    if (message.sender === 'You' && 
+    if (typeof message.sender === 'object' && message.sender.role === 'user' && 
         (message.content.includes('```') || 
          message.content.includes('#') || 
          message.content.includes('---'))) {
@@ -261,7 +263,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
             source: 'chat',
             sourceId: message.id || undefined,
             sourceTimestamp: message.timestamp?.toISOString() || new Date().toISOString(),
-            tags: [...tags, 'from_chat', category],
+            tags: tags,
             importance: 'medium',
             category,
             addedBy: 'user'
@@ -332,11 +334,14 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
   };
 
   // Determine the sender display name
-  const senderName = message.sender === 'You' || message.sender === 'user' 
-    ? 'You' 
-    : message.sender === 'agent' || message.sender === 'assistant'
-    ? 'Assistant'
-    : message.sender;
+  let senderName: string;
+  if (typeof message.sender === 'string') {
+    senderName = message.sender === 'You' || message.sender === 'user' ? 'You' : message.sender;
+  } else if (message.sender && typeof message.sender === 'object') {
+    senderName = message.sender.name || (message.sender.role === 'user' ? 'You' : 'Assistant');
+  } else {
+    senderName = 'Unknown';
+  }
     
   // Handle timestamp display
   const formattedTime = message.timestamp instanceof Date 
@@ -387,150 +392,22 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
   // Add the delete message handler function within the component 
   const handleDeleteMessage = async (timestamp: Date) => {
     setIsDeleteDialogOpen(true);
+    return new Promise<boolean>((resolve) => {
+      setDeleteConfirmCallback(() => async (confirmed: boolean) => {
+        if (confirmed && onDeleteMessage) {
+          await onDeleteMessage(timestamp);
+          resolve(true);
+        } else {
+          resolve(false);
+        }
+        setIsDeleteDialogOpen(false);
+      });
+    });
   };
 
-  // Confirm deletion
-  const confirmDelete = async () => {
-    setIsDeleting(true);
-    
-    try {
-      console.log('Starting client-side memory deletion process');
-      
-      // Only proceed if we have a message ID
-      if (!message.id) {
-        console.error('Cannot delete message: no message ID available');
-        showToast('Cannot delete message: no ID available');
-        setIsDeleting(false);
-        return;
-      }
-      
-      console.log('Attempting to delete message with ID:', message.id);
-      
-      // Client-side direct approach to memory deletion
-      // Initialize needed variables
-      let success = false;
-      
-      try {
-        // First, check if the memory exists using our non-dynamic route
-        const checkResponse = await fetch(`/api/memory/status?id=${encodeURIComponent(message.id)}&type=message`, {
-          method: 'GET',
-        });
-        
-        const checkData = await checkResponse.json();
-        console.log('Memory check response:', checkData);
-        
-        if (!checkResponse.ok || !checkData.exists) {
-          console.log('Memory does not exist or status check failed');
-          showToast('Cannot delete: message not found');
-          setIsDeleting(false);
-          return;
-        }
-        
-        // Use our non-dynamic POST endpoint instead of the problematic dynamic route
-        // This follows the pattern suggested in NEXT_JS_API_ISSUES.md
-        const deleteResponse = await fetch('/api/memory/delete', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            id: message.id,
-            type: 'message'
-          }),
-        });
-        
-        const deleteData = await deleteResponse.json();
-        console.log('Delete API response:', deleteData);
-        
-        success = deleteResponse.ok && deleteData.success;
-        
-        if (success) {
-          console.log('Message deleted successfully via client-side approach');
-        } else {
-          console.error('API returned unsuccessful deletion:', deleteData);
-          
-          // Fall back to parent handler if direct API call failed
-          if (onDeleteMessage && message.timestamp) {
-            console.log('Direct API call failed, trying parent handler');
-            
-            // We still pass a timestamp to the parent handler because that's what the interface expects
-            const timestamp = message.timestamp instanceof Date 
-              ? message.timestamp 
-              : new Date(message.timestamp as string || Date.now());
-            
-            try {
-              success = await onDeleteMessage(timestamp);
-              console.log('Deletion via parent handler result:', success);
-            } catch (deleteError) {
-              console.error('Error in parent deletion handler:', deleteError);
-              success = false;
-            }
-          }
-        }
-      } catch (apiError) {
-        console.error('Error in client-side deletion:', apiError);
-        success = false;
-        
-        // Fall back to parent handler
-        if (onDeleteMessage && message.timestamp) {
-          const timestamp = message.timestamp instanceof Date 
-            ? message.timestamp 
-            : new Date(message.timestamp as string || Date.now());
-          
-          try {
-            success = await onDeleteMessage(timestamp);
-          } catch (deleteError) {
-            console.error('Error in parent deletion handler:', deleteError);
-            success = false;
-          }
-        }
-      }
-      
-      if (success) {
-        setIsDeleteDialogOpen(false);
-        showToast('Message deleted successfully');
-        
-        // Create a DOM event to notify the UI that a message was deleted
-        try {
-          const deleteEvent = new CustomEvent('messageDeleted', {
-            detail: { 
-              id: message.id,
-              messageId: message.id,
-              timestamp: message.timestamp instanceof Date 
-                ? message.timestamp.toISOString() 
-                : typeof message.timestamp === 'string' 
-                  ? message.timestamp 
-                  : new Date().toISOString(),
-              sender: message.sender,
-              type: message.messageType
-            }
-          });
-          console.log('Dispatching messageDeleted event with details:', deleteEvent.detail);
-          document.dispatchEvent(deleteEvent);
-          
-          // Force refresh the UI if needed
-          try {
-            const refreshEvent = new CustomEvent('refreshMessages', {
-              detail: { 
-                source: 'deletion',
-                messageId: message.id
-              }
-            });
-            document.dispatchEvent(refreshEvent);
-          } catch (refreshError) {
-            console.error('Error dispatching refresh event:', refreshError);
-          }
-        } catch (eventError) {
-          console.error('Error dispatching message deleted event:', eventError);
-        }
-      } else {
-        showToast('Failed to delete message');
-      }
-    } catch (error) {
-      console.error('Error deleting message:', error);
-      showToast('Error deleting message');
-    } finally {
-      setIsDeleting(false);
+  const handleDeleteConfirm = async (confirmed: boolean) => {
+    if (deleteConfirmCallback) {
+      await deleteConfirmCallback(confirmed);
     }
   };
 
@@ -614,6 +491,12 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
         <div className={`transition-opacity duration-200 ${showMenu ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
           <ChatBubbleMenu
             message={{...message, content: currentContent}}
+            isAssistantMessage={message.sender.role === 'assistant'}
+            showVersionControls={messageVersions.length > 1}
+            currentVersionIndex={currentVersionIndex}
+            totalVersions={messageVersions.length}
+            onPreviousVersion={goToPreviousVersion}
+            onNextVersion={goToNextVersion}
             onCopyText={copyToClipboard}
             onFlagUnreliable={flagAsUnreliable}
             onRegenerate={requestRegeneration}
@@ -623,27 +506,23 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
             onDeleteMessage={onDeleteMessage ? handleDeleteMessage : undefined}
             messageId={message.id}
             onDeleteMemory={undefined}
-            isAssistantMessage={isAssistantMessage}
-            showVersionControls={messageVersions.length > 1}
-            currentVersionIndex={currentVersionIndex}
-            totalVersions={messageVersions.length}
-            onPreviousVersion={goToPreviousVersion}
-            onNextVersion={goToNextVersion}
           />
         </div>
       </div>
       
       {/* Delete confirmation dialog */}
-      <ConfirmationDialog
-        isOpen={isDeleteDialogOpen}
-        title="Delete Message"
-        message="Are you sure you want to delete this message? This action cannot be undone."
-        confirmText={isDeleting ? "Deleting..." : "Delete"}
-        cancelText="Cancel"
-        onConfirm={confirmDelete}
-        onCancel={() => setIsDeleteDialogOpen(false)}
-        variant="danger"
-      />
+      {isDeleteDialogOpen && (
+        <ConfirmationDialog
+          isOpen={isDeleteDialogOpen}
+          onCancel={() => handleDeleteConfirm(false)}
+          onConfirm={() => handleDeleteConfirm(true)}
+          title="Delete Message"
+          message="Are you sure you want to delete this message?"
+          confirmText="Delete"
+          cancelText="Cancel"
+          variant="danger"
+        />
+      )}
     </div>
   );
 };

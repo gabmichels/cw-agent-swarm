@@ -1,4 +1,4 @@
-import React, { FormEvent, useRef, KeyboardEvent, useState, useEffect } from 'react';
+import React, { FormEvent, useRef, KeyboardEvent, useState, useEffect, DragEvent } from 'react';
 import { Send, X } from 'lucide-react';
 
 interface FileAttachment {
@@ -29,8 +29,77 @@ const ChatInput: React.FC<ChatInputProps> = ({
   inputRef,
 }) => {
   const [isFocused, setIsFocused] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
   const textareaWrapperRef = useRef<HTMLDivElement>(null);
-  
+  const formRef = useRef<HTMLFormElement>(null);
+
+  // Handle clipboard paste
+  const handlePaste = (e: ClipboardEvent) => {
+    if (!e.clipboardData) return;
+
+    // Check for files in clipboard
+    const files = Array.from(e.clipboardData.files);
+    if (files.length > 0) {
+      e.preventDefault();
+      handleFileSelect(files[0]);
+      return;
+    }
+
+    // Check for images in clipboard items
+    const items = Array.from(e.clipboardData.items);
+    for (const item of items) {
+      if (item.type.startsWith('image/')) {
+        e.preventDefault();
+        const file = item.getAsFile();
+        if (file) {
+          handleFileSelect(file);
+          return;
+        }
+      }
+    }
+  };
+
+  // Handle drag and drop
+  const handleDragEnter = (e: DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+    setIsDragging(false);
+  };
+
+  const handleDragOver = (e: DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const handleDrop = (e: DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length > 0) {
+      handleFileSelect(files[0]);
+    }
+  };
+
+  // Add paste event listener
+  useEffect(() => {
+    const textarea = inputRef.current;
+    if (textarea) {
+      textarea.addEventListener('paste', handlePaste);
+      return () => {
+        textarea.removeEventListener('paste', handlePaste);
+      };
+    }
+  }, [inputRef]);
+
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     // Submit on ENTER without SHIFT key
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -107,7 +176,15 @@ const ChatInput: React.FC<ChatInputProps> = ({
       )}
       
       {/* Message input form */}
-      <form onSubmit={handleSendMessage} className="flex items-center chat-input-area !pb-0">
+      <form 
+        ref={formRef}
+        onSubmit={handleSendMessage} 
+        className="flex items-center chat-input-area !pb-0"
+        onDragEnter={handleDragEnter}
+        onDragLeave={handleDragLeave}
+        onDragOver={handleDragOver}
+        onDrop={handleDrop}
+      >
         <input
           type="file"
           id="hidden-file-input"
@@ -143,7 +220,15 @@ const ChatInput: React.FC<ChatInputProps> = ({
             />
           </svg>
         </button>
-        <div ref={textareaWrapperRef} className="flex-1 relative">
+        <div 
+          ref={textareaWrapperRef} 
+          className={`flex-1 relative ${isDragging ? 'bg-gray-600 border-2 border-dashed border-blue-500' : ''}`}
+        >
+          {isDragging && (
+            <div className="absolute inset-0 flex items-center justify-center bg-gray-800 bg-opacity-50 z-10 pointer-events-none">
+              <div className="text-white text-sm">Drop files here</div>
+            </div>
+          )}
           <textarea
             ref={inputRef}
             value={inputMessage}

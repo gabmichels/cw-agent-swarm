@@ -4,7 +4,7 @@ import { FileAttachmentType } from './constants/file';
 
 // Define message type for better type safety
 export interface Message {
-  id: string;
+  id?: string;
   content: string;
   timestamp: Date;
   sender: {
@@ -13,6 +13,8 @@ export interface Message {
     role: 'user' | 'assistant' | 'system';
   };
   metadata?: Record<string, unknown>;
+  messageType?: string;
+  attachments?: FileAttachment[];
 }
 
 // Define interface for file attachment
