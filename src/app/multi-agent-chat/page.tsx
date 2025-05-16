@@ -5,6 +5,21 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import MultiAgentChatInterface from '../../components/MultiAgentChatInterface';
 import AgentRelationshipGraph from '../../components/AgentRelationshipGraph';
 
+// Define interface for chat object
+interface Chat {
+  id: string;
+  name: string;
+  description: string;
+  createdBy: string;
+  settings: {
+    visibility: string;
+    allowAnonymousMessages: boolean;
+    enableBranching: boolean;
+    recordTranscript: boolean;
+  };
+  purpose: string;
+}
+
 export default function MultiAgentChatPage({ 
   searchParams 
 }: { 
@@ -12,7 +27,7 @@ export default function MultiAgentChatPage({
 }) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [chat, setChat] = useState<any>(null);
+  const [chat, setChat] = useState<Chat | null>(null);
   const router = useRouter();
   const [userId, setUserId] = useState('user_admin');
   const [chatId, setChatId] = useState<string>('');
@@ -37,24 +52,26 @@ export default function MultiAgentChatPage({
   // Function to create a new chat
   const createNewChat = async (newChatId: string) => {
     try {
+      const chatData: Chat = {
+        id: newChatId,
+        name: 'Multi-Agent Collaboration',
+        description: 'A collaborative chat for multiple agents',
+        createdBy: userId,
+        settings: {
+          visibility: 'public',
+          allowAnonymousMessages: false,
+          enableBranching: true,
+          recordTranscript: true
+        },
+        purpose: 'Agent collaboration and task delegation'
+      };
+      
       const response = await fetch('/api/chats', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          id: newChatId,
-          name: 'Multi-Agent Collaboration',
-          description: 'A collaborative chat for multiple agents',
-          createdBy: userId,
-          settings: {
-            visibility: 'public',
-            allowAnonymousMessages: false,
-            enableBranching: true,
-            recordTranscript: true
-          },
-          purpose: 'Agent collaboration and task delegation'
-        }),
+        body: JSON.stringify(chatData),
       });
       
       if (!response.ok) {

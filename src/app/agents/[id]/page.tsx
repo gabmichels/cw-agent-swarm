@@ -10,7 +10,7 @@ export default function AgentPage({ params }: { params: { id?: string } }) {
   // Use nextjs navigation hook for route params
   const routeParams = useParams();
   // Convert route params to expected type and provide default
-  const agentId = (typeof routeParams.id === 'string' ? routeParams.id : params?.id) || 'default';
+  const agentId = (routeParams && typeof routeParams.id === 'string' ? routeParams.id : params?.id) || 'default';
   
   const [agent, setAgent] = useState<AgentProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -30,7 +30,7 @@ export default function AgentPage({ params }: { params: { id?: string } }) {
           throw new Error(`Failed to fetch agent details: ${response.statusText}`);
         }
         
-        let data = await response.json();
+        let data: { agents?: AgentProfile[] } = await response.json();
         
         // Check if agent was found
         if (data.agents && data.agents.length > 0) {
@@ -49,18 +49,18 @@ export default function AgentPage({ params }: { params: { id?: string } }) {
           
           if (data.agents && data.agents.length > 0) {
             // Try to find the agent by ID, handling different ID formats
-            const foundAgent = data.agents.find((a: any) => {
+            const foundAgent = data.agents.find((a: AgentProfile) => {
               // Compare raw IDs
               if (a.id === agentId) return true;
               
               // Also try ID extraction if agent ID is in a different format
               // Some DB formats might store ID as an object with an id property
-              const extractedId = typeof a.id === 'object' && a.id !== null ? a.id.id : a.id;
+              const extractedId = typeof a.id === 'object' && a.id !== null ? (a.id as unknown as { id: string }).id : a.id;
               return extractedId === agentId;
             });
             
             if (foundAgent) {
-              setAgent(foundAgent as AgentProfile);
+              setAgent(foundAgent);
             } else {
               throw new Error('Agent not found in the system');
             }
@@ -103,7 +103,7 @@ export default function AgentPage({ params }: { params: { id?: string } }) {
     );
   }
 
-  const statusColors = {
+  const statusColors: Record<string, string> = {
     available: 'bg-green-100 text-green-800',
     unavailable: 'bg-red-100 text-red-800',
     maintenance: 'bg-yellow-100 text-yellow-800'

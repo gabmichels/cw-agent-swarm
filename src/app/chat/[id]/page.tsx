@@ -85,7 +85,7 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
   // Use nextjs navigation hook for route params
   const routeParams = useParams();
   // Convert route params to expected type and provide default
-  const agentId = (typeof routeParams.id === 'string' ? routeParams.id : params?.id) || 'default';
+  const agentId = (routeParams && typeof routeParams.id === 'string' ? routeParams.id : params?.id) || 'default';
   
   const [chat, setChat] = useState<Chat | null>(null);
   const [messages, setMessages] = useState<MessageWithId[]>([]);
@@ -204,7 +204,14 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
           chatObj = chatData.chats[0];
         } else {
           // 2. If not found, fetch agent profile for chat creation fields
-          let agentProfile: any = null;
+          let agentProfile: {
+            name?: string;
+            description?: string;
+            metadata?: {
+              tags?: string[];
+              domain?: string[];
+            }
+          } | null = null;
           try {
             const agentRes = await fetch(`/api/multi-agent/agents/${agentId}`);
             const agentJson = await agentRes.json();
@@ -266,7 +273,17 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
           if (msgRes.ok && msgData.messages && msgData.messages.length > 0) {
             console.log(`Found ${msgData.messages.length} messages to display`);
             // Format messages to match expected structure
-            const formattedMessages = msgData.messages.map((msg: any) => ({
+            const formattedMessages = msgData.messages.map((msg: {
+              id: string;
+              content: string;
+              sender: {
+                id: string;
+                name: string;
+                role: "user" | "assistant" | "system";
+              };
+              timestamp: string;
+              attachments?: UIFileAttachment[];
+            }) => ({
               id: msg.id,
               content: msg.content,
               sender: msg.sender,
@@ -657,7 +674,7 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
                       <ChatMessages 
                         messages={messages.map(msg => {
                           // Ensure sender is properly formatted as an object with correct properties
-                          let sender;
+                          let sender: MessageSender;
                           if (typeof msg.sender === 'string') {
                             sender = { 
                               id: msg.sender, 
