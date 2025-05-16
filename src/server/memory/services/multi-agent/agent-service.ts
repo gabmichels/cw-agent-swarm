@@ -408,15 +408,13 @@ export class DefaultAgentMemoryService implements AgentMemoryService {
         delete qdrantFilter.must;
       }
       
-      // Get collection info to count total points if no filter
+      // Get total count if no filter
       if (!filter || Object.keys(filter).length === 0) {
         try {
-          const collectionInfo = await this.memoryClient.getCollectionInfo(this.collectionName);
-          if (collectionInfo && typeof collectionInfo.pointsCount === 'number') {
-            return { isError: false, value: collectionInfo.pointsCount };
-          }
-        } catch (infoError) {
-          console.warn('Failed to get collection info, falling back to search:', infoError);
+          const count = await this.memoryClient.getPointCount(this.collectionName);
+          return { isError: false, value: count };
+        } catch (countError) {
+          console.warn('Failed to get point count, falling back to search:', countError);
           // Continue with search method
         }
       }

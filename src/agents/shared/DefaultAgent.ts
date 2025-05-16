@@ -30,6 +30,9 @@ import { EnhancedReflectionManager } from './reflection/managers/EnhancedReflect
 import { DefaultReflectionManager } from './reflection/managers/DefaultReflectionManager';
 import { ExecutionErrorHandler } from './execution/ExecutionErrorHandler';
 import { ToolRouter, ToolDefinition } from './tools/ToolRouter';
+import { PromptFormatter, PersonaInfo, SystemPromptOptions, InputPromptOptions, ScoredMemory } from '../../agents/shared/messaging/PromptFormatter';
+import { RelevanceScorer, RelevantMemoryOptions } from './memory/RelevanceScorer';
+import { AgentCapability, CapabilityType } from './capability-system/types';
 
 // Define the necessary types that we need
 const AGENT_STATUS = {
@@ -101,6 +104,20 @@ interface ExtendedAgentConfig {
   // Behavior configuration
   adaptiveBehavior?: boolean;
   
+  // Persona and system prompt configuration
+  systemPrompt?: string;
+  persona?: PersonaInfo;
+  
+  // Memory refresh configuration
+  memoryRefresh?: {
+    /** Enable periodic memory refreshing */
+    enabled: boolean;
+    /** Interval in milliseconds between refreshes */
+    interval: number;
+    /** Maximum number of critical memories to include */
+    maxCriticalMemories: number;
+  };
+  
   // Manager configurations
   managersConfig?: {
     memoryManager?: ManagerConfig;
@@ -132,6 +149,8 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
   protected schedulerManager?: DefaultSchedulerManager;
   protected initialized: boolean = false;
   private executionErrorHandler: ExecutionErrorHandler | null = null;
+  private memoryRefreshInterval: NodeJS.Timeout | null = null;
+  private lastMemoryRefreshTime: Date | null = null;
   
   /**
    * Create a new DefaultAgent
@@ -469,6 +488,11 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
       // Wire managers together
       this.wireManagersTogether();
 
+      // Set up memory refresh if enabled
+      if (this.extendedConfig.memoryRefresh?.enabled) {
+        this.setupMemoryRefresh();
+      }
+
       return super.initialize();
     } catch (error) {
       console.error('Error initializing DefaultAgent:', error);
@@ -528,9 +552,87 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
   }
 
   /**
+   * Set up periodic memory refreshing
+   */
+  private setupMemoryRefresh(): void {
+    if (!this.extendedConfig.memoryRefresh?.enabled) {
+      return;
+    }
+    
+    const interval = this.extendedConfig.memoryRefresh.interval || 3600000; // Default to 1 hour
+    
+    // Clear any existing interval
+    if (this.memoryRefreshInterval) {
+      clearInterval(this.memoryRefreshInterval);
+    }
+    
+    // Set up new interval
+    this.memoryRefreshInterval = setInterval(async () => {
+      try {
+        await this.refreshCriticalMemories();
+      } catch (error) {
+        console.error('Error refreshing critical memories:', error);
+      }
+    }, interval);
+    
+    console.log(`Memory refresh scheduled every ${interval / 60000} minutes`);
+  }
+  
+  /**
+   * Refresh critical memories
+   */
+  async refreshCriticalMemories(): Promise<void> {
+    const memoryManager = this.getManager<MemoryManager>(ManagerType.MEMORY);
+    if (!memoryManager) {
+      console.warn('Cannot refresh memories: Memory manager not initialized');
+      return;
+    }
+    
+    try {
+      // Get critical memories
+      const criticalMemories = await memoryManager.searchMemories('', {
+        metadata: { type: 'critical_memory' },
+        limit: this.extendedConfig.memoryRefresh?.maxCriticalMemories || 10
+      });
+      
+      if (criticalMemories.length === 0) {
+        console.log('No critical memories to refresh');
+        return;
+      }
+      
+      // Create a summary of critical memories
+      const memorySummary = criticalMemories
+        .map(memory => `- ${memory.content}`)
+        .join('\n');
+      
+      // Store memory refresher as a system message
+      await memoryManager.addMemory(
+        `MEMORY REFRESH: The following critical information is important to remember:\n\n${memorySummary}`,
+        {
+          type: 'system_message',
+          subtype: 'memory_refresh',
+          timestamp: new Date(),
+          critical: true
+        }
+      );
+      
+      this.lastMemoryRefreshTime = new Date();
+      console.log(`Refreshed ${criticalMemories.length} critical memories`);
+    } catch (error) {
+      console.error('Error during memory refresh:', error);
+    }
+  }
+
+  /**
    * Shutdown the agent
    */
   async shutdown(): Promise<void> {
+    // Stop memory refresh if active
+    if (this.memoryRefreshInterval) {
+      clearInterval(this.memoryRefreshInterval);
+      this.memoryRefreshInterval = null;
+    }
+    
     // Stop resource tracking if active
     if (this.resourceTracker) {
       this.resourceTracker.stop();
@@ -565,43 +667,83 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
       // Store input as a memory with tags
       await this.addTaggedMemory(input, { type: 'user_input', ...context || {} });
       
+      // Create a relevance scorer
+      const relevanceScorer = new RelevanceScorer(memoryManager, this.extendedConfig.modelName || 'gpt-3.5-turbo');
+      
+      // Get relevant memories for this input
+      const relevantMemoryOptions: RelevantMemoryOptions = {
+        query: input,
+        limit: 10,
+        includeCritical: true,
+        minRelevance: 0.3,
+        tags: context?.tags as string[] || []
+      };
+      
+      // Get relevant memories
+      const relevantMemories = await relevanceScorer.getRelevantMemories(relevantMemoryOptions);
+      
       // Get conversation history from memory manager
       const conversationHistory = await memoryManager.searchMemories('', { 
         metadata: { 
           type: ['user_input', 'agent_response'] 
         },
-        limit: 5 
+        limit: 10 
       });
       
-      // Format conversation history for the prompt
-      const historyMessages = [];
-      for (const memory of conversationHistory) {
-        const type = memory.metadata.type as string;
-        if (type === 'user_input') {
-          historyMessages.push(["human", memory.content]);
-        } else if (type === 'agent_response') {
-          historyMessages.push(["assistant", memory.content]);
-        }
-      }
+      // Format conversation history using the PromptFormatter
+      // Cast the conversationHistory to the expected format to fix type errors
+      const formattedHistory = PromptFormatter.formatConversationHistory(
+        conversationHistory.map(mem => ({
+          content: mem.content,
+          metadata: {
+            ...mem.metadata as Record<string, any>,
+            type: (mem.metadata as Record<string, unknown>).type as string
+          }
+        }))
+      );
       
-      // Create improved prompt template with history
-      const prompt = ChatPromptTemplate.fromMessages([
-        ["system", "You are a helpful assistant. Provide concise, accurate, and helpful responses."],
-        ...historyMessages,
-        ["human", "{input}"]
-      ]);
+      // Get agent capabilities for context
+      const capabilities = await this.getCapabilities();
       
-      // Create a chain with the model and prompt
-      // This approach avoids type issues by using the pipe method
-      const chain = prompt.pipe(this.model).pipe(new StringOutputParser());
+      // Build the system prompt with persona information if available
+      const systemPromptOptions: SystemPromptOptions = {
+        basePrompt: this.extendedConfig.systemPrompt || 
+          "You are a helpful assistant. Provide concise, accurate, and helpful responses.",
+        persona: this.extendedConfig.persona,
+        includeCapabilities: true,
+        additionalContext: [
+          `Available capabilities: ${capabilities.join(', ')}`
+        ]
+      };
       
-      // Execute the chain with the input
-      const response = await chain.invoke({ input });
+      // Format the system prompt
+      const systemPrompt = PromptFormatter.formatSystemPrompt(systemPromptOptions);
+      
+      // Create input prompt options
+      const inputPromptOptions: InputPromptOptions = {
+        input,
+        conversationHistory: formattedHistory,
+        maxHistoryMessages: 8, // Reduced to allow room for memories
+        includeRelevantMemories: true,
+        relevantMemories,
+        inputContext: context
+      };
+      
+      // Create chat messages using the formatter
+      const messages = PromptFormatter.createChatMessages(systemPrompt, inputPromptOptions);
+      
+      // Use the Langchain invoke method which can work with message arrays
+      // Cast 'any' for now to bypass the type error with model.invoke()
+      // This will need a proper fix later by updating the type definitions or LangChain imports
+      const response = await (this.model as any).invoke(messages);
+      
+      // Extract the response content
+      const responseContent = response.content.toString();
       
       // Store response in memory using tag extraction
-      await this.addTaggedMemory(response, { type: 'agent_response', ...context || {} });
+      await this.addTaggedMemory(responseContent, { type: 'agent_response', ...context || {} });
       
-      return response;
+      return responseContent;
     } catch (error) {
       console.error('Error processing input:', error);
       return null;
@@ -1059,9 +1201,60 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
         console.error('Error initializing tool router:', err);
       });
       
-      // Register tools from tool manager
+      // Get agent capabilities
+      const agentCapabilities = this.config.capabilities || [];
+      // Extract capability IDs for comparison
+      const capabilityIds = agentCapabilities.map(cap => {
+        if (typeof cap === 'string') return cap;
+        // Handle the AgentCapability object
+        if (typeof cap === 'object' && cap !== null) {
+          // If it has an id property, use it
+          if ('id' in cap && typeof cap.id === 'string') return cap.id;
+          // Otherwise try to construct from type and name if available
+          if ('type' in cap && 'name' in cap) {
+            return `${cap.type}.${cap.name}`;
+          }
+        }
+        // Fallback for unrecognized format
+        return String(cap);
+      });
+      
+      console.log(`Agent ${this.getId()} has capabilities:`, capabilityIds);
+      
+      // Register tools from tool manager with capability-aware filtering
       toolManager.getTools().then(tools => {
-        tools.forEach(tool => {
+        // Filter tools based on agent capabilities if capabilities are specified
+        const filteredTools = tools.filter(tool => {
+          // Extract tool capabilities from metadata if available
+          const toolRequiredCapabilities = (tool.metadata?.requiredCapabilities as string[]) || [];
+          
+          // If no required capabilities specified for the tool, include it
+          if (toolRequiredCapabilities.length === 0) {
+            return true;
+          }
+          
+          // If agent has no capabilities, only include tools without requirements
+          if (capabilityIds.length === 0) {
+            return false;
+          }
+          
+          // Check if the agent has any of the required capabilities
+          return toolRequiredCapabilities.some((cap: string) => 
+            capabilityIds.includes(cap)
+          );
+        });
+        
+        // Sort tools by capability match score
+        filteredTools.sort((a, b) => {
+          const scoreA = this.calculateToolCapabilityScore(a, capabilityIds);
+          const scoreB = this.calculateToolCapabilityScore(b, capabilityIds);
+          return scoreB - scoreA; // Higher scores first
+        });
+        
+        console.log(`Agent has access to ${filteredTools.length} of ${tools.length} tools based on capabilities`);
+        
+        // Register the filtered and sorted tools
+        filteredTools.forEach(tool => {
           // Convert Tool to ToolDefinition
           const toolDef: ToolDefinition = {
             name: tool.name,
@@ -1090,7 +1283,7 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
         });
         
         // Set tool permissions for this agent
-        toolRouter.setAgentToolPermissions(this.getId(), tools.map(t => t.name));
+        toolRouter.setAgentToolPermissions(this.getId(), filteredTools.map(t => t.name));
       }).catch(err => {
         console.error('Error registering tools:', err);
       });
@@ -1105,6 +1298,52 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
       console.error('Error setting up executor:', error);
       throw error;
     }
+  }
+
+  /**
+   * Calculate a capability match score for a tool
+   * Higher scores mean better matches with the agent's capabilities
+   */
+  private calculateToolCapabilityScore(tool: any, capabilityIds: string[]): number {
+    // Extract tool capabilities from metadata if available
+    const toolRequiredCapabilities = (tool.metadata?.requiredCapabilities as string[]) || [];
+    
+    // If tool has no required capabilities, give it a baseline score
+    if (toolRequiredCapabilities.length === 0) {
+      return 0.5; // Medium priority
+    }
+    
+    // If agent has no capabilities, tool gets lowest score
+    if (capabilityIds.length === 0) {
+      return 0;
+    }
+    
+    // Count how many of the tool's required capabilities the agent has
+    const matchingCapabilities = toolRequiredCapabilities.filter(
+      (cap: string) => capabilityIds.includes(cap)
+    );
+    
+    // Calculate match percentage
+    const matchPercentage = matchingCapabilities.length / toolRequiredCapabilities.length;
+    
+    // Priority boost based on capability level
+    let levelBoost = 0;
+    const capabilityLevel = (tool.metadata?.requiredCapabilityLevel as string) || 'basic';
+    switch (capabilityLevel) {
+      case 'expert':
+        levelBoost = 0.3;
+        break;
+      case 'intermediate':
+        levelBoost = 0.2;
+        break;
+      case 'basic':
+      default:
+        levelBoost = 0.1;
+        break;
+    }
+    
+    // Final score: match percentage (0-1) plus level boost
+    return matchPercentage + levelBoost;
   }
 
   // Add method to handle reflection-based behavior adaptation

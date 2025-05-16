@@ -39,27 +39,27 @@ When implementing file attachment functionality for the chat/[id] endpoint, foll
 ## Agent Utilization
 
 ### Prompt Construction
-- [ ] Modify the DefaultAgent's prompt construction to include:
-  - [ ] System prompt / custom instructions
-  - [ ] Persona information (background, personality, communication style)
-  - [ ] Relevant context based on the query
-- [ ] Create a formatter that properly combines these elements into the prompt template
-- [ ] Add a messaging module to handle formatting conversation history with persona context
+- [x] Modify the DefaultAgent's prompt construction to include:
+  - [x] System prompt / custom instructions
+  - [x] Persona information (background, personality, communication style)
+  - [x] Relevant context based on the query
+- [x] Create a formatter that properly combines these elements into the prompt template
+- [x] Add a messaging module to handle formatting conversation history with persona context
 
 ### Memory Retrieval
-- [ ] Enhance memory retrieval to prioritize critical memories from uploaded files
-- [ ] Implement relevance scoring to include appropriate memories in prompts
-- [ ] Add memory refreshing mechanism to periodically remind the agent of critical information
+- [x] Enhance memory retrieval to prioritize critical memories from uploaded files
+- [x] Implement relevance scoring to include appropriate memories in prompts
+- [x] Add memory refreshing mechanism to periodically remind the agent of critical information
 
 ### Capability Integration
-- [ ] Update the agent's skill selection based on registered capabilities
-- [ ] Implement capability-aware tool selection
-- [ ] Add capability level awareness to decision-making processes
+- [x] Update the agent's skill selection based on registered capabilities
+- [x] Implement capability-aware tool selection
+- [x] Add capability level awareness to decision-making processes
 
 ### Knowledge Path Integration
-- [ ] Implement knowledge path scanning during agent initialization
-- [ ] Create a periodic scanning service to update knowledge when files in paths change
-- [ ] Add a mechanism to reference knowledge path information in responses
+- [x] ~~Implement knowledge path scanning during agent initialization~~ (Removed - not needed)
+- [x] ~~Create a periodic scanning service to update knowledge when files in paths change~~ (Removed - not needed)
+- [x] ~~Add a mechanism to reference knowledge path information in responses~~ (Removed - not needed)
 
 ## Testing
 
@@ -67,13 +67,6 @@ When implementing file attachment functionality for the chat/[id] endpoint, foll
 - [ ] Add integration tests for the complete registration process
 - [ ] Develop end-to-end tests for agent creation and subsequent operation
 - [ ] Add performance tests for knowledge processing with large files
-
-## Monitoring and Analytics
-
-- [ ] Add tracking for which capabilities are most commonly used
-- [ ] Create analytics for knowledge file usage
-- [ ] Implement persona effectiveness monitoring (how well does the agent maintain its persona)
-- [ ] Add system prompt impact analysis
 
 
 ## Agent Registration Process
@@ -86,25 +79,25 @@ When implementing file attachment functionality for the chat/[id] endpoint, foll
 - [x] Add capability versioning to track changes to capabilities over time
 
 ### Persona Information Processing
-- [ ] Update the agent registration handler to properly store persona information (background, personality, communication style, preferences)
-- [ ] Ensure persona information is easily retrievable for prompt construction
-- [ ] Add validation for persona fields to ensure quality data
+- [x] Update the agent registration handler to properly store persona information (background, personality, communication style, preferences)
+- [x] Ensure persona information is easily retrievable for prompt construction
+- [x] Add validation for persona fields to ensure quality data
 
 ### System Prompt / Custom Instructions
-- [ ] Ensure system prompts are properly stored and associated with the agent
-- [ ] Create a retrieval mechanism for system prompts that makes them accessible during agent operation
+- [x] Ensure system prompts are properly stored and associated with the agent
+- [x] Create a retrieval mechanism for system prompts that makes them accessible during agent operation
 
 ### Knowledge Processing
-- [ ] Create a preprocessing step that runs when "Finalize Agent" is clicked
-- [ ] Process all uploaded markdown files:
-  - [ ] Extract content and store as critical memories for the agent
-  - [ ] Use tagExtractor to identify and extract tags from content
-  - [ ] Associate extracted tags with stored memories
-- [ ] Process all files in the selected knowledge paths:
-  - [ ] Scan directories for markdown files
-  - [ ] Extract content and store as critical memories
-  - [ ] Use tagExtractor for tag extraction
-  - [ ] Associate tags with stored memories
+- [x] Create a preprocessing step that runs when "Finalize Agent" is clicked
+- [x] Process all uploaded markdown files:
+  - [x] Extract content and store as critical memories for the agent
+  - [x] Use tagExtractor to identify and extract tags from content
+  - [x] Associate extracted tags with stored memories
+- [x] Process all files in the selected knowledge paths:
+  - [x] Scan directories for markdown files
+  - [x] Extract content and store as critical memories
+  - [x] Use tagExtractor for tag extraction
+  - [x] Associate tags with stored memories
 
 ### Progress Tracking
 - [ ] Add a processing indicator during agent finalization
@@ -129,4 +122,16 @@ After implementing the above plan, we should evaluate the effectiveness of the e
 - [x] Added API endpoints for capability management
 - [x] Updated agent registration to store capabilities in the database
 - [x] Updated the AgentCapabilityManager component to load capabilities from the database
-- [ ] Next task: Start with Agent Utilization - Prompt Construction
+- [x] Created PromptFormatter to support system prompts and persona information
+- [x] Updated DefaultAgent to use the PromptFormatter for enhanced prompts
+- [x] Created RelevanceScorer to score and retrieve relevant memories for prompts
+- [x] Enhanced DefaultAgent with memory refreshing mechanism for critical information
+- [x] Updated DefaultAgent with capability-aware tool selection
+- [x] ~~Implemented knowledge path scanning and processing during agent initialization~~ (Removed - not needed)
+- [x] ~~Added watcher to monitor knowledge paths for changes and update agent memories~~ (Removed - not needed)
+- [x] ~~Enhanced DefaultAgent to use knowledge from files in prompt construction~~ (Removed - not needed)
+- [x] Updated agent registration handler to properly store persona information
+- [x] Ensured system prompts are properly stored and accessible by agents
+- [x] Implemented Knowledge Processing - Created KnowledgeProcessor to extract content from uploaded files and store as memories
+- [x] Created API endpoint for processing knowledge files during agent finalization
+- [ ] Next task: Progress Tracking - Add a processing indicator during agent finalization

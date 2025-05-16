@@ -205,7 +205,8 @@ export async function POST(request: Request) {
         temperature: agent.parameters?.temperature || 0.7,
         maxTokens: agent.parameters?.maxTokens || 1024,
         tools: [], // Convert string[] to AgentTool[]
-        customInstructions: agent.parameters?.systemPrompt
+        customInstructions: agent.parameters?.systemPrompt,
+        systemMessages: agent.parameters?.systemPrompt ? [agent.parameters.systemPrompt] : undefined
       };
     };
     
@@ -222,17 +223,49 @@ export async function POST(request: Request) {
           taskCompletionRate: 0
         },
         version: agent.metadata?.version || '1.0.0',
-        isPublic: agent.metadata?.isPublic || false
+        isPublic: agent.metadata?.isPublic || false,
+        // Store persona information in metadata
+        persona: agent.metadata?.persona || {
+          background: '',
+          personality: '',
+          communicationStyle: '',
+          preferences: ''
+        }
       };
       
       // Add any custom fields from the agent metadata but exclude ones we've already added
-      const { tags, domain, specialization, performanceMetrics, version, isPublic, ...customMetadata } = agent.metadata || {};
+      const { tags, domain, specialization, performanceMetrics, version, isPublic, persona, ...customMetadata } = agent.metadata || {};
       
       // Return combined metadata
       return {
         ...baseMetadata,
         ...customMetadata
       } as AgentMemoryEntity['metadata'];
+    };
+    
+    // Helper function to generate rich content for semantic search
+    const generateAgentContent = (agentProfile: AgentProfile): string => {
+      // Start with basic information
+      let content = `${agentProfile.name} - ${agentProfile.description}`;
+      
+      // Add capabilities
+      content += ` - Capabilities: ${agentProfile.capabilities.map(c => c.name).join(', ')}`;
+      
+      // Add persona information if available
+      if (agentProfile.metadata?.persona) {
+        const persona = agentProfile.metadata.persona;
+        content += ` - Background: ${persona.background || ''}`;
+        content += ` - Personality: ${persona.personality || ''}`;
+        content += ` - Communication Style: ${persona.communicationStyle || ''}`;
+        content += ` - Preferences: ${persona.preferences || ''}`;
+      }
+      
+      // Add system prompt if available
+      if (agentProfile.parameters?.systemPrompt) {
+        content += ` - Custom Instructions: ${agentProfile.parameters.systemPrompt}`;
+      }
+      
+      return content;
     };
     
     // Map agent status from API to schema enum
@@ -260,7 +293,7 @@ export async function POST(request: Request) {
       chatIds: [],
       teamIds: [],
       metadata: createSchemaMetadata(),
-      content: `${agent.name} - ${agent.description} - ${agent.capabilities.map(c => c.name).join(', ')}`,
+      content: generateAgentContent(agent),
       type: 'agent', // Required for base memory schema
       createdAt: agent.createdAt,
       updatedAt: agent.updatedAt,
