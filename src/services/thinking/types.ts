@@ -1,0 +1,199 @@
+/**
+ * Types for the ThinkingService
+ */
+
+/**
+ * The outcome of analyzing user input through the thinking process
+ */
+export interface ThinkingResult {
+  /**
+   * Primary intent and alternatives identified from the user's message
+   */
+  intent: {
+    primary: string;
+    confidence: number;
+    alternatives?: Array<{intent: string, confidence: number}>;
+  };
+  
+  /**
+   * Entities extracted from the user's message
+   */
+  entities: Array<{
+    type: string;
+    value: string;
+    confidence: number;
+  }>;
+  
+  /**
+   * Whether the task should be delegated to another agent
+   */
+  shouldDelegate: boolean;
+  
+  /**
+   * Required capabilities for delegation
+   */
+  delegateToCapability?: string[];
+  
+  /**
+   * Reasoning steps that led to this analysis
+   */
+  reasoning: string[];
+  
+  /**
+   * Context used to generate this analysis
+   */
+  contextUsed: {
+    memories: string[];
+    files: string[];
+    tools: string[];
+  };
+  
+  /**
+   * Planned steps for executing the user's request
+   */
+  planSteps?: string[];
+}
+
+/**
+ * Options for the thinking process
+ */
+export interface ThinkingOptions {
+  /**
+   * User ID for context retrieval
+   */
+  userId?: string;
+  
+  /**
+   * Chat history to include
+   */
+  chatHistory?: Array<{
+    id: string;
+    content: string;
+    sender: {
+      id: string;
+      name: string;
+      role: 'user' | 'assistant' | 'system';
+    };
+    timestamp: Date;
+  }>;
+  
+  /**
+   * Working memory items to include
+   */
+  workingMemory?: WorkingMemoryItem[];
+  
+  /**
+   * Context files to consider
+   */
+  contextFiles?: FileReference[];
+  
+  /**
+   * Whether to include debugging information
+   */
+  debug?: boolean;
+}
+
+/**
+ * An item stored in working memory
+ */
+export interface WorkingMemoryItem {
+  /**
+   * Unique identifier for the item
+   */
+  id: string;
+  
+  /**
+   * The content of the memory item
+   */
+  content: string;
+  
+  /**
+   * Type of memory item
+   */
+  type: 'entity' | 'fact' | 'preference' | 'task' | 'goal';
+  
+  /**
+   * Tags for better retrieval
+   */
+  tags: string[];
+  
+  /**
+   * When the item was added to working memory
+   */
+  addedAt: Date;
+  
+  /**
+   * Priority of the item (higher = more important)
+   */
+  priority: number;
+  
+  /**
+   * Expiration time (null = no expiration)
+   */
+  expiresAt: Date | null;
+  
+  /**
+   * Related entities or context
+   */
+  relatedTo?: string[];
+  
+  /**
+   * Confidence in this memory
+   */
+  confidence: number;
+  
+  /**
+   * User ID this memory belongs to
+   */
+  userId: string;
+}
+
+/**
+ * Reference to a file in the system
+ */
+export interface FileReference {
+  /**
+   * Unique identifier for the file
+   */
+  id: string;
+  
+  /**
+   * File name
+   */
+  name: string;
+  
+  /**
+   * File type
+   */
+  type: string;
+  
+  /**
+   * Path to the file
+   */
+  path: string;
+  
+  /**
+   * File metadata
+   */
+  metadata?: Record<string, any>;
+}
+
+/**
+ * Options for memory consolidation
+ */
+export interface ConsolidationOptions {
+  /**
+   * Minimum confidence for retention
+   */
+  minConfidence?: number;
+  
+  /**
+   * Maximum items to retain
+   */
+  maxItems?: number;
+  
+  /**
+   * Whether to generate insights from consolidated memories
+   */
+  generateInsights?: boolean;
+} 

@@ -8,6 +8,7 @@ import { getOrCreateThreadInfo, createResponseThreadInfo } from '../../../../cha
 import { AgentService } from '../../../../../../services/AgentService';
 import { getChatService } from '../../../../../../server/memory/services/chat-service';
 import { MessageMetadata } from '../../../../../../types/metadata';
+import { ThinkingService } from '@/services/thinking';
 
 // Define interface for message attachments
 interface MessageAttachment {
@@ -52,6 +53,9 @@ interface InitializableAgent extends ProcessableAgent {
 
 // Track the last user message ID to maintain thread relationships
 let lastUserMessageId: string | null = null;
+
+// Cache the ThinkingService instance
+const thinkingService = new ThinkingService();
 
 /**
  * GET /api/multi-agent/chats/[chatId]/messages
@@ -318,43 +322,38 @@ export async function POST(
       let thoughts: string[] = [];
       if (thinking) {
         try {
-          console.log('Performing initial thinking analysis...');
+          console.log('Performing initial thinking analysis using ThinkingService...');
           
-          // First, analyze what the user really wants (thinking step)
-          const thinkingPromise = AgentService.processMessage(agentId, 
-            `[THINKING MODE] Analyze what the user really wants with this message and extract key information.\n\nUser message: "${content}"\n\nThink about:\n1. What is the user's intent?\n2. What key information should I extract and remember?\n3. How does this relate to previous context?\n4. What specific needs or goals is the user expressing?\n\nProvide your analysis in detail before responding to the user.`, 
-            { ...processingOptions, internal: true }
-          );
-          
-          // Set thinking timeout (15 seconds)
-          const thinkingTimeoutPromise = new Promise<never>((_, reject) => {
-            const timeoutId = setTimeout(() => {
-              clearTimeout(timeoutId);
-              reject(new Error('Thinking step timed out after 15 seconds'));
-            }, 15000);
+          // Use our new ThinkingService for advanced thinking analysis
+          const thinkingResult = await thinkingService.processRequest(userId, content, {
+            userId,
+            contextFiles: processedAttachments?.map((attachment: MessageAttachment) => ({
+              id: attachment.fileId || '',
+              name: attachment.filename,
+              type: attachment.type,
+              path: '',
+              metadata: attachment
+            }))
           });
           
-          // Get thinking results
-          const thinkingResult = await Promise.race([thinkingPromise, thinkingTimeoutPromise]);
-          
-          if (thinkingResult && typeof thinkingResult === 'object') {
-            if ('response' in thinkingResult && thinkingResult.response) {
-              const response = thinkingResult.response;
-              const thinkingResponse = typeof response === 'string' 
-                ? { content: response } 
-                : response as AgentResponse;
-              
-              if (thinkingResponse.content) {
-                thoughts = [thinkingResponse.content];
-                console.log('Thinking analysis completed:', thinkingResponse.content.substring(0, 100) + '...');
-              }
-            } else if ('content' in thinkingResult) {
-              thoughts = [thinkingResult.content];
-              console.log('Thinking analysis completed:', thinkingResult.content.substring(0, 100) + '...');
+          // Extract reasoning for context thoughts
+          if (thinkingResult && thinkingResult.reasoning.length > 0) {
+            thoughts = thinkingResult.reasoning;
+            
+            // Log detailed analysis info
+            console.log('ThinkingService analysis completed:');
+            console.log(`- Intent: ${thinkingResult.intent.primary} (confidence: ${thinkingResult.intent.confidence})`);
+            console.log(`- Entities detected: ${thinkingResult.entities.length}`);
+            console.log(`- Delegation decision: ${thinkingResult.shouldDelegate ? 'Should delegate' : 'Handle directly'}`);
+            
+            // Include the thinking insights in the debug info but not in thoughts directly
+            // to avoid overwhelming the context
+            if (thinkingResult.planSteps && thinkingResult.planSteps.length > 0) {
+              console.log(`- Execution plan: ${thinkingResult.planSteps.join(' → ')}`);
             }
           }
         } catch (thinkingError) {
-          console.warn('Error during thinking step:', thinkingError);
+          console.warn('Error during ThinkingService analysis:', thinkingError);
           thoughts = [`Error in thinking: ${thinkingError instanceof Error ? thinkingError.message : String(thinkingError)}`];
         }
       }
