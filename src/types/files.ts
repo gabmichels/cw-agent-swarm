@@ -67,4 +67,34 @@ export interface FileMetadata {
    * Additional metadata specific to file type
    */
   metadata?: Record<string, unknown>;
+}
+
+/**
+ * File attachment interface for messages
+ */
+export interface FileAttachment {
+  /**
+   * Unique identifier
+   */
+  id: string;
+
+  /**
+   * File type
+   */
+  type: string;
+
+  /**
+   * URL to access the file
+   */
+  url: string;
+
+  /**
+   * Preview URL (for images)
+   */
+  preview?: string;
+
+  /**
+   * File metadata
+   */
+  metadata: FileMetadata;
 } 

@@ -98,8 +98,10 @@
   "devDependencies": {
     "@jest/globals": "^29.7.0",
     "@tailwindcss/typography": "^0.5.10",
+    "@testing-library/dom": "^10.4.0",
     "@testing-library/react": "^16.3.0",
     "@testing-library/react-hooks": "^8.0.1",
+    "@testing-library/user-event": "^14.6.1",
     "@types/commander": "^2.12.0",
     "@types/jest": "^29.5.14",
     "@types/luxon": "^3.3.3",
@@ -107,6 +109,7 @@
     "@types/node": "^20.17.47",
     "@types/react": "^18.3.21",
     "@types/react-dom": "^18.3.7",
+    "@types/testing-library__jest-dom": "^5.14.9",
     "@types/uuid": "^10.0.0",
     "eslint": "^9.25.1",
     "eslint-config-next": "^15.4.0-canary.0",

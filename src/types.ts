@@ -4,17 +4,15 @@ import { FileAttachmentType } from './constants/file';
 
 // Define message type for better type safety
 export interface Message {
-  id?: string; // Unique identifier for the message
-  sender: string;
+  id: string;
   content: string;
   timestamp: Date;
-  memory?: MemoryItem[];
-  thoughts?: string[];
-  attachments?: FileAttachment[];
-  visionResponseFor?: string; // Timestamp string of the message this is a vision response for
-  messageType?: MessageType; // Type of message for proper routing
-  isInternalMessage?: boolean; // Flag to indicate if message should be shown in chat UI
-  metadata?: Record<string, any>; // Additional message metadata
+  sender: {
+    id: string;
+    name: string;
+    role: 'user' | 'assistant' | 'system';
+  };
+  metadata?: Record<string, unknown>;
 }
 
 // Define interface for file attachment

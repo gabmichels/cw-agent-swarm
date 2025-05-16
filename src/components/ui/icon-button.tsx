@@ -1,17 +1,10 @@
-import * as React from 'react';
-import { Button } from './button';
-import { cn } from '@/lib/utils';
+import React from 'react';
 
-export interface IconButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+interface IconButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   /**
    * Icon component to render
    */
   icon: React.ReactNode;
-
-  /**
-   * Whether the button is in a loading state
-   */
-  loading?: boolean;
 
   /**
    * Additional class names
@@ -19,32 +12,28 @@ export interface IconButtonProps extends React.ButtonHTMLAttributes<HTMLButtonEl
   className?: string;
 }
 
-export const IconButton = React.forwardRef<HTMLButtonElement, IconButtonProps>(
-  ({ icon, loading, className, children, ...props }, ref) => {
-    return (
-      <Button
-        ref={ref}
-        size="icon"
-        variant="ghost"
-        className={cn(
-          'relative h-8 w-8 rounded-full bg-transparent hover:bg-white/10',
-          loading && 'cursor-wait',
-          className
-        )}
-        disabled={loading}
-        {...props}
-      >
-        {loading ? (
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/20 border-t-white" />
-          </div>
-        ) : (
-          icon
-        )}
-        {children}
-      </Button>
-    );
-  }
-);
-
-IconButton.displayName = 'IconButton'; 
+/**
+ * Icon button component
+ */
+export function IconButton({
+  icon,
+  className = '',
+  ...props
+}: IconButtonProps) {
+  return (
+    <button
+      type="button"
+      className={`
+        p-1 rounded-full
+        text-gray-500 dark:text-gray-400
+        hover:bg-gray-100 dark:hover:bg-gray-800
+        focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500
+        disabled:opacity-50 disabled:cursor-not-allowed
+        ${className}
+      `}
+      {...props}
+    >
+      {icon}
+    </button>
+  );
+} 

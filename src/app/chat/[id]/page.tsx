@@ -8,9 +8,25 @@ import TabsNavigation from '@/components/TabsNavigation';
 import ChatInput from '@/components/ChatInput';
 import ChatMessages from '@/components/ChatMessages';
 import DevModeToggle from '@/components/DevModeToggle';
-import { Message, FileAttachment } from '@/types';
+import { Message as ChatMessage, MessageType, MessageRole, MessageStatus, MessageAttachment } from '@/lib/multi-agent/types/message';
+import { ParticipantType } from '@/lib/multi-agent/types/chat';
+import { FileMetadata, FileAttachmentType as StorageFileType, FileProcessingStatus, FileAttachment as StorageFileAttachment } from '@/types/files';
+import { Message as HandlerMessage, MessageType as HandlerMessageType, MessageStatus as HandlerMessageStatus, MessageHandlerOptions } from '@/services/message/MessageHandlerService';
+import { Message as DisplayMessage, FileAttachment as UIFileAttachment } from '@/types';
+import { FileAttachmentType } from '@/constants/file';
 import { getCurrentUser } from '@/lib/user';
-import MessageHandlerService from '@/services/MessageHandlerService';
+import { FileUploadImplementation } from '@/services/upload/FileUploadImplementation';
+import { IndexedDBFileStorage } from '@/services/storage/IndexedDBFileStorage';
+import { MessageHandlerImplementation } from '@/services/message/MessageHandlerImplementation';
+import { FilePreview } from '@/components/file/FilePreview';
+import { ProgressBar } from '@/components/ui/progress-bar';
+import { ErrorMessage } from '@/components/ui/error-message';
+import { ImageModal } from '@/components/modals/ImageModal';
+import { FileAttachmentHandler, FileHandlerOptions } from '@/services/handlers/FileAttachmentHandler';
+import { ClipboardHandler } from '@/services/handlers/ClipboardHandler';
+import { DragDropHandler } from '@/services/handlers/DragDropHandler';
+import { generateMessageId } from '@/lib/multi-agent/types/message';
+import { UploadInfo } from '@/services/upload/FileUploadService';
 
 const user = getCurrentUser();
 const userId = user.id;
@@ -30,6 +46,29 @@ const agentsByDepartment: Record<string, string[]> = {
   Sales: ['Sam (Soon)'],
 };
 
+// Define the FileAttachment interface
+interface FileAttachment {
+  id: string;
+  type: string;
+  url: string;
+  preview?: string;
+  metadata: FileMetadata;
+}
+
+// Create a MessageSender type that matches what DisplayMessage expects
+interface MessageSender {
+  id: string;
+  name: string;
+  role: "user" | "assistant" | "system";
+}
+
+interface MessageWithId extends Omit<DisplayMessage, 'sender'> {
+  id: string;
+  sender: MessageSender;
+  timestamp: Date;
+  attachments?: UIFileAttachment[];
+}
+
 // Add WelcomeScreen component at the top level of the file
 const WelcomeScreen = () => {
   return (
@@ -46,7 +85,7 @@ const ChatPage: React.FC = () => {
   const params = useParams();
   const agentId = params.id as string;
   const [chat, setChat] = useState<Chat | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [messages, setMessages] = useState<MessageWithId[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedTab, setSelectedTab] = useState<string>('chat');
@@ -60,10 +99,22 @@ const ChatPage: React.FC = () => {
   const [isAgentDropdownOpen, setIsAgentDropdownOpen] = useState<boolean>(false);
   const [isDebugMode, setIsDebugMode] = useState<boolean>(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const [pendingAttachments, setPendingAttachments] = useState<FileAttachment[]>([]);
+  const [pendingAttachments, setPendingAttachments] = useState<UIFileAttachment[]>([]);
 
-  // Get message handler instance
-  const messageHandler = MessageHandlerService.getInstance();
+  // Add new state for file handling
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<number>(0);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [showImageModal, setShowImageModal] = useState<boolean>(false);
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+
+  // Initialize services
+  const fileStorageService = useRef<IndexedDBFileStorage>();
+  const fileUploadService = useRef<FileUploadImplementation>();
+  const fileAttachmentHandler = useRef<FileAttachmentHandler>();
+  const clipboardHandler = useRef<ClipboardHandler>();
+  const dragDropHandler = useRef<DragDropHandler>();
+  const messageHandler = useRef<MessageHandlerImplementation>();
 
   // Sidebar agent selection handler (optional, can be a no-op here)
   const setSelectedAgent = () => {};
@@ -88,6 +139,53 @@ const ChatPage: React.FC = () => {
   const handleAgentChange = (agent: string) => {
     setIsAgentDropdownOpen(false);
   };
+
+  // Initialize services on mount
+  useEffect(() => {
+    const initializeServices = async () => {
+      try {
+        // Initialize storage and upload services
+        fileStorageService.current = new IndexedDBFileStorage();
+        await fileStorageService.current.initialize();
+
+        fileUploadService.current = new FileUploadImplementation(fileStorageService.current);
+        await fileUploadService.current.initialize();
+
+        // Initialize message handler with storage
+        messageHandler.current = new MessageHandlerImplementation(fileStorageService.current);
+        await messageHandler.current.initialize({
+          enableFileAttachments: true,
+          maxFilesPerMessage: 10,
+          maxFileSize: 50 * 1024 * 1024,
+          allowedFileTypes: ['image/*', 'application/pdf', 'text/*', 'audio/*', 'video/*']
+        });
+
+        // Initialize file handlers
+        fileAttachmentHandler.current = new FileAttachmentHandler(
+          fileUploadService.current,
+          fileStorageService.current
+        );
+        
+        clipboardHandler.current = new ClipboardHandler(fileAttachmentHandler.current);
+        dragDropHandler.current = new DragDropHandler(fileAttachmentHandler.current);
+        
+        // Setup event listeners
+        clipboardHandler.current.initialize();
+        dragDropHandler.current.initialize();
+      } catch (error) {
+        console.error('Failed to initialize services:', error);
+        setError('Failed to initialize services');
+      }
+    };
+
+    initializeServices();
+
+    // Cleanup
+    return () => {
+      clipboardHandler.current?.cleanup();
+      dragDropHandler.current?.cleanup();
+    };
+  }, []);
 
   // Fetch or create chat, then load messages
   useEffect(() => {
@@ -177,9 +275,11 @@ const ChatPage: React.FC = () => {
             }
             setMessages([
               {
-                sender: agentName,
+                id: generateMessageId(),
                 content: `Hi, I am ${agentName}. How can I assist you?`,
+                sender: { id: agentName, name: agentName, role: 'assistant' },
                 timestamp: new Date(),
+                attachments: []
               },
             ]);
           }
@@ -193,36 +293,171 @@ const ChatPage: React.FC = () => {
     if (agentId) fetchOrCreateChat();
   }, [agentId]);
 
-  // Update handleSendMessage to use the service
+  // Convert UIFileAttachment to MessageAttachment
+  const convertToMessageAttachment = (file: UIFileAttachment): MessageAttachment => {
+    return {
+      id: file.fileId || generateMessageId(),
+      type: file.mimeType || 'application/octet-stream',
+      url: file.preview,
+      filename: file.filename,
+      contentType: file.mimeType,
+      size: file.size
+    };
+  };
+
+  // Convert StorageFileAttachment to UIFileAttachment
+  const convertStorageToUIAttachment = (file: StorageFileAttachment): UIFileAttachment => {
+    return {
+      file: new File([new Blob()], file.metadata.filename),
+      type: file.metadata.type.startsWith('image/') ? FileAttachmentType.IMAGE : FileAttachmentType.OTHER,
+      preview: file.url,
+      filename: file.metadata.filename,
+      fileId: file.id,
+      size: file.metadata.size,
+      mimeType: file.metadata.type
+    };
+  };
+
+  // Convert MessageAttachment to UIFileAttachment
+  const convertMessageToUIAttachment = (att: MessageAttachment): UIFileAttachment => {
+    return {
+      file: new File([new Blob()], att.filename || 'file'),
+      type: att.type.startsWith('image/') ? FileAttachmentType.IMAGE : FileAttachmentType.OTHER,
+      preview: att.url || '',
+      filename: att.filename || '',
+      fileId: att.id,
+      size: att.size || 0,
+      mimeType: att.type
+    };
+  };
+
+  // Convert ChatMessage to MessageWithId
+  const convertToMessageWithId = (msg: ChatMessage): MessageWithId => {
+    return {
+      id: msg.id,
+      content: msg.content,
+      sender: {
+        id: msg.senderType === ParticipantType.AGENT ? msg.senderId : 'You',
+        name: msg.senderType === ParticipantType.AGENT ? msg.senderId : 'You',
+        role: msg.senderType === ParticipantType.AGENT ? 'assistant' : 'user'
+      },
+      timestamp: msg.createdAt,
+      attachments: msg.attachments.map(convertMessageToUIAttachment)
+    };
+  };
+
+  // Convert HandlerMessage to ChatMessage
+  const convertToChatMessage = (msg: HandlerMessage): ChatMessage => {
+    return {
+      id: msg.id,
+      chatId: chat?.id || '',
+      senderId: userId,
+      senderType: ParticipantType.USER,
+      content: 'content' in msg ? msg.content : '',
+      type: msg.type === HandlerMessageType.TEXT ? MessageType.TEXT : MessageType.FILE,
+      role: MessageRole.USER,
+      status: msg.status === HandlerMessageStatus.SENT ? MessageStatus.DELIVERED : MessageStatus.PENDING,
+      attachments: 'files' in msg ? msg.files.map(file => ({
+        id: file.id,
+        type: file.type,
+        url: URL.createObjectURL(new Blob()),
+        filename: file.filename,
+        contentType: file.type,
+        size: file.size
+      })) : [],
+      createdAt: new Date(msg.timestamp),
+      updatedAt: new Date(msg.timestamp)
+    };
+  };
+
+  // Convert ChatMessage to HandlerMessage
+  const convertToHandlerMessage = (msg: ChatMessage): HandlerMessage => {
+    return {
+      id: msg.id,
+      type: msg.type === MessageType.TEXT ? HandlerMessageType.TEXT : HandlerMessageType.FILE,
+      timestamp: msg.createdAt.getTime(),
+      status: msg.status === MessageStatus.DELIVERED ? HandlerMessageStatus.SENT : HandlerMessageStatus.PENDING,
+      content: msg.content,
+      files: msg.attachments.map(att => ({
+        id: att.id,
+        filename: att.filename || '',
+        type: att.type,
+        size: att.size || 0,
+        attachmentType: StorageFileType.OTHER,
+        processingStatus: FileProcessingStatus.COMPLETED,
+        timestamp: msg.createdAt.getTime()
+      }))
+    };
+  };
+
+  // Update handleSendMessage to convert attachments
   const handleSendMessage = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    
+    if (!messageHandler.current || (!inputMessage.trim() && pendingAttachments.length === 0)) return;
+
+    const messageAttachments = pendingAttachments.map(convertToMessageAttachment);
+
+    const newMessage: ChatMessage = {
+      id: generateMessageId(),
+      chatId: chat?.id || '',
+      senderId: userId,
+      senderType: ParticipantType.USER,
+      content: inputMessage.trim(),
+      type: pendingAttachments.length > 0 ? MessageType.FILE : MessageType.TEXT,
+      role: MessageRole.USER,
+      status: MessageStatus.PENDING,
+      attachments: messageAttachments,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+
     try {
-      await messageHandler.handleSendMessage(
-        inputMessage,
-        pendingAttachments,
-        messages,
-        userId,
-        agentId,
-        setMessages,
-        setIsLoading,
-        setInputMessage,
-        setPendingAttachments,
-        chat?.id
-      );
+      const handlerMessage = convertToHandlerMessage(newMessage);
+      const sentHandlerMessage = await messageHandler.current.sendMessage(handlerMessage);
+      const sentMessage = convertToChatMessage(sentHandlerMessage);
+      const messageWithId = convertToMessageWithId(sentMessage);
+      
+      setMessages(prev => [...prev, messageWithId]);
+      setInputMessage('');
+      setPendingAttachments([]);
     } catch (error) {
       console.error('Error sending message:', error);
-      // Error is handled by the service
+      setError(error instanceof Error ? error.message : 'Failed to send message');
     }
   };
 
-  // Update handleFileSelect to use the service
+  // Update handleFileSelect to match the new FileAttachment type
   const handleFileSelect = async (file: File) => {
     try {
-      await messageHandler.handleFileSelect(file, setPendingAttachments, inputRef);
+      setSelectedFile(file);
+      setUploadError(null);
+      setUploadProgress(0);
+
+      const options: FileHandlerOptions = {
+        onProgress: (progress: number) => setUploadProgress(progress),
+        onError: (error: Error) => setUploadError(error.message)
+      };
+
+      const attachment = await fileAttachmentHandler.current?.handleFile(file, options);
+
+      if (attachment) {
+        const uiAttachment: UIFileAttachment = {
+          file,
+          type: file.type.startsWith('image/') ? FileAttachmentType.IMAGE : FileAttachmentType.OTHER,
+          preview: URL.createObjectURL(file),
+          filename: file.name,
+          fileId: attachment.id,
+          size: file.size,
+          mimeType: file.type
+        };
+        setPendingAttachments(prev => [...prev, uiAttachment]);
+      }
     } catch (error) {
       console.error('Error handling file:', error);
-      // Handle error appropriately
+      setUploadError(error instanceof Error ? error.message : 'Failed to process file');
+    } finally {
+      setSelectedFile(null);
+      setUploadProgress(0);
     }
   };
 
@@ -237,6 +472,14 @@ const ChatPage: React.FC = () => {
       updated.splice(index, 1);
       return updated;
     });
+  };
+
+  // Add file preview click handler
+  const handleFilePreviewClick = (file: UIFileAttachment) => {
+    if (file.type === FileAttachmentType.IMAGE) {
+      setSelectedImage(file.preview);
+      setShowImageModal(true);
+    }
   };
 
   // UI matches main page
@@ -292,7 +535,13 @@ const ChatPage: React.FC = () => {
                       )}
                       
                       <ChatMessages 
-                        messages={messages} 
+                        messages={messages.map(msg => {
+                          // Convert string sender to MessageSender object if needed
+                          const sender = typeof msg.sender === 'string'
+                            ? { id: msg.sender, name: msg.sender, role: msg.sender === 'You' ? 'user' : 'assistant' as 'user' | 'assistant' | 'system' }
+                            : msg.sender;
+                          return { ...msg, sender };
+                        })} 
                         isLoading={isLoading}
                         onImageClick={() => {}}
                         showInternalMessages={showInternalMessages}
@@ -324,6 +573,72 @@ const ChatPage: React.FC = () => {
           <DevModeToggle showInternalMessages={showInternalMessages} setShowInternalMessages={setShowInternalMessages} />
         </main>
       </div>
+
+      {/* File Preview Section */}
+      {pendingAttachments.length > 0 && (
+        <div className="px-4 py-2 border-t border-gray-200 dark:border-gray-700">
+          <div className="flex flex-wrap gap-2">
+            {pendingAttachments.map((file, index) => (
+              <FilePreview
+                key={index}
+                metadata={{
+                  id: file.fileId || '',
+                  filename: file.filename || '',
+                  type: file.mimeType || '',
+                  attachmentType: file.type as unknown as StorageFileType,
+                  size: file.size || 0,
+                  timestamp: Date.now(),
+                  processingStatus: FileProcessingStatus.COMPLETED
+                }}
+                previewUrl={file.preview}
+                onRemove={() => removePendingAttachment(index)}
+                onClick={() => handleFilePreviewClick(file)}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Upload Progress */}
+      {uploadProgress > 0 && uploadProgress < 100 && (
+        <div className="px-4 py-2 border-t border-gray-200 dark:border-gray-700">
+          <ProgressBar progress={uploadProgress} />
+        </div>
+      )}
+
+      {/* Error Display */}
+      {uploadError && (
+        <ErrorMessage message={uploadError} />
+      )}
+
+      {/* Image Modal */}
+      {showImageModal && selectedImage && (
+        <ImageModal
+          isOpen={showImageModal}
+          imageUrl={selectedImage}
+          metadata={pendingAttachments.find(a => a.preview === selectedImage) ? {
+            id: pendingAttachments.find(a => a.preview === selectedImage)?.fileId || '',
+            filename: pendingAttachments.find(a => a.preview === selectedImage)?.filename || '',
+            type: pendingAttachments.find(a => a.preview === selectedImage)?.mimeType || '',
+            attachmentType: StorageFileType.IMAGE,
+            size: pendingAttachments.find(a => a.preview === selectedImage)?.size || 0,
+            timestamp: Date.now(),
+            processingStatus: FileProcessingStatus.COMPLETED
+          } : {
+            id: '',
+            filename: selectedFile?.name || '',
+            type: selectedFile?.type || '',
+            attachmentType: StorageFileType.IMAGE,
+            size: selectedFile?.size || 0,
+            timestamp: Date.now(),
+            processingStatus: FileProcessingStatus.COMPLETED
+          }}
+          onClose={() => {
+            setShowImageModal(false);
+            setSelectedImage(null);
+          }}
+        />
+      )}
     </div>
   );
 };
