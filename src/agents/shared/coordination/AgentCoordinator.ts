@@ -16,6 +16,7 @@ import { AgentHealthChecker } from './AgentHealthChecker';
 import { CapabilityRegistry, CapabilityType, CapabilityLevel, Capability } from './CapabilityRegistry';
 import * as crypto from 'crypto';
 import { AgentStatus, AgentCapability } from '../../../server/memory/schema/agent';
+import { TaskStatus } from '../../../services/thinking/delegation/DelegationManager';
 
 // Agent registry entry
 export interface RegisteredAgent {
@@ -48,16 +49,79 @@ export interface DelegationRequest {
 
 // Delegation result
 export interface DelegationResult {
+  /**
+   * Whether the delegation was successful
+   */
+  success: boolean;
+
+  /**
+   * ID of the task that was delegated
+   */
   taskId: string;
-  assignedAgentId: string;
-  status: 'accepted' | 'rejected' | 'pending' | 'completed' | 'failed';
+
+  /**
+   * ID of the agent the task was assigned to
+   */
+  agentId: string;
+
+  /**
+   * Confidence score for the delegation decision (0-1)
+   */
+  confidence: number;
+
+  /**
+   * Reason for the delegation decision
+   */
+  reason: string;
+
+  /**
+   * Estimated time when the task will start
+   */
+  estimatedStartTime?: Date;
+
+  /**
+   * Estimated duration in milliseconds
+   */
+  estimatedDuration?: number;
+
+  /**
+   * Current status of the delegated task
+   */
+  status: TaskStatus;
+
+  /**
+   * Result data if task is completed
+   */
   result?: any;
+
+  /**
+   * Error message if task failed
+   */
   error?: string;
+
+  /**
+   * When the task started executing
+   */
   startTime?: Date;
+
+  /**
+   * When the task completed
+   */
   completionTime?: Date;
-  // Delegation tracking fields
+
+  /**
+   * ID for tracking related delegations
+   */
   delegationContextId?: string;
+
+  /**
+   * ID of the parent task if this is a subtask
+   */
   parentTaskId?: string;
+
+  /**
+   * ID of the original agent that initiated the delegation chain
+   */
   originAgentId?: string;
 }
 
@@ -211,9 +275,12 @@ export class AgentCoordinator {
       if (!assignedAgentId) {
         return {
           taskId: request.taskId,
-          assignedAgentId: '',
-          status: 'rejected',
-          error: 'No suitable agent found for this task',
+          agentId: '',
+          success: false,
+          confidence: 0,
+          reason: 'No eligible agents available',
+          status: TaskStatus.FAILED,
+          startTime: new Date(),
           delegationContextId,
           parentTaskId,
           originAgentId
@@ -228,9 +295,12 @@ export class AgentCoordinator {
           if (!fallbackAgentId) {
             return {
               taskId: request.taskId,
-              assignedAgentId: '',
-              status: 'rejected',
-              error: `Primary agent ${assignedAgentId} unavailable and no fallback found`,
+              agentId: '',
+              success: false,
+              confidence: 0,
+              reason: 'No fallback agent found',
+              status: TaskStatus.FAILED,
+              startTime: new Date(),
               delegationContextId,
               parentTaskId,
               originAgentId
@@ -262,9 +332,12 @@ export class AgentCoordinator {
         if (!AgentHealthChecker.beginTask(assignedAgentId)) {
           return {
             taskId: request.taskId,
-            assignedAgentId: '',
-            status: 'rejected',
-            error: `Agent ${assignedAgentId} rejected task due to quota limits`,
+            agentId: '',
+            success: false,
+            confidence: 0,
+            reason: 'Agent rejected task due to quota limits',
+            status: TaskStatus.FAILED,
+            startTime: new Date(),
             delegationContextId,
             parentTaskId,
             originAgentId
@@ -275,8 +348,11 @@ export class AgentCoordinator {
       // Create delegation result
       const delegation: DelegationResult = {
         taskId: request.taskId,
-        assignedAgentId,
-        status: 'accepted',
+        agentId: assignedAgentId,
+        success: true,
+        confidence: 1.0,
+        reason: 'Task delegated successfully',
+        status: TaskStatus.ASSIGNED,
         startTime: new Date(),
         delegationContextId,
         parentTaskId,
@@ -335,9 +411,15 @@ export class AgentCoordinator {
       
       return {
         taskId: request.taskId,
-        assignedAgentId: '',
-        status: 'failed',
-        error: `Delegation error: ${error instanceof Error ? error.message : String(error)}`
+        agentId: '',
+        success: false,
+        confidence: 0,
+        reason: 'Error during delegation',
+        status: TaskStatus.FAILED,
+        startTime: new Date(),
+        delegationContextId: undefined,
+        parentTaskId: undefined,
+        originAgentId: undefined
       };
     }
   }
@@ -387,7 +469,7 @@ export class AgentCoordinator {
       // Update delegation result
       const delegation = this.delegations.get(request.taskId);
       if (delegation) {
-        delegation.status = 'completed';
+        delegation.status = TaskStatus.COMPLETED;
         delegation.result = result;
         delegation.completionTime = new Date();
       }
@@ -440,7 +522,7 @@ export class AgentCoordinator {
       // Update delegation result
       const delegation = this.delegations.get(request.taskId);
       if (delegation) {
-        delegation.status = 'failed';
+        delegation.status = TaskStatus.FAILED;
         delegation.error = `Execution error: ${error instanceof Error ? error.message : String(error)}`;
         delegation.completionTime = new Date();
       }

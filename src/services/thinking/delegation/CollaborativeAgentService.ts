@@ -1,7 +1,7 @@
 import { IdGenerator } from '@/utils/ulid';
 import { ChatOpenAI } from '@langchain/openai';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
-import { DelegationTask, AgentInfo, DelegationResult } from './DelegationManager';
+import { DelegatedTask, AgentStatus, DelegationResult, AgentCapability } from './DelegationManager';
 
 /**
  * Sub-task assigned to an agent as part of a collaborative effort
@@ -75,7 +75,7 @@ export interface CollaborativeTask {
   /**
    * Original delegation task that spawned this collaboration
    */
-  originalTask: DelegationTask;
+  originalTask: DelegatedTask;
   
   /**
    * Sub-tasks that make up this collaborative effort
@@ -180,7 +180,7 @@ export class CollaborativeAgentService {
   constructor(delegationManager: any) {
     this.delegationManager = delegationManager;
     this.llm = new ChatOpenAI({
-      modelName: "gpt-3.5-turbo",
+      modelName: "gpt-4",
       temperature: 0.2
     });
   }
@@ -192,8 +192,8 @@ export class CollaborativeAgentService {
    * @returns Collaborative task structure with sub-tasks
    */
   async createCollaborativeTask(
-    task: DelegationTask,
-    availableAgents: AgentInfo[]
+    task: DelegatedTask,
+    availableAgents: AgentStatus[]
   ): Promise<CollaborativeTask> {
     try {
       console.log(`Creating collaborative task for task: ${task.id}`);
@@ -238,21 +238,25 @@ export class CollaborativeAgentService {
    * @param availableAgents Available agents for coordination
    * @returns Agent ID for coordinator
    */
-  private selectCoordinatorAgent(availableAgents: AgentInfo[]): string {
+  private selectCoordinatorAgent(availableAgents: AgentStatus[]): string {
     // Select agent with coordination capability if available
     const coordinationAgents = availableAgents.filter(
-      agent => agent.capabilities.includes('coordination')
+      agent => agent.capabilities.some(cap => cap.name === 'coordination')
     );
     
     if (coordinationAgents.length > 0) {
-      // Select the coordination agent with the lowest load
-      coordinationAgents.sort((a, b) => a.currentLoad - b.currentLoad);
-      return coordinationAgents[0].id;
+      // Select agent with highest success rate
+      const bestAgent = coordinationAgents.reduce((best, current) => 
+        current.performance.successRate > best.performance.successRate ? current : best
+      );
+      return bestAgent.id;
     }
     
-    // Otherwise select the agent with the lowest load
-    availableAgents.sort((a, b) => a.currentLoad - b.currentLoad);
-    return availableAgents[0].id;
+    // If no coordination specialist, select agent with highest overall performance
+    const bestAgent = availableAgents.reduce((best, current) => 
+      current.performance.successRate > best.performance.successRate ? current : best
+    );
+    return bestAgent.id;
   }
   
   /**
@@ -262,37 +266,38 @@ export class CollaborativeAgentService {
    * @returns List of sub-tasks
    */
   private async decomposeTask(
-    task: DelegationTask,
-    availableAgents: AgentInfo[]
+    task: DelegatedTask,
+    availableAgents: AgentStatus[]
   ): Promise<CollaborativeSubTask[]> {
     try {
-      // Generate prompt for task decomposition
-      const systemPrompt = `You are an AI task coordinator that decomposes complex tasks into smaller sub-tasks.
-      
-For the given task, break it down into 3-7 logical sub-tasks that can be executed by different specialized agents.
-Consider dependencies between sub-tasks and assign them to the most appropriate agents based on their capabilities.
+      // Build decomposition prompt
+      const systemPrompt = `You are an AI assistant that decomposes complex tasks into smaller sub-tasks.
+Your task is to analyze the given task and break it down into logical sub-tasks that can be executed by different agents.
 
-Available agents and their capabilities:
-${availableAgents.map(agent => `- ${agent.name} (ID: ${agent.id}): ${agent.capabilities.join(', ')}`).join('\n')}
+Available agent capabilities:
+${availableAgents.map(agent => `
+${agent.name}:
+- Capabilities: ${agent.capabilities.map(c => c.name).join(', ')}
+- Performance: ${Math.round(agent.performance.successRate * 100)}% success rate
+`).join('\n')}
 
-Respond with a JSON array of sub-tasks in the following format:
-[
+Respond in JSON format with an array of sub-tasks:
+{
+  "subTasks": [
   {
-    "description": "Sub-task description",
-    "requiredCapabilities": ["capability1", "capability2"],
-    "assignedAgentId": "agent-id",
-    "dependencies": [] // IDs of sub-tasks that must complete before this one starts
-  }
-]`;
+      "id": "subtask-1",
+      "description": "Detailed description of the sub-task",
+      "dependencies": ["subtask-id-1", "subtask-id-2"],
+      "requiredCapabilities": ["capability1", "capability2"]
+    }
+  ]
+}`;
 
-      const humanMessage = `Task: ${task.query}
-      
+      const humanMessage = `Task: ${task.intent.description}
 Required capabilities: ${task.requiredCapabilities.join(', ')}
-Context information: ${JSON.stringify(task.context || {})}
-Complexity: ${task.complexity}
-Priority: ${task.priority}
+Context information: ${JSON.stringify(task.metadata || {})}
 
-Please decompose this task into appropriate sub-tasks.`;
+Please decompose this task into sub-tasks that can be executed by the available agents.`;
 
       // Call LLM for decomposition
       const messages = [
@@ -303,51 +308,31 @@ Please decompose this task into appropriate sub-tasks.`;
       // @ts-ignore - LangChain types may not be up to date
       const response = await this.llm.call(messages);
       
-      // Parse the response
-      const responseText = response.content.toString();
-      const jsonMatch = responseText.match(/\[[\s\S]*\]/);
+      // Parse response
+      const responseContent = response.content.toString();
+      const jsonMatch = responseContent.match(/\{[\s\S]*\}/);
       
       if (!jsonMatch) {
-        throw new Error('Failed to parse task decomposition response');
+        throw new Error('Invalid LLM response format');
       }
       
-      const decomposedTasks = JSON.parse(jsonMatch[0]);
+      const data = JSON.parse(jsonMatch[0]);
       
-      // Create sub-tasks from decomposition
-      const subTasks: CollaborativeSubTask[] = decomposedTasks.map((task: any, index: number) => {
-        const subTaskId = IdGenerator.generate("subtask").toString();
-        
-        return {
-          id: subTaskId,
-          parentTaskId: task.id,
-          assignedAgentId: task.assignedAgentId,
-          description: task.description,
-          dependencies: task.dependencies || [],
-          status: 'pending',
-          createdAt: new Date()
-        };
-      });
-      
-      // Resolve dependencies by replacing indices/descriptions with actual IDs
-      for (const subtask of subTasks) {
-        // If dependencies are indices or descriptions, resolve to IDs
-        subtask.dependencies = subtask.dependencies.map((dep: any) => {
-          if (typeof dep === 'number' && dep >= 0 && dep < subTasks.length) {
-            // Index-based dependency
-            return subTasks[dep].id;
-          } else if (typeof dep === 'string' && !dep.startsWith('subtask')) {
-            // Description-based dependency - find by matching description
-            const matchingTask = subTasks.find(t => t.description.includes(dep));
-            return matchingTask ? matchingTask.id : '';
-          }
-          return dep;
-        }).filter(Boolean); // Remove any empty dependencies
+      if (!data.subTasks || !Array.isArray(data.subTasks)) {
+        throw new Error('Invalid sub-tasks data structure');
       }
       
-      return subTasks;
+      // Convert to CollaborativeSubTask format
+      return data.subTasks.map((subTask: any, index: number) => ({
+        id: `${task.id}_sub${index + 1}`,
+        description: subTask.description,
+        status: 'pending',
+        dependencies: subTask.dependencies || []
+      }));
+      
     } catch (error) {
       console.error('Error decomposing task:', error);
-      return [];
+      throw error;
     }
   }
   
@@ -436,37 +421,18 @@ Please decompose this task into appropriate sub-tasks.`;
    * @param subTask Sub-task to execute
    * @param agent Agent to execute the sub-task
    */
-  private async executeSubTask(subTask: CollaborativeSubTask, agent: AgentInfo): Promise<void> {
+  private async executeSubTask(subTask: CollaborativeSubTask, agent: AgentStatus): Promise<void> {
     try {
       // This would be replaced with actual agent execution
-      // For now, simulate execution with a delay based on agent response time
+      const estimatedTime = agent.performance.averageResponseTime * (0.5 + Math.random());
+      await new Promise(resolve => setTimeout(resolve, estimatedTime));
       
-      // Get collaborative task for context
-      const collaborativeTask = this.collaborativeTasks.get(subTask.parentTaskId);
-      
-      if (!collaborativeTask) {
-        throw new Error(`Collaborative task ${subTask.parentTaskId} not found`);
-      }
-      
-      // Simulate execution time (replace with actual agent execution)
-      const executionTime = agent.avgResponseTime * (0.5 + Math.random());
-      
-      await new Promise(resolve => setTimeout(resolve, executionTime));
-      
-      // Simulated result (in a real implementation, this would be the agent's response)
-      const result = {
-        content: `Completed sub-task: ${subTask.description}`,
-        metadata: {
-          executionTime,
-          agentId: agent.id,
-          agentName: agent.name
-        }
+      // Update sub-task status
+      subTask.status = Math.random() > 0.1 ? 'completed' : 'failed';
+      subTask.result = {
+        output: `Simulated output for ${subTask.description}`,
+        executionTime: estimatedTime
       };
-      
-      // Update sub-task
-      subTask.status = 'completed';
-      subTask.result = result;
-      subTask.completedAt = new Date();
       
       // Update progress
       this.updateCollaborativeTaskProgress(subTask.parentTaskId);
@@ -475,6 +441,7 @@ Please decompose this task into appropriate sub-tasks.`;
       await this.checkDependencies(subTask.parentTaskId);
     } catch (error) {
       console.error(`Error executing sub-task ${subTask.id}:`, error);
+      subTask.status = 'failed';
       throw error;
     }
   }

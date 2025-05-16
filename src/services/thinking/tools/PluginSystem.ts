@@ -285,14 +285,36 @@ export class PluginSystem {
         
         // Mock execution function
         async executeTool(toolId, parameters, context) {
-          // In a real implementation, this would delegate to the plugin code
-          console.log(`Executing tool ${toolId} from plugin ${pluginId}`);
-          
-          return {
-            success: true,
-            data: { message: 'Tool executed successfully (mock)' },
-            executionTime: 100
-          };
+          const startTime = new Date().toISOString();
+          try {
+            // Mock execution result
+            const result = { message: 'Tool executed successfully (mock)' };
+            const endTime = new Date().toISOString();
+            return {
+              success: true,
+              data: result,
+              executionTime: Date.now() - new Date(startTime).getTime(),
+              metadata: {
+                toolId,
+                startTime,
+                endTime,
+                parameters
+              }
+            };
+          } catch (error) {
+            const endTime = new Date().toISOString();
+            return {
+              success: false,
+              error: error instanceof Error ? error.message : String(error),
+              executionTime: Date.now() - new Date(startTime).getTime(),
+              metadata: {
+                toolId,
+                startTime,
+                endTime,
+                parameters
+              }
+            };
+          }
         }
       };
       
@@ -449,10 +471,18 @@ export class PluginSystem {
     } catch (error) {
       console.error(`Error executing tool ${toolId} from plugin ${pluginId}:`, error);
       
+      const startTime = new Date().toISOString();
+      const endTime = new Date().toISOString();
       return {
         success: false,
-        error: error instanceof Error ? error.message : String(error),
-        executionTime: 0
+        error: 'Plugin not found',
+        executionTime: 0,
+        metadata: {
+          toolId,
+          startTime,
+          endTime,
+          parameters: {}
+        }
       };
     }
   }
@@ -585,6 +615,23 @@ export class PluginSystem {
     return (parameters: Record<string, any>, context?: any) => {
       console.log(`Executing sandboxed tool ${toolId} from plugin ${plugin.id}`);
       return plugin.executeTool(toolId, parameters, context);
+    };
+  }
+
+  // Update the error case in handlePluginError
+  private handlePluginError(error: Error, toolId: string, parameters: Record<string, any>): ToolExecutionResult {
+    const startTime = new Date().toISOString();
+    const endTime = new Date().toISOString();
+    return {
+      success: false,
+      error: `Plugin error: ${error.message}`,
+      executionTime: 0,
+      metadata: {
+        toolId,
+        startTime,
+        endTime,
+        parameters
+      }
     };
   }
 } 

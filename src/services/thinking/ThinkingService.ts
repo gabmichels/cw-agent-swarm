@@ -51,8 +51,8 @@ export class ThinkingService implements IThinkingService {
   private convertGraphResultToThinkingResult(graphResult: GraphState): ThinkingResult {
     return {
       intent: {
-        primary: graphResult.intent?.name || '',
-        confidence: graphResult.intent?.confidence || 0,
+        primary: graphResult.intent?.name || 'unknown',
+        confidence: graphResult.intent?.confidence || 0.5,
         alternatives: graphResult.intent?.alternatives?.map(alt => ({
           intent: alt.name,
           confidence: alt.confidence
@@ -60,14 +60,17 @@ export class ThinkingService implements IThinkingService {
       },
       entities: graphResult.entities || [],
       shouldDelegate: graphResult.shouldDelegate || false,
-      delegateToCapability: graphResult.delegationTarget ? [graphResult.delegationTarget] : undefined,
+      requiredCapabilities: graphResult.delegationTarget ? [graphResult.delegationTarget] : [],
       reasoning: graphResult.reasoning || [],
       contextUsed: {
         memories: (graphResult.contextMemories || []).map(m => m.id),
         files: (graphResult.contextFiles || []).map(f => f.id),
         tools: graphResult.tools || []
       },
-      planSteps: graphResult.plan
+      planSteps: graphResult.plan,
+      priority: 5, // Default mid-priority
+      isUrgent: false, // Default not urgent
+      complexity: 3 // Default medium complexity
     };
   }
   
@@ -83,10 +86,10 @@ export class ThinkingService implements IThinkingService {
     reason: string;
   }> {
     // If the thinking result already has delegation information, use it
-    if (thinkingResult.shouldDelegate && thinkingResult.delegateToCapability) {
+    if (thinkingResult.shouldDelegate && thinkingResult.requiredCapabilities?.length > 0) {
       // Check if these capabilities are available in the system
       const capabilitiesAvailable = await this.delegationService.hasCapabilities(
-        thinkingResult.delegateToCapability
+        thinkingResult.requiredCapabilities
       );
       
       if (!capabilitiesAvailable) {
@@ -99,7 +102,7 @@ export class ThinkingService implements IThinkingService {
       
       return {
         delegate: true,
-        requiredCapabilities: thinkingResult.delegateToCapability,
+        requiredCapabilities: thinkingResult.requiredCapabilities,
         confidence: 0.85,
         reason: 'Based on intent analysis and capability availability'
       };
@@ -110,7 +113,7 @@ export class ThinkingService implements IThinkingService {
       delegate: thinkingResult.shouldDelegate,
       confidence: 0.7,
       reason: 'Based on initial analysis',
-      requiredCapabilities: thinkingResult.delegateToCapability
+      requiredCapabilities: thinkingResult.requiredCapabilities
     };
   }
   
@@ -153,9 +156,9 @@ export class ThinkingService implements IThinkingService {
     });
     
     // If there's delegation information, store it in working memory
-    if (thinkingResult.shouldDelegate && thinkingResult.delegateToCapability) {
+    if (thinkingResult.shouldDelegate && thinkingResult.requiredCapabilities?.length > 0) {
       await this.storeWorkingMemoryItem(userId, {
-        content: `Delegated to ${thinkingResult.delegateToCapability.join(', ')}`,
+        content: `Delegated to ${thinkingResult.requiredCapabilities.join(', ')}`,
         type: 'task',
         tags: ['delegation', 'task_status'],
         addedAt: new Date(),

@@ -32,7 +32,27 @@ export interface ThinkingResult {
   /**
    * Required capabilities for delegation
    */
-  delegateToCapability?: string[];
+  requiredCapabilities: string[];
+  
+  /**
+   * Priority of the task (1-10)
+   */
+  priority: number;
+  
+  /**
+   * Whether the task is urgent
+   */
+  isUrgent: boolean;
+  
+  /**
+   * Task complexity (1-10)
+   */
+  complexity: number;
+  
+  /**
+   * Additional context for the task
+   */
+  context?: Record<string, any>;
   
   /**
    * Reasoning steps that led to this analysis
@@ -201,4 +221,58 @@ export interface ConsolidationOptions {
    * Whether to generate insights from consolidated memories
    */
   generateInsights?: boolean;
+}
+
+import { TaskStatus } from '@/constants/task';
+
+export interface ToolExecutionResult {
+  /**
+   * Whether the execution was successful
+   */
+  success: boolean;
+  
+  /**
+   * Result data
+   */
+  data: any;
+  
+  /**
+   * Output string representation of the result
+   */
+  output?: string;
+  
+  /**
+   * Error message if the execution failed
+   */
+  error?: string;
+  
+  /**
+   * Execution time in milliseconds
+   */
+  executionTime: number;
+  
+  /**
+   * Metadata about the execution
+   */
+  metadata?: {
+    /**
+     * ID of the tool that was executed
+     */
+    toolId: string;
+    
+    /**
+     * When the execution started
+     */
+    startTime: string;
+    
+    /**
+     * When the execution ended
+     */
+    endTime: string;
+    
+    /**
+     * Parameters used in the execution
+     */
+    parameters: Record<string, unknown>;
+  };
 } 

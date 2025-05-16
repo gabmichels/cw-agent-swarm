@@ -93,6 +93,11 @@ export interface ToolExecutionResult {
   data?: any;
   
   /**
+   * Output string representation of the result
+   */
+  output?: string;
+  
+  /**
    * Error message if the execution failed
    */
   error?: string;
@@ -101,6 +106,31 @@ export interface ToolExecutionResult {
    * Execution time in milliseconds
    */
   executionTime: number;
+  
+  /**
+   * Metadata about the execution
+   */
+  metadata: {
+    /**
+     * ID of the tool that was executed
+     */
+    toolId: string;
+    
+    /**
+     * When the execution started
+     */
+    startTime: string;
+    
+    /**
+     * When the execution ended
+     */
+    endTime: string;
+    
+    /**
+     * Parameters used in the execution
+     */
+    parameters: Record<string, unknown>;
+  };
 }
 
 /**

@@ -40,7 +40,7 @@
   "dependencies": {
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.0",
-    "@langchain/core": "^0.3.45",
+    "@langchain/core": "^0.3.48",
     "@langchain/langgraph": "^0.2.65",
     "@langchain/openai": "^0.5.10",
     "@mui/icons-material": "^7.0.2",
@@ -108,6 +108,7 @@
     "@types/jest": "^29.5.14",
     "@types/luxon": "^3.3.3",
     "@types/marked": "^5.0.2",
+    "@types/next": "^8.0.7",
     "@types/node": "^20.17.47",
     "@types/react": "^18.3.21",
     "@types/react-dom": "^18.3.7",

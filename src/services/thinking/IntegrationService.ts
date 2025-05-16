@@ -573,7 +573,7 @@ export class IntegrationService {
                   {
                     stage: 'complete',
                     parameters,
-                    result: executionResult.data,
+                    result: executionResult.output || {},
                     success: executionResult.success
                   }
                 );
@@ -583,7 +583,7 @@ export class IntegrationService {
                   toolId: toolInfo.tool.id,
                   toolName: toolInfo.tool.name,
                   input: parameters,
-                  output: executionResult.data,
+                  output: executionResult.output || {},
                   success: executionResult.success,
                   error: executionResult.error
                 });

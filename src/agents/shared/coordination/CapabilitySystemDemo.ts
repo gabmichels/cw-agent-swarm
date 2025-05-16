@@ -816,7 +816,7 @@ export async function runCapabilityDemo() {
     requestingAgentId: 'user'
   });
   
-  console.log(`Task delegated to: ${researchResult.assignedAgentId}`);
+  console.log(`Task delegated to: ${researchResult.agentId}`);
   console.log(`Task status: ${researchResult.status}`);
   
   // Example 2: Delegate a code generation task
@@ -832,7 +832,7 @@ export async function runCapabilityDemo() {
     requestingAgentId: 'user'
   });
   
-  console.log(`Task delegated to: ${codeResult.assignedAgentId}`);
+  console.log(`Task delegated to: ${codeResult.agentId}`);
   console.log(`Task status: ${codeResult.status}`);
   
   // Example 3: Delegate a task with multiple capability requirements
@@ -845,7 +845,7 @@ export async function runCapabilityDemo() {
     requestingAgentId: 'user'
   });
   
-  console.log(`Task delegated to: ${complexResult.assignedAgentId}`);
+  console.log(`Task delegated to: ${complexResult.agentId}`);
   console.log(`Task status: ${complexResult.status}`);
   
   // Example 4: Delegate to unavailable agent (should find fallback)
@@ -866,7 +866,7 @@ export async function runCapabilityDemo() {
     requestingAgentId: 'user'
   });
   
-  console.log(`Task delegated to: ${fallbackResult.assignedAgentId}`);
+  console.log(`Task delegated to: ${fallbackResult.agentId}`);
   console.log(`Task status: ${fallbackResult.status}`);
   
   // 7. Demo capability discovery

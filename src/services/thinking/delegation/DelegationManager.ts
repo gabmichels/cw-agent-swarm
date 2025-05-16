@@ -103,12 +103,115 @@ export interface AgentStatus {
  * Delegation result
  */
 export interface DelegationResult {
+  /**
+   * Whether the delegation was successful
+   */
   success: boolean;
-  assignedAgent?: string;
+
+  /**
+   * ID of the task that was delegated
+   */
+  taskId: string;
+
+  /**
+   * ID of the agent the task was assigned to
+   */
+  agentId: string;
+
+  /**
+   * Confidence score for the delegation decision (0-1)
+   */
   confidence: number;
+
+  /**
+   * Reason for the delegation decision
+   */
   reason: string;
+
+  /**
+   * Estimated time when the task will start
+   */
   estimatedStartTime?: Date;
+
+  /**
+   * Estimated duration in milliseconds
+   */
   estimatedDuration?: number;
+
+  /**
+   * Current status of the delegated task
+   */
+  status: TaskStatus;
+
+  /**
+   * Result data if task is completed
+   */
+  result?: any;
+
+  /**
+   * Error message if task failed
+   */
+  error?: string;
+
+  /**
+   * When the task started executing
+   */
+  startTime?: Date;
+
+  /**
+   * When the task completed
+   */
+  completionTime?: Date;
+
+  /**
+   * ID for tracking related delegations
+   */
+  delegationContextId?: string;
+
+  /**
+   * ID of the parent task if this is a subtask
+   */
+  parentTaskId?: string;
+
+  /**
+   * ID of the original agent that initiated the delegation chain
+   */
+  originAgentId?: string;
+}
+
+/**
+ * Feedback for a delegated task
+ */
+export interface DelegationFeedback {
+  /**
+   * ID of the task that was delegated
+   */
+  taskId: string;
+
+  /**
+   * ID of the agent that handled the task
+   */
+  agentId: string;
+
+  /**
+   * Whether the task was successful
+   */
+  wasSuccessful: boolean;
+
+  /**
+   * Time taken to execute the task in milliseconds
+   */
+  executionTime: number;
+
+  /**
+   * User satisfaction score (0-1)
+   */
+  userSatisfaction?: number;
+
+  /**
+   * Additional details about the feedback
+   */
+  details?: string;
 }
 
 /**
@@ -330,8 +433,16 @@ Respond in JSON format:
       if (!delegationCheck.shouldDelegate) {
         return {
           success: false,
+          taskId: '',
+          agentId: '',
           confidence: delegationCheck.confidence,
-          reason: delegationCheck.reason
+          reason: delegationCheck.reason,
+          status: TaskStatus.FAILED,
+          estimatedStartTime: undefined,
+          estimatedDuration: undefined,
+          delegationContextId: undefined,
+          parentTaskId: undefined,
+          originAgentId: undefined
         };
       }
       
@@ -358,8 +469,16 @@ Respond in JSON format:
       if (!agentSelection.agentId) {
         return {
           success: false,
+          taskId: '',
+          agentId: '',
           confidence: agentSelection.confidence,
-          reason: agentSelection.reason
+          reason: agentSelection.reason,
+          status: TaskStatus.FAILED,
+          estimatedStartTime: undefined,
+          estimatedDuration: undefined,
+          delegationContextId: undefined,
+          parentTaskId: undefined,
+          originAgentId: undefined
         };
       }
       
@@ -378,19 +497,32 @@ Respond in JSON format:
       
       return {
         success: true,
-        assignedAgent: agentSelection.agentId,
+        taskId: task.id,
+        agentId: agentSelection.agentId,
         confidence: agentSelection.confidence,
         reason: agentSelection.reason,
+        status: TaskStatus.ASSIGNED,
         estimatedStartTime: new Date(),
-        estimatedDuration: task.metadata.estimatedDuration
+        estimatedDuration: task.metadata.estimatedDuration,
+        delegationContextId: undefined,
+        parentTaskId: undefined,
+        originAgentId: undefined
       };
       
     } catch (error) {
       console.error('Error delegating task:', error);
       return {
         success: false,
+        taskId: '',
+        agentId: '',
         confidence: 0,
-        reason: 'Error during delegation'
+        reason: 'Error during delegation',
+        status: TaskStatus.FAILED,
+        estimatedStartTime: undefined,
+        estimatedDuration: undefined,
+        delegationContextId: undefined,
+        parentTaskId: undefined,
+        originAgentId: undefined
       };
     }
   }
@@ -448,5 +580,40 @@ Respond in JSON format:
     duration *= (1 + complexity);
     
     return duration;
+  }
+
+  /**
+   * Get agent status by ID
+   */
+  async getAgentStatus(agentId: string): Promise<AgentStatus | null> {
+    try {
+      // This is a placeholder implementation
+      // In a real system, this would fetch agent status from a database or registry
+      return {
+        id: agentId,
+        name: `Agent-${agentId}`,
+        capabilities: [],
+        currentLoad: 0,
+        activeTasks: [],
+        performance: {
+          successRate: 0,
+          averageResponseTime: 0,
+          taskHistory: []
+        },
+        health: {
+          isAvailable: true,
+          lastHeartbeat: new Date().toISOString(),
+          errorRate: 0
+        },
+        metadata: {
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          totalTasksHandled: 0
+        }
+      };
+    } catch (error) {
+      console.error(`Error getting agent status for ${agentId}:`, error);
+      return null;
+    }
   }
 } 

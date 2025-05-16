@@ -428,8 +428,8 @@ export async function delegateTaskNode(
       return {
         ...state,
         response: `Task delegated to a specialized agent (${delegationResult.agentId}). ${
-          delegationResult.estimatedWaitTime 
-            ? `Estimated processing time: ${Math.round(delegationResult.estimatedWaitTime / 1000)} seconds.` 
+          delegationResult.estimatedStartTime 
+            ? `Estimated processing time: ${Math.round((delegationResult.estimatedStartTime.getTime() - Date.now()) / 1000)} seconds.` 
             : ''
         }`
       };
@@ -697,7 +697,7 @@ export async function applyReasoningNode(
           
           if (toolResult.success) {
             console.log(`Tool ${toolId} executed successfully`);
-            toolResults[toolId] = toolResult.data;
+            toolResults[toolId] = toolResult.output || {};
             
             // Add reasoning about the tool execution
             const toolReasoning = `Tool execution: Used ${toolId} to gather information.`;

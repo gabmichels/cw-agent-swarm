@@ -1,4 +1,4 @@
-import { DelegationResult, DelegationFeedback } from './DelegationManager';
+import { DelegationResult } from './DelegationManager';
 
 /**
  * Interface for delegation service that routes tasks to appropriate agents
@@ -22,13 +22,6 @@ export interface IDelegationService {
     isUrgent?: boolean,
     context?: any
   ): Promise<DelegationResult>;
-  
-  /**
-   * Record feedback on a delegated task
-   * @param feedback Feedback on delegation outcome
-   * @returns Whether feedback was successfully recorded
-   */
-  recordFeedback(feedback: DelegationFeedback): Promise<boolean>;
   
   /**
    * Get available agents with their capabilities and current load
