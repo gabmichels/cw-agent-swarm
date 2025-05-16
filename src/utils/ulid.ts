@@ -110,11 +110,21 @@ export class IdGenerator {
   }
   
   /**
+   * Generate a simple string ID with an optional prefix
+   * @param prefix Optional prefix for the ID
+   * @returns A simple string ID
+   */
+  static generateString(prefix?: string): string {
+    const id = ulid();
+    return prefix ? `${prefix}_${id}` : id;
+  }
+  
+  /**
    * Generate a new ID with the given prefix
    * @param prefix The prefix to use for the ID
    * @returns A StructuredId object
    */
-  static generate(prefix: string): StructuredId {
+  static generate(prefix: string = ''): StructuredId {
     const timestamp = new Date();
     const id = ulid(timestamp.getTime());
     return {

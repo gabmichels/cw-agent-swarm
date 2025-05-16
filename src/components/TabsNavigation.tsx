@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { MinimizeIcon, MaximizeIcon, Search, Settings } from 'lucide-react';
+import { MinimizeIcon, MaximizeIcon, Search, Settings, Activity } from 'lucide-react';
 import SearchResults from './SearchResults';
 import AgentSettings from './agent/AgentSettings';
 
@@ -32,7 +32,7 @@ const TabsNavigation: React.FC<TabsNavigationProps> = ({
   agentId = '',
   agentName = 'Agent'
 }) => {
-  const tabs = ['Chat', 'Tools', 'Tasks', 'Memory', 'Knowledge', 'Social', 'Files'];
+  const tabs = ['Chat', 'Tools', 'Tasks', 'Memory', 'Knowledge', 'Social', 'Files', 'Visualizations'];
   const [searchInputValue, setSearchInputValue] = useState('');
   const [showSearchResults, setShowSearchResults] = useState(false);
 
@@ -100,13 +100,14 @@ const TabsNavigation: React.FC<TabsNavigationProps> = ({
             <button 
               key={tab}
               onClick={() => setSelectedTab(tab.toLowerCase())}
-              className={`px-3 py-1 rounded-t ${
+              className={`px-3 py-1 rounded-t flex items-center space-x-1 ${
                 selectedTab === tab.toLowerCase()
                   ? 'bg-gray-700 text-white'
                   : 'hover:bg-gray-700/50'
               }`}
             >
-              {tab}
+              {tab === 'Visualizations' && <Activity className="h-4 w-4" />}
+              <span>{tab}</span>
             </button>
           ))}
         </div>
