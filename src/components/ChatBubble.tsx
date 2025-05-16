@@ -4,7 +4,6 @@ import MarkdownRenderer from './MarkdownRenderer';
 import { highlightSearchMatches } from '../utils/smartSearch';
 import ChatBubbleMenu from './ChatBubbleMenu';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
-import ConfirmationDialog from './ConfirmationDialog';
 import { FileAttachmentType } from '../constants/file';
 import { toast } from 'react-hot-toast';
 
@@ -30,10 +29,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
   // Track message versions and current version index
   const [messageVersions, setMessageVersions] = useState<string[]>([message.content || '']);
   const [currentVersionIndex, setCurrentVersionIndex] = useState(0);
-  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
-  const [isDeleting, setIsDeleting] = useState(false);
-  const [deleteConfirmCallback, setDeleteConfirmCallback] = useState<((confirmed: boolean) => Promise<void>) | null>(null);
-  
+
   // Process search highlighting when content or search terms change
   useEffect(() => {
     if (searchHighlight && message.content) {
@@ -389,26 +385,12 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
 
   const mainContent = highlightedContent || messageVersions[currentVersionIndex];
   
-  // Add the delete message handler function within the component 
+  // Handle delete message
   const handleDeleteMessage = async (timestamp: Date) => {
-    setIsDeleteDialogOpen(true);
-    return new Promise<boolean>((resolve) => {
-      setDeleteConfirmCallback(() => async (confirmed: boolean) => {
-        if (confirmed && onDeleteMessage) {
-          await onDeleteMessage(timestamp);
-          resolve(true);
-        } else {
-          resolve(false);
-        }
-        setIsDeleteDialogOpen(false);
-      });
-    });
-  };
-
-  const handleDeleteConfirm = async (confirmed: boolean) => {
-    if (deleteConfirmCallback) {
-      await deleteConfirmCallback(confirmed);
+    if (onDeleteMessage) {
+      return onDeleteMessage(timestamp);
     }
+    return false;
   };
 
   return (
@@ -509,20 +491,6 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
           />
         </div>
       </div>
-      
-      {/* Delete confirmation dialog */}
-      {isDeleteDialogOpen && (
-        <ConfirmationDialog
-          isOpen={isDeleteDialogOpen}
-          onCancel={() => handleDeleteConfirm(false)}
-          onConfirm={() => handleDeleteConfirm(true)}
-          title="Delete Message"
-          message="Are you sure you want to delete this message?"
-          confirmText="Delete"
-          cancelText="Cancel"
-          variant="danger"
-        />
-      )}
     </div>
   );
 };

@@ -55,7 +55,7 @@ var uuid_1 = require("uuid");
 var config_1 = require("../../config");
 var collections_1 = require("../../config/collections");
 var utils_1 = require("../../utils");
-var types_1 = require("@/lib/errors/types");
+var types_1 = require("../../../../lib/errors/types");
 /**
  * Core memory service for CRUD operations
  */

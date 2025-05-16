@@ -10,7 +10,7 @@ import { IMemoryClient, SearchQuery } from '../client/types';
 import { EmbeddingService } from '../client/embedding-service';
 import { AddMemoryParams, DeleteMemoryParams, GetMemoryParams, MemoryResult, SearchMemoryParams, UpdateMemoryParams } from './types';
 import { MemoryEditMetadata, EditorType } from '../../../../types/metadata';
-import { MemoryErrorCode } from '@/lib/errors/types';
+import { MemoryErrorCode } from '../../../../lib/errors/types';
 
 /**
  * Memory service options

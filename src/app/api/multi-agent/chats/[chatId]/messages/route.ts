@@ -7,6 +7,7 @@ import { addMessageMemory } from '../../../../../../server/memory/services/memor
 import { getOrCreateThreadInfo, createResponseThreadInfo } from '../../../../chat/thread/helper';
 import { AgentService } from '../../../../../../services/AgentService';
 import { getChatService } from '../../../../../../server/memory/services/chat-service';
+import { MessageMetadata } from '../../../../../../types/metadata';
 
 // Define interface for message attachments
 interface MessageAttachment {
@@ -61,13 +62,96 @@ export async function GET(
 ) {
   const params = await context.params;
   const chatId = params.chatId;
+
   try {
-    // TODO: Replace with real message fetching logic
-    // For now, always return an empty array for new chats
-    // In production, fetch messages from your DB or memory service
-    return NextResponse.json({ messages: [] });
+    if (!chatId) {
+      return NextResponse.json(
+        { error: 'Chat ID is required' },
+        { status: 400 }
+      );
+    }
+    
+    // Get query parameters
+    const { searchParams } = new URL(request.url);
+    const limit = parseInt(searchParams.get('limit') || '50');
+    const offset = parseInt(searchParams.get('offset') || '0');
+    const includeInternal = searchParams.get('includeInternal') === 'true';
+    
+    // First verify the chat exists
+    const chatService = await getChatService();
+    const chat = await chatService.getChatById(chatId);
+    
+    if (!chat) {
+      return NextResponse.json(
+        { error: 'Chat not found' },
+        { status: 404 }
+      );
+    }
+    
+    // Get memory services
+    const { searchService } = await getMemoryServices();
+    
+    console.log(`Searching for messages with chatId: ${chatId}`);
+    
+    // Search for messages with this chat ID
+    const searchResults = await searchService.search("", {
+      filter: {
+        must: [
+          { key: "type", match: { value: MemoryType.MESSAGE } },
+          { key: "metadata.chatId.id", match: { value: chatId } }
+        ],
+        must_not: includeInternal ? [] : [
+          { key: "metadata.isInternalMessage", match: { value: true } }
+        ]
+      },
+      limit,
+      offset,
+      sort: { field: "timestamp", direction: "asc" }
+    });
+
+    console.log(`Found ${searchResults.length} messages in search results`);
+    if (searchResults.length > 0) {
+      console.log('First message metadata:', searchResults[0].point.payload.metadata);
+    }
+    
+    // Format the messages
+    const messages = searchResults.map(result => {
+      const point = result.point;
+      const payload = point.payload;
+      // Properly type the metadata
+      const metadata = (payload.metadata || {}) as MessageMetadata;
+      
+      return {
+        id: point.id,
+        content: payload.text,
+        sender: metadata.role === 'user' ? { 
+          id: metadata.userId || 'user',
+          name: 'You',
+          role: 'user'
+        } : {
+          id: metadata.senderAgentId || metadata.agentId || 'assistant',
+          name: 'Assistant',
+          role: 'assistant'
+        },
+        timestamp: payload.timestamp,
+        metadata: metadata,
+        attachments: metadata.attachments || []
+      };
+    });
+    
+    return NextResponse.json({
+      chatId,
+      messages,
+      totalCount: messages.length,
+      hasMore: messages.length === limit
+    });
   } catch (error) {
-    return NextResponse.json({ messages: [] });
+    console.error(`Error retrieving messages for chat ${params.chatId}:`, error);
+    
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : 'Unknown error' },
+      { status: 500 }
+    );
   }
 }
 
@@ -199,7 +283,10 @@ export async function POST(
       userThreadInfo,
       {
         attachments: processedAttachments,
-        messageType: 'user_message'
+        messageType: 'user_message',
+        metadata: {
+          chatId: chatStructuredId // Ensure chatId is properly set
+        }
       }
     );
 
@@ -323,10 +410,9 @@ export async function POST(
       {
         messageType: 'assistant_response',
         metadata: {
-          // Use standard fields for custom data
+          chatId: chatStructuredId, // Ensure chatId is properly set
           tags: ['agent_response'],
           category: 'response',
-          // Store agent thoughts and memories as part of the conversation context
           conversationContext: {
             purpose: 'user_query_response',
             sharedContext: {

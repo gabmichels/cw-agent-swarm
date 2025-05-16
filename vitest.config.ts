@@ -17,4 +17,9 @@ export default defineConfig({
     },
     includeSource: ['src/**/*.ts'],
   },
+  resolve: {
+    alias: {
+      '@': resolve(__dirname, './src'),
+    },
+  },
 }); 

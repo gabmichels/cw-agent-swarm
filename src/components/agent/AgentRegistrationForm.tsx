@@ -7,6 +7,7 @@ import AgentPersonaForm from './AgentPersonaForm';
 import AgentCapabilityManager from './AgentCapabilityManager';
 import AgentTemplateSelector, { AgentTemplate, AGENT_TEMPLATES } from './AgentTemplateSelector';
 import ManagerConfigPanel, { AgentManagersConfig } from './ManagerConfigPanel';
+import AgentProcessingStatus, { ProcessingLog, ProcessingStep } from './AgentProcessingStatus';
 import { CapabilityLevel } from '@/agents/shared/capability-system';
 import './wizard.css';
 import { AgentStatus } from '@/server/memory/schema/agent';
@@ -149,6 +150,36 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
     schedulerManager: { enabled: true }
   });
   
+  // Add processing status state
+  const [processingLog, setProcessingLog] = useState<ProcessingLog>({
+    steps: [
+      {
+        id: 'validation',
+        name: 'Validating Agent Configuration',
+        status: 'pending',
+        timestamp: new Date()
+      },
+      {
+        id: 'capabilities',
+        name: 'Processing Capabilities',
+        status: 'pending',
+        timestamp: new Date()
+      },
+      {
+        id: 'knowledge',
+        name: 'Processing Knowledge Files',
+        status: 'pending',
+        timestamp: new Date()
+      },
+      {
+        id: 'registration',
+        name: 'Registering Agent',
+        status: 'pending',
+        timestamp: new Date()
+      }
+    ]
+  });
+
   // Load saved form data from localStorage on initial render
   useEffect(() => {
     const savedData = localStorage.getItem(STORAGE_KEY);
@@ -472,18 +503,38 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
     }));
   };
 
+  // Helper to update step status
+  const updateStepStatus = (
+    stepId: string,
+    status: ProcessingStep['status'],
+    message?: string
+  ) => {
+    setProcessingLog(prev => ({
+      ...prev,
+      steps: prev.steps.map(step =>
+        step.id === stepId
+          ? { ...step, status, message, timestamp: new Date() }
+          : step
+      ),
+      currentStep: stepId
+    }));
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    // Validate form data based on current step
-    const errors: {
-      name?: string;
-      description?: string;
-      systemPrompt?: string;
-      capabilities?: string;
-    } = {};
-    
-    if (currentStep === FormStep.INFO_AND_PROMPT) {
+    try {
+      // Start validation
+      updateStepStatus('validation', 'processing');
+      
+      // Validate form data
+      const errors: {
+        name?: string;
+        description?: string;
+        systemPrompt?: string;
+        capabilities?: string;
+      } = {};
+      
       if (!formData.name.trim()) {
         errors.name = 'Agent name is required';
       }
@@ -495,9 +546,7 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
       if (!systemPrompt.trim()) {
         errors.systemPrompt = 'System prompt is required';
       }
-    }
-    
-    if (currentStep === FormStep.CAPABILITIES) {
+      
       const totalCapabilities = 
         Object.keys(agentCapabilities.skills).length + 
         agentCapabilities.domains.length + 
@@ -506,65 +555,97 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
       if (totalCapabilities === 0) {
         errors.capabilities = 'At least one capability is required';
       }
-    }
-    
-    // If there are errors, show them and stop form submission
-    if (Object.keys(errors).length > 0) {
-      setFormErrors(errors);
-      return;
-    }
-    
-    // Clear any previous errors
-    setFormErrors({});
-    
-    if (currentStep < FormStep.MANAGERS) {
-      // If not on the last step, move to the next step
-      setCurrentStep(prevStep => prevStep + 1);
-      return;
-    }
-    
-    // Create a standard compliant version of the request
-    const standardRequest: AgentRegistrationRequest = {
-      name: formData.name,
-      description: formData.description,
-      status: formData.status,
-      capabilities: formData.capabilities,
-      parameters: {
-        model: process.env.NEXT_PUBLIC_DEFAULT_MODEL || formData.parameters.model,
-        temperature: formData.parameters.temperature,
-        maxTokens: formData.parameters.maxTokens,
-        tools: formData.parameters.tools,
-        managersConfig: managersConfig
-      },
-      metadata: {
-        tags: formData.metadata.tags,
-        domain: formData.metadata.domain,
-        specialization: formData.metadata.specialization,
-        performanceMetrics: formData.metadata.performanceMetrics,
-        version: '1.0',
-        isPublic: formData.metadata.isPublic,
+      
+      if (Object.keys(errors).length > 0) {
+        updateStepStatus('validation', 'error', 'Validation failed: ' + Object.values(errors).join(', '));
+        setFormErrors(errors);
+        return;
       }
-    };
-    
-    // Add the extended data for processing by the API handler
-    const extendedRequest = {
-      ...standardRequest,
-      _extended: {
-        systemPrompt,
-        knowledgePaths: knowledgeData.knowledgePaths,
-        persona: personaData
+      
+      updateStepStatus('validation', 'completed', 'All fields validated successfully');
+
+      // Process capabilities
+      updateStepStatus('capabilities', 'processing');
+      handleCapabilityChange({
+        skills: agentCapabilities.skills,
+        domains: agentCapabilities.domains,
+        roles: agentCapabilities.roles,
+        tags: agentCapabilities.tags,
+        descriptions: agentCapabilities.descriptions
+      });
+      updateStepStatus('capabilities', 'completed', `Processed ${totalCapabilities} capabilities`);
+
+      // Process knowledge files
+      updateStepStatus('knowledge', 'processing');
+      const totalFiles = knowledgeData.files.length;
+      if (totalFiles > 0) {
+        updateStepStatus('knowledge', 'completed', `Processed ${totalFiles} knowledge files`);
+      } else {
+        updateStepStatus('knowledge', 'completed', 'No knowledge files to process');
       }
-    };
-    
-    try {
+
+      // Start registration
+      updateStepStatus('registration', 'processing');
+      
+      // Create the registration request
+      const standardRequest: AgentRegistrationRequest = {
+        name: formData.name,
+        description: formData.description,
+        status: formData.status,
+        capabilities: formData.capabilities,
+        parameters: {
+          model: process.env.NEXT_PUBLIC_DEFAULT_MODEL || formData.parameters.model,
+          temperature: formData.parameters.temperature,
+          maxTokens: formData.parameters.maxTokens,
+          tools: formData.parameters.tools,
+          managersConfig: managersConfig
+        },
+        metadata: {
+          tags: formData.metadata.tags,
+          domain: formData.metadata.domain,
+          specialization: formData.metadata.specialization,
+          performanceMetrics: formData.metadata.performanceMetrics,
+          version: '1.0',
+          isPublic: formData.metadata.isPublic,
+        }
+      };
+      
+      const extendedRequest = {
+        ...standardRequest,
+        _extended: {
+          systemPrompt,
+          knowledgePaths: knowledgeData.knowledgePaths,
+          persona: personaData
+        }
+      };
+      
       await onSubmit(extendedRequest as any);
-      // Only remove from storage if submission succeeds
+      
+      updateStepStatus('registration', 'completed', 'Agent registered successfully');
+      
+      // Clear form data from storage
       localStorage.removeItem(STORAGE_KEY);
+      
+      // Navigate to agents page
       router.push('/agents');
     } catch (error) {
       console.error("Error submitting form:", error);
-      // Show an error message to the user
-      alert("Agent creation failed. Your form data has been preserved so you can try again. Error: " + (error instanceof Error ? error.message : "Unknown error"));
+      
+      // Update the current step to error
+      const currentStepId = processingLog.currentStep;
+      if (currentStepId) {
+        updateStepStatus(
+          currentStepId,
+          'error',
+          `Error: ${error instanceof Error ? error.message : "Unknown error"}`
+        );
+      }
+      
+      // Update processing log with error
+      setProcessingLog(prev => ({
+        ...prev,
+        error: error instanceof Error ? error.message : "Unknown error"
+      }));
     }
   };
 
@@ -828,6 +909,14 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
         
         {currentStep === FormStep.CAPABILITIES && renderCapabilitiesStep()}
         {currentStep === FormStep.MANAGERS && renderManagersStep()}
+        
+        {/* Show processing status when submitting */}
+        {isSubmitting && (
+          <AgentProcessingStatus
+            processingLog={processingLog}
+            isProcessing={isSubmitting}
+          />
+        )}
       </div>
       
       <div className="wizard-controls">

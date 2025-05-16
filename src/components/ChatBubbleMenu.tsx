@@ -10,6 +10,7 @@ import { ExportService } from '../services/message/ExportService';
 import { ReliabilityService } from '../services/message/ReliabilityService';
 import { Tooltip } from './ui/tooltip';
 import { Toast } from '../components/ui/toast';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 
 interface ChatBubbleMenuProps {
   message: Message;
@@ -91,6 +92,8 @@ const ChatBubbleMenu: React.FC<ChatBubbleMenuProps> = ({
   const [regenerationState, setRegenerationState] = useState<ActionState>({ isLoading: false, error: null });
   const [exportState, setExportState] = useState<ActionState>({ isLoading: false, error: null });
   const [reliabilityState, setReliabilityState] = useState<ActionState>({ isLoading: false, error: null });
+  const [deleteState, setDeleteState] = useState<ActionState>({ isLoading: false, error: null });
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
 
   // Action handlers
   const handleCopy = useCallback(async () => {
@@ -219,6 +222,46 @@ const ChatBubbleMenu: React.FC<ChatBubbleMenuProps> = ({
     }
   }, [message, reliabilityService]);
 
+  const handleDelete = useCallback(async () => {
+    if (!onDeleteMessage || !message.timestamp) return;
+    
+    setDeleteState({ isLoading: true, error: null });
+    try {
+      // Call the API endpoint directly
+      const response = await fetch(`/api/chat/message?${message.id ? `messageId=${message.id}` : `timestamp=${message.timestamp.toISOString()}`}`, {
+        method: 'DELETE',
+      });
+
+      const data = await response.json();
+      
+      if (data.success) {
+        // Call the parent handler to update UI
+        const success = await onDeleteMessage(message.timestamp);
+        if (!success) {
+          throw new Error('Failed to update UI after message deletion');
+        }
+        Toast.show({ message: 'Message deleted successfully', type: 'success', duration: 3000 });
+        setShowDeleteDialog(false);
+        
+        // Trigger a page refresh to reload messages
+        window.location.reload();
+      } else {
+        throw new Error(data.error || 'Failed to delete message');
+      }
+    } catch (error) {
+      console.error('Error deleting message:', error);
+      setDeleteState({ 
+        isLoading: false, 
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+      Toast.show({ 
+        message: 'Failed to delete message: ' + (error instanceof Error ? error.message : 'Unknown error'), 
+        type: 'error',
+        duration: 5000 
+      });
+    }
+  }, [message.id, message.timestamp, onDeleteMessage]);
+
   // Toast notification
   const showToast = (message: string) => {
     Toast.show({
@@ -231,127 +274,182 @@ const ChatBubbleMenu: React.FC<ChatBubbleMenuProps> = ({
   };
 
   return (
-    <div className="flex flex-wrap justify-center gap-1 mt-2 text-gray-400">
-      <Tooltip content="Copy text">
-        <button 
-          onClick={handleCopy}
-          className="p-1.5 rounded-full hover:bg-gray-800 hover:text-gray-200 transition-colors"
-          disabled={copyState.isLoading}
-        >
-          {copyState.isLoading ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <Copy className="h-4 w-4" />
-          )}
-        </button>
-      </Tooltip>
-      
-      {isAssistantMessage && (
-        <>
-          <Tooltip content="Flag as unreliable">
+    <>
+      <div className="flex flex-wrap justify-center gap-1 mt-2 text-gray-400">
+        <Tooltip content="Copy text">
+          <button 
+            onClick={handleCopy}
+            className="p-1.5 rounded-full hover:bg-gray-800 hover:text-gray-200 transition-colors"
+            disabled={copyState.isLoading}
+          >
+            {copyState.isLoading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Copy className="h-4 w-4" />
+            )}
+          </button>
+        </Tooltip>
+        
+        {isAssistantMessage && (
+          <>
+            <Tooltip content="Flag as unreliable">
+              <button 
+                onClick={handleFlagUnreliable}
+                className="p-1.5 rounded-full hover:bg-gray-800 hover:text-red-400 transition-colors"
+                disabled={reliabilityState.isLoading}
+              >
+                {reliabilityState.isLoading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <ThumbsDown className="h-4 w-4" />
+                )}
+              </button>
+            </Tooltip>
+            
+            <Tooltip content="Regenerate response">
+              <button 
+                onClick={handleRegenerate}
+                className="p-1.5 rounded-full hover:bg-gray-800 hover:text-green-400 transition-colors"
+                disabled={regenerationState.isLoading}
+              >
+                {regenerationState.isLoading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-4 w-4" />
+                )}
+              </button>
+            </Tooltip>
+            
+            {showVersionControls && (
+              <div className="flex items-center ml-2 mr-2">
+                <Tooltip content="Previous version">
+                  <button 
+                    onClick={onPreviousVersion}
+                    disabled={currentVersionIndex === 0}
+                    className={`p-1.5 rounded-full ${currentVersionIndex === 0 
+                      ? 'opacity-50 cursor-not-allowed' 
+                      : 'hover:bg-gray-800 hover:text-blue-400 transition-colors'}`}
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </button>
+                </Tooltip>
+                
+                <span className="text-xs mx-1">
+                  {currentVersionIndex + 1}/{totalVersions}
+                </span>
+                
+                <Tooltip content="Next version">
+                  <button 
+                    onClick={onNextVersion}
+                    disabled={currentVersionIndex === totalVersions - 1}
+                    className={`p-1.5 rounded-full ${currentVersionIndex === totalVersions - 1 
+                      ? 'opacity-50 cursor-not-allowed' 
+                      : 'hover:bg-gray-800 hover:text-blue-400 transition-colors'}`}
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
+                </Tooltip>
+              </div>
+            )}
+          </>
+        )}
+        
+        <Tooltip content="Flag as important">
+          <button 
+            onClick={handleFlagImportant}
+            className="p-1.5 rounded-full hover:bg-gray-800 hover:text-yellow-400 transition-colors"
+            disabled={importanceState.isLoading}
+          >
+            {importanceState.isLoading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Star className="h-4 w-4" />
+            )}
+          </button>
+        </Tooltip>
+        
+        <Tooltip content="Add to knowledge base">
+          <button 
+            onClick={handleAddToKnowledge}
+            className="p-1.5 rounded-full hover:bg-gray-800 hover:text-blue-400 transition-colors"
+            disabled={knowledgeState.isLoading}
+          >
+            {knowledgeState.isLoading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Database className="h-4 w-4" />
+            )}
+          </button>
+        </Tooltip>
+        
+        <Tooltip content="Export to Coda">
+          <button 
+            onClick={handleExportToCoda}
+            className="p-1.5 rounded-full hover:bg-gray-800 hover:text-purple-400 transition-colors"
+            disabled={exportState.isLoading}
+          >
+            {exportState.isLoading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <FileText className="h-4 w-4" />
+            )}
+          </button>
+        </Tooltip>
+
+        {onDeleteMessage && (
+          <Tooltip content="Delete message">
             <button 
-              onClick={handleFlagUnreliable}
+              onClick={() => setShowDeleteDialog(true)}
               className="p-1.5 rounded-full hover:bg-gray-800 hover:text-red-400 transition-colors"
-              disabled={reliabilityState.isLoading}
+              disabled={deleteState.isLoading}
             >
-              {reliabilityState.isLoading ? (
+              {deleteState.isLoading ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
-                <ThumbsDown className="h-4 w-4" />
+                <Trash2 className="h-4 w-4" />
               )}
             </button>
           </Tooltip>
-          
-          <Tooltip content="Regenerate response">
-            <button 
-              onClick={handleRegenerate}
-              className="p-1.5 rounded-full hover:bg-gray-800 hover:text-green-400 transition-colors"
-              disabled={regenerationState.isLoading}
-            >
-              {regenerationState.isLoading ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <RefreshCw className="h-4 w-4" />
-              )}
-            </button>
-          </Tooltip>
-          
-          {showVersionControls && (
-            <div className="flex items-center ml-2 mr-2">
-              <Tooltip content="Previous version">
-                <button 
-                  onClick={onPreviousVersion}
-                  disabled={currentVersionIndex === 0}
-                  className={`p-1.5 rounded-full ${currentVersionIndex === 0 
-                    ? 'opacity-50 cursor-not-allowed' 
-                    : 'hover:bg-gray-800 hover:text-blue-400 transition-colors'}`}
-                >
-                  <ChevronLeft className="h-4 w-4" />
-                </button>
-              </Tooltip>
-              
-              <span className="text-xs mx-1">
-                {currentVersionIndex + 1}/{totalVersions}
-              </span>
-              
-              <Tooltip content="Next version">
-                <button 
-                  onClick={onNextVersion}
-                  disabled={currentVersionIndex === totalVersions - 1}
-                  className={`p-1.5 rounded-full ${currentVersionIndex === totalVersions - 1 
-                    ? 'opacity-50 cursor-not-allowed' 
-                    : 'hover:bg-gray-800 hover:text-blue-400 transition-colors'}`}
-                >
-                  <ChevronRight className="h-4 w-4" />
-                </button>
-              </Tooltip>
+        )}
+      </div>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog
+        open={showDeleteDialog}
+        onOpenChange={(open) => {
+          setShowDeleteDialog(open);
+          if (!open) {
+            setDeleteState({ isLoading: false, error: null });
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Message</DialogTitle>
+          </DialogHeader>
+          <div className="mt-4">
+            <p className="text-gray-300 mb-4">
+              Are you sure you want to delete this message? This action cannot be undone.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setShowDeleteDialog(false)}
+                className="px-4 py-2 rounded bg-gray-700 hover:bg-gray-600 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDelete}
+                disabled={deleteState.isLoading}
+                className="px-4 py-2 rounded bg-red-600 hover:bg-red-500 transition-colors"
+              >
+                {deleteState.isLoading ? 'Deleting...' : 'Delete'}
+              </button>
             </div>
-          )}
-        </>
-      )}
-      
-      <Tooltip content="Flag as important">
-        <button 
-          onClick={handleFlagImportant}
-          className="p-1.5 rounded-full hover:bg-gray-800 hover:text-yellow-400 transition-colors"
-          disabled={importanceState.isLoading}
-        >
-          {importanceState.isLoading ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <Star className="h-4 w-4" />
-          )}
-        </button>
-      </Tooltip>
-      
-      <Tooltip content="Add to knowledge base">
-        <button 
-          onClick={handleAddToKnowledge}
-          className="p-1.5 rounded-full hover:bg-gray-800 hover:text-blue-400 transition-colors"
-          disabled={knowledgeState.isLoading}
-        >
-          {knowledgeState.isLoading ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <Database className="h-4 w-4" />
-          )}
-        </button>
-      </Tooltip>
-      
-      <Tooltip content="Export to Coda">
-        <button 
-          onClick={handleExportToCoda}
-          className="p-1.5 rounded-full hover:bg-gray-800 hover:text-purple-400 transition-colors"
-          disabled={exportState.isLoading}
-        >
-          {exportState.isLoading ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <FileText className="h-4 w-4" />
-          )}
-        </button>
-      </Tooltip>
-    </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 };
 

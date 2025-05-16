@@ -255,11 +255,25 @@ const ChatPage: React.FC = () => {
         setChat(chatObj);
         // 3. Load messages for this chat
         if (chatObj) {
+          console.log(`Loading messages for chat: ${chatObj.id}`);
           const msgRes = await fetch(`/api/multi-agent/chats/${chatObj.id}/messages`);
           const msgData = await msgRes.json();
+          console.log('Message loading response:', msgData);
+          
           if (msgRes.ok && msgData.messages && msgData.messages.length > 0) {
-            setMessages(msgData.messages);
+            console.log(`Found ${msgData.messages.length} messages to display`);
+            // Format messages to match expected structure
+            const formattedMessages = msgData.messages.map((msg: any) => ({
+              id: msg.id,
+              content: msg.content,
+              sender: msg.sender,
+              timestamp: new Date(msg.timestamp),
+              attachments: msg.attachments || []
+            }));
+            console.log('Formatted messages:', formattedMessages);
+            setMessages(formattedMessages);
           } else {
+            console.log('No existing messages found, creating welcome message');
             // 4. If no messages, create dummy welcome message
             // Always try to use the agent's name for the welcome message
             let agentName = '';
