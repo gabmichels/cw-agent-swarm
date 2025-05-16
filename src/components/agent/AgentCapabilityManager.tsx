@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { PlusCircle, ChevronDown, ChevronUp } from 'lucide-react';
+import { PlusCircle, ChevronDown, ChevronUp, Loader2, AlertCircle, ArrowDown } from 'lucide-react';
 import { 
   CapabilityType, 
   CapabilityLevel, 
@@ -7,6 +7,7 @@ import {
   getCapabilityLevelPercentage,
   defaultCapabilities
 } from '../../agents/shared/capability-system';
+import { useCapabilitiesFromDatabase, DatabaseCapability } from '../../hooks/useCapabilitiesFromDatabase';
 
 interface Capability {
   id: string;
@@ -33,23 +34,24 @@ interface AgentCapabilityManagerProps {
   }) => void;
 }
 
-const DEFAULT_CAPABILITIES: Capability[] = [
+// Fallback capabilities in case the database is empty or API errors out
+const FALLBACK_CAPABILITIES: Capability[] = [
   { id: 'skill.problem_solving', name: 'Problem Solving', description: 'Ability to analyze and solve complex problems', type: CapabilityType.SKILL },
   { id: 'skill.creative_thinking', name: 'Creative Thinking', description: 'Ability to come up with novel ideas and solutions', type: CapabilityType.SKILL },
   { id: 'skill.research', name: 'Research', description: 'Ability to find and synthesize information', type: CapabilityType.SKILL },
-  { id: 'skill.communication', name: 'Communication', description: 'Ability to clearly communicate ideas and information', type: CapabilityType.SKILL },
-  { id: 'skill.critical_thinking', name: 'Critical Thinking', description: 'Ability to evaluate information and make reasoned judgments', type: CapabilityType.SKILL },
   { id: 'domain.marketing', name: 'Marketing', description: 'Knowledge of marketing principles and strategies', type: CapabilityType.DOMAIN },
-  { id: 'domain.finance', name: 'Finance', description: 'Knowledge of financial principles and analysis', type: CapabilityType.DOMAIN },
   { id: 'domain.technology', name: 'Technology', description: 'Knowledge of technology trends and applications', type: CapabilityType.DOMAIN },
-  { id: 'domain.hr', name: 'HR', description: 'Knowledge of human resources principles and practices', type: CapabilityType.DOMAIN },
-  { id: 'domain.sales', name: 'Sales', description: 'Knowledge of sales principles and techniques', type: CapabilityType.DOMAIN },
   { id: 'role.assistant', name: 'Assistant', description: 'Acts as a helpful assistant', type: CapabilityType.ROLE },
   { id: 'role.advisor', name: 'Advisor', description: 'Provides expert advice and recommendations', type: CapabilityType.ROLE },
-  { id: 'role.researcher', name: 'Researcher', description: 'Conducts comprehensive research and analysis', type: CapabilityType.ROLE },
-  { id: 'role.analyst', name: 'Analyst', description: 'Analyzes data and provides insights', type: CapabilityType.ROLE },
-  { id: 'role.strategist', name: 'Strategist', description: 'Develops strategic plans and initiatives', type: CapabilityType.ROLE },
 ];
+
+// Helper function to convert DatabaseCapability to Capability
+const convertDatabaseCapability = (dbCapability: DatabaseCapability): Capability => ({
+  id: dbCapability.id,
+  name: dbCapability.name,
+  description: dbCapability.description,
+  type: dbCapability.type as CapabilityType
+});
 
 const AgentCapabilityManager: React.FC<AgentCapabilityManagerProps> = ({
   initialCapabilities = {
@@ -83,6 +85,141 @@ const AgentCapabilityManager: React.FC<AgentCapabilityManagerProps> = ({
     type: CapabilityType.SKILL,
     level: CapabilityLevel.BASIC
   });
+  const [isCreatingCapabilityInDB, setIsCreatingCapabilityInDB] = useState(false);
+  const [createCapabilityError, setCreateCapabilityError] = useState<string | null>(null);
+  const capabilityListRef = useRef<HTMLDivElement>(null);
+  const [capabilityTypeFilter, setCapabilityTypeFilter] = useState<CapabilityType | null>(null);
+
+  // Fetch capabilities from database with pagination
+  const { 
+    capabilities: skillsFromDb, 
+    loading: loadingSkills,
+    error: skillsError,
+    refetch: refetchSkills,
+    hasMore: hasMoreSkills,
+    fetchNextPage: fetchMoreSkills
+  } = useCapabilitiesFromDatabase({ 
+    type: CapabilityType.SKILL,
+    limit: 30
+  });
+
+  const { 
+    capabilities: domainsFromDb, 
+    loading: loadingDomains,
+    error: domainsError,
+    refetch: refetchDomains,
+    hasMore: hasMoreDomains,
+    fetchNextPage: fetchMoreDomains
+  } = useCapabilitiesFromDatabase({ 
+    type: CapabilityType.DOMAIN,
+    limit: 30 
+  });
+
+  const { 
+    capabilities: rolesFromDb, 
+    loading: loadingRoles,
+    error: rolesError,
+    refetch: refetchRoles,
+    hasMore: hasMoreRoles,
+    fetchNextPage: fetchMoreRoles
+  } = useCapabilitiesFromDatabase({ 
+    type: CapabilityType.ROLE,
+    limit: 30
+  });
+
+  // Search capabilities when user enters search term
+  const { 
+    capabilities: searchResults, 
+    loading: loadingSearch,
+    error: searchError,
+    refetch: refetchSearch,
+    hasMore: hasMoreSearch,
+    fetchNextPage: fetchMoreSearch
+  } = useCapabilitiesFromDatabase({ 
+    searchQuery: searchTerm,
+    enabled: searchTerm.length > 2,
+    limit: 30
+  });
+
+  // Update search results when search term changes
+  useEffect(() => {
+    if (searchTerm.length > 2) {
+      refetchSearch();
+    }
+  }, [searchTerm, refetchSearch]);
+
+  // Fetch more capabilities of filtered type
+  const handleFetchMoreCapabilities = async () => {
+    if (searchTerm.length > 2) {
+      await fetchMoreSearch();
+      return;
+    }
+    
+    if (capabilityTypeFilter === CapabilityType.SKILL) {
+      await fetchMoreSkills();
+    } else if (capabilityTypeFilter === CapabilityType.DOMAIN) {
+      await fetchMoreDomains();
+    } else if (capabilityTypeFilter === CapabilityType.ROLE) {
+      await fetchMoreRoles();
+    } else {
+      // If no filter, fetch more of all types
+      await Promise.all([
+        fetchMoreSkills(),
+        fetchMoreDomains(),
+        fetchMoreRoles()
+      ]);
+    }
+  };
+
+  // Check if we have more capabilities to load
+  const hasMoreCapabilities = searchTerm.length > 2 
+    ? hasMoreSearch
+    : capabilityTypeFilter === CapabilityType.SKILL
+      ? hasMoreSkills
+      : capabilityTypeFilter === CapabilityType.DOMAIN
+        ? hasMoreDomains
+        : capabilityTypeFilter === CapabilityType.ROLE
+          ? hasMoreRoles
+          : hasMoreSkills || hasMoreDomains || hasMoreRoles;
+
+  // Combine all database capabilities with filtering by type
+  const databaseCapabilities = React.useMemo(() => {
+    // If searching, prioritize search results
+    if (searchTerm.length > 2) {
+      return searchResults.map(convertDatabaseCapability);
+    }
+    
+    // Apply type filter if selected
+    if (capabilityTypeFilter) {
+      switch (capabilityTypeFilter) {
+        case CapabilityType.SKILL:
+          return skillsFromDb.map(convertDatabaseCapability);
+        case CapabilityType.DOMAIN:
+          return domainsFromDb.map(convertDatabaseCapability);
+        case CapabilityType.ROLE:
+          return rolesFromDb.map(convertDatabaseCapability);
+        default:
+          break;
+      }
+    }
+
+    // Collect all capabilities
+    const allCapabilities: Capability[] = [
+      ...skillsFromDb.map(convertDatabaseCapability),
+      ...domainsFromDb.map(convertDatabaseCapability),
+      ...rolesFromDb.map(convertDatabaseCapability),
+    ];
+
+    // If we don't have any database capabilities, use fallback ones
+    return allCapabilities.length > 0 ? allCapabilities : FALLBACK_CAPABILITIES;
+  }, [
+    skillsFromDb, 
+    domainsFromDb, 
+    rolesFromDb, 
+    searchResults, 
+    searchTerm, 
+    capabilityTypeFilter
+  ]);
 
   // Initialize selected capabilities from initial values
   useEffect(() => {
@@ -132,18 +269,20 @@ const AgentCapabilityManager: React.FC<AgentCapabilityManagerProps> = ({
   }, [capabilities, onChange]);
   
   // Filter capabilities based on search term
-  const filteredCapabilities = DEFAULT_CAPABILITIES.filter(cap => {
-    const isAlreadySelected = selectedCapabilities.some(selected => selected.id === cap.id);
-    if (isAlreadySelected) return false;
-    
-    if (!searchTerm) return true;
-    
-    return (
-      cap.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      cap.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      cap.id.toLowerCase().includes(searchTerm.toLowerCase())
-    );
-  });
+  const filteredCapabilities = React.useMemo(() => {
+    return databaseCapabilities.filter(cap => {
+      const isAlreadySelected = selectedCapabilities.some(selected => selected.id === cap.id);
+      if (isAlreadySelected) return false;
+      
+      if (!searchTerm) return true;
+      
+      return (
+        cap.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        cap.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        cap.id.toLowerCase().includes(searchTerm.toLowerCase())
+      );
+    });
+  }, [databaseCapabilities, selectedCapabilities, searchTerm]);
 
   // Add capability
   const addCapability = (capability: Capability) => {
@@ -284,8 +423,55 @@ const AgentCapabilityManager: React.FC<AgentCapabilityManagerProps> = ({
     }));
   };
 
-  // Handle adding custom capability
-  const handleAddCustomCapability = () => {
+  // Send new capability to database
+  const saveCapabilityToDatabase = async (capability: Capability): Promise<boolean> => {
+    setIsCreatingCapabilityInDB(true);
+    setCreateCapabilityError(null);
+    
+    try {
+      const response = await fetch('/api/multi-agent/capabilities', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: capability.name,
+          description: capability.description,
+          type: capability.type,
+          version: '1.0.0',
+          parameters: {},
+          tags: [],
+          domains: [],
+          relatedCapabilityIds: []
+        }),
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to create capability');
+      }
+      
+      // Refetch capabilities after creating a new one
+      if (capability.type === CapabilityType.SKILL) {
+        refetchSkills();
+      } else if (capability.type === CapabilityType.DOMAIN) {
+        refetchDomains();
+      } else if (capability.type === CapabilityType.ROLE) {
+        refetchRoles();
+      }
+      
+      return true;
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred';
+      setCreateCapabilityError(errorMessage);
+      return false;
+    } finally {
+      setIsCreatingCapabilityInDB(false);
+    }
+  };
+
+  // Update handleAddCustomCapability to optionally save to database
+  const handleAddCustomCapability = async () => {
     // Validate required fields
     if (!customCapability.name) {
       alert('Please enter a name for the custom capability');
@@ -335,6 +521,11 @@ const AgentCapabilityManager: React.FC<AgentCapabilityManagerProps> = ({
     } else {
       // Add as a new capability
       addCapability(newCapability);
+      
+      // Save to database if it's a custom capability
+      if (!databaseCapabilities.some(cap => cap.id === newCapability.id)) {
+        await saveCapabilityToDatabase(newCapability);
+      }
     }
     
     // Reset form state
@@ -489,6 +680,10 @@ const AgentCapabilityManager: React.FC<AgentCapabilityManagerProps> = ({
   // Sort filtered capabilities alphabetically
   const capabilityList = filteredSelectedCapabilities.sort((a, b) => a.name.localeCompare(b.name));
 
+  // Display loading indicator when fetching capabilities
+  const isLoading = loadingSkills || loadingDomains || loadingRoles || (searchTerm.length > 2 && loadingSearch);
+  const hasError = skillsError || domainsError || rolesError || (searchTerm.length > 2 && searchError);
+
   return (
     <div>
       {/* Capability Selector */}
@@ -505,53 +700,118 @@ const AgentCapabilityManager: React.FC<AgentCapabilityManagerProps> = ({
           ) : (
             <ChevronDown size={16} />
           )}
-            </button>
+        </button>
         
         {showCapabilitySelector && (
           <div className="mt-3 p-4 bg-gray-700 rounded">
             <div className="mb-4">
-            <input
-              type="text"
+              <input
+                type="text"
                 placeholder="Search capabilities..."
                 className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded focus:outline-none focus:border-blue-500"
                 value={searchTerm}
                 onChange={e => setSearchTerm(e.target.value)}
-            />
-          </div>
+              />
+            </div>
+            
+            {/* Type filter buttons */}
+            <div className="flex flex-wrap gap-2 mb-4">
+              <button
+                type="button"
+                onClick={() => setCapabilityTypeFilter(null)}
+                className={`px-3 py-1 rounded text-sm ${
+                  capabilityTypeFilter === null 
+                    ? 'bg-white text-gray-800' 
+                    : 'bg-gray-600 text-gray-200 hover:bg-gray-500'
+                }`}
+              >
+                All Types
+              </button>
+              {Object.values(CapabilityType).map(type => (
+                <button
+                  key={type}
+                  type="button"
+                  onClick={() => setCapabilityTypeFilter(
+                    capabilityTypeFilter === type ? null : type
+                  )}
+                  className={`px-3 py-1 rounded text-sm ${
+                    capabilityTypeFilter === type 
+                      ? getCapabilityTypeColor(type)
+                      : 'bg-gray-600 text-gray-200 hover:bg-gray-500'
+                  }`}
+                >
+                  {type.charAt(0).toUpperCase() + type.slice(1)}s
+                </button>
+              ))}
+            </div>
+          
+            {/* Loading State */}
+            {isLoading && (
+              <div className="flex items-center justify-center py-4">
+                <Loader2 className="animate-spin mr-2" size={20} />
+                <span>Loading capabilities...</span>
+              </div>
+            )}
+            
+            {/* Error State */}
+            {hasError && !isLoading && (
+              <div className="flex items-center bg-red-900/30 text-red-200 p-3 rounded mb-4">
+                <AlertCircle className="mr-2" size={20} />
+                <span>
+                  Error loading capabilities. Using fallback capabilities instead.
+                </span>
+              </div>
+            )}
           
             {!isAddingCustom ? (
               <>
-                <div className="max-h-64 overflow-y-auto mb-4">
-                  {filteredCapabilities.length === 0 ? (
+                <div className="max-h-64 overflow-y-auto mb-4" ref={capabilityListRef}>
+                  {filteredCapabilities.length === 0 && !isLoading ? (
                     <div className="text-center py-3 text-gray-400">
                       No matching capabilities found
                     </div>
                   ) : (
-                    <ul className="space-y-2">
-                      {filteredCapabilities.map(capability => (
-                        <li
-                          key={capability.id}
-                          className="p-2 bg-gray-800 rounded cursor-pointer hover:bg-gray-750"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            addCapability(capability);
-                          }}
-                        >
-                          <div className="flex items-start">
-                            <div>
-                              <div className="font-medium">{capability.name}</div>
-                              <div className="text-xs text-gray-400">
-                                {capability.description}
-                              </div>
-                              <div className="text-xs text-gray-500 mt-1">
-                                Type: {capability.type}
+                    <>
+                      <ul className="space-y-2">
+                        {!isLoading && filteredCapabilities.map(capability => (
+                          <li
+                            key={capability.id}
+                            className="p-2 bg-gray-800 rounded cursor-pointer hover:bg-gray-750"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              addCapability(capability);
+                            }}
+                          >
+                            <div className="flex items-start">
+                              <div>
+                                <div className="font-medium">{capability.name}</div>
+                                <div className="text-xs text-gray-400">
+                                  {capability.description}
+                                </div>
+                                <div className="text-xs text-gray-500 mt-1">
+                                  Type: {capability.type}
+                                </div>
                               </div>
                             </div>
-                          </div>
-                        </li>
-                      ))}
-                    </ul>
+                          </li>
+                        ))}
+                      </ul>
+                      
+                      {/* Load more button */}
+                      {hasMoreCapabilities && !isLoading && (
+                        <div className="text-center mt-4">
+                          <button
+                            type="button"
+                            onClick={handleFetchMoreCapabilities}
+                            className="flex items-center justify-center mx-auto px-3 py-1 bg-gray-600 rounded hover:bg-gray-500 text-sm"
+                          >
+                            Load more capabilities
+                            <ArrowDown className="ml-1" size={14} />
+                          </button>
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
                 
@@ -573,34 +833,34 @@ const AgentCapabilityManager: React.FC<AgentCapabilityManagerProps> = ({
                   {isEditingCapability ? 'Edit Capability' : 'Add Custom Capability'}
                 </h3>
                 
-            <div>
+                <div>
                   <label className="block text-sm font-medium mb-1">
                     Capability Type
                   </label>
-              <select
+                  <select
                     value={customCapability.type}
                     onChange={e => setCustomCapability({ ...customCapability, type: e.target.value as CapabilityType })}
                     className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded focus:outline-none focus:border-blue-500"
-              >
+                  >
                     <option value={CapabilityType.SKILL}>Skill</option>
                     <option value={CapabilityType.DOMAIN}>Domain</option>
                     <option value={CapabilityType.ROLE}>Role</option>
                     <option value={CapabilityType.TAG}>Tag</option>
-              </select>
-            </div>
-          
-          <div>
+                  </select>
+                </div>
+                
+                <div>
                   <label className="block text-sm font-medium mb-1">
                     Name
                   </label>
-            <input
-              type="text"
+                  <input
+                    type="text"
                     value={customCapability.name}
                     onChange={e => setCustomCapability({ ...customCapability, name: e.target.value })}
                     className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded focus:outline-none focus:border-blue-500"
                     placeholder="Enter capability name"
-            />
-          </div>
+                  />
+                </div>
                 
                 <div>
                   <label className="block text-sm font-medium mb-1">
@@ -613,8 +873,8 @@ const AgentCapabilityManager: React.FC<AgentCapabilityManagerProps> = ({
                     placeholder="Enter capability description"
                     rows={2}
                   />
-        </div>
-        
+                </div>
+                
                 {/* Add Skill Level selector for Skills */}
                 {customCapability.type === CapabilityType.SKILL && (
                   <div>
@@ -644,6 +904,14 @@ const AgentCapabilityManager: React.FC<AgentCapabilityManagerProps> = ({
                   </div>
                 )}
                 
+                {/* Display creation error if any */}
+                {createCapabilityError && (
+                  <div className="text-red-400 text-sm mt-2">
+                    <AlertCircle className="inline-block mr-1" size={14} />
+                    {createCapabilityError}
+                  </div>
+                )}
+                
                 <div className="flex justify-end gap-2 pt-2">
                   <button
                     type="button"
@@ -651,22 +919,27 @@ const AgentCapabilityManager: React.FC<AgentCapabilityManagerProps> = ({
                       e.preventDefault();
                       e.stopPropagation();
                       setIsAddingCustom(false);
+                      setCreateCapabilityError(null);
                     }}
                     className="px-3 py-1 bg-gray-600 rounded hover:bg-gray-500"
                   >
                     Cancel
                   </button>
-        <button
+                  <button
                     type="button"
                     onClick={(e) => {
                       e.preventDefault();
                       e.stopPropagation();
                       handleAddCustomCapability();
                     }}
-                    className="px-3 py-1 bg-blue-600 rounded hover:bg-blue-700"
-        >
+                    className="px-3 py-1 bg-blue-600 rounded hover:bg-blue-700 flex items-center"
+                    disabled={isCreatingCapabilityInDB}
+                  >
+                    {isCreatingCapabilityInDB && (
+                      <Loader2 className="animate-spin mr-2" size={16} />
+                    )}
                     {isEditingCapability ? 'Update' : 'Add'}
-        </button>
+                  </button>
                 </div>
               </div>
             )}

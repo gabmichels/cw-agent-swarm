@@ -14,7 +14,9 @@ enum AgentMemoryErrorCode {
   LIST_FAILED = 'AGENT_MEMORY_LIST_FAILED',
   DELETE_FAILED = 'AGENT_MEMORY_DELETE_FAILED',
   VALIDATION_FAILED = 'AGENT_MEMORY_VALIDATION_FAILED',
-  NOT_FOUND = 'AGENT_MEMORY_NOT_FOUND'
+  NOT_FOUND = 'AGENT_MEMORY_NOT_FOUND',
+  SEARCH_FAILED = 'AGENT_MEMORY_SEARCH_FAILED',
+  COUNT_FAILED = 'AGENT_MEMORY_COUNT_FAILED'
 }
 
 /**
@@ -46,6 +48,8 @@ export interface AgentMemoryService {
   getAgent(agentId: string): Promise<Result<AgentMemoryEntity>>;
   getAgents(): Promise<Result<AgentMemoryEntity[]>>;
   deleteAgent(agentId: string): Promise<Result<boolean>>;
+  findAgents(filter: Record<string, any>, limit?: number, offset?: number): Promise<Result<AgentMemoryEntity[]>>;
+  countAgents(filter: Record<string, any>): Promise<Result<number>>;
 }
 
 /**
@@ -283,6 +287,156 @@ export class DefaultAgentMemoryService implements AgentMemoryService {
       console.error('Error getting agents from memory service:', error);
       return failureResult(
         new AppError(`Error getting agents: ${error instanceof Error ? error.message : String(error)}`, AgentMemoryErrorCode.LIST_FAILED)
+      );
+    }
+  }
+
+  /**
+   * Find agents by filter criteria
+   * 
+   * @param filter Filter criteria
+   * @param limit Maximum number of results to return
+   * @param offset Number of results to skip
+   * @returns Matching agents or error
+   */
+  async findAgents(
+    filter: Record<string, any> = {},
+    limit: number = 10,
+    offset: number = 0
+  ): Promise<Result<AgentMemoryEntity[]>> {
+    try {
+      // Create a proper 1536-dimensional vector for search
+      const dummyVector = this.createDummyVector(1536);
+      
+      // Convert filter object to Qdrant filter format
+      const qdrantFilter: any = { must: [] };
+      
+      // Add each filter condition
+      for (const [key, value] of Object.entries(filter)) {
+        // Handle array values (like tags)
+        if (Array.isArray(value)) {
+          // If empty array, skip this filter
+          if (value.length === 0) continue;
+          
+          // For arrays, match any of the values
+          const shouldConditions = value.map(val => ({
+            key,
+            match: { value: val }
+          }));
+          
+          qdrantFilter.must.push({ should: shouldConditions });
+        }
+        // Handle regular values
+        else if (value !== undefined && value !== null) {
+          qdrantFilter.must.push({
+            key,
+            match: { value }
+          });
+        }
+      }
+      
+      // If no filter conditions were added, use an empty filter
+      if (qdrantFilter.must.length === 0) {
+        delete qdrantFilter.must;
+      }
+      
+      // Get agents from the storage using search
+      const searchResult = await this.memoryClient.searchPoints(
+        this.collectionName,
+        {
+          vector: dummyVector,
+          limit,
+          offset,
+          filter: qdrantFilter,
+          includeVectors: false
+        }
+      );
+
+      if (!searchResult || searchResult.length === 0) {
+        return { isError: false, value: [] };
+      }
+
+      // Extract agents from the results
+      const agents = searchResult.map((result) => result.payload as unknown as AgentMemoryEntity);
+
+      return { isError: false, value: agents };
+    } catch (error) {
+      console.error('Error finding agents from memory service:', error);
+      return failureResult(
+        new AppError(`Error finding agents: ${error instanceof Error ? error.message : String(error)}`, AgentMemoryErrorCode.SEARCH_FAILED)
+      );
+    }
+  }
+
+  /**
+   * Count agents by filter criteria
+   * 
+   * @param filter Filter criteria
+   * @returns Count of matching agents or error
+   */
+  async countAgents(filter: Record<string, any> = {}): Promise<Result<number>> {
+    try {
+      // Convert filter object to Qdrant filter format
+      const qdrantFilter: any = { must: [] };
+      
+      // Add each filter condition
+      for (const [key, value] of Object.entries(filter)) {
+        // Handle array values (like tags)
+        if (Array.isArray(value)) {
+          // If empty array, skip this filter
+          if (value.length === 0) continue;
+          
+          // For arrays, match any of the values
+          const shouldConditions = value.map(val => ({
+            key,
+            match: { value: val }
+          }));
+          
+          qdrantFilter.must.push({ should: shouldConditions });
+        }
+        // Handle regular values
+        else if (value !== undefined && value !== null) {
+          qdrantFilter.must.push({
+            key,
+            match: { value }
+          });
+        }
+      }
+      
+      // If no filter conditions were added, use an empty filter
+      if (qdrantFilter.must.length === 0) {
+        delete qdrantFilter.must;
+      }
+      
+      // Get collection info to count total points if no filter
+      if (!filter || Object.keys(filter).length === 0) {
+        try {
+          const collectionInfo = await this.memoryClient.getCollectionInfo(this.collectionName);
+          if (collectionInfo && typeof collectionInfo.pointsCount === 'number') {
+            return { isError: false, value: collectionInfo.pointsCount };
+          }
+        } catch (infoError) {
+          console.warn('Failed to get collection info, falling back to search:', infoError);
+          // Continue with search method
+        }
+      }
+      
+      // Count by performing a search with high limit
+      const searchResult = await this.memoryClient.searchPoints(
+        this.collectionName,
+        {
+          vector: this.createDummyVector(1536),
+          limit: 10000, // Use a high limit to get all matching agents
+          filter: qdrantFilter,
+          includeVectors: false
+        }
+      );
+
+      return { isError: false, value: searchResult?.length || 0 };
+    } catch (error) {
+      console.error('Error counting agents from memory service:', error);
+      return failureResult(
+        new AppError(`Error counting agents: ${error instanceof Error ? error.message : String(error)}`, AgentMemoryErrorCode.COUNT_FAILED)
       );
     }
   }

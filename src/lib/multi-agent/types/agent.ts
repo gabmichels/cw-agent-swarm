@@ -8,6 +8,8 @@ export interface AgentCapability {
   id: string;
   name: string;
   description: string;
+  version?: string;
+  parameters?: Record<string, unknown>;
 }
 
 /**

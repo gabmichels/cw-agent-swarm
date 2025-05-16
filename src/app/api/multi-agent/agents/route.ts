@@ -2,9 +2,11 @@ import { NextResponse } from 'next/server';
 import { ulid } from 'ulid';
 import { AgentRegistrationRequest, AgentProfile } from '@/lib/multi-agent/types/agent';
 import { DefaultAgentMemoryService } from '@/server/memory/services/multi-agent/agent-service';
+import { DefaultCapabilityMemoryService } from '@/server/memory/services/multi-agent/capability-service';
 import { getMemoryServices } from '@/server/memory/services';
 import { AgentFactory } from '@/agents/shared/AgentFactory';
 import { AgentMemoryEntity, AgentStatus, agentSchema } from '@/server/memory/schema/agent';
+import { CapabilityMemoryEntity, CapabilityType } from '@/server/memory/schema/capability';
 import { ChatType } from '@/server/memory/models/chat-collection';
 
 // Extended type to handle the additional fields from the form
@@ -114,6 +116,69 @@ export async function POST(request: Request) {
         );
       }
       console.log(`Collection '${collectionName}' created successfully.`);
+    }
+    
+    // Check if capabilities collection exists, create it if it doesn't
+    const capabilitiesCollectionName = 'capabilities';
+    const capabilitiesCollectionExists = await client.collectionExists(capabilitiesCollectionName);
+    
+    if (!capabilitiesCollectionExists) {
+      console.log(`Collection '${capabilitiesCollectionName}' does not exist, creating it now...`);
+      // Default dimension size for embedding vectors
+      const dimensionSize = 1536; 
+      const created = await client.createCollection(capabilitiesCollectionName, dimensionSize);
+      if (!created) {
+        console.error(`Failed to create collection '${capabilitiesCollectionName}'`);
+        console.log('Continuing with agent creation anyway...');
+      } else {
+        console.log(`Collection '${capabilitiesCollectionName}' created successfully.`);
+      }
+    }
+    
+    // Create capability service
+    const capabilityService = new DefaultCapabilityMemoryService(client);
+    
+    // Store each custom capability in the capabilities collection
+    for (const capability of agent.capabilities) {
+      // Determine capability type from ID or name if not explicitly provided
+      let capabilityType: CapabilityType;
+      if (capability.id.startsWith('skill.')) {
+        capabilityType = CapabilityType.SKILL;
+      } else if (capability.id.startsWith('domain.')) {
+        capabilityType = CapabilityType.DOMAIN;
+      } else if (capability.id.startsWith('role.')) {
+        capabilityType = CapabilityType.ROLE;
+      } else if (capability.id.startsWith('tag.')) {
+        capabilityType = CapabilityType.TAG;
+      } else {
+        // Default to SKILL if can't determine type
+        capabilityType = CapabilityType.SKILL;
+      }
+      
+      // Create capability object
+      const capabilityEntity: CapabilityMemoryEntity = {
+        id: capability.id || `capability_${capabilityType}_${capability.name.toLowerCase().replace(/\s+/g, '_')}_${ulid()}`,
+        name: capability.name,
+        description: capability.description,
+        type: capabilityType,
+        version: capability.version || '1.0.0',
+        parameters: capability.parameters || {},
+        tags: [],
+        domains: [],
+        content: `${capability.name} - ${capability.description}`,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        schemaVersion: '1.0',
+        metadata: {} // Required by BaseMemoryEntity
+      };
+      
+      // Store capability
+      try {
+        await capabilityService.createCapability(capabilityEntity);
+      } catch (error) {
+        console.error(`Error storing capability ${capability.name}:`, error);
+        // Continue with other capabilities even if one fails
+      }
     }
     
     // Create an agent memory service using our UUID-compatible implementation
@@ -248,89 +313,43 @@ export async function POST(request: Request) {
         console.error('Failed to verify agent was stored:', verifyResult.error);
             return NextResponse.json(
           { success: false, error: 'Agent appeared to be created but could not be retrieved' },
-              { status: 500 }
-            );
-          }
-          
-      console.log('Agent verified successfully in Qdrant');
-      
-      // Register the agent with MCP
-      try {
-        console.log('Registering agent with Multi-Agent Control Plane (MCP)...');
-        
-        // Import MCP registration functions
-        const { registerNewAgent } = await import('../../../../agents/mcp');
-        
-        // Register the new agent with MCP
-        registerNewAgent(agent);
-        
-        console.log(`Successfully registered agent ${agent.name} (${agent.id}) with MCP`);
-      } catch (mcpError) {
-        console.warn('Warning: Failed to register agent with MCP:', mcpError);
-        // Don't fail the overall request if MCP registration fails
-      }
-      
-      // Create a chat for this agent and the current user
-      try {
-        console.log('Creating chat between user and the new agent...');
-        
-        // Default to system user ID if not available in context
-        // In a real-world scenario, you would get this from auth context
-        const currentUserId = 'user_admin';
-        
-        // Get the chat service
-        const { getChatService } = await import('../../../../server/memory/services/chat-service');
-        const chatService = await getChatService();
-        
-        // Create a chat between the user and the new agent
-        const chatSession = await chatService.createChat(currentUserId, agent.id, {
-          title: `Chat with ${agent.name}`,
-          description: `Direct conversation with ${agent.name} - ${agent.description.substring(0, 100)}${agent.description.length > 100 ? '...' : ''}`,
-          type: ChatType.DIRECT,
-          forceNewId: true,
-          metadata: {
-            createdWith: 'agent_creation',
-            agentMetadata: {
-              capabilities: agent.capabilities.map(c => c.name).join(', '),
-              model: agent.parameters?.model
+                { status: 500 }
+              );
             }
-          }
-        });
-        
-        if (chatSession) {
-          console.log(`Successfully created chat session with ID: ${chatSession.id}`);
-        } else {
-          console.warn('Failed to create chat session automatically');
-        }
-      } catch (chatError) {
-        // Log the error but don't fail the agent creation just because chat creation failed
-        console.error('Error creating chat for new agent:', chatError);
-      }
+            
+      console.log('Successfully verified agent was stored.');
       
-      // Return success with confirmed persistence
+      // Generate a thread ID for the agent
+      const threadId = `thread_${agent.name.toLowerCase().replace(/\s+/g, '_')}_${ulid()}`;
+      
+      // Create response with thread ID
       return NextResponse.json({
         success: true,
-        message: 'Agent registered successfully and persisted to database',
-        agent
+        message: 'Agent registered successfully',
+        agent: {
+          ...agent,
+          id: result.value // Use the ID from the memory service
+        },
+        threadId
       });
+    } catch (error) {
+      console.error('Error creating agent:', error);
       
-    } catch (embeddingError) {
-      console.error('Error generating embedding for agent:', embeddingError);
       return NextResponse.json(
         { 
           success: false, 
-          error: `Failed to generate embedding: ${embeddingError instanceof Error ? embeddingError.message : String(embeddingError)}` 
+          error: `Failed to create agent: ${error instanceof Error ? error.message : String(error)}` 
         },
         { status: 500 }
       );
     }
   } catch (error) {
-    console.error('Error registering agent:', error);
+    console.error('Error processing agent registration request:', error);
     
     return NextResponse.json(
       { 
         success: false, 
-        error: error instanceof Error ? error.message : 'An unknown error occurred'
+        error: `Error processing request: ${error instanceof Error ? error.message : String(error)}` 
       },
       { status: 500 }
     );
@@ -339,133 +358,71 @@ export async function POST(request: Request) {
 
 /**
  * GET /api/multi-agent/agents
- * Retrieves a list of registered agents
+ * Lists agents based on filter criteria
  */
 export async function GET(request: Request) {
   try {
-    const { searchParams } = new URL(request.url);
-    const idParam = searchParams.get('id');
-    const nameParam = searchParams.get('name');
-    const tagsParam = searchParams.get('tags');
-    const statusParam = searchParams.get('status');
+    // Parse URL to extract query parameters
+    const url = new URL(request.url);
     
-    console.log('Getting agents with params:', { idParam, nameParam, tagsParam, statusParam });
+    // Extract filter parameters
+    const name = url.searchParams.get('name');
+    const status = url.searchParams.get('status');
+    const domain = url.searchParams.get('domain');
+    const tags = url.searchParams.getAll('tag');
+    const page = parseInt(url.searchParams.get('page') || '1', 10);
+    const limit = parseInt(url.searchParams.get('limit') || '10', 10);
     
-    // Get memory services including direct access to Qdrant
-    const { memoryService, client } = await getMemoryServices();
-    const collectionName = 'agents';
+    // Initialize memory services
+    const services = await getMemoryServices();
+    const agentService = new DefaultAgentMemoryService(services.client);
     
-    // Check if the collection exists
-    const collectionExists = await client.collectionExists(collectionName);
-    console.log(`Agents collection exists: ${collectionExists}`);
+    // Build filter object
+    const filter: Record<string, any> = {};
+    if (name) filter.name = name;
+    if (status) filter.status = status;
+    if (domain) filter['metadata.domain'] = domain;
+    if (tags.length > 0) filter['metadata.tags'] = tags;
     
-    if (!collectionExists) {
-      return NextResponse.json({
-        success: true,
-        agents: [],
-        total: 0,
-        page: 1,
-        pageSize: 0,
-        message: 'Agents collection does not exist yet'
-      });
+    // Get agents based on filters
+    const result = await agentService.findAgents(filter, limit, (page - 1) * limit);
+    
+    if (result.isError) {
+      console.error('Error searching for agents:', result.error);
+      return NextResponse.json(
+        { error: result.error?.message || 'Error searching for agents' },
+        { status: 500 }
+      );
     }
     
-    // First try direct Qdrant access for more reliable retrieval
-    try {
-      console.log('Attempting to retrieve agents directly from Qdrant...');
-      
-      // Create filter for specific agent if ID is provided
-      const filter = idParam ? { id: { value: idParam } } : undefined;
-      
-      // Use scrollPoints to get all agents regardless of embedding
-      const points = await client.scrollPoints(collectionName, filter);
-      console.log(`Retrieved ${points.length} agents from Qdrant`);
-      
-      // Convert to agent profiles
-      const agents = points.map(point => {
-        // Use type assertion for payload
-        const payload = point.payload as any;
-        return {
-          id: point.id,
-          name: payload.name,
-          description: payload.description,
-          status: payload.status,
-          capabilities: payload.capabilities,
-          parameters: payload.parameters,
-          metadata: payload.metadata,
-          createdAt: payload.createdAt,
-          updatedAt: payload.updatedAt
-        };
-      });
-      
-      return NextResponse.json({
-        success: true,
-        agents,
-        total: agents.length,
-        page: 1,
-        pageSize: agents.length
-      });
-    } catch (qdrantError) {
-      console.error('Error retrieving agents directly from Qdrant:', qdrantError);
-      
-      // Fall back to using agentService
-      console.log('Falling back to agent memory service...');
-      
-      // Create agent service
-      const agentService = new DefaultAgentMemoryService(client);
-      
-      // Get all agents
-      console.log('Calling agentService.getAgents()...');
-      const result = await agentService.getAgents();
-      
-      if (result.isError && result.error) {
-        console.error('Agent service search error:', result.error);
-        return NextResponse.json(
-          { success: false, error: result.error.message || 'Unknown error' },
-          { status: 500 }
-        );
-      }
-      
-      // Handle the case where value might be undefined or null
-      const agentData = result.value || [];
-      console.log(`Retrieved ${agentData.length} agents from agent service`);
-      
-      if (agentData.length > 0) {
-        console.log('Agent IDs retrieved:', agentData.map((agent: AgentMemoryEntity) => agent.id).join(', '));
-        console.log('First agent details:', JSON.stringify(agentData[0], null, 2));
-      } else {
-        console.log('No agents found in the database. Check collection existence and search logic.');
-      }
-      
-      // Convert to simplified agent profile format
-      const agents = agentData.map((agent: AgentMemoryEntity) => ({
-        id: agent.id,
-        name: agent.name,
-        description: agent.description,
-        status: agent.status,
-        capabilities: agent.capabilities,
-        parameters: agent.parameters,
-        metadata: agent.metadata,
-        createdAt: agent.createdAt,
-        updatedAt: agent.updatedAt
-      }));
-      
-      return NextResponse.json({
-        success: true,
-        agents,
-        total: agents.length,
-        page: 1,
-        pageSize: agents.length
-      });
-    }
+    // Convert agent entities to API format
+    const agents = result.value.map((agent: AgentMemoryEntity) => ({
+      id: agent.id,
+      name: agent.name,
+      description: agent.description,
+      status: agent.status,
+      capabilities: agent.capabilities,
+      parameters: agent.parameters,
+      metadata: agent.metadata,
+      createdAt: agent.createdAt,
+      updatedAt: agent.updatedAt
+    }));
+    
+    // Get total count
+    const countResult = await agentService.countAgents(filter);
+    const total = countResult.isError ? 0 : countResult.value;
+    
+    return NextResponse.json({
+      agents,
+      total,
+      page,
+      pageSize: limit
+    });
   } catch (error) {
-    console.error('Error fetching agents:', error);
+    console.error('Error listing agents:', error);
     
     return NextResponse.json(
-      { 
-        success: false, 
-        error: error instanceof Error ? error.message : 'An unknown error occurred'
-      },
+      { error: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
     );
   }
