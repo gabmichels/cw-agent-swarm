@@ -105,16 +105,21 @@ export class OpenAITagExtractor {
           {
             role: "system" as const,
             content: `You are a tag extraction system. Extract the most relevant tags or keywords from the provided text. 
-            Focus on important topics, concepts, entities, and themes.
+            Focus on document purpose, core concepts, important topics, entities, and themes.
             
             Rules:
+            - Always identify and tag the core document type/purpose (e.g., "mission", "policy", "product description")
+            - Create compound tags for core concepts (e.g., "company mission", "privacy policy", "user guide")
             - Extract between 3 and ${maxTags} tags maximum
-            - Tags should be 1-3 words at most
+            - Single-word tags should identify key topics
+            - Two-word tags should capture important concepts or relationships
+            - No more than two words per tag
             - No hashtags or special characters in tags
             - Make sure tags are in lowercase
             - Return only the most relevant and specific tags
             - If there are already existing tags, try to build upon them with complementary tags
-            - For very short messages, extract fewer but more precise tags
+            - If the document has a title or headers, prioritize concepts from these sections
+            - For documents with markdown formatting, identify the document type based on headers
             - For technical content, include technical terms as tags
             - For conversational content, focus on the main topics and intent
             - Return the tags with confidence scores between 0.0 and 1.0

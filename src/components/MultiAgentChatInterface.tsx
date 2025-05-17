@@ -315,8 +315,32 @@ export default function MultiAgentChatInterface({
         setSelectedTab={setSelectedTab}
         isFullscreen={false}
         toggleFullscreen={() => {}}
-        agentId={selectedAgentId || ''}
-        agentName={agents.find(a => a.id === selectedAgentId)?.name || 'Agent'}
+        agentId={selectedAgentId || undefined}
+        agentName={selectedAgentId ? (agents.find(a => a.id === selectedAgentId)?.name || 'Agent') : undefined}
+        onViewAgent={selectedAgentId ? (agentId) => {
+          console.log('Navigate to agent page:', `/agent/${agentId}`);
+          window.location.href = `/agent/${agentId}`;
+        } : undefined}
+        onDeleteChatHistory={async () => {
+          const confirmed = window.confirm('Are you sure you want to delete the chat history? This action cannot be undone.');
+          if (!confirmed) return false;
+          
+          try {
+            const response = await fetch(`/api/chats/${chatId}`, {
+              method: 'DELETE',
+            });
+            
+            if (response.ok) {
+              // Clear local messages
+              loadChatHistory();
+              return true;
+            }
+            return false;
+          } catch (error) {
+            console.error('Error deleting chat history:', error);
+            return false;
+          }
+        }}
       />
       
       {/* Agent Selector Dropdown */}
@@ -401,74 +425,6 @@ export default function MultiAgentChatInterface({
           </div>
         ))}
       </div>
-      
-      {/* Messages Area or Tab Content */}
-      {selectedTab === 'chat' ? (
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          {isLoadingHistory ? (
-            <div className="flex justify-center items-center h-full">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
-            </div>
-          ) : extendedMessages.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full text-gray-400">
-              <p className="text-lg mb-2">No messages yet</p>
-              <p className="text-sm">Start a conversation to see messages here</p>
-            </div>
-          ) : (
-            <div>
-              <ChatMessages 
-                messages={extendedMessages} 
-                onImageClick={(attachment, e) => {
-                  // Handle image click, e.g. show in lightbox
-                  console.log('Image clicked:', attachment);
-                }}
-                showInternalMessages={true}
-              />
-              <div ref={messagesEndRef} />
-            </div>
-          )}
-        </div>
-      ) : selectedTab === 'visualizations' ? (
-        <div className="flex-1 overflow-y-auto bg-gray-100 text-gray-900">
-          <VisualizationsContainer chatId={chatId} />
-        </div>
-      ) : (
-        <div className="flex-1 overflow-y-auto p-4 bg-gray-100 text-gray-800 flex items-center justify-center">
-          <p className="text-lg font-medium">{selectedTab.charAt(0).toUpperCase() + selectedTab.slice(1)} tab content will appear here</p>
-        </div>
-      )}
-      
-      {/* Message Input Area - Only show when chat tab is active */}
-      {selectedTab === 'chat' && (
-        <form 
-          onSubmit={handleSendMessage} 
-          className="p-4 border-t border-gray-700 flex space-x-2"
-        >
-          <input
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder={
-              selectedAgentId 
-                ? `Message ${agents.find(a => a.id === selectedAgentId)?.name}...` 
-                : "Type a message..."
-            }
-            className="flex-1 px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg focus:outline-none focus:border-blue-500"
-            disabled={isLoading}
-          />
-          <button
-            type="submit"
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
-            disabled={isLoading || !input.trim()}
-          >
-            {isLoading ? (
-              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-            ) : (
-              <Send size={18} />
-            )}
-          </button>
-        </form>
-      )}
     </div>
   );
-} 
+}

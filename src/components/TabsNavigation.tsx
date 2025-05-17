@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { MinimizeIcon, MaximizeIcon, Search, Settings, Activity } from 'lucide-react';
 import SearchResults from './SearchResults';
 import AgentSettings from './agent/AgentSettings';
@@ -16,6 +16,8 @@ interface TabsNavigationProps {
   onSelectResult?: (messageId: string) => void;
   agentId?: string;
   agentName?: string;
+  onDeleteChatHistory?: () => Promise<boolean>;
+  onViewAgent?: (agentId: string) => void;
 }
 
 const TabsNavigation: React.FC<TabsNavigationProps> = ({
@@ -30,11 +32,15 @@ const TabsNavigation: React.FC<TabsNavigationProps> = ({
   searchQuery = '',
   onSelectResult,
   agentId = '',
-  agentName = 'Agent'
+  agentName = 'Agent',
+  onDeleteChatHistory,
+  onViewAgent
 }) => {
   const tabs = ['Chat', 'Tools', 'Tasks', 'Memory', 'Knowledge', 'Social', 'Files', 'Visualizations'];
   const [searchInputValue, setSearchInputValue] = useState('');
   const [showSearchResults, setShowSearchResults] = useState(false);
+  const [showSettingsMenu, setShowSettingsMenu] = useState(false);
+  const settingsMenuRef = useRef<HTMLDivElement>(null);
 
   const handleSearch = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
@@ -92,6 +98,48 @@ const TabsNavigation: React.FC<TabsNavigationProps> = ({
     }, 200);
   }, []);
 
+  const handleViewAgent = useCallback(() => {
+    console.log('View Agent clicked, agentId:', agentId);
+    
+    if (agentId && onViewAgent) {
+      // Use callback if provided
+      console.log('Using provided onViewAgent callback');
+      onViewAgent(agentId);
+    } else if (agentId) {
+      // Direct navigation using most reliable method
+      console.log('Navigating to agent page:', `/agent/${agentId}`);
+      window.location.assign(`/agents/${agentId}`);
+    }
+    setShowSettingsMenu(false);
+  }, [agentId, onViewAgent]);
+
+  const handleDeleteChatHistory = useCallback(async () => {
+    if (onDeleteChatHistory) {
+      const confirmed = window.confirm("Are you sure you want to delete the chat history? This action cannot be undone.");
+      if (confirmed) {
+        const success = await onDeleteChatHistory();
+        if (success) {
+          alert("Chat history deleted successfully");
+        }
+      }
+    }
+    setShowSettingsMenu(false);
+  }, [onDeleteChatHistory]);
+
+  // Close settings menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (settingsMenuRef.current && !settingsMenuRef.current.contains(event.target as Node)) {
+        setShowSettingsMenu(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
+
   return (
     <>
       <div className="bg-gray-800 border-b border-gray-700 p-2 flex justify-between items-center">
@@ -112,6 +160,39 @@ const TabsNavigation: React.FC<TabsNavigationProps> = ({
           ))}
         </div>
         <div className="flex items-center space-x-2">
+          {/* Settings Icon with Context Menu */}
+          <div className="relative" ref={settingsMenuRef}>
+            <button
+              onClick={() => setShowSettingsMenu(!showSettingsMenu)}
+              className="p-2 rounded hover:bg-gray-700"
+              aria-label="Settings"
+              title="Settings"
+            >
+              <Settings className="h-5 w-5" />
+            </button>
+            
+            {showSettingsMenu && (
+              <div className="absolute right-0 mt-1 w-48 rounded-md shadow-lg bg-gray-800 ring-1 ring-black ring-opacity-5 z-50">
+                <div className="py-1" role="menu" aria-orientation="vertical">
+                  <button
+                    onClick={handleViewAgent}
+                    className="block w-full text-left px-4 py-2 text-sm text-gray-100 hover:bg-gray-700"
+                    role="menuitem"
+                  >
+                    View Agent
+                  </button>
+                  <button
+                    onClick={handleDeleteChatHistory}
+                    className="block w-full text-left px-4 py-2 text-sm text-gray-100 hover:bg-gray-700"
+                    role="menuitem"
+                  >
+                    Delete Chat History
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+          
           {/* Active search input */}
           <div className="relative search-input-container">
             <input

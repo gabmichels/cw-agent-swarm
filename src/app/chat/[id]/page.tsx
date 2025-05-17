@@ -27,6 +27,23 @@ import { ClipboardHandler } from '@/services/handlers/ClipboardHandler';
 import { DragDropHandler } from '@/services/handlers/DragDropHandler';
 import { generateMessageId } from '@/lib/multi-agent/types/message';
 import { UploadInfo } from '@/services/upload/FileUploadService';
+import { ImportanceLevel } from '@/constants/memory';
+
+// Define message priority enum
+enum MessagePriority {
+  LOW = 'low',
+  NORMAL = 'normal',
+  HIGH = 'high',
+  URGENT = 'urgent'
+}
+
+// Define message sensitivity enum
+enum MessageSensitivity {
+  PUBLIC = 'public',
+  INTERNAL = 'internal',
+  CONFIDENTIAL = 'confidential',
+  RESTRICTED = 'restricted'
+}
 
 const user = getCurrentUser();
 const userId = user.id;
@@ -62,11 +79,29 @@ interface MessageSender {
   role: "user" | "assistant" | "system";
 }
 
+// Define message metadata interface for type safety
+interface MessageMetadata {
+  tags?: string[];
+  priority?: string;
+  sensitivity?: string;
+  language?: string[];
+  version?: string;
+  userId?: string;
+  agentId?: string;
+  thinking?: boolean;
+  thoughts?: string[];
+  agentName?: string;
+  [key: string]: any;
+}
+
 interface MessageWithId extends Omit<DisplayMessage, 'sender'> {
   id: string;
   sender: MessageSender;
   timestamp: Date;
   attachments?: UIFileAttachment[];
+  tags?: string[]; 
+  importance?: ImportanceLevel;
+  metadata?: MessageMetadata;
 }
 
 // Add WelcomeScreen component at the top level of the file
@@ -273,22 +308,21 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
           if (msgRes.ok && msgData.messages && msgData.messages.length > 0) {
             console.log(`Found ${msgData.messages.length} messages to display`);
             // Format messages to match expected structure
-            const formattedMessages = msgData.messages.map((msg: {
+            const formattedMessages: MessageWithId[] = msgData.messages.map((msg: {
               id: string;
               content: string;
-              sender: {
-                id: string;
-                name: string;
-                role: "user" | "assistant" | "system";
-              };
+              sender: MessageSender;
               timestamp: string;
               attachments?: UIFileAttachment[];
+              tags?: string[];
+              metadata?: MessageMetadata;
             }) => ({
               id: msg.id,
               content: msg.content,
               sender: msg.sender,
               timestamp: new Date(msg.timestamp),
-              attachments: msg.attachments || []
+              attachments: msg.attachments || [],
+              tags: msg.tags || []
             }));
             console.log('Formatted messages:', formattedMessages);
             setMessages(formattedMessages);
@@ -313,7 +347,8 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
                 content: `Hi, I am ${agentName}. How can I assist you?`,
                 sender: { id: agentId, name: agentName, role: 'assistant' },
                 timestamp: new Date(),
-                attachments: []
+                attachments: [],
+                tags: []
               },
             ]);
           }
@@ -326,31 +361,6 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
     };
     if (agentId) fetchOrCreateChat();
   }, [agentId]);
-
-  // Convert UIFileAttachment to MessageAttachment
-  const convertToMessageAttachment = (file: UIFileAttachment): MessageAttachment => {
-    return {
-      id: file.fileId || generateMessageId(),
-      type: file.mimeType || 'application/octet-stream',
-      url: file.preview,
-      filename: file.filename,
-      contentType: file.mimeType,
-      size: file.size
-    };
-  };
-
-  // Convert StorageFileAttachment to UIFileAttachment
-  const convertStorageToUIAttachment = (file: StorageFileAttachment): UIFileAttachment => {
-    return {
-      file: new File([new Blob()], file.metadata.filename),
-      type: file.metadata.type.startsWith('image/') ? FileAttachmentType.IMAGE : FileAttachmentType.OTHER,
-      preview: file.url,
-      filename: file.metadata.filename,
-      fileId: file.id,
-      size: file.metadata.size,
-      mimeType: file.metadata.type
-    };
-  };
 
   // Convert MessageAttachment to UIFileAttachment
   const convertMessageToUIAttachment = (att: MessageAttachment): UIFileAttachment => {
@@ -365,65 +375,6 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
     };
   };
 
-  // Convert ChatMessage to MessageWithId
-  const convertToMessageWithId = (msg: ChatMessage): MessageWithId => {
-    return {
-      id: msg.id,
-      content: msg.content,
-      sender: {
-        id: msg.senderType === ParticipantType.AGENT ? msg.senderId : 'You',
-        name: msg.senderType === ParticipantType.AGENT ? msg.senderId : 'You',
-        role: msg.senderType === ParticipantType.AGENT ? 'assistant' : 'user'
-      },
-      timestamp: msg.createdAt,
-      attachments: msg.attachments.map(convertMessageToUIAttachment)
-    };
-  };
-
-  // Convert HandlerMessage to ChatMessage
-  const convertToChatMessage = (msg: HandlerMessage): ChatMessage => {
-    return {
-      id: msg.id,
-      chatId: chat?.id || '',
-      senderId: userId,
-      senderType: ParticipantType.USER,
-      content: 'content' in msg ? msg.content : '',
-      type: msg.type === HandlerMessageType.TEXT ? MessageType.TEXT : MessageType.FILE,
-      role: MessageRole.USER,
-      status: msg.status === HandlerMessageStatus.SENT ? MessageStatus.DELIVERED : MessageStatus.PENDING,
-      attachments: 'files' in msg ? msg.files.map(file => ({
-        id: file.id,
-        type: file.type,
-        url: URL.createObjectURL(new Blob()),
-        filename: file.filename,
-        contentType: file.type,
-        size: file.size
-      })) : [],
-      createdAt: new Date(msg.timestamp),
-      updatedAt: new Date(msg.timestamp)
-    };
-  };
-
-  // Convert ChatMessage to HandlerMessage
-  const convertToHandlerMessage = (msg: ChatMessage): HandlerMessage => {
-    return {
-      id: msg.id,
-      type: msg.type === MessageType.TEXT ? HandlerMessageType.TEXT : HandlerMessageType.FILE,
-      timestamp: msg.createdAt.getTime(),
-      status: msg.status === MessageStatus.DELIVERED ? HandlerMessageStatus.SENT : HandlerMessageStatus.PENDING,
-      content: msg.content,
-      files: msg.attachments.map(att => ({
-        id: att.id,
-        filename: att.filename || '',
-        type: att.type,
-        size: att.size || 0,
-        attachmentType: StorageFileType.OTHER,
-        processingStatus: FileProcessingStatus.COMPLETED,
-        timestamp: msg.createdAt.getTime()
-      }))
-    };
-  };
-
   // Update handleSendMessage to convert attachments
   const handleSendMessage = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -431,7 +382,7 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
 
     try {
       // Create message object for UI update
-      const messageWithId = {
+      const messageWithId: MessageWithId = {
         id: generateMessageId(),
         content: inputMessage.trim(),
         sender: {
@@ -440,7 +391,8 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
           role: 'user' as const
         },
         timestamp: new Date(),
-        attachments: pendingAttachments
+        attachments: pendingAttachments,
+        tags: [] // Initialize empty tags array that will be populated by backend
       };
 
       // Update UI immediately
@@ -521,14 +473,15 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
                   role: 'system' as const
                 },
                 timestamp: new Date(),
-                attachments: []
+                attachments: [],
+                tags: []
               }]);
             });
           }
         }
 
         // Add the actual agent response
-        const agentResponse = {
+        const agentResponse: MessageWithId = {
           id: data.message.id,
           content: data.message.content,
           sender: {
@@ -537,7 +490,8 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
             role: 'assistant' as const
           },
           timestamp: new Date(data.message.timestamp || Date.now()),
-          attachments: data.message.attachments?.map(convertMessageToUIAttachment) || []
+          attachments: data.message.attachments?.map(convertMessageToUIAttachment) || [],
+          tags: data.message.metadata?.tags || []
         };
 
         setMessages(prev => [...prev, agentResponse]);
@@ -555,7 +509,8 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
           role: 'system' as const
         },
         timestamp: new Date(),
-        attachments: []
+        attachments: [],
+        tags: []
       }]);
     } finally {
       // Always reset loading state
@@ -655,6 +610,30 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
             isFullscreen={false}
             toggleFullscreen={() => {}}
             onSearch={() => {}}
+            agentId={agentId}
+            agentName={chat?.name || 'Agent'}
+            onViewAgent={(id) => {
+              window.location.href = `/agents/${id}`;
+            }}
+            onDeleteChatHistory={async () => {
+              const confirmed = window.confirm('Are you sure you want to delete the chat history? This action cannot be undone.');
+              if (!confirmed) return false;
+              
+              try {
+                const response = await fetch(`/api/multi-agent/chats/${chat?.id}`, {
+                  method: 'DELETE',
+                });
+                
+                if (response.ok) {
+                  setMessages([]);
+                  return true;
+                }
+                return false;
+              } catch (error) {
+                console.error('Error deleting chat history:', error);
+                return false;
+              }
+            }}
           />
           <div className="flex-1 overflow-y-auto p-4 space-y-4">
             {selectedTab === 'chat' && (
@@ -672,7 +651,7 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
                       )}
                       
                       <ChatMessages 
-                        messages={messages.map(msg => {
+                        messages={messages.map((msg: MessageWithId) => {
                           // Ensure sender is properly formatted as an object with correct properties
                           let sender: MessageSender;
                           if (typeof msg.sender === 'string') {
@@ -692,7 +671,11 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
                             // Default sender if missing or invalid
                             sender = { id: 'unknown', name: 'Unknown', role: 'assistant' as 'user' | 'assistant' | 'system' };
                           }
-                          return { ...msg, sender };
+                          return { 
+                            ...msg, 
+                            sender,
+                            tags: msg.tags || [] // Ensure tags are included
+                          };
                         })} 
                         isLoading={isLoading}
                         onImageClick={() => {}}

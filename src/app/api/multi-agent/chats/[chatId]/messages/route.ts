@@ -13,6 +13,7 @@ import { toolRegistry } from '@/services/thinking/tools';
 import { ThinkingVisualizer, VisualizationNodeType } from '../../../../../../services/thinking/visualization';
 import { UnifiedAgentResponse } from '@/services/thinking/UnifiedAgentService';
 import { AgentProfile } from '@/lib/multi-agent/types/agent';
+import { extractTags } from '../../../../../../utils/tagExtractor';
 
 // Define interface for message attachments
 interface MessageAttachment {
@@ -92,6 +93,7 @@ export async function GET(
     const limit = parseInt(searchParams.get('limit') || '50');
     const offset = parseInt(searchParams.get('offset') || '0');
     const includeInternal = searchParams.get('includeInternal') === 'true';
+    const tags = searchParams.get('tags')?.split(',').filter(Boolean);
     
     // First verify the chat exists
     const chatService = await getChatService();
@@ -109,13 +111,25 @@ export async function GET(
     
     console.log(`Searching for messages with chatId: ${chatId}`);
     
+    // Build filter for search
+    const mustFilters = [
+      { key: "type", match: { value: MemoryType.MESSAGE } },
+      { key: "metadata.chatId.id", match: { value: chatId } }
+    ];
+    
+    // Add tag filters if provided
+    if (tags && tags.length > 0) {
+      console.log(`Filtering by tags: ${tags.join(', ')}`);
+      // For each tag, add a filter to match any message that contains that tag
+      tags.forEach(tag => {
+        mustFilters.push({ key: "metadata.tags", match: { value: tag } });
+      });
+    }
+    
     // Search for messages with this chat ID
     const searchResults = await searchService.search("", {
       filter: {
-        must: [
-          { key: "type", match: { value: MemoryType.MESSAGE } },
-          { key: "metadata.chatId.id", match: { value: chatId } }
-        ],
+        must: mustFilters,
         must_not: includeInternal ? [] : [
           { key: "metadata.isInternalMessage", match: { value: true } }
         ]
@@ -144,6 +158,8 @@ export async function GET(
       console.log('Raw payload:', JSON.stringify(payload, null, 2));
       console.log('Raw timestamp:', payload.timestamp);
       console.log('Timestamp type:', typeof payload.timestamp);
+      // Also log any tags that were found
+      console.log('Tags:', metadata.tags || 'No tags found');
       
       // Fix timestamp parsing for numeric strings
       let parsedTimestamp: number | null = null;
@@ -161,7 +177,7 @@ export async function GET(
       }
       console.log('-------------------------');
       
-      // Return message with correctly parsed timestamp
+      // Return message with correctly parsed timestamp and tags
       return {
         id: point.id,
         content: payload.text,
@@ -175,7 +191,8 @@ export async function GET(
           ? parseInt(payload.timestamp, 10) 
           : payload.timestamp,
         status: 'delivered',
-        attachments: metadata.attachments || []
+        attachments: metadata.attachments || [],
+        tags: metadata.tags || [] // Include tags in the response
       };
     });
     
@@ -308,11 +325,27 @@ export async function POST(
       console.log(`Processed attachments for storage:`, JSON.stringify(processedAttachments).substring(0, 200) + '...');
     }
 
+    // Extract tags from user message
+    let userMessageTags: string[] = [];
+    try {
+      const extractionResult = await extractTags(content, {
+        maxTags: 8,
+        minConfidence: 0.3
+      });
+      
+      if (extractionResult.success && extractionResult.tags.length > 0) {
+        userMessageTags = extractionResult.tags.map(tag => tag.text);
+        console.log(`Extracted ${userMessageTags.length} tags from user message:`, userMessageTags);
+      }
+    } catch (extractionError) {
+      console.warn('Error extracting tags from user message:', extractionError);
+    }
+    
     // Create thread info for user message
     const userThreadInfo = getOrCreateThreadInfo(chatId, 'user');
     console.log(`Created user message with thread ID: ${userThreadInfo.id}, position: ${userThreadInfo.position}`);
     
-    // Save user message to memory
+    // Save user message to memory with extracted tags
     const userMemoryResult = await addMessageMemory(
       memoryService,
       content,
@@ -325,7 +358,8 @@ export async function POST(
         attachments: processedAttachments,
         messageType: 'user_message',
         metadata: {
-          chatId: chatStructuredId // Ensure chatId is properly set
+          chatId: chatStructuredId, 
+          tags: userMessageTags // Add extracted tags
         }
       }
     );
@@ -686,6 +720,25 @@ export async function POST(
     const thoughts = agentResponse?.thoughts || [];
     const memories = agentResponse?.memories || [];
 
+    // Extract tags from agent response
+    let responseMessageTags: string[] = ['agent_response']; // Always include agent_response tag
+    try {
+      const extractionResult = await extractTags(responseContent, {
+        maxTags: 8,
+        minConfidence: 0.3,
+        existingTags: userMessageTags // Pass user message tags as context
+      });
+      
+      if (extractionResult.success && extractionResult.tags.length > 0) {
+        // Get the extracted tags and add to existing agent_response tag
+        const extractedTags = extractionResult.tags.map(tag => tag.text);
+        responseMessageTags = [...responseMessageTags, ...extractedTags];
+        console.log(`Extracted ${extractedTags.length} tags from agent response:`, extractedTags);
+      }
+    } catch (extractionError) {
+      console.warn('Error extracting tags from agent response:', extractionError);
+    }
+
     // Create thread info for the assistant response
     let assistantThreadInfo;
     if (lastUserMessageId) {
@@ -698,7 +751,7 @@ export async function POST(
       console.log(`Created assistant response with thread ID: ${assistantThreadInfo.id}, position: ${assistantThreadInfo.position}, parentId: ${assistantThreadInfo.parentId || 'none'}`);
     }
 
-    // Save assistant response to memory
+    // Save assistant response to memory with extracted tags
     await addMessageMemory(
       memoryService,
       responseContent,
@@ -710,8 +763,8 @@ export async function POST(
       {
         messageType: 'assistant_response',
         metadata: {
-          chatId: chatStructuredId, // Ensure chatId is properly set
-          tags: ['agent_response'],
+          chatId: chatStructuredId,
+          tags: responseMessageTags, // Use extracted tags
           category: 'response',
           conversationContext: {
             purpose: 'user_query_response',

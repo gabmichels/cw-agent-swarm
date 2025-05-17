@@ -201,7 +201,7 @@ export async function POST(request: Request) {
     // Helper function to create schema-compatible parameters
     const createSchemaParameters = (): AgentMemoryEntity['parameters'] => {
       return {
-        model: agent.parameters?.model || process.env.OPENAI_MODEL_NAME,
+        model: agent.parameters?.model || process.env.OPENAI_MODEL_NAME || 'gpt-4o',
         temperature: agent.parameters?.temperature || 0.7,
         maxTokens: agent.parameters?.maxTokens || 1024,
         tools: [], // Convert string[] to AgentTool[]
@@ -405,10 +405,45 @@ export async function GET(request: Request) {
     const tags = url.searchParams.getAll('tag');
     const page = parseInt(url.searchParams.get('page') || '1', 10);
     const limit = parseInt(url.searchParams.get('limit') || '10', 10);
+    const id = url.searchParams.get('id'); // Get the agent ID parameter
     
     // Initialize memory services
     const services = await getMemoryServices();
     const agentService = new DefaultAgentMemoryService(services.client);
+    
+    // If ID is provided, directly fetch that specific agent
+    if (id !== null && id !== undefined && id !== '') {
+      const agentId: string = id; // Explicitly cast to string type
+      const result = await agentService.getAgent(agentId);
+      
+      if (result.isError || !result.value) {
+        console.error('Error getting agent by ID:', result.error);
+        return NextResponse.json(
+          { error: result.error?.message || 'Agent not found' },
+          { status: 404 }
+        );
+      }
+      
+      // Convert to API format
+      const agent = {
+        id: result.value.id,
+        name: result.value.name,
+        description: result.value.description,
+        status: result.value.status,
+        capabilities: result.value.capabilities,
+        parameters: result.value.parameters,
+        metadata: result.value.metadata,
+        createdAt: result.value.createdAt,
+        updatedAt: result.value.updatedAt
+      };
+      
+      return NextResponse.json({
+        agents: [agent], // Return in the same format as a filtered list
+        total: 1,
+        page: 1,
+        pageSize: 1
+      });
+    }
     
     // Build filter object
     const filter: Record<string, any> = {};

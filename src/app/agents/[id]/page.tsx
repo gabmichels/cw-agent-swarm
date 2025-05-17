@@ -5,6 +5,8 @@ import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { AgentProfile } from '@/lib/multi-agent/types/agent';
 import CreateChatButton from '@/components/chat/CreateChatButton';
+import MemoryUploader from '@/components/agent/MemoryUploader';
+import { Upload } from 'lucide-react';
 
 export default function AgentPage({ params }: { params: { id?: string } }) {
   // Use nextjs navigation hook for route params
@@ -17,6 +19,8 @@ export default function AgentPage({ params }: { params: { id?: string } }) {
   const [error, setError] = useState<string | null>(null);
   // Hardcoded user ID for now, will be replaced with authentication system
   const userId = 'user_gab';
+  // State for the upload modal
+  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
 
   useEffect(() => {
     const fetchAgentDetails = async () => {
@@ -34,7 +38,18 @@ export default function AgentPage({ params }: { params: { id?: string } }) {
         
         // Check if agent was found
         if (data.agents && data.agents.length > 0) {
-          setAgent(data.agents[0]);
+          // Find the agent with the matching ID
+          const foundAgent = data.agents.find(a => 
+            a.id === agentId || 
+            (typeof a.id === 'object' && a.id !== null && (a.id as unknown as { id: string }).id === agentId)
+          );
+          
+          if (foundAgent) {
+            setAgent(foundAgent);
+          } else {
+            // If no agent found with the matching ID, throw error
+            throw new Error(`Agent with ID ${agentId} not found in the response`);
+          }
         } else {
           // If no agent found, try to get all agents and find it by ID
           // This is a fallback in case the API has issues with direct ID queries
@@ -115,7 +130,16 @@ export default function AgentPage({ params }: { params: { id?: string } }) {
         <Link href="/agents" className="text-blue-500 hover:text-blue-700">
           ← Back to Agents
         </Link>
-        <CreateChatButton agent={agent} userId={userId} />
+        <div className="flex space-x-2">
+          <button
+            onClick={() => setIsUploadModalOpen(true)}
+            className="flex items-center px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded"
+          >
+            <Upload className="h-4 w-4 mr-2" />
+            Upload Files
+          </button>
+          <CreateChatButton agent={agent} userId={userId} />
+        </div>
       </div>
       
       <div className="bg-gray-800 rounded-lg shadow-lg overflow-hidden">
@@ -210,6 +234,17 @@ export default function AgentPage({ params }: { params: { id?: string } }) {
           </div>
         </div>
       </div>
+      
+      {/* Memory Uploader Modal */}
+      <MemoryUploader
+        agentId={agentId}
+        isOpen={isUploadModalOpen}
+        onClose={() => setIsUploadModalOpen(false)}
+        onSuccess={() => {
+          // You could add a notification or refresh the agent data here
+          console.log('Successfully uploaded memories!');
+        }}
+      />
     </div>
   );
 } 

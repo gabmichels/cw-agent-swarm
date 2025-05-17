@@ -24,14 +24,18 @@ export interface MemoryServiceOptions {
  * Core memory service for CRUD operations
  */
 export class MemoryService {
-  private client: IMemoryClient;
-  private embeddingService: EmbeddingService;
+  private readonly client: IMemoryClient;
+  private readonly embeddingService: EmbeddingService;
   private getTimestamp: () => number;
   
   /**
    * Create a new memory service
    */
-  constructor(client: IMemoryClient, embeddingService: EmbeddingService, options?: MemoryServiceOptions) {
+  constructor(
+    client: IMemoryClient,
+    embeddingService: EmbeddingService,
+    private readonly options: MemoryServiceOptions = {}
+  ) {
     this.client = client;
     this.embeddingService = embeddingService;
     this.getTimestamp = options?.getTimestamp || (() => Date.now());
