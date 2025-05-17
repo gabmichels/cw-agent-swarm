@@ -38,11 +38,15 @@ export function getLLM(options?: LLMOptions) {
   const temperature = options?.temperature || config.llm.defaultTemperature;
   const apiKey = options?.apiKey || process.env.OPENAI_API_KEY;
   
+  // Use provided maxTokens, or environment variable, or default
+  const maxTokens = options?.maxTokens || 
+                   (process.env.OPENAI_MAX_TOKENS ? parseInt(process.env.OPENAI_MAX_TOKENS, 10) : undefined);
+  
   try {
     return new ChatOpenAI({
       modelName: modelName,
       temperature: temperature,
-      maxTokens: options?.maxTokens,
+      maxTokens: maxTokens,
       apiKey: apiKey,
     });
   } catch (error) {
@@ -74,10 +78,14 @@ export function createChatOpenAI(options: {
     modelName = options.model || config.llm.defaultModel || 'gpt-4.1-2025-04-14';
   }
   
+  // Use provided maxTokens, or environment variable, or default
+  const maxTokens = options.maxTokens || 
+                   (process.env.OPENAI_MAX_TOKENS ? parseInt(process.env.OPENAI_MAX_TOKENS, 10) : undefined);
+  
   return new ChatOpenAI({
     modelName: modelName,
     temperature: options.temperature || config.llm.defaultTemperature,
-    maxTokens: options.maxTokens,
+    maxTokens: maxTokens,
     apiKey: options.apiKey || process.env.OPENAI_API_KEY,
   });
 } 

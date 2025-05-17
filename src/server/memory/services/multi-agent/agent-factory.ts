@@ -130,9 +130,10 @@ export class AgentFactory {
           }
         ],
         parameters: {
-          model: "gpt-4",
+          model: process.env.OPENAI_MODEL_NAME || "gpt-4.1-2025-04-14",
           temperature: 0.7,
-          maxTokens: 2000,
+          maxTokens: process.env.OPENAI_MAX_TOKENS ? parseInt(process.env.OPENAI_MAX_TOKENS, 10) : 32000,
+          tools: [],
           ...customParams
         },
         metadata: {
@@ -160,9 +161,10 @@ export class AgentFactory {
           }
         ],
         parameters: {
-          model: "gpt-4",
-          temperature: 0.2,
-          maxTokens: 4000,
+          model: process.env.OPENAI_MODEL_NAME || "gpt-4.1-2025-04-14",
+          temperature: 0.7,
+          maxTokens: process.env.OPENAI_MAX_TOKENS ? parseInt(process.env.OPENAI_MAX_TOKENS, 10) : 32000,
+          tools: [],
           ...customParams
         },
         metadata: {
@@ -190,9 +192,10 @@ export class AgentFactory {
           }
         ],
         parameters: {
-          model: "gpt-4",
-          temperature: 0.3,
-          maxTokens: 3000,
+          model: process.env.OPENAI_MODEL_NAME || "gpt-4.1-2025-04-14",
+          temperature: 0.7,
+          maxTokens: process.env.OPENAI_MAX_TOKENS ? parseInt(process.env.OPENAI_MAX_TOKENS, 10) : 32000,
+          tools: [],
           ...customParams
         },
         metadata: {
@@ -220,9 +223,10 @@ export class AgentFactory {
           }
         ],
         parameters: {
-          model: "gpt-4",
-          temperature: 0.4,
-          maxTokens: 2500,
+          model: process.env.OPENAI_MODEL_NAME || "gpt-4.1-2025-04-14",
+          temperature: 0.7,
+          maxTokens: process.env.OPENAI_MAX_TOKENS ? parseInt(process.env.OPENAI_MAX_TOKENS, 10) : 32000,
+          tools: [],
           ...customParams
         },
         metadata: {

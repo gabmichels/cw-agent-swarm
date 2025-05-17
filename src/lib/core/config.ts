@@ -21,8 +21,8 @@ export const getEnv = () => {
  */
 export const DEFAULT_CONFIG = {
   llm: {
-    defaultModel: 'gpt-4.1',
-    cheapModel: 'gpt-4.1-nano-2025-04-14',
+    defaultModel: process.env.OPENAI_MODEL_NAME || 'gpt-4.1',
+    cheapModel: process.env.OPENAI_CHEAP_MODEL || 'gpt-4.1-nano-2025-04-14',
     defaultTemperature: 0.7,
   },
   memory: {
@@ -58,10 +58,10 @@ export const systemConfig = {
     description: 'AI agent platform for marketers'
   },
   llm: {
-    defaultModel: 'gpt-4.1-2025-04-14',
-    cheapModel: 'gpt-4.1-nano-2025-04-14',
+    defaultModel: process.env.OPENAI_MODEL_NAME || 'gpt-4.1-2025-04-14',
+    cheapModel: process.env.OPENAI_CHEAP_MODEL || 'gpt-4.1-nano-2025-04-14',
     defaultTemperature: 0.7,
-    defaultMaxTokens: 2000
+    defaultMaxTokens: parseInt(process.env.OPENAI_MAX_TOKENS || '32000', 10)
   },
   memory: {
     vectorStoreUrl: process.env.QDRANT_URL || 'http://localhost:6333',
@@ -70,9 +70,9 @@ export const systemConfig = {
     embeddingModel: 'openai/text-embedding-3-small',
   },
   agent: {
-    defaultModel: 'gpt-4.1-2025-04-14',
-    fallbackModel: 'gpt-4.1-nano-2025-04-14',
-    maxTokens: 4000,
+    defaultModel: process.env.OPENAI_MODEL_NAME || 'gpt-4.1-2025-04-14',
+    fallbackModel: process.env.OPENAI_CHEAP_MODEL || 'gpt-4.1-nano-2025-04-14',
+    maxTokens: parseInt(process.env.OPENAI_MAX_TOKENS || '32000', 10),
     temperature: 0.7,
   },
   paths: {

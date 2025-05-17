@@ -150,7 +150,7 @@ export class KnowledgeGapsService {
 
       // Use OpenAI to identify potential knowledge gaps
       const response = await openai.chat.completions.create({
-        model: "gpt-4",
+        model: process.env.OPENAI_MODEL_NAME || "gpt-4",
         messages: [
           {
             role: "system",
@@ -397,12 +397,7 @@ Analyze the conversation and return a JSON array of knowledge gaps, with each ga
   private async suggestLearningSources(gap: KnowledgeGap): Promise<string[]> {
     try {
       // Use OpenAI to suggest learning sources
-      const response = await openai.chat.completions.create({
-        model: "gpt-4.1-2025-04-14",
-        messages: [
-          {
-            role: "system",
-            content: `You are a research assistant helping to identify the best learning resources for a knowledge gap.
+      const systemPrompt = `You are a research assistant helping to identify the best learning resources for a knowledge gap.
 For the given knowledge gap, suggest 3-5 specific, high-quality resources that would help fill this gap.
 Include a mix of:
 - Books or textbooks (with authors if possible)
@@ -411,19 +406,22 @@ Include a mix of:
 - Expert blogs or websites (with specific URLs if possible)
 - Communities or forums for domain experts
 
-Be specific and actionable in your suggestions. Do not include generic advice like "search Google".`
-          },
-          {
-            role: "user",
-            content: `Knowledge Gap:
+Be specific and actionable in your suggestions. Do not include generic advice like "search Google".`;
+      const userPrompt = `Knowledge Gap:
 Topic: ${gap.topic}
 Description: ${gap.description}
 Category: ${gap.category}
 
-Please suggest 3-5 specific learning resources to fill this knowledge gap.`
-          }
+Please suggest 3-5 specific learning resources to fill this knowledge gap.`;
+
+      const response = await openai.chat.completions.create({
+        model: process.env.OPENAI_MODEL_NAME || "gpt-4.1-2025-04-14",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt }
         ],
-        temperature: 0.4
+        temperature: 0.3,
+        max_tokens: process.env.OPENAI_MAX_TOKENS ? parseInt(process.env.OPENAI_MAX_TOKENS, 10) : 4000
       });
 
       if (!response.choices[0]?.message?.content) {

@@ -64,8 +64,9 @@ export abstract class ReasoningService {
   
   constructor() {
     this.llm = new ChatOpenAI({
-      modelName: "gpt-4",
-      temperature: 0.2
+      modelName: process.env.OPENAI_MODEL_NAME || "gpt-4.1-2025-04-14",
+      temperature: 0.2,
+      maxTokens: process.env.OPENAI_MAX_TOKENS ? parseInt(process.env.OPENAI_MAX_TOKENS, 10) : 32000
     });
   }
   

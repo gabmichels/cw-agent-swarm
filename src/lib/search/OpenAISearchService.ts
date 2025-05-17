@@ -55,7 +55,7 @@ export class OpenAISearchService {
 
       // Use the search-capable model with proper type handling
       const response = await openai.chat.completions.create({
-        model: "gpt-4o-search-preview",
+        model: process.env.OPENAI_SEARCH_MODEL_NAME || "gpt-4o-search-preview",
         messages: [
           {
             role: "system",
@@ -163,7 +163,7 @@ export const searchWithOpenAI = async (query: string): Promise<SearchResponse> =
 
   try {
     const response = await openai.chat.completions.create({
-      model: "gpt-4",
+      model: process.env.OPENAI_MODEL_NAME || "gpt-4.1-2025-04-14",
       messages: [
         {
           role: "user",

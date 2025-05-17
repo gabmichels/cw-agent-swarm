@@ -144,7 +144,7 @@ export class OpenAITagExtractor {
         ],
         temperature: 0.1,
         response_format: { type: "json_object" },
-        max_tokens: 500
+        max_tokens: process.env.OPENAI_MAX_TOKENS ? parseInt(process.env.OPENAI_MAX_TOKENS, 10) / 10 : 500
       });
       
       // Parse the response

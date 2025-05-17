@@ -103,8 +103,8 @@ export const API_ROUTES = {
 };
 
 export const DEFAULT_LLM_TEMPERATURE = 0.7;
-export const DEFAULT_LLM_MODEL = 'gpt-4.1';
-export const CHEAP_LLM_MODEL = 'gpt-4.1-nano-2025-04-14';
+export const DEFAULT_LLM_MODEL = process.env.OPENAI_MODEL_NAME || 'gpt-4.1';
+export const CHEAP_LLM_MODEL = process.env.OPENAI_CHEAP_MODEL || 'gpt-4.1-nano-2025-04-14';
 
 export const MEMORY_TYPES = {
   PERSONA: 'persona',

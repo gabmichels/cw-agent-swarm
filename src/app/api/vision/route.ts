@@ -46,7 +46,8 @@ async function processWithVisionModel(message: string, imageData: Array<{data: s
           ...imageData.map(img => ({
             type: 'image_url' as const,
             image_url: {
-              url: `data:${img.mimeType};base64,${img.data}`
+              url: `data:${img.mimeType};base64,${img.data}`,
+              detail: ''
             }
           }))
         ]
@@ -57,9 +58,10 @@ async function processWithVisionModel(message: string, imageData: Array<{data: s
     
     // Call the OpenAI vision model
     const response = await openai.chat.completions.create({
-      model: 'gpt-4.1-mini-2025-04-14', // Use GPT-4.1 which has integrated vision capabilities
+      model: process.env.OPENAI_VISION_MODEL_NAME || "gpt-4o",
       messages: messages,
-      max_tokens: 1000,
+      max_tokens: process.env.OPENAI_MAX_TOKENS ? parseInt(process.env.OPENAI_MAX_TOKENS, 10) : 1000,
+      temperature: 0.5
     });
     
     const reply = response.choices[0]?.message?.content || 'No response from vision model';

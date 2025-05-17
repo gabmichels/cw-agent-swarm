@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
       // Generate content using OpenAI
       console.log(`Generating content for "${title}" with prompt: ${contentPrompt}`);
       const response = await openai.chat.completions.create({
-        model: "gpt-4o",
+        model: process.env.OPENAI_VISION_MODEL_NAME || "gpt-4o",
         messages: [
           {
             role: "system",
@@ -47,6 +47,7 @@ export async function POST(request: NextRequest) {
           }
         ],
         temperature: 0.7,
+        max_tokens: process.env.OPENAI_MAX_TOKENS ? parseInt(process.env.OPENAI_MAX_TOKENS, 10) : 4000,
       });
       
       const generatedContent = response.choices[0].message.content;

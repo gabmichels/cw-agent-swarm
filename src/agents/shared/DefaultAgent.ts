@@ -166,9 +166,9 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
       createdBy: 'system',
       capabilities: [],
       parameters: {
-        model: config.modelName || 'gpt-4',
+        model: config.modelName || process.env.OPENAI_MODEL_NAME || 'gpt-4.1-2025-04-14',
         temperature: config.temperature || 0.7,
-        maxTokens: config.maxTokens || 4096,
+        maxTokens: config.maxTokens || (process.env.OPENAI_MAX_TOKENS ? parseInt(process.env.OPENAI_MAX_TOKENS, 10) : 32000),
         tools: []
       },
       status: AGENT_STATUS.AVAILABLE,
@@ -203,9 +203,9 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
     
     // Initialize LLM using existing createChatOpenAI from lib/core/llm.ts
     this.model = createChatOpenAI({
-      model: config.modelName || 'gpt-4',
+      model: config.modelName || process.env.OPENAI_MODEL_NAME || 'gpt-4.1-2025-04-14',
       temperature: config.temperature || 0.7,
-      maxTokens: config.maxTokens || 4096
+      maxTokens: config.maxTokens || (process.env.OPENAI_MAX_TOKENS ? parseInt(process.env.OPENAI_MAX_TOKENS, 10) : 32000)
     });
   }
 
@@ -279,9 +279,9 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
         isPublic: false
       },
       parameters: {
-        model: 'gpt-4',
-        temperature: 0.7,
-        maxTokens: 4096,
+        model: process.env.OPENAI_MODEL_NAME || 'gpt-4.1-2025-04-14',
+        temperature: this.extendedConfig.temperature || 0.7,
+        maxTokens: process.env.OPENAI_MAX_TOKENS ? parseInt(process.env.OPENAI_MAX_TOKENS, 10) : 32000,
         tools: []
       },
       lastActive: new Date(),

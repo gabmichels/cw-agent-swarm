@@ -320,7 +320,7 @@ export class SemanticSearchService {
       
       // Use OpenAI to augment the query with the relevant information
       const response = await openai.chat.completions.create({
-        model: process.env.OPENAI_MODEL_NAME,
+        model: process.env.OPENAI_MODEL_NAME || "gpt-4.1-2025-04-14",
         messages: [
           {
             role: 'system',
@@ -332,7 +332,7 @@ export class SemanticSearchService {
           }
         ],
         temperature: 0.3,
-        max_tokens: 150
+        max_tokens: process.env.OPENAI_MAX_TOKENS ? parseInt(process.env.OPENAI_MAX_TOKENS, 10) / 10 : 150
       });
       
       const augmentedQuery = response.choices[0]?.message?.content || query;

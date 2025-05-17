@@ -163,16 +163,13 @@ ${source.content.substring(0, 4000)}
 `;
 
       const response = await openai.chat.completions.create({
-        model: "gpt-4",
+        model: process.env.OPENAI_MODEL_NAME || "gpt-4.1-2025-04-14",
         messages: [
-          { 
-            role: "system", 
-            content: "You are a knowledge extraction system that identifies and extracts key concepts from domain content." 
-          },
+          { role: "system", content: "You are a knowledge extraction system that identifies and extracts key concepts from domain content." },
           { role: "user", content: prompt }
         ],
-        response_format: { type: "json_object" },
-        temperature: 0.3
+        temperature: 0.2,
+        max_tokens: process.env.OPENAI_MAX_TOKENS ? parseInt(process.env.OPENAI_MAX_TOKENS, 10) : 4000
       });
 
       const content = response.choices[0].message.content;
@@ -215,16 +212,13 @@ ${source.content.substring(0, 4000)}
 `;
 
       const response = await openai.chat.completions.create({
-        model: "gpt-4",
+        model: process.env.OPENAI_MODEL_NAME || "gpt-4.1-2025-04-14",
         messages: [
-          { 
-            role: "system", 
-            content: "You are a knowledge extraction system that identifies and extracts key principles from domain content." 
-          },
+          { role: "system", content: "You are a knowledge extraction system that identifies and extracts key principles from domain content." },
           { role: "user", content: prompt }
         ],
-        response_format: { type: "json_object" },
-        temperature: 0.3
+        temperature: 0.3,
+        max_tokens: process.env.OPENAI_MAX_TOKENS ? parseInt(process.env.OPENAI_MAX_TOKENS, 10) : 4000
       });
 
       const content = response.choices[0].message.content;
@@ -266,16 +260,13 @@ ${source.content.substring(0, 4000)}
 `;
 
       const response = await openai.chat.completions.create({
-        model: "gpt-4",
+        model: process.env.OPENAI_MODEL_NAME || "gpt-4.1-2025-04-14",
         messages: [
-          { 
-            role: "system", 
-            content: "You are a knowledge extraction system that analyzes and structures frameworks from domain content." 
-          },
+          { role: "system", content: "You are a knowledge extraction system that analyzes and structures frameworks from domain content." },
           { role: "user", content: prompt }
         ],
-        response_format: { type: "json_object" },
-        temperature: 0.3
+        temperature: 0.2,
+        max_tokens: process.env.OPENAI_MAX_TOKENS ? parseInt(process.env.OPENAI_MAX_TOKENS, 10) : 4000
       });
 
       const content = response.choices[0].message.content;

@@ -22,9 +22,9 @@ export const AgentConfigSchema = z.object({
   description: z.string(),
   systemPrompt: z.string(),
   capabilities: z.array(z.string()),
-  model: z.string().default('openrouter/anthropic/claude-3-opus:2024-05-01'),
+  model: z.string().default(process.env.OPENAI_MODEL_NAME || 'openrouter/anthropic/claude-3-opus:2024-05-01'),
   temperature: z.number().min(0).max(1).default(0.7),
-  maxTokens: z.number().min(100).max(100000).default(4000),
+  maxTokens: z.number().min(100).max(100000).default(parseInt(process.env.OPENAI_MAX_TOKENS || '32000', 10)),
 });
 
 // Message types for agent communication

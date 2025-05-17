@@ -7,8 +7,9 @@ import { toolService, toolRegistry } from '../tools';
 
 // Create the LLM model for thinking processing
 const thinkingLLM = new ChatOpenAI({
-  modelName: "gpt-3.5-turbo",
-  temperature: 0.2
+  modelName: process.env.OPENAI_CHEAP_MODEL || "gpt-4.1-nano-2025-04-14",
+  temperature: 0.2,
+  maxTokens: process.env.OPENAI_MAX_TOKENS ? parseInt(process.env.OPENAI_MAX_TOKENS, 10) : 32000
 });
 
 // Create the file retriever
