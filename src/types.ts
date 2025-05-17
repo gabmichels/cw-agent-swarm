@@ -27,6 +27,7 @@ export interface FileAttachment {
   file: File;
   type: FileAttachmentType;
   preview: string;
+  url?: string;
   filename?: string;
   fileId?: string;
   size?: number;

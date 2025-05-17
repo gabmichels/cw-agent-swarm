@@ -480,44 +480,119 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
             {/* Display message attachments */}
             {message.attachments && message.attachments.length > 0 && (
               <div className="mt-3 flex flex-wrap gap-2">
-                {message.attachments.map((attachment, index) => (
-                  <div key={index} className="relative" onClick={(e) => handleImageClick(attachment, e)}>
-                    {attachment.type === FileAttachmentType.IMAGE && (
-                      <div className="relative cursor-pointer hover:opacity-90 transition-opacity">
-                        <img 
-                          src={attachment.preview} 
-                          alt={attachment.filename || 'Image attachment'} 
-                          className="max-w-full h-auto rounded-md border border-gray-600 shadow-sm max-h-48"
-                        />
-                        {attachment.filename && (
-                          <div className="text-xs mt-1 text-gray-300 truncate max-w-xs">
-                            {attachment.filename}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                    {attachment.type === FileAttachmentType.PDF && (
-                      <div className="bg-red-700 text-white rounded p-2 cursor-pointer hover:bg-red-600 transition-colors">
-                        <span className="font-bold">PDF:</span> {attachment.filename || 'Document'}
-                      </div>
-                    )}
-                    {attachment.type === FileAttachmentType.DOCUMENT && (
-                      <div className="bg-blue-700 text-white rounded p-2 cursor-pointer hover:bg-blue-600 transition-colors">
-                        <span className="font-bold">DOC:</span> {attachment.filename || 'Document'}
-                      </div>
-                    )}
-                    {attachment.type === FileAttachmentType.TEXT && (
-                      <div className="bg-gray-700 text-white rounded p-2 cursor-pointer hover:bg-gray-600 transition-colors">
-                        <span className="font-bold">TXT:</span> {attachment.filename || 'Text file'}
-                      </div>
-                    )}
-                    {attachment.type === FileAttachmentType.OTHER && (
-                      <div className="bg-purple-700 text-white rounded p-2 cursor-pointer hover:bg-purple-600 transition-colors">
-                        <span className="font-bold">FILE:</span> {attachment.filename || 'File'}
-                      </div>
-                    )}
-                  </div>
-                ))}
+                {message.attachments.map((attachment, index) => {
+                  // Enhanced URL handling - handle various URL formats and ensure they're valid
+                  // Log the attachment to help debug
+                  console.log(`Rendering attachment:`, attachment);
+                  
+                  // Get the file ID (without extension if present)
+                  const fileId = attachment.fileId || 
+                    (attachment.url ? attachment.url.split('/').pop() : null);
+                  
+                  // Process image URL with multiple fallback strategies
+                  let imageUrl = attachment.preview || attachment.url;
+                  
+                  // Choose the best URL source based on available information
+                  if (!imageUrl && fileId) {
+                    // Check if we have an explicit storage location
+                    const attachmentMeta = (attachment as any).metadata || {};
+                    if (attachmentMeta.storage === 'minio' || attachmentMeta.bucket) {
+                      // Prefer MinIO storage endpoint
+                      const bucket = attachmentMeta.bucket || 'chat-attachments';
+                      imageUrl = `/api/storage/${bucket}/${fileId}`;
+                      console.log(`Using MinIO storage endpoint: ${imageUrl}`);
+                    } else {
+                      // Try direct storage URL if MinIO isn't explicitly specified
+                      imageUrl = `/storage/chat-attachments/${fileId}`;
+                      console.log(`Using direct storage URL: ${imageUrl}`);
+                    }
+                  }
+                  
+                  console.log(`Final image URL: ${imageUrl}`);
+                  
+                  return (
+                    <div key={index} className="relative" onClick={(e) => handleImageClick(attachment, e)}>
+                      {attachment.type === FileAttachmentType.IMAGE && (
+                        <div className="relative cursor-pointer hover:opacity-90 transition-opacity">
+                          <img 
+                            src={imageUrl} 
+                            alt={attachment.filename || 'Image attachment'} 
+                            className="max-w-full h-auto rounded-md border border-gray-600 shadow-sm max-h-48"
+                            onError={(e) => {
+                              // Change from error to warning level logging
+                              console.warn('Image could not be loaded:', imageUrl);
+                              
+                              // Track this image's load attempts to prevent infinite retry loops
+                              const imgElement = e.target as HTMLImageElement;
+                              const attemptCount = parseInt(imgElement.dataset.attempts || '0', 10);
+                              
+                              // Limit retry attempts to prevent infinite loops
+                              if (attemptCount >= 3) {
+                                // Use a data URL for broken image placeholder as final fallback
+                                console.warn('All fallbacks failed after 3 attempts, using placeholder image');
+                                imgElement.src = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0OCIgaGVpZ2h0PSI0OCIgdmlld0JveD0iMCAwIDI0IDI0IiBzdHJva2Utd2lkdGg9IjEuNSIgc3Ryb2tlPSIjZmYyODI1IiBmaWxsPSJub25lIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPgogIDxyZWN0IHg9IjMiIHk9IjMiIHdpZHRoPSIxOCIgaGVpZ2h0PSIxOCIgcng9IjIiIHJ5PSIyIiAvPgogIDxsaW5lIHgxPSIzIiB5MT0iMyIgeDI9IjIxIiB5Mj0iMjEiIC8+CiAgPGxpbmUgeDE9IjMiIHkxPSIyMSIgeDI9IjIxIiB5Mj0iMyIgLz4KICA8Y2lyY2xlIGN4PSIxMiIgY3k9IjEyIiByPSIxIiAvPgo8L3N2Zz4=';
+                                imgElement.alt = 'Image unavailable';
+                                return;
+                              }
+                              
+                              // Store the attempt count
+                              imgElement.dataset.attempts = (attemptCount + 1).toString();
+                              
+                              // If the image fails, try multiple alternative approaches
+                              if (fileId) {
+                                // Try alternative URL patterns based on file ID
+                                const fallbackUrls = [
+                                  `/api/storage/chat-attachments/${fileId}`,  // Try MinIO storage first
+                                  `/api/files/view/${fileId}`,               
+                                  `/storage/chat-attachments/${fileId}`,      // Direct URL without extension
+                                  `/api/files/${fileId}`                      // Generic files endpoint
+                                ];
+                                
+                                // Use a different fallback URL based on the attempt count
+                                if (attemptCount < fallbackUrls.length) {
+                                  const nextUrl = fallbackUrls[attemptCount];
+                                  console.warn(`Trying alternative URL (attempt ${attemptCount + 1}): ${nextUrl}`);
+                                  imgElement.src = nextUrl;
+                                  return;
+                                }
+                              }
+                              
+                              // If we've exhausted fileId-based URLs or don't have a fileId, 
+                              // use a generic broken image placeholder
+                              imgElement.src = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0OCIgaGVpZ2h0PSI0OCIgdmlld0JveD0iMCAwIDI0IDI0IiBzdHJva2Utd2lkdGg9IjEuNSIgc3Ryb2tlPSIjZmYyODI1IiBmaWxsPSJub25lIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPgogIDxyZWN0IHg9IjMiIHk9IjMiIHdpZHRoPSIxOCIgaGVpZ2h0PSIxOCIgcng9IjIiIHJ5PSIyIiAvPgogIDxsaW5lIHgxPSIzIiB5MT0iMyIgeDI9IjIxIiB5Mj0iMjEiIC8+CiAgPGxpbmUgeDE9IjMiIHkxPSIyMSIgeDI9IjIxIiB5Mj0iMyIgLz4KICA8Y2lyY2xlIGN4PSIxMiIgY3k9IjEyIiByPSIxIiAvPgo8L3N2Zz4=';
+                              imgElement.alt = 'Image unavailable';
+                            }}
+                          />
+                          {attachment.filename && (
+                            <div className="text-xs mt-1 text-gray-300 truncate max-w-xs">
+                              {attachment.filename}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      {attachment.type === FileAttachmentType.PDF && (
+                        <div className="bg-red-700 text-white rounded p-2 cursor-pointer hover:bg-red-600 transition-colors">
+                          <span className="font-bold">PDF:</span> {attachment.filename || 'Document'}
+                        </div>
+                      )}
+                      {attachment.type === FileAttachmentType.DOCUMENT && (
+                        <div className="bg-blue-700 text-white rounded p-2 cursor-pointer hover:bg-blue-600 transition-colors">
+                          <span className="font-bold">DOC:</span> {attachment.filename || 'Document'}
+                        </div>
+                      )}
+                      {attachment.type === FileAttachmentType.TEXT && (
+                        <div className="bg-gray-700 text-white rounded p-2 cursor-pointer hover:bg-gray-600 transition-colors">
+                          <span className="font-bold">TXT:</span> {attachment.filename || 'Text file'}
+                        </div>
+                      )}
+                      {attachment.type === FileAttachmentType.OTHER && (
+                        <div className="bg-purple-700 text-white rounded p-2 cursor-pointer hover:bg-purple-600 transition-colors">
+                          <span className="font-bold">FILE:</span> {attachment.filename || 'File'}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
             

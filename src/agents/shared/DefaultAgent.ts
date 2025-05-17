@@ -652,10 +652,169 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
   }
 
   /**
-   * Process an input message
-   * @param input The input to process
-   * @returns The processed output or null if processing failed
+   * Format messages for vision model by converting image attachments
+   * Uses base64 encoding to ensure OpenAI can directly access the images
    */
+  private formatMessagesForVision(
+    messages: Array<SystemMessage | HumanMessage | AIMessage>,
+    attachments: Array<any> = []
+  ): Array<SystemMessage | HumanMessage | AIMessage> {
+    // We only need to modify the last user message (which should be the current input)
+    const lastMessageIndex = messages.length - 1;
+    
+    if (lastMessageIndex < 0 || !(messages[lastMessageIndex] instanceof HumanMessage)) {
+      return messages;
+    }
+    
+    // Get image attachments
+    const imageAttachments = attachments?.filter(att => att.is_image_for_vision) || [];
+    
+    if (imageAttachments.length === 0) {
+      return messages;
+    }
+    
+    // Get the text content from the last message
+    const lastMessageText = messages[lastMessageIndex].content.toString();
+    
+    // Create new content array for the vision model
+    const visionContent: any[] = [
+      { type: 'text', text: lastMessageText }
+    ];
+    
+    // Fallback placeholder image data URL (a 1x1 transparent PNG)
+    const PLACEHOLDER_IMAGE_DATA_URL = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
+    
+    // Track if any image was successfully processed
+    let anyImageProcessed = false;
+    
+    // Add image attachments with base64 data if available, falling back to URLs
+    for (const image of imageAttachments) {
+      // Check for base64 data first
+      if (image.vision_data?.base64Data) {
+        const mimeType = image.mimeType || 'image/png';
+        visionContent.push({
+          type: 'image_url',
+          image_url: {
+            url: `data:${mimeType};base64,${image.vision_data.base64Data}`,
+            detail: image.vision_data.detail || 'high'
+          }
+        });
+        console.log('Using base64 data for image processing');
+        anyImageProcessed = true;
+      } 
+      // Fall back to URL if base64 is not available
+      else if (image.vision_data?.url) {
+        // Convert relative URLs to absolute URLs for OpenAI's vision API
+        let imageUrl = image.vision_data.url;
+        
+        // Check if URL is relative (starts with /)
+        if (imageUrl.startsWith('/')) {
+          // Create an absolute URL using the origin from the environment
+          // Use NEXTAUTH_URL, VERCEL_URL, or default to localhost
+          const baseUrl = process.env.NEXTAUTH_URL || 
+                         (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
+          
+          // Remove any trailing slash from baseUrl
+          const baseUrlNormalized = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+          
+          // Create full absolute URL
+          imageUrl = `${baseUrlNormalized}${imageUrl}`;
+          
+          console.log(`Converting relative URL to absolute: ${image.vision_data.url} -> ${imageUrl}`);
+        }
+        
+        try {
+          visionContent.push({
+            type: 'image_url',
+            image_url: {
+              url: imageUrl,
+              detail: image.vision_data.detail || 'high'
+            }
+          });
+          anyImageProcessed = true;
+        } catch (error) {
+          console.error(`Error adding image URL to vision content: ${error}`);
+          // Continue to next image on error
+        }
+      }
+    }
+    
+    // If no images were successfully processed, add a placeholder image with error message
+    if (imageAttachments.length > 0 && !anyImageProcessed) {
+      console.log('No images could be processed, adding placeholder image');
+      visionContent.push({
+        type: 'image_url',
+        image_url: {
+          url: PLACEHOLDER_IMAGE_DATA_URL,
+          detail: 'low'
+        }
+      });
+      
+      // Also add a text explanation that the image couldn't be processed
+      visionContent[0].text += "\n\n[NOTE: The image(s) you uploaded couldn't be processed properly, I'm seeing a placeholder instead. Could you please try uploading it again in a different format?]";
+    }
+    
+    // Replace the last message with the new format
+    const newMessages = [...messages];
+    newMessages[lastMessageIndex] = new HumanMessage({ content: visionContent as any });
+    
+    return newMessages;
+  }
+
+  /**
+   * Process an input message with vision model support
+   * Properly handles image attachments and provides fallback mechanisms
+   */
+  private async processWithVisionModel(
+    messages: Array<SystemMessage | HumanMessage | AIMessage>,
+    attachments: Array<any> = []
+  ): Promise<string> {
+    try {
+      // Format messages for vision API with proper error handling
+      const visionMessages = this.formatMessagesForVision(messages, attachments);
+      
+      // Create a vision-capable model with appropriate configuration
+      const visionModel = new ChatOpenAI({
+        modelName: process.env.VISION_MODEL_NAME || 'gpt-4.1-mini-2025-04-14',
+        temperature: this.extendedConfig.temperature || 0.7,
+        maxTokens: this.extendedConfig.maxTokens || 1000,
+        // Add timeout and retry options for robustness
+        timeout: 120000, // 2 minute timeout for image processing
+      });
+      
+      // Log the number of messages and presence of image data
+      const imageCount = visionMessages.reduce((count, msg) => {
+        if (msg instanceof HumanMessage && Array.isArray(msg.content)) {
+          return count + msg.content.filter(c => c.type === 'image_url').length;
+        }
+        return count;
+      }, 0);
+      
+      console.log(`Invoking vision model with ${imageCount} images`);
+      
+      // Process with vision model
+      try {
+        const visionResponse = await (visionModel as any).invoke(visionMessages);
+        return visionResponse.content.toString();
+      } catch (error) {
+        console.error('Error during vision model call:', error);
+        
+        // Provide a proper fallback response
+        if (error instanceof Error && 
+            (error.message.includes('invalid_image_url') || 
+             error.message.includes('downloading'))) {
+          return "I received your image, but I'm having trouble accessing it. This might be due to an issue with the image format or server access. Could you try sending it again, possibly in a different format (like PNG or JPEG)?";
+        }
+        
+        // Generic error response if error type is unknown
+        return "I received your message with images, but encountered a technical issue while analyzing them. Please try again with a simpler image or a different format.";
+      }
+    } catch (error) {
+      console.error('Error in vision processing:', error);
+      return "I encountered an unexpected error while processing your message with images. Please try again with a simpler request or without images.";
+    }
+  }
+
   async processInput(input: string, context?: Record<string, unknown>): Promise<string | null> {
     try {
       // Get memory manager
@@ -769,6 +928,20 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
           systemPrompt += `\n\nOriginal user message: "${context.originalMessage}"`;
         }
       }
+
+      // Add vision-specific handling for image attachments
+      const hasImageAttachments = context?.attachments && 
+        Array.isArray(context.attachments) && 
+        context.attachments.some(att => att.is_image_for_vision === true);
+      
+      // Add vision model capabilities to system prompt if needed
+      if (hasImageAttachments || context?.useVisionModel) {
+        systemPrompt += '\n\n## VISION CAPABILITIES\nYou have vision capabilities and can analyze images. When responding to images:' +
+          '\n- Provide detailed descriptions of what you see in the images' +
+          '\n- Pay attention to visual details, text, objects, people, and other elements' +
+          '\n- Reference specific elements of the images when relevant to your response' +
+          '\n- Be concise but thorough in your analysis';
+      }
       
       // Create input prompt options
       const inputPromptOptions: InputPromptOptions = {
@@ -783,16 +956,27 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
       // Create chat messages using the formatter
       const messages = PromptFormatter.createChatMessages(systemPrompt, inputPromptOptions);
       
-      // Use the Langchain invoke method which can work with message arrays
-      // Cast 'any' for now to bypass the type error with model.invoke()
-      // This will need a proper fix later by updating the type definitions or LangChain imports
-      const response = await (this.model as any).invoke(messages);
+      // Handle response generation with vision processing if needed
+      let responseContent: string;
       
-      // Extract the response content
-      const responseContent = response.content.toString();
+      // Check if we need to use a vision-capable model
+      if (hasImageAttachments || context?.useVisionModel) {
+        console.log('Using vision model for image processing');
+        responseContent = await this.processWithVisionModel(messages, context?.attachments as any[]);
+      } else {
+        // Use the standard model for non-vision requests
+        const response = await (this.model as any).invoke(messages);
+        
+        // Extract the response content
+        responseContent = response.content.toString();
+      }
       
       // Store response in memory using tag extraction
-      await this.addTaggedMemory(responseContent, { type: 'agent_response', ...context || {} });
+      await this.addTaggedMemory(responseContent, { 
+        type: 'agent_response', 
+        vision_response: hasImageAttachments || context?.useVisionModel,
+        ...context || {} 
+      });
       
       return responseContent;
     } catch (error) {

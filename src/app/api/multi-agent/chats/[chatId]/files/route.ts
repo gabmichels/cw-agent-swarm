@@ -6,8 +6,14 @@ import { addMessageMemory } from '../../../../../../server/memory/services/memor
 import { getOrCreateThreadInfo, createResponseThreadInfo } from '../../../../chat/thread/helper';
 import { AgentService } from '../../../../../../services/AgentService';
 import { getChatService } from '../../../../../../server/memory/services/chat-service';
+import { getFileService, StoredFile } from '@/lib/storage';
+import prisma from '@/lib/prisma';
+import { MessageAttachment as MetadataMessageAttachment } from '@/types/metadata';
+import * as fs from 'fs';
+import * as path from 'path';
+import { getStorageConfig } from '@/lib/storage/config';
 
-// Define interface for message attachments
+// Define interface for message attachments with strict typing
 interface MessageAttachment {
   filename: string;
   type: string;
@@ -24,9 +30,10 @@ interface MessageProcessingOptions {
   userId?: string;
   userMessageId?: string;
   skipResponseMemoryStorage?: boolean;
+  useVisionModel?: boolean;
 }
 
-// Define interface for agent response
+// Define interface for agent response with all required properties
 interface AgentResponse {
   content: string;
   memories?: string[];
@@ -37,13 +44,109 @@ interface AgentResponse {
 // Track the last user message ID to maintain thread relationships
 let lastUserMessageId: string | null = null;
 
+// Maximum file size (10MB)
+const MAX_FILE_SIZE = 10 * 1024 * 1024;
+
+// Interface for file type information
+interface FileTypeInfo {
+  type: string;
+  extension: string;
+}
+
+// Supported file types and their corresponding MIME types
+const SUPPORTED_FILE_TYPES: Record<string, FileTypeInfo> = {
+  // Images
+  'image/jpeg': { type: 'image', extension: 'jpg' },
+  'image/png': { type: 'image', extension: 'png' },
+  'image/gif': { type: 'image', extension: 'gif' },
+  'image/webp': { type: 'image', extension: 'webp' },
+  
+  // Documents
+  'application/pdf': { type: 'document', extension: 'pdf' },
+  'text/plain': { type: 'document', extension: 'txt' },
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': { 
+    type: 'document', 
+    extension: 'docx' 
+  },
+};
+
+export interface FileUploadResponse {
+  files: StoredFileResponse[];
+  messageId?: string;
+}
+
+export interface StoredFileResponse {
+  id: string;
+  url: string;
+  contentType: string;
+  originalName: string;
+  type: string;
+}
+
+// Make sure storage directory exists
+function ensureStorageDirectoryExists(): void {
+  try {
+    const config = getStorageConfig();
+    const localStoragePath = config.localStoragePath || path.join(process.cwd(), 'storage');
+    const bucketPath = path.join(localStoragePath, 'chat-attachments');
+    
+    // Create parent directory if it doesn't exist
+    if (!fs.existsSync(localStoragePath)) {
+      console.log(`Creating storage directory: ${localStoragePath}`);
+      fs.mkdirSync(localStoragePath, { recursive: true });
+    }
+    
+    // Create bucket directory if it doesn't exist
+    if (!fs.existsSync(bucketPath)) {
+      console.log(`Creating chat attachments directory: ${bucketPath}`);
+      fs.mkdirSync(bucketPath, { recursive: true });
+    }
+  } catch (error) {
+    console.error('Error ensuring storage directory exists:', error);
+  }
+}
+
+/**
+ * Helper function to load file as base64 data if it's accessible in the filesystem
+ * @param fileId File ID to load
+ * @returns Base64 encoded string or null if file can't be loaded
+ */
+async function getFileAsBase64(fileId: string): Promise<string | null> {
+  try {
+    // Get storage configuration
+    const config = getStorageConfig();
+    
+    // Determine file path in local storage
+    const localStoragePath = config.localStoragePath || path.join(process.cwd(), 'storage');
+    const bucketPath = path.join(localStoragePath, 'chat-attachments');
+    const filePath = path.join(bucketPath, fileId);
+    
+    // Check if file exists
+    if (!fs.existsSync(filePath)) {
+      console.warn(`File not found for base64 encoding: ${filePath}`);
+      return null;
+    }
+    
+    // Read file and convert to base64
+    const fileBuffer = await fs.promises.readFile(filePath);
+    return fileBuffer.toString('base64');
+  } catch (error) {
+    console.error('Error getting file as base64:', error);
+    return null;
+  }
+}
+
 export async function POST(
   request: Request,
-  { params }: { params: { chatId: string } }
+  context: { params: { chatId: string } }
 ) {
   try {
-    // Properly await params to get chatId
-    const { chatId } = params;
+    // Properly await the params object
+    const params = await context.params;
+    const chatId = params.chatId;
+    
+    // Make sure the storage directory exists
+    ensureStorageDirectoryExists();
     
     // Parse form data
     const formData = await request.formData();
@@ -51,44 +154,128 @@ export async function POST(
     const userId = formData.get('userId') as string || '';
     const agentId = formData.get('agentId') as string || '';
     
-    // Process file attachments
-    const attachments: MessageAttachment[] = [];
-    const fileEntries = Array.from(formData.entries()).filter(([key]) => key.startsWith('file_'));
+    // Get the file service
+    const fileService = getFileService();
     
-    for (let i = 0; i < fileEntries.length; i++) {
-      const fileKey = `file_${i}`;
-      const typeKey = `metadata_${i}_type`;
-      const fileIdKey = `metadata_${i}_fileId`;
-      
-      const file = formData.get(fileKey) as File;
-      const type = formData.get(typeKey) as string || 'other';
-      const fileId = formData.get(fileIdKey) as string || '';
-      
-      if (file) {
-        // Process file attachment
-        const attachment: MessageAttachment = {
-          filename: file.name,
-          type,
-          size: file.size,
-          mimeType: file.type,
-          fileId
-        };
+    // Process uploaded files
+    const uploadPromises: Promise<StoredFile>[] = [];
+    const fileTypes: Record<string, string> = {};
+    
+    // Convert formData entries to array to make it iterable in all environments
+    const formDataEntries = Array.from(formData.entries());
+    
+    for (const [key, value] of formDataEntries) {
+      // Check if the entry is a file
+      if (value instanceof File) {
+        const file = value;
         
-        // For image files, we could optionally process them further
-        if (file.type.startsWith('image/')) {
-          // Read file as buffer for processing if needed
-          const buffer = await file.arrayBuffer();
-          // Store additional image data if needed
-          // You might want to save the image to a storage service here
+        // Check file size
+        if (file.size > MAX_FILE_SIZE) {
+          return NextResponse.json(
+            { error: `File size exceeds the maximum limit of ${MAX_FILE_SIZE / (1024 * 1024)}MB` },
+            { status: 400 }
+          );
         }
         
-        attachments.push(attachment);
+        // Generate a proper filename for clipboard pastes
+        // If the file has no name or is named "image.png" (common for clipboard), generate a random name
+        let filename = file.name;
+        if (!filename || filename === "image.png" || filename === "clipboard.png" || filename === "paste.png") {
+          // Generate a name based on time and random string
+          const timestamp = new Date().toISOString().replace(/[^0-9]/g, '').slice(0, 14);
+          const randomStr = Math.random().toString(36).substring(2, 10);
+          
+          // Get extension from mime type if possible
+          let extension = "png"; // Default for clipboard images
+          if (file.type) {
+            const fileType = SUPPORTED_FILE_TYPES[file.type];
+            if (fileType) {
+              extension = fileType.extension;
+            }
+          }
+          
+          filename = `clipboard_${timestamp}_${randomStr}.${extension}`;
+          console.log(`Generated filename for clipboard image: ${filename}`);
+        }
+        
+        // Check file type
+        const fileType = SUPPORTED_FILE_TYPES[file.type];
+        if (!fileType) {
+          return NextResponse.json(
+            { error: `Unsupported file type: ${file.type}` },
+            { status: 400 }
+          );
+        }
+        
+        // Convert file to buffer
+        const buffer = Buffer.from(await file.arrayBuffer());
+        
+        // Note: Files are NOT organized by chatId in storage
+        // They are stored in a flat structure, but the relationship is tracked in the database
+        // This allows for shared files across chats if needed in the future
+        
+        // Upload file to storage
+        const uploadPromise = fileService.uploadFile(
+          buffer,
+          filename, // Use potentially modified filename
+          file.type
+        );
+        
+        uploadPromises.push(uploadPromise);
+        fileTypes[filename] = fileType.type; // Use the new filename as key
       }
     }
     
-    console.log(`Processed ${attachments.length} file attachments`);
-
-    // Initialize memory services
+    // Wait for all uploads to complete
+    const uploadedFiles = await Promise.all(uploadPromises);
+    
+    // Get public URLs for the files
+    const storedFiles: StoredFileResponse[] = await Promise.all(
+      uploadedFiles.map(async (file: StoredFile) => {
+        // Create a generic API URL that works with any storage provider
+        const url = `/api/storage/chat-attachments/${file.id}`;
+        
+        // Parse originalName to detect if it's a clipboard image
+        const isClipboardImage = file.originalName.startsWith('clipboard_');
+        
+        // Create a more user-friendly display name for clipboard images
+        const displayName = isClipboardImage 
+          ? `Pasted image ${new Date(file.createdAt).toLocaleString().split(',')[0]}`
+          : file.originalName;
+        
+        // Make sure the chat exists in the database
+        await prisma.chat.upsert({
+          where: { id: chatId },
+          update: {}, // No updates needed if it exists
+          create: {
+            id: chatId,
+            title: `Chat ${chatId.substring(0, 8)}...` // Generate a simple title
+          }
+        });
+        
+        // Save file reference in database
+        await prisma.chatAttachment.create({
+          data: {
+            chatId,
+            fileId: file.id,
+            fileName: file.originalName,
+            fileType: file.contentType,
+            fileSize: file.size,
+            storageUrl: url
+          }
+        });
+        
+        return {
+          id: file.id,
+          url,
+          contentType: file.contentType,
+          originalName: displayName, // Use display name for UI
+          type: fileTypes[file.originalName] || 'unknown'
+        };
+      })
+    );
+    
+    // Initialize memory services to store the message with attachments
     const { memoryService, client } = await getMemoryServices();
     
     // Ensure memory services are initialized
@@ -98,57 +285,29 @@ export async function POST(
       await client.initialize();
     }
     
-    // Get or create a chat session
-    let chatSession: any = null;
-    try {
-      const chatService = await getChatService();
-      // Try to get an existing chat first
-      try {
-        chatSession = await chatService.getChatById(chatId);
-        console.log(`Found existing chat session: ${chatId}`);
-      } catch (notFoundError) {
-        // If not found, create a new chat
-        console.log(`Creating new chat session: ${chatId}`);
-        // Get agent info for title
-        let agentName = 'Assistant';
-        try {
-          const agent = await AgentService.getAgent(agentId);
-          if (agent) {
-            agentName = agent.name || 'Assistant';
-          }
-        } catch (agentError) {
-          console.warn('Error getting agent info:', agentError);
-        }
-        
-        chatSession = await chatService.createChat(userId, agentId, {
-          title: `Chat with ${agentName}`,
-          description: `Conversation between user ${userId} and agent ${agentName}`
-        });
-      }
-    } catch (chatError) {
-      console.error('Error creating chat session:', chatError);
-      // Continue with a minimal fallback session
-      chatSession = {
-        id: chatId,
-        type: 'direct',
-        status: 'active'
-      };
-    }
-    
     // Create structured IDs
     const userStructuredId = createUserId(userId);
     const agentStructuredId = createAgentId(agentId);
     const chatStructuredId = createChatId(chatId);
-
+    
     // Create thread info for user message
     const userThreadInfo = getOrCreateThreadInfo(chatId, 'user');
     console.log(`Created user message with thread ID: ${userThreadInfo.id}, position: ${userThreadInfo.position}`);
     
-    // Define message content - include description of files
-    const fileDescriptions = attachments.map(a => `- ${a.filename} (${a.type})`).join('\n');
-    const messageContent = message ? 
-      `${message}\n\n[Attached files:\n${fileDescriptions}]` : 
-      `[Shared files without additional context:\n${fileDescriptions}]`;
+    // Define message content - include description of files if needed
+    let messageContent = message;
+    if (!messageContent) {
+      const fileDescriptions = storedFiles.map(f => `- ${f.originalName} (${f.type})`).join('\n');
+      messageContent = `[Shared files without additional context:\n${fileDescriptions}]`;
+    }
+    
+    // Create message attachments in the format expected by memory service
+    const messageAttachments: MetadataMessageAttachment[] = storedFiles.map(file => ({
+      type: file.type,
+      url: file.url,
+      filename: file.originalName,
+      contentType: file.contentType
+    }));
     
     // Save user message to memory
     const userMemoryResult = await addMessageMemory(
@@ -160,99 +319,214 @@ export async function POST(
       chatStructuredId,
       userThreadInfo,
       {
-        attachments,
-        messageType: 'user_message_with_files'
+        attachments: messageAttachments,
+        messageType: 'user_message_with_files',
+        metadata: {
+          // Standard fields for file attachments
+          tags: ['file_upload', ...storedFiles.map(file => file.type)],
+          category: 'file_upload',
+          // Enhanced context
+          conversationContext: {
+            purpose: 'file_sharing',
+            sharedContext: {
+              uploadedFiles: storedFiles.map(file => ({
+                name: file.originalName,
+                type: file.type,
+                id: file.id,
+                url: file.url
+              }))
+            }
+          }
+        }
       }
     );
 
-    // Store user message ID for assistant response
+    // Store user message ID
+    let messageId = null;
     if (userMemoryResult && userMemoryResult.id) {
       lastUserMessageId = userMemoryResult.id;
+      messageId = lastUserMessageId;
       console.log(`Saved user message with files to memory with ID: ${lastUserMessageId}`);
     }
-
+    
+    // Now process the message with the agent
     // Get the agent instance
     const agent = await AgentService.getAgent(agentId);
     if (!agent) {
       throw new Error(`Agent ${agentId} not found`);
     }
 
-    // Process message with agent
+    // Process message with the agent
     let agentResponse: AgentResponse;
     try {
-      // Create message processing options
+      // Prepare attachments with base64 data for images to ensure reliable processing
+      const processedAttachments = await Promise.all(messageAttachments.map(async (att) => {
+        const isImage = att.type === 'image';
+        
+        // For images, attempt to get base64 data first
+        let base64Data = null;
+        if (isImage && att.url) {
+          // Extract fileId from URL
+          const fileIdMatch = att.url.match(/\/([^\/]+)$/);
+          const fileId = fileIdMatch ? fileIdMatch[1] : null;
+          
+          if (fileId) {
+            try {
+              // Use our new base64 endpoint to get optimized base64 data
+              const baseUrl = process.env.NEXTAUTH_URL || 
+                             (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
+              
+              // Remove trailing slash if present
+              const baseUrlNormalized = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+              
+              // Create the base64 endpoint URL
+              const base64Url = `${baseUrlNormalized}/api/files/local/${fileId}?format=base64`;
+              
+              // Fetch base64 data from our endpoint
+              const response = await fetch(base64Url);
+              
+              if (response.ok) {
+                const data = await response.json();
+                base64Data = data.base64;
+                console.log(`Successfully loaded base64 data for image: ${fileId} (${data.mimeType})`);
+              } else {
+                console.warn(`Failed to load base64 data for image ${fileId}: ${response.status} ${response.statusText}`);
+                // Fall back to local file system method
+                base64Data = await getFileAsBase64(fileId);
+              }
+            } catch (error) {
+              console.warn(`Error using base64 endpoint for image ${fileId}:`, error);
+              // Fall back to local file system method
+              base64Data = await getFileAsBase64(fileId);
+            }
+          }
+        }
+        
+        // Ensure we have an absolute URL for the image as fallback
+        let fullUrl = att.url || '';
+        
+        // Check if URL is relative and convert to absolute
+        if (fullUrl.startsWith('/')) {
+          // Get base URL from environment variables
+          const baseUrl = process.env.NEXTAUTH_URL || 
+                         (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
+          
+          // Remove trailing slash if present
+          const baseUrlNormalized = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+          
+          // Combine to form absolute URL
+          fullUrl = `${baseUrlNormalized}${att.url}`;
+        }
+        
+        return {
+          filename: att.filename || '',
+          type: att.type,
+          size: 0,
+          mimeType: att.contentType,
+          fileId: att.url || '',
+          preview: fullUrl, // Use absolute URL
+          // Flag for vision processing
+          is_image_for_vision: isImage,
+          // Add vision-specific processing info
+          vision_data: isImage ? {
+            url: fullUrl, // Use absolute URL for vision processing
+            base64Data: base64Data, // Include base64 data if available
+            detail: "high"
+          } : undefined
+        };
+      }));
+      
+      // Add information about vision processing to the message content if needed
+      let enhancedMessage = messageContent;
+      const imageAttachments = processedAttachments.filter(att => att.is_image_for_vision);
+      
+      if (imageAttachments.length > 0) {
+        // If no explicit message was provided, create one that instructs the model to analyze the images
+        if (!message || message.trim() === '') {
+          enhancedMessage = `Please analyze the following ${imageAttachments.length === 1 ? 'image' : 'images'} and provide detailed information about what you see.`;
+        }
+        
+        // Log that we're using vision processing
+        console.log(`Processing ${imageAttachments.length} images with vision capabilities`);
+        // Log whether we have base64 data for any images
+        const imagesWithBase64 = imageAttachments.filter(att => att.vision_data?.base64Data).length;
+        console.log(`${imagesWithBase64} of ${imageAttachments.length} images have base64 data available`);
+      }
+      
       const processingOptions: MessageProcessingOptions = {
-        attachments,
+        attachments: processedAttachments,
         userId,
         userMessageId: lastUserMessageId || undefined,
-        skipResponseMemoryStorage: true // We'll handle memory storage here
+        skipResponseMemoryStorage: true, // We'll handle memory storage here
+        // Add vision model flag if we have images
+        useVisionModel: imageAttachments.length > 0
       };
       
-      // Process message with proper timeout handling
-      const processingPromise = AgentService.processMessage(agentId, messageContent, processingOptions);
+      // Process message with the agent
+      console.log(`Processing file message with agent ${agentId}`);
       
-      // Set a reasonable timeout (30 seconds instead of 60)
-      const timeoutPromise = new Promise<never>((_, reject) => {
-        const timeoutId = setTimeout(() => {
-          clearTimeout(timeoutId); // Clean up the timeout
-          reject(new Error('Request timed out after 30 seconds'));
-        }, 30000);
-      });
+      // Update processing options to explicitly include vision model flag and persona
+      const enhancedOptions = {
+        ...processingOptions,
+        // Add agent's persona properties to ensure they're used during image processing
+        persona: agent?.metadata?.persona || {},
+        originalMessage: message || enhancedMessage,
+        // Explicitly set useVisionModel flag
+        useVisionModel: imageAttachments.length > 0
+      };
       
-      // Use Promise.race with proper error handling
-      try {
-        console.log(`Processing message with agent ${agentId} via AgentService (with 30s timeout)`);
-        const result = await Promise.race([processingPromise, timeoutPromise]);
-        
-        // Parse response based on its structure
-        if (typeof result === 'string') {
-          agentResponse = { content: result };
-        } else if (result && typeof result === 'object') {
-          if ('response' in result && result.response) {
-            // Handle response wrapped in a container object
-            const response = result.response;
-            agentResponse = typeof response === 'string' 
-              ? { content: response } 
-              : response as AgentResponse;
-          } else if ('content' in result) {
-            // Handle direct response object
-            agentResponse = result as AgentResponse;
-          } else {
-            // Fallback for unexpected response structure
-            agentResponse = {
-              content: "The agent returned an unexpected response format.",
-              thoughts: ["Response format error: " + JSON.stringify(result).substring(0, 100)]
-            };
-          }
+      // Use AgentService to process the message
+      const result = await AgentService.processMessage(
+        agentId, 
+        enhancedMessage, 
+        enhancedOptions
+      );
+      
+      // Parse response based on its structure
+      if (typeof result === 'string') {
+        agentResponse = { content: result };
+      } else if (result && typeof result === 'object') {
+        if ('response' in result && result.response) {
+          // Handle response wrapped in a container object
+          const response = result.response;
+          agentResponse = typeof response === 'string' 
+            ? { content: response } 
+            : response as AgentResponse;
+        } else if ('content' in result) {
+          // Handle direct response object
+          agentResponse = result as AgentResponse;
         } else {
-          // Fallback for null or undefined response
+          // Fallback for unexpected response structure
           agentResponse = {
-            content: "The agent could not process the files you shared.",
-            thoughts: ["No response received from agent."]
+            content: "I've analyzed your files but encountered format issues in processing the response.",
+            thoughts: ["Response format error: " + JSON.stringify(result).substring(0, 100)]
           };
         }
-      } catch (raceError: unknown) {
-        // Handle timeout and other race-related errors
-        console.error('Error in Promise.race:', raceError);
-        if (typeof raceError === 'object' && 
-            raceError !== null && 
-            'message' in raceError && 
-            typeof raceError.message === 'string' && 
-            raceError.message.includes('timed out')) {
-          agentResponse = {
-            content: "I'm sorry, but it's taking me longer than expected to process your files. Please try again with smaller files or fewer attachments.",
-            thoughts: [`Timeout error: ${String(raceError.message)}`]
-          };
-        } else {
-          throw raceError; // Re-throw unexpected errors
+      } else {
+        // Fallback for null or undefined response
+        agentResponse = {
+          content: "I've received your files but couldn't generate a response. Please try again.",
+          thoughts: ["No response received from agent."]
+        };
+      }
+    } catch (error: unknown) {
+      console.error('Error processing files with agent:', error);
+      
+      // Provide more helpful error messages based on error type
+      let errorMessage = "I'm experiencing some technical difficulties processing your files at the moment.";
+      
+      // Check for specific error types to provide more helpful messages
+      if (error instanceof Error) {
+        if (error.message.includes('invalid_image_url') || error.message.includes('downloading')) {
+          errorMessage = "I had trouble accessing the image files you shared. This might be due to a connection issue. Could you try sharing them again?";
+        } else if (error.message.includes('timeout')) {
+          errorMessage = "The image processing took too long to complete. This might be because the images are very large or complex. Could you try with smaller images?";
         }
       }
-    } catch (agentError) {
-      console.error('Error from agent process:', agentError);
-      // Provide a fallback response
+      
       agentResponse = {
-        content: "I'm experiencing some technical difficulties processing your files at the moment. Please try again later.",
-        thoughts: [`Error: ${agentError instanceof Error ? agentError.message : String(agentError)}`]
+        content: errorMessage,
+        thoughts: [`Error: ${error instanceof Error ? error.message : String(error)}`]
       };
     }
 
@@ -274,7 +548,7 @@ export async function POST(
     }
 
     // Save assistant response to memory
-    await addMessageMemory(
+    const assistantMemoryResult = await addMessageMemory(
       memoryService,
       responseContent,
       MessageRole.ASSISTANT,
@@ -285,15 +559,13 @@ export async function POST(
       {
         messageType: 'assistant_response_to_file',
         metadata: {
-          // Use standard fields for custom data
-          tags: ['file_response', ...attachments.map(a => a.type)],
+          tags: ['file_response', ...storedFiles.map(file => file.type)],
           category: 'file_response',
-          // Store file information in the conversation context
           conversationContext: {
             purpose: 'file_analysis',
             sharedContext: {
-              processedFiles: attachments.map(a => a.filename),
-              fileTypes: attachments.map(a => a.type),
+              processedFiles: storedFiles.map(file => file.originalName),
+              fileTypes: storedFiles.map(file => file.type),
               thoughts,
               memories
             }
@@ -302,33 +574,37 @@ export async function POST(
       }
     );
 
-    // Return the response with all metadata
+    let assistantMessageId = null;
+    if (assistantMemoryResult && assistantMemoryResult.id) {
+      assistantMessageId = assistantMemoryResult.id;
+    }
+    
+    // Return success with stored files and message IDs
     return NextResponse.json({
       success: true,
-      message: {
+      files: storedFiles,
+      messageId,
+      response: {
+        id: assistantMessageId,
         content: responseContent,
         timestamp: new Date().toISOString(),
-        metadata: {
-          agentId,
-          agentName: agent.name || 'Assistant',
-          userId,
-          threadId: assistantThreadInfo.id,
-          parentMessageId: lastUserMessageId,
-          thoughts,
-          memories,
-          messageType: 'assistant_response_to_file',
-          processedFiles: attachments.map(a => a.filename)
-        }
+        sender: {
+          id: agentId,
+          name: agent.name || 'Assistant',
+          role: 'assistant'
+        },
+        threadId: assistantThreadInfo.id,
+        parentMessageId: lastUserMessageId,
+        thoughts,
+        memories,
+        attachments: []
       }
     });
-
-  } catch (error) {
+    
+  } catch (error: unknown) {
     console.error('Error processing files:', error);
     return NextResponse.json(
-      { 
-        success: false, 
-        error: error instanceof Error ? error.message : 'Unknown error' 
-      },
+      { error: `Error processing files: ${error instanceof Error ? error.message : String(error)}` },
       { status: 500 }
     );
   }

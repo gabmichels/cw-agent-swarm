@@ -151,16 +151,6 @@ export async function GET(
       // Properly type the metadata
       const metadata = (payload.metadata || {}) as MessageMetadata;
       
-      // Log the raw data from Qdrant
-      console.log('-------------------------');
-      console.log('MULTI-AGENT RAW QDRANT MESSAGE DATA:');
-      console.log('Point ID:', point.id);
-      console.log('Raw payload:', JSON.stringify(payload, null, 2));
-      console.log('Raw timestamp:', payload.timestamp);
-      console.log('Timestamp type:', typeof payload.timestamp);
-      // Also log any tags that were found
-      console.log('Tags:', metadata.tags || 'No tags found');
-      
       // Fix timestamp parsing for numeric strings
       let parsedTimestamp: number | null = null;
       try {

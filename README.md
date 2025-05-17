@@ -146,6 +146,53 @@ Dry run mode is particularly useful for:
 
 [MIT](LICENSE)
 
+# File Storage System
+
+The application supports multiple storage backends for file attachments:
+
+- **MinIO**: S3-compatible object storage (preferred for development)
+- **Local Storage**: Simple file system storage (fallback)
+- **GCP Storage**: For production environments
+- **AWS S3**: For production environments
+- **Azure Blob Storage**: For production environments
+
+## MinIO Setup
+
+For development, we recommend using MinIO as the storage backend. It's S3-compatible and runs in a Docker container.
+
+### Option 1: Using docker-compose (original method)
+
+```bash
+# Start MinIO
+npm run storage:start
+
+# Stop MinIO when done
+npm run storage:stop
+```
+
+### Option 2: Using the helper script (enhanced method)
+
+```bash
+# Start MinIO with automatic validation
+npm run minio:start
+```
+
+This script will:
+- Check if MinIO is already running
+- Start it only if needed
+- Verify the bucket exists and is properly configured
+- Provide clear feedback on the console
+
+### Accessing MinIO
+
+After starting with either method:
+1. Access the MinIO Console at http://localhost:9001 
+2. Login with: minioadmin / minioadmin
+
+### Configuration
+
+For production environments, update your `.env` file with the appropriate storage settings.
+
 # Agent Swarm Architecture
 
 This repository contains a flexible, extensible agent architecture designed for building AI agent systems. The architecture is based on a modular manager pattern, allowing agents to be composed of specialized components (managers) that provide different capabilities.
@@ -287,3 +334,45 @@ The architecture is designed to be extensible:
 ## License
 
 MIT
+
+## File Storage Configuration
+
+The project includes a multi-cloud compatible file storage solution that supports:
+
+- Local filesystem storage (default for development)
+- MinIO S3-compatible storage (local development with Docker)
+- Google Cloud Storage (recommended for production)
+- AWS S3 (alternative production option)
+- Azure Blob Storage (alternative production option)
+
+### Setting up local development with MinIO
+
+1. Start the MinIO container using Docker Compose:
+
+```powershell
+docker-compose up -d minio createbuckets
+```
+
+2. Access the MinIO web console at http://localhost:9001 (credentials: minioadmin/minioadmin)
+
+3. Update your `.env.local` file to use MinIO:
+
+```
+USE_MINIO=true
+MINIO_ENDPOINT=http://localhost:9000
+MINIO_ACCESS_KEY=minioadmin
+MINIO_SECRET_KEY=minioadmin
+```
+
+### Using GCP Cloud Storage in production
+
+1. Create a GCP project and enable the Cloud Storage API
+2. Create a service account with appropriate permissions
+3. Download the service account key file
+4. Configure your environment:
+
+```
+GCP_PROJECT_ID=your-project-id
+GCP_STORAGE_BUCKET=your-bucket-name
+GCP_KEY_FILENAME=path/to/keyfile.json
+```

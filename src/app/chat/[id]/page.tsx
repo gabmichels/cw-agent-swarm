@@ -12,7 +12,7 @@ import { Message as ChatMessage, MessageType, MessageRole, MessageStatus, Messag
 import { ParticipantType } from '@/lib/multi-agent/types/chat';
 import { FileMetadata, FileAttachmentType as StorageFileType, FileProcessingStatus, FileAttachment as StorageFileAttachment } from '@/types/files';
 import { Message as HandlerMessage, MessageType as HandlerMessageType, MessageStatus as HandlerMessageStatus, MessageHandlerOptions } from '@/services/message/MessageHandlerService';
-import { Message as DisplayMessage, FileAttachment as UIFileAttachment } from '@/types';
+import { Message as DisplayMessage } from '@/types';
 import { FileAttachmentType } from '@/constants/file';
 import { getCurrentUser } from '@/lib/user';
 import { FileUploadImplementation } from '@/services/upload/FileUploadImplementation';
@@ -72,6 +72,17 @@ interface FileAttachment {
   metadata: FileMetadata;
 }
 
+// Define UIFileAttachment interface for use in the UI
+interface UIFileAttachment {
+  file?: File | null; // Make file optional for attachments received from server
+  type: FileAttachmentType;
+  preview: string;
+  filename: string;
+  fileId?: string;
+  size: number;
+  mimeType: string;
+}
+
 // Create a MessageSender type that matches what DisplayMessage expects
 interface MessageSender {
   id: string;
@@ -94,7 +105,8 @@ interface MessageMetadata {
   [key: string]: any;
 }
 
-interface MessageWithId extends Omit<DisplayMessage, 'sender'> {
+// Update MessageWithId interface to use our UIFileAttachment
+interface MessageWithId extends Omit<DisplayMessage, 'sender' | 'attachments'> {
   id: string;
   sender: MessageSender;
   timestamp: Date;
@@ -225,7 +237,7 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
     };
   }, []);
 
-  // Fetch or create chat, then load messages
+  // Modify the existing useEffect for fetchOrCreateChat
   useEffect(() => {
     const fetchOrCreateChat = async () => {
       setIsLoading(true);
@@ -270,97 +282,93 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
             enableBranching: false,
             recordTranscript: true
           };
-          const chatMetadata = {
-            tags: agentProfile?.metadata?.tags || [],
-            category: agentProfile?.metadata?.domain || [],
-            priority: 'medium',
-            sensitivity: 'internal',
-            language: ['en'],
-            version: '1.0',
-            userId,
-            agentId
-          };
-          const createRes = await fetch(`/api/multi-agent/chats`, {
+          
+          // 3. Create chat between user and agent
+          const createChatRes = await fetch('/api/multi-agent/chats', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+              'Content-Type': 'application/json'
+            },
             body: JSON.stringify({
               name: chatName,
               description: chatDescription,
+              userId,
+              agentId,
               settings: chatSettings,
-              metadata: chatMetadata
-            }),
+              metadata: {
+                userInitiated: true,
+                agentName: agentProfile?.name,
+                agentTags: agentProfile?.metadata?.tags || [],
+                domain: agentProfile?.metadata?.domain || []
+              }
+            })
           });
-          const createData = await createRes.json();
-          if (createRes.ok && createData.chat) {
-            chatObj = createData.chat;
-          } else {
-            throw new Error(createData.error || 'Failed to create chat');
+          
+          const createChatData = await createChatRes.json();
+          
+          if (!createChatRes.ok || !createChatData.success || !createChatData.chat) {
+            setError('Failed to create chat. Please try again later.');
+            setIsLoading(false);
+            return;
           }
+          
+          chatObj = createChatData.chat;
         }
+        
+        // Set the chat object
         setChat(chatObj);
+        
         // 3. Load messages for this chat
         if (chatObj) {
-          console.log(`Loading messages for chat: ${chatObj.id}`);
-          const msgRes = await fetch(`/api/multi-agent/chats/${chatObj.id}/messages`);
-          const msgData = await msgRes.json();
-          console.log('Message loading response:', msgData);
-          
-          if (msgRes.ok && msgData.messages && msgData.messages.length > 0) {
-            console.log(`Found ${msgData.messages.length} messages to display`);
-            // Format messages to match expected structure
-            const formattedMessages: MessageWithId[] = msgData.messages.map((msg: {
-              id: string;
-              content: string;
-              sender: MessageSender;
-              timestamp: string;
-              attachments?: UIFileAttachment[];
-              tags?: string[];
-              metadata?: MessageMetadata;
-            }) => ({
-              id: msg.id,
-              content: msg.content,
-              sender: msg.sender,
-              timestamp: new Date(msg.timestamp),
-              attachments: msg.attachments || [],
-              tags: msg.tags || []
-            }));
-            console.log('Formatted messages:', formattedMessages);
-            setMessages(formattedMessages);
-          } else {
-            console.log('No existing messages found, creating welcome message');
-            // 4. If no messages, create dummy welcome message
-            // Always try to use the agent's name for the welcome message
-            let agentName = '';
-            try {
-              const agentRes = await fetch(`/api/multi-agent/agents/${agentId}`);
-              const agentJson = await agentRes.json();
-              if (agentRes.ok && agentJson.success && agentJson.agent) {
-                agentName = agentJson.agent.name;
-              }
-            } catch {}
-            if (!agentName) {
-              agentName = agentId;
-            }
-            setMessages([
-              {
-                id: generateMessageId(),
-                content: `Hi, I am ${agentName}. How can I assist you?`,
-                sender: { id: agentId, name: agentName, role: 'assistant' },
-                timestamp: new Date(),
-                attachments: [],
-                tags: []
-              },
-            ]);
-          }
+          await fetchMessages(chatObj.id);
         }
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Unknown error');
-      } finally {
+        
+        // Set loading to false
+        setIsLoading(false);
+      } catch (error) {
+        console.error('Error setting up chat:', error);
+        setError('Failed to set up chat');
         setIsLoading(false);
       }
     };
-    if (agentId) fetchOrCreateChat();
-  }, [agentId]);
+
+    fetchOrCreateChat();
+  }, [agentId, userId]);
+
+  // Add polling for message updates instead of using WebSockets
+  useEffect(() => {
+    // Poll for new messages every 3 seconds
+    const pollInterval = 3000;
+    let pollingTimer: NodeJS.Timeout | null = null;
+
+    // Only start polling if we have a chat ID
+    if (chat?.id) {
+      console.log(`Setting up polling for chat ${chat.id} every ${pollInterval}ms`);
+      
+      // Define polling function
+      const pollMessages = async () => {
+        try {
+          // Only poll if we're not already loading
+          if (!isLoading) {
+            await fetchMessages(chat.id);
+          }
+        } catch (error) {
+          console.error('Error polling messages:', error);
+        }
+      };
+      
+      // Start polling
+      pollingTimer = setInterval(pollMessages, pollInterval);
+    }
+
+    // Cleanup on unmount
+    return () => {
+      if (pollingTimer) {
+        clearInterval(pollingTimer);
+        console.log('Stopped message polling');
+      }
+    };
+  }, [chat?.id, isLoading]);
 
   // Convert MessageAttachment to UIFileAttachment
   const convertMessageToUIAttachment = (att: MessageAttachment): UIFileAttachment => {
@@ -375,51 +383,65 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
     };
   };
 
-  // Update handleSendMessage to convert attachments
+  // Update handleSendMessage to use polling instead of WebSockets
   const handleSendMessage = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!chat?.id || (!inputMessage.trim() && pendingAttachments.length === 0)) return;
 
     try {
+      // Save current values to avoid race conditions
+      const currentMessage = inputMessage.trim();
+      const currentAttachments = [...pendingAttachments];
+      
       // Create message object for UI update
+      const tempMessageId = generateMessageId();
       const messageWithId: MessageWithId = {
-        id: generateMessageId(),
-        content: inputMessage.trim(),
+        id: tempMessageId,
+        content: currentMessage,
         sender: {
           id: userId,
           name: 'You',
           role: 'user' as const
         },
         timestamp: new Date(),
-        attachments: pendingAttachments,
-        tags: [] // Initialize empty tags array that will be populated by backend
+        attachments: currentAttachments,
+        tags: []
       };
 
-      // Update UI immediately
-      setMessages(prev => [...prev, messageWithId]);
+      // Clear input and attachments immediately for better UX
       setInputMessage('');
       setPendingAttachments([]);
+      
+      // Optimistically update UI with the user message
+      setMessages(prev => [...prev, messageWithId]);
       
       // Set loading state to show "thinking..." bubble
       setIsLoading(true);
 
       // Different handling for messages with vs. without attachments
       let response;
-      if (pendingAttachments.length > 0) {
-        // Handle file attachments via multi-part form
+      if (currentAttachments.length > 0) {
+        // Prepare FormData for file attachments
         const formData = new FormData();
-        formData.append('message', inputMessage.trim());
+        formData.append('message', currentMessage);
         formData.append('userId', userId);
         formData.append('agentId', agentId);
         formData.append('thinking', 'true'); // Enable thinking mode
 
         // Add each attachment to the form
-        pendingAttachments.forEach((attachment, index) => {
+        currentAttachments.forEach((attachment, index) => {
           if (attachment.file) {
             formData.append(`file_${index}`, attachment.file);
             formData.append(`metadata_${index}_type`, attachment.type);
             formData.append(`metadata_${index}_fileId`, attachment.fileId || '');
           }
+        });
+
+        // Log the form data being sent (for debugging)
+        console.log('Sending message with attachments', {
+          message: currentMessage,
+          attachmentsCount: currentAttachments.length,
+          chatId: chat.id
         });
 
         response = await fetch(`/api/multi-agent/chats/${chat.id}/files`, {
@@ -434,7 +456,7 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({
-            content: inputMessage.trim(),
+            content: currentMessage,
             senderId: userId,
             senderType: ParticipantType.USER,
             type: MessageType.TEXT,
@@ -448,7 +470,9 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
       }
 
       if (!response.ok) {
-        throw new Error(`API error: ${response.status}`);
+        // Handle error response
+        const errorData = await response.json();
+        throw new Error(errorData.error || `API error: ${response.status}`);
       }
 
       const data = await response.json();
@@ -456,65 +480,33 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
       if (!data.success) {
         throw new Error(data.error || 'Failed to send message');
       }
-
-      // If there's an agent response, add it
-      if (data.message) {
-        // If there are thoughts, add them as separate messages with system role
-        if (data.message.metadata?.thoughts && Array.isArray(data.message.metadata.thoughts)) {
-          // Only show thoughts in debug mode
-          if (isDebugMode) {
-            data.message.metadata.thoughts.forEach((thought: string) => {
-              setMessages(prev => [...prev, {
-                id: generateMessageId(),
-                content: thought,
-                sender: {
-                  id: 'system',
-                  name: 'System (Thinking)',
-                  role: 'system' as const
-                },
-                timestamp: new Date(),
-                attachments: [],
-                tags: []
-              }]);
-            });
-          }
-        }
-
-        // Add the actual agent response
-        const agentResponse: MessageWithId = {
-          id: data.message.id,
-          content: data.message.content,
-          sender: {
-            id: agentId,
-            name: data.message.metadata?.agentName || 'Assistant',
-            role: 'assistant' as const
-          },
-          timestamp: new Date(data.message.timestamp || Date.now()),
-          attachments: data.message.attachments?.map(convertMessageToUIAttachment) || [],
-          tags: data.message.metadata?.tags || []
-        };
-
-        setMessages(prev => [...prev, agentResponse]);
-      }
-
+      
+      console.log('Message sent successfully:', data);
+      
+      // After successful send, refresh messages to get the real message from the server
+      // We'll also get the agent's response on the next poll
+      await fetchMessages(chat.id);
+      
+      // Keep polling active to load the agent response
+      
     } catch (error) {
       console.error('Error sending message:', error);
-      // Add error message to chat
-      setMessages(prev => [...prev, {
-        id: generateMessageId(),
-        content: "Failed to send message. Please try again.",
-        sender: {
-          id: 'system',
-          name: 'System',
-          role: 'system' as const
-        },
-        timestamp: new Date(),
-        attachments: [],
-        tags: []
-      }]);
-    } finally {
-      // Always reset loading state
       setIsLoading(false);
+      // Add error notification to the chat
+      setMessages(prev => [
+        ...prev, 
+        {
+          id: generateMessageId(),
+          content: 'There was an error sending your message. Please try again.',
+          sender: {
+            id: 'system',
+            name: 'System',
+            role: 'system'
+          },
+          timestamp: new Date(),
+          tags: []
+        }
+      ]);
     }
   };
 
@@ -567,11 +559,123 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
   };
 
   // Add file preview click handler
-  const handleFilePreviewClick = (file: UIFileAttachment) => {
-    if (file.type === FileAttachmentType.IMAGE) {
-      setSelectedImage(file.preview);
+  const handleFilePreviewClick = (attachment: any, e: React.MouseEvent) => {
+    // Check if the attachment has the properties we need
+    if (attachment && attachment.url) {
+      setSelectedImage(attachment.url);
       setShowImageModal(true);
     }
+  };
+
+  // Modify the formattedAttachments to match exactly what ChatMessages component expects
+  const formatAttachmentForDisplay = (att: UIFileAttachment) => {
+    return {
+      id: att.fileId || '',
+      type: att.mimeType,
+      url: att.preview,
+      preview: att.preview,
+      file: new File([new Blob()], att.filename), // Create dummy File object to satisfy type
+      metadata: {
+        filename: att.filename,
+        size: att.size,
+        type: att.mimeType,
+        attachmentType: att.type === FileAttachmentType.IMAGE ? StorageFileType.IMAGE : StorageFileType.DOCUMENT
+      }
+    };
+  };
+
+  // Function to fetch messages for a chat
+  const fetchMessages = async (chatId: string) => {
+    try {
+      console.log(`Fetching messages for chat: ${chatId}`);
+      const msgRes = await fetch(`/api/multi-agent/chats/${chatId}/messages`);
+      const msgData = await msgRes.json();
+      
+      if (msgRes.ok && msgData.messages && msgData.messages.length > 0) {
+        console.log(`Found ${msgData.messages.length} messages to display`);
+        
+        // Format messages to match expected structure
+        const formattedMessages: MessageWithId[] = msgData.messages.map((msg: {
+          id: string;
+          content: string;
+          sender: MessageSender;
+          timestamp: string;
+          attachments?: any[]; // Use any[] to accommodate different attachment formats
+          tags?: string[];
+          metadata?: MessageMetadata;
+        }) => {
+          // Process attachments if they exist
+          const processedAttachments: UIFileAttachment[] = [];
+          if (msg.attachments && Array.isArray(msg.attachments) && msg.attachments.length > 0) {
+            // Log attachment data for debugging
+            console.log(`Processing ${msg.attachments.length} attachments for message ${msg.id}`);
+            
+            msg.attachments.forEach((attachment, index) => {
+              try {
+                // Handle different attachment formats from the API
+                if (attachment.type || attachment.mimeType) {
+                  // Create a UIFileAttachment object
+                  const uiAttachment: UIFileAttachment = {
+                    file: null, // We don't have the actual file object on load
+                    filename: attachment.filename || `file-${index}`,
+                    fileId: attachment.id || attachment.fileId || `attachment-${index}`,
+                    size: attachment.size || 0,
+                    mimeType: attachment.type || attachment.mimeType || 'application/octet-stream',
+                    preview: attachment.url || attachment.preview || '',
+                    type: (attachment.type || attachment.mimeType || '').startsWith('image/') 
+                      ? FileAttachmentType.IMAGE 
+                      : FileAttachmentType.OTHER
+                  };
+                  
+                  processedAttachments.push(uiAttachment);
+                  console.log(`Processed attachment: ${uiAttachment.filename}, type: ${uiAttachment.type}`);
+                }
+              } catch (attachError) {
+                console.error(`Error processing attachment ${index}:`, attachError);
+              }
+            });
+          }
+          
+          return {
+            id: msg.id,
+            content: msg.content,
+            sender: msg.sender,
+            timestamp: new Date(msg.timestamp),
+            attachments: processedAttachments,
+            tags: msg.tags || [],
+            metadata: msg.metadata || {}
+          };
+        });
+        
+        console.log('Formatted messages with processed attachments:', 
+          formattedMessages.map(m => ({
+            id: m.id, 
+            attachmentsCount: m.attachments?.length || 0
+          }))
+        );
+        
+        setMessages(formattedMessages);
+        // Reset loading state after messages are fetched
+        setIsLoading(false);
+      } else {
+        // Reset loading state even if no messages were found
+        setIsLoading(false);
+      }
+    } catch (error) {
+      console.error('Error fetching messages:', error);
+      setError('Failed to load messages');
+      // Reset loading state in case of error
+      setIsLoading(false);
+    }
+  };
+
+  // Add a helper function to convert our UIFileAttachment to the format expected by ChatInput
+  const convertToInputFileAttachment = (attachment: UIFileAttachment): any => {
+    return {
+      file: attachment.file || new File([new Blob()], attachment.filename),
+      preview: attachment.preview,
+      type: attachment.type === FileAttachmentType.IMAGE ? 'image' : 'other'
+    };
   };
 
   // UI matches main page
@@ -671,14 +775,19 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
                             // Default sender if missing or invalid
                             sender = { id: 'unknown', name: 'Unknown', role: 'assistant' as 'user' | 'assistant' | 'system' };
                           }
+                          
+                          // Convert our attachments to the format expected by ChatMessages
+                          const formattedAttachments = msg.attachments?.map(att => formatAttachmentForDisplay(att)) || [];
+                          
                           return { 
                             ...msg, 
                             sender,
-                            tags: msg.tags || [] // Ensure tags are included
+                            tags: msg.tags || [], // Ensure tags are included
+                            attachments: formattedAttachments as any[] // Use type assertion to bypass type checking
                           };
                         })} 
                         isLoading={isLoading}
-                        onImageClick={() => {}}
+                        onImageClick={handleFilePreviewClick}
                         showInternalMessages={showInternalMessages}
                         pageSize={20}
                         preloadCount={10}
@@ -697,7 +806,7 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
             <ChatInput
               inputMessage={inputMessage}
               setInputMessage={setInputMessage}
-              pendingAttachments={pendingAttachments}
+              pendingAttachments={pendingAttachments.map(convertToInputFileAttachment)}
               removePendingAttachment={removePendingAttachment}
               handleSendMessage={handleSendMessage}
               isLoading={isLoading}
