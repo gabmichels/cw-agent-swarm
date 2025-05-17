@@ -12,6 +12,7 @@ import { MessageAttachment as MetadataMessageAttachment } from '@/types/metadata
 import * as fs from 'fs';
 import * as path from 'path';
 import { getStorageConfig } from '@/lib/storage/config';
+import { extractTags } from '../../../../../../utils/tagExtractor';
 
 // Define interface for message attachments with strict typing
 interface MessageAttachment {
@@ -309,6 +310,32 @@ export async function POST(
       contentType: file.contentType
     }));
     
+    // Extract tags from user message
+    let userMessageTags: string[] = [];
+    try {
+      const extractionResult = await extractTags(messageContent, {
+        maxTags: 8,
+        minConfidence: 0.3
+      });
+      
+      if (extractionResult.success && extractionResult.tags.length > 0) {
+        userMessageTags = extractionResult.tags.map(tag => tag.text);
+        console.log(`Extracted ${userMessageTags.length} tags from user message with files:`, userMessageTags);
+      } else {
+        // Fallback to basic tag extraction if AI extraction produces no results
+        userMessageTags = ['file_upload'];
+        console.log('AI tag extraction produced no results, using fallback tags');
+      }
+    } catch (extractionError) {
+      console.warn('Error extracting tags from user message with files:', extractionError);
+      userMessageTags = ['file_upload']; // Default fallback tag
+    }
+    
+    // Add file type tags to extracted message tags
+    const fileTypeTags = storedFiles.map(file => file.type.toLowerCase());
+    const allTags = Array.from(new Set([...userMessageTags, 'file_upload', ...fileTypeTags]));
+    console.log(`Final tags for file message: ${allTags.join(', ')}`);
+    
     // Save user message to memory
     const userMemoryResult = await addMessageMemory(
       memoryService,
@@ -322,8 +349,8 @@ export async function POST(
         attachments: messageAttachments,
         messageType: 'user_message_with_files',
         metadata: {
-          // Standard fields for file attachments
-          tags: ['file_upload', ...storedFiles.map(file => file.type)],
+          // Replace hardcoded tags with extracted + file type tags
+          tags: allTags,
           category: 'file_upload',
           // Enhanced context
           conversationContext: {
