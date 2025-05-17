@@ -105,6 +105,12 @@ const ChatBubbleMenu: React.FC<ChatBubbleMenuProps> = ({
       if (!result.success) {
         throw new Error(result.error);
       }
+      
+      // Add toast notification for successful copy
+      showToast('Message copied');
+      
+      // Update the UI state to show the callback worked
+      onCopyText(message.content || '');
     } catch (error) {
       setCopyState({ 
         isLoading: false, 
