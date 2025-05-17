@@ -69,6 +69,7 @@ export class MemoryRetriever {
       
       // Add tag filters if provided
       if (options.tags && options.tags.length > 0) {
+        console.log(`Applying tag filtering with tags: ${options.tags.join(', ')}`);
         filter.must.push({
           key: "metadata.tags",
           match: {
@@ -84,7 +85,11 @@ export class MemoryRetriever {
         limit: options.limit || 10,
         includeMetadata: options.includeMetadata !== false,
         // Add similarity search if requested
-        similaritySearch: options.semanticSearch ? { enabled: true } : undefined
+        similaritySearch: options.semanticSearch ? { enabled: true } : undefined,
+        // Add boost for tag matches if tags are provided
+        boostParams: options.tags && options.tags.length > 0 ? {
+          fields: [{ key: "metadata.tags", value: options.tags, factor: 1.5 }]
+        } : undefined
       };
       
       // Perform search
@@ -149,7 +154,7 @@ export class MemoryRetriever {
       
       // Apply importance weighting if enabled
       if (options.importanceWeighting?.enabled) {
-        memories = this.applyImportanceWeighting(memories, options.importanceWeighting);
+        memories = this.applyImportanceWeighting(memories, options.importanceWeighting, options.tags);
       }
       
       return { memories, memoryIds };
@@ -168,7 +173,8 @@ export class MemoryRetriever {
       priorityWeight?: number;
       confidenceWeight?: number;
       useTypeWeights?: boolean;
-    }
+    },
+    queryTags?: string[]
   ): WorkingMemoryItem[] {
     // Default weights if not provided
     const priorityWeight = weightingOptions.priorityWeight ?? 1.0;
@@ -189,6 +195,22 @@ export class MemoryRetriever {
       // Apply type-based weighting if enabled
       if (useTypeWeights && this.typeWeights[memory.type]) {
         score *= this.typeWeights[memory.type];
+      }
+      
+      // Apply tag-based boost if query tags are provided
+      if (queryTags && queryTags.length > 0 && memory.tags && memory.tags.length > 0) {
+        // Count matching tags
+        const matchingTags = memory.tags.filter(tag => queryTags.includes(tag));
+        if (matchingTags.length > 0) {
+          // Boost based on number of matching tags
+          const tagBoostFactor = 1.0 + (matchingTags.length / queryTags.length) * 0.5;
+          score *= tagBoostFactor;
+          
+          // Log if there's a significant boost
+          if (tagBoostFactor > 1.2) {
+            console.log(`Boosted memory ${memory.id} by factor ${tagBoostFactor.toFixed(2)} due to ${matchingTags.length} matching tags`);
+          }
+        }
       }
       
       return { memory, score };

@@ -287,8 +287,8 @@ const ChatMessages: React.FC<ChatMessagesProps> = ({
         </div>
       )}
       
-      {/* Scroll anchor div */}
-      <div ref={messagesEndRef} className="h-1" />
+      {/* Scroll anchor div - increased height for better bottom spacing */}
+      <div ref={messagesEndRef} className="h-12 pb-8" />
     </div>
   );
 };

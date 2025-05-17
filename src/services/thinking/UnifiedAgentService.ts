@@ -19,6 +19,7 @@ import { DelegatedTask, DelegationResult, TaskPriority, TaskStatus } from './del
 import { ClassifiedIntent } from './intent/IntentClassifier';
 import { ExtractedEntity, EntityType } from './memory/EntityExtractor';
 import { RetrievalResult as ResultRerankerResult } from './retrieval/ResultReranker';
+import { extractTags } from '@/utils/tagExtractor';
 
 /**
  * Result from retrieval operations
@@ -525,11 +526,38 @@ export class UnifiedAgentService {
           }
         });
         
+        // Extract tags from the message
+        let messageTags: string[] = [];
+        try {
+          // First try using the AI-powered tag extractor
+          
+          const extractionResult = await extractTags(message, {
+            maxTags: 8,
+            minConfidence: 0.3
+          });
+          
+          if (extractionResult.success && extractionResult.tags.length > 0) {
+            messageTags = extractionResult.tags.map(tag => tag.text);
+            console.log(`Extracted ${messageTags.length} tags from user message for memory retrieval:`, messageTags);
+          } else {
+            // Fallback to basic pattern matching for common tags when AI extraction fails
+            console.log('AI tag extraction produced no results, falling back to basic extraction');
+            messageTags = this.extractBasicTags(message);
+          }
+        } catch (extractionError) {
+          console.warn('Error extracting tags from message for memory retrieval:', extractionError);
+          // Fallback to basic extraction on error
+          messageTags = this.extractBasicTags(message);
+          console.log('Using fallback tag extraction, found tags:', messageTags);
+        }
+        
         // Retrieve memories
         const { memories, memoryIds } = await this.memoryRetriever.retrieveMemories({
           query: enhancedQuery.expandedQuery || message,
           userId: context.userId,
-          limit: 10
+          limit: 10,
+          tags: messageTags, // Add extracted tags to memory retrieval
+          semanticSearch: true
         });
         let relevantMemories = memories as WorkingMemoryItem[];
         
@@ -1084,5 +1112,74 @@ Based on this information, respond to the user.`;
       completedAt: undefined,
       executingAgentId: task.assignedAgent
     } : undefined;
+  }
+
+  /**
+   * Extract basic tags from a message
+   * @param message User message
+   * @returns Array of extracted tags
+   */
+  private extractBasicTags(message: string): string[] {
+    if (!message || typeof message !== 'string') return [];
+    
+    // Convert to lowercase
+    const lowerMessage = message.toLowerCase();
+    
+    // 1. Common domain/subject tags that might appear in messages
+    const commonDomains = [
+      'marketing', 'sales', 'finance', 'technology', 'development', 
+      'design', 'research', 'strategy', 'operations', 'product', 
+      'management', 'leadership', 'analytics', 'data', 'customer', 
+      'support', 'service', 'social', 'media', 'content', 'email',
+      'legal', 'compliance', 'hr', 'recruitment', 'training', 
+      'mission', 'vision', 'values', 'goals', 'policy', 'report'
+    ];
+    
+    // 2. Extract key noun phrases as potential tags
+    const words = lowerMessage
+      .replace(/[^\w\s]/g, ' ')  // Replace punctuation with spaces
+      .split(/\s+/)              // Split on whitespace
+      .filter(word => word.length > 3); // Only words longer than 3 chars
+    
+    // 3. Domain tags that appear in the message
+    const domainTags = commonDomains.filter(domain => 
+      words.includes(domain) || lowerMessage.includes(domain)
+    );
+    
+    // 4. Look for explicit tag markers like #tag or [tag]
+    const explicitTags: string[] = [];
+    
+    // Match hashtag style tags #tag
+    const hashtagMatches = message.match(/#(\w+)/g);
+    if (hashtagMatches) {
+      explicitTags.push(...hashtagMatches.map(tag => tag.substring(1).toLowerCase()));
+    }
+    
+    // Match bracket style tags [tag]
+    const bracketMatches = message.match(/\[(\w+)\]/g);
+    if (bracketMatches) {
+      explicitTags.push(...bracketMatches.map(tag => tag.substring(1, tag.length - 1).toLowerCase()));
+    }
+    
+    // 5. Look for question type tags
+    const questionTags: string[] = [];
+    if (lowerMessage.includes('what is') || lowerMessage.includes('who is') || 
+        lowerMessage.includes('when is') || lowerMessage.includes('where is')) {
+      questionTags.push('question');
+    }
+    
+    if (lowerMessage.includes('how to') || lowerMessage.includes('how do i')) {
+      questionTags.push('how-to');
+    }
+    
+    // 6. Check for specific content types
+    if (lowerMessage.includes('mission') || lowerMessage.includes('vision') || 
+        lowerMessage.includes('values') || lowerMessage.includes('principles')) {
+      domainTags.push('company-identity');
+    }
+    
+    // Combine all tag sources, deduplicate, and return
+    const allTags = [...domainTags, ...explicitTags, ...questionTags];
+    return Array.from(new Set(allTags));
   }
 } 
