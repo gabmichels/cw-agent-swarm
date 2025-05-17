@@ -12,11 +12,11 @@ const openai = new OpenAI({
 });
 
 /**
- * Process image with a vision-capable model (GPT-4o)
+ * Process image with a vision-capable model (GPT-4.1)
  */
 async function processWithVisionModel(message: string, imageData: Array<{data: string, mimeType: string}>, conversationHistory: any[] = []) {
   try {
-    console.log(`Processing ${imageData.length} images with GPT-4o vision model`);
+    console.log(`Processing ${imageData.length} images with GPT-4.1 vision model`);
     
     // Format the conversation history for context (limited to save tokens)
     const formattedHistory = conversationHistory.slice(-3).map(msg => ({
@@ -53,35 +53,35 @@ async function processWithVisionModel(message: string, imageData: Array<{data: s
       }
     ];
     
-    console.log(`Calling GPT-4o with ${messages.length} messages and ${imageData.length} images`);
+    console.log(`Calling GPT-4.1 with ${messages.length} messages and ${imageData.length} images`);
     
     // Call the OpenAI vision model
     const response = await openai.chat.completions.create({
-      model: 'gpt-4o', // Use GPT-4o which has integrated vision capabilities
+      model: 'gpt-4.1-mini-2025-04-14', // Use GPT-4.1 which has integrated vision capabilities
       messages: messages,
       max_tokens: 1000,
     });
     
     const reply = response.choices[0]?.message?.content || 'No response from vision model';
-    console.log(`GPT-4o response (first 100 chars): ${reply.substring(0, 100)}...`);
+    console.log(`GPT-4.1 response (first 100 chars): ${reply.substring(0, 100)}...`);
     console.log(`Total tokens used: ${response.usage?.total_tokens || 'unknown'}`);
     
     return {
       reply,
-      thoughts: [`Processed ${imageData.length} images with GPT-4o vision model. Total tokens: ${response.usage?.total_tokens || 'unknown'}`]
+      thoughts: [`Processed ${imageData.length} images with GPT-4.1 vision model. Total tokens: ${response.usage?.total_tokens || 'unknown'}`]
     };
   } catch (error: any) {
     console.error('Error processing with vision model:', error);
     return {
       reply: `I encountered an error analyzing the images: ${error.message}. Please try again.`,
-      thoughts: [`Error processing images with GPT-4o: ${error.message}`]
+      thoughts: [`Error processing images with GPT-4.1: ${error.message}`]
     };
   }
 }
 
 /**
  * POST handler for vision requests
- * Processes messages that contain images using GPT-4o
+ * Processes messages that contain images using GPT-4.1
  */
 export async function POST(request: NextRequest) {
   try {

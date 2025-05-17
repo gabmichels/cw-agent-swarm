@@ -42,8 +42,8 @@ export async function POST(
   { params }: { params: { chatId: string } }
 ) {
   try {
-    // Access param directly without awaiting it
-    const chatId = params.chatId;
+    // Properly await params to get chatId
+    const { chatId } = params;
     
     // Parse form data
     const formData = await request.formData();

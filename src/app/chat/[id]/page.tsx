@@ -638,7 +638,7 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
           <div className="flex-1 overflow-y-auto p-4 space-y-4">
             {selectedTab === 'chat' && (
               <div className="flex flex-col h-full overflow-hidden">
-                <div className="flex-1 h-full">
+                <div className="flex-1 overflow-y-auto">
                   {(!agentId || agentId.includes('Soon') || messages.length === 0) ? (
                     <WelcomeScreen />
                   ) : (
@@ -688,51 +688,26 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
                     </>
                   )}
                   
-                  <div ref={messagesEndRef} className="h-1" />
-                </div>
-                <div className="border-t border-gray-700 p-4">
-                  <ChatInput
-                    inputMessage={inputMessage}
-                    setInputMessage={setInputMessage}
-                    pendingAttachments={pendingAttachments}
-                    removePendingAttachment={removePendingAttachment}
-                    handleSendMessage={handleSendMessage}
-                    isLoading={isLoading}
-                    handleFileSelect={handleFileSelect}
-                    inputRef={inputRef}
-                  />
+                  <div ref={messagesEndRef} className="h-8" />
                 </div>
               </div>
             )}
           </div>
+          <div className="border-t border-gray-700 p-4 relative z-10 bg-gray-800">
+            <ChatInput
+              inputMessage={inputMessage}
+              setInputMessage={setInputMessage}
+              pendingAttachments={pendingAttachments}
+              removePendingAttachment={removePendingAttachment}
+              handleSendMessage={handleSendMessage}
+              isLoading={isLoading}
+              handleFileSelect={handleFileSelect}
+              inputRef={inputRef}
+            />
+          </div>
           <DevModeToggle showInternalMessages={showInternalMessages} setShowInternalMessages={setShowInternalMessages} />
         </main>
       </div>
-
-      {/* File Preview Section */}
-      {pendingAttachments.length > 0 && (
-        <div className="px-4 py-2 border-t border-gray-200 dark:border-gray-700">
-          <div className="flex flex-wrap gap-2">
-            {pendingAttachments.map((file, index) => (
-              <FilePreview
-                key={index}
-                metadata={{
-                  id: file.fileId || '',
-                  filename: file.filename || '',
-                  type: file.mimeType || '',
-                  attachmentType: file.type as unknown as StorageFileType,
-                  size: file.size || 0,
-                  timestamp: Date.now(),
-                  processingStatus: FileProcessingStatus.COMPLETED
-                }}
-                previewUrl={file.preview}
-                onRemove={() => removePendingAttachment(index)}
-                onClick={() => handleFilePreviewClick(file)}
-              />
-            ))}
-          </div>
-        </div>
-      )}
 
       {/* Upload Progress */}
       {uploadProgress > 0 && uploadProgress < 100 && (
