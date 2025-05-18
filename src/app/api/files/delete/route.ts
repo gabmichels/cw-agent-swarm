@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { fileProcessor } from '../../../../lib/file-processing';
+import prisma from '@/lib/prisma';
 
 /**
  * POST handler for deleting a file
@@ -39,6 +40,11 @@ export async function POST(request: NextRequest) {
         { status: 500 }
       );
     }
+
+    // Also delete from Prisma
+    await prisma.chatAttachment.deleteMany({
+      where: { fileId }
+    });
     
     // Return success
     return NextResponse.json({
