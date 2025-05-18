@@ -243,25 +243,7 @@ const ChatMessages: React.FC<ChatMessagesProps> = ({
         }
       `}</style>
       
-      {/* Debug info */}
-      <div className="text-xs text-gray-500 mb-4 p-3 border border-gray-700 rounded bg-gray-800">
-        <p className="font-bold mb-1">Debug Information:</p>
-        <p>Displaying {sortedMessages.length} of {messages.length} messages</p>
-        {initialMessageId && (
-          <p>Looking for message ID: {initialMessageId} - 
-            {sortedMessages.some(msg => msg.id === initialMessageId) ? ' Found!' : ' Not found'}
-          </p>
-        )}
-        <p className="mt-1 mb-1">Message IDs:</p>
-        <div className="max-h-20 overflow-y-auto">
-          {sortedMessages.map((msg, idx) => (
-            <div key={idx} className="flex items-center">
-              <span className="mr-1">{idx + 1}.</span>
-              <span className={initialMessageId === msg.id ? 'text-green-400 font-bold' : ''}>{msg.id}</span>
-            </div>
-          ))}
-        </div>
-      </div>
+      {/* Debug info removed */}
     
       {sortedMessages.map((message, index) => (
         <ChatBubble
@@ -287,8 +269,8 @@ const ChatMessages: React.FC<ChatMessagesProps> = ({
         </div>
       )}
       
-      {/* Scroll anchor div - increased height for better bottom spacing */}
-      <div ref={messagesEndRef} className="h-12 pb-8" />
+      {/* Scroll anchor div - reduced height for less bottom spacing */}
+      <div ref={messagesEndRef} className="h-1" />
     </div>
   );
 };

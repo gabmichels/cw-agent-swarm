@@ -797,7 +797,7 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
                     </>
                   )}
                   
-                  <div ref={messagesEndRef} className="h-8" />
+                  <div ref={messagesEndRef} className="h-1" />
                 </div>
               </div>
             )}
