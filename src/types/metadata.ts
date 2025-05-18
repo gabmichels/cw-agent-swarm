@@ -82,9 +82,9 @@ export interface BaseMetadata {
   // Temporal fields
   timestamp?: string | number;
   
-  // Importance info
+  // Importance info - Both fields consistently defined
   importance?: ImportanceLevel;
-  importance_score?: number;
+  importance_score?: number; // Numeric importance score from 0-1
   critical?: boolean;
   
   // Usage tracking
@@ -190,6 +190,12 @@ export interface MessageMetadata extends BaseMetadata {
     purpose: string;
     sharedContext: Record<string, unknown>;
   };
+  
+  /**
+   * Content summary for message retrieval optimization
+   * Generated automatically from message content
+   */
+  contentSummary?: string;
 }
 
 /**
@@ -219,6 +225,13 @@ export interface CognitiveProcessMetadata extends BaseMetadata {
   influences?: string[];  // IDs of memories this process influenced
   influencedBy?: string[]; // IDs of memories that influenced this process
   
+  // Cognitive importance (consistently defined as in BaseMetadata)
+  // importance?: ImportanceLevel;            // Already in BaseMetadata
+  // importance_score?: number;               // Already in BaseMetadata
+  
+  // Summary for better cognitive memory retrieval
+  contentSummary?: string; // Brief summary of the content
+  
   // Source and category
   source?: string;
   category?: string;
@@ -231,6 +244,9 @@ export interface ThoughtMetadata extends CognitiveProcessMetadata {
   processType: CognitiveProcessType.THOUGHT;
   intention?: string;     // Purpose of the thought
   confidenceScore?: number; // Confidence level (0-1)
+  
+  // Contextual relevance for search enhancement
+  topics?: string[];      // Key topics this thought relates to
 }
 
 /**
@@ -240,6 +256,9 @@ export interface ReflectionMetadata extends CognitiveProcessMetadata {
   processType: CognitiveProcessType.REFLECTION;
   reflectionType?: 'experience' | 'behavior' | 'strategy' | 'performance';
   timeScope?: 'immediate' | 'short-term' | 'long-term';
+  
+  // Reflection-specific importance
+  reflectionDepth?: number;  // How deep this reflection goes (1-10)
 }
 
 /**
@@ -253,6 +272,10 @@ export interface InsightMetadata extends CognitiveProcessMetadata {
     from?: string;  // ISO date string
     to?: string;    // ISO date string
   };
+  
+  // Insight-specific importance indicators
+  noveltyScore?: number;    // How novel this insight is (0-1)
+  applicabilityScore?: number; // How applicable this insight is (0-1)
 }
 
 /**
@@ -263,6 +286,10 @@ export interface PlanningMetadata extends CognitiveProcessMetadata {
   planType?: 'task' | 'strategy' | 'contingency';
   estimatedSteps?: number;
   dependsOn?: string[];  // IDs of prerequisites
+  
+  // Planning-specific importance indicators
+  complexityScore?: number;   // Complexity of this plan (0-1)
+  urgencyScore?: number;      // Urgency of this plan (0-1)
 }
 
 /**
@@ -307,6 +334,19 @@ export interface DocumentMetadata extends BaseMetadata {
   siteName?: string;
   author?: string;
   publishDate?: string;
+  
+  // Document-specific importance and retrieval enhancements
+  contentSummary?: string;    // Brief summary of document contents for better retrieval
+  keyTerms?: string[];        // Extracted key terms for better semantic search
+  retrievalCount?: number;    // Number of times this document has been retrieved
+  lastRetrieved?: string;     // Last time this document was retrieved
+  
+  // Domain-specific categorization
+  domain?: string;            // Domain this document belongs to
+  subDomain?: string;         // Sub-domain categorization
+  
+  // Related documents
+  relatedDocuments?: string[]; // IDs of related documents
 }
 
 /**
@@ -368,6 +408,12 @@ export interface TaskMetadata extends BaseMetadata {
   subtaskIds?: string[];
   dependsOn?: string[];
   blockedBy?: string[];
+
+  /**
+   * Content summary for task retrieval optimization
+   * Generated automatically from task content or description
+   */
+  contentSummary?: string;
 }
 
 /**

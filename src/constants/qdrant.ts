@@ -25,16 +25,6 @@ export const MEMORY_TYPES = {
 };
 
 /**
- * Importance levels for memory filtering
- */
-export const IMPORTANCE_LEVELS = {
-  LOW: 'low',
-  MEDIUM: 'medium',
-  HIGH: 'high',
-  CRITICAL: 'critical',
-};
-
-/**
  * Storage keys for LocalStorage & IndexedDB
  */
 export const STORAGE_KEYS = {
@@ -71,4 +61,6 @@ export const FILTER_KEYS = {
   INTERNAL_MESSAGE: 'isInternalMessage',
   NOT_FOR_CHAT: 'notForChat',
   TIMESTAMP: 'timestamp',
-}; 
+};
+
+import { ImportanceLevel } from './memory'; 

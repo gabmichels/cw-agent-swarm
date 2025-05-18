@@ -4,6 +4,9 @@ import { ImportanceLevel } from '../../../../constants/memory';
 import { WorkingMemoryItem } from '../../types';
 import { SearchResult } from '../../../../server/memory/services/search/types';
 import { BaseMemorySchema } from '../../../../server/memory/models/base-schema';
+import { MemoryFormatter } from '../../memory/MemoryFormatter';
+import { ContentSummaryGenerator } from '../../../../services/importance/ContentSummaryGenerator';
+import { MemoryRetriever, MemoryRetrievalOptions } from '../../memory/MemoryRetriever';
 
 /**
  * Node for retrieving relevant context for the thinking process
@@ -16,8 +19,11 @@ export async function retrieveContextNode(state: ThinkingState): Promise<Thinkin
       return state;
     }
     
-    // Get memory service
+    // Get memory service and create utility instances
     const { memoryService, searchService } = await getMemoryServices();
+    const memoryRetriever = new MemoryRetriever();
+    const contentSummaryGenerator = new ContentSummaryGenerator();
+    const memoryFormatter = new MemoryFormatter();
     
     // Create updated state to hold context
     const updatedState: ThinkingState = {
@@ -26,76 +32,64 @@ export async function retrieveContextNode(state: ThinkingState): Promise<Thinkin
       contextFiles: state.contextFiles || []
     };
     
-    // Retrieve relevant memories using semantic search
+    // Extract topics from the input to enhance retrieval
+    const topics = contentSummaryGenerator.extractTopics(state.input);
+    console.log(`Extracted topics from input: ${topics.join(', ')}`);
+    
+    // Create memory retrieval options with enhanced importance weighting
+    const retrievalOptions: MemoryRetrievalOptions = {
+      query: state.input,
+      userId: state.userId,
+      limit: 15, // Retrieve more memories for better context
+      semanticSearch: true, // Enable semantic search
+      tags: topics, // Use extracted topics as tags
+      importanceWeighting: {
+        enabled: true,
+        priorityWeight: 1.2,
+        confidenceWeight: 1.0,
+        useTypeWeights: true,
+        importanceScoreWeight: 1.5 // Give high weight to importance score
+      },
+      includeMetadata: true // Include all metadata
+    };
+    
     try {
-      // Use the search method with proper parameters based on signature
-      const relevantMemories = await searchService.search(
-        state.input, // query parameter
-        {  
-          limit: 10,
-          minScore: 0.7,
-          filter: { userId: state.userId }
-        }
-      );
+      // Retrieve memories using enhanced retriever
+      const { memories, memoryIds } = await memoryRetriever.retrieveMemories(retrievalOptions);
       
-      // Convert search results to working memory items
-      const workingMemories: WorkingMemoryItem[] = relevantMemories.map((result: SearchResult<BaseMemorySchema>) => {
-        // Get text and metadata from the search result
-        const content = result.point.payload?.text || '';
-        const metadata = result.point.payload?.metadata || {};
-        const timestamp = result.point.payload?.timestamp ? new Date(result.point.payload.timestamp) : new Date();
-        const tags = Array.isArray(metadata.tags) ? metadata.tags : [];
+      if (memories.length > 0) {
+        // Set context memories in state
+        updatedState.contextMemories = memories;
+        console.log(`Retrieved ${memories.length} memories with importance weighting`);
         
-        // Create working memory item
-        return {
-          id: result.point.id,
-          content,
-          type: 'fact', // Default type
-          tags,
-          addedAt: timestamp,
-          priority: result.score * 10, // Convert score to priority
-          expiresAt: null,
-          confidence: result.score,
-          userId: state.userId,
-          _relevanceScore: result.score
-        };
-      });
-      
-      // Add retrieved memories to the state
-      if (workingMemories && workingMemories.length > 0) {
-        const highImportanceMemories = workingMemories
-          .filter((memory: WorkingMemoryItem) => {
-            // The metadata is in the original search result, but we've simplified in our conversion
-            // We'd need to find the original result to check importance
-            const originalResult = relevantMemories.find(r => r.point.id === memory.id);
-            const metadata = originalResult?.point.payload?.metadata;
-            return metadata?.importance === ImportanceLevel.HIGH;
-          });
+        // Format memories for inclusion in state context
+        updatedState.formattedMemoryContext = memoryFormatter.formatMemoriesForContext(
+          memories,
+          { 
+            sortBy: 'importance',
+            groupByType: true,
+            includeDetailedDescriptions: true,
+            includeImportance: true,
+            maxTokens: 3000
+          }
+        );
         
-        const mediumImportanceMemories = workingMemories
-          .filter((memory: WorkingMemoryItem) => {
-            const originalResult = relevantMemories.find(r => r.point.id === memory.id);
-            const metadata = originalResult?.point.payload?.metadata;
-            return metadata?.importance === ImportanceLevel.MEDIUM;
-          });
-        
-        // Prioritize high importance memories, then medium, up to a total of 10
-        const prioritizedMemories = [
-          ...highImportanceMemories,
-          ...mediumImportanceMemories
-        ].slice(0, 10);
-        
-        if (updatedState.contextMemories) {
-          updatedState.contextMemories = prioritizedMemories;
-        }
+        // Log importance scores for debugging
+        console.log('Top 3 memories by importance:');
+        memories.slice(0, 3).forEach((memory, i) => {
+          console.log(`  #${i+1}: Score=${memory.metadata?.importance_score?.toFixed(2) || 'N/A'}, Type=${memory.type}, Tags=${memory.tags.join(',')}`);
+        });
+      } else {
+        updatedState.contextMemories = [];
+        updatedState.formattedMemoryContext = 'No relevant memories found.';
       }
     } catch (searchError) {
       console.error('Error retrieving memories:', searchError);
       updatedState.contextMemories = [];
+      updatedState.formattedMemoryContext = 'Error retrieving memories.';
     }
     
     // Retrieve relevant files if a document service is available
-    // This is a placeholder for when document retrieval is implemented
     try {
       // Sample implementation - would be replaced with actual document service
       // const documentService = await getDocumentService();
@@ -104,6 +98,21 @@ export async function retrieveContextNode(state: ThinkingState): Promise<Thinkin
       
       // For now, use empty array to prevent null errors
       updatedState.contextFiles = [];
+      
+      // If we have files, format them for context
+      if (updatedState.contextFiles.length > 0) {
+        const formattedFiles = memoryFormatter.formatFilesForContext(
+          updatedState.contextFiles,
+          { maxFiles: 5, maxContentLength: 1000 }
+        );
+        
+        // Add formatted file content to context
+        if (updatedState.formattedMemoryContext) {
+          updatedState.formattedMemoryContext += '\n\n' + formattedFiles;
+        } else {
+          updatedState.formattedMemoryContext = formattedFiles;
+        }
+      }
     } catch (error) {
       console.error('Error retrieving relevant files:', error);
       updatedState.contextFiles = [];
@@ -118,7 +127,23 @@ export async function retrieveContextNode(state: ThinkingState): Promise<Thinkin
     return {
       ...state,
       contextMemories: [],
-      contextFiles: []
+      contextFiles: [],
+      formattedMemoryContext: 'Error retrieving context.'
     };
   }
+}
+
+/**
+ * Extract a brief summary from content
+ */
+function extractSummary(content: string): string {
+  if (!content) return '';
+  
+  // Get first 100 characters or first sentence, whichever is shorter
+  const firstSentenceMatch = content.match(/^[^.!?]+[.!?]/);
+  if (firstSentenceMatch && firstSentenceMatch[0].length < 100) {
+    return firstSentenceMatch[0].trim();
+  }
+  
+  return content.substring(0, 100).trim() + '...';
 } 

@@ -42,6 +42,7 @@ import {
   EntityType,
   IdPrefix
 } from '../../../../types/structured-id';
+import { ContentSummaryGenerator } from '../../../../services/importance/ContentSummaryGenerator';
 
 /**
  * Current schema version for metadata
@@ -586,12 +587,47 @@ export function createTaskMetadata(
 ): TaskMetadata {
   const baseMetadata = createBaseMetadata(options);
   
+  // Generate content summary for better retrieval
+  const contentSummary = options.contentSummary || new ContentSummaryGenerator().generateSummary(
+    options.description || title,
+    { maxLength: 150, contentType: 'task' }
+  );
+  
+  // Convert priority to importance if not explicitly provided
+  let importance = options.importance;
+  let importance_score = options.importance_score;
+  
+  if (!importance && !importance_score) {
+    // Map task priority to ImportanceLevel
+    switch (priority) {
+      case TaskPriority.URGENT:
+        importance = ImportanceLevel.CRITICAL;
+        importance_score = 0.95;
+        break;
+      case TaskPriority.HIGH:
+        importance = ImportanceLevel.HIGH;
+        importance_score = 0.75;
+        break;
+      case TaskPriority.MEDIUM:
+        importance = ImportanceLevel.MEDIUM;
+        importance_score = 0.5;
+        break;
+      case TaskPriority.LOW:
+        importance = ImportanceLevel.LOW;
+        importance_score = 0.25;
+        break;
+    }
+  }
+  
   const taskMetadata: TaskMetadata = {
     ...baseMetadata,
     title,
     status,
     priority,
-    createdBy
+    createdBy,
+    importance,
+    importance_score,
+    contentSummary,
   };
   
   // Copy optional fields if they exist

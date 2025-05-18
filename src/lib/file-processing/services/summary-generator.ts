@@ -6,6 +6,8 @@
 
 import { ISummaryGenerator, ProcessedFile } from '../types';
 import { AppError } from '../../../lib/errors/base';
+import { ImportanceCalculatorService } from '../../../services/importance/ImportanceCalculatorService';
+import { ImportanceCalculationMode } from '../../../services/importance/ImportanceCalculatorService';
 
 /**
  * Error codes for summary generation operations
@@ -47,16 +49,20 @@ export interface SummaryGeneratorConfig {
  */
 export class BasicSummaryGenerator implements ISummaryGenerator {
   /**
-   * Configuration for the summary generator
+   * Configuration options
    */
-  private config: SummaryGeneratorConfig;
+  private readonly config: SummaryGeneratorConfig;
   
   /**
    * Constructor
    * 
    * @param config Configuration options
+   * @param importanceCalculator Importance calculator service
    */
-  constructor(config: SummaryGeneratorConfig = {}) {
+  constructor(
+    config: SummaryGeneratorConfig = {},
+    private readonly importanceCalculator: ImportanceCalculatorService
+  ) {
     this.config = {
       maxLength: config.maxLength || 500,
       includeMetadata: config.includeMetadata !== undefined ? config.includeMetadata : true,
@@ -97,32 +103,73 @@ export class BasicSummaryGenerator implements ISummaryGenerator {
       
       // Rule-based summarization approach
       const sentences = this.extractSentences(textToSummarize);
-      const importantSentences = this.rankSentences(sentences).slice(0, 5);
+      const rankedSentences = await this.rankSentences(sentences);
+      const importantSentences = rankedSentences.slice(0, 5);
       
       // Assemble the summary
       let summary = importantSentences.join(' ');
       
-      // Add metadata if requested
-      if (this.config.includeMetadata) {
-        const { filename, documentType, language, size } = file.metadata;
-        const metadataSummary = `${filename || 'Unnamed file'}${documentType ? ` (${documentType})` : ''}, ${this.formatFileSize(size || 0)}${language ? `, in ${language}` : ''}.`;
-        summary = `${metadataSummary} ${summary}`;
-      }
-      
-      // Truncate to max length if needed
-      const maxLength = this.config.maxLength || 500;
-      if (summary.length > maxLength) {
-        summary = summary.substring(0, maxLength - 3) + '...';
+      // Add metadata if configured
+      if (this.config.includeMetadata && file.metadata) {
+        summary += `\n\nFile: ${file.metadata.filename}`;
+        if (file.metadata.size) {
+          summary += ` (${this.formatFileSize(file.metadata.size)})`;
+        }
       }
       
       return summary;
     } catch (error) {
       throw new AppError(
-        `Failed to generate summary: ${error instanceof Error ? error.message : String(error)}`,
+        `Summary generation failed: ${error instanceof Error ? error.message : String(error)}`,
         SummaryGeneratorErrorCode.GENERATION_FAILED,
-        { filename: file.metadata.filename }
+        { filename: file.metadata?.filename }
       );
     }
+  }
+  
+  /**
+   * Calculate importance score for a sentence
+   * 
+   * @param sentence The sentence text
+   * @param position Position in the text
+   * @param totalSentences Total number of sentences
+   * @returns Importance score
+   */
+  private async calculateSentenceScore(sentence: string, position: number, totalSentences: number): Promise<number> {
+    // Position score - sentences at the beginning are usually more important
+    const positionScore = (totalSentences - Math.min(position, totalSentences)) / totalSentences;
+    
+    // Calculate importance using the service
+    const result = await this.importanceCalculator.calculateImportance({
+      content: sentence,
+      contentType: 'sentence',
+      source: 'document',
+      tags: ['summary_generation'],
+      existingScore: positionScore * 0.5 // Use position as initial score
+    }, ImportanceCalculationMode.RULE_BASED);
+
+    return result.importance_score;
+  }
+  
+  /**
+   * Rank sentences by importance
+   * 
+   * @param sentences Array of sentences
+   * @returns Array of sentences ranked by importance
+   */
+  private async rankSentences(sentences: string[]): Promise<string[]> {
+    // Calculate importance scores for each sentence
+    const scoredSentences = await Promise.all(
+      sentences.map(async (sentence, index) => ({
+        sentence,
+        score: await this.calculateSentenceScore(sentence, index, sentences.length)
+      }))
+    );
+    
+    // Sort by score in descending order
+    return scoredSentences
+      .sort((a, b) => b.score - a.score)
+      .map(s => s.sentence);
   }
   
   /**
@@ -139,76 +186,6 @@ export class BasicSummaryGenerator implements ISummaryGenerator {
       .filter(s => s.length > 10); // Filter out very short segments
     
     return sentences;
-  }
-  
-  /**
-   * Rank sentences by importance
-   * 
-   * @param sentences Array of sentences
-   * @returns Array of sentences ranked by importance
-   */
-  private rankSentences(sentences: string[]): string[] {
-    // Simple ranking algorithm based on sentence length and position
-    const rankedSentences = sentences.map((sentence, index) => ({
-      text: sentence,
-      score: this.calculateSentenceScore(sentence, index, sentences.length)
-    }));
-    
-    // Sort by score (highest first)
-    rankedSentences.sort((a, b) => b.score - a.score);
-    
-    // Return just the text
-    return rankedSentences.map(s => s.text);
-  }
-  
-  /**
-   * Calculate importance score for a sentence
-   * 
-   * @param sentence The sentence text
-   * @param position Position in the text
-   * @param totalSentences Total number of sentences
-   * @returns Importance score
-   */
-  private calculateSentenceScore(sentence: string, position: number, totalSentences: number): number {
-    let score = 0;
-    
-    // Position score - sentences at the beginning are usually more important
-    const positionScore = (totalSentences - position) / totalSentences;
-    score += positionScore * 2;
-    
-    // Length score - moderate length sentences are usually more informative
-    const words = sentence.split(/\s+/).length;
-    const lengthScore = words > 5 && words < 25 ? 1 : 0;
-    score += lengthScore;
-    
-    // Keyword score - sentences with key terms are more important
-    const keywordScore = this.countKeywords(sentence);
-    score += keywordScore;
-    
-    return score;
-  }
-  
-  /**
-   * Count important keywords in a sentence
-   * 
-   * @param sentence The sentence text
-   * @returns Number of keywords found
-   */
-  private countKeywords(sentence: string): number {
-    const keywords = [
-      'important', 'significant', 'key', 'main', 'primary', 'essential',
-      'critical', 'crucial', 'fundamental', 'major', 'conclusion',
-      'result', 'finding', 'discovered', 'shows', 'demonstrates'
-    ];
-    
-    let count = 0;
-    for (const keyword of keywords) {
-      if (sentence.toLowerCase().includes(keyword)) {
-        count++;
-      }
-    }
-    
-    return count;
   }
   
   /**
@@ -232,19 +209,23 @@ export class AdvancedSummaryGenerator implements ISummaryGenerator {
   /**
    * Configuration for the summary generator
    */
-  private config: SummaryGeneratorConfig;
+  private readonly config: SummaryGeneratorConfig;
   
   /**
    * Basic summary generator as fallback
    */
-  private basicGenerator: BasicSummaryGenerator;
+  private readonly basicGenerator: BasicSummaryGenerator;
   
   /**
    * Constructor
    * 
+   * @param importanceCalculator Importance calculator service
    * @param config Configuration options
    */
-  constructor(config: SummaryGeneratorConfig = {}) {
+  constructor(
+    private readonly importanceCalculator: ImportanceCalculatorService,
+    config: SummaryGeneratorConfig = {}
+  ) {
     this.config = {
       maxLength: config.maxLength || 1000,
       model: config.model || 'default',
@@ -252,7 +233,7 @@ export class AdvancedSummaryGenerator implements ISummaryGenerator {
       maxChunks: config.maxChunks || 10
     };
     
-    this.basicGenerator = new BasicSummaryGenerator(config);
+    this.basicGenerator = new BasicSummaryGenerator(config, importanceCalculator);
   }
   
   /**

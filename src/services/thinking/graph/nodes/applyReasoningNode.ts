@@ -50,6 +50,9 @@ export async function applyReasoningNode(state: ThinkingState): Promise<Thinking
     const planSteps = state.plan.join('\n- ');
     const tools = state.tools?.join(', ') || 'No tools selected';
     
+    // Include memory context if available
+    const memoryContext = state.formattedMemoryContext || 'No relevant memory context available.';
+    
     // Create an LLM instance
     const model = new ChatOpenAI({
       modelName: process.env.OPENAI_MODEL || 'gpt-3.5-turbo',
@@ -64,6 +67,8 @@ for how to approach the user's request.
 Your reasoning should be thorough, logical, and consider all relevant information.
 Make explicit any assumptions you're making, and note any areas of uncertainty.
 
+Use the provided memory context to inform your reasoning and ensure continuity with past interactions.
+
 ${parser.getFormatInstructions()}
     `;
     
@@ -77,6 +82,9 @@ Execution Plan:
 - ${planSteps}
 
 Selected Tools: ${tools}
+
+Memory Context:
+${memoryContext}
 
 Context: Generate a reasoning chain that explains how to best handle this request.`]
     ]);

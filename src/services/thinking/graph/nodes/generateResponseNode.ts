@@ -46,6 +46,10 @@ export async function generateResponseNode(state: ThinkingState): Promise<Thinki
         ).join('\n')}`
       : '';
     
+    // Include memory context if available
+    const memoryContext = state.formattedMemoryContext || '';
+    const memoryContextText = memoryContext ? `\nRelevant Memory Context:\n${memoryContext}` : '';
+    
     // Create an LLM instance with lower temperature for more consistent output
     const model = new ChatOpenAI({
       modelName: process.env.OPENAI_MODEL || 'gpt-3.5-turbo',
@@ -65,6 +69,10 @@ This response should:
 4. Provide accurate information
 5. Be conversational and engaging
 
+IMPORTANT: Use the provided memory context to remember previous interactions and information shared by the user.
+This ensures your response is consistent with what you've already been told and prevents asking for information
+that the user has already provided.
+
 Do not explain your thinking process or reasoning in the response unless explicitly asked.
 Focus on delivering value in your answer.
 Do not prefix your response with phrases like "Based on my analysis" or "I understand you want to know about..."
@@ -80,7 +88,7 @@ ${reasoningText}
 
 ${planText}
 
-${toolResultsText}
+${toolResultsText}${memoryContextText}
 `.trim();
     
     const promptTemplate = ChatPromptTemplate.fromMessages([

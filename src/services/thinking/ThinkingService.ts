@@ -14,6 +14,8 @@ import { DelegationFeedback } from './delegation/DelegationManager';
 import { CognitiveArtifactService } from './cognitive/CognitiveArtifactService';
 import { getMemoryServices } from '../../server/memory/services';
 import { ImportanceLevel } from '../../constants/memory';
+import { ImportanceCalculatorService } from '../importance/ImportanceCalculatorService';
+import { ImportanceCalculationMode } from '../importance/ImportanceCalculatorService';
 
 /**
  * Implementation of the ThinkingService
@@ -25,7 +27,9 @@ export class ThinkingService implements IThinkingService {
   private delegatedTasks: Map<string, { taskId: string, agentId: string }> = new Map();
   private cognitiveArtifactService?: CognitiveArtifactService;
   
-  constructor() {
+  constructor(
+    private readonly importanceCalculator: ImportanceCalculatorService
+  ) {
     this.delegationService = new DelegationService();
     
     // Initialize cognitive artifact service asynchronously
@@ -288,7 +292,7 @@ export class ThinkingService implements IThinkingService {
     
     try {
       // Determine importance based on complexity and priority
-      const importance = this.calculateImportance(thinkingResult);
+      const importance = await this.calculateImportance(thinkingResult);
       
       // Store the complete thinking process with all components
       const storageResult = await this.cognitiveArtifactService.storeThinkingResult(
@@ -365,15 +369,20 @@ I've decided to delegate this task to an agent with the appropriate specializati
   /**
    * Calculate importance based on thinking result
    */
-  private calculateImportance(thinkingResult: ThinkingResult): ImportanceLevel {
-    // Higher complexity or priority = higher importance
-    if (thinkingResult.complexity >= 7 || thinkingResult.priority >= 8 || thinkingResult.isUrgent) {
-      return ImportanceLevel.HIGH;
-    } else if (thinkingResult.complexity >= 4 || thinkingResult.priority >= 5) {
-      return ImportanceLevel.MEDIUM;
-    } else {
-      return ImportanceLevel.LOW;
-    }
+  private async calculateImportance(thinkingResult: ThinkingResult): Promise<ImportanceLevel> {
+    const result = await this.importanceCalculator.calculateImportance({
+      content: thinkingResult.reasoning.join('\n'),  // Join all reasoning steps
+      contentType: 'thinking',
+      tags: [
+        'thinking',
+        `complexity:${thinkingResult.complexity}`,
+        `priority:${thinkingResult.priority}`
+      ],
+      source: 'agent',
+      userContext: thinkingResult.context ? JSON.stringify(thinkingResult.context) : undefined
+    }, ImportanceCalculationMode.HYBRID);
+    
+    return result.importance_level;
   }
   
   /**

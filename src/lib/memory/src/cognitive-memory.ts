@@ -6,6 +6,8 @@ import { MemoryType as StandardMemoryType } from '../../../server/memory/config/
 import { SearchResult } from '../../../server/memory/services/search/types';
 import { BaseMetadata, CognitiveMemoryMetadata, MemoryEmotion } from '../../../types/metadata';
 import { createCognitiveMemoryMetadata, updateWithDecayInfo } from '../../../server/memory/services/helpers/metadata-helpers';
+import { ImportanceCalculatorService } from '../../../services/importance/ImportanceCalculatorService';
+import { ImportanceCalculationMode } from '../../../services/importance/ImportanceCalculatorService';
 
 /**
  * CognitiveMemory System
@@ -43,24 +45,29 @@ export interface WorkingMemoryItem {
   relatedIds: string[];
 }
 
+export interface CognitiveMemoryOptions {
+  namespace?: string;
+  config?: Record<string, any>;
+  workingMemoryCapacity?: number;
+  consolidationInterval?: number;
+  decayRate?: number;
+}
+
 /**
  * Cognitive Memory system with human-like memory processes
  */
 export class CognitiveMemory extends EnhancedMemory {
   private workingMemory: WorkingMemoryItem[] = [];
-  private workingMemoryCapacity: number = 7; // Miller's Law - 7±2 items
+  private workingMemoryCapacity: number = 100;
   private lastConsolidation: Date = new Date();
   private emotionDetectionEnabled: boolean = true;
-  private consolidationInterval: number = 24; // hours
+  private consolidationInterval: number = 3600000; // 1 hour
   private decayRate: number = 0.05; // 5% per day for unused memories
   
-  constructor(options: { 
-    namespace?: string, 
-    config?: Record<string, any>,
-    workingMemoryCapacity?: number,
-    consolidationInterval?: number,
-    decayRate?: number
-  }) {
+  constructor(
+    private readonly importanceCalculator: ImportanceCalculatorService,
+    options: CognitiveMemoryOptions = {}
+  ) {
     super(options);
     
     if (options.workingMemoryCapacity) {
@@ -101,7 +108,7 @@ export class CognitiveMemory extends EnhancedMemory {
       }
       
       // Calculate importance
-      const importance = metadata.importance || this.calculateImportance(content, emotions);
+      const importance = await this.calculateImportance(content, emotions);
       
       // Create extended metadata using the helper function
       const episodicMetadata = createCognitiveMemoryMetadata({
@@ -304,46 +311,18 @@ export class CognitiveMemory extends EnhancedMemory {
   }
 
   /**
-   * Calculate importance based on content and emotions
+   * Calculate importance for content
    */
-  private calculateImportance(content: string, emotions: MemoryEmotion[]): ImportanceLevel {
-    // Default importance
-    let importance: ImportanceLevel = ImportanceLevel.MEDIUM;
-    
-    // Check for critical keywords
-    const criticalKeywords = [
-      'urgent', 'critical', 'emergency', 'immediate', 'crucial', 'vital',
-      'security', 'breach', 'violation', 'danger', 'threat', 'risk'
-    ];
-    
-    // Check for high importance keywords
-    const highImportanceKeywords = [
-      'important', 'significant', 'key', 'essential', 'remember', 'priority',
-      'deadline', 'required', 'necessary', 'needed', 'mandate'
-    ];
-    
-    // Check for emotional significance
-    const highEmotions = ['fear', 'surprise', 'anger'];
-    
-    // Check content for critical or high importance indicators
-    if (criticalKeywords.some(keyword => content.toLowerCase().includes(keyword))) {
-      importance = ImportanceLevel.CRITICAL;
-    } else if (
-      highImportanceKeywords.some(keyword => content.toLowerCase().includes(keyword)) || 
-      emotions.some(emotion => highEmotions.includes(emotion))
-    ) {
-      importance = ImportanceLevel.HIGH;
-    } else if (content.length < 20 || content.split(' ').length < 5) {
-      // Very short messages tend to be less important
-      importance = ImportanceLevel.LOW;
-    }
-    
-    // Emotional intensity can increase importance
-    if (emotions.length > 2 && importance !== ImportanceLevel.CRITICAL) {
-      importance = ImportanceLevel.HIGH;
-    }
-    
-    return importance;
+  private async calculateImportance(content: string, emotions: MemoryEmotion[]): Promise<ImportanceLevel> {
+    const result = await this.importanceCalculator.calculateImportance({
+      content,
+      contentType: 'memory',
+      source: 'cognitive',
+      tags: emotions,
+      userContext: 'Emotional memory with detected emotions'
+    }, ImportanceCalculationMode.HYBRID);
+
+    return result.importance_level;
   }
 
   /**
@@ -427,15 +406,12 @@ export class CognitiveMemory extends EnhancedMemory {
 
 // Export factory function
 export const createCognitiveMemory = (
-  namespace: string = 'chloe',
+  importanceCalculator: ImportanceCalculatorService,
   options: {
     workingMemoryCapacity?: number,
     consolidationInterval?: number,
     decayRate?: number
   } = {}
 ): CognitiveMemory => {
-  return new CognitiveMemory({ 
-    namespace,
-    ...options
-  });
+  return new CognitiveMemory(importanceCalculator, options);
 }; 

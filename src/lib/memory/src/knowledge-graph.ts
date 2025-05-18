@@ -3,6 +3,7 @@ import { MemoryType as StandardMemoryType } from '../../../server/memory/config/
 import { BaseMemorySchema } from '../../../server/memory/models';
 import { ImportanceLevel } from '../../../constants/memory';
 import { ulid } from 'ulid';
+import { ImportanceConverter } from '../../../services/importance/ImportanceConverter';
 
 /**
  * Knowledge Graph System
@@ -239,10 +240,7 @@ export class KnowledgeGraph implements IKnowledgeGraph {
    * Convert numeric importance (0-1) to an ImportanceLevel enum value
    */
   private convertImportanceToLevel(importance: number): ImportanceLevel {
-    if (importance < 0.3) return ImportanceLevel.LOW;
-    if (importance < 0.6) return ImportanceLevel.MEDIUM;
-    if (importance < 0.9) return ImportanceLevel.HIGH;
-    return ImportanceLevel.CRITICAL;
+    return ImportanceConverter.scoreToLevel(importance);
   }
   
   /**
@@ -418,13 +416,7 @@ export class KnowledgeGraph implements IKnowledgeGraph {
    * Convert ImportanceLevel to a numeric value
    */
   private importanceLevelToNumber(level: ImportanceLevel): number {
-    switch(level) {
-      case ImportanceLevel.LOW: return 0.2;
-      case ImportanceLevel.MEDIUM: return 0.5;
-      case ImportanceLevel.HIGH: return 0.8;
-      case ImportanceLevel.CRITICAL: return 1.0;
-      default: return 0.5;
-    }
+    return ImportanceConverter.levelToScore(level);
   }
   
   /**

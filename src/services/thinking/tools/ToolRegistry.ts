@@ -100,7 +100,6 @@ export class ToolRegistry {
     this.toolExecutors.set(toolId, executor);
     // Also register with the tool service
     this.toolService.registerExecutor(toolId, executor);
-    console.log(`Registered executor for tool ${toolId}`);
   }
   
   /**

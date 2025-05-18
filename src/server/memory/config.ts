@@ -1,3 +1,5 @@
+import { ImportanceLevel } from '../../constants/memory';
+
 // Re-export MemoryType from config/types.ts
 export { MemoryType } from './config/types';
 
@@ -43,13 +45,6 @@ export class MemoryError extends Error {
     super(message);
     this.name = 'MemoryError';
   }
-}
-
-export enum ImportanceLevel {
-  LOW = 'low',
-  MEDIUM = 'medium',
-  HIGH = 'high',
-  CRITICAL = 'critical',
 }
 
 // Re-export types from config/types.ts

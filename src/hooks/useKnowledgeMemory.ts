@@ -1,16 +1,7 @@
+import { ImportanceLevel } from '../constants/memory';
 import { useState, useCallback, useEffect } from 'react';
 import { MemoryType } from '../server/memory/config';
 import useMemory, { MemorySearchParams } from './useMemory';
-
-/**
- * Importance levels for knowledge items
- */
-export enum KnowledgeImportance {
-  LOW = 'low',
-  MEDIUM = 'medium',
-  HIGH = 'high',
-  CRITICAL = 'critical'
-}
 
 /**
  * Knowledge item interface
@@ -21,7 +12,7 @@ export interface KnowledgeItem {
   type: string;
   timestamp: Date;
   source?: string;
-  importance?: KnowledgeImportance;
+  importance?: ImportanceLevel;
   tags?: string[];
   flagged?: boolean;
   metadata?: Record<string, any>;
@@ -150,7 +141,7 @@ export default function useKnowledgeMemory({
             type: '',
             timestamp: new Date(),
             source: '',
-            importance: KnowledgeImportance.MEDIUM,
+            importance: ImportanceLevel.MEDIUM,
             tags: [],
             flagged: false,
             metadata: {}
@@ -174,7 +165,7 @@ export default function useKnowledgeMemory({
           type: item.payload?.type || item.type || '',
           timestamp: new Date(item.payload?.timestamp || item.timestamp || Date.now()),
           source: metadata.source || '',
-          importance: metadata.importance || KnowledgeImportance.MEDIUM,
+          importance: metadata.importance || ImportanceLevel.MEDIUM,
           tags: Array.isArray(metadata.tags) ? metadata.tags : [],
           flagged: !!metadata.flagged,
           metadata
@@ -207,7 +198,7 @@ export default function useKnowledgeMemory({
       content: string;
       type: MemoryType;
       source?: string;
-      importance?: KnowledgeImportance;
+      importance?: ImportanceLevel;
       tags?: string[];
       flagged?: boolean;
       metadata?: Record<string, any>;
@@ -246,7 +237,7 @@ export default function useKnowledgeMemory({
       content?: string;
       type?: MemoryType;
       source?: string;
-      importance?: KnowledgeImportance;
+      importance?: ImportanceLevel;
       tags?: string[];
       flagged?: boolean;
       metadata?: Record<string, any>;
@@ -325,7 +316,7 @@ export default function useKnowledgeMemory({
   const changeImportance = useCallback(async (
     id: string,
     type: MemoryType,
-    importance: KnowledgeImportance
+    importance: ImportanceLevel
   ) => {
     try {
       return await updateKnowledgeItem(id, {

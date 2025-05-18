@@ -1,6 +1,6 @@
 import { getMemoryServices } from '@/server/memory/services';
 import { WorkingMemoryItem, FileReference } from '../types';
-import { ImportanceLevel } from '@/server/memory/config';
+import { ImportanceLevel } from '@/constants/memory';
 import { IdGenerator } from '@/utils/ulid';
 import { SearchResult } from '@/server/memory/services/search/types';
 import { BaseMemorySchema } from '@/server/memory/models';
@@ -26,6 +26,7 @@ export interface MemoryRetrievalOptions {
     priorityWeight?: number;
     confidenceWeight?: number;
     useTypeWeights?: boolean;
+    importanceScoreWeight?: number;
   };
   
   // Formatting options
@@ -45,7 +46,31 @@ export class MemoryRetriever {
     'fact': 1.5,   // Facts are important for context
     'entity': 1.3, // Entities are key information
     'preference': 1.2, // User preferences are important
-    'task': 1.0    // Tasks are standard weight
+    'task': 1.0,   // Tasks are standard weight
+    'message': 1.4 // Increase message importance to capture conversation history
+  };
+  
+  /**
+   * Message type weights for better conversational context
+   */
+  private messageTypeWeights: Record<string, number> = {
+    'answer': 1.5,    // Answers to user questions are more important
+    'question': 1.2,  // Questions provide context
+    'statement': 1.0, // General statements
+    'information': 1.4, // Information provided by users is important
+    'budget': 1.8,    // Budget information is highly important
+    'requirement': 1.7, // Requirements are important
+    'constraint': 1.6  // Constraints are important
+  };
+  
+  /**
+   * Importance level weights for stronger prioritization
+   */
+  private importanceLevelWeights: Record<ImportanceLevel, number> = {
+    [ImportanceLevel.CRITICAL]: 2.0,
+    [ImportanceLevel.HIGH]: 1.5, 
+    [ImportanceLevel.MEDIUM]: 1.2,
+    [ImportanceLevel.LOW]: 1.0
   };
   
   /**
@@ -105,7 +130,6 @@ export class MemoryRetriever {
       for (const result of searchResults) {
         try {
           // Type assertion to work with the search result structure
-          // The actual structure may vary depending on your implementation
           const resultData = result as unknown as {
             point: {
               id: string;
@@ -116,6 +140,9 @@ export class MemoryRetriever {
                   type?: string;
                   priority?: number;
                   confidence?: number;
+                  importance?: ImportanceLevel;
+                  importance_score?: number;
+                  contentSummary?: string;
                 };
               };
             };
@@ -128,11 +155,14 @@ export class MemoryRetriever {
           const memoryType = String(resultData.point?.payload?.metadata?.type || 'fact');
           const priority = Number(resultData.point?.payload?.metadata?.priority || 5);
           const confidence = Number(resultData.point?.payload?.metadata?.confidence || 0.7);
+          const importanceLevel = resultData.point?.payload?.metadata?.importance;
+          const importanceScore = resultData.point?.payload?.metadata?.importance_score;
+          const contentSummary = resultData.point?.payload?.metadata?.contentSummary;
           
           // Create a working memory item
           memories.push({
             id: memoryId,
-            type: memoryType as 'entity' | 'fact' | 'preference' | 'task' | 'goal',
+            type: memoryType as 'entity' | 'fact' | 'preference' | 'task' | 'goal' | 'message',
             content: String(resultData.point?.payload?.content || ''),
             tags: Array.isArray(resultData.point?.payload?.metadata?.tags) 
               ? resultData.point.payload.metadata.tags 
@@ -143,7 +173,17 @@ export class MemoryRetriever {
             confidence: confidence,
             userId: options.userId,
             // Store original relevance score for ranking
-            _relevanceScore: resultData.score || 0.5
+            _relevanceScore: resultData.score || 0.5,
+            // Store additional metadata including importance information
+            metadata: {
+              importance: importanceLevel,
+              importance_score: importanceScore,
+              contentSummary: contentSummary,
+              message_type: memoryType === 'message' ? 
+                (resultData.point?.payload?.metadata?.tags?.find(tag => 
+                  ['answer', 'question', 'statement', 'information', 'budget', 'requirement', 'constraint'].includes(tag)
+                ) || 'statement') : undefined
+            }
           });
           
           memoryIds.push(memoryId);
@@ -173,6 +213,7 @@ export class MemoryRetriever {
       priorityWeight?: number;
       confidenceWeight?: number;
       useTypeWeights?: boolean;
+      importanceScoreWeight?: number;
     },
     queryTags?: string[]
   ): WorkingMemoryItem[] {
@@ -180,6 +221,25 @@ export class MemoryRetriever {
     const priorityWeight = weightingOptions.priorityWeight ?? 1.0;
     const confidenceWeight = weightingOptions.confidenceWeight ?? 1.0;
     const useTypeWeights = weightingOptions.useTypeWeights ?? true;
+    const importanceScoreWeight = weightingOptions.importanceScoreWeight ?? 1.5;
+    
+    // Enhanced keyword detection for query
+    const queryWords = queryTags ? [...queryTags] : [];
+    if (queryTags?.length === 0) {
+      const queryText = queryTags?.join(' ') || '';
+      ['budget', 'cost', 'money', 'price', 'financial', 'payment'].forEach(word => {
+        if (queryText.toLowerCase().includes(word)) {
+          queryWords.push('budget');
+        }
+      });
+      
+      // Add task-specific words to enhance task retrieval
+      ['task', 'todo', 'due', 'deadline', 'complete', 'finish'].forEach(word => {
+        if (queryText.toLowerCase().includes(word)) {
+          queryWords.push('task');
+        }
+      });
+    }
     
     // Calculate weighted scores for each memory
     const scoredMemories = memories.map(memory => {
@@ -195,20 +255,72 @@ export class MemoryRetriever {
       // Apply type-based weighting if enabled
       if (useTypeWeights && this.typeWeights[memory.type]) {
         score *= this.typeWeights[memory.type];
+        
+        // Special boost for tasks if query is task-related
+        if (memory.type === 'task' && queryWords.includes('task')) {
+          score *= 1.5; // Extra boost for tasks when searching for tasks
+        }
+      }
+      
+      // Apply message type weighting for conversation context
+      const messageType = memory.metadata?.message_type || memory.tags.find(tag => 
+        Object.keys(this.messageTypeWeights).includes(tag.toLowerCase())
+      );
+      
+      if (messageType && this.messageTypeWeights[messageType]) {
+        score *= this.messageTypeWeights[messageType];
+        
+        // Extra boost for answers to questions as they're critical context
+        if (messageType === 'answer') {
+          score *= 1.3;
+        }
+        
+        // Special handling for budget information if query is related to budget
+        if (messageType === 'budget' && queryWords.includes('budget')) {
+          score *= 2.0; // Significant boost for budget info when querying about budget
+        }
+      }
+      
+      // Apply importance weighting - prefer explicit score first, then level
+      if (memory.metadata?.importance_score !== undefined) {
+        // Exponential boost for high importance items (more dramatic effect)
+        score *= Math.pow(1 + memory.metadata.importance_score, 2) * importanceScoreWeight;
+      } 
+      else if (memory.metadata?.importance) {
+        // Type assertion to ensure it's a valid ImportanceLevel
+        const importanceLevel = memory.metadata.importance as ImportanceLevel;
+        const importanceFactor = this.importanceLevelWeights[importanceLevel] || 1.0;
+        score *= importanceFactor;
       }
       
       // Apply tag-based boost if query tags are provided
-      if (queryTags && queryTags.length > 0 && memory.tags && memory.tags.length > 0) {
+      if (queryWords.length > 0 && memory.tags && memory.tags.length > 0) {
         // Count matching tags
-        const matchingTags = memory.tags.filter(tag => queryTags.includes(tag));
+        const matchingTags = memory.tags.filter(tag => queryWords.includes(tag));
         if (matchingTags.length > 0) {
           // Boost based on number of matching tags
-          const tagBoostFactor = 1.0 + (matchingTags.length / queryTags.length) * 0.5;
+          const tagBoostFactor = 1.0 + (matchingTags.length / queryWords.length) * 0.5;
           score *= tagBoostFactor;
           
           // Log if there's a significant boost
           if (tagBoostFactor > 1.2) {
             console.log(`Boosted memory ${memory.id} by factor ${tagBoostFactor.toFixed(2)} due to ${matchingTags.length} matching tags`);
+          }
+        }
+      }
+      
+      // Content relevance boost based on content summary if available
+      if (memory.metadata?.contentSummary && memory.metadata.contentSummary.length > 0) {
+        // Check if content summary contains important topics related to query
+        const summaryText = memory.metadata.contentSummary.toLowerCase();
+        if (queryWords.some(word => summaryText.includes(word.toLowerCase()))) {
+          score *= 1.5; // Significant boost for content that directly addresses the query
+          
+          // Extra boost for tasks with deadlines when querying for tasks
+          if (memory.type === 'task' && 
+              queryWords.includes('task') && 
+              (summaryText.includes('deadline') || summaryText.includes('due'))) {
+            score *= 1.3; // Additional boost for deadline-related tasks
           }
         }
       }
@@ -221,17 +333,19 @@ export class MemoryRetriever {
       .sort((a, b) => b.score - a.score)
       .map(item => item.memory);
   }
-
+  
   /**
-   * Get working memory for a user
+   * Retrieve the user's working memory
    */
   async getWorkingMemory(userId: string): Promise<WorkingMemoryItem[]> {
     try {
-      // This would be replaced with actual working memory retrieval
-      // For now, return an empty array
+      const { memoryService } = await getMemoryServices();
+      
+      // Implement this based on your storage mechanism
+      // This is a placeholder for the actual implementation
       return [];
     } catch (error) {
-      console.error('Error getting working memory:', error);
+      console.error('Error retrieving working memory:', error);
       return [];
     }
   }

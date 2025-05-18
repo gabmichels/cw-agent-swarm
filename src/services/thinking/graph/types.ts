@@ -166,6 +166,11 @@ export interface ThinkingState {
   workingMemory?: WorkingMemoryItem[];
   
   /**
+   * Formatted memory context for LLM prompt
+   */
+  formattedMemoryContext?: string;
+  
+  /**
    * Intent identified from the input
    */
   intent?: Intent;

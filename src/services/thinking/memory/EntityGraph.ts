@@ -1,6 +1,8 @@
 import { ExtractedEntity, EntityType } from './EntityExtractor';
 import { ExtractedRelationship, RelationshipType } from './RelationshipExtractor';
 import { IdGenerator } from '@/utils/ulid';
+import { ImportanceCalculatorService } from '../../importance/ImportanceCalculatorService';
+import { ImportanceCalculationMode } from '../../importance/ImportanceCalculatorService';
 
 /**
  * Node in the entity graph
@@ -51,7 +53,9 @@ export class EntityGraph {
   private nodes: Map<string, EntityNode>;
   private edges: Map<string, EntityEdge>;
   
-  constructor() {
+  constructor(
+    private readonly importanceCalculator: ImportanceCalculatorService
+  ) {
     this.nodes = new Map();
     this.edges = new Map();
   }
@@ -59,7 +63,8 @@ export class EntityGraph {
   /**
    * Add an entity to the graph
    */
-  addEntity(entity: ExtractedEntity): EntityNode {
+  async addEntity(entity: ExtractedEntity): Promise<EntityNode> {
+    // Create node
     const node: EntityNode = {
       id: entity.id,
       entity,
@@ -69,7 +74,7 @@ export class EntityGraph {
         createdAt: new Date().toISOString(),
         lastUpdated: new Date().toISOString(),
         accessCount: 0,
-        importance: this.calculateEntityImportance(entity)
+        importance: await this.calculateEntityImportance(entity)
       }
     };
     
@@ -80,7 +85,7 @@ export class EntityGraph {
   /**
    * Add a relationship to the graph
    */
-  addRelationship(relationship: ExtractedRelationship): EntityEdge {
+  async addRelationship(relationship: ExtractedRelationship): Promise<EntityEdge> {
     // Create edge
     const edge: EntityEdge = {
       id: relationship.id,
@@ -89,7 +94,7 @@ export class EntityGraph {
         createdAt: new Date().toISOString(),
         lastUpdated: new Date().toISOString(),
         accessCount: 0,
-        importance: this.calculateRelationshipImportance(relationship)
+        importance: await this.calculateRelationshipImportance(relationship)
       }
     };
     
@@ -281,60 +286,30 @@ export class EntityGraph {
   /**
    * Calculate initial importance score for an entity
    */
-  private calculateEntityImportance(entity: ExtractedEntity): number {
-    let importance = entity.confidence;
-    
-    // Boost importance based on type
-    switch (entity.type) {
-      case EntityType.PERSON:
-      case EntityType.ORGANIZATION:
-        importance *= 1.2;
-        break;
-      case EntityType.CONCEPT:
-      case EntityType.GOAL:
-        importance *= 1.1;
-        break;
-      case EntityType.TASK:
-      case EntityType.ACTION:
-        importance *= 1.05;
-        break;
-    }
-    
-    // Boost if has related entities
-    if (entity.relatedEntities && entity.relatedEntities.length > 0) {
-      importance *= (1 + 0.05 * entity.relatedEntities.length);
-    }
-    
-    return Math.min(1, importance);
+  private async calculateEntityImportance(entity: ExtractedEntity): Promise<number> {
+    const result = await this.importanceCalculator.calculateImportance({
+      content: entity.value,
+      contentType: 'entity',
+      source: 'graph',
+      tags: [entity.type],
+      existingScore: entity.confidence
+    }, ImportanceCalculationMode.RULE_BASED);
+
+    return result.importance_score;
   }
   
   /**
    * Calculate initial importance score for a relationship
    */
-  private calculateRelationshipImportance(relationship: ExtractedRelationship): number {
-    let importance = relationship.confidence;
-    
-    // Boost importance based on type
-    switch (relationship.type) {
-      case RelationshipType.DEPENDS_ON:
-      case RelationshipType.PART_OF:
-        importance *= 1.2;
-        break;
-      case RelationshipType.CAUSES:
-      case RelationshipType.IMPLEMENTS:
-        importance *= 1.1;
-        break;
-      case RelationshipType.USES:
-      case RelationshipType.CREATES:
-        importance *= 1.05;
-        break;
-    }
-    
-    // Boost if has strength score
-    if (relationship.strength) {
-      importance *= (1 + 0.1 * relationship.strength);
-    }
-    
-    return Math.min(1, importance);
+  private async calculateRelationshipImportance(relationship: ExtractedRelationship): Promise<number> {
+    const result = await this.importanceCalculator.calculateImportance({
+      content: `${relationship.sourceEntityId} ${relationship.type} ${relationship.targetEntityId}`,
+      contentType: 'relationship',
+      source: 'graph',
+      tags: [relationship.type],
+      existingScore: relationship.confidence
+    }, ImportanceCalculationMode.RULE_BASED);
+
+    return result.importance_score;
   }
 } 

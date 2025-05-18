@@ -8,12 +8,12 @@ import * as path from 'path';
  */
 export async function GET(
   request: NextRequest,
-  { params }: { params: { fileId: string } }
+  context: { params: Promise<{ fileId: string }> | { fileId: string } }
 ) {
   try {
-    // Access params safely by ensuring it's awaited if it's a promise
-    const fileIdParam = params?.fileId ? await params.fileId : null;
-    const fileId = String(fileIdParam);
+    // Access params safely by ensuring the context.params is awaited if it's a promise
+    const params = await context.params;
+    const fileId = params?.fileId ? String(params.fileId) : null;
     
     if (!fileId) {
       return NextResponse.json(

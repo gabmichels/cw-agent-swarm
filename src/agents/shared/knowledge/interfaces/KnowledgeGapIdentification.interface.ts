@@ -5,6 +5,8 @@
  * enabling agents to systematically identify, track, and address gaps in their knowledge.
  */
 
+import { ImportanceLevel } from '../../../../constants/memory';
+
 /**
  * Knowledge gap detection confidence level
  */
@@ -13,16 +15,6 @@ export enum KnowledgeGapConfidenceLevel {
   MODERATE = 'moderate', // Likely a gap with reasonable confidence
   HIGH = 'high',         // Very confident this is a knowledge gap
   CERTAIN = 'certain'    // Definitely a knowledge gap
-}
-
-/**
- * Knowledge gap importance level
- */
-export enum KnowledgeGapImportanceLevel {
-  LOW = 'low',             // Nice to know but not critical
-  MEDIUM = 'medium',       // Somewhat important
-  HIGH = 'high',           // Important for effective operation
-  CRITICAL = 'critical'    // Essential for core functionality
 }
 
 /**
@@ -86,7 +78,7 @@ export interface KnowledgeGap {
   importance: number;
   
   /** Importance level classification */
-  importanceLevel: KnowledgeGapImportanceLevel;
+  importanceLevel: ImportanceLevel;
   
   /** Current status of this knowledge gap */
   status: KnowledgeGapStatus;
@@ -415,7 +407,7 @@ export interface KnowledgeGapIdentification {
     addressedGaps: number;
     byCategory: Record<string, number>;
     byStatus: Record<KnowledgeGapStatus, number>;
-    byImportance: Record<KnowledgeGapImportanceLevel, number>;
+    byImportance: Record<ImportanceLevel, number>;
     bySource: Record<KnowledgeGapSource, number>;
     topPriorities: Array<{id: string; topic: string; score: number}>;
   }>;

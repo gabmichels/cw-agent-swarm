@@ -33,6 +33,7 @@ import {
 import { handleError } from '../../../errors/errorHandler';
 import { getMemoryServices } from '../../../../server/memory/services';
 import { KnowledgeGraphManager } from './KnowledgeGraphManager';
+import { ImportanceConverter } from '../../../../services/importance/ImportanceConverter';
 
 /**
  * Hybrid search options
@@ -2387,19 +2388,10 @@ export class DefaultAgentMemory implements AgentMemory {
   }
 
   private getImportanceLevel(importance: number): ImportanceLevel {
-    if (importance >= 0.8) return ImportanceLevel.CRITICAL;
-    if (importance >= 0.6) return ImportanceLevel.HIGH;
-    if (importance >= 0.4) return ImportanceLevel.MEDIUM;
-    return ImportanceLevel.LOW;
+    return ImportanceConverter.scoreToLevel(importance);
   }
 
   private getImportanceValue(level: ImportanceLevel): number {
-    switch (level) {
-      case ImportanceLevel.CRITICAL: return 0.8;
-      case ImportanceLevel.HIGH: return 0.6;
-      case ImportanceLevel.MEDIUM: return 0.4;
-      case ImportanceLevel.LOW: return 0.2;
-      default: return 0.2;
-    }
+    return ImportanceConverter.levelToScore(level);
   }
 } 

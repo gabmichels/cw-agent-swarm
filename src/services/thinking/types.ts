@@ -160,7 +160,7 @@ export interface WorkingMemoryItem {
   /**
    * Type of memory item
    */
-  type: 'entity' | 'fact' | 'preference' | 'task' | 'goal';
+  type: 'entity' | 'fact' | 'preference' | 'task' | 'goal' | 'message';
   
   /**
    * Tags for better retrieval
@@ -201,6 +201,16 @@ export interface WorkingMemoryItem {
    * Original relevance score from retrieval (for internal use)
    */
   _relevanceScore?: number;
+  
+  /**
+   * Additional metadata about the memory
+   */
+  metadata?: {
+    importance_score?: number;
+    message_type?: string;
+    contentSummary?: string;
+    [key: string]: any;
+  };
 }
 
 /**

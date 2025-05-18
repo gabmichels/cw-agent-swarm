@@ -91,15 +91,7 @@ export enum MemoryType {
   OTHER = 'other'
 }
 
-/**
- * Importance levels for memory items
- */
-export enum ImportanceLevel {
-  LOW = 'low',
-  MEDIUM = 'medium',
-  HIGH = 'high',
-  CRITICAL = 'critical',
-}
+import { ImportanceLevel } from '../../../constants/memory';
 
 /**
  * Filter condition type for memory queries

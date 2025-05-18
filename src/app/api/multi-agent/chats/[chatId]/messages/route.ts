@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getMemoryServices } from '../../../../../../server/memory/services';
-import { MemoryType, ImportanceLevel } from '../../../../../../server/memory/config';
+import { MemoryType } from '../../../../../../server/memory/config';
+import { ImportanceLevel } from '../../../../../../constants/memory';
 import { MessageRole } from '../../../../../../agents/shared/types/MessageTypes';
 import { createUserId, createAgentId, createChatId } from '../../../../../../types/structured-id';
 import { addMessageMemory } from '../../../../../../server/memory/services/memory/memory-service-wrappers';
@@ -14,6 +15,7 @@ import { ThinkingVisualizer, VisualizationNodeType } from '../../../../../../ser
 import { UnifiedAgentResponse } from '@/services/thinking/UnifiedAgentService';
 import { AgentProfile } from '@/lib/multi-agent/types/agent';
 import { extractTags } from '../../../../../../utils/tagExtractor';
+import { ImportanceCalculatorService, ImportanceCalculationMode } from '../../../../../../services/importance/ImportanceCalculatorService';
 
 // Define interface for message attachments
 interface MessageAttachment {
@@ -59,8 +61,44 @@ interface InitializableAgent extends ProcessableAgent {
 // Track the last user message ID to maintain thread relationships
 let lastUserMessageId: string | null = null;
 
-// Cache the ThinkingService instance
-const thinkingService = new ThinkingService();
+// Create a mock LLM service that implements the minimal interface needed
+const mockLLMService = {
+  generateText: async (model: string, prompt: string): Promise<string> => {
+    return "Default mock response";
+  },
+  generateStructuredOutput: async <T>(
+    model: string, 
+    prompt: string, 
+    outputSchema: Record<string, unknown>
+  ): Promise<T> => {
+    return {
+      importance_score: 0.5,
+      importance_level: ImportanceLevel.MEDIUM,
+      reasoning: "Default importance calculation",
+      is_critical: false,
+      keywords: []
+    } as unknown as T;
+  },
+  streamText: async function* (model: string, prompt: string): AsyncGenerator<string> {
+    yield "Default mock response";
+  },
+  streamStructuredOutput: async function* <T>(
+    model: string,
+    prompt: string,
+    outputSchema: Record<string, unknown>
+  ): AsyncGenerator<Partial<T>> {
+    yield {
+      importance_score: 0.5,
+      importance_level: ImportanceLevel.MEDIUM
+    } as unknown as Partial<T>;
+  }
+};
+
+// Create ImportanceCalculatorService with mock LLM service
+const importanceCalculator = new ImportanceCalculatorService(mockLLMService);
+
+// Cache the ThinkingService instance with proper ImportanceCalculatorService
+const thinkingService = new ThinkingService(importanceCalculator);
 
 // Create a singleton instance of ThinkingVisualizer
 const thinkingVisualizer = new ThinkingVisualizer();
@@ -160,12 +198,9 @@ export async function GET(
           parsedTimestamp = parseInt(payload.timestamp, 10);
         }
         
-        console.log('Parsed timestamp:', parsedTimestamp);
-        console.log('Timestamp as date:', parsedTimestamp ? new Date(parsedTimestamp).toISOString() : 'Invalid timestamp');
       } catch (err) {
         console.error('Error parsing timestamp:', err);
       }
-      console.log('-------------------------');
       
       // Return message with correctly parsed timestamp and tags
       return {
