@@ -80,7 +80,7 @@ export default function MarkdownViewer() {
     setError(null);
     
     try {
-      const response = await fetch('/api/markdown-test');
+      const response = await fetch('/api/knowledge/documents');
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
@@ -91,7 +91,7 @@ export default function MarkdownViewer() {
       }
       
       // Process documents to extract titles from content
-      let processedDocs = data.documents.map(doc => {
+      let processedDocs = data.documents.map((doc: MarkdownDocument) => {
         // Always extract title from the first line of content, regardless of original title
         const extractedTitle = extractTitleFromFirstLine(doc.content);
         

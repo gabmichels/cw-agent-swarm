@@ -30,6 +30,7 @@ import { UploadInfo } from '@/services/upload/FileUploadService';
 import { ImportanceLevel } from '@/constants/memory';
 import MemoryTab from '@/components/tabs/MemoryTab';
 import TasksTab from '@/components/tabs/TasksTab';
+import KnowledgeTab from '@/components/tabs/KnowledgeTab';
 
 // Define message priority enum
 enum MessagePriority {
@@ -736,6 +737,120 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
   };
   const formatCronExpression = (cronExp: string) => cronExp; // TODO: implement pretty formatting
 
+  // Implement tabs content based on selected tab
+  const renderTabContent = () => {
+    switch (selectedTab) {
+      case 'chat':
+        return (
+          <div className="flex flex-col h-full">
+            {(!agentId || agentId.includes('Soon') || messages.length === 0) ? (
+              <WelcomeScreen />
+            ) : (
+              <ChatMessages
+                messages={messages.map((msg: MessageWithId) => {
+                  // Ensure sender is properly formatted as an object with correct properties
+                  let sender: MessageSender;
+                  if (typeof msg.sender === 'string') {
+                    sender = { 
+                      id: msg.sender, 
+                      name: msg.sender, 
+                      role: msg.sender === 'You' ? 'user' : 'assistant' as 'user' | 'assistant' | 'system' 
+                    };
+                  } else if (msg.sender && typeof msg.sender === 'object') {
+                    // Make sure the sender object has all required fields
+                    sender = {
+                      id: msg.sender.id || '',
+                      name: msg.sender.name || '',
+                      role: msg.sender.role || 'assistant' as 'user' | 'assistant' | 'system'
+                    };
+                  } else {
+                    // Default sender if missing or invalid
+                    sender = { id: 'unknown', name: 'Unknown', role: 'assistant' as 'user' | 'assistant' | 'system' };
+                  }
+                  
+                  // Convert our attachments to the format expected by ChatMessages
+                  const formattedAttachments = msg.attachments?.map(att => formatAttachmentForDisplay(att)) || [];
+                  
+                  return { 
+                    ...msg, 
+                    sender,
+                    tags: msg.tags || [], // Ensure tags are included
+                    attachments: formattedAttachments as any[] // Use type assertion to bypass type checking
+                  };
+                })} 
+                isLoading={isLoading}
+                onImageClick={handleFilePreviewClick}
+                showInternalMessages={showInternalMessages}
+                pageSize={20}
+                preloadCount={10}
+                searchQuery={''}
+                initialMessageId={''}
+              />
+            )}
+          </div>
+        );
+      case 'memory':
+        return (
+          <MemoryTab 
+            selectedAgentId={agentId}
+            availableAgents={[{id: agentId, name: chat?.name || 'Agent'}]}
+            onAgentChange={(id) => console.log('Agent changed to:', id)}
+            showAllMemories={false}
+            onViewChange={(showAll) => console.log(`View changed to ${showAll ? 'all memories' : 'agent memories'}`)}
+            isLoadingMemories={isLoading}
+            allMemories={messages.map(msg => {
+              return {
+                id: msg.id,
+                type: 'message',
+                content: msg.content,
+                text: msg.content,
+                timestamp: msg.timestamp.toISOString(),
+                created: msg.timestamp.toISOString(),
+                thought: msg.metadata?.thinking ? msg.content : undefined,
+                message: msg.content,
+                payload: {
+                  text: msg.content || '',
+                  type: 'message',
+                  timestamp: msg.timestamp.toISOString(),
+                  metadata: {
+                    tags: msg.tags || [],
+                    context: `Chat: ${chat?.name || 'Unknown'}`,
+                    thinking: msg.metadata?.thinking,
+                    ...msg.metadata
+                  }
+                },
+                metadata: {
+                  tags: msg.tags || [],
+                  context: `Chat: ${chat?.name || 'Unknown'}`,
+                  thinking: msg.metadata?.thinking,
+                  ...msg.metadata
+                }
+              };
+            })}
+            onRefresh={async () => {
+              if (chat?.id) {
+                await fetchMessages(chat.id);
+              }
+            }}
+          />
+        );
+      case 'tasks':
+        return (
+          <TasksTab
+            isLoadingTasks={isLoadingTasks}
+            scheduledTasks={tasks}
+            runTaskNow={runTaskNow}
+            toggleTaskEnabled={toggleTaskEnabled}
+            formatCronExpression={formatCronExpression}
+          />
+        );
+      case 'knowledge':
+        return <KnowledgeTab />;
+      default:
+        return <WelcomeScreen />;
+    }
+  };
+
   // UI matches main page
   return (
     <div className="flex flex-col h-screen">
@@ -804,137 +919,7 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
             }}
           />
           <div className="flex-1 overflow-y-auto p-4 space-y-4">
-            {selectedTab === 'chat' && (
-              <div className="flex flex-col h-full overflow-hidden">
-                <div className="flex-1 overflow-y-auto">
-                  {(!agentId || agentId.includes('Soon') || messages.length === 0) ? (
-                    <WelcomeScreen />
-                  ) : (
-                    <>
-                      {process.env.NODE_ENV !== 'production' && messages.length > 0 && (
-                        <div className="text-xs text-gray-500 mb-2 p-2 border border-gray-700 rounded">
-                          Passing {messages.length} messages to ChatMessages component
-                          {chat?.id && <div>Chat ID: {chat.id}</div>}
-                        </div>
-                      )}
-                      
-                      <ChatMessages 
-                        messages={messages.map((msg: MessageWithId) => {
-                          // Ensure sender is properly formatted as an object with correct properties
-                          let sender: MessageSender;
-                          if (typeof msg.sender === 'string') {
-                            sender = { 
-                              id: msg.sender, 
-                              name: msg.sender, 
-                              role: msg.sender === 'You' ? 'user' : 'assistant' as 'user' | 'assistant' | 'system' 
-                            };
-                          } else if (msg.sender && typeof msg.sender === 'object') {
-                            // Make sure the sender object has all required fields
-                            sender = {
-                              id: msg.sender.id || '',
-                              name: msg.sender.name || '',
-                              role: msg.sender.role || 'assistant' as 'user' | 'assistant' | 'system'
-                            };
-                          } else {
-                            // Default sender if missing or invalid
-                            sender = { id: 'unknown', name: 'Unknown', role: 'assistant' as 'user' | 'assistant' | 'system' };
-                          }
-                          
-                          // Convert our attachments to the format expected by ChatMessages
-                          const formattedAttachments = msg.attachments?.map(att => formatAttachmentForDisplay(att)) || [];
-                          
-                          return { 
-                            ...msg, 
-                            sender,
-                            tags: msg.tags || [], // Ensure tags are included
-                            attachments: formattedAttachments as any[] // Use type assertion to bypass type checking
-                          };
-                        })} 
-                        isLoading={isLoading}
-                        onImageClick={handleFilePreviewClick}
-                        showInternalMessages={showInternalMessages}
-                        pageSize={20}
-                        preloadCount={10}
-                        searchQuery={''}
-                        initialMessageId={''}
-                      />
-                    </>
-                  )}
-                  
-                  <div ref={messagesEndRef} className="h-1" />
-                </div>
-              </div>
-            )}
-                          {selectedTab === 'memory' && (
-                <MemoryTab 
-                  selectedAgentId={agentId}
-                  availableAgents={[{id: agentId, name: chat?.name || 'Agent'}]}
-                  onAgentChange={(id) => console.log('Agent changed to:', id)}
-                  showAllMemories={false}
-                  onViewChange={(showAll) => console.log(`View changed to ${showAll ? 'all memories' : 'agent memories'}`)}
-                  isLoadingMemories={isLoading}
-                  allMemories={messages.map(msg => {
-                    console.log('Creating memory from message:', msg);
-                    return {
-                      id: msg.id,
-                      type: 'message',
-                      content: msg.content,
-                      text: msg.content,
-                      timestamp: msg.timestamp.toISOString(),
-                      created: msg.timestamp.toISOString(),
-                      thought: msg.metadata?.thinking ? msg.content : undefined,
-                      message: msg.content,
-                      payload: {
-                        text: msg.content || '',
-                        type: 'message',
-                        timestamp: msg.timestamp.toISOString(),
-                        metadata: {
-                          tags: msg.tags || [],
-                          context: `Chat: ${chat?.name || 'Unknown'}`,
-                          thinking: msg.metadata?.thinking,
-                          ...msg.metadata
-                        }
-                      },
-                      metadata: {
-                        tags: msg.tags || [],
-                        context: `Chat: ${chat?.name || 'Unknown'}`,
-                        thinking: msg.metadata?.thinking,
-                        ...msg.metadata
-                      }
-                    };
-                  })}
-                  onRefresh={async () => {
-                    console.log('Refreshing memory for agent:', agentId);
-                    if (chat?.id) {
-                      await fetchMessages(chat.id);
-                      
-                      // Also fetch additional memory types from the memory system
-                      try {
-                        console.log('Fetching additional memory types for agent:', agentId);
-                        const memoryResponse = await fetch(`/api/memory?agentId=${agentId}&limit=50`);
-                        if (memoryResponse.ok) {
-                          const memoryData = await memoryResponse.json();
-                          if (memoryData && Array.isArray(memoryData.memories)) {
-                            console.log(`Found ${memoryData.memories.length} additional memories`);
-                            // The memories will be fetched directly by the memory tab
-                          }
-                        }
-                      } catch (error) {
-                        console.error('Error fetching additional memories:', error);
-                      }
-                    }
-                  }}
-                />
-              )}
-            {selectedTab === 'tasks' && (
-              <TasksTab
-                isLoadingTasks={isLoadingTasks}
-                scheduledTasks={tasks}
-                runTaskNow={runTaskNow}
-                toggleTaskEnabled={toggleTaskEnabled}
-                formatCronExpression={formatCronExpression}
-              />
-            )}
+            {renderTabContent()}
           </div>
           <div className="border-t border-gray-700 p-4 relative z-10 bg-gray-800">
             <ChatInput
