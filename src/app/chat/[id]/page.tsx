@@ -29,6 +29,7 @@ import { generateMessageId } from '@/lib/multi-agent/types/message';
 import { UploadInfo } from '@/services/upload/FileUploadService';
 import { ImportanceLevel } from '@/constants/memory';
 import MemoryTab from '@/components/tabs/MemoryTab';
+import TasksTab from '@/components/tabs/TasksTab';
 
 // Define message priority enum
 enum MessagePriority {
@@ -679,6 +680,62 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
     };
   };
 
+  // --- Add state for tasks ---
+  const [tasks, setTasks] = useState<any[]>([]);
+  const [isLoadingTasks, setIsLoadingTasks] = useState<boolean>(false);
+
+  // --- Fetch tasks for the selected agent when tab is 'tasks' ---
+  useEffect(() => {
+    const fetchTasks = async () => {
+      if (selectedTab !== 'tasks' || !agentId) return;
+      setIsLoadingTasks(true);
+      try {
+        // Example endpoint, adjust as needed
+        const res = await fetch(`/api/tasks?agentId=${agentId}`);
+        const data = await res.json();
+        if (data && data.tasks) {
+          setTasks(data.tasks);
+        } else {
+          setTasks([]);
+        }
+      } catch (error) {
+        setTasks([]);
+      } finally {
+        setIsLoadingTasks(false);
+      }
+    };
+    fetchTasks();
+  }, [agentId, selectedTab]);
+
+  // --- Task actions ---
+  const runTaskNow = async (taskId: string) => {
+    // Implement running a task immediately for the agent
+    await fetch(`/api/tasks/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agentId, taskId })
+    });
+    // Optionally refresh tasks
+    setIsLoadingTasks(true);
+    const res = await fetch(`/api/tasks?agentId=${agentId}`);
+    const data = await res.json();
+    setTasks(data.tasks || []);
+    setIsLoadingTasks(false);
+  };
+  const toggleTaskEnabled = async (taskId: string, enabled: boolean) => {
+    await fetch(`/api/tasks/toggle`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agentId, taskId, enabled })
+    });
+    setIsLoadingTasks(true);
+    const res = await fetch(`/api/tasks?agentId=${agentId}`);
+    const data = await res.json();
+    setTasks(data.tasks || []);
+    setIsLoadingTasks(false);
+  };
+  const formatCronExpression = (cronExp: string) => cronExp; // TODO: implement pretty formatting
+
   // UI matches main page
   return (
     <div className="flex flex-col h-screen">
@@ -869,6 +926,15 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
                   }}
                 />
               )}
+            {selectedTab === 'tasks' && (
+              <TasksTab
+                isLoadingTasks={isLoadingTasks}
+                scheduledTasks={tasks}
+                runTaskNow={runTaskNow}
+                toggleTaskEnabled={toggleTaskEnabled}
+                formatCronExpression={formatCronExpression}
+              />
+            )}
           </div>
           <div className="border-t border-gray-700 p-4 relative z-10 bg-gray-800">
             <ChatInput
