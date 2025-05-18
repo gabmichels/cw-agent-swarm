@@ -574,6 +574,77 @@ const MemoryItem: React.FC<MemoryItemProps> = ({
     }
   };
 
+  // Handle checking if a string is a JSON to be parsed
+  const tryParseJson = (jsonString: string): any => {
+    try {
+      return JSON.parse(jsonString);
+    } catch (e) {
+      return null;
+    }
+  };
+
+  // Extract nested payload text (robust recursive version)
+  const extractNestedPayloadText = (payload: MemoryPayload<ExtendedUIMetadata> | undefined): string => {
+    if (!payload) return 'No content available';
+
+    // Helper: recursively extract the deepest text/content field
+    const extractDeepText = (input: unknown, depth = 0): string | null => {
+      if (typeof input === 'string') {
+        // Try to parse as JSON
+        const parsed = tryParseJson(input);
+        if (parsed && typeof parsed === 'object') {
+          return extractDeepText(parsed, depth + 1);
+        }
+        // If not JSON, return the string itself
+        return input;
+      }
+      if (typeof input === 'object' && input !== null) {
+        // Try common fields
+        if ('payload' in input && input['payload']) {
+          // Try payload.text or payload.content
+          const payloadObj = input['payload'];
+          if (typeof payloadObj === 'object' && payloadObj !== null) {
+            if ('text' in payloadObj && payloadObj['text']) {
+              return extractDeepText(payloadObj['text'], depth + 1);
+            }
+            if ('content' in payloadObj && payloadObj['content']) {
+              return extractDeepText(payloadObj['content'], depth + 1);
+            }
+          }
+        }
+        // Try point.payload.text (as in screenshot)
+        if ('point' in input && input['point'] && typeof input['point'] === 'object') {
+          const pointObj = input['point'];
+          if ('payload' in pointObj && pointObj['payload'] && typeof pointObj['payload'] === 'object') {
+            if ('text' in pointObj['payload'] && pointObj['payload']['text']) {
+              return extractDeepText(pointObj['payload']['text'], depth + 1);
+            }
+            if ('content' in pointObj['payload'] && pointObj['payload']['content']) {
+              return extractDeepText(pointObj['payload']['content'], depth + 1);
+            }
+          }
+        }
+        // Try direct text/content fields
+        if ('text' in input && input['text']) {
+          return extractDeepText(input['text'], depth + 1);
+        }
+        if ('content' in input && input['content']) {
+          return extractDeepText(input['content'], depth + 1);
+        }
+      }
+      // Not found
+      return null;
+    };
+
+    // Start with payload.text, then payload.content
+    let result = extractDeepText(payload.text);
+    if (result) return result;
+    result = extractDeepText(payload.content);
+    if (result) return result;
+    // Fallback: show stringified payload
+    return 'No content available';
+  };
+
   return (
     <>
       <Toaster position="bottom-right" />
@@ -615,7 +686,7 @@ const MemoryItem: React.FC<MemoryItemProps> = ({
               <div className="absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-gray-800 to-transparent" />
             )}
             <ReactMarkdown className="prose prose-invert prose-sm max-w-none prose-headings:text-white prose-p:text-gray-200 prose-strong:text-blue-300 prose-a:text-blue-400 prose-code:text-emerald-300 prose-pre:bg-gray-900 prose-pre:text-gray-200">
-              {memory.payload?.text || 'No content available'}
+              {extractNestedPayloadText(memory.payload)}
             </ReactMarkdown>
           </div>
         </div>

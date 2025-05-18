@@ -28,6 +28,7 @@ import { DragDropHandler } from '@/services/handlers/DragDropHandler';
 import { generateMessageId } from '@/lib/multi-agent/types/message';
 import { UploadInfo } from '@/services/upload/FileUploadService';
 import { ImportanceLevel } from '@/constants/memory';
+import MemoryTab from '@/components/tabs/MemoryTab';
 
 // Define message priority enum
 enum MessagePriority {
@@ -341,8 +342,8 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
     const pollInterval = 3000;
     let pollingTimer: NodeJS.Timeout | null = null;
 
-    // Only start polling if we have a chat ID
-    if (chat?.id) {
+    // Only start polling if we have a chat ID and currently on the chat tab
+    if (chat?.id && selectedTab === 'chat') {
       console.log(`Setting up polling for chat ${chat.id} every ${pollInterval}ms`);
       
       // Define polling function
@@ -361,14 +362,14 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
       pollingTimer = setInterval(pollMessages, pollInterval);
     }
 
-    // Cleanup on unmount
+    // Cleanup on unmount or tab change
     return () => {
       if (pollingTimer) {
         clearInterval(pollingTimer);
         console.log('Stopped message polling');
       }
     };
-  }, [chat?.id, isLoading]);
+  }, [chat?.id, isLoading, selectedTab]);
 
   // Convert MessageAttachment to UIFileAttachment
   const convertMessageToUIAttachment = (att: MessageAttachment): UIFileAttachment => {
@@ -710,10 +711,16 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
         <main className="flex-1 flex flex-col overflow-hidden">
           <TabsNavigation
             selectedTab={selectedTab}
-            setSelectedTab={setSelectedTab}
+            setSelectedTab={(tab) => {
+              console.log(`Changing tab to: ${tab}`);
+              setSelectedTab(tab);
+            }}
             isFullscreen={false}
             toggleFullscreen={() => {}}
             onSearch={() => {}}
+            searchResults={[]}
+            searchQuery=""
+            onSelectResult={(id) => console.log(`Selected result: ${id}`)}
             agentId={agentId}
             agentName={chat?.name || 'Agent'}
             onViewAgent={(id) => {
@@ -801,6 +808,67 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
                 </div>
               </div>
             )}
+                          {selectedTab === 'memory' && (
+                <MemoryTab 
+                  selectedAgentId={agentId}
+                  availableAgents={[{id: agentId, name: chat?.name || 'Agent'}]}
+                  onAgentChange={(id) => console.log('Agent changed to:', id)}
+                  showAllMemories={false}
+                  onViewChange={(showAll) => console.log(`View changed to ${showAll ? 'all memories' : 'agent memories'}`)}
+                  isLoadingMemories={isLoading}
+                  allMemories={messages.map(msg => {
+                    console.log('Creating memory from message:', msg);
+                    return {
+                      id: msg.id,
+                      type: 'message',
+                      content: msg.content,
+                      text: msg.content,
+                      timestamp: msg.timestamp.toISOString(),
+                      created: msg.timestamp.toISOString(),
+                      thought: msg.metadata?.thinking ? msg.content : undefined,
+                      message: msg.content,
+                      payload: {
+                        text: msg.content || '',
+                        type: 'message',
+                        timestamp: msg.timestamp.toISOString(),
+                        metadata: {
+                          tags: msg.tags || [],
+                          context: `Chat: ${chat?.name || 'Unknown'}`,
+                          thinking: msg.metadata?.thinking,
+                          ...msg.metadata
+                        }
+                      },
+                      metadata: {
+                        tags: msg.tags || [],
+                        context: `Chat: ${chat?.name || 'Unknown'}`,
+                        thinking: msg.metadata?.thinking,
+                        ...msg.metadata
+                      }
+                    };
+                  })}
+                  onRefresh={async () => {
+                    console.log('Refreshing memory for agent:', agentId);
+                    if (chat?.id) {
+                      await fetchMessages(chat.id);
+                      
+                      // Also fetch additional memory types from the memory system
+                      try {
+                        console.log('Fetching additional memory types for agent:', agentId);
+                        const memoryResponse = await fetch(`/api/memory?agentId=${agentId}&limit=50`);
+                        if (memoryResponse.ok) {
+                          const memoryData = await memoryResponse.json();
+                          if (memoryData && Array.isArray(memoryData.memories)) {
+                            console.log(`Found ${memoryData.memories.length} additional memories`);
+                            // The memories will be fetched directly by the memory tab
+                          }
+                        }
+                      } catch (error) {
+                        console.error('Error fetching additional memories:', error);
+                      }
+                    }
+                  }}
+                />
+              )}
           </div>
           <div className="border-t border-gray-700 p-4 relative z-10 bg-gray-800">
             <ChatInput

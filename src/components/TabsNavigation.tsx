@@ -36,11 +36,16 @@ const TabsNavigation: React.FC<TabsNavigationProps> = ({
   onDeleteChatHistory,
   onViewAgent
 }) => {
-  const tabs = ['Chat', 'Tools', 'Tasks', 'Memory', 'Knowledge', 'Social', 'Files', 'Visualizations'];
+  const tabs = ['Chat', 'Memory', 'Tools', 'Tasks', 'Knowledge', 'Social', 'Files', 'Visualizations'];
   const [searchInputValue, setSearchInputValue] = useState('');
   const [showSearchResults, setShowSearchResults] = useState(false);
   const [showSettingsMenu, setShowSettingsMenu] = useState(false);
   const settingsMenuRef = useRef<HTMLDivElement>(null);
+
+  const handleTabClick = useCallback((tab: string) => {
+    console.log(`Tab selected: ${tab.toLowerCase()}`);
+    setSelectedTab(tab.toLowerCase());
+  }, [setSelectedTab]);
 
   const handleSearch = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
@@ -147,7 +152,7 @@ const TabsNavigation: React.FC<TabsNavigationProps> = ({
           {tabs.map((tab) => (
             <button 
               key={tab}
-              onClick={() => setSelectedTab(tab.toLowerCase())}
+              onClick={() => handleTabClick(tab)}
               className={`px-3 py-1 rounded-t flex items-center space-x-1 ${
                 selectedTab === tab.toLowerCase()
                   ? 'bg-gray-700 text-white'

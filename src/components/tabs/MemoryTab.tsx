@@ -1,13 +1,15 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { AlertCircleIcon, Filter, X, Tag, Info, RefreshCw, ChevronDown, Loader2, Search, Hash, Settings, Menu, Bug, User } from 'lucide-react';
 import MemoryItemComponent from '../memory/MemoryItem';
-import { MemoryType, isValidMemoryType } from '../../lib/constants/memory';
+import { MemoryType as ClientMemoryType, isValidMemoryType } from '../../lib/constants/memory';
 import { BaseMemorySchema, MemoryPoint } from '../../server/memory/models';
 import { SearchResult } from '../../server/memory/services/search/types';
 import useMemory from '../../hooks/useMemory';
 import useMemorySearch from '../../hooks/useMemorySearch';
 import AgentMemoryStats from '../memory/AgentMemoryStats';
 import { BaseMetadata } from '../../types/metadata';
+import ReactMarkdown from 'react-markdown';
+import { Toaster } from 'react-hot-toast';
 
 // Memory property path constants
 const PROPERTY_PATHS = {
@@ -110,7 +112,7 @@ interface MemoryTabProps {
 // Update the MemoryEntry interface to include all necessary properties
 interface MemoryEntry {
   id: string;
-  type: MemoryType;
+  type: ClientMemoryType;
   content?: string;
   text?: string;
   created?: string;
@@ -194,7 +196,7 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
   const [debugResult, setDebugResult] = useState<DebugResult | null>(null);
   const [selectedTagFilter, setSelectedTagFilter] = useState<string>('');
   const [memoryCount, setMemoryCount] = useState<number>(0);
-  const [selectedTypes, setSelectedTypes] = useState<MemoryType[]>([]);
+  const [selectedTypes, setSelectedTypes] = useState<ClientMemoryType[]>([]);
   const [typeMenuOpen, setTypeMenuOpen] = useState<boolean>(false);
   const typeMenuRef = useRef<HTMLDivElement>(null);
   const [showDebug, setShowDebug] = useState<boolean>(false);
@@ -207,7 +209,7 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
   // All possible memory types as strings - use the enum values
   const MEMORY_TYPES: string[] = useMemo(() => {
     // Use the MemoryType enum values
-    return Object.values(MemoryType).sort();
+    return Object.values(ClientMemoryType).sort();
   }, []);
 
   // Close dropdown when clicking outside
@@ -233,10 +235,10 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
 
   // Get unique memory types for filtering
   const availableMemoryTypes = useMemo(() => {
-    const types = new Set<MemoryType>();
+    const types = new Set<ClientMemoryType>();
     memories.forEach(memory => {
       if (isValidMemoryType(memory.type)) {
-        types.add(memory.type as MemoryType);
+        types.add(memory.type as ClientMemoryType);
       }
     });
     return Array.from(types).sort();
@@ -249,7 +251,7 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
     // Apply type filtering
     if (selectedTypes.length > 0) {
       filtered = filtered.filter(memory => 
-        selectedTypes.includes(memory.type as MemoryType)
+        selectedTypes.includes(memory.type as ClientMemoryType)
       );
     }
 
@@ -386,8 +388,8 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
     
     // First, filter out memory_edit records - we'll display these as versions of their originals
     // But keep them if explicitly showing memory_edits type
-    const memoryEditType = MemoryType.MEMORY_EDIT;
-    let filtered = selectedTypes.includes(memoryEditType) || selectedTypes.includes(MemoryType.MEMORY_EDIT)
+    const memoryEditType = ClientMemoryType.MEMORY_EDIT;
+    let filtered = selectedTypes.includes(memoryEditType) || selectedTypes.includes(ClientMemoryType.MEMORY_EDIT)
       ? memories 
       : memories.filter(memory => {
           // Cast to any to safely access properties
@@ -432,11 +434,11 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
         const memoryObj = memory as any;
         
         // Get the type with safe property access
-        let type = MemoryType.UNKNOWN;
+        let type = ClientMemoryType.UNKNOWN;
         
         if (memoryObj.type && typeof memoryObj.type === 'string') {
           // Validate the type is a valid MemoryType
-          type = isValidMemoryType(memoryObj.type) ? memoryObj.type : MemoryType.UNKNOWN;
+          type = isValidMemoryType(memoryObj.type) ? memoryObj.type : ClientMemoryType.UNKNOWN;
         }
         
         return selectedTypes.includes(type);
@@ -518,7 +520,7 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
   }, [memories, selectedTypes, selectedTagFilter, searchQuery, searchResults]);
 
   // Handle type filter changes
-  const handleTypeFilterChange = (type: MemoryType) => {
+  const handleTypeFilterChange = (type: ClientMemoryType) => {
     setSelectedTypes(prev => {
       if (prev.includes(type)) {
         return prev.filter(t => t !== type);
@@ -602,8 +604,11 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
       
       // Refresh the memories list instead of updating state directly
       handleRefresh();
+      
+      return true;
     } catch (error) {
       console.error('Error updating tags:', error);
+      return false;
     }
   }, [handleRefresh]);
 
@@ -631,25 +636,7 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
       const generatedTags = Array.from(new Set([...uniqueWords, 'memory', 'content'])).slice(0, 10);
       
       // Update the memory with these tags using the existing API endpoint that works
-      const updateUrl = API_ENDPOINTS.TAG_UPDATE(memoryId);
-      console.log(`DEBUG: Directly updating tags via ${updateUrl}`);
-      
-      const response = await fetch(updateUrl, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ tags: generatedTags }),
-      });
-      
-      if (!response.ok) {
-        throw new Error(`Failed to update tags: ${response.status}`);
-      }
-      
-      console.log(`Successfully updated tags for memory ${memoryId}`);
-      
-      // Update UI by refreshing memories
-      handleRefresh();
+      await handleTagUpdate(memoryId, generatedTags);
       
       return generatedTags;
     } catch (error) {
@@ -657,24 +644,14 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
       
       // Try to update with fallback tags
       try {
-        const updateUrl = API_ENDPOINTS.TAG_UPDATE(memoryId);
-        await fetch(updateUrl, {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ tags: fallbackTags }),
-        });
-        
-        // Update UI by refreshing memories
-        handleRefresh();
+        await handleTagUpdate(memoryId, fallbackTags);
       } catch (updateError) {
         console.error('Failed to update with fallback tags:', updateError);
       }
       
       return fallbackTags;
     }
-  }, [handleRefresh]);
+  }, [handleTagUpdate]);
 
   const handleTagRejection = async (memoryId: string) => {
     console.log(`Rejecting suggested tags for memory ${memoryId}`);
@@ -822,11 +799,11 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
     // Convert selected types to MemoryType enum values where possible
     const typesForSearch = selectedTypes.map(type => {
       // Check if this string is a valid MemoryType enum value
-      if (Object.values(MemoryType).includes(type as any)) {
-        return type as MemoryType;
+      if (Object.values(ClientMemoryType).includes(type as any)) {
+        return type as ClientMemoryType;
       }
       return null;
-    }).filter(Boolean) as MemoryType[];
+    }).filter(Boolean) as ClientMemoryType[];
     
     // Build filter object
     const filter: any = {};
@@ -886,160 +863,89 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
     return returnVal;
   };
 
-  // Update the extractMemoryText function to use the shared safeStringify
+  // Extract memory content from different possible locations in the memory object
   const extractMemoryText = (memory: any): string => {
-    // For debugging only - log safely
-    try {
-      console.log(`Memory object structure: ${safeStringify(memory)}`);
-    } catch (error) {
-      console.error("Error stringifying memory:", error);
-    }
-
     if (!memory) return "No content available";
 
     try {
-      // First check for point.payload.text structure (Qdrant nested structure)
-      if (memory.point?.payload?.text && typeof memory.point.payload.text === 'string') {
-        console.log("Found direct point.payload.text structure");
-        return memory.point.payload.text;
-      }
+      // Log the memory for debugging
+      console.log("Extracting content from memory:", memory);
       
-      // Try different paths to get the text content
-      if (memory.payload?.text && typeof memory.payload.text === 'string') {
-        // Check if payload.text is actually a JSON string with nested content
-        const payloadText = memory.payload.text;
-        if (payloadText.trim().startsWith('{') && 
-            (payloadText.includes('"point"') || payloadText.includes('"payload"'))) {
-          try {
-            const parsed = JSON.parse(payloadText);
-            
-            // Look in parsed JSON for the actual text
-            if (parsed.point?.payload?.text) {
-              console.log("Found point.payload.text in parsed JSON");
-              return parsed.point.payload.text;
-            }
-            
-            if (parsed.payload?.text) {
-              console.log("Found payload.text in parsed JSON");
-              return parsed.payload.text;
-            }
-          } catch (e) {
-            console.log("Failed to parse nested JSON:", e);
-            // If parsing fails, continue with the original text
+      // Handle empty THOUGHT types specially (as seen in the screenshot)
+      if (memory.type === "THOUGHT" || memory.type === "thought") {
+        // Try to extract content from the JSON structure itself
+        if (memory.payload && typeof memory.payload === 'object') {
+          if (memory.payload.text && memory.payload.text.trim()) {
+            return memory.payload.text;
+          }
+          
+          // If text is empty but we have a timestamp and type, this is a new thought
+          if (memory.payload.timestamp && memory.payload.type === "THOUGHT") {
+            return "New thought - waiting for content";
           }
         }
-        
-        // If not JSON or failed to parse, use as is
+      }
+      
+      // Try different structured locations for the content
+      
+      // For thoughts and reflections
+      if (memory.thought) {
+        return typeof memory.thought === 'string' ? memory.thought : JSON.stringify(memory.thought);
+      }
+      
+      // For payload.thought structure
+      if (memory.payload?.thought) {
+        return typeof memory.payload.thought === 'string' ? memory.payload.thought : JSON.stringify(memory.payload.thought);
+      }
+      
+      // Direct text field in payload (most common)
+      if (memory.payload?.text && typeof memory.payload.text === 'string' && memory.payload.text.trim()) {
         return memory.payload.text;
       }
       
-      // Special case for 'message' type memories - don't add prefixes since they should be shown directly
-      if (memory.payload?.type === PROPERTY_PATHS.MEMORY_TYPES.MESSAGE || 
-          memory.kind === PROPERTY_PATHS.MEMORY_TYPES.MESSAGE || 
-          memory.type === PROPERTY_PATHS.MEMORY_TYPES.MESSAGE) {
-        // For message types, look in different locations
-        if (memory.payload?.text) return memory.payload.text;
-        if (memory.message) {
-          return typeof memory.message === 'string' ? memory.message : safeStringify(memory.message);
-        }
-        if (memory.payload?.message) {
-          return typeof memory.payload.message === 'string' ? memory.payload.message : safeStringify(memory.payload.message);
-        }
-        if (memory.content && typeof memory.content === 'string') {
-          return memory.content;
-        }
-      }
-      
-      // Special case for 'thought' type memories
-      if (memory.payload?.type === PROPERTY_PATHS.MEMORY_TYPES.THOUGHT || 
-          memory.kind === PROPERTY_PATHS.MEMORY_TYPES.THOUGHT || 
-          memory.type === PROPERTY_PATHS.MEMORY_TYPES.THOUGHT) {
-        if (memory.payload?.text) return memory.payload.text;
-        if (memory.thought) {
-          return typeof memory.thought === 'string' ? memory.thought : safeStringify(memory.thought);
-        }
-        if (memory.payload?.thought) {
-          return typeof memory.payload.thought === 'string' ? memory.payload.thought : safeStringify(memory.payload.thought);
-        }
-        if (memory.content && typeof memory.content === 'string') {
-          return memory.content;
-        }
-      }
-      
-      // Check for document content - special handling
-      if (memory.payload?.type === PROPERTY_PATHS.MEMORY_TYPES.DOCUMENT && memory.payload.metadata?.path) {
-        return `Document: ${memory.payload.metadata.path}\n${memory.payload.text || ''}`;
-      }
-      
-      // Try all other common locations
-      if (memory.content && typeof memory.content === 'string') {
-        return memory.content;
-      }
-      
-      if (memory.text && typeof memory.text === 'string') {
-        return memory.text;
-      }
-      
-      if (memory.payload?.content && typeof memory.payload.content === 'string') {
+      // Direct content field in payload
+      if (memory.payload?.content && typeof memory.payload.content === 'string' && memory.payload.content.trim()) {
         return memory.payload.content;
       }
       
-      if (typeof memory.value === 'string') {
-        return memory.value;
+      // Direct text or content fields at root level
+      if (memory.text && typeof memory.text === 'string' && memory.text.trim()) {
+        return memory.text;
       }
       
-      if (memory.summary && typeof memory.summary === 'string') {
-        return memory.summary;
+      if (memory.content && typeof memory.content === 'string' && memory.content.trim()) {
+        return memory.content;
       }
       
-      // Check if the entire payload is a string
-      if (typeof memory.payload === 'string') {
+      // Special handling for message objects
+      if (memory.message) {
+        return typeof memory.message === 'string' ? memory.message : JSON.stringify(memory.message);
+      }
+      
+      // Check if payload itself is the content
+      if (typeof memory.payload === 'string' && memory.payload.trim()) {
         return memory.payload;
       }
       
-      // Check if any field in the payload could be content
-      if (memory.payload && typeof memory.payload === 'object') {
-        for (const key in memory.payload) {
-          if (
-            typeof memory.payload[key] === 'string' && 
-            key !== 'id' && 
-            key !== 'type' && 
-            key !== 'timestamp' &&
-            memory.payload[key].length > 10
-          ) {
-            return `${memory.payload[key]}`;
-          }
-        }
-      }
-      
-      // Check if any field in the memory could be content
-      for (const key in memory) {
-        if (
-          typeof memory[key] === 'string' && 
-          key !== 'id' && 
-          key !== 'type' && 
-          key !== 'timestamp' &&
-          memory[key].length > 10
-        ) {
-          return `${memory[key]}`;
-        }
-      }
-      
-      // For objects that got serialized incorrectly
+      // If all else fails, and we have a payload object, stringify it
       if (memory.payload && typeof memory.payload === 'object' && Object.keys(memory.payload).length > 0) {
-        // If we have object data but no text field, show the structure
-        return safeStringify(memory.payload);
+        // If payload has text, extract it more cleanly
+        if (memory.payload.text) {
+          return memory.payload.text;
+        }
+        
+        // Try to get a readable representation
+        return JSON.stringify(memory.payload, null, 2);
       }
       
-      // Last resort - if we have any data at all in the memory, show it
-      if (memory && typeof memory === 'object' && Object.keys(memory).length > 0) {
-        // Return the entire memory structure as JSON
-        return safeStringify(memory);
+      // Last resort: stringify the entire memory
+      if (typeof memory === 'object' && Object.keys(memory).length > 0) {
+        return JSON.stringify(memory, null, 2);
       }
       
       return "No content available";
     } catch (error) {
-      console.error("Error extracting memory text:", error);
+      console.error("Error extracting memory content:", error);
       return "Error extracting memory content";
     }
   };
@@ -1053,19 +959,75 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
   useEffect(() => {
     console.log("Loading memories with agent scope:", {
       selectedAgentId: localSelectedAgentId,
-      showAllMemories: localShowAllMemories
+      showAllMemories: localShowAllMemories,
+      memoryCount: allMemories?.length || 0,
+      hasLoadedMemories: !!allMemories?.length
     });
 
+    // If we already have memories from props, use those
+    if (allMemories && allMemories.length > 0) {
+      console.log(`Using ${allMemories.length} memories from props`);
+      console.log("Sample memory:", allMemories[0]);
+      setMemories(allMemories);
+      return;
+    }
+
     const loadMemories = async () => {
-      if (localShowAllMemories) {
-        await getMemories({ limit: 200 });
-      } else if (localSelectedAgentId) {
-        await getAgentMemories(localSelectedAgentId, { limit: 200 });
+      console.log("Explicitly loading memories from API");
+      
+      // Fetch memories without type filtering to get all types
+      try {
+        let memoriesToUse = [];
+        
+        if (localShowAllMemories) {
+          const result = await getMemories({ limit: 100 });
+          console.log("Fetched all memories:", result?.length || 0);
+          memoriesToUse = result || [];
+        } else if (localSelectedAgentId) {
+          const result = await getAgentMemories(localSelectedAgentId, { limit: 100 });
+          console.log("Fetched agent memories:", result?.length || 0);
+          memoriesToUse = result || [];
+        }
+        
+        // Try to fetch specific types if needed
+        if (memoriesToUse.length === 0) {
+          console.log("No memories found, trying direct API calls");
+          
+          // Construct query parameters
+          const params = new URLSearchParams();
+          params.append("limit", "50");
+          if (localSelectedAgentId) {
+            params.append("agentId", localSelectedAgentId);
+          }
+          
+          try {
+            // Direct API call to get memories
+            const response = await fetch(`/api/memory?${params.toString()}`);
+            const data = await response.json();
+            
+            if (data && Array.isArray(data.memories) && data.memories.length > 0) {
+              console.log(`Direct API call returned ${data.memories.length} memories`);
+              console.log("Sample memory from API:", data.memories[0]);
+              memoriesToUse = data.memories;
+            }
+          } catch (err) {
+            console.error("Error in direct API call:", err);
+          }
+        }
+        
+        if (memoriesToUse.length > 0) {
+          setMemories(memoriesToUse);
+        }
+      } catch (error) {
+        console.error("Error loading memories:", error);
+        setError(error instanceof Error ? error : new Error(String(error)));
+      } finally {
+        setIsLoadingInternal(false);
       }
     };
 
     loadMemories();
-  }, [localSelectedAgentId, localShowAllMemories, getMemories, getAgentMemories]);
+  }, [localSelectedAgentId, localShowAllMemories, getMemories, getAgentMemories, allMemories]);
 
   // Handle agent selection change
   const handleAgentChange = (agentId: string) => {
@@ -1102,7 +1064,7 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
     </div>
   );
 
-  // Render memory list
+  // Render memory list using the MemoryItem component
   const renderMemoryList = () => {
     if (combinedIsLoading) {
       return <div className="text-center py-4">Loading memories...</div>;
@@ -1118,46 +1080,106 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
 
     return (
       <div className="space-y-4">
-        {displayedMemories.map(memory => (
-          <div key={memory.id} className="bg-gray-800 rounded-lg overflow-hidden">
-            <div className="p-4">
-              <div className="flex items-center justify-between mb-2">
-                <div className="text-sm text-gray-400">
-                  {memory.type}
-                </div>
-                <div className="text-sm text-gray-400">
-                  {memory.created || memory.timestamp ? 
-                    new Date(memory.created || memory.timestamp || '').toLocaleString() : 
-                    'No timestamp'}
-                </div>
-              </div>
-              <div className="text-gray-200 whitespace-pre-wrap">
-                {memory.content || memory.text || memory.payload?.text || ''}
-              </div>
-              {memory.payload?.metadata?.context && (
-                <div className="mt-2 text-sm text-gray-400">
-                  Context: {memory.payload.metadata.context}
-                </div>
-              )}
-              {memory.importance && (
-                <div className="mt-1 text-sm text-gray-400">
-                  Importance: {memory.importance}
-                </div>
-              )}
-              {memory.source && (
-                <div className="mt-1 text-sm text-gray-400">
-                  Source: {memory.source}
-                </div>
-              )}
-            </div>
-          </div>
+        {displayedMemories.map((memory, index) => (
+          <MemoryItemComponent
+            key={memory.id || `memory-${index}`}
+            memory={{
+              id: memory.id,
+              payload: {
+                text: extractMemoryText(memory),
+                timestamp: memory.timestamp || memory.created || new Date().toISOString(),
+                type: memory.type,
+                metadata: {
+                  ...(memory.metadata || {}),
+                  ...(memory.payload?.metadata || {}),
+                  tags: memory.payload?.metadata?.tags || memory.metadata?.tags || [],
+                  schemaVersion: '1.0.0'
+                }
+              }
+            }}
+            onTagUpdate={handleTagUpdate}
+            onTagSuggestionRemove={handleTagRejection}
+            regenerateTagsForMemory={regenerateTagsForMemory}
+          />
         ))}
       </div>
     );
   };
 
+  // Add a specific effect to load on component mount
+  useEffect(() => {
+    console.log("Memory tab mounted, initializing memory loading");
+    
+    // Force memory loading on component mount
+    setIsLoadingInternal(true);
+    
+    // If we already have memories from props, use those
+    if (allMemories && allMemories.length > 0) {
+      console.log("Using memories from props on mount");
+      setMemories(allMemories);
+      setIsLoadingInternal(false);
+    } else {
+      console.log("Fetching memories directly on mount");
+      // Fetch memories directly
+      const fetchMemoriesOnMount = async () => {
+        try {
+          // Try direct API call based on agent context
+          const endpoint = selectedAgentId 
+            ? `/api/memory?agentId=${selectedAgentId}&limit=50`
+            : `/api/memory?limit=50`;
+            
+          const response = await fetch(endpoint);
+          const data = await response.json();
+          
+          if (data && Array.isArray(data.memories) && data.memories.length > 0) {
+            console.log(`API returned ${data.memories.length} memories on mount`);
+            setMemories(data.memories);
+          } else {
+            console.log("No memories found via direct API call");
+          }
+        } catch (error) {
+          console.error("Error loading memories on mount:", error);
+          setError(error instanceof Error ? error : new Error(String(error)));
+        } finally {
+          setIsLoadingInternal(false);
+        }
+      };
+      
+      fetchMemoriesOnMount();
+    }
+  }, [selectedAgentId, allMemories, setMemories, setIsLoadingInternal, setError]); // Add proper dependencies
+
+  // Add a utility function to get colors for different memory types
+  const getTypeColor = (type: string) => {
+    // Normalize the type to lowercase for consistent matching
+    const normalizedType = type.toLowerCase();
+    
+    // Define color schemes for different memory types
+    if (normalizedType.includes('document')) {
+      return { bg: '#134e4a', text: '#5eead4' }; // Teal
+    } else if (normalizedType.includes('thought')) {
+      return { bg: '#1e3a8a', text: '#93c5fd' }; // Blue
+    } else if (normalizedType.includes('message')) {
+      return { bg: '#365314', text: '#bef264' }; // Green
+    } else if (normalizedType.includes('task')) {
+      return { bg: '#713f12', text: '#fcd34d' }; // Yellow
+    } else if (normalizedType.includes('reflection')) {
+      return { bg: '#581c87', text: '#d8b4fe' }; // Purple
+    } else if (normalizedType.includes('edit')) {
+      return { bg: '#881337', text: '#fda4af' }; // Red
+    } else if (normalizedType.includes('fact') || normalizedType.includes('knowledge')) {
+      return { bg: '#1e40af', text: '#93c5fd' }; // Blue
+    } else if (normalizedType.includes('summary')) {
+      return { bg: '#3f3f46', text: '#d4d4d8' }; // Gray
+    }
+    
+    // Default color scheme
+    return { bg: '#1f2937', text: '#9ca3af' };
+  };
+
   return (
     <div className="flex flex-col h-full bg-gray-900 text-white">
+      <Toaster position="bottom-right" />
       {/* Agent selection and view controls */}
       <div className="flex items-center justify-between p-4 border-b border-gray-700">
         <div className="flex items-center gap-4">
@@ -1170,8 +1192,8 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
             className="bg-gray-800 text-white px-3 py-2 rounded border border-gray-700 focus:outline-none focus:border-blue-500"
           >
             <option value="">All Agents</option>
-            {availableAgents.map(agent => (
-              <option key={agent.id} value={agent.id}>
+            {availableAgents.map((agent, index) => (
+              <option key={agent.id || `agent-${index}`} value={agent.id}>
                 {agent.name}
               </option>
             ))}
@@ -1218,19 +1240,128 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
         </div>
       </div>
       
-      {/* Main content area */}
-      <div className="flex-1 overflow-hidden flex">
-        {/* Left sidebar with stats */}
-        {localSelectedAgentId && (
-          <div className="w-80 border-r border-gray-700 overflow-y-auto">
-            <AgentMemoryStats agentId={localSelectedAgentId} className="m-4" />
+      {/* Stats component - compact horizontal layout */}
+      {localSelectedAgentId && (
+        <div className="p-3 border-b border-gray-700 bg-gray-800">
+          <div className="flex items-center justify-between">
+            {/* Total Memories */}
+            <div className="flex items-center space-x-2">
+              <span className="text-sm font-medium text-gray-400">Total:</span>
+              <span className="text-lg font-bold">{memoryCount}</span>
+            </div>
+            
+            {/* Memory Types */}
+            <div className="flex items-center space-x-4">
+              {Object.entries(typeCount)
+                .filter(([type]) => type !== 'unknown')
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 3)
+                .map(([type, count]) => (
+                  <div key={type} className="flex items-center space-x-1">
+                    <span className="text-xs font-medium px-2 py-0.5 rounded-full" 
+                      style={{
+                        backgroundColor: type ? getTypeColor(type).bg : '#1e293b',
+                        color: type ? getTypeColor(type).text : '#94a3b8'
+                      }}>
+                      {type}
+                    </span>
+                    <span className="text-sm font-semibold">{count}</span>
+                  </div>
+                ))
+              }
+              {Object.keys(typeCount).length > 3 && (
+                <span className="text-xs text-gray-400">+{Object.keys(typeCount).length - 3} more</span>
+              )}
+            </div>
+            
+            {/* Recent Activity */}
+            <div className="flex items-center space-x-3">
+              <div className="flex items-center space-x-1">
+                <span className="text-xs text-gray-400">Last Hour:</span>
+                <span className="text-sm font-medium">0</span>
+              </div>
+              <div className="flex items-center space-x-1">
+                <span className="text-xs text-gray-400">Last 24h:</span>
+                <span className="text-sm font-medium">0</span>
+              </div>
+              <div className="flex items-center space-x-1">
+                <span className="text-xs text-gray-400">Last Week:</span>
+                <span className="text-sm font-medium">0</span>
+              </div>
+            </div>
+            
+            {/* Refresh button */}
+            <button 
+              onClick={handleRefresh} 
+              className="p-1.5 rounded bg-gray-700 hover:bg-gray-600 text-gray-300"
+              title="Refresh memories"
+            >
+              <RefreshCw className="h-4 w-4" />
+            </button>
           </div>
-        )}
-        
-        {/* Memory list */}
-        <div className="flex-1 overflow-y-auto p-4">
-          {renderMemoryList()}
         </div>
+      )}
+      
+      {/* Filters section */}
+      {showFilters && (
+        <div className="p-4 border-b border-gray-700 bg-gray-800">
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="text-sm font-medium">Filters</h3>
+            <button
+              onClick={clearFilters}
+              className="text-xs text-blue-400 hover:text-blue-300"
+            >
+              Clear all filters
+            </button>
+          </div>
+          
+          {/* Type filters */}
+          <div className="mb-4">
+            <h4 className="text-xs font-medium mb-2">Memory Types</h4>
+            <div className="flex flex-wrap gap-2">
+              {MEMORY_TYPES.map(type => (
+                <button
+                  key={type}
+                  onClick={() => handleTypeFilterChange(type as ClientMemoryType)}
+                  className={`px-3 py-1 rounded-full text-xs ${
+                    selectedTypes.includes(type as ClientMemoryType)
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-gray-700 text-gray-200 hover:bg-gray-600'
+                  }`}
+                >
+                  {type}
+                </button>
+              ))}
+            </div>
+          </div>
+          
+          {/* Tag filters */}
+          {allTags.length > 0 && (
+            <div className="mb-4">
+              <h4 className="text-xs font-medium mb-2">Tags</h4>
+              <div className="flex flex-wrap gap-2">
+                {allTags.map(tag => (
+                  <button
+                    key={tag}
+                    onClick={() => setSelectedTagFilter(tag === selectedTagFilter ? '' : tag)}
+                    className={`px-3 py-1 rounded-full text-xs ${
+                      tag === selectedTagFilter
+                        ? 'bg-green-600 text-white'
+                        : 'bg-gray-700 text-gray-200 hover:bg-gray-600'
+                    }`}
+                  >
+                    {tag}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+      
+      {/* Memory list */}
+      <div className="flex-1 overflow-y-auto p-4">
+        {renderMemoryList()}
       </div>
     </div>
   );
