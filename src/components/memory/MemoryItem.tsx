@@ -182,13 +182,65 @@ const MemoryItem: React.FC<MemoryItemProps> = ({
            'unknown';
   }, [memory, uiMetadata]);
 
+  // Extract timestamp from memory object, checking all possible locations
+  const extractMemoryTimestamp = (memory: any): string => {
+    if (!memory) return "";
+    
+    try {
+      // Check all possible timestamp locations in order of preference
+      if (memory.payload?.timestamp) {
+        // Handle numeric timestamps
+        if (typeof memory.payload.timestamp === 'number') {
+          const timeMs = String(memory.payload.timestamp).length >= 13 ? 
+            Number(memory.payload.timestamp) : Number(memory.payload.timestamp) * 1000;
+          return new Date(timeMs).toISOString();
+        }
+        return memory.payload.timestamp;
+      }
+      
+      if (memory.timestamp) {
+        // Handle numeric timestamps
+        if (typeof memory.timestamp === 'number') {
+          const timeMs = String(memory.timestamp).length >= 13 ? 
+            Number(memory.timestamp) : Number(memory.timestamp) * 1000;
+          return new Date(timeMs).toISOString();
+        }
+        return memory.timestamp;
+      }
+      
+      if (memory.point?.payload?.timestamp) {
+        return memory.point.payload.timestamp;
+      }
+      
+      if (memory.created_at) {
+        return memory.created_at;
+      }
+      
+      if (memory.payload?.created_at) {
+        return memory.payload.created_at;
+      }
+      
+      if (memory.metadata?.timestamp) {
+        return memory.metadata.timestamp;
+      }
+      
+      if (memory.created) {
+        return memory.created;
+      }
+      
+      // If we can't find a timestamp, return an empty string rather than current time
+      return "";
+    } catch (error) {
+      console.error("Error extracting memory timestamp:", error);
+      return "";
+    }
+  };
+
   // Create a current version object for reference
   const currentVersion: RelatedVersion = {
     id: memoryId,
     type: memoryType,
-    timestamp: typeof memory.payload?.timestamp === 'number' 
-      ? new Date(memory.payload.timestamp).toISOString() 
-      : String(memory.payload?.timestamp || new Date().toISOString()),
+    timestamp: extractMemoryTimestamp(memory),
     text: memory.payload?.text
   };
 
@@ -347,10 +399,10 @@ const MemoryItem: React.FC<MemoryItemProps> = ({
 
   // Format timestamp to a friendly format
   const formattedTimestamp = useMemo(() => {
-    if (!memory.payload?.timestamp || memory.payload.timestamp === '') return 'Unknown date';
+    const timestamp = extractMemoryTimestamp(memory);
+    if (!timestamp) return 'Unknown date';
     
     try {
-      const timestamp = memory.payload.timestamp;
       // Check if it's a unix timestamp (number)
       if (typeof timestamp === 'number' || !isNaN(Number(timestamp))) {
         // If it's a 13-digit timestamp (milliseconds), use as is
@@ -369,7 +421,7 @@ const MemoryItem: React.FC<MemoryItemProps> = ({
     } catch (e) {
       return 'Invalid date';
     }
-  }, [memory.payload?.timestamp]);
+  }, [memory]);
 
   // Format memory type for display
   const formattedType = useMemo(() => {

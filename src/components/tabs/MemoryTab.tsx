@@ -244,28 +244,253 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
     return Array.from(types).sort();
   }, [memories]);
 
-  // Filter memories based on selected types and search query
-  const displayedMemories = useMemo(() => {
-    let filtered = memories;
-
-    // Apply type filtering
-    if (selectedTypes.length > 0) {
-      filtered = filtered.filter(memory => 
-        selectedTypes.includes(memory.type as ClientMemoryType)
-      );
+  // Extract timestamp from memory object, checking all possible locations
+  const extractMemoryTimestamp = (memory: any): string => {
+    if (!memory) return "";
+    
+    try {
+      // First try to parse any direct date formats in standard fields
+      // This helps with directly formatted dates like "5/17/2023, 5:26:15 PM"
+      if (memory.timestamp && typeof memory.timestamp === 'string' && 
+          (memory.timestamp.includes('/') || memory.timestamp.includes('-'))) {
+        return new Date(memory.timestamp).toISOString();
+      }
+      
+      // Then check for numeric timestamps (most reliable)
+      if (memory.timestamp && typeof memory.timestamp === 'number') {
+        const timeMs = String(memory.timestamp).length >= 13 ? 
+          Number(memory.timestamp) : Number(memory.timestamp) * 1000;
+        return new Date(timeMs).toISOString();
+      }
+      
+      // Check all possible timestamp locations in order of preference
+      if (memory.payload?.timestamp) {
+        // Handle numeric timestamps
+        if (typeof memory.payload.timestamp === 'number') {
+          const timeMs = String(memory.payload.timestamp).length >= 13 ? 
+            Number(memory.payload.timestamp) : Number(memory.payload.timestamp) * 1000;
+          return new Date(timeMs).toISOString();
+        }
+        // Handle string timestamps, trying to parse as date
+        if (typeof memory.payload.timestamp === 'string') {
+          const parsed = new Date(memory.payload.timestamp);
+          if (!isNaN(parsed.getTime())) {
+            return parsed.toISOString();
+          }
+        }
+        // Return as is if parsing failed
+        return String(memory.payload.timestamp);
+      }
+      
+      // Continue with other possible locations
+      if (memory.point?.payload?.timestamp) {
+        return String(memory.point.payload.timestamp);
+      }
+      
+      if (memory.created_at) {
+        return String(memory.created_at);
+      }
+      
+      if (memory.payload?.created_at) {
+        return String(memory.payload.created_at);
+      }
+      
+      if (memory.metadata?.timestamp) {
+        return String(memory.metadata.timestamp);
+      }
+      
+      if (memory.created) {
+        return String(memory.created);
+      }
+      
+      // If we can't find a timestamp, return an empty string rather than current time
+      return "";
+    } catch (error) {
+      console.error("Error extracting memory timestamp:", error);
+      return "";
     }
+  };
 
-    // Apply search filtering
-    if (searchQuery) {
+  // Helper function to convert any timestamp format to a Date object for comparison
+  const getDateFromTimestamp = (timestamp: string): Date => {
+    try {
+      // If it's empty, return a very old date to sort it last
+      if (!timestamp) return new Date(0);
+      
+      // For numeric timestamps as strings (Unix timestamps)
+      if (/^\d+$/.test(timestamp)) {
+        const timeMs = timestamp.length >= 13 ? 
+          parseInt(timestamp) : parseInt(timestamp) * 1000;
+        return new Date(timeMs);
+      }
+      
+      // Try to parse as ISO string or other date format
+      const parsed = new Date(timestamp);
+      if (!isNaN(parsed.getTime())) {
+        return parsed;
+      }
+      
+      // If all else fails, return a very old date
+      return new Date(0);
+    } catch (e) {
+      console.error("Error parsing date:", e, timestamp);
+      return new Date(0);
+    }
+  };
+
+  // Update the filteredMemories logic to handle missing collections more gracefully
+  const filteredMemories = useMemo(() => {
+    // First, log the status of data sources
+    console.log("Computing filtered memories:", {
+      searchResultsCount: searchResults?.length || 0,
+      allMemoriesCount: memories?.length || 0,
+      hasSearchQuery: !!searchQuery,
+      selectedTypesCount: selectedTypes.length,
+      hasTagFilter: !!selectedTagFilter
+    });
+
+    // If we have search results and search query, use the search results
+    if (searchResults && searchResults.length > 0 && searchQuery) {
+      console.log(`Using ${searchResults.length} search results instead of filtering`);
+      const sortedResults = [...searchResults] as any[];
+      
+      // Sort search results by timestamp too
+      sortedResults.sort((a, b) => {
+        try {
+          // Get timestamps using our extraction function
+          const timestampA = extractMemoryTimestamp(a);
+          const timestampB = extractMemoryTimestamp(b);
+          
+          // If both are empty or invalid, don't change order
+          if ((!timestampA && !timestampB) || (isNaN(Date.parse(timestampA)) && isNaN(Date.parse(timestampB)))) {
+            return 0;
+          }
+          
+          // If only one has a valid timestamp, put it first
+          if (!timestampA || isNaN(Date.parse(timestampA))) return 1;
+          if (!timestampB || isNaN(Date.parse(timestampB))) return -1;
+          
+          // Convert to Date objects
+          const dateA = new Date(timestampA);
+          const dateB = new Date(timestampB);
+          
+          // Sort newest first (descending order)
+          return dateB.getTime() - dateA.getTime();
+        } catch (e) {
+          console.error("Error sorting search results by timestamp:", e);
+          return 0;
+        }
+      });
+      
+      return sortedResults;
+    }
+    
+    if (!memories || !Array.isArray(memories) || memories.length === 0) {
+      console.warn("No memories available for filtering");
+      return [];
+    }
+    
+    console.log(`Starting with ${memories.length} total memories`);
+    
+    // First, filter out memory_edit records - we'll display these as versions of their originals
+    // But keep them if explicitly showing memory_edits type
+    const memoryEditType = ClientMemoryType.MEMORY_EDIT;
+    let filtered = selectedTypes.includes(memoryEditType) || selectedTypes.includes(ClientMemoryType.MEMORY_EDIT)
+      ? memories 
+      : memories.filter(memory => {
+          // Cast to any to safely access properties
+          const memoryObj = memory as any;
+          return !(
+            memoryObj.isMemoryEdit || 
+            (memoryObj.metadata && memoryObj.metadata.isMemoryEdit) || 
+            (memoryObj.payload && memoryObj.payload.type === memoryEditType)
+          );
+        });
+    
+    // Apply text search filter if any
+    if (searchQuery && searchResults?.length === 0) {
       const query = searchQuery.toLowerCase();
-      filtered = filtered.filter(memory =>
-        (memory.content?.toLowerCase().includes(query) ?? false) ||
-        memory.type.toLowerCase().includes(query)
-      );
+      filtered = filtered.filter(memory => {
+        // Cast to any to safely access properties
+        const memoryObj = memory as any;
+        return memoryObj.payload && 
+               typeof memoryObj.payload.text === 'string' && 
+               memoryObj.payload.text.toLowerCase().includes(query);
+      });
     }
-
+    
+    // Apply tag filter if selected
+    if (selectedTagFilter) {
+      filtered = filtered.filter(memory => {
+        // Cast to any to safely access properties
+        const memoryObj = memory as any;
+        const tags = memoryObj.payload && 
+                    memoryObj.payload.metadata && 
+                    Array.isArray(memoryObj.payload.metadata.tags) 
+                      ? memoryObj.payload.metadata.tags 
+                      : [];
+        return tags.includes(selectedTagFilter);
+      });
+    }
+    
+    // Update the memory type filter section to be more flexible
+    if (selectedTypes.length > 0) {
+      filtered = filtered.filter(memory => {
+        // Cast to any to safely access properties
+        const memoryObj = memory as any;
+        
+        // Get the type with safe property access
+        let type = ClientMemoryType.UNKNOWN;
+        
+        if (memoryObj.type && typeof memoryObj.type === 'string') {
+          // Validate the type is a valid MemoryType
+          type = isValidMemoryType(memoryObj.type) ? memoryObj.type : ClientMemoryType.UNKNOWN;
+        }
+        
+        return selectedTypes.includes(type);
+      });
+    }
+    
+    // Sort by timestamp (newest first) using the extractMemoryTimestamp function
+    console.log("Sorting filtered memories by timestamp");
+    filtered.sort((a, b) => {
+      try {
+        // Get timestamps using our extraction function
+        const timestampA = extractMemoryTimestamp(a);
+        const timestampB = extractMemoryTimestamp(b);
+        
+        // Convert to Date objects using our helper for consistent comparison
+        const dateA = getDateFromTimestamp(timestampA);
+        const dateB = getDateFromTimestamp(timestampB);
+        
+        // Debug logging for the first few items
+        if (Math.random() < 0.01) {
+          console.log("Sorting comparison:", {
+            idA: a.id?.substring(0, 8), 
+            typeA: a.type || a.payload?.type,
+            rawTimestampA: timestampA,
+            dateA: dateA.toISOString(),
+            
+            idB: b.id?.substring(0, 8),
+            typeB: b.type || b.payload?.type, 
+            rawTimestampB: timestampB,
+            dateB: dateB.toISOString(),
+            
+            newestFirst: dateB.getTime() - dateA.getTime()
+          });
+        }
+        
+        // Sort newest first (descending order)
+        return dateB.getTime() - dateA.getTime();
+      } catch (e) {
+        console.error("Error sorting by timestamp:", e);
+        return 0;
+      }
+    });
+    
+    console.log("Filtered and sorted memories count:", filtered.length);
     return filtered;
-  }, [memories, selectedTypes, searchQuery]);
+  }, [memories, selectedTypes, selectedTagFilter, searchQuery, searchResults]);
 
   // Create typeCount map for displaying memory type counts
   const typeCount = useMemo(() => {
@@ -361,163 +586,6 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
       }
     }
   }, [memories.length]);
-
-  // Update the filteredMemories logic to handle missing collections more gracefully
-  const filteredMemories = useMemo(() => {
-    // First, log the status of data sources
-    console.log("Computing filtered memories:", {
-      searchResultsCount: searchResults?.length || 0,
-      allMemoriesCount: memories?.length || 0,
-      hasSearchQuery: !!searchQuery,
-      selectedTypesCount: selectedTypes.length,
-      hasTagFilter: !!selectedTagFilter
-    });
-
-    // If we have search results and search query, use the search results
-    if (searchResults && searchResults.length > 0 && searchQuery) {
-      console.log(`Using ${searchResults.length} search results instead of filtering`);
-      return searchResults as any[];
-    }
-    
-    if (!memories || !Array.isArray(memories) || memories.length === 0) {
-      console.warn("No memories available for filtering");
-      return [];
-    }
-    
-    console.log(`Starting with ${memories.length} total memories`);
-    
-    // First, filter out memory_edit records - we'll display these as versions of their originals
-    // But keep them if explicitly showing memory_edits type
-    const memoryEditType = ClientMemoryType.MEMORY_EDIT;
-    let filtered = selectedTypes.includes(memoryEditType) || selectedTypes.includes(ClientMemoryType.MEMORY_EDIT)
-      ? memories 
-      : memories.filter(memory => {
-          // Cast to any to safely access properties
-          const memoryObj = memory as any;
-          return !(
-            memoryObj.isMemoryEdit || 
-            (memoryObj.metadata && memoryObj.metadata.isMemoryEdit) || 
-            (memoryObj.payload && memoryObj.payload.type === memoryEditType)
-          );
-        });
-    
-    // Apply text search filter if any
-    if (searchQuery && searchResults?.length === 0) {
-      const query = searchQuery.toLowerCase();
-      filtered = filtered.filter(memory => {
-        // Cast to any to safely access properties
-        const memoryObj = memory as any;
-        return memoryObj.payload && 
-               typeof memoryObj.payload.text === 'string' && 
-               memoryObj.payload.text.toLowerCase().includes(query);
-      });
-    }
-    
-    // Apply tag filter if selected
-    if (selectedTagFilter) {
-      filtered = filtered.filter(memory => {
-        // Cast to any to safely access properties
-        const memoryObj = memory as any;
-        const tags = memoryObj.payload && 
-                    memoryObj.payload.metadata && 
-                    Array.isArray(memoryObj.payload.metadata.tags) 
-                      ? memoryObj.payload.metadata.tags 
-                      : [];
-        return tags.includes(selectedTagFilter);
-      });
-    }
-    
-    // Update the memory type filter section to be more flexible
-    if (selectedTypes.length > 0) {
-      filtered = filtered.filter(memory => {
-        // Cast to any to safely access properties
-        const memoryObj = memory as any;
-        
-        // Get the type with safe property access
-        let type = ClientMemoryType.UNKNOWN;
-        
-        if (memoryObj.type && typeof memoryObj.type === 'string') {
-          // Validate the type is a valid MemoryType
-          type = isValidMemoryType(memoryObj.type) ? memoryObj.type : ClientMemoryType.UNKNOWN;
-        }
-        
-        return selectedTypes.includes(type);
-      });
-    }
-    
-    // Sort by timestamp (newest first)
-    filtered.sort((a, b) => {
-      try {
-        // Get timestamps safely using type casting to access properties
-        const memA = a as any;
-        const memB = b as any;
-        
-        // Extract timestamps from all possible locations
-        let timestampA = '';
-        let timestampB = '';
-        
-        // Check all possible timestamp locations for A
-        if (memA.payload?.timestamp) {
-          timestampA = memA.payload.timestamp;
-        } else if (memA.timestamp) {
-          timestampA = memA.timestamp;
-        } else if (memA.point?.payload?.timestamp) {
-          timestampA = memA.point.payload.timestamp;
-        } else if (memA.created_at) {
-          timestampA = memA.created_at;
-        } else if (memA.payload?.created_at) {
-          timestampA = memA.payload.created_at;
-        }
-        
-        // Check all possible timestamp locations for B
-        if (memB.payload?.timestamp) {
-          timestampB = memB.payload.timestamp;
-        } else if (memB.timestamp) {
-          timestampB = memB.timestamp;
-        } else if (memB.point?.payload?.timestamp) {
-          timestampB = memB.point.payload.timestamp;
-        } else if (memB.created_at) {
-          timestampB = memB.created_at;
-        } else if (memB.payload?.created_at) {
-          timestampB = memB.payload.created_at;
-        }
-        
-        // Process Unix timestamps (numeric timestamps)
-        if (timestampA && !isNaN(Number(timestampA))) {
-          const timeMs = String(timestampA).length >= 13 ? 
-            Number(timestampA) : Number(timestampA) * 1000;
-          timestampA = new Date(timeMs).toISOString();
-        }
-        
-        if (timestampB && !isNaN(Number(timestampB))) {
-          const timeMs = String(timestampB).length >= 13 ? 
-            Number(timestampB) : Number(timestampB) * 1000;
-          timestampB = new Date(timeMs).toISOString();
-        }
-        
-        // If both are empty or invalid, don't change order
-        if ((!timestampA && !timestampB) || (isNaN(Date.parse(timestampA)) && isNaN(Date.parse(timestampB)))) {
-          return 0;
-        }
-        
-        // If only one has a valid timestamp, put it first
-        if (isNaN(Date.parse(timestampA))) return 1;
-        if (isNaN(Date.parse(timestampB))) return -1;
-        
-        // Convert to Date objects
-        const dateA = new Date(timestampA);
-        const dateB = new Date(timestampB);
-        
-        // Sort newest first (descending order)
-        return dateB.getTime() - dateA.getTime();
-      } catch (e) {
-        console.error("Error sorting by timestamp:", e);
-        return 0;
-      }
-    });
-    
-    return filtered;
-  }, [memories, selectedTypes, selectedTagFilter, searchQuery, searchResults]);
 
   // Handle type filter changes
   const handleTypeFilterChange = (type: ClientMemoryType) => {
@@ -1074,20 +1142,35 @@ const MemoryTab: React.FC<MemoryTabProps> = ({
       return <div className="text-center py-4 text-red-500">{error.message}</div>;
     }
 
-    if (displayedMemories.length === 0) {
+    // Use filteredMemories instead of displayedMemories for rendering
+    // This has all our filtering and sorting logic
+    const memoriesToShow = filteredMemories;
+    console.log(`Rendering ${memoriesToShow.length} memories`);
+    
+    if (memoriesToShow.length === 0) {
       return <div className="text-center py-4">No memories found</div>;
+    }
+
+    // Log the first few timestamps to verify sorting
+    if (memoriesToShow.length > 0) {
+      const firstFew = memoriesToShow.slice(0, 5);
+      console.log("First 5 memories timestamps:", firstFew.map(mem => ({
+        id: mem.id?.substring(0, 8),
+        timestamp: extractMemoryTimestamp(mem),
+        type: mem.type || mem.payload?.type
+      })));
     }
 
     return (
       <div className="space-y-4">
-        {displayedMemories.map((memory, index) => (
+        {memoriesToShow.map((memory, index) => (
           <MemoryItemComponent
             key={memory.id || `memory-${index}`}
             memory={{
               id: memory.id,
               payload: {
                 text: extractMemoryText(memory),
-                timestamp: memory.timestamp || memory.created || new Date().toISOString(),
+                timestamp: extractMemoryTimestamp(memory),
                 type: memory.type,
                 metadata: {
                   ...(memory.metadata || {}),
