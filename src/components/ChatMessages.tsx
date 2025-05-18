@@ -2,6 +2,11 @@ import React, { useEffect, useRef, useMemo, useState, useCallback } from 'react'
 import { Message, FileAttachment } from '../types';
 import ChatBubble from './ChatBubble';
 
+// Type for messages with timestamp
+type MessageWithSortTime = Message & {
+  timestamp: Date | string | number;
+};
+
 interface ChatMessagesProps {
   messages: Message[];
   isLoading?: boolean;
@@ -28,24 +33,12 @@ const ChatMessages: React.FC<ChatMessagesProps> = ({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   
-  // Log the raw messages received for debugging
-  useEffect(() => {
-    console.log('ChatMessages received raw messages:', messages.length, 
-      messages.map(msg => ({
-        ...msg,
-        sender: typeof msg.sender === 'object' ? { ...msg.sender } : msg.sender
-      }))
-    );
-  }, [messages]);
-  
   // Simplified message processing - just sort by timestamp
   const sortedMessages = useMemo(() => {
     if (!messages || !Array.isArray(messages)) {
       console.warn('Messages is not an array or is empty:', messages);
       return [];
     }
-    
-    console.log('Processing messages for display, count:', messages.length);
     
     // Create a copy of messages to avoid mutating props
     let sortedMessages = [...messages].map(msg => ({
@@ -55,61 +48,12 @@ const ChatMessages: React.FC<ChatMessagesProps> = ({
         ? { id: msg.sender, name: msg.sender, role: msg.sender === 'You' ? 'user' : 'assistant' as 'user' | 'assistant' | 'system' }
         : msg.sender
     }));
-    
-    // Create a temporary type that includes our sorting property
-    type MessageWithSortTime = Message & { _sortTime?: number };
-    
-    // Ensure all messages have valid timestamps
-    sortedMessages = sortedMessages.map((message) => {
-      // Instead of converting, just use the original timestamp for sorting purposes
-      return {
-        ...message,
-        // Just add a _sortTime property for sorting, but keep the original timestamp intact
-        _sortTime: (() => {
-          try {
-            if (typeof message.timestamp === 'number') {
-              return message.timestamp;
-            }
-            if (typeof message.timestamp === 'string' && /^\d+$/.test(message.timestamp)) {
-              return parseInt(message.timestamp, 10);
-            }
-            if (typeof message.timestamp === 'string') {
-              const parsed = Date.parse(message.timestamp);
-              if (!isNaN(parsed)) return parsed;
-            }
-            if (message.timestamp instanceof Date) {
-              return message.timestamp.getTime();
-            }
-            return 0;
-          } catch (err) {
-            return 0;
-          }
-        })()
-      } as MessageWithSortTime;
-    });
-    
-    // Sort messages by timestamp (oldest first)
-    sortedMessages.sort((a, b) => {
-      // Get timestamp values safely using the _sortTime property
-      const timeA = (a as MessageWithSortTime)._sortTime || 0;
-      const timeB = (b as MessageWithSortTime)._sortTime || 0;
-      
-      // Primary sort by timestamp
-      if (timeA !== timeB) {
-        return timeA - timeB;
-      }
-      
-      // Secondary sort by ID for consistency when timestamps are equal
-      const idA = a.id || '';
-      const idB = b.id || '';
-      return idA.localeCompare(idB);
-    });
-    
-    console.log('Processed and sorted messages for display:', sortedMessages.length);
-    
-    // Debug: Log all message IDs
-    sortedMessages.forEach((msg, idx) => {
-      console.log(`Message ${idx + 1}/${sortedMessages.length}: ID=${msg.id}, timestamp=${msg.timestamp}, sender=${typeof msg.sender === 'object' ? msg.sender.name : msg.sender}`);
+
+    // Sort messages by timestamp
+    sortedMessages.sort((a: MessageWithSortTime, b: MessageWithSortTime) => {
+      const aTime = a.timestamp instanceof Date ? a.timestamp.getTime() : new Date(a.timestamp).getTime();
+      const bTime = b.timestamp instanceof Date ? b.timestamp.getTime() : new Date(b.timestamp).getTime();
+      return aTime - bTime;
     });
     
     return sortedMessages;

@@ -340,14 +340,12 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
 
   // Add polling for message updates instead of using WebSockets
   useEffect(() => {
-    // Poll for new messages every 3 seconds
-    const pollInterval = 3000;
+    // Poll for new messages every 15 seconds
+    const pollInterval = 15000;
     let pollingTimer: NodeJS.Timeout | null = null;
 
     // Only start polling if we have a chat ID and currently on the chat tab
     if (chat?.id && selectedTab === 'chat') {
-      console.log(`Setting up polling for chat ${chat.id} every ${pollInterval}ms`);
-      
       // Define polling function
       const pollMessages = async () => {
         try {
@@ -368,7 +366,6 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
     return () => {
       if (pollingTimer) {
         clearInterval(pollingTimer);
-        console.log('Stopped message polling');
       }
     };
   }, [chat?.id, isLoading, selectedTab]);
