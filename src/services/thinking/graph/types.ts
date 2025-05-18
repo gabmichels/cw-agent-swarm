@@ -37,6 +37,31 @@ export interface ToolReference {
 }
 
 /**
+ * Tracks stored cognitive artifacts and their relationships
+ */
+export interface CognitiveArtifactTracker {
+  /**
+   * IDs of thought memories
+   */
+  thoughtIds: string[];
+  
+  /**
+   * IDs of entity memories
+   */
+  entityIds: string[];
+  
+  /**
+   * ID of the reasoning memory
+   */
+  reasoningId: string | null;
+  
+  /**
+   * ID of the plan memory
+   */
+  planId: string | null;
+}
+
+/**
  * Agent persona information
  */
 export interface AgentPersona {
@@ -149,4 +174,9 @@ export interface ThinkingState {
    * Final response
    */
   response?: string;
+  
+  /**
+   * Tracking of stored cognitive artifacts
+   */
+  cognitiveArtifacts?: CognitiveArtifactTracker;
 } 

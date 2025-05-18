@@ -11,6 +11,9 @@ import { executeThinkingWorkflow } from './graph';
 import { ThinkingState as GraphState } from './graph/types';
 import { DelegationService } from './delegation/DelegationService';
 import { DelegationFeedback } from './delegation/DelegationManager';
+import { CognitiveArtifactService } from './cognitive/CognitiveArtifactService';
+import { getMemoryServices } from '../../server/memory/services';
+import { ImportanceLevel } from '../../constants/memory';
 
 /**
  * Implementation of the ThinkingService
@@ -20,9 +23,27 @@ export class ThinkingService implements IThinkingService {
   private workingMemoryStore: Record<string, WorkingMemoryItem[]> = {};
   private delegationService: DelegationService;
   private delegatedTasks: Map<string, { taskId: string, agentId: string }> = new Map();
+  private cognitiveArtifactService?: CognitiveArtifactService;
   
   constructor() {
     this.delegationService = new DelegationService();
+    
+    // Initialize cognitive artifact service asynchronously
+    this.initializeCognitiveService().catch(err => {
+      console.error('Error initializing cognitive artifact service:', err);
+    });
+  }
+  
+  /**
+   * Initialize the cognitive artifact service with memory services
+   */
+  private async initializeCognitiveService(): Promise<void> {
+    try {
+      const { memoryService } = await getMemoryServices();
+      this.cognitiveArtifactService = new CognitiveArtifactService(memoryService);
+    } catch (error) {
+      console.error('Failed to initialize cognitive artifact service:', error);
+    }
   }
   
   /**
@@ -35,7 +56,11 @@ export class ThinkingService implements IThinkingService {
     try {
       // Use the LangGraph workflow to analyze intent
       const userId = options?.userId || 'anonymous';
-      const graphResult = await executeThinkingWorkflow(userId, message);
+      const graphResult = await executeThinkingWorkflow({
+        userId,
+        message,
+        options
+      });
       
       // Convert the graph result to ThinkingResult format
       return this.convertGraphResultToThinkingResult(graphResult);
@@ -195,7 +220,8 @@ export class ThinkingService implements IThinkingService {
   }
   
   /**
-   * Process a user request through the complete thinking workflow
+   * Process a request through the complete thinking workflow
+   * Stores all cognitive artifacts during processing
    */
   async processRequest(
     userId: string,
@@ -203,44 +229,150 @@ export class ThinkingService implements IThinkingService {
     options?: ThinkingOptions
   ): Promise<ThinkingResult> {
     try {
-      // Extract agent persona from options if available
-      const agentPersona = options?.agentInfo ? {
-        name: options.agentInfo.name || 'AI Assistant',
-        description: options.agentInfo.description || 'A helpful AI assistant',
-        systemPrompt: options.agentInfo.systemPrompt,
-        capabilities: options.agentInfo.capabilities || [],
-        traits: options.agentInfo.traits || []
-      } : undefined;
+      // Execute the LangGraph workflow to get thinking results
+      const graphResult = await executeThinkingWorkflow({
+        userId,
+        message,
+        options
+      });
       
-      // Use the LangGraph workflow for complete thinking process
-      const graphResult = await executeThinkingWorkflow(userId, message, agentPersona);
-      
-      // Convert the graph result to ThinkingResult format
+      // Convert graph results to a structured ThinkingResult
       const thinkingResult = this.convertGraphResultToThinkingResult(graphResult);
       
-      // Update working memory with the results
+      // Update working memory with entities and other information
       await this.updateWorkingMemory(userId, thinkingResult);
       
-      // If task was delegated, store the delegation information for future feedback
-      if (graphResult.response && graphResult.response.includes('Task delegated to a specialized agent')) {
-        // Extract taskId from response (assuming it's in the format)
-        const match = graphResult.response.match(/Task delegated to a specialized agent \(([^)]+)\)/);
-        if (match && match[1]) {
-          const agentId = match[1];
-          const requestId = IdGenerator.generate('req').toString();
-          
-          // Store delegation for future feedback
-          this.delegatedTasks.set(requestId, {
-            taskId: graphResult.response.split('Task delegated')[1].trim(),
-            agentId
-          });
-        }
-      }
+      // Store all cognitive artifacts if the service is available
+      await this.storeThinkingArtifacts(userId, message, thinkingResult);
       
+      // Return the thinking result
       return thinkingResult;
     } catch (error) {
-      console.error('Error in thinking process:', error);
-      throw new Error(`Thinking process failed: ${error instanceof Error ? error.message : String(error)}`);
+      console.error('Error processing request:', error);
+      // Return a basic thinking result with error information
+      return {
+        intent: {
+          primary: 'error_processing',
+          confidence: 0.1
+        },
+        entities: [],
+        shouldDelegate: false,
+        requiredCapabilities: [],
+        reasoning: [`Error processing request: ${error instanceof Error ? error.message : String(error)}`],
+        contextUsed: {
+          memories: [],
+          files: [],
+          tools: []
+        },
+        priority: 3,
+        isUrgent: false,
+        complexity: 1
+      };
+    }
+  }
+  
+  /**
+   * Store all cognitive artifacts from the thinking process
+   * Creates thoughts, reasoning, entities, plans, and links them together
+   */
+  private async storeThinkingArtifacts(
+    userId: string,
+    message: string,
+    thinkingResult: ThinkingResult
+  ): Promise<void> {
+    // Skip if cognitive artifact service is not initialized
+    if (!this.cognitiveArtifactService) {
+      console.warn('Cognitive artifact service not initialized, skipping artifact storage');
+      return;
+    }
+    
+    try {
+      // Determine importance based on complexity and priority
+      const importance = this.calculateImportance(thinkingResult);
+      
+      // Store the complete thinking process with all components
+      const storageResult = await this.cognitiveArtifactService.storeThinkingResult(
+        {
+          intent: thinkingResult.intent,
+          entities: thinkingResult.entities,
+          reasoning: thinkingResult.reasoning,
+          planSteps: thinkingResult.planSteps,
+          shouldDelegate: thinkingResult.shouldDelegate
+        },
+        userId,
+        message,
+        {
+          contextId: userId,
+          importance,
+          relatedMemories: thinkingResult.contextUsed.memories
+        }
+      );
+      
+      console.log('Stored thinking artifacts:', {
+        thoughtId: storageResult.thoughtId,
+        planId: storageResult.planId,
+        entityCount: storageResult.entityIds.length
+      });
+      
+      // If delegation is needed, store a reflection about the delegation decision
+      if (thinkingResult.shouldDelegate && thinkingResult.requiredCapabilities.length > 0) {
+        this.storeReflectionOnDelegation(userId, thinkingResult, storageResult.thoughtId);
+      }
+    } catch (error) {
+      console.error('Error storing thinking artifacts:', error);
+    }
+  }
+  
+  /**
+   * Store a reflection on the delegation decision
+   */
+  private async storeReflectionOnDelegation(
+    userId: string,
+    thinkingResult: ThinkingResult,
+    relatedThoughtId: string | null
+  ): Promise<void> {
+    if (!this.cognitiveArtifactService) return;
+    
+    const delegationContent = `
+Delegation Decision Analysis:
+
+This request requires specialized capabilities that I don't fully possess:
+${thinkingResult.requiredCapabilities.join(', ')}
+
+Based on my reasoning:
+${thinkingResult.reasoning.join('\n')}
+
+I've decided to delegate this task to an agent with the appropriate specialization.
+    `.trim();
+    
+    try {
+      await this.cognitiveArtifactService.storeReflection(
+        delegationContent,
+        {
+          reflectionType: 'strategy',
+          timeScope: 'immediate',
+          importance: ImportanceLevel.MEDIUM,
+          relatedTo: relatedThoughtId ? [relatedThoughtId] : [],
+          contextId: userId,
+          tags: ['delegation', 'decision', 'specialization']
+        }
+      );
+    } catch (error) {
+      console.error('Error storing delegation reflection:', error);
+    }
+  }
+  
+  /**
+   * Calculate importance based on thinking result
+   */
+  private calculateImportance(thinkingResult: ThinkingResult): ImportanceLevel {
+    // Higher complexity or priority = higher importance
+    if (thinkingResult.complexity >= 7 || thinkingResult.priority >= 8 || thinkingResult.isUrgent) {
+      return ImportanceLevel.HIGH;
+    } else if (thinkingResult.complexity >= 4 || thinkingResult.priority >= 5) {
+      return ImportanceLevel.MEDIUM;
+    } else {
+      return ImportanceLevel.LOW;
     }
   }
   
