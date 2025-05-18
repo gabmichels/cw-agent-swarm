@@ -2,6 +2,7 @@ import { ThinkingState } from '../types';
 import { getMemoryServices } from '../../../../server/memory/services';
 import { CognitiveArtifactService } from '../../cognitive/CognitiveArtifactService';
 import { ImportanceLevel } from '../../../../constants/memory';
+import artifactLogger, { ArtifactType, LogLevel } from '../../cognitive/ArtifactLogger';
 
 /**
  * Node for storing cognitive artifacts generated during the thinking process
@@ -15,7 +16,7 @@ export async function storeCognitiveArtifactsNode(
 ): Promise<ThinkingState> {
   try {
     if (!state.userId || !state.input) {
-      console.warn('Missing userId or input, skipping cognitive artifact storage');
+      artifactLogger.logToConsole(LogLevel.WARN, 'Missing userId or input, skipping cognitive artifact storage');
       return state;
     }
     
@@ -36,6 +37,7 @@ export async function storeCognitiveArtifactsNode(
     
     // Determine the stage of the thinking process based on state properties
     const stage = determineThinkingStage(state);
+    artifactLogger.logToConsole(LogLevel.DEBUG, `Processing artifacts for stage: ${stage}`);
     
     // Store artifacts based on the current stage
     switch (stage) {
@@ -66,7 +68,7 @@ export async function storeCognitiveArtifactsNode(
     
     return updatedState;
   } catch (error) {
-    console.error('Error storing cognitive artifacts:', error);
+    artifactLogger.logToConsole(LogLevel.ERROR, `Error storing cognitive artifacts: ${error instanceof Error ? error.message : String(error)}`);
     return state;
   }
 }
@@ -123,18 +125,47 @@ ${state.intent.alternatives ?
 From user message: "${state.input}"
   `.trim();
   
-  const thoughtId = await cognitiveService.storeThought(
-    content,
-    {
-      intention: 'intent_analysis',
-      confidenceScore: state.intent.confidence,
-      importance: ImportanceLevel.MEDIUM,
-      tags: ['intent', 'analysis', 'thinking']
-    }
-  );
+  const startTime = performance.now();
   
-  if (thoughtId) {
-    updatedState.cognitiveArtifacts!.thoughtIds.push(thoughtId);
+  try {
+    const thoughtId = await cognitiveService.storeThought(
+      content,
+      {
+        intention: 'intent_analysis',
+        confidenceScore: state.intent.confidence,
+        importance: ImportanceLevel.MEDIUM,
+        tags: ['intent', 'analysis', 'thinking']
+      }
+    );
+    
+    const endTime = performance.now();
+    
+    if (thoughtId) {
+      updatedState.cognitiveArtifacts!.thoughtIds.push(thoughtId);
+      
+      // Log successful storage
+      artifactLogger.logStorage({
+        type: ArtifactType.THOUGHT,
+        id: thoughtId,
+        userId: state.userId,
+        summary: `Intent analysis: ${state.intent.name}`,
+        importance: ImportanceLevel.MEDIUM,
+        tags: ['intent', 'analysis', 'thinking'],
+        stage: 'intent_analysis',
+        timestamp: new Date().toISOString(),
+        durationMs: Math.round(endTime - startTime)
+      });
+    }
+  } catch (error) {
+    artifactLogger.logStorageError(
+      error instanceof Error ? error : new Error(String(error)),
+      {
+        type: ArtifactType.THOUGHT,
+        userId: state.userId,
+        summary: `Intent analysis: ${state.intent.name}`,
+        stage: 'intent_analysis'
+      }
+    );
   }
 }
 
@@ -156,19 +187,49 @@ Confidence: ${entity.confidence.toFixed(2)}
 From message: "${state.input}"
     `.trim();
     
-    const entityId = await cognitiveService.storeThought(
-      entityContent,
-      {
-        intention: 'entity_extraction',
-        confidenceScore: entity.confidence,
-        importance: ImportanceLevel.MEDIUM,
-        relatedTo: updatedState.cognitiveArtifacts?.thoughtIds || [],
-        tags: ['entity', entity.type, 'extraction']
-      }
-    );
+    const startTime = performance.now();
     
-    if (entityId) {
-      updatedState.cognitiveArtifacts!.entityIds.push(entityId);
+    try {
+      const entityId = await cognitiveService.storeThought(
+        entityContent,
+        {
+          intention: 'entity_extraction',
+          confidenceScore: entity.confidence,
+          importance: ImportanceLevel.MEDIUM,
+          relatedTo: updatedState.cognitiveArtifacts?.thoughtIds || [],
+          tags: ['entity', entity.type, 'extraction']
+        }
+      );
+      
+      const endTime = performance.now();
+      
+      if (entityId) {
+        updatedState.cognitiveArtifacts!.entityIds.push(entityId);
+        
+        // Log successful storage
+        artifactLogger.logStorage({
+          type: ArtifactType.ENTITY,
+          id: entityId,
+          userId: state.userId,
+          summary: `Entity: ${entity.value} (${entity.type})`,
+          importance: ImportanceLevel.MEDIUM,
+          tags: ['entity', entity.type, 'extraction'],
+          stage: 'entity_extraction',
+          relatedTo: updatedState.cognitiveArtifacts?.thoughtIds,
+          timestamp: new Date().toISOString(),
+          durationMs: Math.round(endTime - startTime)
+        });
+      }
+    } catch (error) {
+      artifactLogger.logStorageError(
+        error instanceof Error ? error : new Error(String(error)),
+        {
+          type: ArtifactType.ENTITY,
+          userId: state.userId,
+          summary: `Entity: ${entity.value} (${entity.type})`,
+          stage: 'entity_extraction'
+        }
+      );
     }
   }
 }
@@ -207,23 +268,56 @@ async function storeDelegationReasoning(
     delegationSteps.push(`Identified appropriate delegation target: ${state.delegationTarget}`);
   }
   
-  const reasoningId = await cognitiveService.storeReasoning(
-    delegationSteps,
-    state.shouldDelegate 
-      ? `Task should be delegated to an agent with ${state.delegationTarget || 'specialized'} capabilities`
-      : 'I will handle this request myself',
-    {
-      importance: ImportanceLevel.MEDIUM,
-      relatedTo: [
-        ...(updatedState.cognitiveArtifacts?.thoughtIds || []),
-        ...(updatedState.cognitiveArtifacts?.entityIds || [])
-      ],
-      tags: ['delegation', 'reasoning', 'decision']
-    }
-  );
+  const startTime = performance.now();
   
-  if (reasoningId) {
-    updatedState.cognitiveArtifacts!.reasoningId = reasoningId;
+  try {
+    const reasoningId = await cognitiveService.storeReasoning(
+      delegationSteps,
+      state.shouldDelegate 
+        ? `Task should be delegated to an agent with ${state.delegationTarget || 'specialized'} capabilities`
+        : 'I will handle this request myself',
+      {
+        importance: ImportanceLevel.MEDIUM,
+        relatedTo: [
+          ...(updatedState.cognitiveArtifacts?.thoughtIds || []),
+          ...(updatedState.cognitiveArtifacts?.entityIds || [])
+        ],
+        tags: ['delegation', 'reasoning', 'decision']
+      }
+    );
+    
+    const endTime = performance.now();
+    
+    if (reasoningId) {
+      updatedState.cognitiveArtifacts!.reasoningId = reasoningId;
+      
+      // Log successful storage
+      artifactLogger.logStorage({
+        type: ArtifactType.REASONING,
+        id: reasoningId,
+        userId: state.userId,
+        summary: `Delegation reasoning: ${state.shouldDelegate ? 'Should delegate' : 'Will handle myself'}`,
+        importance: ImportanceLevel.MEDIUM,
+        tags: ['delegation', 'reasoning', 'decision'],
+        stage: 'delegation_assessment',
+        relatedTo: [
+          ...(updatedState.cognitiveArtifacts?.thoughtIds || []),
+          ...(updatedState.cognitiveArtifacts?.entityIds || [])
+        ],
+        timestamp: new Date().toISOString(),
+        durationMs: Math.round(endTime - startTime)
+      });
+    }
+  } catch (error) {
+    artifactLogger.logStorageError(
+      error instanceof Error ? error : new Error(String(error)),
+      {
+        type: ArtifactType.REASONING,
+        userId: state.userId,
+        summary: `Delegation reasoning: ${state.shouldDelegate ? 'Should delegate' : 'Will handle myself'}`,
+        stage: 'delegation_assessment'
+      }
+    );
   }
 }
 
@@ -237,30 +331,63 @@ async function storePlan(
 ): Promise<void> {
   if (!state.plan || state.plan.length === 0) return;
   
-  const planId = await cognitiveService.storePlan(
-    state.intent?.name || 'Execute user request',
-    state.plan,
-    {
-      planType: 'task',
-      importance: ImportanceLevel.MEDIUM,
-      relatedTo: [
-        ...(updatedState.cognitiveArtifacts?.thoughtIds || []),
-        ...(updatedState.cognitiveArtifacts?.entityIds || [])
-      ],
-      influencedBy: updatedState.cognitiveArtifacts?.reasoningId 
-        ? [updatedState.cognitiveArtifacts.reasoningId] 
-        : [],
-      tags: ['plan', 'execution']
-    }
-  );
+  const startTime = performance.now();
   
-  if (planId) {
-    updatedState.cognitiveArtifacts!.planId = planId;
+  try {
+    const planId = await cognitiveService.storePlan(
+      state.intent?.name || 'Execute user request',
+      state.plan,
+      {
+        planType: 'task',
+        importance: ImportanceLevel.MEDIUM,
+        relatedTo: [
+          ...(updatedState.cognitiveArtifacts?.thoughtIds || []),
+          ...(updatedState.cognitiveArtifacts?.entityIds || [])
+        ],
+        influencedBy: updatedState.cognitiveArtifacts?.reasoningId 
+          ? [updatedState.cognitiveArtifacts.reasoningId]
+          : undefined,
+        tags: ['execution', 'plan', 'steps']
+      }
+    );
+    
+    const endTime = performance.now();
+    
+    if (planId) {
+      updatedState.cognitiveArtifacts!.planId = planId;
+      
+      // Log successful storage
+      artifactLogger.logStorage({
+        type: ArtifactType.PLAN,
+        id: planId,
+        userId: state.userId,
+        summary: `Execution plan with ${state.plan.length} steps`,
+        importance: ImportanceLevel.MEDIUM,
+        tags: ['execution', 'plan', 'steps'],
+        stage: 'planning',
+        relatedTo: [
+          ...(updatedState.cognitiveArtifacts?.thoughtIds || []),
+          ...(updatedState.cognitiveArtifacts?.entityIds || [])
+        ],
+        timestamp: new Date().toISOString(),
+        durationMs: Math.round(endTime - startTime)
+      });
+    }
+  } catch (error) {
+    artifactLogger.logStorageError(
+      error instanceof Error ? error : new Error(String(error)),
+      {
+        type: ArtifactType.PLAN,
+        userId: state.userId,
+        summary: `Execution plan with ${state.plan.length} steps`,
+        stage: 'planning'
+      }
+    );
   }
 }
 
 /**
- * Store reasoning process
+ * Store reasoning steps
  */
 async function storeReasoning(
   state: ThinkingState, 
@@ -269,29 +396,70 @@ async function storeReasoning(
 ): Promise<void> {
   if (!state.reasoning || state.reasoning.length === 0) return;
   
-  const reasoningId = await cognitiveService.storeReasoning(
-    state.reasoning,
-    state.intent?.name || 'Reasoning about user request',
-    {
-      importance: ImportanceLevel.MEDIUM,
-      relatedTo: [
-        ...(updatedState.cognitiveArtifacts?.thoughtIds || []),
-        ...(updatedState.cognitiveArtifacts?.entityIds || [])
-      ],
-      influencedBy: updatedState.cognitiveArtifacts?.planId 
-        ? [updatedState.cognitiveArtifacts.planId] 
-        : [],
-      tags: ['reasoning', 'thinking-process']
-    }
-  );
+  const startTime = performance.now();
   
-  if (reasoningId) {
-    updatedState.cognitiveArtifacts!.reasoningId = reasoningId;
+  try {
+    const reasoningId = await cognitiveService.storeReasoning(
+      state.reasoning,
+      state.intent?.name || 'Process user request',
+      {
+        importance: ImportanceLevel.MEDIUM,
+        relatedTo: [
+          ...(updatedState.cognitiveArtifacts?.thoughtIds || []),
+          ...(updatedState.cognitiveArtifacts?.entityIds || [])
+        ],
+        influencedBy: updatedState.cognitiveArtifacts?.planId 
+          ? [updatedState.cognitiveArtifacts.planId]
+          : undefined,
+        tags: ['reasoning', 'thinking', 'steps']
+      }
+    );
+    
+    const endTime = performance.now();
+    
+    if (reasoningId) {
+      // We already have a reasoning ID from delegation assessment, so we need to handle this case
+      if (updatedState.cognitiveArtifacts!.reasoningId) {
+        artifactLogger.logToConsole(
+          LogLevel.WARN, 
+          `Overwriting existing reasoning ID ${updatedState.cognitiveArtifacts!.reasoningId} with new one ${reasoningId}`
+        );
+      }
+      
+      updatedState.cognitiveArtifacts!.reasoningId = reasoningId;
+      
+      // Log successful storage
+      artifactLogger.logStorage({
+        type: ArtifactType.REASONING,
+        id: reasoningId,
+        userId: state.userId,
+        summary: `Reasoning steps (${state.reasoning.length})`,
+        importance: ImportanceLevel.MEDIUM,
+        tags: ['reasoning', 'thinking', 'steps'],
+        stage: 'reasoning',
+        relatedTo: [
+          ...(updatedState.cognitiveArtifacts?.thoughtIds || []),
+          ...(updatedState.cognitiveArtifacts?.entityIds || [])
+        ],
+        timestamp: new Date().toISOString(),
+        durationMs: Math.round(endTime - startTime)
+      });
+    }
+  } catch (error) {
+    artifactLogger.logStorageError(
+      error instanceof Error ? error : new Error(String(error)),
+      {
+        type: ArtifactType.REASONING,
+        userId: state.userId,
+        summary: `Reasoning steps (${state.reasoning.length})`,
+        stage: 'reasoning'
+      }
+    );
   }
 }
 
 /**
- * Store completion insight
+ * Store insights from the completed thinking process
  */
 async function storeCompletionInsight(
   state: ThinkingState, 
@@ -300,32 +468,83 @@ async function storeCompletionInsight(
 ): Promise<void> {
   if (!state.response) return;
   
-  const insightContent = `
-Request Completion Analysis:
-
-User requested: "${state.input}"
-Intent identified: ${state.intent?.name || 'Unknown'}
-Entities extracted: ${state.entities?.map(e => `${e.value} (${e.type})`).join(', ') || 'None'}
-${state.shouldDelegate 
-  ? `Delegated to: ${state.delegationTarget || 'specialist'}`
-  : `Handled with ${state.tools?.length || 0} tools and ${state.reasoning?.length || 0} reasoning steps`
-}
-
-Response summary: "${state.response.substring(0, 100)}${state.response.length > 100 ? '...' : ''}"
-  `.trim();
+  // Build insight content from the complete thinking process
+  let insightContent = `Processed request: "${state.input}"\n\n`;
   
-  await cognitiveService.storeInsight(
-    insightContent,
-    {
-      insightType: 'pattern',
-      importance: ImportanceLevel.MEDIUM,
-      relatedTo: [
-        ...(updatedState.cognitiveArtifacts?.thoughtIds || []),
-        ...(updatedState.cognitiveArtifacts?.entityIds || []),
-        ...(updatedState.cognitiveArtifacts?.reasoningId ? [updatedState.cognitiveArtifacts.reasoningId] : []),
-        ...(updatedState.cognitiveArtifacts?.planId ? [updatedState.cognitiveArtifacts.planId] : [])
-      ],
-      tags: ['completion', 'insight', 'summary']
+  if (state.intent) {
+    insightContent += `Intent: ${state.intent.name} (${state.intent.confidence.toFixed(2)} confidence)\n`;
+  }
+  
+  if (state.entities && state.entities.length > 0) {
+    insightContent += `Entities: ${state.entities.map(e => `${e.value} (${e.type})`).join(', ')}\n`;
+  }
+  
+  if (state.shouldDelegate) {
+    insightContent += `Delegation: Task was ${state.shouldDelegate ? 'delegated' : 'handled directly'}\n`;
+    if (state.delegationTarget) {
+      insightContent += `Delegation target: ${state.delegationTarget}\n`;
     }
-  );
+  }
+  
+  if (state.plan && state.plan.length > 0) {
+    insightContent += `\nExecution plan:\n${state.plan.map((step, i) => `${i+1}. ${step}`).join('\n')}\n`;
+  }
+  
+  if (state.tools && state.tools.length > 0) {
+    insightContent += `\nTools used: ${state.tools.join(', ')}\n`;
+  }
+  
+  insightContent += `\nResponse: ${state.response}`;
+  
+  const startTime = performance.now();
+  
+  try {
+    const insightId = await cognitiveService.storeInsight(
+      insightContent,
+      {
+        insightType: 'pattern',
+        importance: ImportanceLevel.MEDIUM,
+        relatedTo: [
+          ...(updatedState.cognitiveArtifacts?.thoughtIds || []),
+          ...(updatedState.cognitiveArtifacts?.entityIds || [])
+        ],
+        influencedBy: [
+          ...(updatedState.cognitiveArtifacts?.reasoningId ? [updatedState.cognitiveArtifacts.reasoningId] : []),
+          ...(updatedState.cognitiveArtifacts?.planId ? [updatedState.cognitiveArtifacts.planId] : [])
+        ],
+        tags: ['completion', 'insight', 'response']
+      }
+    );
+    
+    const endTime = performance.now();
+    
+    if (insightId) {
+      // Log successful storage
+      artifactLogger.logStorage({
+        type: ArtifactType.INSIGHT,
+        id: insightId,
+        userId: state.userId,
+        summary: `Completion insight: ${state.intent?.name || 'Processed user request'}`,
+        importance: ImportanceLevel.MEDIUM,
+        tags: ['completion', 'insight', 'response'],
+        stage: 'completion',
+        relatedTo: [
+          ...(updatedState.cognitiveArtifacts?.thoughtIds || []),
+          ...(updatedState.cognitiveArtifacts?.entityIds || [])
+        ],
+        timestamp: new Date().toISOString(),
+        durationMs: Math.round(endTime - startTime)
+      });
+    }
+  } catch (error) {
+    artifactLogger.logStorageError(
+      error instanceof Error ? error : new Error(String(error)),
+      {
+        type: ArtifactType.INSIGHT,
+        userId: state.userId,
+        summary: `Completion insight: ${state.intent?.name || 'Processed user request'}`,
+        stage: 'completion'
+      }
+    );
+  }
 } 

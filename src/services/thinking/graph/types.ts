@@ -62,6 +62,46 @@ export interface CognitiveArtifactTracker {
 }
 
 /**
+ * Error information for workflow nodes
+ */
+export interface NodeError {
+  /**
+   * Node name where the error occurred
+   */
+  nodeName: string;
+  
+  /**
+   * Error message
+   */
+  message: string;
+  
+  /**
+   * Error stack trace
+   */
+  stack?: string;
+  
+  /**
+   * Timestamp when the error occurred
+   */
+  timestamp: string;
+  
+  /**
+   * Whether recovery was attempted
+   */
+  recoveryAttempted: boolean;
+  
+  /**
+   * Whether recovery was successful
+   */
+  recoverySuccessful?: boolean;
+  
+  /**
+   * Recovery strategy used
+   */
+  recoveryStrategy?: string;
+}
+
+/**
  * Agent persona information
  */
 export interface AgentPersona {
@@ -179,4 +219,19 @@ export interface ThinkingState {
    * Tracking of stored cognitive artifacts
    */
   cognitiveArtifacts?: CognitiveArtifactTracker;
+  
+  /**
+   * Errors that occurred during workflow execution
+   */
+  errors?: NodeError[];
+  
+  /**
+   * Current workflow status
+   */
+  status?: 'in_progress' | 'completed' | 'failed' | 'recovered';
+  
+  /**
+   * Fallback response if the workflow fails
+   */
+  fallbackResponse?: string;
 } 
