@@ -16,6 +16,9 @@ import { getMemoryServices } from '../../server/memory/services';
 import { ImportanceLevel } from '../../constants/memory';
 import { ImportanceCalculatorService } from '../importance/ImportanceCalculatorService';
 import { ImportanceCalculationMode } from '../importance/ImportanceCalculatorService';
+import { MemoryRetriever } from './memory/MemoryRetriever';
+import { MemoryFormatter } from './memory/MemoryFormatter';
+import { MemoryRetrievalOptions, MemoryRetrievalLogLevel } from './memory/MemoryRetriever';
 
 /**
  * Implementation of the ThinkingService
@@ -78,6 +81,14 @@ export class ThinkingService implements IThinkingService {
    * Helper method to convert LangGraph results to ThinkingResult
    */
   private convertGraphResultToThinkingResult(graphResult: GraphState): ThinkingResult {
+    // Create context with memory content
+    const context: Record<string, any> = {};
+    
+    // Include formatted memory context if available
+    if (graphResult.formattedMemoryContext) {
+      context.formattedMemoryContext = graphResult.formattedMemoryContext;
+    }
+    
     return {
       intent: {
         primary: graphResult.intent?.name || 'unknown',
@@ -99,7 +110,8 @@ export class ThinkingService implements IThinkingService {
       planSteps: graphResult.plan,
       priority: 5, // Default mid-priority
       isUrgent: false, // Default not urgent
-      complexity: 3 // Default medium complexity
+      complexity: 3, // Default medium complexity
+      context // Add the context with formattedMemoryContext
     };
   }
   
@@ -232,24 +244,65 @@ export class ThinkingService implements IThinkingService {
     message: string,
     options?: ThinkingOptions
   ): Promise<ThinkingResult> {
+    console.log(`Retrieving context: ${userId} ${message}`);
+    const combinedOptions: ThinkingOptions = {
+      userId,
+      ...(options || {})
+    };
+
+    // First, retrieve memories related to the request
+    const { memories, formattedMemoryContext } = await this.processMemoryRetrieval(message, combinedOptions);
+    console.log(`Retrieved ${memories.length} memories for context. Context length: ${formattedMemoryContext.length} chars`);
+    
+    // Add memory context to options for the thinking graph
+    const optionsWithMemories: ThinkingOptions = {
+      ...combinedOptions,
+      workingMemory: memories,
+      // Add any other necessary context
+    };
+
     try {
-      // Execute the LangGraph workflow to get thinking results
+      // Execute the thinking workflow
       const graphResult = await executeThinkingWorkflow({
         userId,
         message,
-        options
+        options: optionsWithMemories
       });
       
       // Convert graph results to a structured ThinkingResult
       const thinkingResult = this.convertGraphResultToThinkingResult(graphResult);
       
-      // Update working memory with entities and other information
-      await this.updateWorkingMemory(userId, thinkingResult);
+      // Add formatted memory context to the result
+      if (!thinkingResult.context) {
+        thinkingResult.context = {};
+      }
+      thinkingResult.context.formattedMemoryContext = formattedMemoryContext;
+      thinkingResult.context.memoryCount = memories.length;
       
-      // Store all cognitive artifacts if the service is available
-      await this.storeThinkingArtifacts(userId, message, thinkingResult);
+      // Add additional context for delegation if needed
+      if (thinkingResult.intent?.primary && !thinkingResult.shouldDelegate) {
+        const delegationAssessment = await this.shouldDelegate(thinkingResult);
+        if (delegationAssessment.delegate) {
+          console.log(`Delegation recommended for intent: ${thinkingResult.intent.primary}`);
+          thinkingResult.shouldDelegate = true;
+          thinkingResult.requiredCapabilities = delegationAssessment.requiredCapabilities || [];
+        }
+      }
       
-      // Return the thinking result
+      // Store thinking artifacts
+      try {
+        await this.storeThinkingArtifacts(userId, message, thinkingResult);
+      } catch (error) {
+        console.error('Error storing thinking artifacts:', error);
+      }
+
+      // Save important thinking results to working memory
+      try {
+        await this.updateWorkingMemory(userId, thinkingResult);
+      } catch (error) {
+        console.error('Error updating working memory:', error);
+      }
+      
       return thinkingResult;
     } catch (error) {
       console.error('Error processing request:', error);
@@ -480,5 +533,94 @@ I've decided to delegate this task to an agent with the appropriate specializati
     }
     
     return id;
+  }
+
+  /**
+   * Process a memory retrieval request as part of the thinking process
+   */
+  private async processMemoryRetrieval(
+    query: string,
+    options: ThinkingOptions
+  ): Promise<{
+    memories: WorkingMemoryItem[];
+    formattedMemoryContext: string;
+  }> {
+    console.log(`[MEMORY-DEBUGGING] Starting memory retrieval for query: "${query}"`);
+    
+    // Get memory services
+    const memoryRetriever = new MemoryRetriever();
+    const memoryFormatter = new MemoryFormatter();
+    
+    // Ensure userId exists
+    if (!options.userId) {
+      console.error('[MEMORY-DEBUGGING] No userId provided for memory retrieval');
+      return { memories: [], formattedMemoryContext: 'No user ID provided.' };
+    }
+    
+    // Configure retrieval options with LESS restrictive filtering
+    const retrievalOptions: MemoryRetrievalOptions = {
+      query,
+      userId: options.userId,
+      limit: 15, // Get enough memories for good context
+      semanticSearch: true,
+      importanceWeighting: {
+        enabled: true,
+        priorityWeight: 1.2,
+        confidenceWeight: 1.0,
+        useTypeWeights: true,
+        importanceScoreWeight: 1.5
+      },
+      // Add detailed logging for debugging
+      logLevel: MemoryRetrievalLogLevel.DEBUG
+    };
+
+    console.log(`[MEMORY-DEBUGGING] Retrieval options:`, JSON.stringify(retrievalOptions));
+    
+    try {
+      // Retrieve memories for the query
+      const result = await memoryRetriever.retrieveMemories(retrievalOptions);
+      const memories = result.memories;
+      
+      console.log(`[MEMORY-DEBUGGING] Retrieved ${memories.length} memories`);
+      
+      // Log the first few memories for debugging
+      if (memories.length > 0) {
+        console.log(`[MEMORY-DEBUGGING] Top memory: ${JSON.stringify({
+          id: memories[0].id,
+          content: memories[0].content.substring(0, 100) + "...", // First 100 chars
+          tags: memories[0].tags,
+          relevance: memories[0]._relevanceScore || 0,
+          importance: memories[0].metadata?.importance || 'unknown'
+        })}`);
+      } else {
+        console.log(`[MEMORY-DEBUGGING] No memories found for query: "${query}"`);
+      }
+      
+      // Format memories for context
+      const formattedMemoryContext = memoryFormatter.formatMemoriesForContext(
+        memories,
+        { 
+          sortBy: 'importance',
+          groupByType: true,
+          includeDetailedDescriptions: true,
+          includeImportance: true,
+          maxTokens: 3000
+        }
+      );
+      
+      console.log(`[MEMORY-DEBUGGING] Formatted memory context length: ${formattedMemoryContext.length} chars`);
+      console.log(`[MEMORY-DEBUGGING] Memory context preview: ${formattedMemoryContext.substring(0, 200)}...`);
+      
+      return {
+        memories,
+        formattedMemoryContext
+      };
+    } catch (error) {
+      console.error('[MEMORY-DEBUGGING] Error during memory retrieval:', error);
+      return {
+        memories: [],
+        formattedMemoryContext: `Error retrieving memories: ${error}`
+      };
+    }
   }
 } 

@@ -7,6 +7,7 @@ import { BaseMemorySchema } from '../../../../server/memory/models/base-schema';
 import { MemoryFormatter } from '../../memory/MemoryFormatter';
 import { ContentSummaryGenerator } from '../../../../services/importance/ContentSummaryGenerator';
 import { MemoryRetriever, MemoryRetrievalOptions } from '../../memory/MemoryRetriever';
+import { MemoryRetrievalLogLevel } from '../../memory/MemoryRetriever';
 
 /**
  * Node for retrieving relevant context for the thinking process
@@ -14,16 +15,12 @@ import { MemoryRetriever, MemoryRetrievalOptions } from '../../memory/MemoryRetr
  */
 export async function retrieveContextNode(state: ThinkingState): Promise<ThinkingState> {
   try {
+    console.log('Retrieving context for thinking process...');
+    
     if (!state.userId || !state.input) {
       console.warn('Missing userId or input, skipping context retrieval');
       return state;
     }
-    
-    // Get memory service and create utility instances
-    const { memoryService, searchService } = await getMemoryServices();
-    const memoryRetriever = new MemoryRetriever();
-    const contentSummaryGenerator = new ContentSummaryGenerator();
-    const memoryFormatter = new MemoryFormatter();
     
     // Create updated state to hold context
     const updatedState: ThinkingState = {
@@ -32,39 +29,16 @@ export async function retrieveContextNode(state: ThinkingState): Promise<Thinkin
       contextFiles: state.contextFiles || []
     };
     
-    // Extract topics from the input to enhance retrieval
-    const topics = contentSummaryGenerator.extractTopics(state.input);
-    console.log(`Extracted topics from input: ${topics.join(', ')}`);
-    
-    // Create memory retrieval options with enhanced importance weighting
-    const retrievalOptions: MemoryRetrievalOptions = {
-      query: state.input,
-      userId: state.userId,
-      limit: 15, // Retrieve more memories for better context
-      semanticSearch: true, // Enable semantic search
-      tags: topics, // Use extracted topics as tags
-      importanceWeighting: {
-        enabled: true,
-        priorityWeight: 1.2,
-        confidenceWeight: 1.0,
-        useTypeWeights: true,
-        importanceScoreWeight: 1.5 // Give high weight to importance score
-      },
-      includeMetadata: true // Include all metadata
-    };
-    
-    try {
-      // Retrieve memories using enhanced retriever
-      const { memories, memoryIds } = await memoryRetriever.retrieveMemories(retrievalOptions);
+    // If we already have memories in state from ThinkingService.processRequest, use those
+    if (state.workingMemory && state.workingMemory.length > 0) {
+      console.log(`Using ${state.workingMemory.length} memories already retrieved in ThinkingService`);
+      updatedState.contextMemories = state.workingMemory;
       
-      if (memories.length > 0) {
-        // Set context memories in state
-        updatedState.contextMemories = memories;
-        console.log(`Retrieved ${memories.length} memories with importance weighting`);
-        
-        // Format memories for inclusion in state context
+      // Format memory context if needed (ThinkingService may have already formatted it)
+      if (!state.formattedMemoryContext) {
+        const memoryFormatter = new MemoryFormatter();
         updatedState.formattedMemoryContext = memoryFormatter.formatMemoriesForContext(
-          memories,
+          state.workingMemory,
           { 
             sortBy: 'importance',
             groupByType: true,
@@ -73,20 +47,79 @@ export async function retrieveContextNode(state: ThinkingState): Promise<Thinkin
             maxTokens: 3000
           }
         );
-        
-        // Log importance scores for debugging
-        console.log('Top 3 memories by importance:');
-        memories.slice(0, 3).forEach((memory, i) => {
-          console.log(`  #${i+1}: Score=${memory.metadata?.importance_score?.toFixed(2) || 'N/A'}, Type=${memory.type}, Tags=${memory.tags.join(',')}`);
-        });
       } else {
-        updatedState.contextMemories = [];
-        updatedState.formattedMemoryContext = 'No relevant memories found.';
+        updatedState.formattedMemoryContext = state.formattedMemoryContext;
       }
-    } catch (searchError) {
-      console.error('Error retrieving memories:', searchError);
-      updatedState.contextMemories = [];
-      updatedState.formattedMemoryContext = 'Error retrieving memories.';
+      
+      console.log(`Memory context formatted with ${updatedState.formattedMemoryContext.length} chars`);
+    } 
+    // Otherwise retrieve memories directly
+    else {
+      // Get memory service and create utility instances
+      const memoryRetriever = new MemoryRetriever();
+      const memoryFormatter = new MemoryFormatter();
+      
+      // Create memory retrieval options with enhanced importance weighting
+      const retrievalOptions: MemoryRetrievalOptions = {
+        query: state.input,
+        userId: state.userId,
+        limit: 15, // Retrieve more memories for better context
+        semanticSearch: true, // Enable semantic search
+        importanceWeighting: {
+          enabled: true,
+          priorityWeight: 1.2,
+          confidenceWeight: 1.0,
+          useTypeWeights: true,
+          importanceScoreWeight: 1.5 // Give high weight to importance score
+        },
+        includeMetadata: true, // Include all metadata
+        logLevel: MemoryRetrievalLogLevel.DEBUG // Enable detailed logging
+      };
+      
+      try {
+        // Retrieve memories using enhanced retriever
+        const { memories } = await memoryRetriever.retrieveMemories(retrievalOptions);
+        
+        if (memories.length > 0) {
+          // Set context memories in state
+          updatedState.contextMemories = memories;
+          console.log(`Retrieved ${memories.length} memories with importance weighting`);
+          
+          // Format memories for inclusion in state context
+          updatedState.formattedMemoryContext = memoryFormatter.formatMemoriesForContext(
+            memories,
+            { 
+              sortBy: 'importance',
+              groupByType: true,
+              includeDetailedDescriptions: true,
+              includeImportance: true,
+              maxTokens: 3000
+            }
+          );
+          
+          // Add detailed logging for memory debugging
+          console.log('🧠🧠🧠 MEMORY RETRIEVAL DETAILS 🧠🧠🧠');
+          console.log(`Total memories retrieved: ${memories.length}`);
+          
+          // Log top memories by importance
+          console.log('Top 5 memories by importance:');
+          memories.slice(0, 5).forEach((memory, i) => {
+            console.log(`Memory #${i+1}:`);
+            console.log(`- ID: ${memory.id}`);
+            console.log(`- Type: ${memory.type}`);
+            console.log(`- Importance: ${memory.metadata?.importance || 'N/A'} (score: ${memory.metadata?.importance_score?.toFixed(2) || 'N/A'})`);
+            console.log(`- Tags: ${memory.tags.join(', ')}`);
+            console.log(`- Content: "${memory.content.substring(0, 100)}${memory.content.length > 100 ? '...' : ''}"`);
+            console.log(`- Relevance Score: ${memory._relevanceScore?.toFixed(4) || 'N/A'}`);
+          });
+          
+          // Log the formatted memory context that will be passed to the LLM
+          console.log('🧠🧠🧠 FORMATTED MEMORY CONTEXT PASSED TO LLM 🧠🧠🧠');
+          console.log(updatedState.formattedMemoryContext);
+        }
+      } catch (memoryError) {
+        console.error('Error retrieving memory context:', memoryError);
+      }
     }
     
     // Retrieve relevant files if a document service is available
@@ -101,6 +134,7 @@ export async function retrieveContextNode(state: ThinkingState): Promise<Thinkin
       
       // If we have files, format them for context
       if (updatedState.contextFiles.length > 0) {
+        const memoryFormatter = new MemoryFormatter();
         const formattedFiles = memoryFormatter.formatFilesForContext(
           updatedState.contextFiles,
           { maxFiles: 5, maxContentLength: 1000 }

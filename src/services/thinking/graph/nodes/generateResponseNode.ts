@@ -91,6 +91,11 @@ ${planText}
 ${toolResultsText}${memoryContextText}
 `.trim();
     
+    // Log the context and memories passed to LLM
+    console.log('🧠🧠🧠 context and memories passed to LLM 🧠🧠🧠');
+    console.log(contextInfo);
+    console.log('🧠🧠🧠 end context and memories block 🧠🧠🧠');
+    
     const promptTemplate = ChatPromptTemplate.fromMessages([
       ["system", systemPrompt],
       ["human", `User request: "${state.input}"\n\n${contextInfo}\n\nGenerate an excellent response to the user that addresses their request.`]

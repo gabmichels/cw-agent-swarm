@@ -916,6 +916,12 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
           }
         }
         
+        // Add memory context if available
+        if (context.formattedMemoryContext) {
+          systemPrompt += '\n\n## RELEVANT MEMORY CONTEXT';
+          systemPrompt += `\n\n${context.formattedMemoryContext}`;
+        }
+        
         if (context.processingInstructions && Array.isArray(context.processingInstructions)) {
           systemPrompt += '\n\n## RESPONSE INSTRUCTIONS';
           for (const instruction of context.processingInstructions as string[]) {

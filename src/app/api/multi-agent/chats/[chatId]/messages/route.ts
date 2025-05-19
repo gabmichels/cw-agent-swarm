@@ -532,6 +532,8 @@ export async function POST(
               contextThoughts: thoughts.length > 0 ? thoughts : undefined,
               // Include original user message for context
               originalMessage: content,
+              // Add formatted memory context directly from thinking state
+              formattedMemoryContext: thinkingResult?.context?.formattedMemoryContext || '',
               // Pass agent persona information as additional context
               persona: agent.metadata?.persona || {
                 systemPrompt: agent.parameters?.systemPrompt || agent.parameters?.customInstructions || '',
@@ -550,7 +552,8 @@ export async function POST(
               },
               // Add explicit instructions to use thinking context
               processingInstructions: [
-                "Use the provided thinking analysis to inform your response",
+                "Use the provided thinking analysis and memory context to inform your response",
+                "Reference specific information from memory context when relevant",
                 "Address the user's specific message content and intent",
                 "Maintain a conversational and personalized tone"
               ]
@@ -635,6 +638,8 @@ export async function POST(
           contextThoughts: thoughts.length > 0 ? thoughts : undefined,
           // Include original user message for context
           originalMessage: content,
+          // Add formatted memory context (empty in fallback case)
+          formattedMemoryContext: '',
           // Pass agent persona information as additional context
           persona: agent.metadata?.persona || {
             systemPrompt: agent.parameters?.systemPrompt || agent.parameters?.customInstructions || '',
@@ -653,7 +658,8 @@ export async function POST(
           },
           // Add explicit instructions to use thinking context
           processingInstructions: [
-            "Use the provided thinking analysis to inform your response",
+            "Use the provided thinking analysis and memory context to inform your response",
+            "Reference specific information from memory context when relevant",
             "Address the user's specific message content and intent",
             "Maintain a conversational and personalized tone"
           ]
