@@ -102,10 +102,11 @@ export class MemoryRetriever {
    * Retrieve relevant memories based on the query
    */
   async retrieveMemories(
-    options: MemoryRetrievalOptions
+    options: MemoryRetrievalOptions & { intentConfidence?: number }
   ): Promise<{
     memories: WorkingMemoryItem[];
     memoryIds: string[];
+    fromWorkingMemoryOnly?: boolean;
   }> {
     try {
       // Set logging level for this retrieval operation
@@ -114,6 +115,31 @@ export class MemoryRetriever {
       // Log memory retrieval request
       this.log(MemoryRetrievalLogLevel.BASIC, 
         `🔍 Memory retrieval for query: "${options.query}" with user ID: ${options.userId}`);
+      
+      // Step 1: Check working memory first
+      const workingMemoryResult = await this.checkWorkingMemoryFirst(options);
+      
+      // If working memory is sufficient, return it without querying the full memory store
+      if (workingMemoryResult.sufficientConfidence && workingMemoryResult.memories.length > 0) {
+        this.log(MemoryRetrievalLogLevel.BASIC, 
+          `✅ Working memory is sufficient, skipping full memory retrieval`);
+          
+        // Log top memories if verbose
+        if (this.logLevel >= MemoryRetrievalLogLevel.VERBOSE) {
+          this.logTopMemories(workingMemoryResult.memories, 3);
+        }
+        
+        return { 
+          memories: workingMemoryResult.memories, 
+          memoryIds: workingMemoryResult.memoryIds,
+          fromWorkingMemoryOnly: true
+        };
+      }
+      
+      // Step 2: If working memory is not sufficient, query the full memory store
+      // but exclude any IDs already found in working memory
+      this.log(MemoryRetrievalLogLevel.BASIC, 
+        `ℹ️ Working memory insufficient, proceeding to full memory retrieval`);
       
       // Get memory services
       const { searchService } = await getMemoryServices();
@@ -133,15 +159,11 @@ export class MemoryRetriever {
         ]
       };
       
-      // Add tag filters if provided, but make them optional
-      // Don't limit to only tag matches, allow semantic search to find relevant results too
-      if (queryTags.length > 0) {
-        this.log(MemoryRetrievalLogLevel.VERBOSE, 
-          `🏷️ Applying flexible tag filtering with tags: ${queryTags.join(', ')}`);
-        
-        // For better retrieval, we'll avoid strict tag filtering in the query
-        // and rely on our scoring algorithm to prioritize tag matches
-        // This ensures we get a mix of tag-matched and semantically relevant results
+      // Add exclusion filter for working memory IDs to avoid duplicates
+      if (workingMemoryResult.memoryIds.length > 0) {
+        filter.must_not = [
+          { key: "id", match: { values: workingMemoryResult.memoryIds } }
+        ];
       }
       
       // Define search options with proper typing
@@ -190,7 +212,7 @@ export class MemoryRetriever {
                 };
               };
             };
-            score: number;
+              score: number;
           };
           
           const memoryId = String(resultData.point?.id || IdGenerator.generate("memory"));
@@ -257,12 +279,40 @@ export class MemoryRetriever {
       // Limit to requested number of memories
       memories = memories.slice(0, options.limit || DEFAULT_MEMORY_LIMIT);
       
+      // Combine working memory and standard memory results, avoiding duplicates
+      if (workingMemoryResult.memories.length > 0) {
+        const combinedMemories = [...workingMemoryResult.memories];
+        const existingIds = new Set(workingMemoryResult.memoryIds);
+        
+        // Add non-duplicate memories from the regular retrieval
+        for (const memory of memories) {
+          if (!existingIds.has(memory.id)) {
+            combinedMemories.push(memory);
+            existingIds.add(memory.id);
+          }
+        }
+        
+        // Re-sort the combined memories by relevance score
+        combinedMemories.sort((a, b) => 
+          (b._relevanceScore || 0) - (a._relevanceScore || 0)
+        );
+        
+        // Update memories and IDs
+        memories = combinedMemories.slice(0, options.limit || DEFAULT_MEMORY_LIMIT);
+        
+        this.log(MemoryRetrievalLogLevel.BASIC, 
+          `📊 Combined ${workingMemoryResult.memories.length} working memory items with ${memories.length - workingMemoryResult.memories.length} long-term memory items`);
+      }
+      
       // Log top memories
       if (this.logLevel >= MemoryRetrievalLogLevel.VERBOSE) {
         this.logTopMemories(memories, 3);
       }
       
-      return { memories, memoryIds };
+      return { 
+        memories, 
+        memoryIds: memories.map(memory => memory.id)
+      };
     } catch (error) {
       this.log(MemoryRetrievalLogLevel.ERROR, `❌ Error retrieving memories:`, error);
       return { memories: [], memoryIds: [] };
@@ -454,19 +504,179 @@ export class MemoryRetriever {
   }
   
   /**
-   * Retrieve the user's working memory
+   * Retrieve the user's working memory (last 20 messages)
    */
   async getWorkingMemory(userId: string): Promise<WorkingMemoryItem[]> {
     try {
-      const { memoryService } = await getMemoryServices();
+      const { memoryService, searchService } = await getMemoryServices();
       
-      // Implement this based on your storage mechanism
-      // This is a placeholder for the actual implementation
-      return [];
+      this.log(MemoryRetrievalLogLevel.BASIC, 
+        `🧠 Retrieving working memory (last 20 messages) for user: ${userId}`);
+      
+      // Create filter for memory search
+      const filter: Record<string, any> = {
+        must: [
+          { key: "metadata.userId.id", match: { value: userId } },
+          { key: "metadata.type", match: { value: "message" } }
+        ]
+      };
+      
+      // Define search options to get last 20 messages
+      const searchOptions = {
+        filter,
+        limit: 20,
+        includeMetadata: true,
+        sortBy: {
+          field: "metadata.timestamp",
+          order: "desc"
+        }
+      };
+      
+      // Fetch the last 20 messages
+      const searchResults = await searchService.search("", searchOptions);
+      
+      this.log(MemoryRetrievalLogLevel.BASIC, 
+        `📊 Retrieved ${searchResults.length} working memory items (recent messages)`);
+      
+      // Convert search results to working memory items
+      const workingMemories: WorkingMemoryItem[] = [];
+      
+      for (const result of searchResults) {
+        try {
+          // Type assertion to work with the search result structure
+          const resultData = result as unknown as {
+            point: {
+              id: string;
+              payload: {
+                content: string;
+                metadata?: {
+                  tags?: string[];
+                  type?: string;
+                  importance?: ImportanceLevel;
+                  importance_score?: number;
+                  contentSummary?: string;
+                  timestamp?: number;
+                  createdAt?: number;
+                };
+              };
+            };
+          };
+          
+          const memoryId = String(resultData.point?.id || IdGenerator.generate("memory"));
+          const memoryType = String(resultData.point?.payload?.metadata?.type || 'message');
+          const timestamp = resultData.point?.payload?.metadata?.timestamp || 
+                         resultData.point?.payload?.metadata?.createdAt || 
+                         Date.now();
+          
+          // Extract memory tags
+          const memoryTags = Array.isArray(resultData.point?.payload?.metadata?.tags) 
+            ? resultData.point.payload.metadata.tags 
+            : [];
+          
+          // Get memory content
+          const payload = resultData.point?.payload as any;
+          const content = String(payload?.content || payload?.text || '');
+          
+          // Create a working memory item
+          workingMemories.push({
+            id: memoryId,
+            type: memoryType as 'entity' | 'fact' | 'preference' | 'task' | 'goal' | 'message',
+            content: content,
+            tags: memoryTags,
+            addedAt: new Date(timestamp),
+            priority: 0,
+            expiresAt: null,
+            confidence: 1.0, // High confidence since these are recent messages
+            userId: userId,
+            _relevanceScore: 1.0, // Assign high relevance since these are recent
+            metadata: {
+              timestamp: timestamp,
+              isWorkingMemory: true // Mark as working memory item
+            }
+          });
+        } catch (itemError) {
+          this.log(MemoryRetrievalLogLevel.ERROR, 
+            `⚠️ Error processing working memory item:`, itemError);
+        }
+      }
+      
+      return workingMemories;
     } catch (error) {
       this.log(MemoryRetrievalLogLevel.ERROR, 
         `❌ Error retrieving working memory:`, error);
       return [];
+    }
+  }
+
+  /**
+   * Check working memory first before retrieving from full memory store
+   * Uses intent confidence to determine if working memory is sufficient
+   */
+  async checkWorkingMemoryFirst(
+    options: MemoryRetrievalOptions & { intentConfidence?: number }
+  ): Promise<{
+    memories: WorkingMemoryItem[];
+    sufficientConfidence: boolean;
+    memoryIds: string[];
+  }> {
+    try {
+      // Get the confidence threshold from options or use default
+      const confidenceThreshold = options.intentConfidence ?? 0.75;
+      
+      this.log(MemoryRetrievalLogLevel.BASIC, 
+        `🔍 Checking working memory first with confidence threshold: ${confidenceThreshold}`);
+      
+      // Retrieve working memory
+      const workingMemories = await this.getWorkingMemory(options.userId);
+      
+      if (workingMemories.length === 0) {
+        this.log(MemoryRetrievalLogLevel.BASIC, 
+          `ℹ️ No working memory items found, proceeding to full memory retrieval`);
+        return { 
+          memories: [], 
+          sufficientConfidence: false, 
+          memoryIds: [] 
+        };
+      }
+      
+      // Extract query tags
+      const queryTags = options.tags || await this.extractTagsFromQuery(options.query);
+      
+      // Score working memories against the query
+      const scoredMemories = this.applyEnhancedScoring(
+        workingMemories,
+        options.query,
+        queryTags,
+        options.scoringWeights || {},
+        options.importanceWeighting?.enabled !== false
+      );
+      
+      // Get top memories
+      const relevantMemories = scoredMemories.slice(0, options.limit || DEFAULT_MEMORY_LIMIT);
+      
+      // Check if top memory has high enough relevance
+      const highestRelevance = relevantMemories.length > 0 ? 
+        (relevantMemories[0]._relevanceScore || 0) : 0;
+      
+      // Determine if working memory is sufficient based on relevance and confidence
+      const isWorkingMemorySufficient = 
+        highestRelevance > 0.7 && 
+        (options.intentConfidence || 0) > confidenceThreshold;
+      
+      this.log(MemoryRetrievalLogLevel.BASIC, 
+        `📊 Working memory check results: found ${relevantMemories.length} relevant items, ` +
+        `highest relevance: ${highestRelevance.toFixed(3)}, ` +
+        `sufficient: ${isWorkingMemorySufficient}`);
+      
+      return {
+        memories: relevantMemories,
+        sufficientConfidence: isWorkingMemorySufficient,
+        memoryIds: relevantMemories.map(memory => memory.id)
+      };
+    } catch (error) {
+      this.log(MemoryRetrievalLogLevel.ERROR, 
+        `❌ Error checking working memory:`, error);
+      return { memories: [], sufficientConfidence: false, memoryIds: [] };
     }
   }
 } 
