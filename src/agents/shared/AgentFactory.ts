@@ -192,8 +192,12 @@ export class AgentFactory {
       }
     };
     
-    // Create the DefaultAgent with the converted data
+    // Create the DefaultAgent with the converted data, and make sure to preserve the ID
     const agent = new DefaultAgent({
+      // Force set ID by redefining it
+      id: agentId.toString(),
+      agentId: agentId.toString(), // Try both ways
+      _id: agentId.toString(), // Try all possible property names
       ...agentData as any,
       enableMemoryManager: true,
       enablePlanningManager: true,
@@ -218,6 +222,15 @@ export class AgentFactory {
         }
       }
     });
+    
+    // Try to force set ID directly on the agent instance
+    try {
+      (agent as any)._id = agentId.toString();
+      (agent as any).agentId = agentId.toString();
+      (agent as any).id = agentId.toString();
+    } catch (e) {
+      console.warn('Failed to directly set agent ID:', e);
+    }
     
     return agent;
   }

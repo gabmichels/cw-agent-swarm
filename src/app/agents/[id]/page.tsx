@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { AgentProfile } from '@/lib/multi-agent/types/agent';
 import CreateChatButton from '@/components/chat/CreateChatButton';
 import MemoryUploader from '@/components/agent/MemoryUploader';
-import { Upload } from 'lucide-react';
+import { Edit, Save, Upload, X } from 'lucide-react';
 
 export default function AgentPage({ params }: { params: { id?: string } }) {
   // Use nextjs navigation hook for route params
@@ -21,6 +21,17 @@ export default function AgentPage({ params }: { params: { id?: string } }) {
   const userId = 'user_gab';
   // State for the upload modal
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+  
+  // Add new state for parameters editing
+  const [isEditingParams, setIsEditingParams] = useState(false);
+  const [editedParams, setEditedParams] = useState({
+    model: '',
+    temperature: 0,
+    maxTokens: 0,
+    autonomous: false
+  });
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchAgentDetails = async () => {
@@ -95,6 +106,81 @@ export default function AgentPage({ params }: { params: { id?: string } }) {
       fetchAgentDetails();
     }
   }, [agentId]);
+
+  // Add new function to handle parameter updates
+  const handleUpdateParameters = async () => {
+    if (!agent) return;
+    
+    setIsSaving(true);
+    setSaveError(null);
+    
+    try {
+      const updatedAgent = {
+        ...agent,
+        parameters: {
+          ...agent.parameters,
+          model: editedParams.model,
+          temperature: editedParams.temperature,
+          maxTokens: editedParams.maxTokens,
+          autonomous: editedParams.autonomous
+        }
+      };
+      
+      const response = await fetch(`/api/multi-agent/agents/${agentId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(updatedAgent)
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Failed to update agent: ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      setAgent(data.agent);
+      setIsEditingParams(false);
+      
+      // If autonomous mode was changed, initiate the autonomous system
+      if (editedParams.autonomous !== agent.parameters.autonomous) {
+        // Call API to set autonomy mode
+        await fetch(`/api/multi-agent/agents/${agentId}/autonomy`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ enabled: editedParams.autonomous })
+        });
+      }
+      
+    } catch (err) {
+      console.error('Error updating agent parameters:', err);
+      setSaveError(err instanceof Error ? err.message : 'Failed to update parameters');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+  
+  // New function to start edit mode
+  const handleStartEditing = () => {
+    if (!agent) return;
+    
+    setEditedParams({
+      model: agent.parameters.model,
+      temperature: agent.parameters.temperature,
+      maxTokens: agent.parameters.maxTokens,
+      autonomous: agent.parameters.autonomous || false
+    });
+    
+    setIsEditingParams(true);
+  };
+  
+  // New function to cancel editing
+  const handleCancelEditing = () => {
+    setIsEditingParams(false);
+    setSaveError(null);
+  };
 
   if (isLoading) {
     return (
@@ -174,26 +260,127 @@ export default function AgentPage({ params }: { params: { id?: string } }) {
           </div>
           
           <div>
-            <h2 className="text-xl font-semibold mb-4">Model Parameters</h2>
-            <div className="bg-gray-700 p-4 rounded">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <span className="text-gray-400 text-sm">Model</span>
-                  <p>{agent.parameters.model}</p>
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-semibold">Model Parameters</h2>
+              {!isEditingParams ? (
+                <button
+                  onClick={handleStartEditing}
+                  className="flex items-center text-blue-500 hover:text-blue-400"
+                >
+                  <Edit className="h-4 w-4 mr-1" />
+                  Edit
+                </button>
+              ) : (
+                <div className="flex space-x-2">
+                  <button
+                    onClick={handleCancelEditing}
+                    className="flex items-center text-gray-400 hover:text-gray-300"
+                    disabled={isSaving}
+                  >
+                    <X className="h-4 w-4 mr-1" />
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleUpdateParameters}
+                    className="flex items-center text-green-500 hover:text-green-400"
+                    disabled={isSaving}
+                  >
+                    <Save className="h-4 w-4 mr-1" />
+                    Save
+                  </button>
                 </div>
-                <div>
-                  <span className="text-gray-400 text-sm">Temperature</span>
-                  <p>{agent.parameters.temperature}</p>
-                </div>
-                <div>
-                  <span className="text-gray-400 text-sm">Max Tokens</span>
-                  <p>{agent.parameters.maxTokens}</p>
-                </div>
-                <div>
-                  <span className="text-gray-400 text-sm">Tools</span>
-                  <p>{agent.parameters.tools.length > 0 ? agent.parameters.tools.join(', ') : 'None'}</p>
-                </div>
+              )}
+            </div>
+            
+            {saveError && (
+              <div className="bg-red-900 border border-red-700 text-white px-4 py-2 rounded mb-4">
+                {saveError}
               </div>
+            )}
+            
+            <div className="bg-gray-700 p-4 rounded">
+              {!isEditingParams ? (
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <span className="text-gray-400 text-sm">Model</span>
+                    <p>{agent?.parameters.model}</p>
+                  </div>
+                  <div>
+                    <span className="text-gray-400 text-sm">Temperature</span>
+                    <p>{agent?.parameters.temperature}</p>
+                  </div>
+                  <div>
+                    <span className="text-gray-400 text-sm">Max Tokens</span>
+                    <p>{agent?.parameters.maxTokens}</p>
+                  </div>
+                  <div>
+                    <span className="text-gray-400 text-sm">Autonomous Mode</span>
+                    <p>{agent?.parameters.autonomous ? 'Enabled' : 'Disabled'}</p>
+                  </div>
+                  <div className="col-span-2">
+                    <span className="text-gray-400 text-sm">Tools</span>
+                    <p>{agent?.parameters.tools.length > 0 ? agent.parameters.tools.join(', ') : 'None'}</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-gray-400 text-sm block mb-1">Model</label>
+                    <select
+                      className="w-full px-3 py-2 bg-gray-600 border border-gray-500 rounded text-sm"
+                      value={editedParams.model}
+                      onChange={(e) => setEditedParams({...editedParams, model: e.target.value})}
+                    >
+                      <option value="gpt-4.1-2025-04-14">ChatGPT-4.1</option>
+                      <option value="gpt-4.1-nano-2025-04-14">ChatGPT-4.1-nano</option>
+                      <option value="claude-3-opus">Claude 3 Opus</option>
+                      <option value="claude-3-sonnet">Claude 3 Sonnet</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-gray-400 text-sm block mb-1">Temperature</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      max="1"
+                      className="w-full px-3 py-2 bg-gray-600 border border-gray-500 rounded text-sm"
+                      value={editedParams.temperature}
+                      onChange={(e) => setEditedParams({...editedParams, temperature: parseFloat(e.target.value)})}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-gray-400 text-sm block mb-1">Max Tokens</label>
+                    <input
+                      type="number"
+                      step="100"
+                      min="100"
+                      max="100000"
+                      className="w-full px-3 py-2 bg-gray-600 border border-gray-500 rounded text-sm"
+                      value={editedParams.maxTokens}
+                      onChange={(e) => setEditedParams({...editedParams, maxTokens: parseInt(e.target.value)})}
+                    />
+                  </div>
+                  <div className="flex items-center">
+                    <label className="inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        className="sr-only peer"
+                        checked={editedParams.autonomous}
+                        onChange={(e) => setEditedParams({...editedParams, autonomous: e.target.checked})}
+                      />
+                      <div className="relative w-11 h-6 bg-gray-600 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-500 rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                      <span className="ms-3 text-sm font-medium">Autonomous Mode</span>
+                    </label>
+                  </div>
+                  <div className="col-span-2">
+                    <label className="text-gray-400 text-sm block mb-1">Tools (read-only)</label>
+                    <div className="w-full px-3 py-2 bg-gray-500/30 border border-gray-500 rounded text-sm">
+                      {agent?.parameters.tools.length > 0 ? agent.parameters.tools.join(', ') : 'None'}
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
             
             <h2 className="text-xl font-semibold mt-6 mb-4">Metadata</h2>

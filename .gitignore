@@ -81,6 +81,9 @@ debug_paths.bat
 /data/logs/
 *.lance/
 
+# Agent runtime data
+/data/agents/
+
 data/files/uploads/
 data/files/storage/
 

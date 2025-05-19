@@ -22,6 +22,7 @@ export interface AgentParameters {
   tools: string[];
   systemPrompt?: string;
   managersConfig?: AgentManagersConfig;
+  autonomous?: boolean;
 }
 
 /**
