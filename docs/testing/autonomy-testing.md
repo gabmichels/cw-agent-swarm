@@ -9,10 +9,38 @@ This document outlines a comprehensive testing strategy for verifying the autono
 | Phase | Status | Location | Notes |
 |-------|--------|----------|-------|
 | Phase 1: Basic Autonomy | ⚠️ Partially Implemented | `src/tests/autonomy/phase1-basic-autonomy.test.ts` | Only tests structure with mocks, not actual functionality |
-| Phase 2: Async Execution | 🔄 Planned | - | - |
+| Phase 2: Async Execution | ✅ Implemented | `src/tests/autonomy/scheduler-polling.test.ts`, `src/tests/autonomy/scheduler-fix.test.ts` | Tests for scheduler polling and task execution |
 | Phase 3: Tool Integration | 🔄 Planned | - | - |
 | Phase 4: Complex Tasks | 🔄 Planned | - | - |
 | Phase 5: End-to-End | 🔄 Planned | - | - |
+
+## Implemented Test Cases
+
+| Test Category | Status | File | Description |
+|---------------|--------|------|-------------|
+| Scheduler Polling | ✅ Implemented | `src/tests/autonomy/scheduler-polling.test.ts` | Tests the pollForDueTasks method and timer setup |
+| Scheduler Fixes | ✅ Implemented | `src/tests/autonomy/scheduler-fix.test.ts` | Tests scheduler fixes, getDueTasks and task execution |
+| Real Agent Autonomy | ✅ Implemented | `src/tests/autonomy/real-agent-autonomy.test.ts` | Tests agent reflection and task creation |
+| Tool Integration | 🔄 In Progress | `src/tests/autonomy/tool-integration.test.ts` | Structure for testing web search tool, with mock setup |
+
+## Priority Tool Testing Plan
+
+The following tools should be tested for integration with the agent's autonomous capabilities:
+
+1. **Web Search/Scraping** - Highest priority, as many tasks depend on this capability
+2. **Discord Integration** - Test notification capabilities for autonomous reporting
+3. **RSS Feed Processing** - Test autonomous monitoring and summarization
+4. **Twitter (X) Integration** - Test social media monitoring and interaction
+5. **File Operations** - Test document creation and management
+6. **Coda Integration** - Test data collection and structured storage
+7. **Email Integration** - Test autonomous communication
+8. **Reddit Integration** - Test community monitoring and interaction
+
+For each tool, we should test:
+1. Basic functionality through direct user input
+2. Scheduled/delayed execution
+3. Error handling and recovery
+4. Integration with memory for contextual use
 
 ## Testing Focus Areas
 

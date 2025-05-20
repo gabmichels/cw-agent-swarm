@@ -1,6 +1,102 @@
-# DefaultAgent Autonomy Tests
+# Autonomy Testing
 
-This directory contains test scripts for validating the autonomy capabilities of the DefaultAgent implementation.
+This directory contains tests that verify the DefaultAgent's autonomous capabilities.
+
+## Test Categories
+
+### 1. Basic Setup Tests
+- `phase1-basic-autonomy.test.ts` - Tests the basic agent setup and structure
+- `basic-features.test.ts` - Tests simple agent features
+
+### 2. Scheduler Tests
+- `scheduler-polling.test.ts` - Tests the polling mechanism for scheduled tasks
+- `scheduler-fix.test.ts` - Tests fixes to the scheduler implementation
+- `self-initiation.test.ts` - Tests the agent's ability to self-initiate actions
+
+### 3. Advanced Autonomy Tests
+- `async-capabilities.test.ts` - Tests asynchronous task execution
+- `real-agent-autonomy.test.ts` - Tests with minimal mocking to verify actual agent behavior
+- `task-decomposition.test.ts` - Tests complex task breakdown
+- `autonomy-capabilities.test.ts` - Tests specific autonomy capabilities
+
+### 4. Tool Integration Tests
+- `tool-integration.test.ts` - Tests integration with different tools
+
+## Running Tests
+
+Run all autonomy tests:
+```
+npx vitest run src/tests/autonomy
+```
+
+Run a specific test file:
+```
+npx vitest run src/tests/autonomy/scheduler-polling.test.ts
+```
+
+## Test Strategy
+
+### Testing Approach
+
+1. **Isolated Component Testing**: Test specific manager components in isolation
+2. **Integration Testing**: Verify components work together
+3. **End-to-End Testing**: Test complete autonomous workflows
+
+### Mock Requirements
+
+When writing autonomy tests, you'll need to mock:
+
+1. **External APIs**: OpenAI, language models, etc.
+2. **Network Requests**: Avoid real API calls
+3. **Timers**: For testing scheduling without waiting
+4. **File System**: For testing file operations
+
+### Best Practices
+
+1. **Mock OpenAI Properly**:
+   ```typescript
+   vi.mock('openai', async () => {
+     return {
+       default: { OpenAI: MockOpenAI },
+       OpenAI: MockOpenAI
+     };
+   });
+   ```
+
+2. **Type Assertions for Managers**:
+   ```typescript
+   const schedulerManager = agent.getManager(ManagerType.SCHEDULER) as SchedulerManager | null;
+   ```
+
+3. **Verify Tasks are Due**:
+   ```typescript
+   // Cast to access the implementation-specific method
+   const typedSchedulerManager = schedulerManager as unknown as { pollForDueTasks(): Promise<number> };
+   const executedCount = await typedSchedulerManager.pollForDueTasks();
+   ```
+
+4. **Setting Polling Intervals**:
+   - Use shorter intervals for testing (e.g., 100ms)
+   - Longer intervals for production (e.g., 60000ms)
+
+## Configuration Recommendations
+
+When setting up a DefaultAgent for testing:
+
+```typescript
+const agent = new DefaultAgent({
+  name: "TestAgent",
+  enableMemoryManager: true,
+  enableToolManager: true,
+  enablePlanningManager: true,
+  enableSchedulerManager: true,
+  enableReflectionManager: true,
+  // Configure shorter polling for testing
+  schedulerConfig: {
+    schedulingIntervalMs: 1000 // 1 second for testing
+  }
+});
+```
 
 ## Project Status
 
@@ -43,20 +139,6 @@ Our test approach uses multiple levels of abstraction:
 3. **Method Overrides** - We override specific methods like `processUserInput` to control test behavior
 4. **Advanced Testing** - We use vi.useFakeTimers() for testing time-dependent behaviors
 5. **Deep Autonomy Testing** - We test the agent's ability to operate without user intervention
-
-## Running Tests
-
-To run all autonomy tests:
-
-```bash
-npm test -- src/tests/autonomy
-```
-
-To run a specific test file:
-
-```bash
-npm test -- src/tests/autonomy/async-capabilities.test.ts
-```
 
 ## Autonomy Capabilities Tested
 
