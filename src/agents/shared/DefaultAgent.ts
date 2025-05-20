@@ -33,6 +33,11 @@ import { ToolRouter, ToolDefinition } from './tools/ToolRouter';
 import { PromptFormatter, PersonaInfo, SystemPromptOptions, InputPromptOptions, ScoredMemory } from '../../agents/shared/messaging/PromptFormatter';
 import { RelevanceScorer, RelevantMemoryOptions } from './memory/RelevanceScorer';
 import { AgentCapability, CapabilityType } from './capability-system/types';
+// Import new interfaces for agent refactoring
+import { AgentResponse, GetLLMResponseOptions, MessageProcessingOptions, ThinkOptions } from './base/AgentBase.interface';
+import { ThinkingResult, ThinkingOptions } from '../../services/thinking/types';
+import { WorkingMemoryItem, FileReference } from '../../services/thinking/types';
+import { AgentError, ThinkingError, LLMResponseError, ProcessingError, AgentErrorCodes } from './errors/AgentErrors';
 
 // Define the necessary types that we need
 const AGENT_STATUS = {
@@ -815,39 +820,66 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
     }
   }
 
-  async processInput(input: string, context?: Record<string, unknown>): Promise<string | null> {
+  /**
+   * Get LLM response based on user input and thinking results
+   * @param message User input message
+   * @param options LLM response options including thinking results
+   * @returns Agent response with content and possible metadata
+   */
+  async getLLMResponse(message: string, options?: GetLLMResponseOptions): Promise<AgentResponse> {
     try {
       // Get memory manager
       const memoryManager = this.getManager<MemoryManager>(ManagerType.MEMORY);
       if (!memoryManager) {
-        throw new Error('Memory manager not initialized');
+        throw new LLMResponseError(
+          'Memory manager not initialized',
+          AgentErrorCodes.AGENT_NOT_INITIALIZED,
+          { component: 'MemoryManager' }
+        );
       }
       
       // Store input as a memory with tags
-      await this.addTaggedMemory(input, { type: 'user_input', ...context || {} });
+      try {
+        await this.addTaggedMemory(message, { type: 'user_input', ...options || {} });
+      } catch (memoryError) {
+        console.error('Error storing user input in memory:', memoryError);
+        // Continue processing even if memory storage fails
+      }
       
       // Create a relevance scorer
       const relevanceScorer = new RelevanceScorer(memoryManager, this.extendedConfig.modelName || process.env.OPENAI_MODEL_NAME);
       
       // Get relevant memories for this input
       const relevantMemoryOptions: RelevantMemoryOptions = {
-        query: input,
+        query: message,
         limit: 10,
         includeCritical: true,
         minRelevance: 0.3,
-        tags: context?.tags as string[] || []
+        tags: options?.tags as string[] || []
       };
       
       // Get relevant memories
-      const relevantMemories = await relevanceScorer.getRelevantMemories(relevantMemoryOptions);
+      let relevantMemories: ScoredMemory[] = [];
+      try {
+        relevantMemories = await relevanceScorer.getRelevantMemories(relevantMemoryOptions);
+      } catch (memoryError) {
+        console.error('Error getting relevant memories:', memoryError);
+        // Continue with empty relevant memories
+      }
       
       // Get conversation history from memory manager
-      const conversationHistory = await memoryManager.searchMemories('', { 
+      let conversationHistory: any[] = [];
+      try {
+        conversationHistory = await memoryManager.searchMemories('', { 
         metadata: { 
           type: ['user_input', 'agent_response'] 
         },
         limit: 10 
       });
+      } catch (historyError) {
+        console.error('Error retrieving conversation history:', historyError);
+        // Continue with empty conversation history
+      }
       
       // Format conversation history using the PromptFormatter
       // Cast the conversationHistory to the expected format to fix type errors
@@ -866,7 +898,7 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
       
       // Check for customInstructions in parameters
       const customInstructions = this.config.parameters?.customInstructions || 
-                               (context?.persona as Record<string, any>)?.systemPrompt || 
+                               (options?.persona as Record<string, any>)?.systemPrompt || 
                                this.extendedConfig.systemPrompt || 
                                "You are a helpful assistant. Provide concise, accurate, and helpful responses.";
       
@@ -877,7 +909,7 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
       const persona: PersonaInfo = {
         ...(metadataPersona as Record<string, any>),
         ...(this.extendedConfig.persona || {}),
-        ...(context?.persona as Record<string, any> || {})
+        ...(options?.persona as Record<string, any> || {})
       };
       
       // Build the system prompt with persona information if available
@@ -894,18 +926,22 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
       let systemPrompt = PromptFormatter.formatSystemPrompt(systemPromptOptions);
       
       // Add thinking results to the system prompt if available
-      if (context?.thinkingResults) {
-        const thinkingResults = context.thinkingResults as Record<string, any>;
+      if (options?.thinkingResults) {
+        const thinkingResults = options.thinkingResults;
         systemPrompt += '\n\n## THINKING ANALYSIS RESULTS';
         
         if (thinkingResults.intent) {
-          systemPrompt += `\n\nDetected intent: ${thinkingResults.intent}`;
+          systemPrompt += `\n\nDetected intent: ${
+            typeof thinkingResults.intent === 'string' 
+              ? thinkingResults.intent 
+              : thinkingResults.intent.primary
+          }`;
         }
         
         if (thinkingResults.entities && Array.isArray(thinkingResults.entities)) {
           systemPrompt += '\n\nDetected entities:';
           for (const entity of thinkingResults.entities) {
-            systemPrompt += `\n- ${entity.text} (${entity.type})`;
+            systemPrompt += `\n- ${entity.value} (${entity.type})`;
           }
         }
         
@@ -917,31 +953,31 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
         }
         
         // Add memory context if available
-        if (context.formattedMemoryContext) {
+        if (options.formattedMemoryContext) {
           systemPrompt += '\n\n## RELEVANT MEMORY CONTEXT';
-          systemPrompt += `\n\n${context.formattedMemoryContext}`;
+          systemPrompt += `\n\n${options.formattedMemoryContext}`;
         }
         
-        if (context.processingInstructions && Array.isArray(context.processingInstructions)) {
+        if (options.processingInstructions && Array.isArray(options.processingInstructions)) {
           systemPrompt += '\n\n## RESPONSE INSTRUCTIONS';
-          for (const instruction of context.processingInstructions as string[]) {
+          for (const instruction of options.processingInstructions) {
             systemPrompt += `\n- ${instruction}`;
           }
         }
 
         // Make sure to reference original message for context
-        if (context.originalMessage) {
-          systemPrompt += `\n\nOriginal user message: "${context.originalMessage}"`;
+        if (options.originalMessage) {
+          systemPrompt += `\n\nOriginal user message: "${options.originalMessage}"`;
         }
       }
 
       // Add vision-specific handling for image attachments
-      const hasImageAttachments = context?.attachments && 
-        Array.isArray(context.attachments) && 
-        context.attachments.some(att => att.is_image_for_vision === true);
+      const hasImageAttachments = options?.attachments && 
+        Array.isArray(options.attachments) && 
+        options.attachments.some(att => att.is_image_for_vision === true);
       
       // Add vision model capabilities to system prompt if needed
-      if (hasImageAttachments || context?.useVisionModel) {
+      if (hasImageAttachments || options?.useVisionModel) {
         systemPrompt += '\n\n## VISION CAPABILITIES\nYou have vision capabilities and can analyze images. When responding to images:' +
           '\n- Provide detailed descriptions of what you see in the images' +
           '\n- Pay attention to visual details, text, objects, people, and other elements' +
@@ -951,12 +987,12 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
       
       // Create input prompt options
       const inputPromptOptions: InputPromptOptions = {
-        input,
+        input: message,
         conversationHistory: formattedHistory,
         maxHistoryMessages: 8, // Reduced to allow room for memories
         includeRelevantMemories: true,
         relevantMemories,
-        inputContext: context
+        inputContext: options
       };
       
       // Create chat messages using the formatter
@@ -965,29 +1001,375 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
       // Handle response generation with vision processing if needed
       let responseContent: string;
       
+      try {
       // Check if we need to use a vision-capable model
-      if (hasImageAttachments || context?.useVisionModel) {
+        if (hasImageAttachments || options?.useVisionModel) {
         console.log('Using vision model for image processing');
-        responseContent = await this.processWithVisionModel(messages, context?.attachments as any[]);
+          responseContent = await this.processWithVisionModel(messages, options?.attachments as any[]);
       } else {
         // Use the standard model for non-vision requests
-        const response = await (this.model as any).invoke(messages);
+          const response = await this.model.invoke(messages as any);
         
         // Extract the response content
         responseContent = response.content.toString();
+        }
+      } catch (llmError) {
+        throw new LLMResponseError(
+          `LLM inference failed: ${llmError instanceof Error ? llmError.message : String(llmError)}`,
+          hasImageAttachments ? AgentErrorCodes.VISION_PROCESSING_FAILED : AgentErrorCodes.LLM_RESPONSE_FAILED,
+          { 
+            modelName: this.extendedConfig.modelName || process.env.OPENAI_MODEL_NAME,
+            hasImageAttachments,
+            systemPromptLength: systemPrompt.length,
+            messageCount: messages.length
+          },
+          llmError instanceof Error ? llmError : undefined
+        );
       }
       
       // Store response in memory using tag extraction
+      try {
       await this.addTaggedMemory(responseContent, { 
         type: 'agent_response', 
-        vision_response: hasImageAttachments || context?.useVisionModel,
-        ...context || {} 
-      });
+          vision_response: hasImageAttachments || options?.useVisionModel,
+          ...options || {} 
+        });
+      } catch (memoryError) {
+        console.error('Error storing response in memory:', memoryError);
+        // Continue even if memory storage fails
+      }
       
-      return responseContent;
-    } catch (error) {
-      console.error('Error processing input:', error);
-      return null;
+      // Return in AgentResponse format
+      return {
+        content: responseContent,
+        thoughts: options?.contextThoughts || [],
+        metadata: { 
+          visionUsed: hasImageAttachments || options?.useVisionModel,
+          thinkingResults: options?.thinkingResult
+        }
+      };
+    } catch (error: unknown) {
+      console.error('Error in getLLMResponse:', error);
+      
+      // If it's already a LLMResponseError, rethrow it
+      if (error instanceof LLMResponseError) {
+        throw error;
+      }
+      
+      // Create a new LLMResponseError for other error types
+      throw new LLMResponseError(
+        `Error generating LLM response: ${error instanceof Error ? error.message : String(error)}`,
+        AgentErrorCodes.LLM_RESPONSE_FAILED,
+        { 
+          message,
+          options: JSON.stringify(options || {}),
+        },
+        error instanceof Error ? error : undefined
+      );
+    }
+  }
+  
+  /**
+   * Process user input with full thinking process and LLM response generation
+   * @param message User message to process
+   * @param options Processing options
+   * @returns Agent response with content, thoughts, and metadata
+   */
+  async processUserInput(message: string, options?: MessageProcessingOptions): Promise<AgentResponse> {
+    try {
+      // 1. Run thinking process (moved from route.ts)
+      const thinkingResult = await this.think(message, options);
+      
+      // 2. Prepare enhanced options with thinking results
+      const enhancedOptions: GetLLMResponseOptions = {
+        ...options,
+        thinkingResult,
+        // Include thinking results directly for context
+        thinkingResults: {
+          intent: {
+            primary: thinkingResult.intent.primary,
+            confidence: thinkingResult.intent.confidence
+          },
+          entities: thinkingResult.entities,
+          context: thinkingResult.context || {},
+          planSteps: thinkingResult.planSteps || [],
+          shouldDelegate: thinkingResult.shouldDelegate,
+          requiredCapabilities: thinkingResult.requiredCapabilities
+        },
+        // Include formatted memory context if available
+        formattedMemoryContext: thinkingResult.context?.formattedMemoryContext || '',
+        // Include original message for context
+        originalMessage: message,
+        // Add contextual thoughts from reasoning
+        contextThoughts: thinkingResult.reasoning || [],
+        // Add explicit instructions
+        processingInstructions: [
+          "Use the provided thinking analysis and memory context to inform your response",
+          "Reference specific information from memory context when relevant",
+          "Address the user's specific message content and intent",
+          "Maintain a conversational and personalized tone"
+        ]
+      };
+      
+      // 3. Get LLM response with enhanced context
+      const response = await this.getLLMResponse(message, enhancedOptions);
+      
+      // 4. Return the response with combined metadata
+      return {
+        content: response.content,
+        thoughts: response.thoughts || thinkingResult.reasoning || [],
+        memories: response.memories,
+        metadata: {
+          ...response.metadata,
+          thinkingAnalysis: {
+            intent: thinkingResult.intent,
+            entities: thinkingResult.entities,
+            shouldDelegate: thinkingResult.shouldDelegate,
+            requiredCapabilities: thinkingResult.requiredCapabilities,
+            complexity: thinkingResult.complexity,
+            priority: thinkingResult.priority
+          }
+        }
+      };
+    } catch (error: unknown) {
+      console.error('Error in processUserInput:', error);
+      
+      // Create detailed error for logging but return a user-friendly response
+      const errorDetails = {
+        originalMessage: message,
+        options: JSON.stringify(options)
+      };
+      
+      // Log structured error
+      if (error instanceof ThinkingError || error instanceof LLMResponseError) {
+        console.error(new ProcessingError(
+          `Error processing user input: ${error.message}`,
+          AgentErrorCodes.PROCESSING_FAILED,
+          { 
+            ...errorDetails,
+            stage: error instanceof ThinkingError ? 'thinking' : 'llm_response'
+          },
+          error
+        ).toJSON());
+      } else {
+        console.error(new ProcessingError(
+          `Error processing user input: ${error instanceof Error ? error.message : String(error)}`,
+          AgentErrorCodes.PROCESSING_FAILED,
+          errorDetails,
+          error instanceof Error ? error : undefined
+        ).toJSON());
+      }
+      
+      // Return a user-friendly response
+      return {
+        content: "I'm sorry, but I encountered an error while processing your request. Please try again.",
+        thoughts: [`Error in processUserInput: ${error instanceof Error ? error.message : String(error)}`],
+        metadata: { 
+          error: true, 
+          errorCode: AgentErrorCodes.PROCESSING_FAILED,
+          errorType: error instanceof ThinkingError ? 'thinking' : 
+                     error instanceof LLMResponseError ? 'llm_response' : 'unknown'
+        }
+      };
+    }
+  }
+  
+  /**
+   * Perform thinking analysis on user input
+   * @param message User message to analyze
+   * @param options Thinking options
+   * @returns Analysis results
+   */
+  async think(message: string, options?: ThinkOptions): Promise<ThinkingResult> {
+    try {
+      // Import ThinkingService dynamically to avoid circular dependencies
+      const { ThinkingService } = await import('../../services/thinking');
+      const { ImportanceCalculatorService } = await import('../../services/importance/ImportanceCalculatorService');
+      
+      // Create a temporary LLM service adapter for the importance calculator
+      const llmServiceAdapter = {
+        generateText: async (model: string, prompt: string): Promise<string> => {
+          // Use the agent's model to generate text
+          const response = await this.model.invoke([
+            new SystemMessage("You are a helpful assistant."),
+            new HumanMessage(prompt)
+          ] as any);
+          return response.content.toString();
+        },
+        generateStructuredOutput: async <T>(
+          model: string, 
+          prompt: string, 
+          outputSchema: Record<string, unknown>
+        ): Promise<T> => {
+          // Use the agent's model with a structured output format
+          return {
+            // Provide default values as fallback
+            importance_score: 0.5,
+            importance_level: "MEDIUM",
+            reasoning: "Default importance calculation",
+            is_critical: false,
+            keywords: []
+          } as unknown as T;
+        },
+        // Other methods not needed for basic functionality
+        streamText: async function* (model: string, prompt: string): AsyncGenerator<string> {
+          yield "Default response";
+        },
+        streamStructuredOutput: async function* <T>(
+          model: string,
+          prompt: string,
+          outputSchema: Record<string, unknown>
+        ): AsyncGenerator<Partial<T>> {
+          yield { } as unknown as Partial<T>;
+        }
+      };
+      
+      // Create needed services
+      const importanceCalculator = new ImportanceCalculatorService(llmServiceAdapter);
+      const thinkingService = new ThinkingService(importanceCalculator);
+      
+      // Prepare thinking options
+      const userId = options?.userId || 'default-user';
+      
+      // Get memory manager for additional context retrieval
+      const memoryManager = this.getManager<MemoryManager>(ManagerType.MEMORY);
+      
+      // Get tool manager for tool availability
+      const toolManager = this.getManager<ToolManager>(ManagerType.TOOL);
+      
+      // Get available tools if tool manager exists
+      const availableTools = toolManager ? await toolManager.getTools() : [];
+      
+      // Get relevant memories for enhanced context
+      let recentMemories: any[] = [];
+      if (memoryManager) {
+        try {
+          // Get recent conversation history
+          recentMemories = await memoryManager.searchMemories('', { 
+            metadata: { 
+              type: ['user_input', 'agent_response'] 
+            },
+            limit: 10 
+          });
+        } catch (memoryError) {
+          console.error('Error retrieving memories:', memoryError);
+          throw new ThinkingError(
+            `Failed to retrieve memories: ${memoryError instanceof Error ? memoryError.message : String(memoryError)}`,
+            AgentErrorCodes.MEMORY_CONTEXT_FAILED,
+            { userId },
+            memoryError instanceof Error ? memoryError : undefined
+          );
+        }
+      }
+      
+      // Format chat history for thinking context if available
+      const chatHistory = recentMemories.map(mem => ({
+        id: mem.id || 'unknown',
+        content: mem.content,
+        sender: {
+          id: (mem.metadata?.userId as string) || 'unknown',
+          name: (mem.metadata?.role === 'user') ? 'User' : 'Assistant',
+          role: (mem.metadata?.role as 'user' | 'assistant' | 'system') || 'user'
+        },
+        timestamp: new Date(mem.metadata?.timestamp || Date.now())
+      }));
+      
+      // Process any image attachments
+      const hasAttachments = options?.attachments && Array.isArray(options.attachments) && options.attachments.length > 0;
+      const isVisionRequest = hasAttachments && options?.attachments?.some(att => att.is_image_for_vision === true);
+      
+      const thinkingOptions: ThinkingOptions = {
+        userId,
+        debug: options?.debug || false,
+        // Add chat history for context
+        chatHistory,
+        // Add agent information for persona-based responses
+        agentInfo: {
+          name: this.getName(),
+          description: this.getDescription(),
+          systemPrompt: (this.config.parameters as { systemPrompt?: string })?.systemPrompt || 
+                       (this.config.parameters as { customInstructions?: string })?.customInstructions,
+          capabilities: await this.getCapabilities(),
+          // Add personality traits if available
+          traits: (this.config.metadata as { persona?: { traits?: string[] } })?.persona?.traits || []
+        },
+        // Add working memory from recent context if available
+        workingMemory: (options?.workingMemory || []) as WorkingMemoryItem[],
+        // Add context files if available
+        contextFiles: (options?.contextFiles || []) as FileReference[],
+        // Pass through any other options
+        ...options
+      };
+      
+      // Process the request through the thinking service
+      let thinkingResult: ThinkingResult;
+      try {
+        thinkingResult = await thinkingService.processRequest(
+          userId,
+          // If there are attachments, note it in the message for thinking
+          isVisionRequest ? `${message} [Vision analysis required]` : message,
+          thinkingOptions
+        );
+      } catch (thinkError) {
+        throw new ThinkingError(
+          `Failed to process thinking request: ${thinkError instanceof Error ? thinkError.message : String(thinkError)}`,
+          AgentErrorCodes.INTENT_ANALYSIS_FAILED,
+          { userId, message, hasVisionData: isVisionRequest },
+          thinkError instanceof Error ? thinkError : undefined
+        );
+      }
+      
+      // Add additional context for usage in getLLMResponse
+      if (!thinkingResult.context) {
+        thinkingResult.context = {};
+      }
+      
+      // Store raw thinking options for potential processing in getLLMResponse
+      thinkingResult.context.rawOptions = options;
+      
+      // Add vision information if relevant
+      if (isVisionRequest) {
+        thinkingResult.context.hasVisionAttachments = true;
+        thinkingResult.context.attachments = options?.attachments;
+      }
+      
+      // Add available tools context
+      if (availableTools.length > 0) {
+        thinkingResult.context.availableTools = availableTools.map(tool => ({
+          id: tool.id || 'unknown',
+          name: tool.name,
+          description: tool.description || '',
+          category: tool.categories?.[0] || 'general',
+        }));
+      }
+      
+      // Add memory context information
+      if (recentMemories.length > 0) {
+        thinkingResult.context.recentMemories = recentMemories.length;
+        // Add chat history length to context
+        thinkingResult.context.chatHistoryLength = chatHistory.length;
+      }
+      
+      // Return enhanced thinking results
+      return thinkingResult;
+    } catch (error: unknown) {
+      console.error('Error in think method:', error);
+      
+      // If it's already a ThinkingError, rethrow it
+      if (error instanceof ThinkingError) {
+        throw error;
+      }
+      
+      // Create a new ThinkingError for other error types
+      throw new ThinkingError(
+        `Failed in thinking process: ${error instanceof Error ? error.message : String(error)}`,
+        AgentErrorCodes.THINKING_FAILED,
+        { 
+          message, 
+          options: JSON.stringify(options || {})
+        },
+        error instanceof Error ? error : undefined
+      );
     }
   }
   
@@ -1499,7 +1881,7 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
           // Convert Tool to ToolDefinition
           const toolDef: ToolDefinition = {
             name: tool.name,
-            description: tool.description,
+            description: tool.description || '',
             parameters: (tool.metadata?.parameters as Record<string, unknown>) || {},
             requiredParams: (tool.metadata?.requiredParams as string[]) || [],
             execute: async (params: Record<string, unknown>, agentContext?: Record<string, unknown>) => {

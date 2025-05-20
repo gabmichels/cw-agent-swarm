@@ -45,6 +45,9 @@ This document provides detailed guidelines for implementing the architecture ref
 - Keep it simple
 - Stick to the defined scope
 
+### 6. No placeholder implementation
+- Avoid placeholder implementations, aim for full implementations
+
 ## Component-Specific Guidelines
 
 ### Memory System Implementation

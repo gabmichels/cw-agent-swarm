@@ -32,6 +32,55 @@ import type {
 } from './managers/SchedulerManager.interface';
 import { ManagerType } from './managers/ManagerType';
 
+// Import ThinkingService related types
+import type { ThinkingResult, ThinkingOptions } from '../../../services/thinking/types';
+
+// Define agent response type
+export interface AgentResponse {
+  content: string;
+  memories?: string[];
+  thoughts?: string[];
+  metadata?: Record<string, unknown>;
+}
+
+// Define message processing options
+export interface MessageProcessingOptions {
+  attachments?: Array<{
+    filename: string;
+    type: string;
+    size?: number;
+    mimeType?: string;
+    fileId?: string;
+    preview?: string;
+    has_full_preview?: boolean;
+    is_image_for_vision?: boolean;
+  }>;
+  userId?: string;
+  userMessageId?: string;
+  skipResponseMemoryStorage?: boolean;
+  internal?: boolean;
+  thinking?: boolean;
+  isThinking?: boolean;
+  contextThoughts?: string[];
+  formattedMemoryContext?: string;
+  thinkingResults?: Partial<ThinkingResult>;
+  originalMessage?: string;
+  persona?: Record<string, unknown>;
+  processingInstructions?: string[];
+  useVisionModel?: boolean;
+  [key: string]: unknown;
+}
+
+// Define think options
+export interface ThinkOptions extends MessageProcessingOptions {
+  debug?: boolean;
+}
+
+// Define LLM response options
+export interface GetLLMResponseOptions extends MessageProcessingOptions {
+  thinkingResult?: ThinkingResult;
+}
+
 export interface AgentBase {
   getId(): string;
   getAgentId(): string;
@@ -127,4 +176,29 @@ export interface AgentBase {
   getRunningTasks(): Promise<ScheduledTask[]>;
   getPendingTasks(): Promise<ScheduledTask[]>;
   getFailedTasks(): Promise<ScheduledTask[]>;
+
+  // New agent message processing methods
+  /**
+   * Process user input with thinking and LLM response
+   * @param message User input message
+   * @param options Processing options
+   * @returns Agent response with content and possible metadata
+   */
+  processUserInput(message: string, options?: MessageProcessingOptions): Promise<AgentResponse>;
+  
+  /**
+   * Perform thinking analysis on user input
+   * @param message User input message
+   * @param options Thinking options
+   * @returns Thinking analysis result
+   */
+  think(message: string, options?: ThinkOptions): Promise<ThinkingResult>;
+  
+  /**
+   * Get LLM response based on user input and thinking results
+   * @param message User input message
+   * @param options LLM response options including thinking results
+   * @returns Agent response with content and possible metadata
+   */
+  getLLMResponse(message: string, options?: GetLLMResponseOptions): Promise<AgentResponse>;
 } 

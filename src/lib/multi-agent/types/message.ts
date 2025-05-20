@@ -74,6 +74,7 @@ export interface SendMessageRequest {
   senderType: ParticipantType;
   content: string;
   type: MessageType;
+  recipientId?: string;
   attachments?: MessageAttachment[];
   replyToId?: string;
   metadata?: Record<string, unknown>;
