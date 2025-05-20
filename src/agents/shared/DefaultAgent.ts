@@ -38,6 +38,7 @@ import { AgentResponse, GetLLMResponseOptions, MessageProcessingOptions, ThinkOp
 import { ThinkingResult, ThinkingOptions } from '../../services/thinking/types';
 import { WorkingMemoryItem, FileReference } from '../../services/thinking/types';
 import { AgentError, ThinkingError, LLMResponseError, ProcessingError, AgentErrorCodes } from './errors/AgentErrors';
+import { SchedulerHelper } from './scheduler/SchedulerHelper';
 
 // Define the necessary types that we need
 const AGENT_STATUS = {
@@ -396,6 +397,10 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
    * Initialize the agent by setting up required managers
    */
   async initialize(): Promise<boolean> {
+    if (this.initialized) {
+      return true;
+    }
+
     try {
       // Register all managers based on configuration
       if (this.extendedConfig.enableMemoryManager) {
@@ -496,6 +501,14 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
       // Set up memory refresh if enabled
       if (this.extendedConfig.memoryRefresh?.enabled) {
         this.setupMemoryRefresh();
+      }
+
+      // Setup autonomous scheduling if scheduler manager is available
+      const schedulerManager = this.getManager(ManagerType.SCHEDULER);
+      if (schedulerManager) {
+        console.log(`[Agent ${this.agentId}] Setting up autonomous scheduling`);
+        // Use 10 second polling interval for autonomous scheduling
+        SchedulerHelper.setupSchedulingTimer(this, 10000);
       }
 
       return super.initialize();
@@ -632,6 +645,13 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
    * Shutdown the agent
    */
   async shutdown(): Promise<void> {
+    if (!this.initialized) {
+      return;
+    }
+
+    // Clean up the scheduling timer
+    SchedulerHelper.cleanup();
+
     // Stop memory refresh if active
     if (this.memoryRefreshInterval) {
       clearInterval(this.memoryRefreshInterval);
@@ -654,6 +674,8 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
     
     // Set agent status to offline
     this.config.status = AGENT_STATUS.OFFLINE as any;
+
+    this.initialized = false;
   }
 
   /**

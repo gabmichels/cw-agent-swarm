@@ -135,9 +135,16 @@ var DefaultSchedulerManager = /** @class */ (function (_super) {
                             return [2 /*return*/, false];
                         }
                         config = this.getConfig();
-                        if (config.enableAutoScheduling) {
+                        this._initialized = true;
+                        
+                        // Setup autonomous scheduling - enableAutoScheduling defaults to true if not specified
+                        if (config.enableAutoScheduling !== false) {
                             this.setupSchedulingTimer();
+                            console.log("[".concat(this.managerId, "] Autonomous scheduling initialized with interval ").concat(config.schedulingIntervalMs, "ms"));
+                        } else {
+                            console.log("[".concat(this.managerId, "] Autonomous scheduling is disabled"));
                         }
+                        
                         return [2 /*return*/, true];
                 }
             });
@@ -306,12 +313,11 @@ var DefaultSchedulerManager = /** @class */ (function (_super) {
      */
     DefaultSchedulerManager.prototype.getTask = function (taskId) {
         return __awaiter(this, void 0, void 0, function () {
-            var _a;
-            return __generator(this, function (_b) {
+            return __generator(this, function (_a) {
                 if (!this._initialized) {
                     throw new SchedulingError('Scheduler manager not initialized', 'NOT_INITIALIZED');
                 }
-                return [2 /*return*/, (_a = this.tasks.get(taskId)) !== null && _a !== void 0 ? _a : null];
+                return [2 /*return*/, this.tasks.get(taskId) || null];
             });
         });
     };
@@ -546,16 +552,86 @@ var DefaultSchedulerManager = /** @class */ (function (_super) {
                         if (task.status !== 'pending' && task.status !== 'scheduled') {
                             return false;
                         }
-                        // Check start time
-                        if (task.scheduledStartTime && task.scheduledStartTime > now) {
+                        
+                        // Check if task has a scheduled time
+                        const scheduledTime = task.metadata?.scheduledTime;
+                        if (!scheduledTime) {
                             return false;
                         }
-                        // Check end time
-                        if (task.dueDate && task.dueDate < now) {
-                            return false;
+                        
+                        // Parse the scheduled time
+                        let taskTime;
+                        
+                        if (scheduledTime instanceof Date) {
+                            taskTime = scheduledTime;
+                        } else if (typeof scheduledTime === 'string') {
+                            taskTime = new Date(scheduledTime);
+                        } else if (typeof scheduledTime === 'number') {
+                            taskTime = new Date(scheduledTime);
+                        } else {
+                            return false; // Invalid scheduledTime format
                         }
-                        return true;
+                        
+                        // Compare with current time
+                        return taskTime <= now;
                     })];
+            });
+        });
+    };
+    /**
+     * Poll for tasks that are due and execute them
+     * @returns Number of tasks executed
+     */
+    DefaultSchedulerManager.prototype.pollForDueTasks = function () {
+        return __awaiter(this, void 0, void 0, function () {
+            var dueTasks, executedCount, _i, dueTasks_1, task, result, error_3, error_4;
+            return __generator(this, function (_a) {
+                switch (_a.label) {
+                    case 0:
+                        if (!this._initialized || !this._config.enabled) {
+                            return [2 /*return*/, 0];
+                        }
+                        _a.label = 1;
+                    case 1:
+                        _a.trys.push([1, 10, , 11]);
+                        return [4 /*yield*/, this.getDueTasks()];
+                    case 2:
+                        dueTasks = _a.sent();
+                        executedCount = 0;
+                        _i = 0, dueTasks_1 = dueTasks;
+                        _a.label = 3;
+                    case 3:
+                        if (!(_i < dueTasks_1.length)) return [3 /*break*/, 9];
+                        task = dueTasks_1[_i];
+                        _a.label = 4;
+                    case 4:
+                        _a.trys.push([4, 6, , 7]);
+                        return [4 /*yield*/, this.executeTask(task.id)];
+                    case 5:
+                        result = _a.sent();
+                        if (result.success) {
+                            executedCount++;
+                            console.log("[".concat(this.managerId, "] Successfully executed task ").concat(task.id, ": ").concat(task.title));
+                        } else {
+                            console.error("[".concat(this.managerId, "] Failed to execute task ").concat(task.id, ": ").concat(result.error));
+                        }
+                        return [3 /*break*/, 7];
+                    case 6:
+                        error_3 = _a.sent();
+                        console.error("[".concat(this.managerId, "] Error executing task ").concat(task.id, ":"), error_3);
+                        return [3 /*break*/, 7];
+                    case 7:
+                        _a.label = 8;
+                    case 8:
+                        _i++;
+                        return [3 /*break*/, 3];
+                    case 9: return [2 /*return*/, executedCount];
+                    case 10:
+                        error_4 = _a.sent();
+                        console.error("[".concat(this.managerId, "] Error polling for due tasks:"), error_4);
+                        return [2 /*return*/, 0];
+                    case 11: return [2 /*return*/];
+                }
             });
         });
     };
@@ -682,35 +758,33 @@ var DefaultSchedulerManager = /** @class */ (function (_super) {
         }
         // Setup new timer
         this.schedulingTimer = setInterval(function () { return __awaiter(_this, void 0, void 0, function () {
-            var dueTasks, _i, dueTasks_1, task, error_3;
+            var executedCount, error_3;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
-                        _a.trys.push([0, 6, , 7]);
-                        return [4 /*yield*/, this.getDueTasks()];
+                        _a.trys.push([0, 2, , 3]);
+                        return [4 /*yield*/, this.pollForDueTasks()];
                     case 1:
-                        dueTasks = _a.sent();
-                        _i = 0, dueTasks_1 = dueTasks;
-                        _a.label = 2;
+                        executedCount = _a.sent();
+                        if (executedCount > 0) {
+                            console.log("[".concat(this.managerId, "] Scheduling timer executed ").concat(executedCount, " due tasks"));
+                        }
+                        return [3 /*break*/, 3];
                     case 2:
-                        if (!(_i < dueTasks_1.length)) return [3 /*break*/, 5];
-                        task = dueTasks_1[_i];
-                        return [4 /*yield*/, this.executeTask(task.id)];
-                    case 3:
-                        _a.sent();
-                        _a.label = 4;
-                    case 4:
-                        _i++;
-                        return [3 /*break*/, 2];
-                    case 5: return [3 /*break*/, 7];
-                    case 6:
                         error_3 = _a.sent();
                         console.error("[".concat(this.managerId, "] Error in scheduling timer:"), error_3);
-                        return [3 /*break*/, 7];
-                    case 7: return [2 /*return*/];
+                        return [3 /*break*/, 3];
+                    case 3: return [2 /*return*/];
                 }
             });
         }); }, config.schedulingIntervalMs);
+        
+        // Don't keep the Node.js process running just for this timer
+        if (this.schedulingTimer.unref) {
+            this.schedulingTimer.unref();
+        }
+        
+        console.log("[".concat(this.managerId, "] Scheduling timer set up with interval ").concat(config.schedulingIntervalMs, "ms"));
     };
     return DefaultSchedulerManager;
 }(BaseManager_1.AbstractBaseManager));

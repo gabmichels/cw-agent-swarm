@@ -80,7 +80,7 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
       maxRetryAttempts: config.maxRetryAttempts ?? 3,
       defaultTaskTimeoutMs: config.defaultTaskTimeoutMs ?? 30000,
       enableAutoScheduling: config.enableAutoScheduling ?? true,
-      schedulingIntervalMs: config.schedulingIntervalMs ?? 1000,
+      schedulingIntervalMs: config.schedulingIntervalMs ?? 60000,
       enableTaskPrioritization: config.enableTaskPrioritization ?? true,
       ...config
     } as SchedulerManagerConfig;
@@ -136,8 +136,16 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
     try {
       // Initialize any resources needed
       this.initialized = true;
+      
+      // Set up the scheduling timer if auto-scheduling is enabled
+      if (this.config.enableAutoScheduling) {
+        this.setupSchedulingTimer();
+        console.log(`[${this.managerId}] Autonomous scheduling initialized with interval ${this.config.schedulingIntervalMs}ms`);
+      }
+      
       return true;
     } catch (error) {
+      console.error(`[${this.managerId}] Error initializing scheduler manager:`, error);
       return false;
     }
   }
@@ -378,51 +386,137 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
       };
     }
 
-    if (task.status === 'pending' || task.status === 'running') {
-      try {
-        // Update task status
-        task.status = 'running';
-        task.updatedAt = new Date();
-        this.tasks.set(task.id, task);
+    if (task.status === 'running') {
+      return {
+        success: false,
+        taskId,
+        error: `Task ${taskId} is already running`
+      };
+    }
 
-        // Execute task logic here
-        // For now, just mark it as completed
-        task.status = 'completed';
-        task.updatedAt = new Date();
-        this.tasks.set(task.id, task);
+    if (task.status === 'completed') {
+      return {
+        success: false,
+        taskId,
+        error: `Task ${taskId} is already completed`
+      };
+    }
+
+    if (task.status === 'cancelled') {
+      return {
+        success: false,
+        taskId,
+        error: `Task ${taskId} is cancelled`
+      };
+    }
+
+    try {
+      // Update task status to running
+      await this.updateTask(taskId, { status: 'running' });
+
+      const startTime = Date.now();
+
+      // Execute the task based on task type or metadata
+      let success = false;
+      let result: Record<string, unknown> | null = null;
+      let errorMsg: string | null = null;
+
+      try {
+        // Check for action in metadata
+        const action = task.metadata?.action;
+        if (action && typeof action === 'string') {
+          const agent = this.getAgent();
+          const parameters = (task.metadata?.parameters || {}) as { message?: string };
+
+          if (action === 'processUserInput' && 
+              parameters.message && 
+              typeof parameters.message === 'string') {
+            // Execute the action
+            const response = await agent.processUserInput(parameters.message);
+            success = true;
+            // Convert response to record to ensure type safety
+            result = {
+              content: response.content,
+              ...(response.metadata ? { metadata: response.metadata } : {}),
+              ...(response.thoughts ? { thoughts: response.thoughts } : {})
+            };
+          } else {
+            // Unknown action
+            success = false;
+            errorMsg = `Unknown action: ${action}`;
+          }
+        } else {
+          // No action specified
+          success = false;
+          errorMsg = 'No action specified in task metadata';
+        }
+      } catch (execError) {
+        success = false;
+        errorMsg = execError instanceof Error 
+          ? execError.message 
+          : `Execution error: ${String(execError)}`;
+      }
+
+      const endTime = Date.now();
+      const durationMs = endTime - startTime;
+
+      // Update task
+      if (success) {
+        await this.updateTask(taskId, { 
+          status: 'completed', 
+          updatedAt: new Date(),
+          metadata: {
+            ...task.metadata,
+            executionTime: durationMs,
+            result
+          }
+        });
 
         return {
           success: true,
           taskId,
-          durationMs: 0
+          durationMs
         };
-      } catch (error) {
-        task.status = 'failed';
-        task.updatedAt = new Date();
-        task.retryAttempts++;
-        this.tasks.set(task.id, task);
+      } else {
+        // Task failed, increment retry attempts
+        const retryAttempts = (task.retryAttempts || 0) + 1;
+        
+        await this.updateTask(taskId, { 
+          status: 'failed', 
+          retryAttempts,
+          updatedAt: new Date(),
+          metadata: {
+            ...task.metadata,
+            executionTime: durationMs,
+            lastError: errorMsg
+          }
+        });
 
         return {
           success: false,
           taskId,
-          error: error instanceof Error ? error.message : String(error)
+          error: errorMsg || 'Task execution failed',
+          durationMs
         };
       }
+    } catch (error) {
+      return {
+        success: false,
+        taskId,
+        error: error instanceof Error ? error.message : String(error)
+      };
     }
-
-    return {
-      success: false,
-      taskId,
-      error: `Task ${taskId} cannot be executed in status ${task.status}`
-    };
   }
 
   /**
    * Cancel a task
    */
   async cancelTask(taskId: string): Promise<boolean> {
-    if (!this.initialized || !this.config.enabled) {
-      return false;
+    if (!this.initialized) {
+      throw new SchedulingError(
+        'Scheduler manager not initialized',
+        'NOT_INITIALIZED'
+      );
     }
 
     const task = await this.getTask(taskId);
@@ -430,9 +524,11 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
       return false;
     }
 
-    task.status = 'cancelled';
-    task.updatedAt = new Date();
-    this.tasks.set(task.id, task);
+    if (task.status === 'completed' || task.status === 'cancelled') {
+      return false;
+    }
+
+    await this.updateTask(taskId, { status: 'cancelled' });
     return true;
   }
 
@@ -447,14 +543,75 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
       );
     }
 
+    const now = new Date();
+    
     return Array.from(this.tasks.values()).filter(task => {
       // Check if task is pending or scheduled
       if (task.status !== 'pending' && task.status !== 'scheduled') {
         return false;
       }
-
-      return true;
+      
+      // Check if task has a scheduled time
+      const scheduledTime = task.metadata?.scheduledTime;
+      if (!scheduledTime) {
+        return false;
+      }
+      
+      // Parse the scheduled time (handle both Date objects and ISO strings)
+      let taskTime: Date;
+      
+      if (scheduledTime instanceof Date) {
+        taskTime = scheduledTime;
+      } else if (typeof scheduledTime === 'string') {
+        taskTime = new Date(scheduledTime);
+      } else if (typeof scheduledTime === 'number') {
+        taskTime = new Date(scheduledTime);
+      } else {
+        return false; // Invalid scheduledTime format
+      }
+      
+      // Compare with current time
+      return taskTime <= now;
     });
+  }
+
+  /**
+   * Poll for tasks that are due and execute them
+   * @returns Number of tasks executed
+   */
+  async pollForDueTasks(): Promise<number> {
+    if (!this.initialized || !this.config.enabled) {
+      return 0;
+    }
+    
+    try {
+      // Get all tasks that are due
+      const dueTasks = await this.getDueTasks();
+      
+      // Initialize execution counter
+      let executedCount = 0;
+      
+      // Execute each due task
+      for (const task of dueTasks) {
+        try {
+          const result = await this.executeTask(task.id);
+          if (result.success) {
+            executedCount++;
+            console.log(`[${this.managerId}] Successfully executed task ${task.id}: ${task.title}`);
+          } else {
+            console.error(`[${this.managerId}] Failed to execute task ${task.id}: ${result.error}`);
+          }
+        } catch (error) {
+          console.error(`[${this.managerId}] Error executing task ${task.id}:`, error);
+        }
+      }
+      
+      // Return the number of tasks executed
+      return executedCount;
+    } catch (error) {
+      console.error(`[${this.managerId}] Error polling for due tasks:`, error);
+      return 0;
+    }
   }
 
   /**
@@ -568,14 +725,21 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
     // Setup new timer
     this.schedulingTimer = setInterval(async () => {
       try {
-        const dueTasks = await this.getDueTasks();
-        for (const task of dueTasks) {
-          await this.executeTask(task.id);
+        const executedCount = await this.pollForDueTasks();
+        if (executedCount > 0) {
+          console.log(`[${this.managerId}] Scheduling timer executed ${executedCount} due tasks`);
         }
       } catch (error) {
         console.error(`[${this.managerId}] Error in scheduling timer:`, error);
       }
-    }, this.config.schedulingIntervalMs ?? 1000);
+    }, this.config.schedulingIntervalMs ?? 60000); // Use 1 minute as fallback
+    
+    // Don't keep the Node.js process running just for this timer
+    if (this.schedulingTimer.unref) {
+      this.schedulingTimer.unref();
+    }
+    
+    console.log(`[${this.managerId}] Scheduling timer set up with interval ${this.config.schedulingIntervalMs ?? 60000}ms`);
   }
 
   async getTasks(): Promise<ScheduledTask[]> {
