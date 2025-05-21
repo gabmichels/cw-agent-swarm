@@ -843,6 +843,18 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
         );
       case 'knowledge':
         return <KnowledgeTab />;
+      case 'visualizations':
+        // Use an iframe to embed the visualizations page
+        return (
+          <div className="w-full h-full">
+            <iframe 
+              src={`/visualizations?chatId=${chat?.id || ''}&messageId=`}
+              className="w-full h-full border-none"
+              title="Thinking Process Visualizations"
+              sandbox="allow-scripts allow-same-origin allow-popups allow-modals"
+            />
+          </div>
+        );
       default:
         return <WelcomeScreen />;
     }

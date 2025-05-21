@@ -214,10 +214,10 @@ const Sidebar: React.FC<SidebarProps> = ({
         </ul>
         
         {/* Chats Section */}
-        <div className="flex justify-between items-center mb-2">
-          <h3 className="text-sm font-semibold text-gray-400">RECENT CHATS</h3>
+        <div className="flex justify-between items-center mb-2 mt-6">
+          <h3 className="text-sm font-semibold text-gray-400">CHATS</h3>
           <Link 
-            href="/chat" 
+            href="/chats" 
             className="text-xs text-blue-400 hover:text-blue-300"
           >
             View All
@@ -232,23 +232,42 @@ const Sidebar: React.FC<SidebarProps> = ({
             </li>
           ) : chats.length === 0 ? (
             <li className="text-gray-400 text-sm p-2">
-              No chats found. Start one from an agent page.
+              No chats found.
             </li>
           ) : (
-            chats.slice(0, 5).map((chat) => (
+            chats.map((chat) => (
               <li key={chat.id}>
                 <button
                   onClick={() => handleChatClick(chat.id)}
-                  className="w-full text-left block p-2 rounded hover:bg-gray-700"
+                  className={`w-full text-left flex items-center space-x-2 p-2 rounded transition-colors ${
+                    chat.id === selectedAgent
+                      ? 'bg-gray-700 text-white'
+                      : 'text-gray-300 hover:bg-gray-700'
+                  }`}
                 >
-                  <div className="flex items-center space-x-2">
-                    <MessageSquare className="h-4 w-4 text-gray-400" />
-                    <span className="truncate">{chat.name}</span>
-                  </div>
+                  <MessageSquare className="h-4 w-4" />
+                  <span>{chat.name || `Chat ${chat.id.slice(0, 6)}`}</span>
                 </button>
               </li>
             ))
           )}
+        </ul>
+        
+        {/* Visualizations Section */}
+        <div className="flex justify-between items-center mb-2 mt-6">
+          <h3 className="text-sm font-semibold text-gray-400">VISUALIZATIONS</h3>
+        </div>
+        
+        <ul className="space-y-1 mb-4">
+          <li>
+            <Link
+              href="/visualizations"
+              className="w-full text-left flex items-center space-x-2 p-2 rounded transition-colors text-gray-300 hover:bg-gray-700"
+            >
+              <ActivityIcon className="h-4 w-4" />
+              <span>Thinking Process</span>
+            </Link>
+          </li>
         </ul>
         
         {/* Developer Section */}

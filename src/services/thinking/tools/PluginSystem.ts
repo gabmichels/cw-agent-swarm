@@ -3,9 +3,29 @@ import { Tool, ToolParameter, ToolExecutionResult } from './IToolService';
 import { ToolRegistry } from './ToolRegistry';
 import { ChatOpenAI } from '@langchain/openai';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
-import { glob } from 'glob';
+// Comment out glob import which uses node:events
+// import { glob } from 'glob';
 import { promises as fs } from 'fs';
 import * as path from 'path';
+
+// Implement browser-safe glob alternative
+const globBrowserSafe = async (pattern: string, options: any = {}): Promise<string[]> => {
+  // This is a simplified version that will only work in Node.js
+  // In the browser environment, it will return an empty array
+  if (typeof window !== 'undefined') {
+    console.warn('glob is not supported in browser environment');
+    return [];
+  }
+  
+  try {
+    // Use dynamic import to avoid webpack bundling issues
+    const { glob } = await import('glob');
+    return glob(pattern, options);
+  } catch (err) {
+    console.error('Error using glob:', err);
+    return [];
+  }
+};
 
 /**
  * Plugin interface for external tools
@@ -209,7 +229,7 @@ export class PluginSystem {
       // Search each directory
       for (const dir of this.pluginDirs) {
         // Look for plugin.json files
-        const pluginPaths = await glob(`${dir}/**/plugin.json`, { nodir: true });
+        const pluginPaths = await globBrowserSafe(`${dir}/**/plugin.json`, { nodir: true });
         
         for (const manifestPath of pluginPaths) {
           try {
