@@ -142,6 +142,7 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
    * Initialize the manager
    */
   async initialize(): Promise<boolean> {
+    console.log(`[${this.managerId}] Initializing scheduler manager...`);
     if (this.initialized) {
       return true;
     }

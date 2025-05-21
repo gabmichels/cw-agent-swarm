@@ -6,15 +6,18 @@
  * runtime agents are synchronized.
  */
 
+import { v4 as uuidv4 } from 'uuid';
 import { getMemoryServices } from '../memory/services';
 import { createAgentMemoryService } from '../memory/services/multi-agent';
 import { registerAgent, getAgentById } from './agent-service';
 import { logger } from '../../lib/logging';
-import { AgentMemoryEntity } from '../memory/schema/agent';
+import { AgentMemoryEntity, AgentStatus } from '../memory/schema/agent';
 import { AgentBase } from '../../agents/shared/base/AgentBase.interface';
 import { ManagerType } from '../../agents/shared/base/managers/ManagerType';
 import { SchedulerManager, TaskCreationOptions } from '../../agents/shared/base/managers/SchedulerManager.interface';
 import { PlanCreationOptions, PlanCreationResult, PlanExecutionResult, Plan } from '../../agents/shared/base/managers/PlanningManager.interface';
+import { AbstractAgentBase } from '../../agents/shared/base/AbstractAgentBase';
+import { BaseManager } from '../../agents/shared/base/managers/BaseManager';
 
 // Import ALL manager implementations
 import { DefaultSchedulerManager } from '../../lib/agents/implementations/managers/DefaultSchedulerManager';
@@ -31,9 +34,8 @@ import { StatusManager } from '../../agents/shared/status/StatusManager';
 import { DefaultResourceManager } from '../../agents/shared/resource/DefaultResourceManager';
 import { DefaultReflectionManager } from '../../agents/shared/reflection/managers/DefaultReflectionManager';
 import { DefaultNotificationManager } from '../../agents/shared/notifications/DefaultNotificationManager';
+import { DefaultLoggerManager, LogLevel } from '../../agents/shared/logger/DefaultLoggerManager';
 import { NotificationChannel } from '../../agents/shared/notifications/interfaces/NotificationManager.interface';
-import { v4 as uuidv4 } from 'uuid';
-
 
 /**
  * Fully capable agent implementation with ALL required managers
@@ -41,33 +43,40 @@ import { v4 as uuidv4 } from 'uuid';
  * This implementation creates a complete agent with all available managers
  * to ensure full functionality and autonomy.
  */
-class FullyCapableAgent {
-  private id: string;
-  private name: string;
-  private description: string;
-  private managers: Map<ManagerType, any> = new Map();
+class FullyCapableAgent extends AbstractAgentBase {
+  private _agentConfig: AgentMemoryEntity;
 
-  constructor(id: string, name: string, description: string) {
-    this.id = id;
-    this.name = name;
-    this.description = description;
+  constructor(id: string, name: string, description: string, agentConfig: AgentMemoryEntity) {
+    super(agentConfig);
     
+    this._agentConfig = agentConfig;
     // Add ALL managers for full capability
     this.setupManagers();
   }
   
+  // Override getAgentId to ensure consistent ID retrieval
+  override getAgentId(): string {
+    return this._agentConfig.id;
+  }
+  
+  // Override getId for the same reason
+  override getId(): string {
+    return this._agentConfig.id;
+  }
+
   /**
    * Set up ALL managers to make this a fully capable agent
    */
   private setupManagers(): void {
     try {
-      console.log(`🔄 Setting up ALL managers for agent ${this.id}...`);
+      const agentId = this.getAgentId();
+      console.log(`🔄 Setting up ALL managers for agent ${agentId}...`);
       
       // 1. MEMORY MANAGER
-      const memoryManager = new DefaultMemoryManager(this as unknown as AgentBase, {
+      const memoryManager = new DefaultMemoryManager(this, {
         enabled: true,
         createPrivateScope: true,
-        defaultScopeName: `agent-${this.id}-memory`,
+        defaultScopeName: `agent-${agentId}-memory`,
         enableAutoPruning: true,
         enableAutoConsolidation: true,
         pruningIntervalMs: 3600000, // 1 hour
@@ -76,7 +85,7 @@ class FullyCapableAgent {
       });
       
       // 2. PLANNING MANAGER
-      const planningManager = new DefaultPlanningManager(this as unknown as AgentBase, {
+      const planningManager = new DefaultPlanningManager(this, {
         enabled: true,
         maxPlans: 100,
         enablePlanOptimization: true,
@@ -85,7 +94,7 @@ class FullyCapableAgent {
       });
       
       // 3. TOOL MANAGER
-      const toolManager = new DefaultToolManager(this as unknown as AgentBase, {
+      const toolManager = new DefaultToolManager(this, {
         enabled: true,
         maxTools: 50,
         enableAutoDiscovery: true,
@@ -93,7 +102,7 @@ class FullyCapableAgent {
       });
       
       // 4. KNOWLEDGE MANAGER
-      const knowledgeManager = new DefaultKnowledgeManager(this as unknown as AgentBase, {
+      const knowledgeManager = new DefaultKnowledgeManager(this, {
         enabled: true,
         enableAutoRefresh: true,
         refreshIntervalMs: 300000,
@@ -101,7 +110,7 @@ class FullyCapableAgent {
       });
       
       // 5. SCHEDULER MANAGER
-      const schedulerManager = new DefaultSchedulerManager(this as unknown as AgentBase, {
+      const schedulerManager = new DefaultSchedulerManager(this, {
         enabled: true,
         maxConcurrentTasks: 5,
         maxRetryAttempts: 3,
@@ -114,7 +123,7 @@ class FullyCapableAgent {
       
       // Add a debug task for testing scheduler functionality
       setTimeout(() => {
-        console.log(`[${this.id}] Creating test scheduled task for agent`);
+        console.log(`[${agentId}] Creating test scheduled task for agent`);
         schedulerManager.createTask({
           title: "Periodic health check",
           description: "Check system health and report status",
@@ -131,20 +140,20 @@ class FullyCapableAgent {
             }
           }
         }).then(taskResult => {
-          console.log(`[${this.id}] Test task created: ${JSON.stringify(taskResult)}`);
+          console.log(`[${agentId}] Test task created: ${JSON.stringify(taskResult)}`);
         }).catch(err => {
-          console.error(`[${this.id}] Error creating test task:`, err);
+          console.error(`[${agentId}] Error creating test task:`, err);
         });
       }, 10000);
       
       // 6. AUTONOMY MANAGER 
-      const autonomySystem = new DefaultAutonomySystem(this as unknown as AgentBase, {
+      const autonomySystem = new DefaultAutonomySystem(this, {
         enableAutonomyOnStartup: true,
         enableOpportunityDetection: true,
         maxConcurrentTasks: 3
       });
       
-      const autonomyManager = new DefaultAutonomyManager(this as unknown as AgentBase, {
+      const autonomyManager = new DefaultAutonomyManager(this, {
         enabled: true,
         autonomyConfig: {
           enableAutonomyOnStartup: true,
@@ -154,7 +163,7 @@ class FullyCapableAgent {
       });
       
       // 7. FILE PROCESSING MANAGER
-      const fileProcessingManager = new FileProcessingManager(this as unknown as AgentBase, {
+      const fileProcessingManager = new FileProcessingManager(this, {
         enabled: true,
         maxFileSizeMb: 10,
         supportedFileTypes: ['txt', 'md', 'json', 'csv', 'xml', 'yaml', 'html', 'js', 'ts'],
@@ -162,14 +171,14 @@ class FullyCapableAgent {
       });
       
       // 8. INPUT MANAGER
-      const inputManager = new DefaultInputProcessor(this as unknown as AgentBase, {
+      const inputManager = new DefaultInputProcessor(this, {
         enabled: true,
         keepHistoryItems: 100,
         defaultTimeoutMs: 60000
       });
       
       // 9. OUTPUT MANAGER
-      const outputManager = new DefaultOutputProcessor(this as unknown as AgentBase, {
+      const outputManager = new DefaultOutputProcessor(this, {
         enabled: true,
         outputFormatting: {
           enableMarkdownFormatting: true,
@@ -181,7 +190,7 @@ class FullyCapableAgent {
       });
       
       // 10. STATUS MANAGER
-      const statusManager = new StatusManager(this as unknown as AgentBase, {
+      const statusManager = new StatusManager(this, {
         enabled: true,
         maxHistoryItems: 100,
         logStatusChanges: true,
@@ -189,7 +198,7 @@ class FullyCapableAgent {
       });
       
       // 11. RESOURCE MANAGER
-      const resourceManager = new DefaultResourceManager(this as unknown as AgentBase, {
+      const resourceManager = new DefaultResourceManager(this, {
         enabled: true,
         resourceLimits: {
           cpu: 1024,
@@ -202,7 +211,7 @@ class FullyCapableAgent {
       });
       
       // 12. REFLECTION MANAGER
-      const reflectionManager = new DefaultReflectionManager(this as unknown as AgentBase, {
+      const reflectionManager = new DefaultReflectionManager(this, {
         enabled: true,
         reflectionFrequencyMs: 3600000, // 1 hour
         maxReflectionDepth: 3,
@@ -213,82 +222,43 @@ class FullyCapableAgent {
       // 13. NOTIFICATION MANAGER
       const notificationManager = new DefaultNotificationManager();
       
-      // Placeholder functions for remaining manager types (MESSAGING, LOGGER, INTEGRATION)
+      // 14. LOGGER MANAGER - Proper implementation
+      const loggerManager = new DefaultLoggerManager(this, {
+        enabled: true,
+        level: LogLevel.INFO,
+        logToConsole: true,
+        includeMetadata: true,
+        formatMessages: true,
+        trackLogHistory: true,
+        maxHistorySize: 1000
+      });
+      
+      // Placeholder functions for remaining manager types (MESSAGING, INTEGRATION)
       // that don't have concrete implementations yet
       const createPlaceholderManager = (type: ManagerType, enabled: boolean = true) => {
         return {
           managerId: `${type}-manager-${uuidv4()}`,
           managerType: type,
           enabled: enabled,
-          initialize: async () => true,
+          initialize: async () => {
+            console.log(`[${type}-manager-${agentId}] Initializing placeholder manager`);
+            return true;
+          },
           shutdown: async () => {},
           getStatus: () => ({ status: 'available', health: { status: 'healthy' } }),
           isEnabled: () => enabled,
           setEnabled: (value: boolean) => { return value; },
-          getAgent: () => this as unknown as AgentBase
-        };
+          getAgent: () => this,
+          getHealth: async () => ({ status: 'healthy' as const, message: 'Placeholder manager is healthy' })
+        } as unknown as BaseManager;
       };
       
       // Create placeholder managers for remaining types
       const messagingManager = createPlaceholderManager(ManagerType.MESSAGING);
-      const loggerManager = createPlaceholderManager(ManagerType.LOGGER);
       const integrationManager = createPlaceholderManager(ManagerType.INTEGRATION);
       
-      // Initialize all real managers (not placeholders)
-      console.log(`🔄 Initializing all managers for agent ${this.id}...`);
-      
-      // Array of promises for initialization
-      const initPromises = [
-        memoryManager.initialize(),
-        planningManager.initialize(),
-        toolManager.initialize(),
-        knowledgeManager.initialize(),
-        schedulerManager.initialize(),
-        autonomyManager.initialize(),
-        fileProcessingManager.initialize(),
-        inputManager.initialize(),
-        outputManager.initialize(),
-        statusManager.initialize(),
-        resourceManager.initialize(),
-        reflectionManager.initialize(),
-        // Initialize notification manager
-        notificationManager.initialize({
-          defaultSenderId: this.id,
-          channels: [
-            {
-              type: NotificationChannel.UI,
-              name: 'UI Notifications',
-              enabled: true,
-              config: {}
-            },
-            {
-              type: NotificationChannel.SYSTEM,
-              name: 'System Notifications',
-              enabled: true,
-              config: {}
-            }
-          ]
-        })
-      ];
-      
-      // Initialize all managers and log results
-      Promise.all(initPromises)
-        .then(results => {
-          const successCount = results.filter(success => success).length;
-          console.log(`✅ Successfully initialized ${successCount}/${initPromises.length} managers for agent ${this.id}`);
-          
-          // Enable autonomy if initialization was successful
-          if (typeof autonomyManager.setAutonomyMode === 'function') {
-            autonomyManager.setAutonomyMode(true).then(enabled => {
-              console.log(`✅ Autonomy mode ${enabled ? 'enabled' : 'failed to enable'} for agent ${this.id}`);
-            });
-          }
-        })
-        .catch(error => {
-          console.error(`❌ Error initializing managers for agent ${this.id}:`, error);
-        });
-      
-      // Register ALL managers with the agent
+      // Register all managers with the agent
+      console.log(`[${agentId}] Registering all managers...`);
       this.setManager(memoryManager);
       this.setManager(planningManager);
       this.setManager(toolManager);
@@ -301,98 +271,60 @@ class FullyCapableAgent {
       this.setManager(statusManager);
       this.setManager(resourceManager);
       this.setManager(reflectionManager);
-      this.setManager(notificationManager);
-      this.setManager(messagingManager);
       this.setManager(loggerManager);
+      
+      // Store notification manager reference to initialize it separately (not through AbstractAgentBase)
+      // since it doesn't fully implement BaseManager
+      const notificationInitPromise = notificationManager.initialize({
+        defaultSenderId: agentId,
+        channels: [
+          {
+            type: NotificationChannel.UI,
+            name: 'UI Notifications',
+            enabled: true,
+            config: {}
+          },
+          {
+            type: NotificationChannel.SYSTEM,
+            name: 'System Notifications',
+            enabled: true,
+            config: {}
+          }
+        ]
+      });
+      
+      // Register placeholder managers
+      this.setManager(messagingManager);
       this.setManager(integrationManager);
       
-      console.log(`✅ All managers set up for agent ${this.id}`);
+      // Log the count of registered managers
+      console.log(`[${agentId}] Registered ${this.getManagers().length} managers for agent`);
+      
+      // Configure notification manager separately since it doesn't fully conform to BaseManager interface
+      notificationInitPromise.then(() => {
+        console.log(`✅ Notification manager initialized for agent ${agentId}`);
+      }).catch(error => {
+        console.error(`❌ Error initializing notification manager for agent ${agentId}:`, error);
+      });
+      
+      console.log(`✅ All managers set up for agent ${agentId}`);
+      
+      // Enable autonomy once initialized
+      this.on('initialized', () => {
+        if (typeof autonomyManager.setAutonomyMode === 'function') {
+          autonomyManager.setAutonomyMode(true).then(enabled => {
+            console.log(`✅ Autonomy mode ${enabled ? 'enabled' : 'failed to enable'} for agent ${agentId}`);
+          });
+        }
+      });
+      
     } catch (error) {
-      console.error(`❌ Error setting up managers for agent ${this.id}:`, error);
+      const agentId = this.getAgentId();
+      console.error(`❌ Error setting up managers for agent ${agentId}:`, error);
     }
   }
-
-  getAgentId(): string {
-    return this.id;
-  }
-
-  getId(): string {
-    return this.id;
-  }
-
-  getName(): string {
-    return this.name;
-  }
-
-  getType(): string {
-    return 'placeholder';
-  }
-
-  getDescription(): string {
-    return this.description;
-  }
-
-  getVersion(): string {
-    return '1.0.0';
-  }
-
-  getCapabilities(): Promise<string[]> {
-    return Promise.resolve([
-      'autonomy', 
-      'scheduling', 
-      'memory', 
-      'planning', 
-      'tools', 
-      'knowledge', 
-      'file_processing', 
-      'input_processing',
-      'output_processing',
-      'status_tracking',
-      'resource_management',
-      'reflection'
-    ]);
-  }
-
-  getStatus(): { status: string; message?: string } {
-    return { status: 'available' };
-  }
-
-  async initialize(): Promise<boolean> {
-    return true;
-  }
-
-  async shutdown(): Promise<void> {
-    return Promise.resolve();
-  }
-
-  async reset(): Promise<void> {
-    return Promise.resolve();
-  }
-
-  getManager<T>(type: ManagerType): T | null {
-    return (this.managers.get(type) || null) as T | null;
-  }
-
-  getManagers(): any[] {
-    return Array.from(this.managers.values());
-  }
-
-  setManager<T>(manager: T): void {
-    const managerAny = manager as any;
-    if (managerAny && managerAny.managerType) {
-      this.managers.set(managerAny.managerType, manager);
-    }
-  }
-
-  removeManager(type: ManagerType): void {
-    this.managers.delete(type);
-  }
-
-  hasManager(type: ManagerType): boolean {
-    return this.managers.has(type);
-  }
-
-  // Basic placeholder methods
+  
+  // Abstract methods we need to implement since we extend AbstractAgentBase
   async processUserInput(message: string, options?: any): Promise<any> {
     return { content: 'Placeholder agent cannot process input' };
   }
@@ -404,185 +336,58 @@ class FullyCapableAgent {
   async getLLMResponse(message: string, options?: any): Promise<any> {
     return { content: 'Placeholder agent cannot generate responses' };
   }
+  
+  // Override shutdown from AbstractAgentBase
+  async shutdown(): Promise<void> {
+    await this.shutdownManagers();
+  }
+  
+  // Event handler support
+  private eventHandlers: Record<string, Function[]> = {};
+  
+  on(event: string, handler: Function): void {
+    if (!this.eventHandlers[event]) {
+      this.eventHandlers[event] = [];
+    }
+    this.eventHandlers[event].push(handler);
+  }
+  
+  emit(event: string, ...args: any[]): void {
+    const handlers = this.eventHandlers[event] || [];
+    for (const handler of handlers) {
+      handler(...args);
+    }
+  }
 
-  // Tool-related methods
-  registerTool(tool: any): Promise<any> { return Promise.resolve({}); }
-  unregisterTool(toolId: string): Promise<boolean> { return Promise.resolve(true); }
-  getTool(toolId: string): Promise<any> { return Promise.resolve(null); }
-  getTools(): Promise<any[]> { return Promise.resolve([]); }
-  setToolEnabled(toolId: string, enabled: boolean): Promise<any> { return Promise.resolve({}); }
-  
-  // Task-related methods with proper type handling
-  createTask(options: Record<string, unknown>): Promise<any> { 
-    // Forward to scheduler manager if available
-    const schedulerManager = this.getManager<SchedulerManager>(ManagerType.SCHEDULER);
-    if (schedulerManager && schedulerManager.createTask) {
-      // Type assertion to handle the required fields
-      return schedulerManager.createTask(options as unknown as TaskCreationOptions);
-    }
-    return Promise.resolve({}); 
-  }
-  
-  getTask(taskId: string): Promise<Record<string, unknown> | null> { 
-    // Forward to scheduler manager if available
-    const schedulerManager = this.getManager<SchedulerManager>(ManagerType.SCHEDULER);
-    if (schedulerManager && schedulerManager.getTask) {
-      // Cast the result to the expected return type
-      return schedulerManager.getTask(taskId).then(task => 
-        task ? task as unknown as Record<string, unknown> : null
-      );
-    }
-    return Promise.resolve(null); 
-  }
-  
-  getTasks(): Promise<Record<string, unknown>[]> { 
-    // Forward to scheduler manager if available
-    const schedulerManager = this.getManager<SchedulerManager>(ManagerType.SCHEDULER);
-    if (schedulerManager && schedulerManager.getTasks) {
-      // Cast the result to the expected return type
-      return schedulerManager.getTasks().then(tasks => 
-        tasks.map(task => task as unknown as Record<string, unknown>)
-      );
-    }
-    return Promise.resolve([]); 
-  }
-  
-  executeTask(taskId: string): Promise<any> { 
-    // Forward to scheduler manager if available
-    const schedulerManager = this.getManager<SchedulerManager>(ManagerType.SCHEDULER);
-    if (schedulerManager && schedulerManager.executeTask) {
-      return schedulerManager.executeTask(taskId);
-    }
-    return Promise.resolve({}); 
-  }
-  
-  cancelTask(taskId: string): Promise<boolean> { 
-    // Forward to scheduler manager if available
-    const schedulerManager = this.getManager<SchedulerManager>(ManagerType.SCHEDULER);
-    if (schedulerManager && schedulerManager.cancelTask) {
-      return schedulerManager.cancelTask(taskId);
-    }
-    return Promise.resolve(true); 
-  }
-  
-  retryTask(taskId: string): Promise<any> { 
-    // Forward to scheduler manager if available
-    const schedulerManager = this.getManager<SchedulerManager>(ManagerType.SCHEDULER);
-    if (schedulerManager && schedulerManager.retryTask) {
-      return schedulerManager.retryTask(taskId);
-    }
-    return Promise.resolve({}); 
-  }
-  
-  // Config and status methods
-  getConfig(): Record<string, unknown> { return {}; }
-  updateConfig(config: Record<string, unknown>): void {}
-  isEnabled(): boolean { return true; }
-  setEnabled(enabled: boolean): boolean { return true; }
-  hasCapability(capabilityId: string): boolean { 
-    const capabilities = [
-      'autonomy', 
-      'scheduling', 
-      'memory', 
-      'planning', 
-      'tools', 
-      'knowledge', 
-      'file_processing',
-      'input_processing',
-      'output_processing',
-      'status_tracking',
-      'resource_management',
-      'reflection'
-    ];
-    return capabilities.includes(capabilityId);
-  }
-  enableCapability(capability: any): void {}
-  disableCapability(capabilityId: string): void {}
-  getHealth(): Promise<any> { return Promise.resolve({ status: 'healthy' }); }
-  getSchedulerManager(): any { return this.getManager(ManagerType.SCHEDULER); }
-  initializeManagers(): Promise<void> { return Promise.resolve(); }
-  shutdownManagers(): Promise<void> { return Promise.resolve(); }
-  
-  // Memory-related methods
-  addMemory(content: string, metadata?: Record<string, unknown>): Promise<any> { return Promise.resolve({}); }
-  searchMemories(query: string, options?: Record<string, unknown>): Promise<any[]> { return Promise.resolve([]); }
-  getRecentMemories(limit?: number): Promise<any[]> { return Promise.resolve([]); }
-  consolidateMemories(options?: Record<string, unknown>): Promise<any> { return Promise.resolve({}); }
-  getMemoryById(id: string): Promise<any> { return Promise.resolve(null); }
-  deleteMemory(id: string): Promise<boolean> { return Promise.resolve(true); }
-  pruneMemories(options?: Record<string, unknown>): Promise<any> { return Promise.resolve({}); }
-  
-  // Plan-related methods with proper type signatures
-  createPlan(options: PlanCreationOptions): Promise<PlanCreationResult> { 
-    // Create dummy plan with minimal fields to satisfy type
-    const dummyPlan: Plan = {
-      id: 'placeholder-plan',
-      name: 'Placeholder Plan',
-      description: 'This is a placeholder plan',
-      goals: [],
-      steps: [],
-      status: 'pending',
-      priority: 0,
-      confidence: 0,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      metadata: {}
-    };
+  /**
+   * Initialize the agent
+   */
+  override async initialize(): Promise<boolean> {
+    const agentId = this.getAgentId();
+    console.log(`[${agentId}] Initializing agent and all managers...`);
     
-    return Promise.resolve({ 
-      success: false, 
-      error: 'Placeholder agent cannot create plans',
-      plan: undefined
-    }); 
+    try {
+      // Get reference to all managers
+      const managers = this.getManagers();
+      console.log(`[${agentId}] Initializing ${managers.length} managers...`);
+      
+      // Initialize each manager individually
+      for (const manager of managers) {
+        try {
+          console.log(`[${agentId}] Initializing manager: ${manager.managerId}`);
+          const result = await manager.initialize();
+          console.log(`[${agentId}] Manager ${manager.managerId} initialized, result: ${result}`);
+        } catch (error) {
+          console.error(`[${agentId}] Error initializing manager ${manager.managerId}:`, error);
+        }
+      }
+      
+      return true;
+    } catch (error) {
+      console.error(`[${agentId}] Error initializing agent:`, error);
+      return false;
+    }
   }
-  
-  executePlan(planId: string): Promise<PlanExecutionResult> { 
-    return Promise.resolve({ 
-      success: false, 
-      error: 'Placeholder agent cannot execute plans'
-    }); 
-  }
-  
-  cancelPlan(planId: string): Promise<boolean> { return Promise.resolve(true); }
-  getPlans(): Promise<any[]> { return Promise.resolve([]); }
-  getAllPlans(): Promise<any[]> { return Promise.resolve([]); }
-  getPlan(planId: string): Promise<any> { return Promise.resolve(null); }
-  updatePlan(planId: string, updates: Record<string, unknown>): Promise<any> { return Promise.resolve({}); }
-  deletePlan(planId: string): Promise<boolean> { return Promise.resolve(true); }
-  adaptPlan(planId: string, options: Record<string, unknown>): Promise<any> { return Promise.resolve({}); }
-  
-  // Knowledge-related methods
-  searchKnowledge(query: string): Promise<any[]> { return Promise.resolve([]); }
-  getKnowledgeEntities(): Promise<any[]> { return Promise.resolve([]); }
-  addKnowledge(content: string, metadata: Record<string, unknown>): Promise<any> { return Promise.resolve({}); }
-  updateKnowledge(id: string, updates: Record<string, unknown>): Promise<any> { return Promise.resolve({}); }
-  deleteKnowledge(id: string): Promise<boolean> { return Promise.resolve(true); }
-  
-  // Skill-related methods
-  executeSkill(skillId: string, parameters: Record<string, unknown>): Promise<any> { return Promise.resolve({}); }
-  getSkills(): Promise<any[]> { return Promise.resolve([]); }
-  getSkill(skillId: string): Promise<any> { return Promise.resolve(null); }
-  registerSkill(skill: any): Promise<any> { return Promise.resolve({}); }
-  
-  // Additional methods required by the base interface
-  reflect(options?: Record<string, unknown>): Promise<any> { return Promise.resolve({}); }
-  learn(content: string, options?: Record<string, unknown>): Promise<any> { return Promise.resolve({}); }
-  explain(query: string, options?: Record<string, unknown>): Promise<any> { return Promise.resolve({}); }
-  summarize(content: string, options?: Record<string, unknown>): Promise<any> { return Promise.resolve({}); }
-  analyze(content: string, options?: Record<string, unknown>): Promise<any> { return Promise.resolve({}); }
-  createAssistant(config: Record<string, unknown>): Promise<any> { return Promise.resolve({}); }
-  delegate(task: Record<string, unknown>, agentId: string): Promise<any> { return Promise.resolve({}); }
-  collaborate(task: Record<string, unknown>, agentIds: string[]): Promise<any> { return Promise.resolve({}); }
-  negotiate(proposal: Record<string, unknown>, counterpartyId: string): Promise<any> { return Promise.resolve({}); }
-  integrateWithPlatform(platformId: string, config: Record<string, unknown>): Promise<any> { return Promise.resolve({}); }
-  requestFeedback(taskId: string): Promise<any> { return Promise.resolve({}); }
-  generateText(prompt: string, options?: Record<string, unknown>): Promise<any> { return Promise.resolve({}); }
-  generateCode(spec: string, options?: Record<string, unknown>): Promise<any> { return Promise.resolve({}); }
-  generateImage(prompt: string, options?: Record<string, unknown>): Promise<any> { return Promise.resolve({}); }
-  detectIntent(input: string): Promise<any> { return Promise.resolve({}); }
-  extractEntities(input: string): Promise<any> { return Promise.resolve({}); }
-  classifyContent(input: string, categories: string[]): Promise<any> { return Promise.resolve({}); }
-  answerQuestion(question: string, options?: Record<string, unknown>): Promise<any> { return Promise.resolve({}); }
 }
 
 /**
@@ -637,7 +442,8 @@ export async function bootstrapAgentsFromDatabase(): Promise<number> {
         const agent = new FullyCapableAgent(
           dbAgent.id,
           dbAgent.name || 'Unnamed Agent',
-          dbAgent.description || ''
+          dbAgent.description || '',
+          dbAgent,
         );
         
         // Verify ID is set correctly
@@ -648,13 +454,20 @@ export async function bootstrapAgentsFromDatabase(): Promise<number> {
         
         console.log(`✓ Agent ID verified: ${agentId}`);
         
-        // Initialize the agent
+        // Initialize the agent - this will properly initialize each manager now
         console.log(`🔄 Initializing agent ${agentId}...`);
-        await agent.initialize();
+        const initSuccess = await agent.initialize();
         
-        // Register with runtime registry (use type assertion to bypass type checking)
+        if (initSuccess) {
+          agent.emit('initialized');
+          console.log(`✅ Successfully initialized agent ${agentId} and all its managers`);
+        } else {
+          console.warn(`⚠️ Agent ${agentId} initialized with warnings or errors`);
+        }
+        
+        // Register with runtime registry
         console.log(`📝 Registering agent ${agentId} with runtime registry...`);
-        registerAgent(agent as unknown as AgentBase);
+        registerAgent(agent);
         logger.info(`Registered agent ${dbAgent.id} (${dbAgent.name}) in runtime registry`);
         console.log(`✅ Registered agent ${dbAgent.id} (${dbAgent.name}) in runtime registry as fully-capable agent with ALL managers`);
         

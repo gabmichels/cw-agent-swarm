@@ -335,12 +335,19 @@ export class DefaultAutonomyManager extends AbstractBaseManager implements Auton
   }
 
   protected logAction(action: string, metadata?: Record<string, unknown>): void {
-    const loggerManager = this.getAgent().getManager<LoggerManager>(ManagerType.LOGGER);
-    if (loggerManager) {
-      loggerManager.log(action, metadata);
-      return;
+    try {
+      const loggerManager = this.getAgent().getManager<LoggerManager>(ManagerType.LOGGER);
+      // If we have a logger manager, use it
+      if (loggerManager && typeof loggerManager.log === 'function') {
+        loggerManager.log(action, metadata);
+        return;
+      }
+    } catch (error) {
+      // Fallback to console if any errors occur accessing the logger
+      console.error(`Error using logger manager: ${error instanceof Error ? error.message : String(error)}`);
     }
     
+    // Fallback to console.log if no logger manager is available
     console.log(`[${this.getAgent().getAgentId()}][AutonomyManager] ${action}`, metadata || '');
   }
 } 
