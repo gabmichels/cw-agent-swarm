@@ -39,6 +39,9 @@ import { ThinkingResult, ThinkingOptions } from '../../services/thinking/types';
 import { WorkingMemoryItem, FileReference } from '../../services/thinking/types';
 import { AgentError, ThinkingError, LLMResponseError, ProcessingError, AgentErrorCodes } from './errors/AgentErrors';
 import { SchedulerHelper } from './scheduler/SchedulerHelper';
+import { IntegrationManager } from './integration/IntegrationManager';
+import { generateRequestId } from '../../utils/visualization-utils';
+import { VisualizationNodeType } from '../../services/thinking/visualization/types';
 
 // Define the necessary types that we need
 const AGENT_STATUS = {
@@ -1098,9 +1101,77 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
    * @returns Agent response with content, thoughts, and metadata
    */
   async processUserInput(message: string, options?: MessageProcessingOptions): Promise<AgentResponse> {
+    // Generate a request ID if not provided in options
+    const requestId = options?.requestId || generateRequestId('req');
+    let visualization: any = null;
+    
     try {
+      // Initialize visualization if enabled
+      if (options?.enableVisualization !== false) {
+        try {
+          // Get the integration manager
+          const integrationManager = this.getManager<IntegrationManager>(ManagerType.INTEGRATION);
+          
+          if (integrationManager && integrationManager.getVisualizer()) {
+            // Create visualization with user message
+            visualization = integrationManager.createVisualization({
+              requestId,
+              userId: options?.userId || 'unknown',
+              chatId: options?.chatId || 'unknown',
+              message,
+              messageId: options?.messageId
+            });
+            
+            console.log(`Created visualization for request ${requestId}`);
+          }
+        } catch (error) {
+          console.error('Error initializing visualization:', error);
+          // Continue processing even if visualization fails
+        }
+      }
+      
       // 1. Run thinking process (moved from route.ts)
-      const thinkingResult = await this.think(message, options);
+      const thinkingResult = await this.think(message, {
+        ...options,
+        requestId,
+        visualization
+      });
+      
+      // Update visualization with thinking result if available
+      if (visualization) {
+        try {
+          const integrationManager = this.getManager<IntegrationManager>(ManagerType.INTEGRATION);
+          const visualizer = integrationManager?.getVisualizer();
+          
+          if (visualizer) {
+            // Add reasoning node
+            if (thinkingResult.reasoning && thinkingResult.reasoning.length > 0) {
+              visualizer.addThinkingNode(
+                visualization,
+                'Reasoning Process',
+                thinkingResult.reasoning.join('\n'),
+                { 
+                  stage: 'reasoning',
+                  intent: thinkingResult.intent,
+                  entities: thinkingResult.entities
+                }
+              );
+            }
+            
+            // Add context retrieval node if context was retrieved
+            if (thinkingResult.context && Object.keys(thinkingResult.context).length > 0) {
+              visualizer.addContextRetrievalNode(
+                visualization,
+                'Memory retrieval',
+                thinkingResult.context.memoryResults || [],
+                'completed'
+              );
+            }
+          }
+        } catch (error) {
+          console.error('Error updating visualization with thinking result:', error);
+        }
+      }
       
       // 2. Prepare enhanced options with thinking results
       const enhancedOptions: GetLLMResponseOptions = {
@@ -1130,11 +1201,51 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
           "Reference specific information from memory context when relevant",
           "Address the user's specific message content and intent",
           "Maintain a conversational and personalized tone"
-        ]
+        ],
+        // Pass visualization for further tracking
+        visualization
       };
       
       // 3. Get LLM response with enhanced context
       const response = await this.getLLMResponse(message, enhancedOptions);
+      
+      // Finalize visualization if available
+      if (visualization) {
+        try {
+          const integrationManager = this.getManager<IntegrationManager>(ManagerType.INTEGRATION);
+          const visualizer = integrationManager?.getVisualizer();
+          
+          if (visualizer) {
+            // Add response generation node
+            visualizer.addNode(
+              visualization,
+              VisualizationNodeType.RESPONSE_GENERATION,
+              'Generating Response',
+              {
+                response: response.content
+              },
+              'completed'
+            );
+            
+            // Finalize the visualization
+            visualizer.finalizeVisualization(
+              visualization,
+              {
+                id: requestId,
+                response: response.content
+              },
+              thinkingResult
+            );
+            
+            // Save visualization
+            if (integrationManager) {
+              await integrationManager.storeVisualization(visualization);
+            }
+          }
+        } catch (error) {
+          console.error('Error finalizing visualization:', error);
+        }
+      }
       
       // 4. Return the response with combined metadata
       return {
@@ -1143,6 +1254,7 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
         memories: response.memories,
         metadata: {
           ...response.metadata,
+          requestId,
           thinkingAnalysis: {
             intent: thinkingResult.intent,
             entities: thinkingResult.entities,
@@ -1155,6 +1267,44 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
       };
     } catch (error: unknown) {
       console.error('Error in processUserInput:', error);
+      
+      // Update visualization with error if available
+      if (visualization) {
+        try {
+          const integrationManager = this.getManager<IntegrationManager>(ManagerType.INTEGRATION);
+          const visualizer = integrationManager?.getVisualizer();
+          
+          if (visualizer) {
+            // Add error node
+            visualizer.addNode(
+              visualization,
+              VisualizationNodeType.ERROR,
+              'Processing Error',
+              {
+                error: error instanceof Error ? error.message : String(error),
+                stack: error instanceof Error ? error.stack : undefined
+              },
+              'error'
+            );
+            
+            // Finalize with error
+            visualizer.finalizeVisualization(
+              visualization,
+              {
+                id: requestId,
+                response: "I'm sorry, but I encountered an error while processing your request. Please try again."
+              }
+            );
+            
+            // Save visualization
+            if (integrationManager) {
+              await integrationManager.storeVisualization(visualization);
+            }
+          }
+        } catch (visualizationError) {
+          console.error('Error updating visualization with error:', visualizationError);
+        }
+      }
       
       // Create detailed error for logging but return a user-friendly response
       const errorDetails = {
@@ -1187,6 +1337,7 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
         content: "I'm sorry, but I encountered an error while processing your request. Please try again.",
         thoughts: [`Error in processUserInput: ${error instanceof Error ? error.message : String(error)}`],
         metadata: { 
+          requestId,
           error: true, 
           errorCode: AgentErrorCodes.PROCESSING_FAILED,
           errorType: error instanceof ThinkingError ? 'thinking' : 
@@ -1479,7 +1630,94 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
     if (!this.schedulerManager) {
       throw new Error('Scheduler manager not initialized');
     }
-    return this.schedulerManager.executeTask(taskId);
+    
+    // Create visualization for task execution if visualization is enabled
+    let visualization = null;
+    const integrationManager = this.getManager<IntegrationManager>(ManagerType.INTEGRATION);
+    
+    if (integrationManager && integrationManager.getVisualizer()) {
+      try {
+        // Generate a request ID for this execution
+        const requestId = generateRequestId('task');
+        
+        // Create visualization with task information
+        visualization = integrationManager.createVisualization({
+          requestId,
+          userId: 'system',
+          chatId: `task_${taskId}`,
+          message: `Executing task: ${taskId}`,
+        });
+        
+        // Add planning node
+        if (visualization) {
+          const visualizer = integrationManager.getVisualizer();
+          if (visualizer) {
+            visualizer.addNode(
+              visualization,
+              VisualizationNodeType.PLANNING,
+              'Task Execution Planning',
+              {
+                taskId,
+                executionType: 'scheduled',
+                timestamp: Date.now()
+              },
+              'in_progress'
+            );
+          }
+        }
+      } catch (error) {
+        console.error('Error creating visualization for task execution:', error);
+      }
+    }
+    
+    // Execute the task
+    const result = await this.schedulerManager.executeTask(taskId);
+    
+    // Update visualization with execution result if available
+    if (visualization && integrationManager && integrationManager.getVisualizer()) {
+      try {
+        const visualizer = integrationManager.getVisualizer();
+        
+        if (visualizer) {
+          // Update planning node status
+          const planningNode = visualization.nodes.find(
+            node => node.type === VisualizationNodeType.PLANNING
+          );
+          
+          if (planningNode) {
+            planningNode.status = result.success ? 'completed' : 'error';
+            if (result.error) {
+              planningNode.data.error = result.error;
+            }
+          }
+          
+          // Add end node
+          visualizer.addNode(
+            visualization,
+            result.success ? VisualizationNodeType.END : VisualizationNodeType.ERROR,
+            result.success ? 'Task Completed' : 'Task Failed',
+            {
+              taskId,
+              success: result.success,
+              error: result.error || null
+            },
+            result.success ? 'completed' : 'error'
+          );
+          
+          // Finalize and store visualization
+          visualizer.finalizeVisualization(visualization, {
+            id: visualization.requestId,
+            response: JSON.stringify(result)
+          });
+          
+          await integrationManager.storeVisualization(visualization);
+        }
+      } catch (error) {
+        console.error('Error updating visualization for task execution:', error);
+      }
+    }
+    
+    return result;
   }
 
   /**

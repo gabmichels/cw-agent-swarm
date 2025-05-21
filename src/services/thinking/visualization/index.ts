@@ -10,7 +10,8 @@ import type {
   VisualizationEdgeType,
   VisualizationNode,
   VisualizationEdge,
-  VisualizationMetadata
+  VisualizationMetadata,
+  VisualizationContext
 } from './types';
 
 // Re-export types and service
@@ -21,7 +22,8 @@ export type {
   VisualizationEdgeType,
   VisualizationNode,
   VisualizationEdge,
-  VisualizationMetadata
+  VisualizationMetadata,
+  VisualizationContext
 };
 
 /**

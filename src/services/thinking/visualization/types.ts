@@ -1,8 +1,48 @@
 /**
- * Visualization types
- * Contains all type definitions for the visualization system
+ * Visualization system type definitions
+ * Contains interfaces and types for the thinking visualization system
  */
-import { ThinkingResult } from '../types';
+
+/**
+ * Visualization context interface
+ * Used to pass visualization context between components
+ */
+export interface VisualizationContext {
+  /**
+   * The request ID
+   */
+  requestId: string;
+  
+  /**
+   * The chat ID
+   */
+  chatId: string;
+  
+  /**
+   * The message ID (optional)
+   */
+  messageId?: string;
+  
+  /**
+   * The user ID
+   */
+  userId: string;
+  
+  /**
+   * The agent ID
+   */
+  agentId: string;
+  
+  /**
+   * The current node ID
+   */
+  currentNodeId?: string;
+  
+  /**
+   * The parent node ID
+   */
+  parentNodeId?: string;
+}
 
 /**
  * Node types in the thinking visualization
@@ -20,7 +60,8 @@ export enum VisualizationNodeType {
   REFLECTION = 'reflection',
   PLANNING = 'planning',
   INSIGHT = 'insight',
-  DECISION = 'decision'
+  DECISION = 'decision',
+  MEMORY_RETRIEVAL = 'memory_retrieval'
 }
 
 /**
@@ -31,7 +72,9 @@ export enum VisualizationEdgeType {
   DEPENDENCY = 'dependency',
   ERROR = 'error',
   INFLUENCE = 'influence',
-  CAUSE = 'cause'
+  CAUSE = 'cause',
+  NEXT = 'next',
+  CHILD = 'child'
 }
 
 /**
@@ -39,7 +82,7 @@ export enum VisualizationEdgeType {
  */
 export interface VisualizationNode {
   id: string;
-  type: VisualizationNodeType;
+  type: VisualizationNodeType | string;
   label: string;
   data: Record<string, any>;
   metrics?: {
@@ -55,7 +98,7 @@ export interface VisualizationNode {
  */
 export interface VisualizationEdge {
   id: string;
-  type: VisualizationEdgeType;
+  type: VisualizationEdgeType | string;
   source: string;
   target: string;
   label?: string;
@@ -81,7 +124,7 @@ export interface ThinkingVisualization {
     endTime: number;
   };
   response?: string;
-  thinking?: ThinkingResult;
+  thinking?: any;
 }
 
 /**
@@ -97,4 +140,62 @@ export interface VisualizationMetadata {
   timestamp_ms: number;
   source: string;
   importance_score: number;
+}
+
+/**
+ * Visualization service interface
+ */
+export interface VisualizationService {
+  /**
+   * Create a new visualization
+   */
+  createVisualization(context: VisualizationContext): ThinkingVisualization;
+  
+  /**
+   * Add a node to a visualization
+   */
+  addNode(
+    visualization: ThinkingVisualization,
+    type: VisualizationNodeType | string,
+    label: string,
+    data: Record<string, any>,
+    status: 'pending' | 'in_progress' | 'completed' | 'error'
+  ): string;
+  
+  /**
+   * Update a node in a visualization
+   */
+  updateNode(
+    visualization: ThinkingVisualization,
+    nodeId: string,
+    updates: Partial<{
+      label: string;
+      data: Record<string, any>;
+      status: 'pending' | 'in_progress' | 'completed' | 'error';
+    }>
+  ): void;
+  
+  /**
+   * Add an edge between nodes
+   */
+  addEdge(
+    visualization: ThinkingVisualization,
+    sourceNodeId: string,
+    targetNodeId: string,
+    type: VisualizationEdgeType | string,
+    label?: string
+  ): string;
+  
+  /**
+   * Finalize a visualization with response
+   */
+  finalizeVisualization(
+    visualization: ThinkingVisualization,
+    response: { id: string; response: string }
+  ): void;
+  
+  /**
+   * Store a visualization
+   */
+  storeVisualization(visualization: ThinkingVisualization): Promise<void>;
 } 

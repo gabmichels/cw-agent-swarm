@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 // Default config values
 const CONFIG_DEFAULTS = {
-  enableThinkingVisualization: process.env.ENABLE_THINKING_VISUALIZATION === 'true' || false,
+  enableThinkingVisualization: process.env.ENABLE_THINKING_VISUALIZATION === 'true' || true,
   enableSampleVisualization: process.env.ENABLE_SAMPLE_VISUALIZATION === 'true' || true,
 };
 

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import VisualizationRenderer from './VisualizationRenderer';
-import { ThinkingVisualization } from '../services/thinking/visualization';
+import { ThinkingVisualization } from '../services/thinking/visualization/types';
+import { isVisualizationEnabled } from '../utils/visualization-utils';
 
 interface ThinkingVisualizerProps {
   chatId: string;
@@ -14,6 +15,9 @@ const ThinkingVisualizer: React.FC<ThinkingVisualizerProps> = ({ chatId, message
   const [error, setError] = useState<string | null>(null);
   const [isEnabled, setIsEnabled] = useState<boolean>(false);
   const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const retryCountRef = useRef<number>(0);
+  const maxRetries = 5;
+  const retryDelay = 3000; // 3 seconds
 
   useEffect(() => {
     // Check if the feature is enabled
@@ -34,9 +38,8 @@ const ThinkingVisualizer: React.FC<ThinkingVisualizerProps> = ({ chatId, message
 
   const checkIfEnabled = async () => {
     try {
-      const response = await fetch('/api/config/get?key=enableThinkingVisualization');
-      const data = await response.json();
-      setIsEnabled(data.value === true);
+      const enabled = await isVisualizationEnabled();
+      setIsEnabled(enabled);
     } catch (error) {
       console.error('Error checking visualization feature flag:', error);
       setIsEnabled(false);
@@ -44,6 +47,8 @@ const ThinkingVisualizer: React.FC<ThinkingVisualizerProps> = ({ chatId, message
   };
 
   const fetchVisualizations = async () => {
+    if (!chatId) return;
+    
     setIsLoading(true);
     setError(null);
     
@@ -67,60 +72,98 @@ const ThinkingVisualizer: React.FC<ThinkingVisualizerProps> = ({ chatId, message
         if (!selectedVisualization && data.visualizations.length > 0) {
           setSelectedVisualization(data.visualizations[0]);
         }
-      } else {
-        // If there are no visualizations yet, we might want to retry after a delay
-        if (retryTimeoutRef.current) {
-          clearTimeout(retryTimeoutRef.current);
-        }
         
-        retryTimeoutRef.current = setTimeout(() => {
-          fetchVisualizations();
-        }, 5000); // Retry after 5 seconds
+        // Reset retry count on successful fetch
+        retryCountRef.current = 0;
+      } else if (retryCountRef.current < maxRetries) {
+        // If there are no visualizations yet, retry after a delay
+        scheduleRetry();
       }
     } catch (error) {
       console.error('Error fetching visualizations:', error);
       setError(error instanceof Error ? error.message : 'Unknown error');
+      
+      // Retry on error if we haven't exceeded max retries
+      if (retryCountRef.current < maxRetries) {
+        scheduleRetry();
+      }
     } finally {
       setIsLoading(false);
     }
+  };
+  
+  const scheduleRetry = () => {
+    // Clear any existing timeout
+    if (retryTimeoutRef.current) {
+      clearTimeout(retryTimeoutRef.current);
+    }
+    
+    // Increment retry count
+    retryCountRef.current += 1;
+    
+    // Schedule retry with exponential backoff
+    const backoffDelay = retryDelay * Math.pow(1.5, retryCountRef.current - 1);
+    console.log(`Scheduling retry ${retryCountRef.current}/${maxRetries} in ${backoffDelay}ms`);
+    
+    retryTimeoutRef.current = setTimeout(() => {
+      fetchVisualizations();
+    }, backoffDelay);
   };
   
   const handleVisualizationSelect = (visualization: ThinkingVisualization) => {
     setSelectedVisualization(visualization);
   };
 
+  // Don't render anything if the feature is disabled
   if (!isEnabled) {
-    return null; // Don't render anything if the feature is disabled
+    return null;
   }
   
-  if (error) {
+  // Show loading state
+  if (isLoading && visualizations.length === 0) {
+    return (
+      <div className="thinking-visualizer-loading">
+        <p>Loading thinking visualization...</p>
+      </div>
+    );
+  }
+  
+  // Show error state
+  if (error && visualizations.length === 0) {
     return (
       <div className="thinking-visualizer-error">
         <p>Error loading thinking visualizations: {error}</p>
-        <button onClick={fetchVisualizations}>Retry</button>
+        <button 
+          onClick={() => {
+            retryCountRef.current = 0;
+            fetchVisualizations();
+          }}
+          className="retry-button"
+        >
+          Retry
+        </button>
       </div>
     );
   }
   
-  if (isLoading && visualizations.length === 0) {
-    return <div className="thinking-visualizer-loading">Loading thinking process visualization...</div>;
-  }
-  
-  if (visualizations.length === 0) {
+  // Show empty state
+  if (!isLoading && visualizations.length === 0) {
     return (
       <div className="thinking-visualizer-empty">
-        <p>No thinking visualizations available for this conversation yet.</p>
+        <p>No thinking visualizations available yet.</p>
+        {retryCountRef.current < maxRetries && (
+          <p className="retrying-message">Checking again soon...</p>
+        )}
       </div>
     );
   }
   
+  // Show visualization
   return (
     <div className="thinking-visualizer">
       {visualizations.length > 1 && (
         <div className="visualization-selector">
-          <label htmlFor="visualization-select">Select thinking process:</label>
           <select 
-            id="visualization-select"
             value={selectedVisualization?.id || ''}
             onChange={(e) => {
               const selected = visualizations.find(v => v.id === e.target.value);
@@ -129,9 +172,10 @@ const ThinkingVisualizer: React.FC<ThinkingVisualizerProps> = ({ chatId, message
               }
             }}
           >
-            {visualizations.map((viz) => (
-              <option key={viz.id} value={viz.id}>
-                {new Date(viz.timestamp).toLocaleString()} - {viz.message.substring(0, 30)}...
+            {visualizations.map(v => (
+              <option key={v.id} value={v.id}>
+                {new Date(v.timestamp).toLocaleString()} - {v.message.substring(0, 30)}
+                {v.message.length > 30 ? '...' : ''}
               </option>
             ))}
           </select>
@@ -139,17 +183,7 @@ const ThinkingVisualizer: React.FC<ThinkingVisualizerProps> = ({ chatId, message
       )}
       
       {selectedVisualization && (
-        <div className="visualization-container">
-          <VisualizationRenderer visualization={selectedVisualization} />
-          <div className="visualization-metadata">
-            <div>
-              <strong>Timestamp:</strong> {new Date(selectedVisualization.timestamp).toLocaleString()}
-            </div>
-            <div>
-              <strong>Duration:</strong> {selectedVisualization.metrics.totalDuration}ms
-            </div>
-          </div>
-        </div>
+        <VisualizationRenderer visualization={selectedVisualization} />
       )}
     </div>
   );

@@ -6,6 +6,7 @@ import { IdGenerator } from '../../../../utils/ulid';
 import { logger } from '../../../../lib/logging';
 import { Tool, ToolCategory, ToolExecutionResult } from '../../../../lib/tools/types';
 import defaultApifyManager from '../integrations/apify';
+import { VisualizationService, ThinkingVisualization, VisualizationNodeType, VisualizationEdgeType } from '../../../../services/thinking/visualization/types';
 
 // Default and maximum search result limits
 const DEFAULT_RESULT_LIMIT = 5;
@@ -46,6 +47,14 @@ export class ApifyWebSearchTool implements Tool {
         type: 'boolean',
         description: 'Whether to enable safe search',
         default: true
+      },
+      visualization: {
+        type: 'object',
+        description: 'Visualization context for tracking thinking'
+      },
+      visualizer: {
+        type: 'object',
+        description: 'Visualization service for creating visualization nodes'
       }
     },
     required: ['query']
@@ -60,6 +69,32 @@ export class ApifyWebSearchTool implements Tool {
   async execute(args: Record<string, unknown>): Promise<ToolExecutionResult> {
     const startTime = Date.now();
     
+    // Extract visualization context if provided
+    const visualization = args.visualization as ThinkingVisualization | undefined;
+    const visualizer = args.visualizer as VisualizationService | undefined;
+    let searchNodeId: string | undefined;
+    
+    // Create visualization node if visualization is enabled
+    if (visualization && visualizer) {
+      try {
+        // Create a web search visualization node
+        searchNodeId = visualizer.addNode(
+          visualization,
+          VisualizationNodeType.TOOL_EXECUTION,
+          'Web Search',
+          {
+            toolId: this.id,
+            toolName: this.name,
+            timestamp: startTime,
+            query: args.query
+          },
+          'in_progress'
+        );
+      } catch (visualizationError) {
+        logger.error('Error creating web search visualization node:', visualizationError);
+      }
+    }
+    
     try {
       // Extract the query string and convert to string if needed
       let query = '';
@@ -72,6 +107,25 @@ export class ApifyWebSearchTool implements Tool {
       }
       
       if (!query) {
+        // Update visualization with error
+        if (visualization && visualizer && searchNodeId) {
+          try {
+            visualizer.updateNode(
+              visualization,
+              searchNodeId,
+              {
+                status: 'error',
+                data: {
+                  error: 'A search query is required',
+                  errorCode: 'MISSING_QUERY'
+                }
+              }
+            );
+          } catch (visualizationError) {
+            logger.error('Error updating web search visualization with error:', visualizationError);
+          }
+        }
+        
         return {
           id: IdGenerator.generate('terr'),
           toolId: this.id,
@@ -91,7 +145,8 @@ export class ApifyWebSearchTool implements Tool {
       // Parse for approval pattern - "approve X for web search [query]"
       const approvalMatch = query.match(/approve\s+(\d+)\s+for\s+web\s+search/i);
       if (approvalMatch) {
-        return this.handleApprovalRequest(query, approvalMatch, startTime);
+        const result = await this.handleApprovalRequest(query, approvalMatch, startTime, visualization, visualizer, searchNodeId);
+        return result;
       }
       
       // Check if user explicitly requested a certain number of results
@@ -103,6 +158,26 @@ export class ApifyWebSearchTool implements Tool {
         const requestedLimit = parseInt(maxItemsMatch[1], 10);
         
         if (requestedLimit > STANDARD_LIMIT) {
+          // Update visualization with limit exceeded
+          if (visualization && visualizer && searchNodeId) {
+            try {
+              visualizer.updateNode(
+                visualization,
+                searchNodeId,
+                {
+                  status: 'error',
+                  data: {
+                    error: `Limit exceeded (${requestedLimit} > ${STANDARD_LIMIT})`,
+                    errorCode: 'LIMIT_EXCEEDED',
+                    requestedLimit
+                  }
+                }
+              );
+            } catch (visualizationError) {
+              logger.error('Error updating web search visualization with limit exceeded:', visualizationError);
+            }
+          }
+          
           return {
             id: IdGenerator.generate('terr'),
             toolId: this.id,
@@ -120,15 +195,54 @@ export class ApifyWebSearchTool implements Tool {
         }
         
         maxResults = Math.min(requestedLimit, STANDARD_LIMIT);
+        
+        // Update visualization with adjusted limit
+        if (visualization && visualizer && searchNodeId) {
+          try {
+            visualizer.updateNode(
+              visualization,
+              searchNodeId,
+              {
+                data: {
+                  requestedLimit,
+                  adjustedLimit: maxResults
+                }
+              }
+            );
+          } catch (visualizationError) {
+            logger.error('Error updating web search visualization with adjusted limit:', visualizationError);
+          }
+        }
       }
       
       // Clean the query by removing meta-commands like limit or top
       const cleanQuery = query.replace(/\b(?:limit|top)\s+\d+\b/gi, '').trim();
       
       // Execute the search with safe limits
-      return await this.executeSearch(cleanQuery, maxResults, args, startTime);
+      return await this.executeSearch(cleanQuery, maxResults, args, startTime, false, visualization, visualizer, searchNodeId);
     } catch (error) {
       logger.error('Error in web search:', error);
+      
+      // Update visualization with error
+      if (visualization && visualizer && searchNodeId) {
+        try {
+          visualizer.updateNode(
+            visualization,
+            searchNodeId,
+            {
+              status: 'error',
+              data: {
+                error: error instanceof Error ? error.message : String(error),
+                errorCode: 'SEARCH_ERROR',
+                errorStack: error instanceof Error ? error.stack : undefined
+              }
+            }
+          );
+        } catch (visualizationError) {
+          logger.error('Error updating web search visualization with error:', visualizationError);
+        }
+      }
+      
       return {
         id: IdGenerator.generate('terr'),
         toolId: this.id,
@@ -153,16 +267,40 @@ export class ApifyWebSearchTool implements Tool {
    * @param query The original query string
    * @param approvalMatch The regex match for the approval
    * @param startTime Execution start time
+   * @param visualization Optional visualization context
+   * @param visualizer Optional visualization service
+   * @param searchNodeId Optional search node ID
    * @returns Search results with approved higher limits
    * @private
    */
   private async handleApprovalRequest(
     query: string, 
     approvalMatch: RegExpMatchArray, 
-    startTime: number
+    startTime: number,
+    visualization?: ThinkingVisualization,
+    visualizer?: VisualizationService,
+    searchNodeId?: string
   ): Promise<ToolExecutionResult> {
     try {
       const approvedLimit = parseInt(approvalMatch[1], 10);
+      
+      // Update visualization with approval data
+      if (visualization && visualizer && searchNodeId) {
+        try {
+          visualizer.updateNode(
+            visualization,
+            searchNodeId,
+            {
+              data: {
+                approvalRequested: true,
+                approvedLimit
+              }
+            }
+          );
+        } catch (visualizationError) {
+          logger.error('Error updating web search visualization with approval data:', visualizationError);
+        }
+      }
       
       // Extract search query with regex - everything after "for web search" 
       const queryMatches = query.match(/for\s+web\s+search\s+(.+)/i) || 
@@ -170,6 +308,25 @@ export class ApifyWebSearchTool implements Tool {
       const searchQuery = queryMatches ? queryMatches[1].trim() : "";
       
       if (!searchQuery) {
+        // Update visualization with error
+        if (visualization && visualizer && searchNodeId) {
+          try {
+            visualizer.updateNode(
+              visualization,
+              searchNodeId,
+              {
+                status: 'error',
+                data: {
+                  error: "Missing query in approval",
+                  errorCode: 'MISSING_QUERY_IN_APPROVAL'
+                }
+              }
+            );
+          } catch (visualizationError) {
+            logger.error('Error updating web search visualization with error:', visualizationError);
+          }
+        }
+        
         return {
           id: IdGenerator.generate('terr'),
           toolId: this.id,
@@ -189,15 +346,57 @@ export class ApifyWebSearchTool implements Tool {
       // Apply higher limits with approval - ensuring it doesn't exceed absolute maximum
       const grantedLimit = Math.min(approvedLimit, ABSOLUTE_MAXIMUM);
       
+      // Update visualization with granted limit
+      if (visualization && visualizer && searchNodeId) {
+        try {
+          visualizer.updateNode(
+            visualization,
+            searchNodeId,
+            {
+              data: {
+                requestedLimit: approvedLimit,
+                grantedLimit,
+                wasLimited: grantedLimit < approvedLimit
+              }
+            }
+          );
+        } catch (visualizationError) {
+          logger.error('Error updating web search visualization with granted limit:', visualizationError);
+        }
+      }
+      
       logger.info(`Running Google search with approved limit: ${grantedLimit}`);
       
       // Execute search with approved limit
       return await this.executeSearch(searchQuery, grantedLimit, { 
         country: 'US', 
-        safeSearch: true 
-      }, startTime, true);
+        safeSearch: true,
+        visualization,
+        visualizer
+      }, startTime, true, visualization, visualizer, searchNodeId);
     } catch (error) {
       logger.error('Error processing approval request:', error);
+      
+      // Update visualization with error
+      if (visualization && visualizer && searchNodeId) {
+        try {
+          visualizer.updateNode(
+            visualization,
+            searchNodeId,
+            {
+              status: 'error',
+              data: {
+                error: error instanceof Error ? error.message : String(error),
+                errorCode: 'APPROVAL_ERROR',
+                errorStack: error instanceof Error ? error.stack : undefined
+              }
+            }
+          );
+        } catch (visualizationError) {
+          logger.error('Error updating web search visualization with error:', visualizationError);
+        }
+      }
+      
       return {
         id: IdGenerator.generate('terr'),
         toolId: this.id,
@@ -224,6 +423,9 @@ export class ApifyWebSearchTool implements Tool {
    * @param args Other search parameters
    * @param startTime Execution start time
    * @param isApproved Whether this is an approved high-limit search
+   * @param visualization Optional visualization context
+   * @param visualizer Optional visualization service
+   * @param searchNodeId Optional search node ID
    * @returns Search results
    * @private
    */
@@ -232,13 +434,38 @@ export class ApifyWebSearchTool implements Tool {
     maxResults: number, 
     args: Record<string, unknown>, 
     startTime: number,
-    isApproved = false
+    isApproved = false,
+    visualization?: ThinkingVisualization,
+    visualizer?: VisualizationService,
+    searchNodeId?: string
   ): Promise<ToolExecutionResult> {
     try {
       const country = typeof args.country === 'string' ? args.country : 'US';
       const safeSearch = args.safeSearch !== false;
       
       logger.info(`Executing web search for: "${query}" with limit: ${maxResults}`);
+      
+      // Update visualization with search execution details
+      if (visualization && visualizer && searchNodeId) {
+        try {
+          visualizer.updateNode(
+            visualization,
+            searchNodeId,
+            {
+              data: {
+                executionStarted: Date.now(),
+                query,
+                maxResults,
+                country,
+                safeSearch,
+                isApproved
+              }
+            }
+          );
+        } catch (visualizationError) {
+          logger.error('Error updating web search visualization with execution details:', visualizationError);
+        }
+      }
       
       // Use Apify Google Search Scraper
       const result = await defaultApifyManager.runApifyActor({
@@ -248,55 +475,109 @@ export class ApifyWebSearchTool implements Tool {
           maxPagesPerQuery: 1,
           resultsPerPage: maxResults,
           countryCode: country,
-          saveHtml: false,
-          mobileResults: false,
-          includeUnfilteredResults: !safeSearch
-        },
-        label: `Google search: ${query}`,
-        dryRun: false
+          safeSearch,
+          mobileResults: false
+        }
       });
       
-      if (!result.success || !result.output) {
-        logger.error('Google search failed:', result.error);
-        return {
-          id: IdGenerator.generate('terr'),
-          toolId: this.id,
-          success: false,
-          error: {
-            message: result.error || 'Search failed with no specific error',
-            code: 'SEARCH_FAILED'
-          },
-          metrics: {
-            startTime,
-            endTime: Date.now(),
-            durationMs: Date.now() - startTime
-          }
-        };
+      // Retrieve search results
+      const searchResults = (result?.output || []).slice(0, maxResults);
+      
+      // Format the results into a more consumable format
+      const formattedResults = this.formatSearchResults(searchResults, query, isApproved, maxResults);
+      
+      const endTime = Date.now();
+      
+      // Create a search results analysis node if visualization is enabled
+      if (visualization && visualizer && searchNodeId) {
+        try {
+          // Create analysis node
+          const analysisNodeId = visualizer.addNode(
+            visualization,
+            'web_search_analysis',
+            'Web Search Results Analysis',
+            {
+              query,
+              resultCount: searchResults.length,
+              domains: searchResults.map((r: any) => this.extractDomain(r.url)),
+              topTitles: searchResults.slice(0, 3).map((r: any) => r.title),
+              totalTokenEstimate: formattedResults.length * 1.5,
+              timestamp: Date.now()
+            },
+            'completed'
+          );
+          
+          // Connect search node to analysis node
+          visualizer.addEdge(
+            visualization,
+            searchNodeId,
+            analysisNodeId,
+            VisualizationEdgeType.FLOW,
+            'analyzed'
+          );
+          
+          // Update search node with success status
+          visualizer.updateNode(
+            visualization,
+            searchNodeId,
+            {
+              status: 'completed',
+              data: {
+                executionCompleted: endTime,
+                durationMs: endTime - startTime,
+                resultCount: searchResults.length,
+                success: true
+              }
+            }
+          );
+        } catch (visualizationError) {
+          logger.error('Error creating search results analysis visualization:', visualizationError);
+        }
       }
       
-      // Format the results
-      const formattedResults = this.formatSearchResults(result.output, query, isApproved, maxResults);
-      
       return {
-        id: IdGenerator.generate('trun'),
+        id: IdGenerator.generate('tres'),
         toolId: this.id,
         success: true,
         data: formattedResults,
         metrics: {
           startTime,
-          endTime: Date.now(),
-          durationMs: Date.now() - startTime
+          endTime,
+          durationMs: endTime - startTime
         }
       };
     } catch (error) {
-      logger.error('Error in web search execution:', error);
+      logger.error('Error executing search:', error);
+      
+      // Update visualization with error
+      if (visualization && visualizer && searchNodeId) {
+        try {
+          visualizer.updateNode(
+            visualization,
+            searchNodeId,
+            {
+              status: 'error',
+              data: {
+                error: error instanceof Error ? error.message : String(error),
+                errorCode: 'EXECUTION_ERROR',
+                errorStack: error instanceof Error ? error.stack : undefined,
+                executionCompleted: Date.now(),
+                durationMs: Date.now() - startTime
+              }
+            }
+          );
+        } catch (visualizationError) {
+          logger.error('Error updating web search visualization with error:', visualizationError);
+        }
+      }
+      
       return {
         id: IdGenerator.generate('terr'),
         toolId: this.id,
         success: false,
         error: {
           message: error instanceof Error ? error.message : String(error),
-          code: 'SEARCH_EXECUTION_ERROR',
+          code: 'EXECUTION_ERROR',
           details: error
         },
         metrics: {

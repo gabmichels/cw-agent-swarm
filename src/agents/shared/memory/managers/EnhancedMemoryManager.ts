@@ -17,6 +17,87 @@ import {
   MemoryConsolidationResult,
   MemoryPruningResult 
 } from '../../base/managers/MemoryManager.interface';
+
+// Mock implementations until proper types are available
+/**
+ * Options for retrieving relevant memories
+ */
+export interface RelevantMemoryOptions {
+  /** The query to match against */
+  query: string;
+  
+  /** Maximum number of memories to retrieve */
+  limit?: number;
+  
+  /** Whether to include critical memories regardless of relevance */
+  includeCritical?: boolean;
+  
+  /** Minimum relevance score threshold (0-1) */
+  minRelevance?: number;
+  
+  /** Maximum total token budget for memories */
+  maxTokens?: number;
+  
+  /** Tags to filter memories by */
+  tags?: string[];
+  
+  /** Types of memories to include */
+  types?: string[];
+  
+  /** Additional metadata filters */
+  metadata?: Record<string, any>;
+}
+
+/**
+ * Enum for relevance types
+ */
+enum RelevanceType {
+  CRITICAL = 'critical',
+  HIGH = 'high',
+  MEDIUM = 'medium',
+  LOW = 'low',
+  IRRELEVANT = 'irrelevant'
+}
+
+/**
+ * Class for scoring and retrieving relevant memories
+ */
+export class RelevanceScorer {
+  constructor(
+    private memoryManager: MemoryManager,
+    private modelName: string = 'gpt-3.5-turbo'
+  ) {}
+  
+  /**
+   * Retrieve and score memories relevant to a query
+   */
+  async getRelevantMemories(options: RelevantMemoryOptions): Promise<Array<any & { id: string; content: string; metadata: Record<string, any>; relevanceScore: number; relevanceType: string }>> {
+    // Mock implementation
+    return [];
+  }
+  
+  /**
+   * Calculate relevance score between a memory and a query
+   */
+  private calculateRelevanceScore(memory: string, query: string): number {
+    return 0;
+  }
+  
+  /**
+   * Calculate recency score for a memory
+   */
+  private calculateRecency(timestamp: string | Date): number {
+    return 0;
+  }
+  
+  /**
+   * Get relevance type from score
+   */
+  private getRelevanceType(score: number): RelevanceType {
+    return RelevanceType.MEDIUM;
+  }
+}
+
 import { 
   EnhancedMemoryManager as IEnhancedMemoryManager,
   EnhancedMemoryManagerConfig,
@@ -86,6 +167,8 @@ export class EnhancedMemoryManager extends AbstractBaseManager implements IEnhan
   
   // Configuration
   protected config!: EnhancedMemoryManagerConfig;
+  
+  private relevanceScorer?: RelevanceScorer;
   
   /**
    * Create a new EnhancedMemoryManager
@@ -1609,4 +1692,159 @@ export class EnhancedMemoryManager extends AbstractBaseManager implements IEnhan
   }
   
   // #endregion Enhanced Memory Methods
+
+  /**
+   * Retrieve memories relevant to a query with enhanced context
+   */
+  async retrieveRelevantMemories(
+    query: string,
+    options: {
+      limit?: number;
+      types?: string[];
+      tags?: string[];
+      minRelevance?: number;
+      includeCritical?: boolean;
+      visualization?: any;
+      visualizer?: any;
+    } = {}
+  ): Promise<MemoryEntry[]> {
+    try {
+      // Create visualization node if visualization is enabled
+      const visualization = options.visualization;
+      const visualizer = options.visualizer;
+      let retrievalNodeId: string | undefined;
+      
+      if (visualization && visualizer) {
+        try {
+          retrievalNodeId = visualizer.addNode(
+            visualization,
+            'context_retrieval', // VisualizationNodeType.CONTEXT_RETRIEVAL
+            'Memory Retrieval',
+            {
+              query,
+              types: options.types || [],
+              tags: options.tags || [],
+              timestamp: Date.now()
+            },
+            'in_progress'
+          );
+        } catch (error) {
+          console.error('Error creating memory retrieval visualization node:', error);
+        }
+      }
+      
+      // Use the relevance scorer for better memory retrieval
+      try {
+        if (!this.relevanceScorer) {
+          // Initialize relevance scorer if not already done
+          const modelName = process.env.RELEVANCE_SCORER_MODEL || 'gpt-3.5-turbo';
+          this.relevanceScorer = new RelevanceScorer(this, modelName);
+        }
+        
+        // Convert options to RelevantMemoryOptions
+        const relevantMemoryOptions: RelevantMemoryOptions = {
+          query,
+          limit: options.limit || 10,
+          includeCritical: options.includeCritical !== false,
+          minRelevance: options.minRelevance || 0.3,
+          tags: options.tags || [],
+          types: options.types || ['user_input', 'agent_response', 'critical_memory']
+        };
+        
+        // Get scored memories
+        const scoredMemories = await this.relevanceScorer.getRelevantMemories(relevantMemoryOptions);
+        
+        // Convert ScoredMemory[] to MemoryEntry[]
+        const memories: MemoryEntry[] = scoredMemories.map((scored: any) => ({
+          id: scored.id,
+          content: scored.content,
+          metadata: scored.metadata,
+          embedding: null, // We don't need to return the embedding
+          createdAt: new Date(scored.metadata.createdAt || Date.now()),
+          lastAccessedAt: new Date(scored.metadata.lastAccessedAt || Date.now()),
+          accessCount: scored.metadata.accessCount || 0
+        }));
+        
+        // Update visualization node if created
+        if (visualization && visualizer && retrievalNodeId) {
+          try {
+            // Find the retrieval node
+            const retrievalNode = visualization.nodes.find(
+              (node: { id: string }) => node.id === retrievalNodeId
+            );
+            
+            if (retrievalNode) {
+              // Create array of unique memory types
+              const memoryTypes: string[] = [];
+              memories.forEach((m: any) => {
+                const type = typeof m.metadata?.type === 'string' ? m.metadata.type : 'unknown';
+                if (!memoryTypes.includes(type)) {
+                  memoryTypes.push(type);
+                }
+              });
+              
+              // Update with results
+              retrievalNode.status = 'completed';
+              retrievalNode.data = {
+                ...retrievalNode.data,
+                resultCount: memories.length,
+                relevanceScores: scoredMemories.map((m: any) => ({
+                  id: m.id,
+                  score: m.relevanceScore,
+                  type: m.relevanceType
+                })),
+                memoryTypes,
+                highestRelevance: Math.max(...scoredMemories.map((m: any) => m.relevanceScore), 0),
+                lowestRelevance: Math.min(...scoredMemories.map((m: any) => m.relevanceScore), 1)
+              };
+              
+              // Add end time and duration to metrics
+              if (retrievalNode.metrics) {
+                retrievalNode.metrics.endTime = Date.now();
+                retrievalNode.metrics.duration = 
+                  retrievalNode.metrics.endTime - (retrievalNode.metrics.startTime || Date.now());
+              }
+            }
+          } catch (error) {
+            console.error('Error updating memory retrieval visualization node:', error);
+          }
+        }
+        
+        return memories;
+      } catch (relevanceError) {
+        console.error('Error using relevance scorer:', relevanceError);
+        
+        // Fall back to basic memory retrieval using searchMemories instead
+        return this.baseMemoryManager.searchMemories(query, {
+          limit: options.limit || 10,
+          metadata: { 
+            type: options.types,
+            tags: options.tags
+          }
+        });
+      }
+    } catch (error) {
+      console.error('Error retrieving relevant memories:', error);
+      
+      // Update visualization with error if enabled
+      if (options.visualization && options.visualizer) {
+        try {
+          options.visualizer.addNode(
+            options.visualization,
+            'error', // VisualizationNodeType.ERROR
+            'Memory Retrieval Error',
+            {
+              error: error instanceof Error ? error.message : String(error),
+              query
+            },
+            'error'
+          );
+        } catch (visualizationError) {
+          console.error('Error updating visualization with error:', visualizationError);
+        }
+      }
+      
+      return [];
+    }
+  }
 } 

@@ -601,14 +601,66 @@ export class DefaultMemoryManager extends AbstractBaseManager implements MemoryM
   }
 
   /**
-   * Consolidate related memories
+   * Consolidate related memories with visualization support
+   * 
+   * @param visualizationContext Optional visualization context
    */
-  async consolidateMemories(): Promise<MemoryConsolidationResult> {
+  async consolidateMemories(
+    visualizationContext?: {
+      visualization: any; // ThinkingVisualization
+      visualizer: any; // VisualizationService
+      parentNodeId?: string;
+    }
+  ): Promise<MemoryConsolidationResult> {
     if (!this._initialized) {
       throw new MemoryError('Memory manager not initialized', 'NOT_INITIALIZED');
     }
 
+    // Generate a new request ID for memory consolidation process
+    const requestId = require('../../../../utils/request-utils').generateRequestId();
+    
+    // Create visualization node if visualization is enabled
+    let consolidationNodeId: string | undefined;
+    
+    if (visualizationContext && 
+        visualizationContext.visualization && 
+        visualizationContext.visualizer) {
+      try {
+        // Create memory consolidation visualization node
+        consolidationNodeId = visualizationContext.visualizer.addNode(
+          visualizationContext.visualization,
+          'memory_consolidation',
+          'Memory Consolidation Process',
+          {
+            agentId: this.getAgent().getAgentId(),
+            minMemoriesForConsolidation: this._config.minMemoriesForConsolidation,
+            forgetSourceMemories: this._config.forgetSourceMemoriesAfterConsolidation,
+            timestamp: Date.now(),
+            requestId
+          },
+          'in_progress'
+        );
+        
+        // Connect to parent node if specified
+        if (visualizationContext.parentNodeId && consolidationNodeId) {
+          visualizationContext.visualizer.addEdge(
+            visualizationContext.visualization,
+            visualizationContext.parentNodeId,
+            consolidationNodeId,
+            'initiated_consolidation'
+          );
+        }
+      } catch (error) {
+        console.error('Error creating memory consolidation visualization:', error);
+      }
+    }
+
     let consolidatedCount = 0;
+    const consolidatedGroups: Array<{
+      category: string;
+      count: number;
+      contentPreview: string;
+    }> = [];
 
     try {
       // Get memories from private scope
@@ -616,6 +668,25 @@ export class DefaultMemoryManager extends AbstractBaseManager implements MemoryM
         const privateMemories = Array.from(this.memories.values()).filter(
           memory => memory.metadata.scopeId === this.privateScope!.scopeId.id
         );
+
+        // Update visualization with scanning info if available
+        if (visualizationContext && consolidationNodeId) {
+          try {
+            visualizationContext.visualizer.updateNode(
+              visualizationContext.visualization,
+              consolidationNodeId,
+              {
+                data: {
+                  status: 'scanning',
+                  totalMemories: privateMemories.length,
+                  timestamp: Date.now()
+                }
+              }
+            );
+          } catch (error) {
+            console.error('Error updating memory consolidation visualization:', error);
+          }
+        }
 
         // Group related memories (simple implementation - would use embeddings in production)
         const groups = new Map<string, MemoryEntry[]>();
@@ -627,9 +698,64 @@ export class DefaultMemoryManager extends AbstractBaseManager implements MemoryM
           groups.set(category, group);
         });
 
+        // Update visualization with grouping info if available
+        if (visualizationContext && consolidationNodeId) {
+          try {
+            visualizationContext.visualizer.updateNode(
+              visualizationContext.visualization,
+              consolidationNodeId,
+              {
+                data: {
+                  status: 'grouping',
+                  groupCount: groups.size,
+                  groups: Array.from(groups.keys()),
+                  timestamp: Date.now()
+                }
+              }
+            );
+          } catch (error) {
+            console.error('Error updating memory consolidation visualization:', error);
+          }
+        }
+
         // Consolidate groups that meet the threshold
         for (const [category, memories] of Array.from(groups.entries())) {
           if (memories.length >= this._config.minMemoriesForConsolidation!) {
+            // Create category-specific visualization node if enabled
+            let categoryNodeId: string | undefined;
+            
+            if (visualizationContext && 
+                visualizationContext.visualization && 
+                visualizationContext.visualizer && 
+                consolidationNodeId) {
+              try {
+                // Create category consolidation node
+                categoryNodeId = visualizationContext.visualizer.addNode(
+                  visualizationContext.visualization,
+                  'memory_group_consolidation',
+                  `Consolidating ${category} Memories`,
+                  {
+                    category,
+                    memoryCount: memories.length,
+                    timestamp: Date.now()
+                  },
+                  'in_progress'
+                );
+                
+                // Connect to consolidation parent node
+                if (categoryNodeId) {
+                  visualizationContext.visualizer.addEdge(
+                    visualizationContext.visualization,
+                    consolidationNodeId,
+                    categoryNodeId,
+                    'consolidates_category'
+                  );
+                }
+              } catch (error) {
+                console.error(`Error creating category consolidation visualization for ${category}:`, error);
+              }
+            }
+            
             try {
               // Create consolidated memory
               const consolidatedContent = memories
@@ -647,26 +773,171 @@ export class DefaultMemoryManager extends AbstractBaseManager implements MemoryM
               );
 
               consolidatedCount++;
+              
+              // Add to group tracking for visualization
+              consolidatedGroups.push({
+                category,
+                count: memories.length,
+                contentPreview: consolidatedContent.substring(0, 100) + '...'
+              });
+
+              // Update category visualization if available
+              if (visualizationContext && categoryNodeId) {
+                try {
+                  visualizationContext.visualizer.updateNode(
+                    visualizationContext.visualization,
+                    categoryNodeId,
+                    {
+                      status: 'completed',
+                      data: {
+                        category,
+                        memoryCount: memories.length,
+                        newMemoryId: consolidatedMemory.id,
+                        contentPreview: consolidatedContent.substring(0, 100) + '...',
+                        timestamp: Date.now()
+                      }
+                    }
+                  );
+                } catch (error) {
+                  console.error(`Error updating category consolidation visualization for ${category}:`, error);
+                }
+              }
 
               // Optionally delete source memories
               if (this._config.forgetSourceMemoriesAfterConsolidation) {
                 await Promise.all(
                   memories.map(memory => this.deleteMemory(memory.id))
                 );
+                
+                // Create forget visualization node if enabled
+                if (visualizationContext && 
+                    visualizationContext.visualization && 
+                    visualizationContext.visualizer && 
+                    categoryNodeId) {
+                  try {
+                    const forgetNodeId = visualizationContext.visualizer.addNode(
+                      visualizationContext.visualization,
+                      'memory_forget',
+                      `Forgetting Source ${category} Memories`,
+                      {
+                        category,
+                        memoriesRemoved: memories.length,
+                        timestamp: Date.now()
+                      },
+                      'completed'
+                    );
+                    
+                    // Connect to category node
+                    if (forgetNodeId) {
+                      visualizationContext.visualizer.addEdge(
+                        visualizationContext.visualization,
+                        categoryNodeId,
+                        forgetNodeId,
+                        'forgets_sources'
+                      );
+                    }
+                  } catch (error) {
+                    console.error(`Error creating forget visualization for ${category}:`, error);
+                  }
+                }
               }
             } catch (error) {
               console.error(`Error consolidating memories in category ${category}:`, error);
+              
+              // Update category visualization with error if available
+              if (visualizationContext && categoryNodeId) {
+                try {
+                  visualizationContext.visualizer.updateNode(
+                    visualizationContext.visualization,
+                    categoryNodeId,
+                    {
+                      status: 'error',
+                      data: {
+                        error: error instanceof Error ? error.message : String(error),
+                        timestamp: Date.now()
+                      }
+                    }
+                  );
+                } catch (vizError) {
+                  console.error(`Error updating category visualization with error for ${category}:`, vizError);
+                }
+              }
             }
           }
         }
       }
 
-      return {
+      const result = {
         success: true,
         consolidatedCount,
         message: `Consolidated ${consolidatedCount} groups of memories`
       };
+      
+      // Update visualization with final results
+      if (visualizationContext && consolidationNodeId) {
+        try {
+          visualizationContext.visualizer.updateNode(
+            visualizationContext.visualization,
+            consolidationNodeId,
+            {
+              status: 'completed',
+              data: {
+                success: true,
+                consolidatedCount,
+                consolidatedGroups,
+                timestamp: Date.now()
+              }
+            }
+          );
+          
+          // Create a summary result node
+          const summaryNodeId = visualizationContext.visualizer.addNode(
+            visualizationContext.visualization,
+            'consolidation_summary',
+            `Memory Consolidation Summary`,
+            {
+              consolidatedCount,
+              categories: consolidatedGroups.map(g => g.category),
+              timestamp: Date.now()
+            },
+            'completed'
+          );
+          
+          // Connect summary to consolidation node
+          if (summaryNodeId) {
+            visualizationContext.visualizer.addEdge(
+              visualizationContext.visualization,
+              consolidationNodeId,
+              summaryNodeId,
+              'summarizes'
+            );
+          }
+        } catch (error) {
+          console.error('Error updating memory consolidation visualization with result:', error);
+        }
+      }
+      
+      return result;
     } catch (error) {
+      // Update visualization with error if available
+      if (visualizationContext && consolidationNodeId) {
+        try {
+          visualizationContext.visualizer.updateNode(
+            visualizationContext.visualization,
+            consolidationNodeId,
+            {
+              status: 'error',
+              data: {
+                error: error instanceof Error ? error.message : String(error),
+                timestamp: Date.now()
+              }
+            }
+          );
+        } catch (vizError) {
+          console.error('Error updating memory consolidation visualization with error:', vizError);
+        }
+      }
+      
       return {
         success: false,
         consolidatedCount: 0,
@@ -676,4 +947,133 @@ export class DefaultMemoryManager extends AbstractBaseManager implements MemoryM
   }
 
   // #endregion Memory Maintenance
+
+  /**
+   * Retrieve memories relevant to a query
+   * @param query The query to search for
+   * @param options Options for memory retrieval
+   * @returns Array of relevant memories
+   */
+  async retrieveRelevantMemories(
+    query: string,
+    options: {
+      limit?: number;
+      types?: string[];
+      tags?: string[];
+      minRelevance?: number;
+      includeCritical?: boolean;
+      visualization?: any;
+      visualizer?: any;
+    } = {}
+  ): Promise<MemoryEntry[]> {
+    try {
+      // Create visualization node if visualization is enabled
+      const visualization = options.visualization;
+      const visualizer = options.visualizer;
+      let retrievalNodeId: string | undefined;
+      
+      if (visualization && visualizer) {
+        try {
+          retrievalNodeId = visualizer.addNode(
+            visualization,
+            'context_retrieval', // VisualizationNodeType.CONTEXT_RETRIEVAL
+            'Memory Retrieval',
+            {
+              query,
+              types: options.types || [],
+              tags: options.tags || [],
+              timestamp: Date.now()
+            },
+            'in_progress'
+          );
+        } catch (error) {
+          console.error('Error creating memory retrieval visualization node:', error);
+        }
+      }
+      
+      // Perform the memory search
+      const searchOptions: MemorySearchOptions = {
+        limit: options.limit || 10,
+        metadata: {} as Record<string, any>
+      };
+      
+      // Add type filter if specified
+      if (options.types && options.types.length > 0) {
+        searchOptions.metadata = searchOptions.metadata || {};
+        searchOptions.metadata['type'] = options.types;
+      }
+      
+      // Add tag filter if specified
+      if (options.tags && options.tags.length > 0) {
+        searchOptions.metadata = searchOptions.metadata || {};
+        searchOptions.metadata['tags'] = options.tags;
+      }
+      
+      // Get memories
+      const memories = await this.searchMemories(query, searchOptions);
+      
+      // Update visualization node if created
+      if (visualization && visualizer && retrievalNodeId) {
+        try {
+          // Find the retrieval node
+          const retrievalNode = visualization.nodes.find(
+            (node: { id: string }) => node.id === retrievalNodeId
+          );
+          
+          if (retrievalNode) {
+            // Create array of unique memory types
+            const memoryTypes: string[] = [];
+            memories.forEach(m => {
+              const type = m.metadata?.type as string || 'unknown';
+              if (!memoryTypes.includes(type)) {
+                memoryTypes.push(type);
+              }
+            });
+            
+            // Update with results
+            retrievalNode.status = 'completed';
+            retrievalNode.data = {
+              ...retrievalNode.data,
+              resultCount: memories.length,
+              memoryTypes,
+              memoryIds: memories.map(m => m.id)
+            };
+            
+            // Add end time and duration to metrics
+            if (retrievalNode.metrics) {
+              retrievalNode.metrics.endTime = Date.now();
+              retrievalNode.metrics.duration = 
+                retrievalNode.metrics.endTime - (retrievalNode.metrics.startTime || Date.now());
+            }
+          }
+        } catch (error) {
+          console.error('Error updating memory retrieval visualization node:', error);
+        }
+      }
+      
+      return memories;
+    } catch (error) {
+      console.error('Error retrieving relevant memories:', error);
+      
+      // Update visualization with error if enabled
+      if (options.visualization && options.visualizer) {
+        try {
+          options.visualizer.addNode(
+            options.visualization,
+            'error', // VisualizationNodeType.ERROR
+            'Memory Retrieval Error',
+            {
+              error: error instanceof Error ? error.message : String(error),
+              query
+            },
+            'error'
+          );
+        } catch (visualizationError) {
+          console.error('Error updating visualization with error:', visualizationError);
+        }
+      }
+      
+      return [];
+    }
+  }
 } 

@@ -153,6 +153,18 @@ export interface PlanCreationOptions {
   
   /** Additional metadata */
   metadata?: Record<string, unknown>;
+  
+  /** Whether to generate steps automatically */
+  generateSteps?: boolean;
+  
+  /** Context for plan generation */
+  context?: Record<string, any>;
+  
+  /** Visualization object for tracking thinking process */
+  visualization?: any;
+  
+  /** Visualizer service for creating visualization nodes */
+  visualizer?: any;
 }
 
 /**

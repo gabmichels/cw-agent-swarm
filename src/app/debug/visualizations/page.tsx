@@ -5,8 +5,8 @@ import dynamic from 'next/dynamic';
 import { useSearchParams } from 'next/navigation';
 
 // Import only types, not implementation
-import type { ThinkingVisualization } from '@/services/thinking/visualization';
-import type { VisualizationNodeType, VisualizationEdgeType } from '@/services/thinking/visualization';
+import type { ThinkingVisualization } from '@/services/thinking/visualization/types';
+import type { VisualizationNodeType, VisualizationEdgeType } from '@/services/thinking/visualization/types';
 
 // Dynamically import components with no SSR to avoid node:events errors
 const VisualizationRenderer = dynamic(

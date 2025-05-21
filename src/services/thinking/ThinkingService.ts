@@ -250,6 +250,9 @@ export class ThinkingService implements IThinkingService {
       ...(options || {})
     };
 
+    // Check if visualization is enabled
+    const visualization = options?.visualization;
+
     // First, retrieve memories related to the request
     const { memories, formattedMemoryContext } = await this.processMemoryRetrieval(message, combinedOptions);
     console.log(`Retrieved ${memories.length} memories for context. Context length: ${formattedMemoryContext.length} chars`);
@@ -262,6 +265,30 @@ export class ThinkingService implements IThinkingService {
     };
 
     try {
+      // Add thinking node to visualization if enabled
+      if (visualization) {
+        try {
+          // Get the visualizer from the visualization object
+          const visualizer = options?.visualizer;
+          if (visualizer) {
+            visualizer.addNode(
+              visualization,
+              'thinking', // VisualizationNodeType.THINKING
+              'Analyzing Request',
+              {
+                message,
+                userId,
+                timestamp: Date.now(),
+                contextSize: memories.length
+              },
+              'in_progress'
+            );
+          }
+        } catch (error) {
+          console.error('Error adding thinking node to visualization:', error);
+        }
+      }
+      
       // Execute the thinking workflow
       const graphResult = await executeThinkingWorkflow({
         userId,
@@ -289,6 +316,42 @@ export class ThinkingService implements IThinkingService {
         }
       }
       
+      // Update visualization with thinking results if enabled
+      if (visualization) {
+        try {
+          const visualizer = options?.visualizer;
+          if (visualizer) {
+            // Find the thinking node
+            const thinkingNode = visualization.nodes.find(
+              (node: { type: string }) => node.type === 'thinking'
+            );
+            
+            if (thinkingNode) {
+              // Update thinking node with reasoning
+              thinkingNode.status = 'completed';
+              thinkingNode.data = {
+                ...thinkingNode.data,
+                intent: thinkingResult.intent,
+                entities: thinkingResult.entities,
+                reasoning: thinkingResult.reasoning,
+                complexity: thinkingResult.complexity,
+                priority: thinkingResult.priority,
+                shouldDelegate: thinkingResult.shouldDelegate
+              };
+              
+              // Add end time and duration to metrics
+              if (thinkingNode.metrics) {
+                thinkingNode.metrics.endTime = Date.now();
+                thinkingNode.metrics.duration = 
+                  thinkingNode.metrics.endTime - (thinkingNode.metrics.startTime || Date.now());
+              }
+            }
+          }
+        } catch (error) {
+          console.error('Error updating thinking visualization:', error);
+        }
+      }
+      
       // Store thinking artifacts
       try {
         await this.storeThinkingArtifacts(userId, message, thinkingResult);
@@ -305,26 +368,52 @@ export class ThinkingService implements IThinkingService {
       
       return thinkingResult;
     } catch (error) {
-      console.error('Error processing request:', error);
-      // Return a basic thinking result with error information
-      return {
-        intent: {
-          primary: 'error_processing',
-          confidence: 0.1
-        },
-        entities: [],
-        shouldDelegate: false,
-        requiredCapabilities: [],
-        reasoning: [`Error processing request: ${error instanceof Error ? error.message : String(error)}`],
-        contextUsed: {
-          memories: [],
-          files: [],
-          tools: []
-        },
-        priority: 3,
-        isUrgent: false,
-        complexity: 1
-      };
+      console.error('Error in thinking process:', error);
+      
+      // Update visualization with error if enabled
+      if (visualization) {
+        try {
+          const visualizer = options?.visualizer;
+          if (visualizer) {
+            // Find the thinking node
+            const thinkingNode = visualization.nodes.find(
+              (node: { type: string }) => node.type === 'thinking'
+            );
+            
+            if (thinkingNode) {
+              // Update with error status
+              thinkingNode.status = 'error';
+              thinkingNode.data = {
+                ...thinkingNode.data,
+                error: error instanceof Error ? error.message : String(error)
+              };
+              
+              // Add end time and duration to metrics
+              if (thinkingNode.metrics) {
+                thinkingNode.metrics.endTime = Date.now();
+                thinkingNode.metrics.duration = 
+                  thinkingNode.metrics.endTime - (thinkingNode.metrics.startTime || Date.now());
+              }
+            }
+            
+            // Add error node
+            visualizer.addNode(
+              visualization,
+              'error', // VisualizationNodeType.ERROR
+              'Thinking Error',
+              {
+                error: error instanceof Error ? error.message : String(error),
+                stack: error instanceof Error ? error.stack : undefined
+              },
+              'error'
+            );
+          }
+        } catch (visualizationError) {
+          console.error('Error updating visualization with error:', visualizationError);
+        }
+      }
+      
+      throw error;
     }
   }
   

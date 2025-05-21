@@ -22,6 +22,7 @@ import { AbstractBaseManager } from '../../base/managers/BaseManager';
 import { createConfigFactory } from '../../config';
 import { ReflectionManagerConfigSchema } from '../config/ReflectionManagerConfigSchema';
 import { ManagerType } from '../../base/managers/ManagerType';
+import { VisualizationService, ThinkingVisualization } from '../../../../services/thinking/visualization/types';
 
 /**
  * Error class for reflection-related errors
@@ -285,6 +286,11 @@ export class DefaultReflectionManager extends AbstractBaseManager implements Ref
       };
     }
 
+    // Extract visualization context if provided
+    const visualization = context?.visualization as ThinkingVisualization | undefined;
+    const visualizer = context?.visualizer as VisualizationService | undefined;
+    let reflectionNodeId: string | undefined;
+
     try {
       // Create reflection record
       const reflectionId = uuidv4();
@@ -297,6 +303,33 @@ export class DefaultReflectionManager extends AbstractBaseManager implements Ref
         insights: [],
         metrics: { ...this.metrics }
       };
+
+      // Create visualization node if visualization is enabled
+      if (visualization && visualizer) {
+        try {
+          // Create a reflection visualization node
+          reflectionNodeId = visualizer.addNode(
+            visualization,
+            'reflection', // VisualizationNodeType.REFLECTION
+            `Agent Reflection (${trigger})`,
+            {
+              reflectionId,
+              trigger,
+              depth: reflection.depth,
+              timestamp: reflection.timestamp.getTime(),
+              contextType: context?.type || 'general'
+            },
+            'in_progress'
+          );
+
+          // Store the node ID in the reflection context for reference
+          if (reflectionNodeId) {
+            reflection.context.visualizationNodeId = reflectionNodeId;
+          }
+        } catch (visualizationError) {
+          console.error('Error creating reflection visualization node:', visualizationError);
+        }
+      }
 
       // Add to reflections map
       this.reflections.set(reflectionId, reflection);
@@ -319,6 +352,65 @@ export class DefaultReflectionManager extends AbstractBaseManager implements Ref
       // Update metrics
       this.updateMetrics(reflection, insights);
 
+      // Update visualization node with results if available
+      if (visualization && visualizer && reflectionNodeId) {
+        try {
+          // Create insight nodes for each insight
+          const insightNodeIds: string[] = [];
+          
+          for (const insight of insights) {
+            // Add insight node
+            const insightNodeId = visualizer.addNode(
+              visualization,
+              'insight', // VisualizationNodeType.INSIGHT
+              `Insight: ${insight.type}`,
+              {
+                insightId: insight.id,
+                type: insight.type,
+                content: insight.content,
+                confidence: insight.confidence,
+                timestamp: insight.timestamp.getTime(),
+                metadata: insight.metadata,
+              },
+              'completed'
+            );
+            
+            insightNodeIds.push(insightNodeId);
+            
+            // Add edge from reflection to insight
+            visualizer.addEdge(
+              visualization,
+              reflectionNodeId,
+              insightNodeId,
+              'child', // VisualizationEdgeType.CHILD
+              'generated'
+            );
+          }
+          
+          // Update the reflection node
+          visualizer.updateNode(
+            visualization,
+            reflectionNodeId,
+            {
+              status: 'completed',
+              data: {
+                reflectionId,
+                trigger,
+                depth: reflection.depth,
+                timestamp: reflection.timestamp.getTime(),
+                insightCount: insights.length,
+                insightTypes: Array.from(new Set(insights.map(i => i.type))),
+                insightNodeIds,
+                adaptiveBehavior: this.config.adaptiveBehavior,
+                metrics: { ...this.metrics }
+              }
+            }
+          );
+        } catch (visualizationError) {
+          console.error('Error updating reflection visualization:', visualizationError);
+        }
+      }
+
       // Clean up old reflections if needed
       await this.cleanupOldReflections();
 
@@ -335,6 +427,26 @@ export class DefaultReflectionManager extends AbstractBaseManager implements Ref
       };
     } catch (error) {
       console.error('Error during reflection:', error);
+      
+      // Update visualization with error if enabled
+      if (visualization && visualizer && reflectionNodeId) {
+        try {
+          visualizer.updateNode(
+            visualization,
+            reflectionNodeId,
+            {
+              status: 'error',
+              data: {
+                error: error instanceof Error ? error.message : String(error),
+                errorStack: error instanceof Error ? error.stack : undefined
+              }
+            }
+          );
+        } catch (visualizationError) {
+          console.error('Error updating reflection visualization with error:', visualizationError);
+        }
+      }
+      
       return {
         success: false,
         id: '',
@@ -376,6 +488,47 @@ export class DefaultReflectionManager extends AbstractBaseManager implements Ref
         recoverySuccessful
       };
 
+      // Extract visualization context if provided
+      const visualization = context.visualization as ThinkingVisualization | undefined;
+      const visualizer = context.visualizer as VisualizationService | undefined;
+      
+      // Add error recovery visualization if visualization is enabled
+      if (visualization && visualizer) {
+        try {
+          // Get the parent reflection node ID if available
+          const parentNodeId = context.visualizationNodeId as string | undefined;
+          
+          // Create an error recovery tracking node
+          const recoveryNodeId = visualizer.addNode(
+            visualization,
+            'error_recovery',
+            `Error Recovery (${errorCategory})`,
+            {
+              taskId,
+              errorCategory,
+              reflectionId,
+              timestamp: entry.timestamp.getTime(),
+              recoverySuccessful,
+              insightCount: insights.length
+            },
+            recoverySuccessful ? 'completed' : 'error'
+          );
+          
+          // Add edge from parent reflection node if available
+          if (parentNodeId) {
+            visualizer.addEdge(
+              visualization,
+              parentNodeId,
+              recoveryNodeId,
+              'child',
+              'error_recovery'
+            );
+          }
+        } catch (visualizationError) {
+          console.error('Error creating error recovery visualization:', visualizationError);
+        }
+      }
+
       // Get existing entries for this task or create new array
       const existingEntries = this.errorRecoveryReflections.get(taskId) || [];
       existingEntries.push(entry);
@@ -385,7 +538,7 @@ export class DefaultReflectionManager extends AbstractBaseManager implements Ref
       
       // If we have multiple reflections for the same task, analyze patterns
       if (existingEntries.length >= 2) {
-        await this.analyzeErrorRecoveryPatterns(taskId, existingEntries);
+        await this.analyzeErrorRecoveryPatterns(taskId, existingEntries, context);
       }
     } catch (error) {
       console.error('Error tracking error recovery reflection:', error);
@@ -404,7 +557,8 @@ export class DefaultReflectionManager extends AbstractBaseManager implements Ref
       insights: string[],
       timestamp: Date,
       recoverySuccessful: boolean
-    }[]
+    }[],
+    context: Record<string, unknown>
   ): Promise<void> {
     try {
       // Get details for all reflections
@@ -417,6 +571,11 @@ export class DefaultReflectionManager extends AbstractBaseManager implements Ref
         };
       });
       
+      // Extract visualization context if provided
+      const visualization = context.visualization as ThinkingVisualization | undefined;
+      const visualizer = context.visualizer as VisualizationService | undefined;
+      let patternNodeId: string | undefined;
+      
       // Create a new reflection about the patterns in error recovery
       const metaReflectionId = uuidv4();
       const metaReflection: Reflection = {
@@ -428,12 +587,55 @@ export class DefaultReflectionManager extends AbstractBaseManager implements Ref
           reflectionType: 'error_recovery_pattern_analysis',
           recoveryAttempts: entries.length,
           successfulRecoveries: entries.filter(e => e.recoverySuccessful).length,
-          errorCategories: Array.from(new Set(entries.map(e => e.errorCategory)))
+          errorCategories: Array.from(new Set(entries.map(e => e.errorCategory))),
+          ...context
         },
         depth: 'deep',
         insights: [],
         metrics: { ...this.metrics }
       };
+      
+      // Create visualization node if visualization is enabled
+      if (visualization && visualizer) {
+        try {
+          // Create a pattern analysis visualization node
+          patternNodeId = visualizer.addNode(
+            visualization,
+            'pattern_analysis',
+            `Error Recovery Pattern Analysis (Task: ${taskId})`,
+            {
+              taskId,
+              metaReflectionId,
+              timestamp: metaReflection.timestamp.getTime(),
+              recoveryAttempts: entries.length,
+              successfulRecoveries: entries.filter(e => e.recoverySuccessful).length,
+              errorCategories: Array.from(new Set(entries.map(e => e.errorCategory)))
+            },
+            'in_progress'
+          );
+          
+          // Connect to all related reflection nodes
+          for (const entry of entries) {
+            const reflectionNodeId = this.reflections.get(entry.reflectionId)?.context.visualizationNodeId;
+            if (reflectionNodeId && patternNodeId) {
+              visualizer.addEdge(
+                visualization,
+                reflectionNodeId as string,
+                patternNodeId,
+                'influence',
+                'contributes_to_pattern'
+              );
+            }
+          }
+          
+          // Store the node ID in the meta-reflection context
+          if (patternNodeId) {
+            metaReflection.context.visualizationNodeId = patternNodeId;
+          }
+        } catch (visualizationError) {
+          console.error('Error creating pattern analysis visualization node:', visualizationError);
+        }
+      }
       
       // Generate meta-insights about error recovery patterns
       const metaInsights = await this.generateErrorRecoveryInsights(reflectionDetails, metaReflection);
@@ -442,12 +644,84 @@ export class DefaultReflectionManager extends AbstractBaseManager implements Ref
       // Store the meta-reflection
       this.reflections.set(metaReflectionId, metaReflection);
       
+      // Update visualization with insights if visualization is enabled
+      if (visualization && visualizer && patternNodeId) {
+        try {
+          // Create insight nodes for each meta-insight
+          const insightNodeIds: string[] = [];
+          
+          for (const insight of metaInsights) {
+            // Add insight node
+            const insightNodeId = visualizer.addNode(
+              visualization,
+              'insight',
+              `Pattern Insight: ${insight.type}`,
+              {
+                insightId: insight.id,
+                type: insight.type,
+                content: insight.content,
+                confidence: insight.confidence,
+                timestamp: insight.timestamp.getTime(),
+                metadata: insight.metadata
+              },
+              'completed'
+            );
+            
+            insightNodeIds.push(insightNodeId);
+            
+            // Add edge from pattern node to insight
+            visualizer.addEdge(
+              visualization,
+              patternNodeId,
+              insightNodeId,
+              'child',
+              'generated'
+            );
+          }
+          
+          // Update the pattern node
+          visualizer.updateNode(
+            visualization,
+            patternNodeId,
+            {
+              status: 'completed',
+              data: {
+                insightCount: metaInsights.length,
+                insightTypes: Array.from(new Set(metaInsights.map(i => i.type))),
+                insightNodeIds
+              }
+            }
+          );
+        } catch (visualizationError) {
+          console.error('Error updating pattern analysis visualization:', visualizationError);
+        }
+      }
+      
       // If adaptive behavior is enabled, apply these meta-insights
       if (this.config.adaptiveBehavior) {
         await this.applyInsights(metaInsights, true); // true = higher priority for adaptation
       }
     } catch (error) {
       console.error('Error analyzing error recovery patterns:', error);
+      
+      // Update visualization with error if enabled
+      if (context.visualization && context.visualizer && context.patternNodeId) {
+        try {
+          (context.visualizer as VisualizationService).updateNode(
+            context.visualization as ThinkingVisualization,
+            context.patternNodeId as string,
+            {
+              status: 'error',
+              data: {
+                error: error instanceof Error ? error.message : String(error),
+                errorStack: error instanceof Error ? error.stack : undefined
+              }
+            }
+          );
+        } catch (visualizationError) {
+          console.error('Error updating pattern analysis visualization with error:', visualizationError);
+        }
+      }
     }
   }
 

@@ -11,7 +11,7 @@ import ReactFlow, {
   MarkerType
 } from 'reactflow';
 import 'reactflow/dist/style.css';
-import { ThinkingVisualization } from '../services/thinking/visualization';
+import { ThinkingVisualization } from '../services/thinking/visualization/types';
 
 interface VisualizationRendererProps {
   visualization: ThinkingVisualization;
@@ -249,7 +249,7 @@ const VisualizationRenderer: React.FC<VisualizationRendererProps> = ({
   }, [visualization, dimensions]);
   
   const nodeTypes = useMemo(() => ({}), []);
-  
+
   return (
     <div ref={containerRef} className="visualization-renderer w-full h-full relative">
       <div className="absolute inset-0">

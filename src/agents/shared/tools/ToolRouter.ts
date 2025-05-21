@@ -148,6 +148,12 @@ export class ToolRouter {
     const startTime = Date.now();
     const taskId = `tool_${toolName}_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
     
+    // Get visualization context if available
+    const visualization = agentContext.visualization;
+    const visualizer = agentContext.visualizer;
+    let toolSelectionNodeId: string | undefined;
+    let toolExecutionNodeId: string | undefined;
+    
     try {
       // Log tool execution start
       AgentMonitor.log({
@@ -162,157 +168,238 @@ export class ToolRouter {
         }
       });
       
-      // Check permission
-      if (!this.hasToolPermission(agentId, toolName)) {
-        const errorMessage = `Agent ${agentId} does not have permission to use tool ${toolName}`;
-        
-        // Log permission error
-        AgentMonitor.log({
-          agentId,
-          taskId,
-          toolUsed: toolName,
-          eventType: 'tool_end',
-          status: 'failure',
-          timestamp: Date.now(),
-          durationMs: Date.now() - startTime,
-          errorMessage
-        });
-        
-        return {
-          success: false,
-          error: errorMessage
-        };
-      }
-      
-      // Get the tool
-      const tool = this.tools.get(toolName);
-      if (!tool) {
-        const errorMessage = `Tool ${toolName} not found`;
-        
-        // Log tool not found error
-        AgentMonitor.log({
-          agentId,
-          taskId,
-          toolUsed: toolName,
-          eventType: 'tool_end',
-          status: 'failure',
-          timestamp: Date.now(),
-          durationMs: Date.now() - startTime,
-          errorMessage
-        });
-        
-        return {
-          success: false,
-          error: errorMessage
-        };
-      }
-      
-      // Check required parameters
-      for (const requiredParam of tool.requiredParams) {
-        if (!(requiredParam in params)) {
-          const errorMessage = `Missing required parameter: ${requiredParam}`;
+      // Add tool selection visualization node if visualization is enabled
+      if (visualization && visualizer) {
+        try {
+          // Create tool selection node
+          toolSelectionNodeId = visualizer.addNode(
+            visualization,
+            'tool_selection',
+            `Tool Selection: ${toolName}`,
+            {
+              toolName,
+              timestamp: startTime,
+              params: JSON.stringify(params).substring(0, 100),
+              context: JSON.stringify(Object.keys(agentContext))
+            },
+            'in_progress'
+          );
           
-          // Log missing parameter error
-          AgentMonitor.log({
-            agentId,
-            taskId,
-            toolUsed: toolName,
-            eventType: 'tool_end',
-            status: 'failure',
-            timestamp: Date.now(),
-            durationMs: Date.now() - startTime,
-            errorMessage
-          });
+          // Create tool execution node
+          toolExecutionNodeId = visualizer.addNode(
+            visualization,
+            'tool_execution',
+            `Tool Execution: ${toolName}`,
+            {
+              toolName,
+              timestamp: startTime,
+              params: JSON.stringify(params).substring(0, 100),
+              context: JSON.stringify(Object.keys(agentContext))
+            },
+            'in_progress'
+          );
           
-          return {
-            success: false,
-            error: errorMessage
-          };
+          // Connect the nodes if both were created
+          if (toolSelectionNodeId && toolExecutionNodeId) {
+            visualizer.addEdge(
+              visualization,
+              toolSelectionNodeId,
+              toolExecutionNodeId,
+              'next'
+            );
+          }
+          
+          // Connect to parent if specified
+          if (agentContext.parentNodeId && toolSelectionNodeId) {
+            visualizer.addEdge(
+              visualization,
+              agentContext.parentNodeId,
+              toolSelectionNodeId,
+              'child'
+            );
+          }
+        } catch (error) {
+          console.error('Error creating tool visualization:', error);
         }
+      }
+      
+      // Get the tool from the registry
+      const resolvedTool = this.tools.get(toolName);
+      if (!resolvedTool) {
+        const errorMessage = `Tool "${toolName}" not found in registry`;
+        
+        // Update visualization nodes with error if available
+        if (visualization && visualizer) {
+          if (toolSelectionNodeId) {
+            visualizer.updateNode(
+              visualization,
+              toolSelectionNodeId,
+              {
+                status: 'error',
+                data: {
+                  error: errorMessage
+                }
+              }
+            );
+          }
+          
+          if (toolExecutionNodeId) {
+            visualizer.updateNode(
+              visualization,
+              toolExecutionNodeId,
+              {
+                status: 'error',
+                data: {
+                  error: errorMessage
+                }
+              }
+            );
+          }
+        }
+        
+        // Return error result
+        return {
+          success: false,
+          error: errorMessage
+        };
+      }
+      
+      // Update tool selection node with resolved tool information
+      if (visualization && visualizer && toolSelectionNodeId) {
+        visualizer.updateNode(
+          visualization,
+          toolSelectionNodeId,
+          {
+            status: 'completed',
+            data: {
+              resolvedTool: resolvedTool.name,
+              description: resolvedTool.description
+            }
+          }
+        );
       }
       
       // Execute the tool
-      const result = await tool.execute(params, agentContext);
-      
-      // Track usage if enabled
-      if (this.accessOptions.trackToolUsage) {
-        this.trackToolUsage(agentId, toolName);
-      }
-      
-      // Apply ethics check on tool output if enabled
-      if (this.ethicsOptions.enableEthicsCheck && result.success && result.message) {
-        const ethicsResult = await enforceEthics({
+      try {
+        const result = await resolvedTool.execute(params);
+        const executionTime = Date.now() - startTime;
+        
+        // Update visualization nodes with success if available
+        if (visualization && visualizer && toolExecutionNodeId) {
+          visualizer.updateNode(
+            visualization,
+            toolExecutionNodeId,
+            {
+              status: 'completed',
+              data: {
+                success: true,
+                executionTime,
+                result: JSON.stringify(result.data).substring(0, 500) // Limit result size
+              }
+            }
+          );
+        }
+        
+        // Log tool completion
+        AgentMonitor.log({
           agentId,
           taskId,
-          output: result.message,
-          options: {
-            blockOutput: this.ethicsOptions.blockUnethicalOutput
+          toolUsed: toolName,
+          eventType: 'tool_end',
+          timestamp: Date.now(),
+          durationMs: executionTime,
+          status: 'success',
+          metadata: {
+            resultSize: JSON.stringify(result).length
           }
         });
         
-        // If violations were found and output is blocked
-        if (ethicsResult.wasBlocked) {
-          // Log ethics violation blocking
-          AgentMonitor.log({
-            agentId,
-            taskId,
-            toolUsed: toolName,
-            eventType: 'tool_end',
-            status: 'failure',
-            timestamp: Date.now(),
-            durationMs: Date.now() - startTime,
-            errorMessage: 'Output blocked due to ethics violation',
-            metadata: {
-              violations: ethicsResult.violations
+        // Return success result
+        return result;
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        const executionTime = Date.now() - startTime;
+        
+        // Update visualization nodes with error if available
+        if (visualization && visualizer && toolExecutionNodeId) {
+          visualizer.updateNode(
+            visualization,
+            toolExecutionNodeId,
+            {
+              status: 'error',
+              data: {
+                error: errorMessage,
+                executionTime
+              }
             }
-          });
-          
-          return {
-            success: false,
-            error: 'Output blocked due to ethics violation',
-            data: result.data,
-            message: 'This output was blocked due to potential ethical concerns'
-          };
+          );
         }
         
-        // If the output was modified to fix violations
-        if (ethicsResult.wasModified) {
-          result.message = ethicsResult.output;
+        // Log tool error
+        AgentMonitor.log({
+          agentId,
+          taskId,
+          toolUsed: toolName,
+          eventType: 'tool_end',
+          timestamp: Date.now(),
+          durationMs: executionTime,
+          status: 'failure',
+          errorMessage
+        });
+        
+        // Return error result
+        return {
+          success: false,
+          error: errorMessage
+        };
+      }
+    } catch (error) {
+      // Handle errors in the entire tool execution process
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const executionTime = Date.now() - startTime;
+      
+      // Update visualization nodes with error if available
+      if (visualization && visualizer) {
+        if (toolSelectionNodeId) {
+          visualizer.updateNode(
+            visualization,
+            toolSelectionNodeId,
+            {
+              status: 'error',
+              data: {
+                error: errorMessage
+              }
+            }
+          );
+        }
+        
+        if (toolExecutionNodeId) {
+          visualizer.updateNode(
+            visualization,
+            toolExecutionNodeId,
+            {
+              status: 'error',
+              data: {
+                error: errorMessage
+              }
+            }
+          );
         }
       }
       
-      // Log tool execution result
+      // Log tool error
       AgentMonitor.log({
         agentId,
         taskId,
         toolUsed: toolName,
         eventType: 'tool_end',
-        status: result.success ? 'success' : 'failure',
         timestamp: Date.now(),
-        durationMs: Date.now() - startTime,
-        errorMessage: result.error,
-        metadata: {
-          resultMessage: result.message,
-          resultData: result.data ? JSON.stringify(result.data).substring(0, 100) : undefined
-        }
-      });
-      
-      return result;
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      
-      // Log execution error
-      AgentMonitor.log({
-        agentId,
-        taskId,
-        toolUsed: toolName,
-        eventType: 'error',
+        durationMs: executionTime,
         status: 'failure',
-        timestamp: Date.now(),
-        durationMs: Date.now() - startTime,
         errorMessage
       });
       
+      // Return error result
       return {
         success: false,
         error: errorMessage

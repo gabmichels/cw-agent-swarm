@@ -22,11 +22,14 @@ import {
 } from '../../../../agents/shared/base/managers/SchedulerManager.interface';
 import { ManagerHealth } from '../../../../agents/shared/base/managers/ManagerHealth';
 import type { AgentBase } from '../../../../agents/shared/base/AgentBase.interface';
+import { MessageProcessingOptions } from '../../../../agents/shared/base/AgentBase.interface';
 import { AbstractBaseManager } from '../../../../agents/shared/base/managers/BaseManager';
 import { createConfigFactory } from '../../../../agents/shared/config';
 import { SchedulerManagerConfigSchema } from '../../../../agents/shared/scheduler/config/SchedulerManagerConfigSchema';
 import { ManagerType } from '../../../../agents/shared/base/managers/ManagerType';
 import { ResourceUtilizationTracker } from '../../../../agents/shared/scheduler/ResourceUtilization';
+import { ThinkingVisualization, VisualizationService } from '../../../../services/thinking/visualization/types';
+import { generateRequestId } from '../../../../utils/request-utils';
 
 /**
  * Task metadata interface
@@ -36,6 +39,13 @@ interface TaskMetadata {
   executionTime?: number;
   waitTime?: number;
   [key: string]: unknown;
+}
+
+/**
+ * Extended scheduler manager config with visualization support
+ */
+export interface ExtendedSchedulerManagerConfig extends SchedulerManagerConfig {
+  enableVisualization?: boolean;
 }
 
 /**
@@ -62,7 +72,7 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
   protected tasks: Map<string, ScheduledTask> = new Map();
   private schedulingTimer: NodeJS.Timeout | null = null;
   private configFactory = createConfigFactory(SchedulerManagerConfigSchema);
-  protected readonly config: SchedulerManagerConfig;
+  protected readonly config: ExtendedSchedulerManagerConfig;
   protected initialized = false;
   private batches: Map<string, TaskBatch> = new Map();
   private resourceTracker: ResourceUtilizationTracker;
@@ -73,7 +83,7 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
    * @param agent - The agent this manager belongs to
    * @param config - Configuration options
    */
-  constructor(agent: AgentBase, config: Partial<SchedulerManagerConfig>) {
+  constructor(agent: AgentBase, config: Partial<ExtendedSchedulerManagerConfig>) {
     const defaultConfig = {
       enabled: true,
       maxConcurrentTasks: config.maxConcurrentTasks ?? 5,
@@ -82,8 +92,9 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
       enableAutoScheduling: config.enableAutoScheduling ?? true,
       schedulingIntervalMs: config.schedulingIntervalMs ?? 60000,
       enableTaskPrioritization: config.enableTaskPrioritization ?? true,
+      enableVisualization: config.enableVisualization ?? true,
       ...config
-    } as SchedulerManagerConfig;
+    } as ExtendedSchedulerManagerConfig;
 
     super(
       agent.getAgentId() + '-scheduler-manager', 
@@ -358,9 +369,16 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
   }
 
   /**
-   * Execute a task
+   * Execute a task with visualization support
    */
-  async executeTask(taskId: string): Promise<TaskExecutionResult> {
+  async executeTask(
+    taskId: string, 
+    visualizationContext?: {
+      visualization: ThinkingVisualization,
+      visualizer: VisualizationService,
+      parentNodeId?: string
+    }
+  ): Promise<TaskExecutionResult> {
     if (!this.initialized) {
       return {
         success: false,
@@ -410,7 +428,54 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
       };
     }
 
+    // Create or use existing visualization context
+    const useVisualization = Boolean(this.config.enableVisualization) && 
+      visualizationContext && 
+      visualizationContext.visualization && 
+      visualizationContext.visualizer;
+    
+    // Generate new requestId for the task execution
+    const requestId = generateRequestId();
+    
+    // Create visualization node for scheduled execution
+    let taskNodeId: string | undefined;
+    
+    if (useVisualization) {
       try {
+        // Create scheduled execution visualization node
+        taskNodeId = visualizationContext!.visualizer.addNode(
+          visualizationContext!.visualization,
+          'scheduled_execution',
+          `Scheduled Task: ${task.title}`,
+          {
+            taskId,
+            title: task.title,
+            description: task.description,
+            type: task.type,
+            priority: task.priority,
+            status: 'running',
+            requestId,
+            timestamp: Date.now(),
+            metadata: task.metadata
+          },
+          'in_progress'
+        );
+        
+        // Connect to parent node if specified
+        if (visualizationContext!.parentNodeId && taskNodeId) {
+          visualizationContext!.visualizer.addEdge(
+            visualizationContext!.visualization,
+            visualizationContext!.parentNodeId,
+            taskNodeId,
+            'scheduled_from'
+          );
+        }
+      } catch (error) {
+        console.error('Error creating scheduled task visualization:', error);
+      }
+    }
+
+    try {
       // Update task status to running
       await this.updateTask(taskId, { status: 'running' });
 
@@ -432,7 +497,16 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
               parameters.message && 
               typeof parameters.message === 'string') {
             // Execute the action
-            const response = await agent.processUserInput(parameters.message);
+            const response = await agent.processUserInput(parameters.message, {
+              // Pass request ID and visualization context
+              requestId,
+              enableVisualization: useVisualization,
+              visualizationContext: useVisualization ? {
+                visualization: visualizationContext!.visualization,
+                visualizer: visualizationContext!.visualizer,
+                parentNodeId: taskNodeId
+              } : undefined
+            } as MessageProcessingOptions);
             success = true;
             // Convert response to record to ensure type safety
             result = {
@@ -459,6 +533,56 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
 
       const endTime = Date.now();
       const durationMs = endTime - startTime;
+
+      // Update visualization if enabled
+      if (useVisualization && taskNodeId) {
+        try {
+          visualizationContext!.visualizer.updateNode(
+            visualizationContext!.visualization,
+            taskNodeId,
+            {
+              status: success ? 'completed' : 'error',
+              data: {
+                taskId,
+                title: task.title,
+                status: success ? 'completed' : 'failed',
+                executionTime: durationMs,
+                result: success ? result : null,
+                error: success ? null : errorMsg,
+                timestamp: endTime
+              }
+            }
+          );
+          
+          // If successful, create result node
+          if (success && result) {
+            const resultNodeId = visualizationContext!.visualizer.addNode(
+              visualizationContext!.visualization,
+              'task_result',
+              `Task Result: ${task.title}`,
+              {
+                taskId,
+                result,
+                executionTime: durationMs,
+                timestamp: endTime
+              },
+              'completed'
+            );
+            
+            // Link result to task node
+            if (resultNodeId) {
+              visualizationContext!.visualizer.addEdge(
+                visualizationContext!.visualization,
+                taskNodeId,
+                resultNodeId,
+                'result'
+              );
+            }
+          }
+        } catch (error) {
+          console.error('Error updating scheduled task visualization:', error);
+        }
+      }
 
       // Update task
       if (success) {
@@ -500,11 +624,30 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
         };
       }
     } catch (error) {
-    return {
-      success: false,
-      taskId,
+      // Update visualization with error if enabled
+      if (useVisualization && taskNodeId) {
+        try {
+          visualizationContext!.visualizer.updateNode(
+            visualizationContext!.visualization,
+            taskNodeId,
+            {
+              status: 'error',
+              data: {
+                error: error instanceof Error ? error.message : String(error),
+                timestamp: Date.now()
+              }
+            }
+          );
+        } catch (vizError) {
+          console.error('Error updating task visualization with error:', vizError);
+        }
+      }
+      
+      return {
+        success: false,
+        taskId,
         error: error instanceof Error ? error.message : String(error)
-    };
+      };
     }
   }
 

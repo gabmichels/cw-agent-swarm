@@ -4,6 +4,7 @@ import { BaseMemorySchema } from '../../../server/memory/models';
 import { ImportanceLevel } from '../../../constants/memory';
 import { ulid } from 'ulid';
 import { ImportanceConverter } from '../../../services/importance/ImportanceConverter';
+import { logger } from '../../../lib/logging';
 
 /**
  * Knowledge Graph System
@@ -137,20 +138,6 @@ export interface GraphQuery {
 }
 
 /**
- * Interface for the Knowledge Graph operations
- */
-export interface IKnowledgeGraph {
-  initialize(): Promise<boolean>;
-  addNode(label: string, type: NodeType, metadata?: Record<string, unknown>, importance?: number): Promise<string>;
-  addEdge(sourceId: string, targetId: string, type: RelationType, strength?: number, metadata?: Record<string, unknown>): Promise<string>;
-  findNodes(labelPattern: string, nodeTypes?: string[], limit?: number): Promise<GraphNode[]>;
-  getEdges(nodeId: string, direction?: 'outgoing' | 'incoming' | 'both', types?: RelationType[], minStrength?: number): Promise<GraphEdge[]>;
-  findPath(startNodeId: string, endNodeId: string, maxDepth?: number): Promise<GraphEdge[]>;
-  inferNewEdges(nodeId: string, minConfidence?: number): Promise<InferredEdge[]>;
-  addRelationship(sourceId: string, targetId: string, relationshipType: RelationType, metadata?: Record<string, unknown>): Promise<string>;
-}
-
-/**
  * Interface for inferred edges
  */
 export interface InferredEdge {
@@ -161,12 +148,45 @@ export interface InferredEdge {
 }
 
 /**
+ * Interface for the Knowledge Graph operations
+ */
+export interface IKnowledgeGraph {
+  initialize(options?: KnowledgeGraphOptions): Promise<boolean>;
+  addNode(label: string, type: NodeType, metadata?: Record<string, unknown>, importance?: number): Promise<string>;
+  addEdge(sourceId: string, targetId: string, type: RelationType, strength?: number, metadata?: Record<string, unknown>): Promise<string>;
+  findNodes(labelPattern: string, nodeTypes?: string[], limit?: number): Promise<GraphNode[]>;
+  getEdges(nodeId: string, direction?: 'outgoing' | 'incoming' | 'both', types?: RelationType[], minStrength?: number): Promise<GraphEdge[]>;
+  findPath(startNodeId: string, endNodeId: string, maxDepth?: number): Promise<GraphEdge[]>;
+  inferNewEdges(nodeId: string, minConfidence?: number): Promise<InferredEdge[]>;
+  addRelationship(sourceId: string, targetId: string, relationshipType: RelationType, metadata?: Record<string, unknown>): Promise<string>;
+}
+
+/**
+ * Options for knowledge graph operations
+ */
+export interface KnowledgeGraphOptions {
+  /** Visualization context for tracking the graph operations */
+  visualization?: any;
+  
+  /** Visualization service for creating nodes and edges */
+  visualizer?: any;
+  
+  /** Parent node ID to connect to in the visualization */
+  parentNodeId?: string;
+}
+
+/**
  * Knowledge Graph implementation
  */
 export class KnowledgeGraph implements IKnowledgeGraph {
   private namespace: string;
   private isInitialized: boolean = false;
   
+  /**
+   * Create a new KnowledgeGraph
+   * 
+   * @param namespace Unique namespace for this graph instance
+   */
   constructor(namespace: string = 'default') {
     this.namespace = namespace;
   }
@@ -174,8 +194,43 @@ export class KnowledgeGraph implements IKnowledgeGraph {
   /**
    * Initialize the knowledge graph
    */
-  async initialize(): Promise<boolean> {
+  async initialize(options: KnowledgeGraphOptions = {}): Promise<boolean> {
+    const startTime = Date.now();
+    let graphNodeId: string | undefined;
+    const visualization = options.visualization;
+    const visualizer = options.visualizer;
+    
     try {
+      // Create visualization node if visualization is enabled
+      if (visualization && visualizer) {
+        try {
+          // Create a knowledge graph visualization node
+          graphNodeId = visualizer.addNode(
+            visualization,
+            'knowledge_graph_init',
+            'Knowledge Graph Initialization',
+            {
+              namespace: this.namespace,
+              timestamp: startTime
+            },
+            'in_progress'
+          );
+          
+          // Connect to parent node if specified
+          if (options.parentNodeId && graphNodeId) {
+            visualizer.addEdge(
+              visualization,
+              options.parentNodeId,
+              graphNodeId,
+              'child',
+              'initializes'
+            );
+          }
+        } catch (visualizationError) {
+          logger.error('Error creating knowledge graph visualization node:', visualizationError);
+        }
+      }
+      
       if (typeof window === 'undefined') {
         // Initialize storage for graph on server-side using new memory services
         // The memory service initialization is handled by getMemoryServices
@@ -183,27 +238,115 @@ export class KnowledgeGraph implements IKnowledgeGraph {
       }
       
       this.isInitialized = true;
+      
+      // Update visualization with success
+      if (visualization && visualizer && graphNodeId) {
+        try {
+          visualizer.updateNode(
+            visualization,
+            graphNodeId,
+            {
+              status: 'completed',
+              data: {
+                namespace: this.namespace,
+                executionCompleted: Date.now(),
+                durationMs: Date.now() - startTime,
+                success: true
+              }
+            }
+          );
+        } catch (visualizationError) {
+          logger.error('Error updating knowledge graph visualization with result:', visualizationError);
+        }
+      }
+      
       return true;
     } catch (error) {
-      console.error('Error initializing knowledge graph:', error);
+      logger.error('Error initializing knowledge graph:', error);
+      
+      // Update visualization with error
+      if (visualization && visualizer && graphNodeId) {
+        try {
+          visualizer.updateNode(
+            visualization,
+            graphNodeId,
+            {
+              status: 'error',
+              data: {
+                error: error instanceof Error ? error.message : String(error),
+                errorCode: 'INITIALIZATION_ERROR',
+                executionCompleted: Date.now(),
+                durationMs: Date.now() - startTime
+              }
+            }
+          );
+        } catch (visualizationError) {
+          logger.error('Error updating knowledge graph visualization with error:', visualizationError);
+        }
+      }
+      
       return false;
     }
   }
   
   /**
-   * Add a node to the knowledge graph
+   * Add a node to the graph
+   * 
+   * @param label Label for the node
+   * @param type Node type
+   * @param metadata Additional metadata
+   * @param importance Importance score (0-1)
+   * @returns Promise resolving to the created node ID
    */
   async addNode(
-    label: string,
-    type: NodeType,
-    metadata: Record<string, unknown> = {},
-    importance: number = 0.5
+    label: string, 
+    type: NodeType, 
+    metadata: Record<string, unknown> = {}, 
+    importance: number = 0.5,
+    options: KnowledgeGraphOptions = {}
   ): Promise<string> {
+    const startTime = Date.now();
+    let addNodeId: string | undefined;
+    const visualization = options.visualization;
+    const visualizer = options.visualizer;
+    
     try {
       if (!this.isInitialized) {
         await this.initialize();
       }
       
+      // Create visualization node if visualization is enabled
+      if (visualization && visualizer) {
+        try {
+          // Create an add node visualization node
+          addNodeId = visualizer.addNode(
+            visualization,
+            'add_graph_node',
+            'Add Knowledge Graph Node',
+            {
+              label,
+              type,
+              timestamp: startTime
+            },
+            'in_progress'
+          );
+          
+          // Connect to parent node if specified
+          if (options.parentNodeId && addNodeId) {
+            visualizer.addEdge(
+              visualization,
+              options.parentNodeId,
+              addNodeId,
+              'child',
+              'adds_node'
+            );
+          }
+        } catch (visualizationError) {
+          logger.error('Error creating add node visualization node:', visualizationError);
+        }
+      }
+      
+      // Create the node
       const now = new Date();
       const nodeId = `node_${ulid()}`;
       
@@ -219,7 +362,7 @@ export class KnowledgeGraph implements IKnowledgeGraph {
         ...metadata
       };
       
-      // Store node using memory service instead of directly with qdrant
+      // Store node using memory service
       const { memoryService } = await getMemoryServices();
       
       await memoryService.addMemory({
@@ -229,9 +372,75 @@ export class KnowledgeGraph implements IKnowledgeGraph {
         metadata: nodeMetadata
       });
       
+      // Update visualization with success
+      if (visualization && visualizer && addNodeId) {
+        try {
+          visualizer.updateNode(
+            visualization,
+            addNodeId,
+            {
+              status: 'completed',
+              data: {
+                nodeId,
+                executionCompleted: Date.now(),
+                durationMs: Date.now() - startTime,
+                success: true
+              }
+            }
+          );
+          
+          // Create a representation of the actual graph node
+          const graphNodeRepId = visualizer.addNode(
+            visualization,
+            'knowledge_node',
+            label,
+            {
+              id: nodeId,
+              type,
+              properties: metadata,
+              timestamp: Date.now()
+            },
+            'completed'
+          );
+          
+          // Connect operation to the graph node
+          visualizer.addEdge(
+            visualization,
+            addNodeId,
+            graphNodeRepId,
+            'creates',
+            'created'
+          );
+        } catch (visualizationError) {
+          logger.error('Error updating add node visualization with result:', visualizationError);
+        }
+      }
+      
       return nodeId;
     } catch (error) {
-      console.error('Error adding node to knowledge graph:', error);
+      logger.error('Error adding node to knowledge graph:', error);
+      
+      // Update visualization with error
+      if (visualization && visualizer && addNodeId) {
+        try {
+          visualizer.updateNode(
+            visualization,
+            addNodeId,
+            {
+              status: 'error',
+              data: {
+                error: error instanceof Error ? error.message : String(error),
+                errorCode: 'ADD_NODE_ERROR',
+                executionCompleted: Date.now(),
+                durationMs: Date.now() - startTime
+              }
+            }
+          );
+        } catch (visualizationError) {
+          logger.error('Error updating add node visualization with error:', visualizationError);
+        }
+      }
+      
       throw error;
     }
   }
@@ -244,20 +453,66 @@ export class KnowledgeGraph implements IKnowledgeGraph {
   }
   
   /**
-   * Add edge between two nodes
+   * Add an edge to the graph
+   * 
+   * @param sourceId Source node ID
+   * @param targetId Target node ID
+   * @param type Relationship type
+   * @param strength Relationship strength (0-1)
+   * @param metadata Additional metadata
+   * @returns Promise resolving to the created edge ID
    */
   async addEdge(
-    sourceId: string,
-    targetId: string,
-    type: RelationType,
-    strength: number = 0.5,
-    metadata: Record<string, unknown> = {}
+    sourceId: string, 
+    targetId: string, 
+    type: RelationType, 
+    strength: number = 0.5, 
+    metadata: Record<string, unknown> = {},
+    options: KnowledgeGraphOptions = {}
   ): Promise<string> {
+    const startTime = Date.now();
+    let addEdgeId: string | undefined;
+    const visualization = options.visualization;
+    const visualizer = options.visualizer;
+    
     try {
       if (!this.isInitialized) {
         await this.initialize();
       }
       
+      // Create visualization node if visualization is enabled
+      if (visualization && visualizer) {
+        try {
+          // Create an add edge visualization node
+          addEdgeId = visualizer.addNode(
+            visualization,
+            'add_graph_edge',
+            'Add Knowledge Graph Edge',
+            {
+              sourceId,
+              targetId,
+              type,
+              timestamp: startTime
+            },
+            'in_progress'
+          );
+          
+          // Connect to parent node if specified
+          if (options.parentNodeId && addEdgeId) {
+            visualizer.addEdge(
+              visualization,
+              options.parentNodeId,
+              addEdgeId,
+              'child',
+              'adds_edge'
+            );
+          }
+        } catch (visualizationError) {
+          logger.error('Error creating add edge visualization node:', visualizationError);
+        }
+      }
+      
+      // Create the edge
       const now = new Date();
       const edgeId = `edge_${ulid()}`;
       
@@ -285,9 +540,61 @@ export class KnowledgeGraph implements IKnowledgeGraph {
         metadata: edgeMetadata
       });
       
+      // Update visualization with success
+      if (visualization && visualizer && addEdgeId) {
+        try {
+          visualizer.updateNode(
+            visualization,
+            addEdgeId,
+            {
+              status: 'completed',
+              data: {
+                edgeId: edgeId,
+                executionCompleted: Date.now(),
+                durationMs: Date.now() - startTime,
+                success: true
+              }
+            }
+          );
+          
+          // Connect source and target nodes in visualization 
+          visualizer.addEdge(
+            visualization,
+            sourceId,
+            targetId,
+            type.toLowerCase(),
+            type
+          );
+        } catch (visualizationError) {
+          logger.error('Error updating add edge visualization with result:', visualizationError);
+        }
+      }
+      
       return edgeId;
     } catch (error) {
-      console.error('Error adding edge to knowledge graph:', error);
+      logger.error('Error adding edge to knowledge graph:', error);
+      
+      // Update visualization with error
+      if (visualization && visualizer && addEdgeId) {
+        try {
+          visualizer.updateNode(
+            visualization,
+            addEdgeId,
+            {
+              status: 'error',
+              data: {
+                error: error instanceof Error ? error.message : String(error),
+                errorCode: 'ADD_EDGE_ERROR',
+                executionCompleted: Date.now(),
+                durationMs: Date.now() - startTime
+              }
+            }
+          );
+        } catch (visualizationError) {
+          logger.error('Error updating add edge visualization with error:', visualizationError);
+        }
+      }
+      
       throw error;
     }
   }
@@ -358,17 +665,17 @@ export class KnowledgeGraph implements IKnowledgeGraph {
         
           try {
             const node: GraphNode = {
-            id: point.id,
-            type: metadata.nodeType as NodeType || NodeType.CONCEPT,
-            label: metadata.label as string || point.payload.text,
-            created: new Date(metadata.created as string),
-            lastUpdated: new Date(metadata.lastUpdated as string),
+              id: point.id,
+              type: metadata.nodeType as NodeType || NodeType.CONCEPT,
+              label: metadata.label as string || point.payload.text,
+              created: new Date(metadata.created as string),
+              lastUpdated: new Date(metadata.lastUpdated as string),
               importance: typeof metadata.importance === 'number' ? metadata.importance : 
-              (metadata.importance ? this.importanceLevelToNumber(metadata.importance as ImportanceLevel) : 0.5),
+                (metadata.importance ? this.importanceLevelToNumber(metadata.importance as ImportanceLevel) : 0.5),
               metadata: metadata,
-            source: metadata.source as string | undefined,
-            confidence: metadata.confidence as number | undefined,
-            properties: metadata.properties as Record<string, string | number | boolean | null> | undefined
+              source: metadata.source as string | undefined,
+              confidence: metadata.confidence as number | undefined,
+              properties: metadata.properties as Record<string, string | number | boolean | null> | undefined
             };
             
             nodes.push(node);

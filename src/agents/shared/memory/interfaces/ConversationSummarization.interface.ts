@@ -38,6 +38,15 @@ export interface ConversationSummaryOptions {
   
   /** Whether to include action items in summary */
   includeActionItems?: boolean;
+  
+  /** Visualization context for tracking the summarization process */
+  visualization?: any;
+  
+  /** Visualization service for creating nodes and edges */
+  visualizer?: any;
+  
+  /** Parent node ID to connect to in the visualization */
+  parentNodeId?: string;
 }
 
 /**
@@ -82,6 +91,9 @@ export interface ConversationSummaryResult {
   
   /** ID of the conversation that was summarized */
   conversationId?: string;
+  
+  /** Visualization node ID if visualization was created */
+  visualizationNodeId?: string;
 }
 
 /**
@@ -117,7 +129,7 @@ export interface ConversationSummarizer {
    */
   getConversationTopics(
     conversationId: string,
-    options?: { maxTopics?: number; minConfidence?: number }
+    options?: { maxTopics?: number; minConfidence?: number; visualization?: any; visualizer?: any; parentNodeId?: string; }
   ): Promise<string[]>;
   
   /**
@@ -129,6 +141,6 @@ export interface ConversationSummarizer {
    */
   extractActionItems(
     conversationId: string,
-    options?: { maxItems?: number; minConfidence?: number }
+    options?: { maxItems?: number; minConfidence?: number; visualization?: any; visualizer?: any; parentNodeId?: string; }
   ): Promise<string[]>;
 } 

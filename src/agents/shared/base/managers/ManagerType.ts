@@ -18,5 +18,7 @@ export enum ManagerType {
   MESSAGING = 'messaging',
   LOGGER = 'logger',
   FILE_PROCESSING = 'file_processing',
-  RESOURCE = 'resource'
+  RESOURCE = 'resource',
+  INTEGRATION = 'integration',
+  STATUS = 'status'
 } 

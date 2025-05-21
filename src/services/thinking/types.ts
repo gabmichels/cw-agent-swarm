@@ -141,6 +141,16 @@ export interface ThinkingOptions {
      */
     traits?: string[];
   };
+  
+  /**
+   * Visualization object for tracking thinking process
+   */
+  visualization?: any;
+  
+  /**
+   * Visualizer service for creating visualization nodes
+   */
+  visualizer?: any;
 }
 
 /**

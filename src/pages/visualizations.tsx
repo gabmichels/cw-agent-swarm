@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import VisualizationsContainer from '../components/VisualizationsContainer';
-import { ThinkingVisualizer, createSampleVisualization } from '../services/thinking/visualization';
+import { ThinkingVisualizer } from '../services/thinking/visualization/ThinkingVisualizer';
+import { createSampleVisualization } from '../services/thinking/visualization';
 import { MemoryService } from '../server/memory/services/memory/memory-service';
 import { QdrantMemoryClient } from '../server/memory/services/client/qdrant-client';
 import { EmbeddingService } from '../server/memory/services/client/embedding-service';

@@ -41,6 +41,7 @@ import {
 } from '../../tasks/PeriodicTaskRunner.interface';
 import { DefaultPeriodicTaskRunner } from '../../tasks/DefaultPeriodicTaskRunner';
 import { ManagerHealth } from '../../base/managers/ManagerHealth';
+import { ThinkingVisualization, VisualizationService } from '../../../../services/thinking/visualization/types';
 
 /**
  * Interface for periodic reflection tasks 
@@ -1034,7 +1035,7 @@ export class EnhancedReflectionManager extends AbstractBaseManager implements Re
   // #region Periodic reflection methods
   
   /**
-   * Schedule a periodic reflection
+   * Schedule a periodic reflection with visualization support
    */
   async schedulePeriodicReflection(
     scheduleStr: string,
@@ -1044,6 +1045,8 @@ export class EnhancedReflectionManager extends AbstractBaseManager implements Re
       focusAreas?: string[];
       strategies?: string[];
       context?: Record<string, unknown>;
+      visualization?: ThinkingVisualization;
+      visualizer?: VisualizationService;
     }
   ): Promise<PeriodicReflectionTask> {
     if (!this._initialized) {
@@ -1055,6 +1058,9 @@ export class EnhancedReflectionManager extends AbstractBaseManager implements Re
     
     const taskId = uuidv4();
     const now = new Date();
+    
+    // Generate a new request ID for this periodic reflection task
+    const requestId = `periodic-reflection-${uuidv4()}`;
     
     // Create the task with the proper PeriodicTask properties
     const task: PeriodicReflectionTask = {
@@ -1070,16 +1076,66 @@ export class EnhancedReflectionManager extends AbstractBaseManager implements Re
         depth: options.depth || this.config.reflectionDepth,
         focusAreas: options.focusAreas || [],
         strategies: options.strategies || [],
-        context: options.context || {}
+        context: {
+          ...(options.context || {}),
+          requestId
+        }
       }
     };
     
     // Store the task in our internal map
     this.reflectionTasks.set(taskId, task);
     
+    // Create visualization node if visualization is enabled
+    let periodicReflectionNodeId: string | undefined;
+    const visualization = options.visualization;
+    const visualizer = options.visualizer;
+    
+    if (visualization && visualizer) {
+      try {
+        // Create a periodic reflection visualization node
+        periodicReflectionNodeId = visualizer.addNode(
+          visualization,
+          'periodic_reflection',
+          `Scheduled Periodic Reflection: ${task.name}`,
+          {
+            taskId,
+            schedule: scheduleStr,
+            name: task.name,
+            depth: options.depth || this.config.reflectionDepth,
+            focusAreas: options.focusAreas || [],
+            strategies: options.strategies || [],
+            nextRunTime: task.nextRunTime.getTime(),
+            requestId,
+            timestamp: now.getTime()
+          },
+          'pending'
+        );
+        
+        // Store the node ID in the task context for reference
+        if (periodicReflectionNodeId) {
+          task.parameters.context = {
+            ...(task.parameters.context || {}),
+            visualizationNodeId: periodicReflectionNodeId
+          };
+          this.reflectionTasks.set(taskId, task);
+        }
+      } catch (visualizationError) {
+        console.error('Error creating periodic reflection visualization node:', visualizationError);
+      }
+    }
+    
     // Create a task handler function
     const taskHandler = async (): Promise<Record<string, unknown>> => {
-      const result = await this.runPeriodicReflectionTask(taskId);
+      // Pass visualization context to the task execution
+      const result = await this.runPeriodicReflectionTask(taskId, {
+        context: {
+          visualization,
+          visualizer,
+          parentNodeId: periodicReflectionNodeId
+        }
+      });
+      
       return { 
         success: result.success,
         reflectionId: result.result && typeof result.result === 'object' ? 
@@ -1096,6 +1152,25 @@ export class EnhancedReflectionManager extends AbstractBaseManager implements Re
       this.logger.log(`Running scheduled task ${taskId} as a demo`);
       taskHandler().catch(err => {
         this.logger.error(`Error running scheduled task ${taskId}:`, err);
+        
+        // Update visualization node with error if available
+        if (visualization && visualizer && periodicReflectionNodeId) {
+          try {
+            visualizer.updateNode(
+              visualization,
+              periodicReflectionNodeId,
+              {
+                status: 'error',
+                data: {
+                  error: err instanceof Error ? err.message : String(err),
+                  errorTime: Date.now()
+                }
+              }
+            );
+          } catch (vizError) {
+            console.error('Error updating periodic reflection visualization with error:', vizError);
+          }
+        }
       });
     }, 10000); // Run after 10 seconds as a demo
     

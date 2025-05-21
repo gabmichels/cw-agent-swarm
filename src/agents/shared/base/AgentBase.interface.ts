@@ -68,6 +68,16 @@ export interface MessageProcessingOptions {
   persona?: Record<string, unknown>;
   processingInstructions?: string[];
   useVisionModel?: boolean;
+  requestId?: string;
+  chatId?: string;
+  messageId?: string;
+  enableVisualization?: boolean;
+  visualizationOptions?: {
+    storeVisualization?: boolean;
+    trackMemoryOperations?: boolean;
+    trackToolExecution?: boolean;
+    trackThinking?: boolean;
+  };
   [key: string]: unknown;
 }
 

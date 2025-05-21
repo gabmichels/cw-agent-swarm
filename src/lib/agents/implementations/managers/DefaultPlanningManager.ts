@@ -149,6 +149,33 @@ export class DefaultPlanningManager extends AbstractBaseManager implements Plann
     }
 
     try {
+      // Check if visualization is enabled in options
+      const visualization = options.visualization;
+      const visualizer = options.visualizer;
+      let planningNodeId: string | undefined;
+      
+      // Add planning visualization node if enabled
+      if (visualization && visualizer) {
+        try {
+          planningNodeId = visualizer.addNode(
+            visualization,
+            'planning', // VisualizationNodeType.PLANNING
+            `Planning: ${options.name || options.description}`,
+            {
+              goal: options.description,
+              timestamp: Date.now(),
+              options: {
+                goals: options.goals,
+                priority: options.priority
+              }
+            },
+            'in_progress'
+          );
+        } catch (error) {
+          console.error('Error creating planning visualization node:', error);
+        }
+      }
+      
       const plan: Plan = {
         id: uuidv4(),
         name: options.name,
@@ -163,14 +190,102 @@ export class DefaultPlanningManager extends AbstractBaseManager implements Plann
         metadata: options.metadata || {}
       };
 
+      // Generate plan steps if needed
+      if (options.generateSteps) {
+        try {
+          // Generate steps for the plan
+          const steps = await this.generatePlanSteps(
+            plan.description,
+            plan.goals,
+            options.context || {}
+          );
+          
+          // Add steps to the plan
+          if (steps && steps.length > 0) {
+            plan.steps = steps.map((step: string, index: number) => ({
+              id: `${plan.id}-step-${index + 1}`,
+              name: `Step ${index + 1}`,
+              description: step,
+              status: 'pending',
+              priority: 0.5,
+              actions: [],
+              dependencies: [],
+              createdAt: new Date(),
+              updatedAt: new Date()
+            } as PlanStep));
+          }
+        } catch (error) {
+          console.error('Error generating plan steps:', error);
+        }
+      }
+
       // Store the plan
       this.plans.set(plan.id, plan);
+      
+      // Update planning visualization node if created
+      if (visualization && visualizer && planningNodeId) {
+        try {
+          // Update the planning node with steps
+          visualizer.updateNode(
+            visualization,
+            planningNodeId,
+            {
+              steps: plan.steps.map((step: PlanStep) => ({
+                id: step.id,
+                name: step.name,
+                description: step.description
+              })),
+              status: 'completed',
+              stepCount: plan.steps.length,
+              endTime: Date.now(),
+              duration: Date.now() - (
+                visualization.nodes.find((node: any) => node.id === planningNodeId)?.metrics?.startTime || Date.now()
+              )
+            }
+          );
+        } catch (error) {
+          console.error('Error updating planning visualization node:', error);
+          
+          // Add error node if visualization update fails
+          try {
+            visualizer.addNode(
+              visualization,
+              'error', // VisualizationNodeType.ERROR
+              'Planning Error',
+              {
+                error: error instanceof Error ? error.message : String(error)
+              },
+              'error'
+            );
+          } catch (errorNodeError) {
+            console.error('Error adding error node:', errorNodeError);
+          }
+        }
+      }
 
       return {
         success: true,
         plan
       };
     } catch (error) {
+      // Add visualization error node if enabled
+      if (options.visualization && options.visualizer) {
+        try {
+          options.visualizer.addNode(
+            options.visualization,
+            'error', // VisualizationNodeType.ERROR
+            'Plan Creation Error',
+            {
+              error: error instanceof Error ? error.message : String(error),
+              description: options.description
+            },
+            'error'
+          );
+        } catch (visualizationError) {
+          console.error('Error adding error node to visualization:', visualizationError);
+        }
+      }
+      
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Failed to create plan'
@@ -536,5 +651,18 @@ export class DefaultPlanningManager extends AbstractBaseManager implements Plann
       avgPlanSteps: allPlans.length > 0 ? totalSteps / allPlans.length : 0,
       avgPlanConfidence: allPlans.length > 0 ? totalConfidence / allPlans.length : 0
     };
+  }
+
+  /**
+   * Generate steps for a plan
+   * @private
+   */
+  private async generatePlanSteps(
+    description: string,
+    goals: string[],
+    context: Record<string, any> = {}
+  ): Promise<string[]> {
+    // Basic implementation - in a real system, this would use an LLM or other planning system
+    return goals.map(goal => `Implement ${goal}`);
   }
 } 

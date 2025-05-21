@@ -576,17 +576,5 @@ export class IntegrationService {
     }
   }
 
-  /**
-   * Gets all visualizations - browser safe implementation
-   * 
-   * @returns All visualizations (empty array in browser context)
-   */
-  async getAllVisualizations(): Promise<any[]> {
-    try {
-      return await this.visualizer.getVisualizations('all');
-    } catch (error) {
-      console.error('Error retrieving visualizations:', error);
-      return [];
-    }
-  }
+  
 } 

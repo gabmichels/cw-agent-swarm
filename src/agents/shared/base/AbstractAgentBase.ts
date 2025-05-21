@@ -44,6 +44,13 @@ import type {
   TaskCreationResult,
   TaskExecutionResult
 } from './managers/SchedulerManager.interface';
+import type {
+  AgentResponse,
+  MessageProcessingOptions,
+  ThinkOptions,
+  GetLLMResponseOptions
+} from './AgentBase.interface';
+import type { ThinkingResult } from '../../../services/thinking/types';
 import { ManagerType } from './managers/ManagerType';
 import { AgentMemoryEntity, AgentStatus } from '../../../server/memory/schema/agent';
 
@@ -517,11 +524,43 @@ export abstract class AbstractAgentBase implements AgentBase {
       timeoutMs?: number;
       retries?: number;
       useFallbacks?: boolean;
+      visualization?: any;
+      visualizer?: any;
+      parentNodeId?: string;
+      requestId?: string;
+      chatId?: string;
+      messageId?: string;
     }
   ): Promise<ToolExecutionResult> {
     const toolManager = this.getManager<ToolManager>(ManagerType.TOOL);
     if (!toolManager) throw new Error('ToolManager not registered');
     if (!toolManager.initialize) throw new Error('ToolManager not initialized');
+    
+    // Check if visualization is enabled
+    // Use type assertion for IntegrationManager
+    const integrationManager = this.getManager(ManagerType.INTEGRATION);
+    if (integrationManager) {
+      // Check if it's an IntegrationManager with getVisualizer method
+      // @ts-ignore - Ignore the property check as we'll check at runtime
+      if (!options?.visualization && typeof integrationManager.getVisualizer === 'function') {
+        try {
+          // @ts-ignore - Call the method dynamically
+          const visualizer = integrationManager.getVisualizer();
+          if (visualizer) {
+            // Clone options to avoid modifying the original
+            options = { 
+              ...options,
+              visualization: options?.visualization,
+              visualizer: options?.visualizer || visualizer
+            };
+          }
+        } catch (error) {
+          // Silently ignore if the method doesn't exist or fails
+          console.debug('Visualization not available', error);
+        }
+      }
+    }
+    
     return toolManager.executeTool(toolId, params, options);
   }
 
@@ -869,4 +908,28 @@ export abstract class AbstractAgentBase implements AgentBase {
   hasManager(type: ManagerType): boolean {
     return this.managers.has(type);
   }
+
+  /**
+   * Process user input with thinking and LLM response
+   * @param message User input message
+   * @param options Processing options
+   * @returns Agent response with content and possible metadata
+   */
+  abstract processUserInput(message: string, options?: MessageProcessingOptions): Promise<AgentResponse>;
+  
+  /**
+   * Perform thinking analysis on user input
+   * @param message User input message
+   * @param options Thinking options
+   * @returns Thinking analysis result
+   */
+  abstract think(message: string, options?: ThinkOptions): Promise<ThinkingResult>;
+  
+  /**
+   * Get LLM response based on user input and thinking results
+   * @param message User input message
+   * @param options LLM response options including thinking results
+   * @returns Agent response with content and possible metadata
+   */
+  abstract getLLMResponse(message: string, options?: GetLLMResponseOptions): Promise<AgentResponse>;
 }

@@ -1579,6 +1579,163 @@ export class DefaultEnhancedMemoryManager extends AbstractBaseManager implements
   }
 
   /**
+   * Retrieve memories relevant to a query with visualization support
+   * @param query The query to search for
+   * @param options Options for memory retrieval
+   * @returns Array of relevant memories
+   */
+  async retrieveRelevantMemories(
+    query: string,
+    options: {
+      limit?: number;
+      types?: string[];
+      tags?: string[];
+      minRelevance?: number;
+      includeCritical?: boolean;
+      visualization?: any;
+      visualizer?: any;
+    } = {}
+  ): Promise<MemoryEntry[]> {
+    try {
+      // Create visualization node if visualization is enabled
+      const visualization = options.visualization;
+      const visualizer = options.visualizer;
+      let retrievalNodeId: string | undefined;
+      
+      if (visualization && visualizer) {
+        try {
+          // Create a memory retrieval visualization node
+          retrievalNodeId = visualizer.addNode(
+            visualization,
+            'context_retrieval', // VisualizationNodeType.CONTEXT_RETRIEVAL
+            'Enhanced Memory Retrieval',
+            {
+              query,
+              types: options.types || [],
+              tags: options.tags || [],
+              timestamp: Date.now()
+            },
+            'in_progress'
+          );
+        } catch (error) {
+          console.error('Error creating enhanced memory retrieval visualization node:', error);
+        }
+      }
+      
+      // First try semantic search for better results
+      let memories: MemoryEntry[] = [];
+      try {
+        memories = await this.searchMemoriesSemanticly(query, {
+          limit: options.limit || 10,
+          minScore: options.minRelevance || 0.6
+        });
+      } catch (error) {
+        console.error('Semantic search failed, falling back to standard search:', error);
+      }
+      
+      // If semantic search didn't return results, fall back to standard search
+      if (memories.length === 0) {
+        // Prepare search options
+        const searchOptions: MemorySearchOptions = {
+          limit: options.limit || 10,
+          metadata: {} as Record<string, any>
+        };
+        
+        // Add type filter if specified
+        if (options.types && options.types.length > 0) {
+          searchOptions.metadata = searchOptions.metadata || {};
+          searchOptions.metadata['type'] = options.types;
+        }
+        
+        // Add tag filter if specified
+        if (options.tags && options.tags.length > 0) {
+          searchOptions.metadata = searchOptions.metadata || {};
+          searchOptions.metadata['tags'] = options.tags;
+        }
+        
+        // Get memories
+        memories = await this.searchMemories(query, searchOptions);
+      }
+      
+      // Update visualization node if it was created
+      if (visualization && visualizer && retrievalNodeId) {
+        try {
+          // Find the retrieval node
+          const retrievalNode = visualization.nodes.find(
+            (node: { id: string }) => node.id === retrievalNodeId
+          );
+          
+          if (retrievalNode) {
+            // Create array of unique memory types
+            const memoryTypes: string[] = [];
+            memories.forEach(m => {
+              const type = m.metadata?.type as string || 'unknown';
+              if (!memoryTypes.includes(type)) {
+                memoryTypes.push(type);
+              }
+            });
+            
+            // Extract unique tags from memories
+            const memoryTags: string[] = [];
+            memories.forEach(m => {
+              const tags = m.metadata?.tags as string[] || [];
+              tags.forEach(tag => {
+                if (!memoryTags.includes(tag)) {
+                  memoryTags.push(tag);
+                }
+              });
+            });
+            
+            // Update with results
+            retrievalNode.status = 'completed';
+            retrievalNode.data = {
+              ...retrievalNode.data,
+              resultCount: memories.length,
+              memoryTypes,
+              memoryTags,
+              memoryIds: memories.map(m => m.id),
+              searchMethod: memories.some(m => m.metadata?.semanticScore) ? 'semantic' : 'standard'
+            };
+            
+            // Add end time and duration to metrics
+            if (retrievalNode.metrics) {
+              retrievalNode.metrics.endTime = Date.now();
+              retrievalNode.metrics.duration = 
+                retrievalNode.metrics.endTime - (retrievalNode.metrics.startTime || Date.now());
+            }
+          }
+        } catch (error) {
+          console.error('Error updating enhanced memory retrieval visualization node:', error);
+        }
+      }
+      
+      return memories;
+    } catch (error) {
+      console.error('Error retrieving relevant memories in EnhancedMemoryManager:', error);
+      
+      // Update visualization with error if enabled
+      if (options.visualization && options.visualizer) {
+        try {
+          options.visualizer.addNode(
+            options.visualization,
+            'error', // VisualizationNodeType.ERROR
+            'Enhanced Memory Retrieval Error',
+            {
+              error: error instanceof Error ? error.message : String(error),
+              query
+            },
+            'error'
+          );
+        } catch (visualizationError) {
+          console.error('Error updating visualization with error:', visualizationError);
+        }
+      }
+      
+      return [];
+    }
+  }
+
+  /**
    * Add a memory with automatic tagging and semantic processing
    */
   async addMemoryWithProcessing(

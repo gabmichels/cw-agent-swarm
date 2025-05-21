@@ -49,11 +49,70 @@ export class DefaultApifyManager implements IApifyManager {
    * Run an Apify actor with the given options
    * 
    * @param options The options for running the actor
+   * @param visualization Optional visualization context
+   * @param visualizer Optional visualization service
    * @returns The result of the operation
    */
-  async runApifyActor<T = any>(options: ApifyToolInput): Promise<ApifyToolResult<T>> {
+  async runApifyActor<T = any>(
+    options: ApifyToolInput,
+    visualization?: any,
+    visualizer?: any
+  ): Promise<ApifyToolResult<T>> {
+    const startTime = Date.now();
+    let vizNodeId: string | undefined;
+    let isRssFeed = false;
+    
+    // Check if this is an RSS feed actor call
+    if (options.actorId === 'lstolcman/rss-scraper' || 
+        options.actorId === 'apify/rss-reader' || 
+        options.label?.toLowerCase().includes('rss') || 
+        (options.input && 'urls' in options.input && Array.isArray(options.input.urls))) {
+      isRssFeed = true;
+    }
+    
+    // Create visualization node if visualization is enabled and this is an RSS feed
+    if (visualization && visualizer && isRssFeed) {
+      try {
+        // Create an RSS feed visualization node
+        vizNodeId = visualizer.addNode(
+          visualization,
+          'rss_feed',
+          'RSS Feed',
+          {
+            actorId: options.actorId,
+            urls: options.input && 'urls' in options.input ? options.input.urls : [],
+            label: options.label,
+            timestamp: startTime,
+            dryRun: options.dryRun
+          },
+          'in_progress'
+        );
+      } catch (visualizationError) {
+        logger.error('Error creating RSS feed visualization node:', visualizationError);
+      }
+    }
+    
     // Check if API token is available
     if (!this.apiToken) {
+      // Update visualization with error if this is an RSS feed
+      if (visualization && visualizer && vizNodeId && isRssFeed) {
+        try {
+          visualizer.updateNode(
+            visualization,
+            vizNodeId,
+            {
+              status: 'error',
+              data: {
+                error: 'APIFY_API_KEY environment variable is not set',
+                errorCode: 'MISSING_API_KEY'
+              }
+            }
+          );
+        } catch (visualizationError) {
+          logger.error('Error updating RSS feed visualization with error:', visualizationError);
+        }
+      }
+      
       return {
         success: false,
         error: 'APIFY_API_KEY environment variable is not set'
@@ -63,6 +122,27 @@ export class DefaultApifyManager implements IApifyManager {
     // Handle dry run mode
     if (options.dryRun) {
       logger.info(`[DRY RUN] Would start Apify actor: ${options.actorId} (${options.label || 'Unnamed run'})`);
+      
+      // Update visualization with dry run info if this is an RSS feed
+      if (visualization && visualizer && vizNodeId && isRssFeed) {
+        try {
+          visualizer.updateNode(
+            visualization,
+            vizNodeId,
+            {
+              status: 'completed',
+              data: {
+                isDryRun: true,
+                executionCompleted: Date.now(),
+                durationMs: Date.now() - startTime
+              }
+            }
+          );
+        } catch (visualizationError) {
+          logger.error('Error updating RSS feed visualization with dry run info:', visualizationError);
+        }
+      }
+      
       return {
         success: true,
         runId: 'dry-run-id',
@@ -72,6 +152,23 @@ export class DefaultApifyManager implements IApifyManager {
     }
     
     try {
+      // Update visualization with execution details if this is an RSS feed
+      if (visualization && visualizer && vizNodeId && isRssFeed) {
+        try {
+          visualizer.updateNode(
+            visualization,
+            vizNodeId,
+            {
+              data: {
+                executionStarted: Date.now()
+              }
+            }
+          );
+        } catch (visualizationError) {
+          logger.error('Error updating RSS feed visualization with execution details:', visualizationError);
+        }
+      }
+      
       // Create actor run
       const runResponse = await fetch(`${this.baseApiUrl}/acts/${options.actorId}/runs`, {
         method: 'POST',
@@ -91,6 +188,28 @@ export class DefaultApifyManager implements IApifyManager {
       if (!runResponse.ok) {
         const error = await runResponse.text();
         logger.error(`Failed to start Apify actor: ${error}`);
+        
+        // Update visualization with error if this is an RSS feed
+        if (visualization && visualizer && vizNodeId && isRssFeed) {
+          try {
+            visualizer.updateNode(
+              visualization,
+              vizNodeId,
+              {
+                status: 'error',
+                data: {
+                  error: `Failed to start actor: ${error}`,
+                  errorCode: 'START_FAILED',
+                  executionCompleted: Date.now(),
+                  durationMs: Date.now() - startTime
+                }
+              }
+            );
+          } catch (visualizationError) {
+            logger.error('Error updating RSS feed visualization with error:', visualizationError);
+          }
+        }
+        
         return {
           success: false,
           error: `Failed to start actor: ${error}`
@@ -118,6 +237,28 @@ export class DefaultApifyManager implements IApifyManager {
         if (!statusResponse.ok) {
           const error = await statusResponse.text();
           logger.error(`Failed to check run status: ${error}`);
+          
+          // Update visualization with error if this is an RSS feed
+          if (visualization && visualizer && vizNodeId && isRssFeed) {
+            try {
+              visualizer.updateNode(
+                visualization,
+                vizNodeId,
+                {
+                  status: 'error',
+                  data: {
+                    error: `Failed to check run status: ${error}`,
+                    errorCode: 'STATUS_CHECK_FAILED',
+                    executionCompleted: Date.now(),
+                    durationMs: Date.now() - startTime
+                  }
+                }
+              );
+            } catch (visualizationError) {
+              logger.error('Error updating RSS feed visualization with error:', visualizationError);
+            }
+          }
+          
           return {
             success: false,
             runId,
@@ -131,6 +272,28 @@ export class DefaultApifyManager implements IApifyManager {
       
       if (status !== 'SUCCEEDED') {
         logger.warn(`Actor run ${runId} did not complete successfully: ${status}`);
+        
+        // Update visualization with error if this is an RSS feed
+        if (visualization && visualizer && vizNodeId && isRssFeed) {
+          try {
+            visualizer.updateNode(
+              visualization,
+              vizNodeId,
+              {
+                status: 'error',
+                data: {
+                  error: `Actor run did not complete successfully: ${status}`,
+                  errorCode: 'RUN_FAILED',
+                  executionCompleted: Date.now(),
+                  durationMs: Date.now() - startTime
+                }
+              }
+            );
+          } catch (visualizationError) {
+            logger.error('Error updating RSS feed visualization with error:', visualizationError);
+          }
+        }
+        
         return {
           success: false,
           runId,
@@ -148,6 +311,28 @@ export class DefaultApifyManager implements IApifyManager {
       if (!datasetResponse.ok) {
         const error = await datasetResponse.text();
         logger.error(`Failed to fetch run results: ${error}`);
+        
+        // Update visualization with error if this is an RSS feed
+        if (visualization && visualizer && vizNodeId && isRssFeed) {
+          try {
+            visualizer.updateNode(
+              visualization,
+              vizNodeId,
+              {
+                status: 'error',
+                data: {
+                  error: `Failed to fetch run results: ${error}`,
+                  errorCode: 'RESULTS_FETCH_FAILED',
+                  executionCompleted: Date.now(),
+                  durationMs: Date.now() - startTime
+                }
+              }
+            );
+          } catch (visualizationError) {
+            logger.error('Error updating RSS feed visualization with error:', visualizationError);
+          }
+        }
+        
         return {
           success: false,
           runId,
@@ -156,6 +341,62 @@ export class DefaultApifyManager implements IApifyManager {
       }
       
       const outputData = await datasetResponse.json();
+      const endTime = Date.now();
+      
+      // Create results analysis node if visualization is enabled and this is an RSS feed
+      if (visualization && visualizer && vizNodeId && isRssFeed && Array.isArray(outputData)) {
+        try {
+          // Update feed node with success
+          visualizer.updateNode(
+            visualization,
+            vizNodeId,
+            {
+              status: 'completed',
+              data: {
+                resultCount: outputData.length,
+                executionCompleted: endTime,
+                durationMs: endTime - startTime,
+                success: true
+              }
+            }
+          );
+          
+          // Create analysis node if we have feed items
+          if (outputData.length > 0) {
+            // Analyze feed content
+            const feedItems = outputData;
+            const feedUrls = options.input && 'urls' in options.input ? options.input.urls : [];
+            const firstUrl = Array.isArray(feedUrls) && feedUrls.length > 0 ? feedUrls[0] : 'unknown';
+            
+            // Create analysis node
+            const analysisNodeId = visualizer.addNode(
+              visualization,
+              'rss_analysis',
+              'RSS Feed Analysis',
+              {
+                url: firstUrl,
+                resultCount: feedItems.length,
+                totalFeeds: Array.isArray(feedUrls) ? feedUrls.length : 1,
+                topTitles: feedItems.slice(0, 3).map((item: any) => item.title || 'Untitled'),
+                contentTypes: this.categorizeRssContent(feedItems),
+                timestamp: Date.now()
+              },
+              'completed'
+            );
+            
+            // Connect feed node to analysis node
+            visualizer.addEdge(
+              visualization,
+              vizNodeId,
+              analysisNodeId,
+              'flow',
+              'analyzed'
+            );
+          }
+        } catch (visualizationError) {
+          logger.error('Error creating RSS feed analysis visualization:', visualizationError);
+        }
+      }
       
       return {
         success: true,
@@ -165,6 +406,29 @@ export class DefaultApifyManager implements IApifyManager {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       logger.error(`Error in Apify actor run: ${errorMessage}`);
+      
+      // Update visualization with error if this is an RSS feed
+      if (visualization && visualizer && vizNodeId && isRssFeed) {
+        try {
+          visualizer.updateNode(
+            visualization,
+            vizNodeId,
+            {
+              status: 'error',
+              data: {
+                error: `Error in actor run: ${errorMessage}`,
+                errorCode: 'EXECUTION_ERROR',
+                errorStack: error instanceof Error ? error.stack : undefined,
+                executionCompleted: Date.now(),
+                durationMs: Date.now() - startTime
+              }
+            }
+          );
+        } catch (visualizationError) {
+          logger.error('Error updating RSS feed visualization with error:', visualizationError);
+        }
+      }
+      
       return {
         success: false,
         error: `Error in actor run: ${errorMessage}`
@@ -173,16 +437,117 @@ export class DefaultApifyManager implements IApifyManager {
   }
 
   /**
+   * Categorize RSS content types
+   * 
+   * @private
+   * @param items RSS feed items from the API
+   * @returns Object with categories and counts
+   */
+  private categorizeRssContent(items: any[]): Record<string, number> {
+    const categories: Record<string, number> = {
+      'text': 0,
+      'image': 0,
+      'video': 0,
+      'link': 0,
+      'audio': 0,
+      'other': 0
+    };
+    
+    for (const item of items) {
+      const content = item.content || item.contentSnippet || item.description || '';
+      
+      if (item.enclosure && item.enclosure.type) {
+        // Use enclosure type if available
+        const type = item.enclosure.type;
+        
+        if (type.startsWith('image/')) {
+          categories.image++;
+        } else if (type.startsWith('video/')) {
+          categories.video++;
+        } else if (type.startsWith('audio/')) {
+          categories.audio++;
+        } else {
+          categories.other++;
+        }
+      } else if (content.includes('<img') || content.match(/\.(jpg|jpeg|png|gif)/i)) {
+        categories.image++;
+      } else if (content.includes('<video') || content.match(/\.(mp4|webm|ogv)/i)) {
+        categories.video++;
+      } else if (content.includes('<audio') || content.match(/\.(mp3|wav|ogg)/i)) {
+        categories.audio++;
+      } else if (content.length > 0) {
+        categories.text++;
+      } else if (item.link) {
+        categories.link++;
+      } else {
+        categories.other++;
+      }
+    }
+    
+    return categories;
+  }
+
+  /**
    * Search Reddit for posts related to a keyword or topic
    * 
    * @param query The search query
    * @param dryRun Whether to skip the actual API call
    * @param maxResults Maximum number of results to return
+   * @param visualization Optional visualization context
+   * @param visualizer Optional visualization service
    * @returns The search results
    */
-  async runRedditSearch(query: string, dryRun = false, maxResults = 10): Promise<ApifyToolResult> {
+  async runRedditSearch(
+    query: string, 
+    dryRun = false, 
+    maxResults = 10,
+    visualization?: any, 
+    visualizer?: any
+  ): Promise<ApifyToolResult> {
+    const startTime = Date.now();
+    let searchNodeId: string | undefined;
+    
+    // Create visualization node if visualization is enabled
+    if (visualization && visualizer) {
+      try {
+        // Create a Reddit search visualization node
+        searchNodeId = visualizer.addNode(
+          visualization,
+          'reddit_search',
+          'Reddit Search',
+          {
+            query,
+            maxResults,
+            dryRun,
+            timestamp: startTime
+          },
+          'in_progress'
+        );
+      } catch (visualizationError) {
+        logger.error('Error creating Reddit search visualization node:', visualizationError);
+      }
+    }
+    
     try {
-      return await this.runApifyActor({
+      // Update visualization with execution details
+      if (visualization && visualizer && searchNodeId) {
+        try {
+          visualizer.updateNode(
+            visualization,
+            searchNodeId,
+            {
+              data: {
+                executionStarted: Date.now()
+              }
+            }
+          );
+        } catch (visualizationError) {
+          logger.error('Error updating Reddit search visualization:', visualizationError);
+        }
+      }
+      
+      // Execute the search
+      const result = await this.runApifyActor({
         actorId: 'trudax/reddit-scraper-lite',
         input: {
           searchQuery: query,
@@ -191,10 +556,107 @@ export class DefaultApifyManager implements IApifyManager {
         },
         label: `Reddit search: ${query}`,
         dryRun
-      });
+      }, visualization, visualizer);
+      
+      // Create results analysis node if visualization is enabled and search was successful
+      if (visualization && visualizer && searchNodeId && result.success && result.output) {
+        try {
+          const endTime = Date.now();
+          
+          // Update search node with success
+          visualizer.updateNode(
+            visualization,
+            searchNodeId,
+            {
+              status: 'completed',
+              data: {
+                resultCount: Array.isArray(result.output) ? result.output.length : 0,
+                executionCompleted: endTime,
+                durationMs: endTime - startTime,
+                success: true
+              }
+            }
+          );
+          
+          // Create analysis node
+          if (Array.isArray(result.output) && result.output.length > 0) {
+            const posts = result.output;
+            
+            // Create analysis node
+            const analysisNodeId = visualizer.addNode(
+              visualization,
+              'reddit_analysis',
+              'Reddit Search Results Analysis',
+              {
+                query,
+                resultCount: posts.length,
+                communities: Array.from(new Set(posts.map((p: any) => p.community || p.subreddit || 'unknown'))),
+                topTitles: posts.slice(0, 3).map((p: any) => p.title || 'Untitled'),
+                timestamp: Date.now()
+              },
+              'completed'
+            );
+            
+            // Connect search node to analysis node
+            visualizer.addEdge(
+              visualization,
+              searchNodeId,
+              analysisNodeId,
+              'flow',
+              'analyzed'
+            );
+          }
+        } catch (visualizationError) {
+          logger.error('Error creating Reddit search results visualization:', visualizationError);
+        }
+      } else if (visualization && visualizer && searchNodeId && !result.success) {
+        // Update visualization with error
+        try {
+          visualizer.updateNode(
+            visualization,
+            searchNodeId,
+            {
+              status: 'error',
+              data: {
+                error: result.error || 'Search failed with no specific error',
+                errorCode: 'SEARCH_FAILED',
+                executionCompleted: Date.now(),
+                durationMs: Date.now() - startTime
+              }
+            }
+          );
+        } catch (visualizationError) {
+          logger.error('Error updating Reddit search visualization with error:', visualizationError);
+        }
+      }
+      
+      return result;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       logger.error(`Error in Reddit search: ${errorMessage}`);
+      
+      // Update visualization with error
+      if (visualization && visualizer && searchNodeId) {
+        try {
+          visualizer.updateNode(
+            visualization,
+            searchNodeId,
+            {
+              status: 'error',
+              data: {
+                error: errorMessage,
+                errorCode: 'SEARCH_ERROR',
+                errorStack: error instanceof Error ? error.stack : undefined,
+                executionCompleted: Date.now(),
+                durationMs: Date.now() - startTime
+              }
+            }
+          );
+        } catch (visualizationError) {
+          logger.error('Error updating Reddit search visualization with error:', visualizationError);
+        }
+      }
+      
       return {
         success: false,
         error: `Error in Reddit search: ${errorMessage}`
@@ -208,11 +670,61 @@ export class DefaultApifyManager implements IApifyManager {
    * @param query The search query
    * @param dryRun Whether to skip the actual API call
    * @param maxResults Maximum number of results to return
+   * @param visualization Optional visualization context
+   * @param visualizer Optional visualization service
    * @returns The search results
    */
-  async runTwitterSearch(query: string, dryRun = false, maxResults = 10): Promise<ApifyToolResult> {
+  async runTwitterSearch(
+    query: string, 
+    dryRun = false, 
+    maxResults = 10,
+    visualization?: any, 
+    visualizer?: any
+  ): Promise<ApifyToolResult> {
+    const startTime = Date.now();
+    let searchNodeId: string | undefined;
+    
+    // Create visualization node if visualization is enabled
+    if (visualization && visualizer) {
+      try {
+        // Create a Twitter search visualization node
+        searchNodeId = visualizer.addNode(
+          visualization,
+          'twitter_search',
+          'Twitter Search',
+          {
+            query,
+            maxResults,
+            dryRun,
+            timestamp: startTime
+          },
+          'in_progress'
+        );
+      } catch (visualizationError) {
+        logger.error('Error creating Twitter search visualization node:', visualizationError);
+      }
+    }
+    
     try {
-      return await this.runApifyActor({
+      // Update visualization with execution details
+      if (visualization && visualizer && searchNodeId) {
+        try {
+          visualizer.updateNode(
+            visualization,
+            searchNodeId,
+            {
+              data: {
+                executionStarted: Date.now()
+              }
+            }
+          );
+        } catch (visualizationError) {
+          logger.error('Error updating Twitter search visualization:', visualizationError);
+        }
+      }
+      
+      // Execute the search
+      const result = await this.runApifyActor({
         actorId: 'apidojo/twitter-scraper-lite',
         input: {
           searchTerms: [query],
@@ -221,15 +733,165 @@ export class DefaultApifyManager implements IApifyManager {
         },
         label: `Twitter search: ${query}`,
         dryRun
-      });
+      }, visualization, visualizer);
+      
+      // Create results analysis node if visualization is enabled and search was successful
+      if (visualization && visualizer && searchNodeId && result.success && result.output) {
+        try {
+          const endTime = Date.now();
+          
+          // Update search node with success
+          visualizer.updateNode(
+            visualization,
+            searchNodeId,
+            {
+              status: 'completed',
+              data: {
+                resultCount: Array.isArray(result.output) ? result.output.length : 0,
+                executionCompleted: endTime,
+                durationMs: endTime - startTime,
+                success: true
+              }
+            }
+          );
+          
+          // Create analysis node
+          if (Array.isArray(result.output) && result.output.length > 0) {
+            const tweets = result.output;
+            
+            // Create analysis node
+            const analysisNodeId = visualizer.addNode(
+              visualization,
+              'twitter_analysis',
+              'Twitter Search Results Analysis',
+              {
+                query,
+                resultCount: tweets.length,
+                users: Array.from(new Set(tweets.map((t: any) => t.username || t.user?.screen_name || 'unknown'))),
+                topContent: tweets.slice(0, 3).map((t: any) => t.text || t.full_text || t.content || 'No content'),
+                contentTypes: this.categorizeTweets(tweets),
+                timestamp: Date.now()
+              },
+              'completed'
+            );
+            
+            // Connect search node to analysis node
+            visualizer.addEdge(
+              visualization,
+              searchNodeId,
+              analysisNodeId,
+              'flow',
+              'analyzed'
+            );
+          }
+        } catch (visualizationError) {
+          logger.error('Error creating Twitter search results visualization:', visualizationError);
+        }
+      } else if (visualization && visualizer && searchNodeId && !result.success) {
+        // Update visualization with error
+        try {
+          visualizer.updateNode(
+            visualization,
+            searchNodeId,
+            {
+              status: 'error',
+              data: {
+                error: result.error || 'Search failed with no specific error',
+                errorCode: 'SEARCH_FAILED',
+                executionCompleted: Date.now(),
+                durationMs: Date.now() - startTime
+              }
+            }
+          );
+        } catch (visualizationError) {
+          logger.error('Error updating Twitter search visualization with error:', visualizationError);
+        }
+      }
+      
+      return result;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       logger.error(`Error in Twitter search: ${errorMessage}`);
+      
+      // Update visualization with error
+      if (visualization && visualizer && searchNodeId) {
+        try {
+          visualizer.updateNode(
+            visualization,
+            searchNodeId,
+            {
+              status: 'error',
+              data: {
+                error: errorMessage,
+                errorCode: 'SEARCH_ERROR',
+                errorStack: error instanceof Error ? error.stack : undefined,
+                executionCompleted: Date.now(),
+                durationMs: Date.now() - startTime
+              }
+            }
+          );
+        } catch (visualizationError) {
+          logger.error('Error updating Twitter search visualization with error:', visualizationError);
+        }
+      }
+      
       return {
         success: false,
         error: `Error in Twitter search: ${errorMessage}`
       };
     }
+  }
+
+  /**
+   * Categorize tweet types 
+   * 
+   * @private
+   * @param tweets Array of tweet objects from the API
+   * @returns Object with categories and counts
+   */
+  private categorizeTweets(tweets: any[]): Record<string, number> {
+    const categories: Record<string, number> = {
+      'text': 0,
+      'image': 0,
+      'video': 0,
+      'link': 0,
+      'retweet': 0,
+      'reply': 0
+    };
+    
+    for (const tweet of tweets) {
+      // Check for retweets and replies
+      if (tweet.is_retweet || tweet.retweeted_status || tweet.text?.startsWith('RT @')) {
+        categories.retweet++;
+      } else if (tweet.in_reply_to_status_id || tweet.in_reply_to_user_id || tweet.text?.startsWith('@')) {
+        categories.reply++;
+      }
+      
+      // Check for media
+      if (tweet.has_media || tweet.extended_entities?.media || tweet.entities?.media) {
+        const media = tweet.extended_entities?.media || tweet.entities?.media || [];
+        
+        for (const item of media) {
+          if (item.type === 'photo' || item.type === 'image') {
+            categories.image++;
+          } else if (item.type === 'video' || item.type === 'animated_gif') {
+            categories.video++;
+          }
+        }
+      }
+      
+      // Check for links
+      if (tweet.entities?.urls && tweet.entities.urls.length > 0) {
+        categories.link++;
+      }
+      
+      // If no other category fits, mark as text
+      if (!Object.values(categories).some(count => count > 0)) {
+        categories.text++;
+      }
+    }
+    
+    return categories;
   }
 
   /**
