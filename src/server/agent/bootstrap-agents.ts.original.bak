@@ -122,10 +122,11 @@ class FullyCapableAgent {
           priority: 0.7,
           metadata: {
             scheduleType: "interval",
-            intervalMs: 120000, // Every 2 minutes
-            startAfterMs: 60000, // Start after 1 minute
+            intervalMs: 30000, // Every 30 seconds
+            startAfterMs: 5000, // Start after just 5 seconds
+            scheduledTime: new Date(Date.now() + 5000), // Explicit scheduled time 5 seconds from now
             isDebugTask: true,
-            action: "processUserInput", // Task will call the agent's processUserInput method
+            action: "processUserInput",
             parameters: {
               message: "Run a quick health check and report any issues."
             }
@@ -370,6 +371,10 @@ class FullyCapableAgent {
   }
 
   getManager<T>(type: ManagerType): T | null {
+    console.log(`[${this.id}] Requested manager type: ${type}`);
+    const manager = this.managers.get(type) || null;
+    console.log(`[${this.id}] Manager lookup result: ${manager ? 'found' : 'NOT FOUND'}`);
+    return manager as T | null;
     return (this.managers.get(type) || null) as T | null;
   }
 
@@ -378,6 +383,19 @@ class FullyCapableAgent {
   }
 
   setManager<T>(manager: T): void {
+    const managerAny = manager as any;
+    if (managerAny && managerAny.managerType) {
+      console.log(`[${this.id}] Setting manager type ${managerAny.managerType} with ID ${managerAny.managerId || 'unknown'}`);
+      this.managers.set(managerAny.managerType, manager);
+      
+      // Verify addition
+      setTimeout(() => {
+        const storedManager = this.managers.get(managerAny.managerType);
+        console.log(`[${this.id}] Verification: Manager type ${managerAny.managerType} is ${storedManager ? 'present' : 'MISSING'}`);
+      }, 100);
+    } else {
+      console.log(`[${this.id}] Warning: Attempted to set manager without managerType`);
+    }
     const managerAny = manager as any;
     if (managerAny && managerAny.managerType) {
       this.managers.set(managerAny.managerType, manager);
@@ -591,6 +609,8 @@ class FullyCapableAgent {
  * @returns Promise resolving to the number of agents loaded
  */
 export async function bootstrapAgentsFromDatabase(): Promise<number> {
+  console.log("=== SCHEDULER DEBUG: bootstrapAgentsFromDatabase called ===");
+
   try {
     logger.info('Bootstrapping agents from database into runtime registry...');
     console.log('🤖 Starting agent bootstrap process...');

@@ -20,5 +20,6 @@ export enum ManagerType {
   FILE_PROCESSING = 'file_processing',
   RESOURCE = 'resource',
   INTEGRATION = 'integration',
-  STATUS = 'status'
+  STATUS = 'status',
+  NOTIFICATION = 'notification'
 } 

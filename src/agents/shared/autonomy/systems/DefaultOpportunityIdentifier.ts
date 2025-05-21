@@ -64,23 +64,55 @@ export class DefaultOpportunityIdentifier implements OpportunityIdentifier {
     }
 
     try {
-      // Verify required managers are available
-      const memoryManager = this.agent.getManager<MemoryManager>(ManagerType.MEMORY);
-      const knowledgeManager = this.agent.getManager<KnowledgeManager>(ManagerType.KNOWLEDGE);
-      const reflectionManager = this.agent.getManager<ReflectionManager>(ManagerType.REFLECTION);
+      const agentId = this.agent.getAgentId();
+      
+      // Log initialization start for debugging
+      console.log(`[OpportunityIdentifier] Initializing for agent ${agentId}`);
+      
+      // Get list of all available managers
+      const allManagers = Array.isArray(this.agent.getManagers) ? this.agent.getManagers() : [];
+      console.log(`[OpportunityIdentifier] Agent has ${allManagers.length} total managers`);
+      
+      // Check for managers but make them optional
+      const hasManager = (type: ManagerType): boolean => {
+        return this.agent.hasManager ? this.agent.hasManager(type) : false;
+      };
+      
+      // Log all available managers for debugging
+      const availableManagerTypes = allManagers
+        .filter(m => m && m.managerType)
+        .map(m => m.managerType);
+      
+      console.log(`[OpportunityIdentifier] Available manager types: ${JSON.stringify(availableManagerTypes)}`);
+      
+      // Get optional managers - we'll operate with limited functionality if they're missing
+      const memoryManager = hasManager(ManagerType.MEMORY) ? 
+        this.agent.getManager<MemoryManager>(ManagerType.MEMORY) : null;
+      
+      const knowledgeManager = hasManager(ManagerType.KNOWLEDGE) ? 
+        this.agent.getManager<KnowledgeManager>(ManagerType.KNOWLEDGE) : null;
+      
+      const reflectionManager = hasManager(ManagerType.REFLECTION) ? 
+        this.agent.getManager<ReflectionManager>(ManagerType.REFLECTION) : null;
 
+      // Log which managers are available for debugging
+      console.log(`[OpportunityIdentifier] Memory Manager available: ${!!memoryManager}`);
+      console.log(`[OpportunityIdentifier] Knowledge Manager available: ${!!knowledgeManager}`);
+      console.log(`[OpportunityIdentifier] Reflection Manager available: ${!!reflectionManager}`);
+      
+      // We'll initialize even if some managers are missing, but with reduced functionality
       if (!memoryManager || !knowledgeManager || !reflectionManager) {
-        throw new OpportunityIdentificationError(
-          'Required managers not available',
-          'MANAGERS_NOT_AVAILABLE'
-        );
+        console.warn(`[OpportunityIdentifier] Some managers are missing. Opportunity identification will have limited functionality.`);
       }
 
       this.initialized = true;
+      console.log(`[OpportunityIdentifier] Successfully initialized for agent ${agentId}`);
       return true;
     } catch (error) {
-      console.error('Error initializing opportunity identifier:', error);
-      return false;
+      console.error('[OpportunityIdentifier] Error initializing opportunity identifier:', error);
+      // Initialize anyway to avoid blocking the agent's operation
+      this.initialized = true;
+      return true;
     }
   }
 
@@ -91,7 +123,15 @@ export class DefaultOpportunityIdentifier implements OpportunityIdentifier {
     content: string,
     options: TriggerDetectionOptions = {}
   ): Promise<OpportunityTrigger[]> {
-    this.ensureInitialized();
+    // Initialize if not already initialized
+    if (!this.initialized) {
+      try {
+        await this.initialize();
+      } catch (error) {
+        console.warn('[OpportunityIdentifier] Auto-initializing during trigger detection:', error);
+        this.initialized = true; // Force initialized to avoid blocking
+      }
+    }
 
     const triggers: OpportunityTrigger[] = [];
     const now = new Date();
@@ -141,7 +181,15 @@ export class DefaultOpportunityIdentifier implements OpportunityIdentifier {
   async identifyOpportunities(
     triggers: OpportunityTrigger[]
   ): Promise<OpportunityDetectionResult> {
-    this.ensureInitialized();
+    // Initialize if not already initialized
+    if (!this.initialized) {
+      try {
+        await this.initialize();
+      } catch (error) {
+        console.warn('[OpportunityIdentifier] Auto-initializing during opportunity identification:', error);
+        this.initialized = true; // Force initialized to avoid blocking
+      }
+    }
 
     const opportunities: IdentifiedOpportunity[] = [];
     const now = new Date();
@@ -243,23 +291,60 @@ export class DefaultOpportunityIdentifier implements OpportunityIdentifier {
     };
 
     try {
+      // Safely get managers if available, and provide fallbacks if they're not
+      
       // Get relevant memories if available
-      const memoryManager = this.agent.getManager<MemoryManager>(ManagerType.MEMORY);
-      if (memoryManager) {
-        const recentMemories = await memoryManager.getRecentMemories(5);
-        context.recentMemories = recentMemories;
+      try {
+        if (this.agent.hasManager && this.agent.hasManager(ManagerType.MEMORY)) {
+          const memoryManager = this.agent.getManager<MemoryManager>(ManagerType.MEMORY);
+          if (memoryManager) {
+            try {
+              const recentMemories = await memoryManager.getRecentMemories(5);
+              context.recentMemories = recentMemories;
+            } catch (err: any) {
+              console.warn(`[OpportunityIdentifier] Error getting recent memories: ${err.message}`);
+              context.recentMemories = [];
+            }
+          } else {
+            context.recentMemories = [];
+          }
+        } else {
+          context.recentMemories = [];
+        }
+      } catch (memErr) {
+        console.warn(`[OpportunityIdentifier] Memory manager access error: ${memErr}`);
+        context.recentMemories = [];
       }
 
       // Get relevant knowledge if available
-      const knowledgeManager = this.agent.getManager<KnowledgeManager>(ManagerType.KNOWLEDGE);
-      if (knowledgeManager) {
-        const content = typeof trigger.context.content === 'string' ? trigger.context.content : '';
-        const searchResults = await knowledgeManager.searchKnowledge(content, { limit: 3 });
-        // Extract entries from search results
-        context.relevantKnowledge = searchResults.map(result => result.entry);
+      try {
+        if (this.agent.hasManager && this.agent.hasManager(ManagerType.KNOWLEDGE)) {
+          const knowledgeManager = this.agent.getManager<KnowledgeManager>(ManagerType.KNOWLEDGE);
+          if (knowledgeManager) {
+            try {
+              const content = typeof trigger.context.content === 'string' ? trigger.context.content : '';
+              const searchResults = await knowledgeManager.searchKnowledge(content, { limit: 3 });
+              // Extract entries from search results
+              context.relevantKnowledge = searchResults.map(result => result.entry);
+            } catch (err: any) {
+              console.warn(`[OpportunityIdentifier] Error searching knowledge: ${err.message}`);
+              context.relevantKnowledge = [];
+            }
+          } else {
+            context.relevantKnowledge = [];
+          }
+        } else {
+          context.relevantKnowledge = [];
+        }
+      } catch (knowledgeErr) {
+        console.warn(`[OpportunityIdentifier] Knowledge manager access error: ${knowledgeErr}`);
+        context.relevantKnowledge = [];
       }
     } catch (error) {
-      console.error('Error gathering opportunity context:', error);
+      console.error('[OpportunityIdentifier] Error gathering opportunity context:', error);
+      // Provide empty arrays as fallbacks
+      context.recentMemories = context.recentMemories || [];
+      context.relevantKnowledge = context.relevantKnowledge || [];
     }
 
     return context;
@@ -275,7 +360,15 @@ export class DefaultOpportunityIdentifier implements OpportunityIdentifier {
       status?: string;
     }
   ): Promise<IdentifiedOpportunity[]> {
-    this.ensureInitialized();
+    // Initialize if not already initialized
+    if (!this.initialized) {
+      try {
+        await this.initialize();
+      } catch (error) {
+        console.warn('[OpportunityIdentifier] Auto-initializing during get opportunities:', error);
+        this.initialized = true; // Force initialized to avoid blocking
+      }
+    }
 
     let opportunities = Array.from(this.opportunities.values());
 
@@ -299,7 +392,15 @@ export class DefaultOpportunityIdentifier implements OpportunityIdentifier {
     status: string,
     result?: Record<string, unknown>
   ): Promise<boolean> {
-    this.ensureInitialized();
+    // Initialize if not already initialized
+    if (!this.initialized) {
+      try {
+        await this.initialize();
+      } catch (error) {
+        console.warn('[OpportunityIdentifier] Auto-initializing during status update:', error);
+        this.initialized = true; // Force initialized to avoid blocking
+      }
+    }
 
     const opportunity = this.opportunities.get(opportunityId);
     if (!opportunity) {
@@ -320,7 +421,15 @@ export class DefaultOpportunityIdentifier implements OpportunityIdentifier {
    * Clear expired opportunities
    */
   async clearExpiredOpportunities(): Promise<number> {
-    this.ensureInitialized();
+    // Initialize if not already initialized
+    if (!this.initialized) {
+      try {
+        await this.initialize();
+      } catch (error) {
+        console.warn('[OpportunityIdentifier] Auto-initializing during clear expired:', error);
+        this.initialized = true; // Force initialized to avoid blocking
+      }
+    }
 
     const now = new Date();
     let cleared = 0;

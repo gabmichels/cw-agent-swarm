@@ -682,6 +682,7 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
    * Get tasks that are due for execution
    */
   async getDueTasks(): Promise<ScheduledTask[]> {
+    console.log(`[${this.getAgent().getAgentId()}] Getting due tasks at ${new Date().toISOString()}`);
     if (!this.initialized) {
       throw new SchedulingError(
         'Scheduler manager not initialized',
@@ -770,29 +771,91 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
     }
 
     if (!this.config.enableAutoScheduling) {
+      console.log(`[scheduler-manager-${this.getAgent().getAgentId()}] Auto-scheduling disabled, not setting up timer`);
       return;
     }
 
-    const intervalMs = this.config.schedulingIntervalMs || 60000;
+    const intervalMs = this.config.schedulingIntervalMs || 30000;
     
-    if (this.config.enableAutoScheduling) {
-      console.log(`[scheduler-manager-${this.getAgent().getAgentId()}] Scheduling timer set up with interval ${intervalMs}ms`);
-      console.log(`[scheduler-manager-${this.getAgent().getAgentId()}] Autonomous scheduling initialized with interval ${intervalMs}ms`);
-      
-      this.schedulingTimer = setInterval(async () => {
-        try {
-          const dueTaskCount = await this.pollForDueTasks();
-          
-          if (dueTaskCount > 0) {
-            console.log(`[scheduler-manager-${this.getAgent().getAgentId()}] Found and processed ${dueTaskCount} due tasks`);
-          } else if (this.config.logSchedulingActivity) {
-            console.log(`[scheduler-manager-${this.getAgent().getAgentId()}] No due tasks found during scheduled check`);
-          }
-        } catch (error) {
-          console.error(`[scheduler-manager-${this.getAgent().getAgentId()}] Error in scheduled task processing:`, error);
+    console.log(`[scheduler-manager-${this.getAgent().getAgentId()}] Setting up scheduling timer with interval ${intervalMs}ms`);
+    console.log(`[scheduler-manager-${this.getAgent().getAgentId()}] Autonomous scheduling initialized with interval ${intervalMs}ms`);
+    
+    this.schedulingTimer = setInterval(async () => {
+      try {
+        console.log(`[scheduler-manager-${this.getAgent().getAgentId()}] Timer fired, checking for due tasks...`);
+        const dueTaskCount = await this.pollForDueTasks();
+        
+        if (dueTaskCount > 0) {
+          console.log(`[scheduler-manager-${this.getAgent().getAgentId()}] Found and processed ${dueTaskCount} due tasks`);
+        } else if (this.config.logSchedulingActivity) {
+          console.log(`[scheduler-manager-${this.getAgent().getAgentId()}] No due tasks found during scheduled check`);
         }
-      }, intervalMs);
+      } catch (error) {
+        console.error(`[scheduler-manager-${this.getAgent().getAgentId()}] Error in scheduled task processing:`, error);
+      }
+    }, intervalMs);
+  }
+
+  /**
+   * Generate a unique task ID
+   */
+  private generateTaskId(): string {
+    return `task-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  }
+
+  /**
+   * Get all tasks
+   */
+  async getTasks(): Promise<ScheduledTask[]> {
+    return Array.from(this.tasks.values());
+  }
+
+  /**
+   * Get tasks that are running
+   */
+  async getRunningTasks(): Promise<ScheduledTask[]> {
+    if (!this.initialized) {
+      throw new SchedulingError(
+        'Scheduler manager not initialized',
+        'NOT_INITIALIZED'
+      );
     }
+
+    return Array.from(this.tasks.values()).filter(
+      task => task.status === 'running'
+    );
+  }
+
+  /**
+   * Get tasks that are pending
+   */
+  async getPendingTasks(): Promise<ScheduledTask[]> {
+    if (!this.initialized) {
+      throw new SchedulingError(
+        'Scheduler manager not initialized',
+        'NOT_INITIALIZED'
+      );
+    }
+
+    return Array.from(this.tasks.values()).filter(
+      task => task.status === 'pending'
+    );
+  }
+
+  /**
+   * Get tasks that have failed
+   */
+  async getFailedTasks(): Promise<ScheduledTask[]> {
+    if (!this.initialized) {
+      throw new SchedulingError(
+        'Scheduler manager not initialized',
+        'NOT_INITIALIZED'
+      );
+    }
+
+    return Array.from(this.tasks.values()).filter(
+      task => task.status === 'failed'
+    );
   }
 
   /**
@@ -869,54 +932,6 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
   }
 
   /**
-   * Get tasks that are currently running
-   */
-  async getRunningTasks(): Promise<ScheduledTask[]> {
-    if (!this.initialized) {
-      throw new SchedulingError(
-        'Scheduler manager not initialized',
-        'NOT_INITIALIZED'
-      );
-    }
-
-    return Array.from(this.tasks.values()).filter(
-      task => task.status === 'running'
-    );
-  }
-
-  /**
-   * Get tasks that are pending execution
-   */
-  async getPendingTasks(): Promise<ScheduledTask[]> {
-    if (!this.initialized) {
-      throw new SchedulingError(
-        'Scheduler manager not initialized',
-        'NOT_INITIALIZED'
-      );
-    }
-
-    return Array.from(this.tasks.values()).filter(
-      task => task.status === 'pending'
-    );
-  }
-
-  /**
-   * Get tasks that have failed
-   */
-  async getFailedTasks(): Promise<ScheduledTask[]> {
-    if (!this.initialized) {
-      throw new SchedulingError(
-        'Scheduler manager not initialized',
-        'NOT_INITIALIZED'
-      );
-    }
-
-    return Array.from(this.tasks.values()).filter(
-      task => task.status === 'failed'
-    );
-  }
-
-  /**
    * Retry a failed task
    */
   async retryTask(taskId: string): Promise<TaskExecutionResult> {
@@ -965,14 +980,6 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
   }
 
   // Private helper methods
-
-  async getTasks(): Promise<ScheduledTask[]> {
-    return Array.from(this.tasks.values());
-  }
-
-  private generateTaskId(): string {
-    return `task-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-  }
 
   getAgent(): AgentBase {
     return super.getAgent();
