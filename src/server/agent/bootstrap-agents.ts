@@ -63,7 +63,7 @@ class FullyCapableAgent extends AbstractAgentBase {
   override getId(): string {
     return this._agentConfig.id;
   }
-
+  
   /**
    * Set up ALL managers to make this a fully capable agent
    */
@@ -131,8 +131,8 @@ class FullyCapableAgent extends AbstractAgentBase {
           priority: 0.7,
           metadata: {
             scheduleType: "interval",
-            intervalMs: 120000, // Every 2 minutes
-            startAfterMs: 60000, // Start after 1 minute
+            intervalMs: 30000, // Every 30 seconds (shorter for testing)
+            startAfterMs: 10000, // Start after 10 seconds (shorter for testing)
             isDebugTask: true,
             action: "processUserInput", // Task will call the agent's processUserInput method
             parameters: {
@@ -141,6 +141,26 @@ class FullyCapableAgent extends AbstractAgentBase {
           }
         }).then(taskResult => {
           console.log(`[${agentId}] Test task created: ${JSON.stringify(taskResult)}`);
+          
+          // Also create an immediate task that should run right away
+          return schedulerManager.createTask({
+            title: "Immediate health check",
+            description: "Run an immediate system health check",
+            type: "system_health",
+            priority: 1.0, // Higher priority
+            metadata: {
+              scheduledTime: new Date(Date.now() + 5000), // 5 seconds from now
+              isDebugTask: true,
+              action: "processUserInput",
+              parameters: {
+                message: "Run an immediate health check to verify scheduler is working."
+              }
+            }
+          });
+        }).then(immediateTaskResult => {
+          if (immediateTaskResult) {
+            console.log(`[${agentId}] Immediate task created: ${JSON.stringify(immediateTaskResult)}`);
+          }
         }).catch(err => {
           console.error(`[${agentId}] Error creating test task:`, err);
         });
@@ -315,7 +335,7 @@ class FullyCapableAgent extends AbstractAgentBase {
           autonomyManager.setAutonomyMode(true).then(enabled => {
             console.log(`✅ Autonomy mode ${enabled ? 'enabled' : 'failed to enable'} for agent ${agentId}`);
           });
-        }
+  }
       });
       
     } catch (error) {
@@ -323,7 +343,7 @@ class FullyCapableAgent extends AbstractAgentBase {
       console.error(`❌ Error setting up managers for agent ${agentId}:`, error);
     }
   }
-  
+
   // Abstract methods we need to implement since we extend AbstractAgentBase
   async processUserInput(message: string, options?: any): Promise<any> {
     return { content: 'Placeholder agent cannot process input' };
@@ -336,7 +356,7 @@ class FullyCapableAgent extends AbstractAgentBase {
   async getLLMResponse(message: string, options?: any): Promise<any> {
     return { content: 'Placeholder agent cannot generate responses' };
   }
-  
+
   // Override shutdown from AbstractAgentBase
   async shutdown(): Promise<void> {
     await this.shutdownManagers();
@@ -350,7 +370,7 @@ class FullyCapableAgent extends AbstractAgentBase {
       this.eventHandlers[event] = [];
     }
     this.eventHandlers[event].push(handler);
-  }
+    }
   
   emit(event: string, ...args: any[]): void {
     const handlers = this.eventHandlers[event] || [];

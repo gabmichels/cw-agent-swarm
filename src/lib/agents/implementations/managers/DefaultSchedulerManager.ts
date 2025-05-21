@@ -30,6 +30,9 @@ import { ManagerType } from '../../../../agents/shared/base/managers/ManagerType
 import { ResourceUtilizationTracker } from '../../../../agents/shared/scheduler/ResourceUtilization';
 import { ThinkingVisualization, VisualizationService } from '../../../../services/thinking/visualization/types';
 import { generateRequestId } from '../../../../utils/request-utils';
+import { MemoryManager } from '../../base/managers/MemoryManager';
+import { MemoryService } from './DefaultMemoryManager';
+import { createSchedulerLogger } from '../../../../lib/logging/colorLogger';
 
 /**
  * Task metadata interface
@@ -78,6 +81,7 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
   private batches: Map<string, TaskBatch> = new Map();
   private resourceTracker: ResourceUtilizationTracker;
   private events: SchedulerEvent[] = [];
+  private logger: ReturnType<typeof createSchedulerLogger>;
 
   /**
    * Create a new DefaultSchedulerManager instance
@@ -122,6 +126,15 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
       limitWarningBuffer: 0.2,
       trackPerTaskUtilization: true
     });
+    
+    // Initialize the color logger
+    this.logger = createSchedulerLogger(this.managerId);
+    
+    // Set log level to debug for more verbose logging
+    this.logger.setLogLevel('debug');
+    
+    this.logger.info(`Scheduler manager created with ID: ${this.managerId}`);
+    this.logger.debug(`Scheduler config: ${JSON.stringify(this.config)}`);
   }
 
   /**
@@ -142,26 +155,225 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
    * Initialize the manager
    */
   async initialize(): Promise<boolean> {
-    console.log(`[${this.managerId}] Initializing scheduler manager...`);
+    this.logger.info(`Initializing scheduler manager at ${new Date().toISOString()}...`);
     if (this.initialized) {
       return true;
     }
 
     try {
+      // Load any existing tasks from database
+      this.logger.system(`About to load tasks from database at ${new Date().toISOString()}`);
+      
+      // Try to load tasks but don't fail initialization if it fails
+      // The reason is that memory manager might not be ready yet during bootstrapping
+      try {
+        await this.loadTasksFromDatabase();
+        this.logger.system(`Completed loading tasks from database at ${new Date().toISOString()}`);
+      } catch (loadError) {
+        this.logger.warn(`Could not load tasks during initialization (memory manager might not be ready)`, loadError);
+        this.logger.system(`Will retry loading tasks in 5 seconds`);
+        
+        // Schedule a retry after a short delay (memory manager might be ready then)
+        setTimeout(() => {
+          this.logger.system(`Retrying loadTasksFromDatabase after initialization delay...`);
+          this.loadTasksFromDatabase().catch(err => {
+            this.logger.error(`Error in delayed loadTasksFromDatabase:`, err);
+          });
+        }, 5000);
+      }
+      
       // Initialize any resources needed
       this.initialized = true;
       
       // Set up the scheduling timer if auto-scheduling is enabled
       if (this.config.enableAutoScheduling) {
+        this.logger.system(`Setting up scheduling timer at ${new Date().toISOString()}`);
         this.setupSchedulingTimer();
-        console.log(`[${this.managerId}] Autonomous scheduling initialized with interval ${this.config.schedulingIntervalMs}ms`);
+        this.logger.success(`Autonomous scheduling initialized with interval ${this.config.schedulingIntervalMs}ms`);
       }
       
       return true;
     } catch (error) {
-      console.error(`[${this.managerId}] Error initializing scheduler manager:`, error);
+      this.logger.error(`Error initializing scheduler manager:`, error);
       return false;
     }
+  }
+
+  /**
+   * Load tasks from database
+   */
+  private async loadTasksFromDatabase(): Promise<void> {
+    try {
+      const agent = this.getAgent();
+      const agentId = agent.getAgentId();
+      
+      // Get memory manager if it exists
+      const memoryManager = agent.getManager(ManagerType.MEMORY);
+      
+      // Debug the memory manager to see if it exists
+      this.logger.system(`DEBUG: Memory manager exists: ${Boolean(memoryManager)}, type: ${memoryManager ? memoryManager.managerType : 'none'}`);
+      
+      // Check if it's the expected type
+      if (memoryManager) {
+        this.logger.debug(`Memory manager methods: ${Object.getOwnPropertyNames(Object.getPrototypeOf(memoryManager)).join(', ')}`);
+      }
+      
+      if (!memoryManager) {
+        this.logger.warn(`No memory manager available for agent ${agentId}, cannot load tasks from database`);
+        return;
+      }
+      
+      // Check if the memory manager appears to be fully initialized
+      const isMemoryManagerInitialized = 'getMemoryService' in memoryManager && 
+          typeof (memoryManager as any).getMemoryService === 'function';
+      
+      if (!isMemoryManagerInitialized) {
+        this.logger.warn(`Memory manager found for agent ${agentId} but it doesn't seem to be fully initialized yet. Will retry later.`);
+        
+        // Schedule a retry in 5 seconds
+        setTimeout(() => {
+          this.logger.system(`Retrying loadTasksFromDatabase after delay for agent ${agentId}...`);
+          this.loadTasksFromDatabase().catch(err => {
+            this.logger.error(`Error in delayed loadTasksFromDatabase for agent ${agentId}:`, err);
+          });
+        }, 5000);
+        
+        return;
+      }
+
+      this.logger.info(`Loading tasks from database for agent ${agentId}...`);
+      
+      // Try to load tasks from memory service
+      try {
+        // Cast the memory manager to include the getMemoryService method
+        const memoryServiceProvider = memoryManager as unknown as { getMemoryService(): Promise<MemoryService> };
+        
+        this.logger.debug(`Attempting to call getMemoryService method for agent ${agentId}`);
+        
+        // Wrap in a timeout promise to avoid hanging if the memory service is not ready
+        const memoryServicePromise = Promise.race([
+          memoryServiceProvider.getMemoryService(),
+          new Promise<never>((_, reject) => {
+            setTimeout(() => reject(new Error('getMemoryService timed out after 3 seconds')), 3000);
+          })
+        ]);
+        
+        const memoryService = await memoryServicePromise;
+        this.logger.debug(`MemoryService obtained successfully for agent ${agentId}`);
+        
+        this.logger.system(`Querying memory service for scheduled tasks (status: pending, scheduled, in_progress)`);
+        
+        const result = await memoryService.searchMemories({
+          type: 'task',
+          filter: {
+            status: ['pending', 'scheduled', 'in_progress']
+          },
+          limit: 1000
+        });
+        
+        this.logger.debug(`Search result success: ${result.success}, data length: ${result.data?.length || 0}`);
+        
+        if (result.success && result.data && result.data.length > 0) {
+          this.logger.success(`Found ${result.data.length} tasks in database to load for agent ${agentId}`);
+          
+          // Convert database items to scheduler tasks
+          const convertedTasks = this.convertMemoryItemsToTasks(result.data);
+          
+          // Add tasks to local store
+          for (const task of convertedTasks) {
+            this.tasks.set(task.id, task);
+            this.logger.info(`Loaded task: ${task.id} - ${task.title} (${task.status})`);
+          }
+          
+          this.logger.success(`✅ Successfully loaded ${convertedTasks.length} tasks from database for agent ${agentId}`);
+          return;
+        } else {
+          this.logger.system(`No pending tasks found in database for agent ${agentId} ${result.error ? `(Error: ${result.error})` : ''}`);
+        }
+      } catch (error) {
+        // Check if it's a timeout error
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        if (errorMessage.includes('timed out')) {
+          this.logger.warn(`Memory service not ready yet for agent ${agentId}: ${errorMessage}`);
+          
+          // Schedule another retry
+          setTimeout(() => {
+            this.logger.system(`Retrying loadTasksFromDatabase after timeout for agent ${agentId}...`);
+            this.loadTasksFromDatabase().catch(err => {
+              this.logger.error(`Error in retry after timeout for agent ${agentId}:`, err);
+            });
+          }, 5000);
+          
+          return;
+        }
+        
+        this.logger.error(`Error querying memory service for agent ${agentId}:`, error);
+        throw error; // Re-throw to allow caller to handle it
+      }
+      
+      this.logger.info(`No tasks loaded from database for agent ${agentId}`);
+    } catch (error) {
+      this.logger.error(`Error loading tasks from database:`, error);
+      throw error; // Re-throw to allow caller to handle it
+    }
+  }
+  
+  /**
+   * Convert memory items to scheduler tasks
+   */
+  private convertMemoryItemsToTasks(memoryItems: Array<{
+    id: string;
+    content: string;
+    metadata: Record<string, unknown>;
+    createdAt?: string | Date;
+    updatedAt?: string | Date;
+  }>): ScheduledTask[] {
+    return memoryItems.map(item => {
+      const metadata = item.metadata || {};
+      
+      // Parse dates safely
+      const createdAt = this.parseDateSafely(item.createdAt);
+      const updatedAt = this.parseDateSafely(item.updatedAt);
+      
+      return {
+        id: item.id,
+        title: typeof metadata.title === 'string' ? metadata.title : item.content.substring(0, 100),
+        description: typeof metadata.description === 'string' ? metadata.description : item.content,
+        type: typeof metadata.type === 'string' ? metadata.type : 'system',
+        createdAt,
+        updatedAt,
+        status: typeof metadata.status === 'string' ? metadata.status as TaskStatus : 'pending',
+        priority: typeof metadata.priority === 'number' ? metadata.priority : 0.5,
+        retryAttempts: typeof metadata.retryAttempts === 'number' ? metadata.retryAttempts : 0,
+        dependencies: Array.isArray(metadata.dependencies) ? metadata.dependencies as string[] : [],
+        metadata
+      };
+    });
+  }
+  
+  /**
+   * Safely parse a date value
+   */
+  private parseDateSafely(dateValue: unknown): Date {
+    if (dateValue instanceof Date) {
+      return dateValue;
+    }
+    
+    if (typeof dateValue === 'string') {
+      try {
+        return new Date(dateValue);
+      } catch (e) {
+        // Fall back to current time if parsing fails
+        return new Date();
+      }
+    }
+    
+    if (typeof dateValue === 'number') {
+      return new Date(dateValue);
+    }
+    
+    // Default to current time if no valid date
+    return new Date();
   }
 
   /**
@@ -383,6 +595,7 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
     }
   ): Promise<TaskExecutionResult> {
     if (!this.initialized) {
+      this.logger.error(`Cannot execute task ${taskId}: scheduler manager is not initialized`);
       return {
         success: false,
         taskId,
@@ -391,6 +604,7 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
     }
 
     if (!this.config.enabled) {
+      this.logger.error(`Cannot execute task ${taskId}: scheduler manager is disabled`);
       return {
         success: false,
         taskId,
@@ -398,8 +612,11 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
       };
     }
 
+    this.logger.info(`Attempting to execute task ${taskId}...`);
+
     const task = await this.getTask(taskId);
     if (!task) {
+      this.logger.error(`Task ${taskId} not found for execution`);
       return {
         success: false,
         taskId,
@@ -407,7 +624,11 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
       };
     }
 
+    this.logger.info(`Executing task ${taskId}: "${task.title}" with status ${task.status}`);
+    this.logger.debug(`Task metadata: ${JSON.stringify(task.metadata || {})}`);
+
     if (task.status === 'running') {
+      this.logger.warn(`Task ${taskId} is already running`);
       return {
         success: false,
         taskId,
@@ -416,6 +637,7 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
     }
 
     if (task.status === 'completed') {
+      this.logger.warn(`Task ${taskId} is already completed`);
       return {
         success: false,
         taskId,
@@ -424,6 +646,7 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
     }
 
     if (task.status === 'cancelled') {
+      this.logger.warn(`Task ${taskId} is cancelled`);
       return {
         success: false,
         taskId,
@@ -474,7 +697,7 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
           );
         }
       } catch (error) {
-        console.error('Error creating scheduled task visualization:', error);
+        this.logger.error('Error creating scheduled task visualization:', error);
       }
     }
 
@@ -583,7 +806,7 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
             }
           }
         } catch (error) {
-          console.error('Error updating scheduled task visualization:', error);
+          this.logger.error(`Error updating scheduled task visualization:`, error);
         }
       }
 
@@ -643,7 +866,7 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
             }
           );
         } catch (vizError) {
-          console.error('Error updating task visualization with error:', vizError);
+          this.logger.error('Error updating task visualization with error:', vizError);
         }
       }
       
@@ -690,12 +913,24 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
       );
     }
 
+    const agentId = this.getAgent().getAgentId();
     const now = new Date();
     const nowTime = now.getTime();
 
-    console.log(`[scheduler-manager-${this.getAgent().getAgentId()}] Checking for due tasks at ${now.toISOString()}`);
+    this.logger.info(`[${agentId}] Checking for due tasks at ${now.toISOString()}, epoch: ${nowTime}`);
+    this.logger.info(`[${agentId}] Total tasks in queue: ${this.tasks.size}`);
+    
+    // Debug: list all task status
+    if (this.tasks.size > 0) {
+      this.logger.debug(`[${agentId}] Current tasks status:`);
+      Array.from(this.tasks.entries()).forEach(([id, task]) => {
+        this.logger.debug(`[${agentId}] Task ${id}: status=${task.status}, created=${task.createdAt.toISOString()}, type=${task.type}, metadata=${JSON.stringify(task.metadata || {})}`);
+      });
+    } else {
+      this.logger.info(`[${agentId}] No tasks in queue to check`);
+    }
 
-    return Array.from(this.tasks.values()).filter(task => {
+    const dueTasks = Array.from(this.tasks.values()).filter(task => {
       // Check if task is pending or scheduled
       if (task.status !== 'pending' && task.status !== 'scheduled') {
         return false;
@@ -714,11 +949,20 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
         } else if (typeof scheduledTime === 'number') {
           taskTime = new Date(scheduledTime);
         } else {
+          this.logger.warn(`[${agentId}] Task ${task.id} has invalid scheduledTime format: ${typeof scheduledTime}`);
           return false; // Invalid scheduledTime format
         }
         
         // Compare with current time
-        return taskTime <= now;
+        const isDue = taskTime <= now;
+        
+        if (isDue) {
+          this.logger.info(`[${agentId}] Scheduled task ${task.id} is due. Scheduled for: ${taskTime.toISOString()}, Current time: ${now.toISOString()}`);
+        } else {
+          this.logger.debug(`[${agentId}] Scheduled task ${task.id} is not yet due. Scheduled for: ${taskTime.toISOString()}, Current time: ${now.toISOString()}`);
+        }
+        
+        return isDue;
       }
       
       // Method 2: Check for interval-based scheduling
@@ -726,104 +970,204 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
       const scheduleType = metadata.scheduleType;
       
       if (scheduleType === 'interval') {
-        const createdAt = task.createdAt.getTime();
+        if (!task.createdAt) {
+          this.logger.error(`[${agentId}] Task ${task.id} missing createdAt timestamp`);
+          return false;
+        }
+        
+        // Handle date/time more safely
+        let createdAt: number;
+        try {
+          createdAt = task.createdAt instanceof Date ? task.createdAt.getTime() : new Date(task.createdAt).getTime();
+        } catch (e) {
+          this.logger.error(`[${agentId}] Error parsing createdAt for task ${task.id}:`, e);
+          return false;
+        }
+        
         const startAfterMs = typeof metadata.startAfterMs === 'number' ? metadata.startAfterMs : 0;
         const intervalMs = typeof metadata.intervalMs === 'number' ? metadata.intervalMs : 0;
         
         if (intervalMs <= 0) {
+          this.logger.warn(`[${agentId}] Task ${task.id} has invalid interval: ${intervalMs}ms`);
           return false; // Invalid interval
         }
         
         // Get the last execution time, or the creation time + startAfter if never executed
-        const lastExecution = metadata.lastExecutionTime 
-          ? (typeof metadata.lastExecutionTime === 'number' 
-             ? metadata.lastExecutionTime 
-             : typeof metadata.lastExecutionTime === 'string'
-               ? new Date(metadata.lastExecutionTime).getTime()
-               : metadata.lastExecutionTime instanceof Date
-                 ? metadata.lastExecutionTime.getTime()
-                 : createdAt + startAfterMs)
-          : createdAt + startAfterMs;
+        let lastExecution: number;
+        if (metadata.lastExecutionTime) {
+          if (typeof metadata.lastExecutionTime === 'number') {
+            lastExecution = metadata.lastExecutionTime;
+          } else if (typeof metadata.lastExecutionTime === 'string') {
+            try {
+              lastExecution = new Date(metadata.lastExecutionTime).getTime();
+            } catch (e) {
+              this.logger.error(`[${agentId}] Error parsing lastExecutionTime string for task ${task.id}:`, e);
+              lastExecution = createdAt + startAfterMs;
+            }
+          } else if (metadata.lastExecutionTime instanceof Date) {
+            lastExecution = metadata.lastExecutionTime.getTime();
+          } else {
+            lastExecution = createdAt + startAfterMs;
+          }
+        } else {
+          lastExecution = createdAt + startAfterMs;
+        }
         
         // Check if it's time to run again based on the interval
         const shouldRunAt = lastExecution + intervalMs;
         const isDue = nowTime >= shouldRunAt;
         
+        // Always log interval task status for debug purposes
         if (isDue) {
-          console.log(`[scheduler-manager-${this.getAgent().getAgentId()}] Interval task ${task.id} is due. Last execution: ${new Date(lastExecution).toISOString()}, Should run at: ${new Date(shouldRunAt).toISOString()}`);
+          this.logger.info(`[${agentId}] Interval task ${task.id} is due. Created at ${new Date(createdAt).toISOString()}, last execution at ${new Date(lastExecution).toISOString()}, should run at ${new Date(shouldRunAt).toISOString()}, current time: ${now.toISOString()}`);
+        } else {
+          this.logger.debug(`[${agentId}] Interval task ${task.id} not yet due. Created at ${new Date(createdAt).toISOString()}, last execution at ${new Date(lastExecution).toISOString()}, should run at ${new Date(shouldRunAt).toISOString()}, current time: ${now.toISOString()}`);
         }
         
         return isDue;
       }
       
+      this.logger.debug(`[${agentId}] Task ${task.id} has no recognized scheduling method`);
+      
       // Not scheduled by any recognized method
       return false;
     });
+    
+    if (dueTasks.length > 0) {
+      this.logger.success(`[${agentId}] Found ${dueTasks.length} due tasks out of ${this.tasks.size} total tasks`);
+    } else {
+      this.logger.info(`[${agentId}] No due tasks found among ${this.tasks.size} total tasks`);
+    }
+    
+    return dueTasks;
   }
 
   /**
    * Set up the scheduling timer to periodically check for tasks
    */
   private setupSchedulingTimer(): void {
+    const agentId = this.getAgent().getAgentId();
+    this.logger.info(`[${agentId}] Setting up scheduling timer...`);
+    
     if (this.schedulingTimer) {
+      this.logger.info(`[${agentId}] Clearing existing timer before setting up a new one`);
       clearInterval(this.schedulingTimer);
       this.schedulingTimer = null;
     }
 
     if (!this.config.enableAutoScheduling) {
+      this.logger.info(`[${agentId}] Auto-scheduling is disabled, not setting up timer`);
       return;
     }
 
     const intervalMs = this.config.schedulingIntervalMs || 60000;
     
-    if (this.config.enableAutoScheduling) {
-      console.log(`[scheduler-manager-${this.getAgent().getAgentId()}] Scheduling timer set up with interval ${intervalMs}ms`);
-      console.log(`[scheduler-manager-${this.getAgent().getAgentId()}] Autonomous scheduling initialized with interval ${intervalMs}ms`);
+    this.logger.info(`[${agentId}] Setting up scheduling timer with interval ${intervalMs}ms`);
+    this.logger.system(`[${agentId}] Autonomous scheduling initialized with interval ${intervalMs}ms at ${new Date().toISOString()}`);
+    
+    // Log the current tasks count for debugging
+    const totalTasks = this.tasks.size;
+    if (totalTasks > 0) {
+      this.logger.success(`[${agentId}] Agent has ${totalTasks} tasks loaded and ready for scheduling`);
+      // Log task IDs for easier tracking
+      const taskIds = Array.from(this.tasks.keys()).join(', ');
+      this.logger.debug(`[${agentId}] Task IDs: ${taskIds}`);
+    } else {
+      this.logger.system(`[${agentId}] Agent has no tasks loaded yet`);
       
+      // If we have no tasks, try to load them again after a delay (memory manager might be ready by then)
+      this.logger.info(`[${agentId}] Scheduling a delayed task loading attempt in 10 seconds`);
+      setTimeout(() => {
+        this.logger.system(`[${agentId}] Attempting to load tasks from database after a delay...`);
+        this.loadTasksFromDatabase()
+          .then(result => {
+            const newTaskCount = this.tasks.size;
+            if (newTaskCount > 0) {
+              this.logger.success(`[${agentId}] Successfully loaded ${newTaskCount} tasks after delay`);
+            } else {
+              this.logger.warn(`[${agentId}] Still no tasks loaded after delay`);
+            }
+          })
+          .catch(error => {
+            this.logger.error(`[${agentId}] Error loading tasks from database after delay:`, error);
+          });
+      }, 10000); // 10 second delay
+    }
+    
+    // Run immediately to check for any tasks that are already due
+    this.logger.info(`[${agentId}] Scheduling initial task check in 5 seconds`);
+    setTimeout(async () => {
+      try {
+        this.logger.info(`[${agentId}] Running initial task check at ${new Date().toISOString()}...`);
+        const dueTaskCount = await this.pollForDueTasks();
+        
+        if (dueTaskCount > 0) {
+          this.logger.success(`[${agentId}] Initial task check found ${dueTaskCount} due tasks`);
+        } else {
+          this.logger.system(`[${agentId}] Initial task check found no due tasks`);
+        }
+      } catch (error) {
+        this.logger.error(`[${agentId}] Error in initial scheduled task check:`, error);
+      }
+    }, 5000); // Run 5 seconds after initialization to ensure everything is ready
+    
+    // Set up regular interval check
+    this.logger.info(`[${agentId}] Setting up recurring task check every ${intervalMs}ms`);
       this.schedulingTimer = setInterval(async () => {
         try {
+        this.logger.info(`[${agentId}] Running scheduled task check at ${new Date().toISOString()}...`);
           const dueTaskCount = await this.pollForDueTasks();
           
           if (dueTaskCount > 0) {
-            console.log(`[scheduler-manager-${this.getAgent().getAgentId()}] Found and processed ${dueTaskCount} due tasks`);
+          this.logger.success(`[${agentId}] Found and processed ${dueTaskCount} due tasks`);
           } else if (this.config.logSchedulingActivity) {
-            console.log(`[scheduler-manager-${this.getAgent().getAgentId()}] No due tasks found during scheduled check`);
+          this.logger.info(`[${agentId}] No due tasks found during scheduled check`);
           }
         } catch (error) {
-          console.error(`[scheduler-manager-${this.getAgent().getAgentId()}] Error in scheduled task processing:`, error);
+        this.logger.error(`[${agentId}] Error in scheduled task processing:`, error);
         }
       }, intervalMs);
-    }
+    
+    this.logger.success(`[${agentId}] Scheduling timer successfully set up at ${new Date().toISOString()}`);
   }
 
   /**
    * Poll for due tasks and execute them
    */
   async pollForDueTasks(): Promise<number> {
+    const agentId = this.getAgent().getAgentId();
+    
     if (!this.initialized || !this.config.enabled) {
-      console.warn(`[scheduler-manager-${this.getAgent().getAgentId()}] Scheduler not initialized or disabled. Cannot poll for tasks.`);
+      this.logger.warn(`Scheduler for agent ${agentId} not initialized or disabled. Cannot poll for tasks.`);
       return 0;
     }
 
     try {
-      // Always log that we're checking for tasks
-      console.log(`[scheduler-manager-${this.getAgent().getAgentId()}] Checking for tasks to execute...`);
+      // Log the polling attempt with more context
+      this.logger.info(`[${agentId}] Checking for scheduled tasks to execute at ${new Date().toISOString()}...`);
       
       // Get tasks that are due for execution
       const dueTasks = await this.getDueTasks();
       
-      console.log(`[scheduler-manager-${this.getAgent().getAgentId()}] Found ${dueTasks.length} executable tasks`);
+      this.logger.info(`[${agentId}] Found ${dueTasks.length} executable scheduled tasks`);
 
       if (dueTasks.length === 0) {
+        // Log task count if none are due
+        const totalTasks = this.tasks.size;
+        this.logger.debug(`[${agentId}] No executable tasks among ${totalTasks} total tasks`);
         return 0;
       }
+      
+      // Log the IDs of due tasks
+      const taskIds = dueTasks.map(task => task.id).join(', ');
+      this.logger.debug(`[${agentId}] Due task IDs: ${taskIds}`);
 
       // Check if we can execute more tasks
       const runningTasks = await this.getRunningTasks();
       const maxConcurrent = this.config.maxConcurrentTasks || 5;
       
       if (runningTasks.length >= maxConcurrent) {
-        console.log(`[scheduler-manager-${this.getAgent().getAgentId()}] Maximum concurrent tasks (${maxConcurrent}) reached. Currently running: ${runningTasks.length}`);
+        this.logger.info(`[${agentId}] Maximum concurrent tasks (${maxConcurrent}) reached. Currently running: ${runningTasks.length}`);
         return 0;
       }
 
@@ -831,11 +1175,13 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
       let tasksToExecute = dueTasks;
       if (this.config.enableTaskPrioritization) {
         tasksToExecute = dueTasks.sort((a, b) => b.priority - a.priority);
+        this.logger.debug(`[${agentId}] Tasks sorted by priority`);
       }
 
       // Limit to available slots
       const availableSlots = maxConcurrent - runningTasks.length;
       tasksToExecute = tasksToExecute.slice(0, availableSlots);
+      this.logger.info(`[${agentId}] Executing ${tasksToExecute.length} tasks (${availableSlots} slots available)`);
 
       // Execute due tasks
       let executedCount = 0;
@@ -843,20 +1189,20 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
         // Update status to running
         await this.updateTask(task.id, { status: 'running' });
         
-        // Log task execution
-        console.log(`[scheduler-manager-${this.getAgent().getAgentId()}] Executing task ${task.id}: ${task.title}`);
+        // Log task execution with more details
+        this.logger.info(`[${agentId}] Executing task ${task.id}: "${task.title}" (type: ${task.type}, priority: ${task.priority})`);
         
         // Execute in background to not block the scheduling loop
         this.executeTask(task.id)
           .then(result => {
             if (result.success) {
-              console.log(`[scheduler-manager-${this.getAgent().getAgentId()}] Task ${task.id} executed successfully in ${result.durationMs}ms`);
+              this.logger.success(`[${agentId}] Task ${task.id} executed successfully in ${result.durationMs}ms`);
             } else {
-              console.error(`[scheduler-manager-${this.getAgent().getAgentId()}] Task ${task.id} execution failed: ${result.error}`);
+              this.logger.error(`[${agentId}] Task ${task.id} execution failed: ${result.error}`);
             }
           })
           .catch(error => {
-            console.error(`[scheduler-manager-${this.getAgent().getAgentId()}] Unexpected error executing task ${task.id}:`, error);
+            this.logger.error(`[${agentId}] Unexpected error executing task ${task.id}:`, error);
           });
         
         executedCount++;
@@ -864,7 +1210,7 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
 
       return executedCount;
     } catch (error) {
-      console.error(`[scheduler-manager-${this.getAgent().getAgentId()}] Error polling for due tasks:`, error);
+      this.logger.error(`[${agentId}] Error polling for due tasks:`, error);
       return 0;
     }
   }
@@ -965,35 +1311,18 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
     return this.executeTask(taskId);
   }
 
-  // Private helper methods
-
+  /**
+   * Get all tasks (used internally and to implement the SchedulerManager interface)
+   */
   async getTasks(): Promise<ScheduledTask[]> {
     return Array.from(this.tasks.values());
   }
 
+  /**
+   * Generate a unique task ID
+   */
   private generateTaskId(): string {
     return `task-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-  }
-
-  getAgent(): AgentBase {
-    return super.getAgent();
-  }
-
-  getConfig<T>(): T {
-    return this.config as unknown as T;
-  }
-
-  isInitialized(): boolean {
-    return this.initialized;
-  }
-
-  isEnabled(): boolean {
-    return this.config.enabled;
-  }
-
-  setEnabled(enabled: boolean): boolean {
-    this.config.enabled = enabled;
-    return enabled;
   }
 
   /**
@@ -1402,5 +1731,27 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
     if (this.events.length > 1000) {
       this.events = this.events.slice(-1000);
     }
+  }
+
+  /**
+   * Helper method for enabled state
+   */
+  isEnabled(): boolean {
+    return this.config.enabled;
+  }
+
+  /**
+   * Helper method for setting enabled state
+   */
+  setEnabled(enabled: boolean): boolean {
+    this.config.enabled = enabled;
+    return enabled;
+  }
+
+  /**
+   * Helper method for checking initialization state
+   */
+  isInitialized(): boolean {
+    return this.initialized;
   }
 } 

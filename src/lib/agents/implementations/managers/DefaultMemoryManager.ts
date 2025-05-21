@@ -32,6 +32,33 @@ import {
   MemoryPermission
 } from '../../../../agents/shared/memory/MemoryScope';
 
+// Import memory services
+import { getMemoryServices } from '../../../../server/memory/services';
+
+/**
+ * Memory service interface for external connections
+ */
+export interface MemoryService {
+  /**
+   * Search memories by type and filter criteria
+   */
+  searchMemories(query: {
+    type: string;
+    filter?: Record<string, unknown>;
+    limit?: number;
+  }): Promise<{
+    success: boolean;
+    data?: Array<{
+      id: string;
+      content: string;
+      metadata: Record<string, unknown>;
+      createdAt?: string | Date;
+      updatedAt?: string | Date;
+    }>;
+    error?: string;
+  }>;
+}
+
 /**
  * Extended configuration for DefaultMemoryManager
  */
@@ -136,6 +163,84 @@ export class DefaultMemoryManager extends AbstractBaseManager implements MemoryM
     this.isolationManager = new MemoryIsolationManager(
       this._config.isolation || DEFAULT_MEMORY_ISOLATION_CONFIG
     );
+  }
+
+  /**
+   * Get memory service for external interactions
+   * This provides access to the server memory services for other managers
+   */
+  async getMemoryService(): Promise<MemoryService> {
+    try {
+      const services = await getMemoryServices();
+      
+      if (!services || !services.memoryService) {
+        console.error(`[${this.managerId}] Memory services not available`);
+        throw new Error('Memory services not available');
+      }
+      
+      // Create an adapter that implements the MemoryService interface
+      const memoryServiceAdapter: MemoryService = {
+        searchMemories: async (query) => {
+          try {
+            console.log(`[${this.managerId}] Searching memories with query:`, JSON.stringify(query));
+            
+            const searchResults = await services.searchService.search('', {
+              limit: query.limit || 100,
+              filter: {
+                metadata: {
+                  type: query.type,
+                  ...(query.filter || {})
+                }
+              }
+            });
+            
+            if (searchResults && Array.isArray(searchResults)) {
+              console.log(`[${this.managerId}] Found ${searchResults.length} items`);
+              
+              // Transform search results to the expected format
+              return {
+                success: true,
+                data: searchResults.map(item => {
+                  // Extract data from the nested point structure
+                  const payload = item.point.payload;
+                  // Convert BaseMetadata to Record<string, unknown> safely
+                  const metadata: Record<string, unknown> = payload.metadata ? 
+                    { ...payload.metadata } : 
+                    {};
+                  
+                  return {
+                    id: item.point.id,
+                    // Use 'text' field which is in BaseMemorySchema, or fallback
+                    content: payload.text || '',
+                    // Use converted metadata
+                    metadata,
+                    // Use timestamp from metadata, or current time as fallback
+                    createdAt: payload.timestamp ? new Date(payload.timestamp) : new Date(),
+                    updatedAt: new Date()
+                  };
+                })
+              };
+            }
+            
+            return {
+              success: true,
+              data: []
+            };
+          } catch (error) {
+            console.error(`[${this.managerId}] Error searching memories:`, error);
+            return {
+              success: false,
+              error: error instanceof Error ? error.message : String(error)
+            };
+          }
+        }
+      };
+      
+      return memoryServiceAdapter;
+    } catch (error) {
+      console.error(`[${this.managerId}] Error getting memory service:`, error);
+      throw new Error(`Failed to get memory service: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   /**
