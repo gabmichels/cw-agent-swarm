@@ -8,20 +8,35 @@ This document outlines a comprehensive testing strategy for verifying the autono
 
 | Phase | Status | Location | Notes |
 |-------|--------|----------|-------|
-| Phase 1: Basic Autonomy | ⚠️ Partially Implemented | `src/tests/autonomy/phase1-basic-autonomy.test.ts` | Only tests structure with mocks, not actual functionality |
-| Phase 2: Async Execution | ✅ Implemented | `src/tests/autonomy/scheduler-polling.test.ts`, `src/tests/autonomy/scheduler-fix.test.ts` | Tests for scheduler polling and task execution |
-| Phase 3: Tool Integration | ✅ Implemented | `src/tests/autonomy/real-tool-integration.test.ts` | Comprehensive real tool integration tests with API calls |
-| Phase 4: Complex Tasks | 🔄 Planned | - | - |
-| Phase 5: End-to-End | 🔄 Planned | - | - |
+| Phase 1: Basic Autonomy | ⚠️ Partially Implemented | `src/tests/autonomy/phase1-basic-autonomy.test.ts`, `src/tests/autonomy/basic-features.test.ts`, `src/tests/autonomy/simple-agent.test.ts` | Tests basic agent functionality and structure |
+| Phase 2: Async Execution | ✅ Implemented | `src/tests/autonomy/scheduler-polling.test.ts`, `src/tests/autonomy/scheduler-fix.test.ts`, `src/tests/autonomy/async-capabilities.test.ts` | Tests for scheduler polling, task execution, and async capabilities |
+| Phase 3: Tool Integration | ✅ Implemented | `src/tests/autonomy/real-tool-integration.test.ts`, `src/tests/autonomy/tool-integration.test.ts` | Comprehensive real tool integration tests with API calls |
+| Phase 4: Complex Tasks | ✅ Implemented | `src/tests/autonomy/reflection-improvement.test.ts`, `src/tests/autonomy/time-effort-reasoning.test.ts`, `src/tests/autonomy/knowledge-gap-handling.test.ts`, `src/tests/autonomy/strategy-prioritization.test.ts`, `src/tests/autonomy/task-decomposition.test.ts`, `src/tests/autonomy/planning-execution.test.ts`, `src/tests/autonomy/knowledge-graph.test.ts` | Tests for complex agent capabilities |
+| Phase 5: End-to-End | ✅ Implemented | `src/tests/autonomy/self-initiation.test.ts`, `src/tests/autonomy/real-agent-autonomy.test.ts`, `src/tests/autonomy/autonomy-capabilities.test.ts`, `src/tests/autonomy/real-agent.test.ts` | Tests full agent autonomy end-to-end |
 
 ## Implemented Test Cases
 
 | Test Category | Status | File | Description |
 |---------------|--------|------|-------------|
+| Basic Features | ✅ Implemented | `src/tests/autonomy/basic-features.test.ts` | Tests basic agent functionality and initialization |
+| Simple Agent | ✅ Implemented | `src/tests/autonomy/simple-agent.test.ts` | Tests simple agent interactions and responses |
+| Phase 1 Basic Autonomy | ⚠️ Partially Implemented | `src/tests/autonomy/phase1-basic-autonomy.test.ts` | Initial autonomy testing framework |
 | Scheduler Polling | ✅ Implemented | `src/tests/autonomy/scheduler-polling.test.ts` | Tests the pollForDueTasks method and timer setup |
 | Scheduler Fixes | ✅ Implemented | `src/tests/autonomy/scheduler-fix.test.ts` | Tests scheduler fixes, getDueTasks and task execution |
+| Async Capabilities | ✅ Implemented | `src/tests/autonomy/async-capabilities.test.ts` | Tests asynchronous task execution capabilities |
+| Tool Integration | ✅ Implemented | `src/tests/autonomy/tool-integration.test.ts` | Tests basic tool integration capabilities |
+| Real Tool Integration | ✅ Implemented | `src/tests/autonomy/real-tool-integration.test.ts` | End-to-end tests of real tools through agent's processUserInput |
 | Real Agent Autonomy | ✅ Implemented | `src/tests/autonomy/real-agent-autonomy.test.ts` | Tests agent reflection and task creation |
-| Tool Integration | ✅ Implemented | `src/tests/autonomy/real-tool-integration.test.ts` | End-to-end tests of real tools through agent's processUserInput |
+| Real Agent Tests | ✅ Implemented | `src/tests/autonomy/real-agent.test.ts` | Tests real agent instances with full capabilities |
+| Strategy Prioritization | ✅ Implemented | `src/tests/autonomy/strategy-prioritization.test.ts` | Tests strategy generation, updating, and optimization based on outcomes |
+| Reflection-Driven Improvement | ✅ Implemented | `src/tests/autonomy/reflection-improvement.test.ts` | Tests insight generation and strategy improvement from reflection |
+| Time & Effort Reasoning | ✅ Implemented | `src/tests/autonomy/time-effort-reasoning.test.ts` | Tests duration tracking, estimation, and optimization |
+| Knowledge Gap Handling | ✅ Implemented | `src/tests/autonomy/knowledge-gap-handling.test.ts` | Tests identification and resolution of missing information |
+| Task Decomposition | ✅ Implemented | `src/tests/autonomy/task-decomposition.test.ts` | Tests breaking down complex tasks into manageable steps |
+| Planning & Execution | ✅ Implemented | `src/tests/autonomy/planning-execution.test.ts` | Tests planning capabilities and execution of plans |
+| Knowledge Graph | ✅ Implemented | `src/tests/autonomy/knowledge-graph.test.ts` | Tests knowledge graph construction and utilization |
+| Self-Initiation | ✅ Implemented | `src/tests/autonomy/self-initiation.test.ts` | Tests agent's ability to self-initiate tasks without prompting |
+| Autonomy Capabilities | ✅ Implemented | `src/tests/autonomy/autonomy-capabilities.test.ts` | Tests comprehensive autonomy capabilities across features |
 
 ## Real Tool Integration Tests
 
@@ -50,126 +65,55 @@ Our recently implemented `real-tool-integration.test.ts` test suite provides com
 - Tests include safeguards for missing API keys
 - Tests validate both the agent's responses and the tool execution outcomes
 
-## Planning & Execution Autonomy Testing
+## Reflection-Driven Improvement Tests
 
-Based on our autonomy audit score of 9.2/10 for Planning & Execution, we need to implement tests that verify the agent's ability to decompose complex goals and adapt plans dynamically.
+Our `reflection-improvement.test.ts` test suite provides comprehensive verification of the agent's ability to learn from past experiences and improve its strategies:
 
-### Test Plan for Planning & Execution
+### Test Coverage:
+- ✅ **Insight generation after task execution** - Tests if the agent can reflect on task approaches and identify improvements
+- ✅ **Strategy improvement based on reflection insights** - Tests if the agent can adapt strategies based on constraint changes
+- ✅ **Learning from task failures** - Tests if the agent learns from impossible tasks and applies learning to similar future tasks
+- ✅ **Performance improvement over repeated similar tasks** - Tests if efficiency and quality improve when executing similar tasks
 
-| Test Name | Description | Implementation Priority |
-|-----------|-------------|-------------------------|
-| Plan Generation | Test the agent's ability to create a detailed plan for a complex task | High |
-| Plan Execution | Test step-by-step execution of a generated plan | High |
-| Execution Tracing | Verify creation and storage of execution trace entries | Medium |
-| Plan Adaptation | Test the agent's ability to adapt plans when execution conditions change | High |
-| Failure Recovery | Test recovery mechanisms when plan steps fail | Medium |
-| Outcome Analysis | Verify the ExecutionOutcomeAnalyzer correctly analyzes execution results | High |
+### Test Design Features:
+- Tests include proper error handling for missing API keys
+- Tests include verification of reflection-specific language in responses
+- Tests check for memory storage of insights where appropriate
+- Tests evaluate the agent's ability to incorporate past learnings into new tasks
 
-### Sample Implementation for Planning & Execution Tests
+## Time & Effort Reasoning Tests
 
-```typescript
-async function testPlanGeneration() {
-  const agent = createTestAgent({
-    enablePlanningManager: true,
-    enableMemoryManager: true
-  });
-  
-  await agent.initialize();
-  
-  // Request a complex task requiring planning
-  const response = await agent.processUserInput(
-    "Create a comprehensive research report on quantum computing advances in 2025, with sections for hardware breakthroughs, algorithm improvements, and commercial applications."
-  );
-  
-  // Verify planning occurred by checking agent's memory
-  const memoryManager = agent.getManager(ManagerType.MEMORY);
-  const planMemories = await memoryManager.searchMemories("quantum computing plan", {
-    metadata: { type: "plan" }
-  });
-  
-  // Assert plan was created and stored
-  expect(planMemories.length).toBeGreaterThan(0);
-  
-  // Verify plan has appropriate structure with steps
-  const plan = planMemories[0].content;
-  expect(plan).toContain("step");
-  expect(plan).toContain("hardware");
-  expect(plan).toContain("algorithm");
-  expect(plan).toContain("commercial");
-  
-  return plan; // Return for use in subsequent tests
-}
+Our `time-effort-reasoning.test.ts` test suite verifies the agent's ability to track, estimate, and optimize for task durations:
 
-async function testExecutionTracing() {
-  const agent = createTestAgent({
-    enablePlanningManager: true,
-    enableMemoryManager: true
-  });
-  
-  await agent.initialize();
-  
-  // Execute a multi-step task
-  await agent.processUserInput(
-    "Find information about SpaceX's latest rocket launch and create a summary with key technical specifications."
-  );
-  
-  // Allow time for execution
-  await new Promise(resolve => setTimeout(resolve, 5000));
-  
-  // Verify execution traces are created
-  const memoryManager = agent.getManager(ManagerType.MEMORY);
-  const executionTraces = await memoryManager.searchMemories("SpaceX", {
-    metadata: { type: "execution_trace" }
-  });
-  
-  // Assert execution traces exist
-  expect(executionTraces.length).toBeGreaterThan(0);
-  
-  // Verify traces contain appropriate information
-  const trace = executionTraces[0].content;
-  expect(trace).toContain("status");
-  expect(trace).toContain("timestamp");
-  expect(trace).toContain("action");
-  
-  return executionTraces;
-}
+### Test Coverage:
+- ✅ **Duration tracking for tasks** - Tests if the agent can track and report task execution times
+- ✅ **Duration estimation based on past performance** - Tests if the agent can estimate durations based on similar past tasks
+- ✅ **Time-based task scheduling** - Tests if the agent can schedule tasks with appropriate time allocations
+- ✅ **Effort optimization for sequential tasks** - Tests if the agent recommends efficient approaches to minimize effort
+- ✅ **Learning curve analysis for repeated task types** - Tests if the agent recognizes efficiency improvements over time
 
-async function testPlanAdaptation() {
-  const agent = createTestAgent({
-    enablePlanningManager: true,
-    enableMemoryManager: true,
-    enableToolManager: true
-  });
-  
-  await agent.initialize();
-  
-  // Start a task requiring adaptation
-  await agent.processUserInput(
-    "Create a market analysis report for Tesla stock, including current price, recent news, and future outlook."
-  );
-  
-  // Introduce a change that requires plan adaptation
-  await agent.processUserInput(
-    "Actually, let's focus only on SpaceX instead of Tesla. Include information about their recent rocket launches and future mission plans."
-  );
-  
-  // Verify plan was adapted
-  const memoryManager = agent.getManager(ManagerType.MEMORY);
-  const adaptationMemories = await memoryManager.searchMemories("SpaceX plan adaptation", {
-    metadata: { type: "plan_adaptation" }
-  });
-  
-  // Assert plan adaptation occurred
-  expect(adaptationMemories.length).toBeGreaterThan(0);
-  
-  // Verify adaptation contains reasoning
-  const adaptation = adaptationMemories[0].content;
-  expect(adaptation).toContain("change");
-  expect(adaptation).toContain("reason");
-  
-  return adaptation;
-}
-```
+### Test Design Features:
+- Tests measure actual execution durations to establish performance baselines
+- Tests include pattern recognition for time estimation language
+- Tests verify proper reasoning about task complexity and effort requirements
+- Tests include safeguards for missing API keys
+
+## Knowledge Gap Handling Tests
+
+Our `knowledge-gap-handling.test.ts` test suite verifies the agent's ability to identify and resolve knowledge gaps:
+
+### Test Coverage:
+- ✅ **Knowledge gap identification** - Tests if the agent recognizes when information is missing
+- ✅ **Missing information requests with specific questions** - Tests if the agent asks targeted questions to fill knowledge gaps
+- ✅ **Information integration for complex tasks** - Tests if the agent can combine information from multiple sources
+- ✅ **Partial information handling and progressive refinement** - Tests if the agent makes appropriate use of limited information
+- ✅ **Domain knowledge bootstrapping** - Tests if the agent can build knowledge about new domains during a session
+
+### Test Design Features:
+- Tests include recognition of "knowledge gap" language patterns
+- Tests verify that the agent properly incorporates new information
+- Tests include multi-step information provision to test incremental learning
+- Tests include proper error handling for missing API keys
 
 ## Strategy & Prioritization Testing
 
@@ -288,915 +232,6 @@ async function testBehaviorModifierGeneration() {
   expect(conciseModifier).toBeDefined();
   
   return behaviorModifiers;
-}
-```
-
-## Knowledge Graph Usage Testing
-
-With an autonomy audit score of 9.2/10 for Knowledge Graph Usage, we need to verify the agent's ability to build and utilize domain knowledge.
-
-### Test Plan for Knowledge Graph Usage
-
-| Test Name | Description | Implementation Priority |
-|-----------|-------------|-------------------------|
-| Knowledge Graph Construction | Test building a knowledge graph from information | High |
-| Knowledge Retrieval | Verify retrieval of relevant information from the graph | High |
-| Graph Intelligence | Test advanced reasoning using the graph intelligence engine | Medium |
-| Knowledge Persistence | Verify knowledge persists between sessions | Medium |
-| Domain Bootstrapping | Test the domain knowledge bootstrapping process | Medium |
-| Knowledge Integration | Verify integration of new information into existing graph | Medium |
-
-### Sample Implementation for Knowledge Graph Tests
-
-```typescript
-async function testKnowledgeGraphConstruction() {
-  const agent = createTestAgent({
-    enableMemoryManager: true,
-    enableGraphManager: true
-  });
-  
-  await agent.initialize();
-  
-  // Provide information to build knowledge graph
-  await agent.processUserInput(
-    "Here's information about our company: CloudTech Inc. was founded in 2020 by Maria Chen. We have three products: CloudStore, CloudCompute, and CloudAnalytics. Our main competitors are AzureStack, AWS, and GoogleCloud."
-  );
-  
-  // Verify knowledge graph was constructed
-  const graphManager = agent.getManager(ManagerType.GRAPH);
-  
-  // This API call might need adjustment based on actual implementation
-  const entities = await graphManager.getEntities({ type: "company" });
-  
-  // Assert entities were created
-  expect(entities.length).toBeGreaterThan(0);
-  expect(entities.some(e => e.name === "CloudTech Inc.")).toBe(true);
-  
-  // Check for relationships
-  const relationships = await graphManager.getRelationships({ 
-    fromEntity: "CloudTech Inc.", 
-    relationshipType: "has_product" 
-  });
-  
-  expect(relationships.length).toBe(3);
-  
-  return { entities, relationships };
-}
-
-async function testKnowledgeRetrieval() {
-  const agent = createTestAgent({
-    enableMemoryManager: true,
-    enableGraphManager: true
-  });
-  
-  await agent.initialize();
-  
-  // Build knowledge first
-  await agent.processUserInput(
-    "Company structure information: TechCorp has three departments: Engineering (led by John Smith), Marketing (led by Sarah Johnson), and Finance (led by Michael Brown). Engineering has two teams: Frontend (5 people) and Backend (7 people)."
-  );
-  
-  // Query knowledge
-  const response = await agent.processUserInput(
-    "Who leads the Engineering department and how many teams does it have?"
-  );
-  
-  // Verify knowledge retrieval
-  expect(response.content).toContain("John Smith");
-  expect(response.content).toContain("two teams");
-  
-  // Check graph for retrieved information
-  const graphManager = agent.getManager(ManagerType.GRAPH);
-  
-  // This might need adjustment based on actual API
-  const queryResult = await graphManager.query(
-    "MATCH (d:Department {name: 'Engineering'})-[:led_by]->(p:Person) RETURN p.name"
-  );
-  
-  expect(queryResult.records[0].get('p.name')).toBe("John Smith");
-  
-  return queryResult;
-}
-
-async function testGraphIntelligence() {
-  const agent = createTestAgent({
-    enableMemoryManager: true,
-    enableGraphManager: true
-  });
-  
-  await agent.initialize();
-  
-  // Build complex knowledge graph
-  await agent.processUserInput(
-    "Project dependencies: ProjectA depends on LibraryX v1.2 and LibraryY v2.0. LibraryX depends on LibraryZ v1.5. LibraryY depends on LibraryZ v1.5 and LibraryW v0.8. LibraryZ has a security vulnerability in versions below v1.6."
-  );
-  
-  // Ask question requiring graph intelligence
-  const response = await agent.processUserInput(
-    "Which of our projects might be affected by the security vulnerability in LibraryZ and what's the dependency path?"
-  );
-  
-  // Verify intelligent graph analysis
-  expect(response.content).toContain("ProjectA");
-  expect(response.content).toContain("LibraryX");
-  expect(response.content).toContain("LibraryY");
-  expect(response.content).toContain("LibraryZ");
-  expect(response.content).toContain("vulnerability");
-  
-  return response;
-}
-```
-
-## Time & Effort Reasoning Testing
-
-With an autonomy audit score of 9.0/10 for Time & Effort Reasoning, we need to verify the agent's ability to track and learn from task durations.
-
-### Test Plan for Time & Effort Reasoning
-
-| Test Name | Description | Implementation Priority |
-|-----------|-------------|-------------------------|
-| Duration Tracking | Test tracking of execution times for tasks | High |
-| Duration Estimation | Verify ability to estimate task durations based on past data | High |
-| Pattern Analysis | Test identification of patterns in task duration data | Medium |
-| Time-Based Scheduling | Verify tasks are scheduled based on duration estimates | Medium |
-| Effort Optimization | Test optimization of task sequencing based on effort estimation | Medium |
-| Learning Curve Analysis | Verify tracking of improving efficiency over repeated similar tasks | Low |
-
-### Sample Implementation for Time & Effort Reasoning Tests
-
-```typescript
-async function testDurationTracking() {
-  const agent = createTestAgent({
-    enableMemoryManager: true,
-    enableSchedulerManager: true
-  });
-  
-  await agent.initialize();
-  
-  // Execute a measurable task
-  const startTime = Date.now();
-  await agent.processUserInput(
-    "Generate a list of 10 potential blog topics about artificial intelligence."
-  );
-  const endTime = Date.now();
-  
-  // Calculate actual duration
-  const actualDuration = endTime - startTime;
-  
-  // Verify duration was tracked
-  const memoryManager = agent.getManager(ManagerType.MEMORY);
-  const executionMemories = await memoryManager.searchMemories("blog topics", {
-    metadata: { type: "task_execution" }
-  });
-  
-  // Assert execution record exists
-  expect(executionMemories.length).toBeGreaterThan(0);
-  
-  // Parse the duration from the memory
-  const executionData = JSON.parse(executionMemories[0].content);
-  expect(executionData.duration).toBeDefined();
-  
-  // Verify recorded duration is close to actual duration (within 20%)
-  const durationDiff = Math.abs(executionData.duration - actualDuration);
-  expect(durationDiff / actualDuration).toBeLessThan(0.2);
-  
-  return { actualDuration, recordedDuration: executionData.duration };
-}
-
-async function testDurationEstimation() {
-  const agent = createTestAgent({
-    enableMemoryManager: true,
-    enableSchedulerManager: true
-  });
-  
-  await agent.initialize();
-  
-  // Generate baseline data with similar tasks
-  for (let i = 0; i < 3; i++) {
-    await agent.processUserInput(
-      `Generate ${5 + i} social media post ideas about healthy eating.`
-    );
-    // Wait between requests
-    await new Promise(resolve => setTimeout(resolve, 1000));
-  }
-  
-  // Ask for time estimate on similar task
-  const response = await agent.processUserInput(
-    "How long would it take you to generate 8 social media post ideas about fitness?"
-  );
-  
-  // Verify estimate was provided
-  expect(response.content).toMatch(/\d+\s*(seconds|minutes)/i);
-  
-  // Extract estimate from response
-  const estimateMatch = response.content.match(/(\d+)\s*(seconds|minutes)/i);
-  const estimatedDuration = estimateMatch ? 
-    parseInt(estimateMatch[1]) * (estimateMatch[2].toLowerCase() === 'minutes' ? 60 : 1) * 1000 :
-    null;
-  
-  // Execute the task to verify estimate
-  const startTime = Date.now();
-  await agent.processUserInput(
-    "Generate 8 social media post ideas about fitness."
-  );
-  const actualDuration = Date.now() - startTime;
-  
-  // Only check if we could extract an estimate
-  if (estimatedDuration) {
-    // Verify estimate is within reasonable range (within 50% of actual)
-    const durationDiff = Math.abs(estimatedDuration - actualDuration);
-    expect(durationDiff / actualDuration).toBeLessThan(0.5);
-  }
-  
-  return { estimatedDuration, actualDuration };
-}
-
-async function testTimeBasedScheduling() {
-  const agent = createTestAgent({
-    enableMemoryManager: true,
-    enableSchedulerManager: true
-  });
-  
-  await agent.initialize();
-  
-  // Request time-sensitive scheduling
-  const response = await agent.processUserInput(
-    "I need you to research cryptocurrency trends, then write a blog post about your findings, and finally create a social media promotional plan. I need this complete within 30 minutes. Please schedule these tasks appropriately."
-  );
-  
-  // Verify time-based scheduling occurred
-  expect(response.content).toContain("schedule");
-  
-  // Check scheduler for created tasks
-  const schedulerManager = agent.getManager(ManagerType.SCHEDULER);
-  const tasks = await schedulerManager.getTasks();
-  
-  // Assert tasks were created
-  expect(tasks.length).toBeGreaterThanOrEqual(3);
-  
-  // Verify tasks have time estimates and deadlines
-  const tasksWithTimeInfo = tasks.filter(task => 
-    task.metadata && (task.metadata.estimatedDuration || task.metadata.deadline)
-  );
-  
-  expect(tasksWithTimeInfo.length).toBeGreaterThan(0);
-  
-  // Verify total estimated time fits within 30-minute window
-  const totalEstimatedTime = tasksWithTimeInfo.reduce((sum, task) => 
-    sum + (task.metadata?.estimatedDuration || 0), 0
-  );
-  
-  // 30 minutes = 1800000 milliseconds
-  expect(totalEstimatedTime).toBeLessThanOrEqual(1800000);
-  
-  return tasks;
-}
-```
-
-## Priority Tool Testing Plan
-
-The following tools should be tested for integration with the agent's autonomous capabilities:
-
-1. **Web Search/Scraping** - Highest priority, as many tasks depend on this capability
-2. **Discord Integration** - Test notification capabilities for autonomous reporting
-3. **RSS Feed Processing** - Test autonomous monitoring and summarization
-4. **Twitter (X) Integration** - Test social media monitoring and interaction
-5. **File Operations** - Test document creation and management
-6. **Coda Integration** - Test data collection and structured storage
-7. **Email Integration** - Test autonomous communication
-8. **Reddit Integration** - Test community monitoring and interaction
-
-For each tool, we should test:
-1. Basic functionality through direct user input
-2. Scheduled/delayed execution
-3. Error handling and recovery
-4. Integration with memory for contextual use
-
-## Testing Focus Areas
-
-1. **Self-initiation capabilities**
-2. **Asynchronous task execution**
-3. **Task decomposition and execution**
-4. **Tool integration validation**
-5. **End-to-end scenarios with minimal human intervention**
-
-## Test Categories
-
-### 1. Basic Autonomy Tests
-
-Tests to verify the agent can operate independently on simple tasks:
-
-```typescript
-// Test running a simple task without supervision
-async function testBasicAutonomy() {
-  const agent = new DefaultAgent({
-    name: "AutonomyTester",
-    enableMemoryManager: true,
-    enableToolManager: true,
-    enablePlanningManager: true,
-    enableSchedulerManager: true
-  });
-  
-  await agent.initialize();
-  
-  // Create a simple task
-  const result = await agent.processUserInput(
-    "Create a markdown file with a list of 5 AI research topics"
-  );
-  
-  // Assert agent responded with appropriate acknowledgment
-  console.assert(result.content.includes("I'll create"));
-  
-  // Verify the task was completed
-  // Check for file creation or response indicating completion
-}
-```
-
-### 2. Asynchronous Execution Tests
-
-Tests to verify the agent can handle delayed/scheduled tasks:
-
-```typescript
-// Test scheduling a task to execute after a delay
-async function testAsyncExecution() {
-  const agent = new DefaultAgent({
-    name: "AsyncTester",
-    enableMemoryManager: true,
-    enableToolManager: true,
-    enablePlanningManager: true,
-    enableSchedulerManager: true
-  });
-  
-  await agent.initialize();
-  
-  // Create a delayed task
-  const taskId = await agent.createTask({
-    title: "Send delayed summary",
-    description: "Search for the latest AI news and send a summary in 2 minutes",
-    type: "delayed_execution",
-    metadata: {
-      delayMinutes: 2,
-      searchQuery: "latest artificial intelligence developments"
-    }
-  });
-  
-  console.log(`Created task ${taskId}, waiting for execution...`);
-  
-  // Wait for 2.5 minutes to ensure execution
-  await new Promise(resolve => setTimeout(resolve, 150000));
-  
-  // Check task status and results
-  const task = await agent.getTask(taskId);
-  console.assert(task?.status === "completed", "Task should be completed");
-  
-  // Verify task outputs (e.g., check if summary was sent)
-}
-```
-
-### 3. Complex Task Decomposition Tests
-
-Tests to verify the agent can break down complex tasks:
-
-```typescript
-// Test agent's ability to decompose a complex task
-async function testTaskDecomposition() {
-  const agent = new DefaultAgent({
-    name: "DecompositionTester",
-    enableMemoryManager: true,
-    enableToolManager: true,
-    enablePlanningManager: true,
-    enableSchedulerManager: true
-  });
-  
-  await agent.initialize();
-  
-  // Create a complex task requiring multiple steps
-  const result = await agent.planAndExecute(
-    "Research the top 3 machine learning frameworks, create a comparison table, and save it as an HTML file"
-  );
-  
-  console.assert(result.success, "Plan execution should succeed");
-  
-  // Note: executedSteps might not be explicitly available in the return value
-  // depending on implementation details, look for success indicator instead
-  console.assert(result.success === true, "Plan should execute successfully");
-  
-  // Check if final output was created
-  // Verify HTML file existence and content
-}
-```
-
-### 4. Tool Integration Tests
-
-Tests to verify integration with various tools:
-
-```typescript
-// Test agent's ability to use web tools
-async function testWebToolIntegration() {
-  const agent = new DefaultAgent({
-    name: "WebToolTester",
-    enableMemoryManager: true,
-    enableToolManager: true,
-    enablePlanningManager: true,
-    enableSchedulerManager: true
-  });
-  
-  await agent.initialize();
-  
-  // Test web scraping capability
-  const scrapingResult = await agent.processUserInput(
-    "Find and summarize the top news article from TechCrunch about AI"
-  );
-  
-  console.assert(scrapingResult.content.includes("According to TechCrunch"), 
-    "Response should include content from TechCrunch");
-    
-  // Test market data retrieval
-  const marketResult = await agent.processUserInput(
-    "What is the current Bitcoin price and its 24-hour change?"
-  );
-  
-  console.assert(marketResult.content.includes("Bitcoin") && 
-    marketResult.content.includes("price") && 
-    marketResult.content.includes("%"), 
-    "Response should include Bitcoin price data");
-}
-```
-
-### 5. Notification and Communication Tests
-
-Tests to verify the agent can send notifications:
-
-```typescript
-// Test agent's ability to send notifications
-async function testNotificationCapability() {
-  const agent = new DefaultAgent({
-    name: "NotificationTester",
-    enableMemoryManager: true,
-    enableToolManager: true,
-    enablePlanningManager: true,
-    enableSchedulerManager: true
-  });
-  
-  await agent.initialize();
-  
-  // Test Discord notification
-  const discordResult = await agent.processUserInput(
-    "Send a message to Discord channel #testing with the text 'This is an autonomy test'"
-  );
-  
-  console.assert(discordResult.content.includes("sent to Discord"), 
-    "Agent should confirm Discord message was sent");
-    
-  // Test email notification
-  const emailResult = await agent.processUserInput(
-    "Draft an email about the weekly AI news summary"
-  );
-  
-  console.assert(emailResult.content.includes("drafted") || 
-    emailResult.content.includes("created"), 
-    "Agent should confirm email was drafted");
-}
-```
-
-## Targeted Audit Issue Tests
-
-These tests specifically address issues highlighted in the autonomy audit. Note that some features may not be fully implemented yet, so these tests can help identify gaps.
-
-### 1. StrategyUpdater Integration Test
-
-Tests if the StrategyUpdater correctly interfaces with memory services:
-
-```typescript
-async function testStrategyUpdaterIntegration() {
-  const agent = new DefaultAgent({
-    name: "StrategyTester",
-    enableMemoryManager: true,
-    enableToolManager: true,
-    enablePlanningManager: true,
-    enableSchedulerManager: true
-  });
-  
-  await agent.initialize();
-  
-  // Create a task that requires strategy optimization
-  const result = await agent.processUserInput(
-    "Analyze the performance of my previous Bitcoin trading strategies and suggest improvements"
-  );
-  
-  console.log("Agent response:", result.content);
-  
-  // Check if strategy analysis was stored in memory
-  // Note: The specific "strategy_analysis" type might not exist yet
-  const memoryManager = agent.getManager(ManagerType.MEMORY);
-  const strategyMemories = await memoryManager.searchMemories("", {
-    metadata: { 
-      type: ["analysis", "agent_response"],
-      // The componentName might not be tracked in this way yet
-      tags: ["strategy", "bitcoin", "analysis"]
-    }
-  });
-  
-  // Some memory should be created about the strategy analysis
-  console.assert(strategyMemories.length > 0, 
-    "Agent should record strategy analysis in memory");
-  
-  // Verify that strategy suggestions were generated
-  console.assert(result.content.includes("strategy") && 
-    result.content.includes("improvement"), 
-    "Response should include strategy improvement suggestions");
-}
-```
-
-### 2. Tool Performance Analytics Test
-
-Tests if tool usage metrics are properly stored and retrieved:
-
-```typescript
-async function testToolPerformanceAnalytics() {
-  const agent = new DefaultAgent({
-    name: "ToolAnalyticsTester",
-    enableMemoryManager: true,
-    enableToolManager: true,
-    enablePlanningManager: true,
-    enableSchedulerManager: true
-  });
-  
-  await agent.initialize();
-  
-  // Execute a series of tasks that use different tools
-  for (const query of [
-    "What's the weather in New York today?",
-    "Find the latest news about SpaceX",
-    "Calculate 15% of 2350",
-    "Summarize the top AI research papers from July 2025"
-  ]) {
-    await agent.processUserInput(query);
-  }
-  
-  // Check if tool usage metrics are being stored
-  // Note: Using the correct interface method getToolMetrics instead of getToolUsageMetrics
-  const toolManager = agent.getManager(ManagerType.TOOL);
-  if ('getToolMetrics' in toolManager) {
-    const toolMetrics = await toolManager.getToolMetrics();
-    
-    console.assert(toolMetrics && toolMetrics.length > 0,
-      "Should have recorded tool usage metrics");
-    
-    // Verify tool selection is influenced by past performance
-    const adaptiveResult = await agent.processUserInput(
-      "Find information about upcoming tech conferences"
-    );
-    
-    // Use the correct interface method findBestToolForTask
-    if ('findBestToolForTask' in toolManager) {
-      const preferredToolInfo = await toolManager.findBestToolForTask("information retrieval");
-      console.log("Preferred tool:", preferredToolInfo?.name);
-      
-      // Check if a tool was selected based on past performance
-      console.assert(preferredToolInfo !== null, 
-        "Agent should select a preferred tool for information retrieval");
-    } else {
-      console.log("findBestToolForTask not implemented yet");
-    }
-  } else {
-    console.log("getToolMetrics not implemented yet");
-  }
-  
-  // Check memory for tool usage records
-  const executionLogs = await agent.getMemoriesByTags(["tool_execution"], { limit: 1 });
-  console.assert(executionLogs.length > 0, "Should have records of tool executions");
-}
-```
-
-### 3. Scheduler Persistence Test
-
-Tests if scheduler properly handles tasks. Note that persistence between agent instances depends on external storage mechanisms:
-
-```typescript
-async function testSchedulerPersistence() {
-  // Create agent instance
-  const agent = new DefaultAgent({
-    name: "SchedulerTester",
-    enableMemoryManager: true,
-    enableToolManager: true,
-    enablePlanningManager: true,
-    enableSchedulerManager: true
-  });
-  
-  await agent.initialize();
-  
-  // Schedule a task for future execution
-  const futureTaskId = await agent.createTask({
-    title: "Future reminder",
-    description: "Send a reminder about the weekly meeting",
-    type: "scheduled",
-    metadata: {
-      scheduledTime: new Date(Date.now() + 3600000) // 1 hour in the future
-    }
-  });
-  
-  console.log(`Scheduled task ${futureTaskId} for execution in 1 hour`);
-  
-  // Verify task was created with correct scheduled time
-  const task = await agent.getTask(futureTaskId);
-  console.assert(task !== null, "Task should be created and retrievable");
-  
-  // Check scheduled tasks
-  const schedulerManager = agent.getManager(ManagerType.SCHEDULER);
-  if ('getDueTasks' in schedulerManager) {
-    // This should be empty since our task is scheduled for the future
-    const dueTasks = await schedulerManager.getDueTasks();
-    console.assert(dueTasks.length === 0, 
-      "No tasks should be due yet");
-  }
-  
-  if ('getPendingTasks' in schedulerManager) {
-    // Our scheduled task should be pending
-    const pendingTasks = await schedulerManager.getPendingTasks();
-    console.assert(pendingTasks.length > 0, 
-      "Task should be in pending state");
-  }
-  
-  // Note: Full persistence testing between agent instances would require
-  // configuring external storage which is environment-dependent
-  console.log("Note: For full persistence testing between agent restarts, external storage needs to be configured");
-}
-```
-
-### 4. Execution Analysis Test
-
-Tests if execution outcomes are properly analyzed. Note that detailed causal chains may not be fully implemented yet:
-
-```typescript
-async function testExecutionAnalysis() {
-  const agent = new DefaultAgent({
-    name: "ExecutionAnalysisTester",
-    enableMemoryManager: true,
-    enableToolManager: true,
-    enablePlanningManager: true,
-    enableSchedulerManager: true,
-    enableReflectionManager: true
-  });
-  
-  await agent.initialize();
-  
-  // Execute a complex task with multiple subtasks
-  const result = await agent.planAndExecute(
-    "Research recent developments in quantum computing, identify key trends, and create a presentation"
-  );
-  
-  console.log("Execution outcome:", result.success ? "Success" : "Failure");
-  
-  // Check if any execution information was recorded in memory
-  const memoryManager = agent.getManager(ManagerType.MEMORY);
-  const executionMemories = await memoryManager.searchMemories("quantum computing", {
-    metadata: { 
-      type: ["agent_response", "plan_execution"]
-    }
-  });
-  
-  console.assert(executionMemories.length > 0, 
-    "Should have execution records in memory");
-  
-  // Basic reflection testing - if reflection manager is available
-  const reflectionManager = agent.getManager(ManagerType.REFLECTION);
-  if (reflectionManager) {
-    try {
-      const reflectionResult = await agent.reflect({
-        trigger: "task_completion",
-        taskId: result.taskId || "unknown"
-      });
-      
-      console.log("Reflection result:", reflectionResult.success ? "Success" : "Failure");
-      
-      // Some agents may have reflection insights
-      if (reflectionResult.insights && reflectionResult.insights.length > 0) {
-        console.log("Generated insights:", reflectionResult.insights.length);
-      } else {
-        console.log("No reflection insights generated - this might be expected depending on implementation");
-      }
-    } catch (error) {
-      console.log("Reflection not fully implemented yet:", error.message);
-    }
-  } else {
-    console.log("ReflectionManager not enabled or available");
-  }
-}
-```
-
-## End-to-End Autonomy Scenarios
-
-These scenarios test the agent's full autonomy across multiple capabilities.
-
-### Scenario 1: Scheduled Research and Reporting
-
-```typescript
-async function testScheduledResearchScenario() {
-  const agent = new DefaultAgent({
-    name: "ResearchAgent",
-    enableMemoryManager: true,
-    enableToolManager: true,
-    enablePlanningManager: true,
-    enableSchedulerManager: true,
-    enableReflectionManager: true
-  });
-  
-  await agent.initialize();
-  
-  // Set up a scheduled task
-  const result = await agent.processUserInput(
-    "Find three Twitter posts with hashtag bitcoin from today and send me a summary with links in 3 minutes"
-  );
-  
-  console.log("Agent response:", result.content);
-  
-  // Wait for 3.5 minutes to ensure execution
-  console.log("Waiting for task execution...");
-  await new Promise(resolve => setTimeout(resolve, 210000));
-  
-  // Check for task completion in agent's memory
-  const memoryManager = agent.getManager(ManagerType.MEMORY);
-  const memories = await memoryManager.searchMemories("bitcoin summary", { 
-    limit: 5, 
-    // The specific task_result type might not exist yet
-    metadata: { type: ["agent_response", "summary"] } 
-  });
-  
-  console.assert(memories.length > 0, "Should have memory of completed task");
-  
-  // Check if any Twitter links were found - this depends on available tools
-  const twitterContent = memories.find(m => 
-    m.content.includes("twitter.com") || 
-    m.content.includes("Bitcoin") || 
-    m.content.includes("BTC")
-  );
-  
-  if (twitterContent) {
-    console.log("Found Twitter content:", twitterContent.content.substring(0, 100) + "...");
-  } else {
-    console.log("No Twitter content found - this might indicate missing tool access or connectivity issues");
-  }
-}
-```
-
-### Scenario 2: Market Monitoring and Alert
-
-```typescript
-async function testMarketMonitoringScenario() {
-  const agent = new DefaultAgent({
-    name: "MarketMonitor",
-    enableMemoryManager: true,
-    enableToolManager: true,
-    enablePlanningManager: true,
-    enableSchedulerManager: true
-  });
-  
-  await agent.initialize();
-  
-  // Set up continuous monitoring task
-  const result = await agent.processUserInput(
-    "Monitor Bitcoin price for the next 5 minutes. If it changes by more than 1%, send me an alert with the details."
-  );
-  
-  console.log("Agent response:", result.content);
-  
-  // Wait for 6 minutes to ensure monitoring period completes
-  console.log("Waiting for monitoring period...");
-  await new Promise(resolve => setTimeout(resolve, 360000));
-  
-  // Check task status
-  const schedulerManager = agent.getManager(ManagerType.SCHEDULER);
-  
-  // Check if any tasks were created for monitoring
-  const tasks = await schedulerManager.getTasks();
-  console.log(`Found ${tasks.length} tasks`);
-  
-  // Find monitoring task - note the task description might vary based on implementation
-  const monitoringTask = tasks.find(t => 
-    t.description.toLowerCase().includes("monitor") && 
-    t.description.toLowerCase().includes("bitcoin"));
-  
-  if (monitoringTask) {
-    console.log("Found monitoring task:", monitoringTask.title);
-    console.log("Task status:", monitoringTask.status);
-  } else {
-    console.log("No specific monitoring task found - agent might handle this differently");
-  }
-  
-  // Check if any alerts were generated
-  const memoryManager = agent.getManager(ManagerType.MEMORY);
-  const alertMemories = await memoryManager.searchMemories("bitcoin price alert", { 
-    limit: 5 
-  });
-  
-  console.log(`Found ${alertMemories.length} alert-related memories`);
-  
-  if (alertMemories.length > 0) {
-    console.log("Alert example:", alertMemories[0].content);
-  } else {
-    console.log("No alerts found - either no significant price changes occurred or alerting isn't fully implemented");
-  }
-}
-```
-
-### Scenario 3: Content Creation and Publishing
-
-```typescript
-async function testContentCreationScenario() {
-  const agent = new DefaultAgent({
-    name: "ContentCreator",
-    enableMemoryManager: true,
-    enableToolManager: true,
-    enablePlanningManager: true,
-    enableSchedulerManager: true
-  });
-  
-  await agent.initialize();
-  
-  // Request content creation and publishing
-  const result = await agent.processUserInput(
-    "Research the top 5 AI trends in 2025, create a blog post about them, and save it as a markdown file"
-  );
-  
-  console.log("Agent response:", result.content);
-  
-  // Wait for reasonable time to complete the complex task
-  console.log("Waiting for content creation...");
-  await new Promise(resolve => setTimeout(resolve, 180000)); // 3 minutes
-  
-  // Check for file creation
-  const memoryManager = agent.getManager(ManagerType.MEMORY);
-  const contentMemories = await memoryManager.searchMemories("AI trends", { 
-    limit: 5,
-    metadata: { type: "agent_response" }
-  });
-  
-  console.assert(contentMemories.length > 0, 
-    "Should have memory of content creation");
-  
-  // Check if the agent mentions file creation in response
-  const fileCreationMentioned = result.content.includes("saved") || 
-                               result.content.includes("created") ||
-                               result.content.includes("file") ||
-                               result.content.includes(".md");
-  
-  console.assert(fileCreationMentioned, 
-    "Agent should mention file creation in response");
-  
-  // Note: Full WordPress publishing might not be available without proper credentials
-  console.log("Note: Full publishing to external systems like WordPress requires proper credentials and might not be testable in all environments");
-}
-```
-
-## Limited Self-Initiation Test
-
-Tests if the agent can respond to scheduled tasks - note that full autonomous self-initiation may not be implemented yet:
-
-```typescript
-async function testLimitedSelfInitiation() {
-  const agent = new DefaultAgent({
-    name: "SelfInitiationTester",
-    enableMemoryManager: true,
-    enableToolManager: true,
-    enablePlanningManager: true,
-    enableSchedulerManager: true,
-    enableReflectionManager: true
-  });
-  
-  await agent.initialize();
-  
-  // Create a scheduled task directly rather than expecting the agent to self-initiate
-  const taskId = await agent.createTask({
-    title: "Autonomous weather report",
-    description: "Retrieve current weather for New York and summarize it",
-    type: "scheduled",
-    priority: 0.8,
-    metadata: {
-      scheduledTime: new Date(Date.now() + 60000) // 1 minute in the future
-    }
-  });
-  
-  console.log(`Created scheduled task ${taskId}, waiting for execution...`);
-  
-  // Wait for 2 minutes to ensure the task has time to execute
-  await new Promise(resolve => setTimeout(resolve, 120000));
-  
-  // Check if the task was executed
-  const task = await agent.getTask(taskId);
-  console.log("Task status:", task?.status);
-  
-  // In a fully autonomous system, this should be "completed"
-  // But note that self-execution might not be fully implemented yet
-  if (task?.status === "completed") {
-    console.log("✅ Task executed autonomously as scheduled");
-  } else {
-    console.log("⚠️ Autonomous task execution might not be fully implemented yet");
-  }
-  
-  // Note: Full self-initiation (creating tasks without explicit commands) is a more
-  // advanced capability that might not be implemented yet
-  console.log("Note: Full self-initiation capability (creating tasks without explicit commands) requires additional components that might not be implemented yet");
 }
 ```
 
@@ -1334,17 +369,10 @@ These gaps provide clear targets for future development to enhance the agent's a
 - [x] Basic autonomy tests implemented with real functionality (Phase 1)
 - [x] Asynchronous execution tests implemented (Phase 2)
 - [x] Tool integration tests implemented (Phase 3)
-- [ ] Complex task tests implemented (Phase 4)
+- [x] Complex task tests implemented (Phase 4)
 - [ ] End-to-end scenario tests implemented (Phase 5)
 - [x] Gaps identified and documented for future implementation
 - [x] Autonomy integration plan established for core components
-
-## Next Steps
-
-1. Fix the Task interface import issue in the Phase 1 test file
-2. Replace mocks with proper dependency injections to test real functionality
-3. Create a proper test environment configuration with mock external services
-4. Gradually implement and uncomment the detailed test sections 
 
 ## Progress Summary
 
@@ -1354,66 +382,40 @@ We've significantly expanded the autonomy testing capabilities by implementing:
 
 2. **Strategy & Prioritization tests** - Implemented tests to verify the agent's strategy generation, updating, and behavior modification capabilities with a focus on measuring performance improvements over time.
 
-3. **Planning & Execution Autonomy tests** - Created tests for plan generation, execution tracing, plan adaptation, and failure recovery to verify the agent's ability to handle complex tasks.
+3. **Reflection-Driven Improvement tests** - Created comprehensive tests verifying the agent's ability to learn from reflection and improve strategies based on insights.
 
-4. **Test environment improvements** - Added support for loading environment variables from both .env and test.env files, allowing tests to run in different environments.
+4. **Time & Effort Reasoning tests** - Implemented tests for duration tracking, estimation, task scheduling, effort optimization, and learning curve analysis.
 
-5. **Graceful test degradation** - Implemented tests that can still provide meaningful results even when certain capabilities (like API keys) are not available.
+5. **Knowledge Gap Handling tests** - Created tests for identifying knowledge gaps, requesting missing information, integrating new information, handling partial information, and bootstrapping domain knowledge.
 
-These test implementations provide comprehensive coverage of the key autonomy capabilities identified in our audit, particularly focusing on:
+6. **Test environment improvements** - Added support for loading environment variables from both .env and test.env files, allowing tests to run in different environments.
+
+7. **Graceful test degradation** - Implemented tests that can still provide meaningful results even when certain capabilities (like API keys) are not available.
+
+These test implementations provide comprehensive coverage of key autonomy capabilities identified in our audit, particularly focusing on:
 
 - Tool integration and adaptation
-- Strategy optimization and performance learning
-- Planning and execution with dynamic adaptation
-- Recovery and resilience to failures
+- Strategy development and improvement
+- Reflection and learning from experience
+- Time-aware task planning and optimization
+- Handling incomplete information
 
-## Next Steps for Tool Integration Testing
+## Current Focus
 
-Having successfully implemented comprehensive real tool integration tests, the next steps specifically for the tool testing area should include:
+The current focus should be on implementing Phase 5 (End-to-End) tests while ensuring the existing tests remain stable and reliable. This involves:
 
-1. **Cross-tool workflow testing** - Testing more complex scenarios where multiple tools must work together seamlessly
-2. **Custom tool integration** - Adding tests for any specialized or custom tools in the codebase
-3. **Tool performance metrics** - Implementing tests that measure and compare performance of similar tools
-4. **Edge case handling** - Testing tool behavior under unusual or extreme conditions (very large inputs, rate limiting)
-5. **OAuth and authentication flows** - Testing tools that require complex authentication mechanisms
-
-## Missing Tests
-
-These specific test areas are currently not covered and should be implemented:
-
-1. **Reflection-driven improvement** - Testing if the agent learns from past task execution
-2. **Memory-tool integration** - Testing if tools properly utilize and update agent memory
-3. **Rate limiting and API throttling** - Testing how the agent handles API rate limits
-4. **Cross-tool data sharing** - Testing how data flows between different tools during complex tasks
-5. **Adaptive tool selection** - Testing if the agent selects tools based on past performance
+1. Creating comprehensive end-to-end scenarios that exercise multiple components
+2. Implementing tests for memory-tool integration
+3. Testing rate limiting and API throttling behavior
+4. Implementing tests for cross-tool data sharing
+5. Testing adaptive tool selection based on past performance 
 
 ## Implementation Plan
 
 | Test Area | Priority | Estimated Effort | Dependencies |
 |-----------|----------|-------------------|--------------|
-| Complex Task Decomposition | High | 3 days | Planning Manager implementation |
+| Complex Task Decomposition | ✅ Implemented | - | - |
 | Long-Running Task Persistence | High | 2 days | External storage configuration |
 | Proactive Autonomy | Medium | 4 days | Reflection Manager implementation |
 | End-to-End Scenarios | Medium | 5 days | Tool integration, Planning Manager, Scheduler |
-| Performance Metrics | Low | 3 days | Telemetry implementation |
-
-## Progress Checklist
-
-- [x] Initial test structure created (Phase 1)
-- [x] Basic autonomy tests implemented with real functionality (Phase 1)
-- [x] Asynchronous execution tests implemented (Phase 2)
-- [x] Tool integration tests implemented (Phase 3)
-- [ ] Complex task tests implemented (Phase 4)
-- [ ] End-to-end scenario tests implemented (Phase 5)
-- [x] Gaps identified and documented for future implementation
-- [x] Autonomy integration plan established for core components
-
-## Current Focus
-
-The current focus should be on implementing Phase 4 (Complex Task) tests while ensuring the existing real tool integration tests remain stable and reliable. This involves:
-
-1. Creating a testing framework for multi-step task decomposition
-2. Ensuring tasks can be paused and resumed across sessions
-3. Testing task prioritization when multiple tasks are scheduled
-4. Implementing test cases for error recovery during complex tasks
-5. Measuring and tracking performance metrics for different types of tasks 
+| Performance Metrics | Low | 3 days | Telemetry implementation | 

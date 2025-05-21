@@ -40,8 +40,8 @@ try {
     console.warn('OPENAI_API_KEY is missing, tag extraction will use mock implementation');
   } else {
     openai = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY,
-    });
+  apiKey: process.env.OPENAI_API_KEY,
+});
   }
 } catch (error) {
   console.warn('Error initializing OpenAI client:', error);

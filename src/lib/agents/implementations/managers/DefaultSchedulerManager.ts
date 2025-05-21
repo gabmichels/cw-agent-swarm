@@ -410,7 +410,7 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
       };
     }
 
-    try {
+      try {
       // Update task status to running
       await this.updateTask(taskId, { status: 'running' });
 
@@ -500,11 +500,11 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
         };
       }
     } catch (error) {
-      return {
-        success: false,
-        taskId,
+    return {
+      success: false,
+      taskId,
         error: error instanceof Error ? error.message : String(error)
-      };
+    };
     }
   }
 
@@ -544,13 +544,13 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
     }
 
     const now = new Date();
-    
+
     return Array.from(this.tasks.values()).filter(task => {
       // Check if task is pending or scheduled
       if (task.status !== 'pending' && task.status !== 'scheduled') {
         return false;
       }
-      
+
       // Check if task has a scheduled time
       const scheduledTime = task.metadata?.scheduledTime;
       if (!scheduledTime) {
