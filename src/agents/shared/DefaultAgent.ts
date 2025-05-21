@@ -84,11 +84,17 @@ type OutputProcessor = BaseManager;
 
 // Extended agent config with manager enablement and configuration
 interface ExtendedAgentConfig {
+  /** Optional agent ID */
+  id?: string;
+  
   /** Optional agent name */
   name?: string;
   
   /** Optional agent description */
   description?: string;
+  
+  /** Optional agent type */
+  type?: string;
   
   // LLM configuration
   modelName?: string;
@@ -166,12 +172,13 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
    * @param config Agent configuration
    */
   constructor(config: ExtendedAgentConfig) {
-    // Create AgentMemoryEntity from ExtendedAgentConfig
-    const agentId = createAgentId().toString();
+    // Use ID from config if provided, otherwise generate a new one
+    const agentId = config.id || createAgentId().toString();
+    
     const agentConfig: AgentMemoryEntity = {
       id: agentId,
-      name: 'Default Agent',
-      description: 'A general-purpose agent that can be used for various tasks',
+      name: config.name || 'Default Agent',
+      description: config.description || 'A general-purpose agent that can be used for various tasks',
       createdBy: 'system',
       capabilities: [],
       parameters: {
@@ -208,7 +215,14 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
     
     // Store extended config for use in initialization
     this.extendedConfig = config;
+    
+    // Set the agentId property to ensure it matches the expected ID
     this.agentId = agentId;
+    
+    // If specific agent type was provided, use it
+    if (config.type) {
+      this.agentType = config.type;
+    }
     
     // Initialize LLM using existing createChatOpenAI from lib/core/llm.ts
     this.model = createChatOpenAI({

@@ -50,11 +50,9 @@ Visualizations are represented as a graph with nodes and edges:
 
 ```typescript
 import { ThinkingVisualizer } from '@/services/thinking/visualization';
-import { MemoryService } from '@/server/memory/services/memory/memory-service';
 
-// Initialize visualizer
-const memoryService = new MemoryService(...);
-const visualizer = new ThinkingVisualizer(memoryService);
+// Initialize visualizer - no memory service required
+const visualizer = new ThinkingVisualizer();
 
 // Create visualization
 const visualization = visualizer.initializeVisualization(
@@ -105,15 +103,14 @@ import ThinkingVisualizer from '@/components/ThinkingVisualizer';
 
 ## Storage
 
-Visualizations are stored in the memory service using a specialized collection. Each visualization is stored with metadata including:
+Visualizations are stored in-memory during a single server session. In a production environment, you would want to implement a persistent storage mechanism. Each visualization contains:
 
 - Chat ID
 - Message ID
 - User ID
 - Agent ID
 - Timestamp
-- Source
-- Importance score
+- Nodes and edges representing the thinking process
 
 ## Configuration
 

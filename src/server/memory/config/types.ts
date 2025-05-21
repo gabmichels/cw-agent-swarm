@@ -91,7 +91,15 @@ export enum MemoryType {
   OTHER = 'other'
 }
 
-import { ImportanceLevel } from '../../../constants/memory';
+/**
+ * Memory importance levels
+ */
+export enum ImportanceLevel {
+  LOW = 'low',
+  MEDIUM = 'medium',
+  HIGH = 'high',
+  CRITICAL = 'critical'
+}
 
 /**
  * Filter condition type for memory queries
@@ -206,4 +214,24 @@ export enum MemorySourceType {
 }
 
 // Backward compatibility alias
-export { MemorySourceType as MemorySource }; 
+export { MemorySourceType as MemorySource };
+
+/**
+ * Interface for index definitions in collections
+ */
+export interface IndexDefinition {
+  /**
+   * Field path to index (e.g. 'metadata.chatId')
+   */
+  field: string;
+  
+  /**
+   * Index name for reference
+   */
+  indexName: string;
+  
+  /**
+   * Field data type for proper indexing
+   */
+  fieldType: 'keyword' | 'integer' | 'float' | 'geo' | 'text' | 'bool' | 'datetime';
+} 

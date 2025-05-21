@@ -74,6 +74,55 @@ export const MEMORY_EDIT_COLLECTION: CollectionConfig<MemoryEditSchema> = {
 };
 
 /**
+ * Visualization collection configuration
+ * This is a dedicated collection for agent thinking visualizations
+ * Note: This is NOT a memory collection, but uses same database infrastructure
+ */
+export const VISUALIZATION_COLLECTION = {
+  name: 'thinking_visualizations',
+  // Using any for now as visualization schema is defined elsewhere
+  schema: {} as any,
+  // We're not using CollectionConfig<T> here since visualizations aren't memories
+  // and will have their own dedicated access methods
+  indices: [] as string[],
+  defaults: {}
+};
+
+// Define a separate constant for visualization indices
+export const VISUALIZATION_INDICES = [
+  {
+    field: 'metadata.chatId',
+    indexName: 'chatId',
+    fieldType: 'keyword'
+  },
+  {
+    field: 'metadata.messageId',
+    indexName: 'messageId',
+    fieldType: 'keyword'
+  },
+  {
+    field: 'metadata.userId',
+    indexName: 'userId',
+    fieldType: 'keyword'
+  },
+  {
+    field: 'metadata.agentId',
+    indexName: 'agentId',
+    fieldType: 'keyword'
+  },
+  {
+    field: 'metadata.requestId',
+    indexName: 'requestId',
+    fieldType: 'keyword'
+  },
+  {
+    field: 'metadata.timestamp',
+    indexName: 'timestamp',
+    fieldType: 'integer'
+  }
+];
+
+/**
  * Map of memory types to their collection configurations
  * Note: This is a selective subset of memory types that map to actual collections.
  * Other memory types are logically mapped to one of these core collections with appropriate metadata/tags.
@@ -85,6 +134,8 @@ export const COLLECTION_CONFIGS: Partial<Record<MemoryType, CollectionConfig<any
   [MemoryType.TASK]: TASK_COLLECTION,
   [MemoryType.MEMORY_EDIT]: MEMORY_EDIT_COLLECTION,
   [MemoryType.TOOL_EXECUTION_METRICS]: DOCUMENT_COLLECTION, // Store tool metrics in document collection
+  // Remove visualization from memory types
+  // [MemoryType.VISUALIZATION]: VISUALIZATION_COLLECTION,
 };
 
 /**

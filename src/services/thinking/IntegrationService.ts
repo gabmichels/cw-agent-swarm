@@ -183,7 +183,7 @@ export class IntegrationService {
     }
     
     // Initialize visualization service with default storage adapters
-    this.visualizer = options.visualizer || new ThinkingVisualizer({} as any);
+    this.visualizer = options.visualizer || new ThinkingVisualizer();
     
     // Initialize request handlers
     this.initializeRequestHandlers();

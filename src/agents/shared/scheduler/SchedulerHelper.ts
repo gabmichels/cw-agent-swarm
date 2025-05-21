@@ -66,6 +66,7 @@ export class SchedulerHelper {
    */
   public static async pollForDueTasks(agent: DefaultAgent): Promise<number> {
     try {
+      console.log('[SchedulerHelper] 🕤 Polling for due tasks');
       // Get the scheduler manager
       const schedulerManager = agent.getManager(ManagerType.SCHEDULER);
       if (!schedulerManager) {

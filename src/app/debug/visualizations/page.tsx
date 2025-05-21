@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import { useSearchParams } from 'next/navigation';
 
@@ -73,19 +73,81 @@ const createMockVisualization = (chatId?: string, messageId?: string): ThinkingV
 const useBrowserSafeIntegrationService = (chatId?: string, messageId?: string) => {
   const [visualizations, setVisualizations] = useState<ThinkingVisualization[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [hasServerError, setHasServerError] = useState(false);
+  const [showExampleViz, setShowExampleViz] = useState(false);
   
   useEffect(() => {
     const loadVisualizations = async () => {
       try {
         setLoading(true);
+        setError(null);
+        setHasServerError(false);
         
-        // Create a mock visualization for browser environment
-        const mockViz = createMockVisualization(chatId, messageId);
-        setVisualizations([mockViz]);
+        if (chatId) {
+          // Attempt to fetch real visualizations from the API
+          const url = new URL('/api/thinking/visualizations', window.location.origin);
+          url.searchParams.append('chatId', chatId);
+          if (messageId) {
+            url.searchParams.append('messageId', messageId);
+          }
+          
+          try {
+            const response = await fetch(url.toString());
+            
+            // Check if there was a server error but the request itself was "successful"
+            if (response.ok) {
+              const data = await response.json();
+              // Check for server-side errors that might be in the response
+              if (data.error) {
+                console.warn("Server reported error:", data.error);
+                setHasServerError(true);
+                
+                // Format a detailed error message if available
+                let errorDetails = data.error;
+                if (data.details) {
+                  errorDetails += `: ${data.details}`;
+                }
+                if (data.message && data.message !== data.details) {
+                  errorDetails += ` (${data.message})`;
+                }
+                
+                setError(errorDetails);
+                
+                // If the server indicates this is a fallback situation, automatically show the example
+                if (data.fallback) {
+                  setShowExampleViz(true);
+                }
+                
+                setVisualizations([]);
+                setLoading(false);
+                return;
+              }
+              
+              if (data.visualizations && Array.isArray(data.visualizations) && data.visualizations.length > 0) {
+                setVisualizations(data.visualizations);
+                setLoading(false);
+                return;
+              }
+            } else {
+              // Handle HTTP error responses
+              setHasServerError(true);
+              throw new Error(`Failed to fetch visualizations: ${response.statusText}`);
+            }
+          } catch (err) {
+            console.error("Error fetching visualizations:", err);
+            setHasServerError(true);
+            setError(err instanceof Error ? err.message : 'Failed to fetch visualizations');
+          }
+        }
         
+        // Default to empty array if no visualizations found
+        setVisualizations([]);
         setLoading(false);
       } catch (error) {
         console.error("Error loading visualizations:", error);
+        setHasServerError(true);
+        setError(error instanceof Error ? error.message : 'Unknown error');
         setLoading(false);
       }
     };
@@ -93,7 +155,7 @@ const useBrowserSafeIntegrationService = (chatId?: string, messageId?: string) =
     loadVisualizations();
   }, [chatId, messageId]);
   
-  return { visualizations, loading };
+  return { visualizations, loading, error, hasServerError };
 };
 
 /**
@@ -105,11 +167,16 @@ export default function VisualizationsPage() {
   const chatId = searchParams?.get('chatId') || undefined;
   const messageId = searchParams?.get('messageId') || undefined;
   
-  const { visualizations, loading } = useBrowserSafeIntegrationService(chatId, messageId);
+  const { visualizations, loading, error, hasServerError } = useBrowserSafeIntegrationService(chatId, messageId);
   const [selectedVisualization, setSelectedVisualization] = useState<ThinkingVisualization | null>(null);
+  const [showExampleViz, setShowExampleViz] = useState(false);
+
+  // Sample visualization for empty states
+  const exampleVisualization = useMemo(() => createMockVisualization(chatId, messageId), [chatId, messageId]);
 
   // Handle selecting a visualization
   const handleSelectVisualization = (visualization: ThinkingVisualization) => {
+    setShowExampleViz(false);
     setSelectedVisualization(visualization);
   };
 
@@ -124,6 +191,14 @@ export default function VisualizationsPage() {
       setSelectedVisualization(visualizations[0]);
     }
   }, [visualizations, selectedVisualization]);
+  
+  // Automatically show example visualization when server error is detected
+  useEffect(() => {
+    if (hasServerError) {
+      setShowExampleViz(true);
+      setSelectedVisualization(null);
+    }
+  }, [hasServerError]);
 
   // For iframe compatibility, use a simpler layout that fills available space
   return (
@@ -131,6 +206,14 @@ export default function VisualizationsPage() {
       <div className="flex-shrink-0 p-3 border-b border-gray-800">
         <h1 className="text-xl font-bold">Thinking Process Visualizations</h1>
         {chatId && <p className="text-xs text-gray-400">Chat: {chatId}</p>}
+        {hasServerError && (
+          <div className="mt-2 px-3 py-2 text-xs text-amber-200 bg-amber-900/40 rounded-md">
+            <div className="flex items-center">
+              <span className="mr-1">⚠️</span>
+              <span>Visualization server issue detected. Showing example visualization instead.</span>
+            </div>
+          </div>
+        )}
       </div>
       
       <div className="flex flex-1 overflow-hidden">
@@ -143,13 +226,46 @@ export default function VisualizationsPage() {
                 <div className="inline-block animate-spin rounded-full h-4 w-4 border-t-2 border-white"></div>
                 <p className="mt-2 text-xs text-gray-400">Loading...</p>
               </div>
-            ) : visualizations.length > 0 ? (
+            ) : error && !hasServerError ? (
+              <div className="text-center py-4 text-red-400">
+                <p className="text-xs">Error: {error}</p>
+                <button
+                  className="mt-2 text-xs px-2 py-1 bg-red-900 hover:bg-red-800 rounded"
+                  onClick={() => window.location.reload()}
+                >
+                  Retry
+                </button>
+              </div>
+            ) : hasServerError || visualizations.length === 0 ? (
+              <div className="py-4">
+                <div className="text-center text-gray-400 mb-4">
+                  <p className="text-xs">{hasServerError ? 'Server error detected' : 'No visualizations found'}</p>
+                </div>
+                <div 
+                  className={`mb-2 p-2 rounded cursor-pointer transition-colors text-sm ${
+                    (showExampleViz || hasServerError) ? 'bg-blue-900/50 border-l-2 border-blue-500' : 'hover:bg-gray-800'
+                  }`}
+                  onClick={() => {
+                    setShowExampleViz(true);
+                    setSelectedVisualization(null);
+                  }}
+                >
+                  <div className="font-medium truncate">Example Visualization</div>
+                  <div className="text-xs text-gray-400">Demo how it works</div>
+                  <div className="text-xs mt-1">
+                    <span className="px-1.5 py-0.5 rounded-full text-xs bg-purple-900/50 text-purple-200">
+                      Example
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ) : (
               <ul>
                 {visualizations.map(viz => (
                   <li 
                     key={viz.id}
                     className={`mb-2 p-2 rounded cursor-pointer transition-colors text-sm ${
-                      selectedVisualization?.id === viz.id
+                      selectedVisualization?.id === viz.id && !showExampleViz
                         ? 'bg-blue-900/50 border-l-2 border-blue-500'
                         : 'hover:bg-gray-800'
                     }`}
@@ -170,27 +286,54 @@ export default function VisualizationsPage() {
                   </li>
                 ))}
               </ul>
-            ) : (
-              <div className="text-center py-4 text-gray-400">
-                <p className="text-xs">No visualizations found</p>
-              </div>
             )}
           </div>
         </div>
         
         {/* Main content area with visualization */}
         <div className="flex-1 overflow-y-auto bg-white">
-          {selectedVisualization ? (
+          {(showExampleViz || hasServerError) ? (
+            <div className="h-full">
+              <div className={`${hasServerError ? 'bg-amber-50' : 'bg-blue-50'} p-3 text-${hasServerError ? 'amber' : 'blue'}-800 text-sm border-b border-${hasServerError ? 'amber' : 'blue'}-200`}>
+                {hasServerError ? (
+                  <>
+                    <strong>Server Error:</strong> {error}. Showing an example visualization instead. The actual visualization data couldn't be retrieved due to a server configuration issue.
+                  </>
+                ) : (
+                  <>
+                    <strong>Example Visualization:</strong> This is a demo of how agent visualizations look. Real visualizations will appear here when the agent processes requests.
+                  </>
+                )}
+              </div>
+              <VisualizationRenderer 
+                visualization={exampleVisualization}
+                width={800}
+                height={600}
+              />
+            </div>
+          ) : selectedVisualization ? (
             <VisualizationRenderer 
               visualization={selectedVisualization}
               width={800}
               height={600}
             />
-          ) : (
+          ) : visualizations.length > 0 ? (
             <div className="flex h-full items-center justify-center text-gray-800">
               <div className="text-center">
                 <h3 className="text-lg font-semibold mb-2">No Visualization Selected</h3>
                 <p className="text-gray-600 text-sm">Select a request from the sidebar</p>
+              </div>
+            </div>
+          ) : (
+            <div className="flex h-full items-center justify-center text-gray-800">
+              <div className="text-center max-w-md p-6">
+                <h3 className="text-lg font-semibold mb-2">No Visualizations Found</h3>
+                <p className="text-gray-600 text-sm mb-4">
+                  There are no visualizations available for this chat yet. Visualizations are created when you interact with the agent.
+                </p>
+                <p className="text-gray-600 text-sm">
+                  Try sending a new message to the agent to generate visualizations, or click "Example Visualization" in the sidebar to see a demo.
+                </p>
               </div>
             </div>
           )}

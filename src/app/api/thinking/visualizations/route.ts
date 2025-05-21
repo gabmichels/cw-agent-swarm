@@ -1,28 +1,16 @@
+/**
+ * Thinking Visualizations API
+ * 
+ * This API provides endpoints for retrieving and storing thinking visualizations.
+ * It uses the ThinkingVisualizer service which now handles its own storage.
+ */
+
 import { NextRequest, NextResponse } from 'next/server';
-import { MemoryService } from '../../../../server/memory/services/memory/memory-service';
-import { QdrantMemoryClient } from '../../../../server/memory/services/client/qdrant-client';
-import { EmbeddingService } from '../../../../server/memory/services/client/embedding-service';
 import { ThinkingVisualizer } from '../../../../services/thinking/visualization/ThinkingVisualizer';
-import { VisualizationMetadata } from '../../../../services/thinking/visualization/types';
-import { BaseMemorySchema } from '../../../../server/memory/models';
-import { MemoryType } from '../../../../server/memory/config';
 import { v4 as uuidv4 } from 'uuid';
 
-// Collection name for thinking visualizations
-const COLLECTION_NAME = 'thinking_visualizations';
-// Vector dimensions for the collection (not really used for searching, but required)
-const VECTOR_DIMENSIONS = 1536;
-
-// Full memory schema for thinking visualizations
-interface ThinkingVisualizationMemory extends BaseMemorySchema {
-  metadata: VisualizationMetadata;
-}
-
 // Initialize services
-const memoryClient = new QdrantMemoryClient();
-const embeddingService = new EmbeddingService();
-const memoryService = new MemoryService(memoryClient, embeddingService);
-const visualizer = new ThinkingVisualizer(memoryService);
+const visualizer = new ThinkingVisualizer();
 
 export async function GET(request: NextRequest) {
   try {
@@ -39,19 +27,39 @@ export async function GET(request: NextRequest) {
       );
     }
     
-    // Initialize services if needed
-    if (!memoryClient.isInitialized()) {
-      await memoryClient.initialize();
+    try {
+      // Get visualizations from the service (now returns in-memory stored visualizations)
+      const visualizations = await visualizer.getVisualizations(chatId, messageId || undefined);
+      return NextResponse.json({ visualizations });
+    } catch (error) {
+      console.error('Error getting visualizations:', error);
+      
+      // Enhanced error response with more details
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      
+      return NextResponse.json(
+        { 
+          error: 'Failed to retrieve visualizations',
+          details: errorMessage,
+          fallback: true
+        },
+        { status: 500 }
+      );
     }
-    
-    // Get visualizations from the service
-    const visualizations = await visualizer.getVisualizations(chatId, messageId || undefined);
-    
-    return NextResponse.json({ visualizations });
   } catch (error) {
     console.error('Error getting thinking visualizations:', error);
+    
+    // Enhanced error response with more details
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const errorCode = error instanceof Error && 'code' in error ? (error as any).code : 'UNKNOWN_ERROR';
+    
     return NextResponse.json(
-      { error: 'Failed to get thinking visualizations' },
+      { 
+        error: 'Failed to get thinking visualizations',
+        details: errorMessage,
+        code: errorCode || 'SERVER_ERROR',
+        fallback: true
+      },
       { status: 500 }
     );
   }
@@ -77,12 +85,7 @@ export async function POST(request: NextRequest) {
       );
     }
     
-    // Initialize services if needed
-    if (!memoryClient.isInitialized()) {
-      await memoryClient.initialize();
-    }
-    
-    // Save the visualization using the service
+    // Save the visualization using the service (now stores in-memory)
     const visualizationId = await visualizer.saveVisualization(visualization);
     
     if (!visualizationId) {

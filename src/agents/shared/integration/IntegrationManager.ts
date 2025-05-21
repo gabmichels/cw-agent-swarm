@@ -85,24 +85,10 @@ export class IntegrationManager extends AbstractBaseManager {
     // Initialize visualization if enabled
     if (config.enableVisualization) {
       try {
-        // Dynamic import to avoid browser issues
-        if (typeof window === 'undefined') {
-          const { MemoryService } = await import('../../../server/memory/services/memory/memory-service');
-          const { QdrantMemoryClient } = await import('../../../server/memory/services/client/qdrant-client');
-          const { EmbeddingService } = await import('../../../server/memory/services/client/embedding-service');
-          
-          // Initialize memory services for visualization
-          const memoryClient = new QdrantMemoryClient();
-          await memoryClient.initialize();
-          const embeddingService = new EmbeddingService();
-          const memoryService = new MemoryService(memoryClient, embeddingService);
-          
-          // Create visualizer with collection name from config if provided
-          this.visualizer = new ThinkingVisualizer(
-            memoryService, 
-            config.visualizationOptions?.collectionName
-          );
-        }
+        // Create visualizer with collection name from config if provided
+        this.visualizer = new ThinkingVisualizer(
+          config.visualizationOptions?.collectionName
+        );
       } catch (error) {
         console.error('Error initializing visualization:', error);
         // Continue without visualization

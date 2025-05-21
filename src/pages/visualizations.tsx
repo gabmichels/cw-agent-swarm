@@ -3,9 +3,6 @@ import { useRouter } from 'next/router';
 import VisualizationsContainer from '../components/VisualizationsContainer';
 import { ThinkingVisualizer } from '../services/thinking/visualization/ThinkingVisualizer';
 import { createSampleVisualization } from '../services/thinking/visualization';
-import { MemoryService } from '../server/memory/services/memory/memory-service';
-import { QdrantMemoryClient } from '../server/memory/services/client/qdrant-client';
-import { EmbeddingService } from '../server/memory/services/client/embedding-service';
 
 export default function VisualizationsPage() {
   const router = useRouter();
@@ -28,22 +25,13 @@ export default function VisualizationsPage() {
         
         if (data.value !== true) return;
 
-        // Create sample visualization
-        const memoryClient = new QdrantMemoryClient();
-        const embeddingService = new EmbeddingService();
-        const memoryService = new MemoryService(memoryClient, embeddingService);
-
-        // Initialize client if needed
-        if (!memoryClient.isInitialized()) {
-          await memoryClient.initialize();
-        }
-
-        const visualizer = new ThinkingVisualizer(memoryService);
+        // Create visualizer (no memory service needed now)
+        const visualizer = new ThinkingVisualizer();
         
         // Create a sample visualization
         const sampleVisualization = createSampleVisualization();
         
-        // Save it to the memory service
+        // Save it to the in-memory store
         await visualizer.saveVisualization(sampleVisualization);
         
         setLoading(false);

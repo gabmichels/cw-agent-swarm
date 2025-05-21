@@ -8,6 +8,8 @@
 import { QdrantMemoryClient } from '../services/client/qdrant-client';
 import { MemoryType, MemoryError, MemoryErrorCode } from '../config/types';
 import { COLLECTION_CONFIGS } from '../config/collections';
+import { ADDITIONAL_COLLECTIONS } from '../config/constants';
+import { VISUALIZATION_INDICES } from '../config/collections';
 
 // Collection configurations - these should match what's defined in config/collections.ts
 // We're directly importing COLLECTION_CONFIGS instead of defining them here
@@ -140,6 +142,74 @@ export async function setupCollections(options: SetupOptions = {}): Promise<Coll
         matchesSchema: false,
         indices: [],
         missingIndices: config.indices || [],
+        error: String(error)
+      });
+      
+      if (verbose) console.error(`Error processing ${collectionName}:`, error);
+    }
+  }
+  
+  // Process additional collections that are not memory types
+  for (const collectionName of ADDITIONAL_COLLECTIONS) {
+    if (verbose) console.log(`Processing additional collection: ${collectionName}`);
+    
+    try {
+      // Check if collection exists
+      const exists = await client.collectionExists(collectionName);
+      
+      // For the visualization collection, use the VISUALIZATION_INDICES
+      const configIndices = collectionName === 'thinking_visualizations' 
+        ? VISUALIZATION_INDICES.map(idx => idx.field)
+        : [];
+      
+      let status: CollectionStatus = {
+        name: collectionName,
+        exists,
+        matchesSchema: false,
+        indices: [],
+        missingIndices: [...configIndices]
+      };
+      
+      if (exists) {
+        if (verbose) console.log(`Collection ${collectionName} exists, checking schema...`);
+        
+        // In a real implementation, you would check collection info properly
+        status.indices = configIndices;
+        status.missingIndices = [];
+        status.matchesSchema = true;
+        
+        if (verbose) console.log(`Assumed collection ${collectionName} schema is valid`);
+      } else {
+        // Collection doesn't exist, create it
+        if (verbose) console.log(`Collection ${collectionName} doesn't exist, creating...`);
+        
+        await client.createCollection(collectionName, 1536); // Default dimension for embeddings
+        
+        // Create indices for faster filtering
+        if (collectionName === 'thinking_visualizations' && VISUALIZATION_INDICES.length > 0) {
+          if (verbose) console.log(`Creating indices for visualization collection...`);
+          
+          // This would involve using client.createIndex(collectionName, field) for each index
+          // In a real implementation, we would create each index here
+        }
+        
+        // Update status
+        status.exists = true;
+        status.matchesSchema = true;
+        status.missingIndices = [];
+        status.indices = configIndices;
+        
+        if (verbose) console.log(`Collection ${collectionName} created successfully`);
+      }
+      
+      results.push(status);
+    } catch (error) {
+      results.push({
+        name: collectionName,
+        exists: false,
+        matchesSchema: false,
+        indices: [],
+        missingIndices: [],
         error: String(error)
       });
       

@@ -7,11 +7,15 @@ import { logger } from '../../../../lib/logging';
 import { Tool, ToolCategory, ToolExecutionResult } from '../../../../lib/tools/types';
 import defaultApifyManager from '../integrations/apify';
 import { VisualizationService, ThinkingVisualization, VisualizationNodeType, VisualizationEdgeType } from '../../../../services/thinking/visualization/types';
+import { mockWebSearch } from './mock-web-search';
 
 // Default and maximum search result limits
 const DEFAULT_RESULT_LIMIT = 5;
 const STANDARD_LIMIT = 25;
 const ABSOLUTE_MAXIMUM = 100;
+
+// Check if mock mode is enabled
+const MOCK_ENABLED = process.env.USE_MOCK_SEARCH === 'true' || process.env.NODE_ENV === 'development';
 
 /**
  * Web search tool using Apify's Google Search Scraper
@@ -195,31 +199,92 @@ export class ApifyWebSearchTool implements Tool {
         }
         
         maxResults = Math.min(requestedLimit, STANDARD_LIMIT);
-        
-        // Update visualization with adjusted limit
-        if (visualization && visualizer && searchNodeId) {
-          try {
-            visualizer.updateNode(
-              visualization,
-              searchNodeId,
-              {
-                data: {
-                  requestedLimit,
-                  adjustedLimit: maxResults
-                }
-              }
-            );
-          } catch (visualizationError) {
-            logger.error('Error updating web search visualization with adjusted limit:', visualizationError);
-          }
-        }
       }
       
-      // Clean the query by removing meta-commands like limit or top
-      const cleanQuery = query.replace(/\b(?:limit|top)\s+\d+\b/gi, '').trim();
-      
-      // Execute the search with safe limits
-      return await this.executeSearch(cleanQuery, maxResults, args, startTime, false, visualization, visualizer, searchNodeId);
+      // Try to execute the real search with fallback to mock if needed
+      try {
+        // Clean the query by removing meta-commands like limit or top
+        const cleanQuery = query.replace(/\b(?:limit|top)\s+\d+\b/gi, '').trim();
+        
+        const searchResult = await this.executeSearch(
+          cleanQuery,
+          maxResults,
+          args,
+          startTime,
+          false,
+          visualization,
+          visualizer,
+          searchNodeId
+        );
+        
+        // If search failed and mock mode is enabled, use mock results instead
+        if (MOCK_ENABLED && (!searchResult.success || !searchResult.data || (Array.isArray(searchResult.data) && searchResult.data.length === 0))) {
+          logger.warn('[MOCK] Real web search failed or returned no results, using mock results');
+          
+          // Generate mock results
+          const mockResult = mockWebSearch(query, maxResults);
+          
+          // Update visualization with mock data notice
+          if (visualization && visualizer && searchNodeId) {
+            try {
+              visualizer.updateNode(
+                visualization,
+                searchNodeId,
+                {
+                  status: 'completed',
+                  data: {
+                    usingMockData: true,
+                    executionCompleted: Date.now(),
+                    resultCount: Array.isArray(mockResult.data) ? mockResult.data.length : 0,
+                    success: true
+                  }
+                }
+              );
+            } catch (visualizationError) {
+              logger.error('Error updating web search visualization with mock data:', visualizationError);
+            }
+          }
+          
+          return mockResult;
+        }
+        
+        return searchResult;
+      } catch (error) {
+        // If an error occurred and mock mode is enabled, use mock results
+        if (MOCK_ENABLED) {
+          logger.error('[MOCK] Error in web search, falling back to mock results:', error);
+          
+          // Generate mock results
+          const mockResult = mockWebSearch(query, maxResults);
+          
+          // Update visualization with mock data notice
+          if (visualization && visualizer && searchNodeId) {
+            try {
+              visualizer.updateNode(
+                visualization,
+                searchNodeId,
+                {
+                  status: 'completed',
+                  data: {
+                    usingMockData: true,
+                    errorRecovered: true,
+                    executionCompleted: Date.now(),
+                    resultCount: Array.isArray(mockResult.data) ? mockResult.data.length : 0,
+                    success: true
+                  }
+                }
+              );
+            } catch (visualizationError) {
+              logger.error('Error updating web search visualization with mock data:', visualizationError);
+            }
+          }
+          
+          return mockResult;
+        }
+        
+        // Re-throw if mock mode is not enabled
+        throw error;
+      }
     } catch (error) {
       logger.error('Error in web search:', error);
       

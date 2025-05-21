@@ -2,6 +2,7 @@
  * Constants for memory system
  */
 import { ImportanceLevel, MemoryType } from './types';
+import { VISUALIZATION_COLLECTION } from '../../../services/thinking/visualization/visualization-storage';
 
 /**
  * Collection names in Qdrant mapped to memory types
@@ -19,6 +20,12 @@ export const COLLECTION_NAMES: Partial<Record<MemoryType, string>> = {
   [MemoryType.MEMORY_EDIT]: 'memory_edits',
   [MemoryType.ANALYSIS]: 'analysis',
 };
+
+// Add the visualization collection separately since it's not a memory type
+// but still needs to be initialized with other collections
+export const ADDITIONAL_COLLECTIONS = [
+  VISUALIZATION_COLLECTION
+];
 
 // Function to get a collection name with fallback to message collection
 export function getCollectionNameWithFallback(type: MemoryType): string {

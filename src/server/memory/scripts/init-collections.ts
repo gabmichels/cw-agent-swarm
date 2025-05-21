@@ -6,7 +6,7 @@
  */
 
 import { QdrantMemoryClient } from '../services/client/qdrant-client';
-import { COLLECTION_NAMES } from '../config/constants';
+import { COLLECTION_NAMES, ADDITIONAL_COLLECTIONS } from '../config/constants';
 import { DEFAULTS } from '../config';
 
 export async function initializeCollections() {
@@ -21,7 +21,7 @@ export async function initializeCollections() {
     await client.initialize();
 
     // Get list of required collections from COLLECTION_NAMES
-    const requiredCollections = Object.values(COLLECTION_NAMES);
+    const requiredCollections = [...Object.values(COLLECTION_NAMES), ...ADDITIONAL_COLLECTIONS];
     
     for (const collectionName of requiredCollections) {
       try {

@@ -863,97 +863,26 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
     if (this.schedulingTimer) {
       clearInterval(this.schedulingTimer);
       this.schedulingTimer = null;
-      console.log(`[${this.managerId}] Cleared existing scheduler timer`);
     }
     
-    // Get the interval from config or use default (1 minute)
-    const timerInterval = this.config.schedulingIntervalMs ?? 60000;
-    console.log(`[${this.managerId}] Setting up scheduler timer with interval ${timerInterval}ms`);
-    
-    // Setup new timer with watchdog mechanism
+    // Setup new timer
     this.schedulingTimer = setInterval(async () => {
       try {
-        console.log(`[${this.managerId}] Scheduler timer firing at ${new Date().toISOString()}`);
-        
-        // Ensure the manager is initialized and enabled before polling
-        if (!this.initialized || !this.config.enabled) {
-          console.log(`[${this.managerId}] Scheduler is ${!this.initialized ? 'not initialized' : 'disabled'}, skipping poll`);
-          return;
-        }
-        
-        // Poll for due tasks
         const executedCount = await this.pollForDueTasks();
-        
         if (executedCount > 0) {
           console.log(`[${this.managerId}] Scheduling timer executed ${executedCount} due tasks`);
-          
-          // Log event for successful task execution
-          this.logEvent({
-            id: `timer-execution-${Date.now()}`,
-            type: 'task_completed',
-            timestamp: new Date(),
-            details: {
-              executedCount,
-              source: 'scheduler_timer'
-            }
-          });
         }
       } catch (error) {
         console.error(`[${this.managerId}] Error in scheduling timer:`, error);
-        
-        // Log error event
-        this.logEvent({
-          id: `timer-error-${Date.now()}`,
-          type: 'error',
-          timestamp: new Date(),
-          details: {
-            error: error instanceof Error ? error.message : String(error),
-            source: 'scheduling_timer'
-          }
-        });
       }
-    }, timerInterval);
+    }, this.config.schedulingIntervalMs ?? 60000); // Use 1 minute as fallback
     
     // Don't keep the Node.js process running just for this timer
     if (this.schedulingTimer.unref) {
       this.schedulingTimer.unref();
     }
     
-    // Setup a watchdog timer to ensure the scheduler timer is working
-    // Check every 5 minutes (or 5x the scheduling interval, whichever is larger)
-    const watchdogInterval = Math.max(300000, timerInterval * 5);
-    
-    // We don't need to store this timer as it's just a watchdog
-    const watchdogTimer = setInterval(() => {
-      // Only run the watchdog if the manager is initialized and enabled
-      if (!this.initialized || !this.config.enabled) {
-        return;
-      }
-      
-      // If the scheduling timer doesn't exist but should, recreate it
-      if (!this.schedulingTimer) {
-        console.warn(`[${this.managerId}] Watchdog detected missing scheduler timer, recreating it...`);
-        this.setupSchedulingTimer();
-        
-        // Log recovery event
-        this.logEvent({
-          id: `timer-recovery-${Date.now()}`,
-          type: 'scheduler_resumed',
-          timestamp: new Date(),
-          details: {
-            action: 'timer_recreated',
-            source: 'watchdog'
-          }
-        });
-      }
-    }, watchdogInterval);
-    
-    // Don't keep the Node.js process running just for the watchdog
-    if (watchdogTimer.unref) {
-      watchdogTimer.unref();
-    }
-    
-    console.log(`[${this.managerId}] Scheduling timer set up with interval ${timerInterval}ms and watchdog at ${watchdogInterval}ms`);
+    console.log(`[${this.managerId}] Scheduling timer set up with interval ${this.config.schedulingIntervalMs ?? 60000}ms`);
   }
 
   async getTasks(): Promise<ScheduledTask[]> {

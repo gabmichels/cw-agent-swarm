@@ -96,11 +96,6 @@ export async function GET(
       sort: { field: "timestamp", direction: "asc" }
     });
 
-    console.log(`Found ${searchResults.length} messages in search results`);
-    if (searchResults.length > 0) {
-      console.log('First message metadata:', searchResults[0].point.payload.metadata);
-    }
-    
     // Format the messages
     const messages = searchResults.map(result => {
       const point = result.point;
@@ -314,10 +309,26 @@ export async function POST(
     }
 
     // Get the agent instance
-    const agent = await AgentService.getAgent(agentId);
-    if (!agent) {
+    const agentProfile = await AgentService.getAgent(agentId);
+    if (!agentProfile) {
       throw new Error(`Agent ${agentId} not found`);
     }
+    
+    // Import AgentFactory to create a proper agent instance with processUserInput method
+    const { AgentFactory } = await import('@/agents/shared/AgentFactory');
+    const agent = await new AgentFactory().createAgent(agentProfile);
+    
+    if (!agent) {
+      throw new Error(`Failed to create agent instance for ${agentId}`);
+    }
+    
+    // Initialize the agent before using it
+    console.log(`Initializing agent instance for ${agentId}`);
+    const initSuccess = await agent.initialize();
+    if (!initSuccess) {
+      throw new Error(`Failed to initialize agent ${agentId}`);
+    }
+    console.log(`Agent initialization successful for ${agentId}`);
 
     // Process message with agent
     let agentResponse: AgentResponse | undefined;
@@ -353,16 +364,13 @@ export async function POST(
       });
       
       // Process the user input through the new unified pipeline in the agent
-      // Cast agent to include the processUserInput method since AgentProfile doesn't expose it directly
-      const agentWithProcessing = agent as unknown as { 
-        processUserInput: (message: string, options?: MessageProcessingOptions) => Promise<AgentResponse> 
-      };
+      // The agent is now a DefaultAgent with processUserInput
       
       // Use Promise.race with proper error handling
       try {
         // Wait for either response or timeout
         agentResponse = await Promise.race([
-          agentWithProcessing.processUserInput(content, processingOptions), 
+          agent.processUserInput(content, processingOptions), 
           timeoutPromise
         ]);
         console.log('Agent processUserInput completed successfully');
@@ -461,7 +469,7 @@ export async function POST(
       }
     );
 
-    // Return the response with all metadata
+          // Return the response with all metadata
     return NextResponse.json({
       success: true,
       message: {
@@ -469,7 +477,7 @@ export async function POST(
         timestamp: new Date().toISOString(),
         metadata: {
           agentId,
-          agentName: agent.name || 'Assistant',
+          agentName: agentProfile.name || 'Assistant',
           userId,
           threadId: assistantThreadInfo.id,
           parentMessageId: lastUserMessageId,
