@@ -722,44 +722,48 @@ export abstract class AbstractAgentBase implements AgentBase {
   }
 
   /**
-   * Update a task via the registered SchedulerManager
+   * Update a task
+   * @param taskId - ID of the task to update
+   * @param updates - Task updates
+   * @returns Updated task ID
    */
-  async updateTask(taskId: string, updates: Partial<Task>): Promise<Task | null> {
+  async updateTask(taskId: string, updates: Partial<Task>): Promise<string> {
     const schedulerManager = this.getManager<SchedulerManager>(ManagerType.SCHEDULER);
-    if (!schedulerManager) throw new Error('SchedulerManager not registered');
-    if (!schedulerManager.initialize) throw new Error('SchedulerManager not initialized');
-    
-    // Get the current task
-    const task = await schedulerManager.getTask(taskId);
-    if (!task) {
-      return null;
+
+    if (!schedulerManager) {
+      throw new Error('SchedulerManager is not available');
     }
 
-    // Create updated task by merging current task with updates
-    const updatedTask = { ...task, ...updates };
-    
-    // If we're using a ModularSchedulerManager, we can use its updateTask method
-    if (this.schedulerManager instanceof ModularSchedulerManager) {
-      return this.schedulerManager.updateTask(updatedTask);
+    const existingTask = await schedulerManager.getTask(taskId);
+
+    if (!existingTask) {
+      throw new Error(`Task with ID ${taskId} not found`);
     }
-    
-    // Fallback for other scheduler manager implementations
-    await schedulerManager.cancelTask(taskId);
-    
-    // Create a new task with the updates, adapting to the Task structure
+
+    // Create updated task
+    const updatedTask = {
+      ...existingTask,
+      ...updates,
+      updatedAt: new Date()
+    };
+
+    // Store the updated task
     const result = await schedulerManager.createTask({
       name: updatedTask.name,
       description: updatedTask.description,
-      type: updates.metadata?.type as string,
+      scheduleType: updatedTask.scheduleType,
       priority: updatedTask.priority,
-      dependencies: updatedTask.dependencies?.map(dep => dep.taskId),
+      dependencies: updatedTask.dependencies?.map(dep => 
+        typeof dep === 'string' ? dep : dep.taskId
+      ),
       metadata: updatedTask.metadata,
       handler: updatedTask.handler,
       handlerArgs: updatedTask.handlerArgs,
-      scheduledTime: updatedTask.scheduledTime
-    } as TaskCreationOptions);
+      scheduledTime: updatedTask.scheduledTime,
+      interval: updatedTask.interval 
+    });
 
-    return result.success ? result.task : null;
+    return result.task.id;
   }
 
   /**

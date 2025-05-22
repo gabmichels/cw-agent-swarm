@@ -180,7 +180,7 @@ export interface AgentBase {
   
   // Scheduler Manager delegations
   getAllTasks(): Promise<Task[]>;
-  updateTask(taskId: string, updates: Partial<Task>): Promise<Task | null>;
+  updateTask(taskId: string, updates: Partial<Task>): Promise<string>;
   deleteTask(taskId: string): Promise<boolean>;
   getDueTasks(): Promise<Task[]>;
   getRunningTasks(): Promise<Task[]>;

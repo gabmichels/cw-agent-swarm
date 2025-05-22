@@ -8,7 +8,7 @@
 
 import { BaseManager, ManagerConfig } from './BaseManager';
 import { ManagerType } from './ManagerType';
-import { Task, TaskStatus } from '../../../../lib/scheduler/models/Task.model';
+import { Task, TaskStatus, TaskScheduleType } from '../../../../lib/scheduler/models/Task.model';
 import { TaskFilter } from '../../../../lib/scheduler/models/TaskFilter.model';
 import { TaskExecutionResult } from '../../../../lib/scheduler/models/TaskExecutionResult.model';
 import { SchedulerConfig } from '../../../../lib/scheduler/models/SchedulerConfig.model';
@@ -161,9 +161,9 @@ export interface TaskCreationOptions {
   description?: string;
 
   /**
-   * Type of task (used for categorization)
+   * Schedule type (explicit, interval, priority)
    */
-  type?: string;
+  scheduleType: TaskScheduleType;
 
   /**
    * Priority of the task (0-10, higher is more important)
@@ -171,9 +171,34 @@ export interface TaskCreationOptions {
   priority?: number;
 
   /**
-   * When to execute the task (specific time, natural language, or vague term)
+   * When to execute the task (specific time)
    */
-  scheduledTime?: Date | string;
+  scheduledTime?: Date;
+
+  /**
+   * Interval configuration (for interval scheduling)
+   */
+  interval?: {
+    /**
+     * Interval expression (e.g., '1h', '30m', '1d')
+     */
+    expression: string;
+    
+    /**
+     * Cron expression for more complex scheduling
+     */
+    cronExpression?: string;
+    
+    /**
+     * Maximum number of times to execute (undefined = unlimited)
+     */
+    maxExecutions?: number;
+    
+    /**
+     * Current execution count
+     */
+    executionCount: number;
+  };
 
   /**
    * IDs of tasks that must complete before this one
@@ -206,6 +231,11 @@ export interface SchedulerManager extends BaseManager {
   createTask(options: TaskCreationOptions): Promise<TaskCreationResult>;
 
   /**
+   * Create a new task for a specific agent
+   */
+  createTaskForAgent(options: TaskCreationOptions, agentId: string): Promise<TaskCreationResult>;
+
+  /**
    * Get a task by ID
    */
   getTask(taskId: string): Promise<Task | null>;
@@ -214,6 +244,11 @@ export interface SchedulerManager extends BaseManager {
    * Find tasks matching a filter
    */
   findTasks(filter: TaskFilter): Promise<Task[]>;
+
+  /**
+   * Find tasks specific to an agent
+   */
+  findTasksForAgent(agentId: string, filter?: TaskFilter): Promise<Task[]>;
 
   /**
    * Update an existing task
@@ -229,6 +264,11 @@ export interface SchedulerManager extends BaseManager {
    * Execute a task (possibly according to schedule)
    */
   executeTask(taskId: string): Promise<TaskExecutionResult>;
+
+  /**
+   * Execute due tasks for a specific agent
+   */
+  executeDueTasksForAgent(agentId: string): Promise<TaskExecutionResult[]>;
 
   /**
    * Retry a failed task immediately
