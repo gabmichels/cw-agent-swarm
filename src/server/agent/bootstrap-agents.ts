@@ -63,6 +63,10 @@ import {
   getAgentsSummaryMetrics,
   MetricCategory
 } from './agent-metrics';
+import {
+  logAgentInitializationStage,
+  recordInitializationMetrics
+} from './agent-bootstrap-utils';
 
 /**
  * Fully capable agent implementation with ALL required managers
@@ -559,11 +563,22 @@ export async function bootstrapAgentsFromDatabase(): Promise<number> {
         // Check if this agent is already being bootstrapped
         const bootstrapInfo = agentBootstrapRegistry.getAgentBootstrapInfo(dbAgent.id);
         if (bootstrapInfo && bootstrapInfo.state === AgentBootstrapState.IN_PROGRESS) {
-          // Another bootstrap process is handling this agent
-          const logMsg = `Agent ${dbAgent.id} is already being bootstrapped by another process, skipping`;
-          logger.info(logMsg, { agentId: dbAgent.id, bootstrapInfo });
-          console.log(`⏩ ${logMsg}`);
-          continue;
+          // Check if the lock is stale
+          if (agentBootstrapRegistry.isLockStale(dbAgent.id)) {
+            logger.warn(`Detected stale lock for agent ${dbAgent.id}, force releasing`, { 
+              agentId: dbAgent.id,
+              lockTimestamp: bootstrapInfo.lockTimestamp
+            });
+            
+            // Force release the stale lock
+            agentBootstrapRegistry.forceReleaseStaleLock(dbAgent.id);
+          } else {
+            // Another bootstrap process is handling this agent
+            const logMsg = `Agent ${dbAgent.id} is already being bootstrapped by another process, skipping`;
+            logger.info(logMsg, { agentId: dbAgent.id, bootstrapInfo });
+            console.log(`⏩ ${logMsg}`);
+            continue;
+          }
         }
         
         // Try to acquire initialization lock
@@ -594,6 +609,13 @@ export async function bootstrapAgentsFromDatabase(): Promise<number> {
           metadata: dbAgent.metadata
         });
         
+        // Log initialization stage
+        logAgentInitializationStage(agent, 'bootstrap_started', {
+          requestId: bootstrapRequestId,
+          agentType: agent.getType ? agent.getType() : 'unknown',
+          timestamp: new Date().toISOString()
+        });
+        
         // Initialize with error boundary
         console.log(`🔄 Initializing agent ${dbAgent.id}...`);
         
@@ -608,15 +630,31 @@ export async function bootstrapAgentsFromDatabase(): Promise<number> {
           fallbackOnError: true
         });
         const endTime = Date.now();
+        const durationMs = endTime - startTime;
         
         // Record metrics for initialization
         recordInitializationMetric(agent, 'initialization_result', {
           success: initResult.success,
-          durationMs: endTime - startTime,
+          durationMs,
           error: initResult.error ? initResult.error.message : undefined
         });
         
+        // Record performance metrics
+        recordInitializationMetrics(agent, 'performance', {
+          startTime: new Date(startTime),
+          endTime: new Date(endTime),
+          durationMs,
+          success: initResult.success
+        });
+        
         if (initResult.success) {
+          // Log successful initialization
+          logAgentInitializationStage(agent, 'bootstrap_completed', {
+            durationMs,
+            timestamp: new Date().toISOString(),
+            requestId: bootstrapRequestId
+          });
+          
           // Handle post-initialization
           handlePostInitialization(agent);
           console.log(`✅ Successfully initialized agent ${dbAgent.id} and all its managers`);

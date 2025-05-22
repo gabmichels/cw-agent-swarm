@@ -1204,4 +1204,127 @@ export class DefaultMemoryManager extends AbstractBaseManager implements MemoryM
       return [];
     }
   }
+
+  /**
+   * Get direct access to the memory client for specialized operations
+   * This allows other managers to use optimized client methods
+   */
+  async getMemoryClient(): Promise<any> {
+    if (!this._initialized) {
+      throw new Error('Memory manager not initialized');
+    }
+    
+    try {
+      // Get the memory service
+      const memoryService = await this.getMemoryService();
+      if (!memoryService) {
+        console.error('Memory service not available');
+        return null;
+      }
+      
+      // Direct access method - attempt to get client in different ways
+      
+      // Option 1: Through getClient method
+      if (typeof (memoryService as any).getClient === 'function') {
+        return await (memoryService as any).getClient();
+      }
+      
+      // Option 2: Direct access to client property
+      if ((memoryService as any).client) {
+        return (memoryService as any).client;
+      }
+      
+      // Option 3: Direct access via raw service (for debugging)
+      console.warn('No standard client access method found, trying raw methods');
+      
+      // Return the service itself as it might have the methods needed
+      return memoryService;
+    } catch (error) {
+      console.error('Error getting memory client:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Get tasks by status directly from memory
+   * 
+   * This specialized method is used by the scheduler manager to efficiently
+   * retrieve tasks by their status.
+   */
+  async getTasksByStatus(
+    statuses: string[] = ['pending', 'scheduled', 'in_progress']
+  ): Promise<any[]> {
+    try {
+      // Get memory service
+      const memoryService = await this.getMemoryService();
+      if (!memoryService) {
+        console.error('Memory service not available for task retrieval');
+        return [];
+      }
+      
+      // If the service has a getTasksByStatus method, use it
+      if (typeof (memoryService as any).getTasksByStatus === 'function') {
+        return await (memoryService as any).getTasksByStatus(statuses);
+      }
+      
+      // Try to get memory client for direct access
+      const memoryClient = await this.getMemoryClient();
+      if (memoryClient && typeof (memoryClient as any).getTasksByStatus === 'function') {
+        // First try with the specific task collection
+        const taskCollection = (memoryClient as any).getCollectionNameForType 
+          ? (memoryClient as any).getCollectionNameForType('task')
+          : 'tasks';
+        
+        return await (memoryClient as any).getTasksByStatus(taskCollection, statuses);
+      }
+      
+      // Log if we didn't find any standard client access method
+      console.log('No standard client access method found, trying raw methods');
+      
+      // Fallback to searchMemories method - NOT search
+      const filter = {
+        type: 'task',
+        status: { $in: statuses }
+      };
+      
+      // The service has searchMemories method, not search
+      if (typeof memoryService.searchMemories === 'function') {
+        try {
+          // searchMemories takes one argument - a query object
+          const searchResult = await memoryService.searchMemories({
+            type: 'task',
+            filter: filter,
+            limit: 100
+          });
+          
+          // Format results to match task structure
+          if (searchResult?.success && Array.isArray(searchResult.data)) {
+            return searchResult.data.map(item => {
+              const metadata = item.metadata || {};
+              return {
+                id: item.id || '',
+                title: metadata.title || '',
+                description: metadata.description || '',
+                type: metadata.type || 'task',
+                status: metadata.status || 'pending',
+                priority: metadata.priority || 0,
+                retryAttempts: metadata.retryAttempts || 0,
+                dependencies: metadata.dependencies || [],
+                metadata: metadata,
+                createdAt: metadata.createdAt || item.createdAt || new Date().toISOString(),
+                updatedAt: metadata.updatedAt || item.updatedAt || new Date().toISOString()
+              };
+            });
+          }
+        } catch (searchError) {
+          console.error('Error using searchMemories:', searchError);
+        }
+      }
+      
+      return [];
+    } catch (error) {
+      console.error('Error getting tasks by status:', error);
+      return [];
+    }
+  }
 } 

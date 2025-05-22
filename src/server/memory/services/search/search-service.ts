@@ -103,14 +103,31 @@ export class SearchService {
    * Search across all or specified memory types
    */
   async search<T extends BaseMemorySchema>(
-    query: string,
+    query: string | object,
     options: SearchOptions = {}
   ): Promise<SearchResult<T>[]> {
     try {
       const { types = [], limit = 10, filter } = options;
       
+      // Handle case where query is an object (incorrect usage)
+      if (typeof query !== 'string') {
+        console.warn('Non-string query provided to search, converting to empty string', { 
+          queryType: typeof query,
+          filter: options.filter
+        });
+        
+        // Use filter-based approach when no valid query string is provided
+        return await this.handleEmptyQuerySearch<T>(
+          types.length > 0
+            ? types.map(type => this.getCollectionNameForType(type as MemoryType)).filter(Boolean) as string[]
+            : Object.values(COLLECTION_NAMES).filter(Boolean) as string[],
+          filter,
+          limit
+        );
+      }
+      
       // Normalize and validate query
-      const normalizedQuery = query?.trim() || '';
+      const normalizedQuery = query.trim() || '';
       const isEmptyQuery = normalizedQuery.length === 0;
       
       // Log query information
@@ -285,6 +302,98 @@ export class SearchService {
   ): Promise<SearchResult<T>[]> {
     const results: SearchResult<T>[] = [];
     
+    // If no collections to search, return empty results
+    if (!collections || collections.length === 0) {
+      return results;
+    }
+    
+    // Enhanced logging for debugging
+    console.log('Empty query search with filter:', JSON.stringify(filter));
+    
+    // Special handling for task filters - check both places where task data might be stored
+    if (filter && typeof filter === 'object') {
+      // Check if this appears to be a task filter by looking for common patterns
+      const isTaskFilter = 
+        // Case 1: Explicit type field
+        ('type' in filter && filter.type === 'task') || 
+        // Case 2: Looking for specific status values typically used for tasks
+        ('status' in filter && 
+          (typeof filter.status === 'object' && 
+           '$in' in filter.status && 
+           Array.isArray(filter.status.$in) &&
+           filter.status.$in.some((s: string) => ['pending', 'scheduled', 'in_progress'].includes(s))));
+      
+      if (isTaskFilter) {
+        console.log('Detected task filter - enhancing to check both metadata and root paths');
+        
+        // Create a more flexible filter that checks both possible locations of fields
+        const enhancedFilter: any = { should: [] };
+        
+        // Add option to check status at root level
+        if ('status' in filter) {
+          const rootFilter: any = { must: [] };
+          rootFilter.must.push({ key: 'type', match: { value: 'task' } });
+          
+          const statusValue = filter.status;
+          if (Array.isArray(statusValue)) {
+            rootFilter.must.push({ key: 'status', match: { any: statusValue } });
+          } else if (typeof statusValue === 'object' && statusValue !== null && '$in' in statusValue) {
+            rootFilter.must.push({ key: 'status', match: { any: statusValue.$in } });
+          } else {
+            rootFilter.must.push({ key: 'status', match: { value: statusValue } });
+          }
+          
+          enhancedFilter.should.push(rootFilter);
+        }
+        
+        // Add option to check status in metadata path
+        if ('status' in filter) {
+          const metadataFilter: any = { must: [] };
+          metadataFilter.must.push({ key: 'metadata.type', match: { value: 'task' } });
+          
+          const statusValue = filter.status;
+          if (Array.isArray(statusValue)) {
+            metadataFilter.must.push({ key: 'metadata.status', match: { any: statusValue } });
+          } else if (typeof statusValue === 'object' && statusValue !== null && '$in' in statusValue) {
+            metadataFilter.must.push({ key: 'metadata.status', match: { any: statusValue.$in } });
+          } else {
+            metadataFilter.must.push({ key: 'metadata.status', match: { value: statusValue } });
+          }
+          
+          enhancedFilter.should.push(metadataFilter);
+        }
+        
+        console.log('Enhanced task filter:', JSON.stringify(enhancedFilter));
+        
+        // Use the enhanced filter
+        filter = enhancedFilter;
+      }
+    }
+    
+    // Validate filter before passing to client
+    let qdrantFilter = undefined;
+    if (filter) {
+      try {
+        // For task filters, we've already built a proper Qdrant filter above
+        if (filter.should) {
+          qdrantFilter = filter;
+        } else {
+          qdrantFilter = this.buildQdrantFilter(filter);
+        }
+        
+        // Log the transformed filter for debugging
+        console.log('Transformed filter for Qdrant:', JSON.stringify(qdrantFilter));
+        
+        // If filter builds to empty object, set to undefined
+        if (qdrantFilter && typeof qdrantFilter === 'object' && Object.keys(qdrantFilter).length === 0) {
+          qdrantFilter = undefined;
+        }
+      } catch (error) {
+        console.warn('Error building filter for empty query search:', error);
+        // Continue with undefined filter
+      }
+    }
+    
     // Search each collection using scrollPoints instead of vector search
     for (const collectionName of collections) {
       if (!collectionName) continue;
@@ -300,7 +409,7 @@ export class SearchService {
         // Use scrollPoints with filter
         const points = await this.client.scrollPoints<T>(
           collectionName,
-          filter ? this.buildQdrantFilter(filter) : undefined,
+          qdrantFilter,
           limit
         );
         
@@ -308,6 +417,8 @@ export class SearchService {
         const type = this.getTypeFromCollectionName(collectionName);
         
         if (points.length > 0 && type) {
+          console.log(`Found ${points.length} results in collection ${collectionName}`);
+          
           const mappedResults = points.map(point => ({
             point: point as MemoryPoint<T>,
             score: 0.5, // Default score for non-semantic search
@@ -347,45 +458,128 @@ export class SearchService {
       return filter as Record<string, any>;
     }
     
-    // Simple direct mapping for basic filters
-    if (typeof filter === 'object') {
-      const qdrantFilter: Record<string, any> = {};
-      
-      // Convert filter fields to Qdrant format
-      Object.entries(filter).forEach(([key, value]) => {
-        // Handle object values that might be complex conditions
-        if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
-          // Handle range conditions
-          if ('$gt' in value || '$gte' in value || '$lt' in value || '$lte' in value) {
-            qdrantFilter[key] = { range: value };
-          } 
-          // Handle match conditions
-          else if ('$in' in value || '$nin' in value || '$eq' in value || '$ne' in value) {
-            qdrantFilter[key] = { match: value };
-          }
-          // Handle text conditions
-          else if ('$contains' in value || '$startsWith' in value || '$endsWith' in value) {
-            qdrantFilter[key] = { match: { text: value } };
-          } 
-          // Default to passing through the object
-          else {
-            qdrantFilter[key] = value;
-          }
-        } 
-        // Simple value becomes a match condition
-        else {
-          qdrantFilter[key] = { match: { value } };
-        }
-      });
-      
-      // Wrap in must clause if there are conditions
-      if (Object.keys(qdrantFilter).length > 0) {
-        return { must: Object.entries(qdrantFilter).map(([key, value]) => ({ [key]: value })) };
-      }
+    // Check if filter is empty
+    if (!filter || (typeof filter === 'object' && Object.keys(filter).length === 0)) {
+      return {};
     }
     
-    // Return original filter if we couldn't transform it
-    return filter as Record<string, any>;
+    // Convert to Qdrant filter format with proper field conditions
+    const conditions: any[] = [];
+    
+    // Process filter entries
+    Object.entries(filter).forEach(([key, value]) => {
+      if (value === undefined) return;
+      
+      // Special handling for array values - convert to "any" match condition
+      if (Array.isArray(value)) {
+        console.log(`Converting array condition for key ${key}:`, value);
+        conditions.push({
+          key,
+          match: { any: value }
+        });
+      }
+      // Handle metadata fields
+      else if (key === 'metadata' && typeof value === 'object' && !Array.isArray(value)) {
+        // Process each metadata field as separate condition
+        Object.entries(value as Record<string, any>).forEach(([metaKey, metaValue]) => {
+          const fullKey = `metadata.${metaKey}`;
+          
+          if (Array.isArray(metaValue)) {
+            conditions.push({
+              key: fullKey,
+              match: { any: metaValue }
+            });
+          } else if (typeof metaValue === 'object' && metaValue !== null) {
+            // Check for operator notation ($gt, $lt, etc)
+            if ('$gt' in metaValue || '$gte' in metaValue || '$lt' in metaValue || '$lte' in metaValue) {
+              conditions.push({
+                key: fullKey,
+                range: metaValue
+              });
+            } else if ('$in' in metaValue || '$nin' in metaValue || '$eq' in metaValue || '$ne' in metaValue) {
+              if ('$in' in metaValue && Array.isArray(metaValue.$in)) {
+                conditions.push({
+                  key: fullKey,
+                  match: { any: metaValue.$in }
+                });
+              } else {
+                conditions.push({
+                  key: fullKey,
+                  match: metaValue
+                });
+              }
+            } else if ('$contains' in metaValue || '$startsWith' in metaValue || '$endsWith' in metaValue) {
+              conditions.push({
+                key: fullKey,
+                match: { text: metaValue }
+              });
+            } else {
+              // Simple object value
+              conditions.push({
+                key: fullKey,
+                match: { value: metaValue }
+              });
+            }
+          } else {
+            // Simple value
+            conditions.push({
+              key: fullKey,
+              match: { value: metaValue }
+            });
+          }
+        });
+      }
+      // Handle object values with operators
+      else if (typeof value === 'object' && value !== null) {
+        // Handle range conditions
+        if ('$gt' in value || '$gte' in value || '$lt' in value || '$lte' in value) {
+          conditions.push({
+            key,
+            range: value
+          });
+        } 
+        // Handle match conditions with special care for $in operator
+        else if ('$in' in value || '$nin' in value || '$eq' in value || '$ne' in value) {
+          // Special handling for $in with array
+          if ('$in' in value && Array.isArray(value.$in)) {
+            console.log(`Converting $in condition for key ${key}:`, value.$in);
+            conditions.push({
+              key,
+              match: { any: value.$in }
+            });
+          } else {
+            conditions.push({
+              key,
+              match: value
+            });
+          }
+        }
+        // Handle text conditions
+        else if ('$contains' in value || '$startsWith' in value || '$endsWith' in value) {
+          conditions.push({
+            key,
+            match: { text: value }
+          });
+        } 
+        // Default to passing through the object
+        else {
+          conditions.push({
+            key,
+            match: { value }
+          });
+        }
+      }
+      // Simple value becomes a match condition
+      else {
+        conditions.push({
+          key,
+          match: { value }
+        });
+      }
+    });
+    
+    // Return must clause with conditions
+    return conditions.length > 0 ? { must: conditions } : {};
   }
   
   /**
@@ -764,7 +958,19 @@ export class SearchService {
           }
           
           // Convert the filter to Qdrant format
-          const qdrantFilter = filter ? this.buildQdrantFilter(filter) : undefined;
+          let qdrantFilter;
+          try {
+            qdrantFilter = filter ? this.buildQdrantFilter(filter) : undefined;
+            
+            // Validate the filter
+            if (qdrantFilter && typeof qdrantFilter === 'object' && Object.keys(qdrantFilter).length === 0) {
+              qdrantFilter = undefined;
+            }
+          } catch (filterError) {
+            console.warn(`Error building filter for collection ${collectionName}:`, filterError);
+            // Continue with undefined filter
+            qdrantFilter = undefined;
+          }
           
           // Build scroll params including sort options
           const scrollParams: {
@@ -1390,5 +1596,137 @@ export class SearchService {
     }
     
     return summary;
+  }
+
+  /**
+   * Get direct access to the underlying memory client
+   */
+  async getClient(): Promise<any> {
+    if (!this.client) {
+      throw new Error('Memory client not available');
+    }
+    
+    console.log('Providing direct access to Qdrant client');
+    return this.client;
+  }
+
+  /**
+   * Get tasks by status directly from Qdrant
+   * 
+   * This specialized method bypasses the standard search approach to efficiently
+   * retrieve tasks by their status.
+   */
+  async getTasksByStatus(
+    statuses: string[] = ['pending', 'scheduled', 'in_progress']
+  ): Promise<any[]> {
+    try {
+      // Get the collection name for tasks (cast string to MemoryType)
+      const taskCollection = this.getCollectionNameForType('task' as unknown as MemoryType);
+
+      // Use direct client access for more efficient retrieval
+      if (!this.client) {
+        console.log('Memory client not available for task retrieval');
+        return [];
+      }
+
+      // First try: Use client's dedicated task method if available
+      if (typeof (this.client as any).getTasksByStatus === 'function') {
+        console.log(`Using client's dedicated getTasksByStatus method for ${taskCollection}`);
+        return await (this.client as any).getTasksByStatus(taskCollection, statuses);
+      }
+      
+      // Second try: Use direct Qdrant filter optimized for task retrieval
+      try {
+        console.log(`Using direct Qdrant filter to find tasks in ${taskCollection}`);
+        
+        // Filter for tasks with matching status
+        const filter = {
+          must: [
+            {
+              key: "type",
+              match: {
+                value: "task"
+              }
+            },
+            {
+              key: "status",
+              match: {
+                any: statuses
+              }
+            }
+          ]
+        };
+        
+        // Use client's scroll method with this filter
+        if (typeof (this.client as any).scroll === 'function') {
+          const scrollRequest = {
+            filter,
+            limit: 1000,
+            with_payload: true
+          };
+          
+          const response = await (this.client as any).scroll(taskCollection, scrollRequest);
+          console.log(`Found ${response.points.length} tasks with direct filter`);
+          
+          // Format the points to match task structure
+          return response.points.map((point: any) => {
+            const payload = point.payload || {};
+            return {
+              id: String(point.id),
+              title: payload.title || '',
+              description: payload.description || '',
+              type: payload.type || 'task',
+              status: payload.status || 'pending',
+              priority: payload.priority || 0,
+              retryAttempts: payload.retryAttempts || 0,
+              dependencies: payload.dependencies || [],
+              metadata: payload.metadata || {},
+              createdAt: payload.createdAt || new Date().toISOString(),
+              updatedAt: payload.updatedAt || new Date().toISOString()
+            };
+          });
+        }
+      } catch (filterError) {
+        console.warn(`Error using direct filter for tasks:`, filterError);
+        // Continue to fallback approach
+      }
+      
+      // Final try: Use standard search approach as fallback
+      console.log(`Falling back to standard filter for tasks in ${taskCollection}`);
+      
+      // Standard approach: Build filter and use client search
+      const filter = this.buildQdrantFilter({
+        type: 'task',
+        status: { $in: statuses }
+      });
+      
+      const standardResponse = await (this.client as any).search(taskCollection, {
+        vector: new Array(1536).fill(0.01), // Random vector
+        filter,
+        limit: 1000,
+        with_payload: true
+      });
+      
+      // Format the results to match task structure
+      return standardResponse.map((result: any) => {
+        const payload = result.payload || {};
+        return {
+          id: String(result.id),
+          title: payload.title || '',
+          description: payload.description || '',
+          type: payload.type || 'task',
+          status: payload.status || 'pending',
+          priority: payload.priority || 0,
+          retryAttempts: payload.retryAttempts || 0,
+          dependencies: payload.dependencies || [],
+          metadata: payload.metadata || {},
+          createdAt: payload.createdAt || new Date().toISOString(),
+          updatedAt: payload.updatedAt || new Date().toISOString()
+        };
+      });
+    } catch (error) {
+      console.error('Error getting tasks by status:', error);
+      return [];
+    }
   }
 } 

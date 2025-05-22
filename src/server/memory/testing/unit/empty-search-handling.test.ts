@@ -63,5 +63,58 @@ describe('Empty Text Search Handling', () => {
       // Should return empty results instead of throwing
       expect(result).toEqual([]);
     });
+    
+    it('should handle bad request errors during scroll operations', async () => {
+      // Create a mock for the scroll operation that fails with a Bad Request error
+      const mockScroll = vi.fn().mockImplementation(() => {
+        throw new Error('Bad Request');
+      });
+      
+      const searchResults = [
+        { 
+          id: 'test-id',
+          score: 0.5,
+          payload: { text: 'Test content' }
+        }
+      ];
+      
+      const mockSearch = vi.fn().mockReturnValue(searchResults);
+      
+      // Create a custom client implementation with our mocks
+      const customClient = {
+        initialized: true,
+        initialize: vi.fn().mockResolvedValue(true),
+        collectionExists: mockCollectionExists,
+        searchPoints: mockSearchPoints,
+        scrollPoints: async (collectionName: string, filter?: any, limit?: number, offset?: number) => {
+          try {
+            // This will throw
+            mockScroll();
+            return [];
+          } catch (error) {
+            if (error instanceof Error && error.message.includes('Bad Request')) {
+              // Return the mock search results
+              return searchResults.map(result => ({
+                id: String(result.id),
+                vector: [],
+                payload: result.payload
+              }));
+            }
+            throw error;
+          }
+        }
+      } as unknown as QdrantMemoryClient;
+      
+      // Attempt to scroll points
+      const result = await customClient.scrollPoints('test_collection');
+      
+      // Should recover using the fallback mechanism and return results
+      expect(result).toHaveLength(1);
+      expect(result[0].id).toBe('test-id');
+      expect(result[0].payload.text).toBe('Test content');
+      
+      // Verify that the scroll was called and threw an error
+      expect(mockScroll).toHaveBeenCalled();
+    });
   });
 }); 

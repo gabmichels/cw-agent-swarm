@@ -15,7 +15,7 @@ import { v4 as uuidv4 } from 'uuid';
  * Configuration for initialization retry
  */
 export interface RetryConfig {
-  maxRetries: number;
+  maxAttempts: number;
   initialDelayMs: number;
   maxDelayMs: number;
   backoffFactor: number;
@@ -25,9 +25,9 @@ export interface RetryConfig {
  * Default retry configuration
  */
 export const DEFAULT_RETRY_CONFIG: RetryConfig = {
-  maxRetries: 3,
+  maxAttempts: 3,
   initialDelayMs: 1000, // 1 second
-  maxDelayMs: 30000,    // 30 seconds
+  maxDelayMs: 10000,    // 10 seconds
   backoffFactor: 2      // Exponential backoff
 };
 
@@ -47,7 +47,7 @@ export function sleep(ms: number): Promise<void> {
 }
 
 /**
- * Initialize an agent with retry logic
+ * Initialize an agent with retry logic and exponential backoff
  * 
  * @param agent The agent to initialize
  * @param config Retry configuration
@@ -55,80 +55,139 @@ export function sleep(ms: number): Promise<void> {
  */
 export async function initializeAgentWithRetry(
   agent: AgentBase,
-  config: RetryConfig = DEFAULT_RETRY_CONFIG
+  config: Partial<RetryConfig> = {}
 ): Promise<boolean> {
+  const {
+    maxAttempts = 3,
+    initialDelayMs = 1000,
+    maxDelayMs = 10000,
+    backoffFactor = 2
+  } = config;
+  
   const agentId = agent.getAgentId();
-  const agentName = agent instanceof Object ? (agent as any).name || 'Unknown Agent' : 'Unknown Agent';
+  let attempt = 0;
+  let delayMs = initialDelayMs;
   
-  // Register agent in bootstrap registry if not already registered
-  if (!agentBootstrapRegistry.isAgentRegistered(agentId)) {
-    agentBootstrapRegistry.registerAgent(
-      agentId,
-      agentName,
-      AgentStatus.OFFLINE,
-      { bootstrapRequestId: uuidv4() }
-    );
-  }
-  
-  // Try to acquire lock for initialization
-  if (!agentBootstrapRegistry.acquireLock(agentId)) {
-    logger.warn(`Cannot initialize agent ${agentId}, another initialization is in progress`);
-    return false;
-  }
-  
-  // Update state to IN_PROGRESS
+  // Update registry state
   agentBootstrapRegistry.updateAgentBootstrapState(agentId, AgentBootstrapState.IN_PROGRESS);
   
-  let retryCount = 0;
-  let success = false;
-  let lastError: Error | undefined;
-  
-  while (retryCount <= config.maxRetries) {
+  while (attempt < maxAttempts) {
+    attempt++;
+    
     try {
-      logger.info(`Initializing agent ${agentId} (attempt ${retryCount + 1}/${config.maxRetries + 1})...`);
+      // Log initialization attempt
+      logger.info(`Initializing agent ${agentId} (attempt ${attempt}/${maxAttempts})`, {
+        agentId,
+        attempt,
+        maxAttempts
+      });
       
-      // Attempt initialization
-      const result = await agent.initialize();
+      // Log initialization stage
+      logAgentInitializationStage(agent, 'initialization_started', {
+        attempt,
+        maxAttempts,
+        timestamp: new Date().toISOString()
+      });
       
-      if (result) {
-        // Initialization succeeded
-        success = true;
-        logger.info(`Agent ${agentId} initialized successfully`);
+      // Attempt to initialize
+      const success = await agent.initialize();
+      
+      if (success) {
+        logger.info(`Successfully initialized agent ${agentId} on attempt ${attempt}/${maxAttempts}`, {
+          agentId,
+          attempt,
+          maxAttempts
+        });
         
-        // Update registry with success state
-        agentBootstrapRegistry.updateAgentBootstrapState(agentId, AgentBootstrapState.COMPLETED);
-        break;
-      } else {
-        // Initialization returned false but didn't throw
-        lastError = new Error(`Agent ${agentId} initialization returned false`);
-        retryCount++;
+        // Log successful initialization
+        logAgentInitializationStage(agent, 'initialization_completed', {
+          attempt,
+          success: true,
+          timestamp: new Date().toISOString()
+        });
         
-        if (retryCount <= config.maxRetries) {
-          const delay = calculateBackoffDelay(retryCount, config);
-          logger.warn(`Agent ${agentId} initialization failed (attempt ${retryCount}/${config.maxRetries}). Retrying in ${delay}ms...`);
-          await sleep(delay);
-        }
+        return true;
       }
+      
+      logger.warn(`Agent ${agentId} initialization returned false on attempt ${attempt}/${maxAttempts}`, {
+        agentId,
+        attempt,
+        maxAttempts
+      });
+      
+      // Log failed initialization
+      logAgentInitializationStage(agent, 'initialization_failed', {
+        attempt,
+        success: false,
+        reason: 'Initialization returned false',
+        timestamp: new Date().toISOString()
+      });
+      
     } catch (error) {
-      // Initialization threw an error
-      lastError = error instanceof Error ? error : new Error(String(error));
-      retryCount++;
+      const errorMessage = error instanceof Error ? error.message : String(error);
       
-      if (retryCount <= config.maxRetries) {
-        const delay = calculateBackoffDelay(retryCount, config);
-        logger.error(`Error initializing agent ${agentId} (attempt ${retryCount}/${config.maxRetries}): ${lastError.message}. Retrying in ${delay}ms...`);
-        await sleep(delay);
-      }
+      logger.error(`Error initializing agent ${agentId} on attempt ${attempt}/${maxAttempts}: ${errorMessage}`, {
+        agentId,
+        attempt,
+        maxAttempts,
+        error
+      });
+      
+      // Log initialization error
+      logAgentInitializationStage(agent, 'initialization_error', {
+        attempt,
+        success: false,
+        error: errorMessage,
+        timestamp: new Date().toISOString()
+      });
+    }
+    
+    // Check if we should retry
+    if (attempt < maxAttempts) {
+      logger.info(`Retrying agent ${agentId} initialization after ${delayMs}ms`, {
+        agentId,
+        attempt,
+        maxAttempts,
+        delayMs
+      });
+      
+      // Log retry
+      logAgentInitializationStage(agent, 'initialization_retry', {
+        attempt,
+        nextAttempt: attempt + 1,
+        delayMs,
+        timestamp: new Date().toISOString()
+      });
+      
+      // Wait before retrying
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+      
+      // Increase delay with exponential backoff, but cap at maxDelayMs
+      delayMs = Math.min(delayMs * backoffFactor, maxDelayMs);
+      
+    } else {
+      logger.error(`Failed to initialize agent ${agentId} after ${maxAttempts} attempts`, {
+        agentId,
+        attempts: maxAttempts
+      });
+      
+      // Log final failure
+      logAgentInitializationStage(agent, 'initialization_failed_final', {
+        attempts: maxAttempts,
+        success: false,
+        timestamp: new Date().toISOString()
+      });
+      
+      // Update registry with failure state
+      agentBootstrapRegistry.updateAgentBootstrapState(
+        agentId, 
+        AgentBootstrapState.FAILED, 
+        new Error(`Failed after ${maxAttempts} attempts`)
+      );
     }
   }
   
-  if (!success) {
-    // All retries failed
-    logger.error(`Agent ${agentId} initialization failed after ${config.maxRetries + 1} attempts`);
-    agentBootstrapRegistry.updateAgentBootstrapState(agentId, AgentBootstrapState.FAILED, lastError);
-  }
-  
-  return success;
+  return false;
 }
 
 /**
@@ -183,22 +242,119 @@ export function validateAgentPreInitialization(
 }
 
 /**
- * Generate detailed logging information for agent initialization
+ * Generate structured log data for agent initialization
  * 
  * @param agent The agent being initialized
+ * @param additionalData Additional data to include in log
  * @returns Structured log data
  */
-export function generateAgentInitLogData(agent: AgentBase): Record<string, any> {
+export function generateAgentInitLogData(agent: AgentBase, additionalData: Record<string, any> = {}): Record<string, any> {
   const agentId = agent.getAgentId();
-  const managers = 'getManagers' in agent ? (agent as any).getManagers() : [];
+  const agentName = agent.getName ? agent.getName() : 'Unknown';
+  const agentType = agent.getType ? agent.getType() : 'Unknown';
   
   return {
     agentId,
-    managersCount: managers.length,
-    managerTypes: managers.map((m: any) => m.managerType),
+    agentName,
+    agentType,
     timestamp: new Date().toISOString(),
-    requestId: uuidv4()
+    requestId: uuidv4(),
+    ...additionalData
   };
+}
+
+/**
+ * Log a specific initialization stage with structured data
+ * 
+ * @param agent The agent being initialized
+ * @param stage The initialization stage
+ * @param data Additional data for the log
+ */
+export function logAgentInitializationStage(
+  agent: AgentBase,
+  stage: string,
+  data: Record<string, any> = {}
+): void {
+  const agentId = agent.getAgentId();
+  const agentName = agent.getName ? agent.getName() : 'Unknown';
+  
+  const logData = {
+    agentId,
+    agentName,
+    stage,
+    timestamp: new Date().toISOString(),
+    ...data
+  };
+  
+  // Use the appropriate log level based on the stage
+  if (stage.includes('error') || stage.includes('failed')) {
+    logger.error(`Agent initialization stage [${stage}] for ${agentName} (${agentId})`, logData);
+  } else if (stage.includes('retry') || stage.includes('warning')) {
+    logger.warn(`Agent initialization stage [${stage}] for ${agentName} (${agentId})`, logData);
+  } else if (stage.includes('completed') || stage.includes('success')) {
+    logger.info(`Agent initialization stage [${stage}] for ${agentName} (${agentId})`, logData);
+  } else {
+    logger.debug(`Agent initialization stage [${stage}] for ${agentName} (${agentId})`, logData);
+  }
+  
+  // Update the agent bootstrap registry with the current stage
+  if (agentBootstrapRegistry.isAgentRegistered(agentId)) {
+    const currentState = agentBootstrapRegistry.getAgentBootstrapInfo(agentId)?.state;
+    
+    // Update state based on stage
+    if (stage === 'initialization_completed' && currentState !== AgentBootstrapState.COMPLETED) {
+      agentBootstrapRegistry.updateAgentBootstrapState(agentId, AgentBootstrapState.COMPLETED);
+    } else if (stage.includes('failed_final') && currentState !== AgentBootstrapState.FAILED) {
+      agentBootstrapRegistry.updateAgentBootstrapState(agentId, AgentBootstrapState.FAILED);
+    }
+    
+    // Store the stage in the agent's metadata
+    agentBootstrapRegistry.updateAgentMetadata(agentId, {
+      lastInitializationStage: stage,
+      lastInitializationTimestamp: data.timestamp || new Date().toISOString()
+    });
+  }
+}
+
+/**
+ * Record detailed initialization performance metrics
+ * 
+ * @param agent The agent being initialized
+ * @param stage The initialization stage
+ * @param metrics Performance metrics to record
+ */
+export function recordInitializationMetrics(
+  agent: AgentBase,
+  stage: string,
+  metrics: {
+    startTime?: Date;
+    endTime?: Date;
+    durationMs?: number;
+    memoryUsage?: number;
+    cpuUsage?: number;
+    [key: string]: any;
+  }
+): void {
+  const agentId = agent.getAgentId();
+  
+  // Create structured metrics data
+  const metricsData = {
+    agentId,
+    agentName: agent.getName ? agent.getName() : 'Unknown',
+    stage,
+    timestamp: new Date().toISOString(),
+    ...metrics
+  };
+  
+  // Log metrics at debug level
+  logger.debug(`Agent initialization metrics for stage [${stage}]`, metricsData);
+  
+  // Store metrics in agent bootstrap registry
+  if (agentBootstrapRegistry.isAgentRegistered(agentId)) {
+    agentBootstrapRegistry.updateAgentMetadata(agentId, {
+      [`metrics_${stage}`]: metricsData
+    });
+  }
 }
 
 /**
@@ -209,16 +365,80 @@ export function generateAgentInitLogData(agent: AgentBase): Record<string, any> 
 export function handlePostInitialization(agent: AgentBase): void {
   const agentId = agent.getAgentId();
   
-  // Emit initialized event if the agent has an emit method
-  if ('emit' in agent && typeof (agent as any).emit === 'function') {
-    (agent as any).emit('initialized');
-    logger.info(`Emitted 'initialized' event for agent ${agentId}`);
-  }
+  // Log post-initialization
+  logger.info(`Emitted 'initialized' event for agent ${agentId}`);
   
-  // Update registry status
-  const info = agentBootstrapRegistry.getAgentBootstrapInfo(agentId);
-  if (info) {
-    info.status = AgentStatus.AVAILABLE;
-    agentBootstrapRegistry.updateAgentBootstrapState(agentId, AgentBootstrapState.COMPLETED);
+  // Release the initialization lock
+  agentBootstrapRegistry.releaseLock(agentId);
+  
+  // Update the agent bootstrap state
+  agentBootstrapRegistry.updateAgentBootstrapState(agentId, AgentBootstrapState.COMPLETED);
+  
+  // Emit initialized event
+  if (typeof (agent as any).emit === 'function') {
+    (agent as any).emit('initialized', { agentId });
+  }
+}
+
+/**
+ * Reset bootstrap locks for all agents or a specific agent
+ * 
+ * This is useful to recover from a situation where locks are stuck
+ * due to a server crash or other error.
+ * 
+ * @param agentId Optional specific agent ID to reset, or all if not provided
+ * @returns Object containing reset results
+ */
+export function resetBootstrapLocks(agentId?: string): { 
+  success: boolean; 
+  resetCount: number; 
+  agentIds: string[] 
+} {
+  try {
+    if (agentId) {
+      // Reset specific agent lock
+      const wasReset = agentBootstrapRegistry.forceResetLock(agentId);
+      
+      logger.warn(`Force reset bootstrap lock for agent ${agentId}`, {
+        agentId,
+        wasReset
+      });
+      
+      return {
+        success: true,
+        resetCount: wasReset ? 1 : 0,
+        agentIds: wasReset ? [agentId] : []
+      };
+    } else {
+      // Reset all locks
+      const before = new Date();
+      agentBootstrapRegistry.resetAllLocks();
+      const after = new Date();
+      
+      // Get all registered agents to report reset status
+      const allAgentIds = agentBootstrapRegistry.getAllRegisteredAgentIds();
+      
+      logger.warn(`Reset all bootstrap locks`, {
+        agentCount: allAgentIds.length,
+        durationMs: after.getTime() - before.getTime()
+      });
+      
+      return {
+        success: true,
+        resetCount: allAgentIds.length,
+        agentIds: allAgentIds
+      };
+    }
+  } catch (error) {
+    logger.error(`Error resetting bootstrap locks`, {
+      error,
+      agentId
+    });
+    
+    return {
+      success: false,
+      resetCount: 0,
+      agentIds: []
+    };
   }
 } 

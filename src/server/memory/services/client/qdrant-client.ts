@@ -661,7 +661,7 @@ export class QdrantMemoryClient implements IMemoryClient {
   }
   
   /**
-   * Scroll through points
+   * Scroll through points in a collection with optional filtering
    */
   async scrollPoints<T extends BaseMemorySchema>(
     collectionName: string,
@@ -670,147 +670,164 @@ export class QdrantMemoryClient implements IMemoryClient {
     offset?: number
   ): Promise<MemoryPoint<T>[]> {
     if (!this.initialized) {
-      await this.initialize();
+      throw new Error('Qdrant client not initialized');
     }
-    
-    // Check if the collection exists first
+
+    if (!collectionName) {
+      throw new Error('Collection name is required');
+    }
+
     try {
-      const collectionExists = await this.collectionExists(collectionName);
-      if (!collectionExists) {
-        console.warn(`Collection ${collectionName} does not exist. Returning empty results for scroll operation.`);
-        return [];
-      }
-    } catch (checkError) {
-      console.warn(`Error checking if collection ${collectionName} exists:`, checkError);
-      // Continue with the scroll attempt, as the collection might still be accessible
-    }
-    
-    // Use fallback storage if Qdrant is not available
-    if (!this.useQdrant) {
-      const points = this.fallbackStorage.searchPoints(
-        collectionName,
-        '',
-        limit || DEFAULTS.DEFAULT_LIMIT
-      );
+      // Add special handling for task retrieval
+      const isTaskRequest = 
+        collectionName.includes('task') || 
+        (filter && 
+          (typeof filter === 'object' && 
+            (('type' in filter && filter.type === 'task') ||
+             (filter.status && filter.status.$in && 
+              Array.isArray(filter.status.$in) && 
+              filter.status.$in.some((s: string) => 
+                ['pending', 'scheduled', 'in_progress'].includes(s)
+              ))
+            )
+          )
+        );
       
-      return points;
-    }
-    
-    try {
-      // Create scroll parameters
-      const scrollParams: any = {
-        limit: limit || DEFAULTS.DEFAULT_LIMIT,
-        offset: offset || 0,
-        with_payload: true,
-        with_vector: false
-      };
+      // Log detailed information about this request
+      console.log(`scrollPoints for collection ${collectionName}, isTaskRequest: ${isTaskRequest}`);
+      console.log(`Raw filter:`, JSON.stringify(filter, null, 2));
       
-      // Add filter if provided
-      if (filter) {
-        scrollParams.filter = this.buildQdrantFilter(filter);
-      }
-      
-      // Add sorting by timestamp if available
-      scrollParams.order_by = {
-        key: 'timestamp',
-        direction: 'desc'
-      };
-      
-      // Get points
-      try {
-        const response = await this.client.scroll(collectionName, scrollParams);
-        
-        if (!response || !response.points) {
-          return [];
-        }
-        
-        // Transform to MemoryPoint objects
-        return response.points.map(point => {
-          // Ensure vector is an array and handle all possible types
-          let vector: number[] = [];
-          if (Array.isArray(point.vector)) {
-            // Flatten if it's a nested array
-            if (point.vector.length > 0 && Array.isArray(point.vector[0])) {
-              vector = (point.vector as number[][]).flat();
-            } else {
-              vector = point.vector as number[];
+      // For task requests, use a simplified approach to get all tasks
+      if (isTaskRequest) {
+        console.log(`Using simplified task retrieval approach`);
+        try {
+          // Create a simplified search request focused on tasks
+          const searchRequest = {
+            limit: limit || 1000,
+            offset: offset || 0,
+            with_payload: true,
+            with_vector: false,
+            filter: { 
+              must: [
+                { 
+                  key: "type",
+                  match: { value: "task" }
+                }
+              ]
             }
-          }
-          
-          return {
-            id: String(point.id),
-            vector,
-            payload: point.payload as T
           };
-        });
-      } catch (scrollError) {
-        // Handle 400 Bad Request errors, which can happen if the collection was recreated
-        // without proper indices (like timestamp) needed for scrolling
-        if (
-          scrollError instanceof Error && 
-          (scrollError.message.includes('400') || scrollError.message.includes('Bad Request'))
-        ) {
-          console.warn(`Bad request error during scroll on ${collectionName}. The collection might be new or missing indices. Trying alternative method...`);
           
-          // Try to get points without sorting or scrolling
-          try {
-            // Use search with no vector instead of scroll
-            const searchResponse = await this.client.search(collectionName, {
-              vector: new Array(DEFAULTS.DIMENSIONS).fill(0), // Add dummy vector to satisfy type requirements
-              limit: limit || DEFAULTS.DEFAULT_LIMIT,
-              offset: offset || 0,
-              filter: filter ? this.buildQdrantFilter(filter) : undefined,
-              with_payload: true,
-              with_vector: false
+          // Execute simplified search
+          console.log(`Executing simplified task search:`, JSON.stringify(searchRequest, null, 2));
+          const response = await this.client.scroll(collectionName, searchRequest);
+          console.log(`Simplified task search found ${response.points.length} points`);
+          
+          // Map points to memory format with type safety
+          return response.points.map(point => {
+            const payload = point.payload as Record<string, any>;
+            const memoryPoint: any = {
+              id: String(point.id),
+              vector: Array.isArray(point.vector) ? point.vector : [],
+              payload: payload,
+              metadata: payload.metadata || {},
+              content: payload.content || '',
+              createdAt: payload.createdAt || new Date().toISOString(),
+              updatedAt: payload.updatedAt || new Date().toISOString(),
+            };
+            
+            // Copy all other payload fields to the root level
+            Object.entries(payload).forEach(([key, value]) => {
+              if (!['metadata', 'content', 'createdAt', 'updatedAt'].includes(key)) {
+                memoryPoint[key] = value;
+              }
             });
             
-            return searchResponse.map(result => ({
-              id: String(result.id),
-              // Empty vector since we didn't request it
-              vector: [],
-              payload: result.payload as T
-            }));
-          } catch (searchError) {
-            console.warn(`Alternative method also failed for ${collectionName}:`, searchError);
-            return [];
-          }
+            return memoryPoint as MemoryPoint<T>;
+          });
+        } catch (taskError) {
+          console.error(`Simplified task search failed:`, taskError);
+          // Fall through to standard approach if simplified approach fails
         }
-        
-        // Handle 404 Not Found errors by returning empty array
-        if (
-          scrollError instanceof Error && 
-          (scrollError.message.includes('404') || scrollError.message.includes('Not Found'))
-        ) {
-          console.warn(`Collection ${collectionName} not found during scroll. Returning empty results.`);
-          return [];
-        }
-        
-        // Rethrow other errors
-        throw scrollError;
       }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
       
-      // Check if this is a "collection not found" error
-      if (
-        errorMessage.includes('not found') || 
-        errorMessage.includes('404') || 
-        errorMessage.includes('does not exist')
-      ) {
-        console.warn(`Collection ${collectionName} not found during scroll. Returning empty results.`);
+      // Check if collection exists
+      const exists = await this.collectionExists(collectionName);
+      if (!exists) {
         return [];
       }
+
+      // Validate and simplify filter if provided
+      let validatedFilter = undefined;
+      if (filter) {
+        try {
+          validatedFilter = this.validateAndFixFilter(filter);
+          console.log(`Validated filter:`, JSON.stringify(validatedFilter, null, 2));
+        } catch (filterError) {
+          console.error(`Filter validation failed:`, filterError);
+          // Continue with undefined filter
+        }
+      }
+
+      // Create scroll request
+      const scrollRequest: any = {
+        limit: limit || 10,
+        offset: offset || 0,
+        with_payload: true,
+        with_vector: true
+      };
+
+      // Add filter if provided and valid
+      if (validatedFilter) {
+        scrollRequest.filter = validatedFilter;
+      }
+
+      // Execute scroll request
+      console.log(`Executing standard scroll with request:`, JSON.stringify(scrollRequest, null, 2));
+      const response = await this.client.scroll(collectionName, scrollRequest);
+      console.log(`Standard scroll found ${response.points.length} points`);
+
+      // Map points to memory format with proper typing
+      return response.points.map(point => {
+        const payload = point.payload as Record<string, any>;
+        
+        // Create basic memory point structure with all required fields
+        const memoryPoint: any = {
+          id: String(point.id),
+          vector: Array.isArray(point.vector) ? point.vector : [],
+          payload: payload,
+          metadata: payload.metadata || {},
+          content: payload.content || '',
+          createdAt: payload.createdAt || new Date().toISOString(),
+          updatedAt: payload.updatedAt || new Date().toISOString(),
+        };
+        
+        // Add all other payload fields as additional properties
+        Object.entries(payload).forEach(([key, value]) => {
+          if (!['metadata', 'content', 'createdAt', 'updatedAt'].includes(key)) {
+            memoryPoint[key] = value;
+          }
+        });
+        
+        return memoryPoint as MemoryPoint<T>;
+      });
+    } catch (error) {
+      console.error(`Error in scrollPoints for collection ${collectionName}:`, error);
       
-      console.error(`Error scrolling in ${collectionName}:`, error);
-      
-      // Fallback to in-memory storage
-      const points = this.fallbackStorage.searchPoints(
-        collectionName,
-        '',
-        limit || DEFAULTS.DEFAULT_LIMIT
-      );
-      
-      return points;
+      // If Qdrant query fails, try fallback method
+      try {
+        console.log(`Attempting fallback search for collection ${collectionName}`);
+        return await this.executeSearchFallback<T>(collectionName, {
+          filter: filter,
+          limit: limit || 10,
+          offset: offset || 0,
+          with_payload: true,
+          with_vector: true
+        });
+      } catch (fallbackError) {
+        console.error(`Fallback search failed:`, fallbackError);
+        // If fallback also fails, throw original error
+        throw error;
+      }
     }
   }
   
@@ -1074,42 +1091,461 @@ export class QdrantMemoryClient implements IMemoryClient {
    * Convert a filter to Qdrant format
    */
   private buildQdrantFilter(filter: any): any {
+    // Check if filter is empty or undefined
+    if (!filter || (typeof filter === 'object' && Object.keys(filter).length === 0)) {
+      return undefined;
+    }
+    
     // Handle complex filters if provided
     if (filter.must || filter.should || filter.must_not) {
       // Already in Qdrant format
       return filter;
     }
     
-    // Convert to Qdrant filter format
-    const conditions = Object.entries(filter)
-      .filter(([_, value]) => value !== undefined)
-      .map(([key, value]) => {
-        // Special handling for metadata fields
-        if (key !== 'id' && key !== 'type' && !key.startsWith('metadata.')) {
-          key = `metadata.${key}`;
+    // Convert to Qdrant filter format with proper field conditions
+    const conditions: any[] = [];
+    
+    // Process filter entries into Qdrant's expected format
+    Object.entries(filter).forEach(([key, value]) => {
+      if (value === undefined) return;
+
+      if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+        // Handle nested objects like metadata
+        if (key === 'metadata' || key.startsWith('metadata.')) {
+          // Process each nested field
+          Object.entries(value as Record<string, any>).forEach(([nestedKey, nestedValue]) => {
+            const fullKey = key === 'metadata' ? `metadata.${nestedKey}` : `${key}.${nestedKey}`;
+            
+            // Handle different value types for nested fields
+            if (Array.isArray(nestedValue)) {
+              conditions.push({
+                key: fullKey,
+                match: { any: nestedValue }
+              });
+            } else if (typeof nestedValue === 'object' && nestedValue !== null) {
+              // Handle range queries or operators
+              if ('$gt' in nestedValue || '$gte' in nestedValue || '$lt' in nestedValue || '$lte' in nestedValue) {
+                conditions.push({
+                  key: fullKey,
+                  range: nestedValue
+                });
+              } else {
+                conditions.push({
+                  key: fullKey,
+                  match: { value: nestedValue }
+                });
+              }
+            } else {
+              // Simple match condition
+              conditions.push({
+                key: fullKey,
+                match: { value: nestedValue }
+              });
+            }
+          });
+        } else {
+          // Handle range conditions
+          if ('$gt' in value || '$gte' in value || '$lt' in value || '$lte' in value) {
+            conditions.push({
+              key,
+              range: value
+            });
+          } 
+          // Handle match conditions
+          else if ('$in' in value || '$nin' in value || '$eq' in value || '$ne' in value) {
+            conditions.push({
+              key,
+              match: value
+            });
+          }
+          // Handle text conditions
+          else if ('$contains' in value || '$startsWith' in value || '$endsWith' in value) {
+            conditions.push({
+              key,
+              match: { text: value }
+            });
+          } 
+          // Default to passing through the object
+          else {
+            // For other object values, create a match with the value
+            conditions.push({
+              key,
+              match: { value }
+            });
+          }
         }
+      } 
+      // Handle array values
+      else if (Array.isArray(value)) {
+        conditions.push({
+          key,
+          match: { any: value }
+        });
+      }
+      // Simple value becomes a match condition
+      else {
+        conditions.push({
+          key,
+          match: { value }
+        });
+      }
+    });
+    
+    // Return must clause with conditions
+    return conditions.length > 0 ? { must: conditions } : undefined;
+  }
+
+  /**
+   * Execute a search as a fallback for failed scroll operations
+   * 
+   * @param collectionName Collection to search
+   * @param searchParams Search parameters
+   * @returns Array of search results
+   */
+  private async executeSearchFallback<T extends BaseMemorySchema>(
+    collectionName: string,
+    searchParams: {
+      filter?: any;
+      limit: number;
+      offset: number;
+      with_payload: boolean;
+      with_vector: boolean;
+    }
+  ): Promise<MemoryPoint<T>[]> {
+    try {
+      // Create a valid search request
+      const searchRequest: any = {
+        limit: searchParams.limit,
+        offset: searchParams.offset,
+        with_payload: searchParams.with_payload,
+        with_vector: searchParams.with_vector,
+        // Always include a valid vector for the search API
+        vector: new Array(DEFAULTS.DIMENSIONS).fill(0.01)
+      };
+      
+      // Only add filter if it's valid after validation
+      if (searchParams.filter) {
+        try {
+          const validatedFilter = this.validateAndFixFilter(searchParams.filter);
+          if (validatedFilter) {
+            // For extra safety, check if it contains field conditions formatted correctly
+            if (this.isFilterStructureValid(validatedFilter)) {
+              searchRequest.filter = validatedFilter;
+            } else {
+              console.warn(`Filter structure is invalid for collection ${collectionName}, omitting filter:`, 
+                JSON.stringify(validatedFilter));
+            }
+          }
+        } catch (filterError) {
+          console.warn(`Failed to validate filter for ${collectionName}, omitting filter:`, filterError);
+        }
+      }
+      
+      // Execute the search
+      const response = await this.client.search(collectionName, searchRequest);
+      
+      if (!response || response.length === 0) {
+        console.warn(`Search fallback returned no points for ${collectionName}`);
+        return [];
+      }
+      
+      // Transform search results
+      return response.map(result => ({
+        id: String(result.id),
+        vector: [],
+        payload: result.payload as T
+      }));
+    } catch (error) {
+      console.warn(`Search fallback operation failed for ${collectionName}:`, error);
+      throw error; // Re-throw for caller to handle
+    }
+  }
+
+  /**
+   * Check if filter structure contains valid field conditions
+   */
+  private isFilterStructureValid(filter: any): boolean {
+    if (!filter) return false;
+    
+    // Check top-level structure
+    if (typeof filter !== 'object') return false;
+    
+    // Check if any clause exists
+    const hasClause = filter.must || filter.should || filter.must_not;
+    if (!hasClause) return false;
+    
+    // Validate clauses
+    const validateClause = (clause: any[]): boolean => {
+      if (!Array.isArray(clause) || clause.length === 0) return false;
+      
+      // Check each condition in the clause
+      for (const condition of clause) {
+        if (!this.isValidCondition(condition)) {
+          return false;
+        }
+      }
+      
+      return true;
+    };
+    
+    // Check all present clauses
+    if (filter.must && !validateClause(filter.must)) return false;
+    if (filter.should && !validateClause(filter.should)) return false;
+    if (filter.must_not && !validateClause(filter.must_not)) return false;
+    
+    return true;
+  }
+
+  /**
+   * Validate and fix a filter to ensure it's valid for Qdrant
+   * 
+   * @param filter The filter to validate
+   * @returns A valid filter or undefined if invalid
+   */
+  private validateAndFixFilter(filter: any): any {
+    // Handle null/undefined case
+    if (filter === null || filter === undefined) {
+      return undefined;
+    }
+    
+    // Handle empty object case
+    if (typeof filter === 'object' && Object.keys(filter).length === 0) {
+      return undefined;
+    }
+    
+    // Handle already valid Qdrant filter format
+    if (filter.must || filter.should || filter.must_not) {
+      // For each condition array, ensure it's valid
+      if (filter.must && (!Array.isArray(filter.must) || filter.must.length === 0)) {
+        delete filter.must;
+      }
+      
+      if (filter.should && (!Array.isArray(filter.should) || filter.should.length === 0)) {
+        delete filter.should;
+      }
+      
+      if (filter.must_not && (!Array.isArray(filter.must_not) || filter.must_not.length === 0)) {
+        delete filter.must_not;
+      }
+      
+      // If no valid conditions remain, return undefined
+      if (!filter.must && !filter.should && !filter.must_not) {
+        return undefined;
+      }
+      
+      // Validate each condition in arrays is properly formatted
+      ['must', 'should', 'must_not'].forEach(clause => {
+        if (filter[clause] && Array.isArray(filter[clause])) {
+          // Make a copy to avoid modification while iterating
+          const conditions = [...filter[clause]];
+          filter[clause] = [];
+          
+          for (const condition of conditions) {
+            // Check if condition has correct structure
+            if (this.isValidCondition(condition)) {
+              filter[clause].push(condition);
+            } else if (typeof condition === 'object') {
+              // Try to convert to proper format
+              const fixedCondition = this.convertToProperCondition(condition);
+              if (fixedCondition) {
+                filter[clause].push(fixedCondition);
+              }
+            }
+          }
+          
+          // If clause is now empty, remove it
+          if (filter[clause].length === 0) {
+            delete filter[clause];
+          }
+        }
+      });
+      
+      return filter;
+    }
+    
+    // Otherwise, use buildQdrantFilter to convert to proper format
+    return filter;
+  }
+  
+  /**
+   * Check if a condition object has valid Qdrant structure
+   */
+  private isValidCondition(condition: any): boolean {
+    // Check for standard field condition format
+    if (condition.key && (condition.match || condition.range || condition.geo || condition.values_count)) {
+      return true;
+    }
+    
+    // Check for has_id condition
+    if (condition.has_id && Array.isArray(condition.has_id)) {
+      return true;
+    }
+    
+    // Check for other special conditions
+    if ('has_vector' in condition || 'is_empty' in condition || 'is_null' in condition) {
+      return true;
+    }
+    
+    return false;
+  }
+  
+  /**
+   * Try to convert an invalid condition to a valid one
+   */
+  private convertToProperCondition(condition: any): any | null {
+    try {
+      // Handle nested object with field conditions
+      const keys = Object.keys(condition);
+      if (keys.length === 1) {
+        const key = keys[0];
+        const value = condition[key];
         
-        // Handle different value types
-        if (Array.isArray(value)) {
+        if (typeof value === 'object' && !Array.isArray(value)) {
+          // This might be a field with complex condition
+          return {
+            key,
+            match: { value }
+          };
+        } else if (Array.isArray(value)) {
           return {
             key,
             match: { any: value }
           };
-        } else if (typeof value === 'object' && value !== null) {
-          // Range queries or custom operators
-          return {
-            key,
-            range: value
-          };
         } else {
-          // Simple equality
           return {
             key,
             match: { value }
           };
         }
-      });
+      }
+      
+      return null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /**
+   * Extract detailed error information from an error object
+   */
+  private extractErrorDetails(error: any): any {
+    if (!error) return 'No error details';
     
-    return conditions.length > 0 ? { must: conditions } : undefined;
+    try {
+      // Extract data property which often contains API error details
+      if (error.data) {
+        return error.data;
+      }
+      
+      // Extract response data if available
+      if (error.response && error.response.data) {
+        return error.response.data;
+      }
+      
+      // Check for specific Qdrant error format
+      if (error.message && typeof error.message === 'string') {
+        try {
+          // Sometimes error messages contain JSON
+          if (error.message.includes('{') && error.message.includes('}')) {
+            const jsonStart = error.message.indexOf('{');
+            const jsonEnd = error.message.lastIndexOf('}') + 1;
+            const jsonStr = error.message.substring(jsonStart, jsonEnd);
+            return JSON.parse(jsonStr);
+          }
+        } catch (parseError) {
+          // Ignore JSON parsing errors
+        }
+      }
+      
+      // Return as much information as possible
+      return {
+        message: error.message || 'Unknown error',
+        name: error.name,
+        stack: error.stack ? error.stack.split('\n').slice(0, 3).join('\n') : undefined
+      };
+    } catch (e) {
+      return 'Error extracting details: ' + (e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  /**
+   * Direct method to get tasks by status
+   * Optimized method to retrieve tasks from a collection
+   */
+  async getTasksByStatus(
+    collectionName: string,
+    statuses: string[] = ['pending', 'scheduled', 'in_progress']
+  ): Promise<any[]> {
+    if (!this.initialized) {
+      await this.initialize();
+    }
+
+    if (!collectionName) {
+      throw new Error('Collection name is required');
+    }
+
+    console.log(`Direct task query on collection ${collectionName} for statuses: ${statuses.join(', ')}`);
+    
+    try {
+      // Check if collection exists
+      const exists = await this.collectionExists(collectionName);
+      if (!exists) {
+        console.log(`Collection ${collectionName} does not exist, returning empty task list`);
+        return [];
+      }
+      
+      // Try two different approaches to find tasks
+      // Build a direct filter in Qdrant format
+      // This simplifies filter construction by using the exact format Qdrant expects
+      const filter = {
+        must: [
+          {
+            key: "type",
+            match: {
+              value: "task"
+            }
+          },
+          {
+            key: "status",
+            match: {
+              any: statuses
+            }
+          }
+        ]
+      };
+      
+      // Use the Qdrant client directly with the proper filter format
+      const response = await this.client.scroll(collectionName, {
+        filter,
+        limit: 1000,
+        with_payload: true,
+        with_vector: false
+      });
+      
+      console.log(`Found ${response.points.length} task points in ${collectionName}`);
+      
+      // Convert points to the expected format
+      return response.points.map(point => {
+        const payload = point.payload as Record<string, any>;
+        
+        // Construct a standardized task object
+        return {
+          id: String(point.id),
+          title: payload.title || '',
+          description: payload.description || '',
+          type: payload.type || 'task',
+          status: payload.status || 'pending',
+          priority: payload.priority || 0,
+          retryAttempts: payload.retryAttempts || 0,
+          dependencies: payload.dependencies || [],
+          metadata: payload.metadata || {},
+          createdAt: payload.createdAt || new Date().toISOString(),
+          updatedAt: payload.updatedAt || new Date().toISOString()
+        };
+      });
+    } catch (error) {
+      console.error(`Error in getTasksByStatus for ${collectionName}:`, error);
+      return [];
+    }
   }
 } 
