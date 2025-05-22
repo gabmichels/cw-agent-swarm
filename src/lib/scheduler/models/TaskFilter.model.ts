@@ -92,7 +92,32 @@ export interface TaskFilter {
   /**
    * Filter by custom metadata field values
    */
-  metadata?: Record<string, unknown>;
+  metadata?: {
+    /**
+     * Filter by agent ID in metadata
+     */
+    agentId?: {
+      /**
+       * The agent ID to filter by
+       */
+      id?: string;
+      
+      /**
+       * The agent namespace to filter by
+       */
+      namespace?: string;
+      
+      /**
+       * The agent type to filter by
+       */
+      type?: string;
+    };
+    
+    /**
+     * Filter by any other metadata fields
+     */
+    [key: string]: unknown;
+  };
   
   /**
    * Limit the number of results

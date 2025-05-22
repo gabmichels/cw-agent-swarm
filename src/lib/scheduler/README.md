@@ -155,6 +155,62 @@ const twoWeeksLater = dateProcessor.calculateInterval(new Date(), '2 weeks');
 const formattedDate = dateProcessor.formatDate(new Date(), 'long');
 ```
 
+### DateTimeService
+
+For application-wide date/time handling, use the DateTimeService which provides a centralized interface to the DateTimeProcessor:
+
+```typescript
+import { dateTime } from '../../services/datetime/DateTimeService';
+
+// Parse dates (accepts Date objects, timestamps, strings, or natural language)
+const date1 = dateTime.parse('tomorrow');
+const date2 = dateTime.parse('2023-06-15T12:00:00Z');
+const date3 = dateTime.parse(1686826800000);
+
+// Format dates
+const formatted = dateTime.format(new Date(), 'short');
+
+// Get relative time descriptions
+const relativeTime = dateTime.getRelativeTime(date1); // e.g., "1 day from now"
+
+// Translate vague terms
+const urgent = dateTime.translateVagueTerm('urgent'); // { date: Date, priority: 10 }
+const soon = dateTime.translateVagueTerm('soon');     // { date: Date, priority: 8 }
+
+// Check if dates are on the same day
+const sameDay = dateTime.isSameDay(date1, date2);
+```
+
+For client-side components, use the utility functions in `src/client/utils/datetime.ts`:
+
+```typescript
+import { formatDisplayDate, getRelativeTime, compareDates } from '../../client/utils/datetime';
+
+// Format for display
+const displayDate = formatDisplayDate(timestamp);
+
+// Get a relative time string
+const timeAgo = getRelativeTime(date);
+
+// Compare dates for sorting
+const sorted = dates.sort(compareDates);
+```
+
+For server-side components, use the utility functions in `src/server/utils/datetime.ts`:
+
+```typescript
+import { parseDate, formatDate, isDateWithinWindow } from '../../server/utils/datetime';
+
+// Parse dates safely (returns current date if parsing fails)
+const date = parseDate(timestamp);
+
+// Format for server responses
+const iso = formatDate(date, 'ISO');
+
+// Check if two dates are within a time window
+const isWithinWindow = isDateWithinWindow(date1, date2, 1000); // 1 second window
+```
+
 ## Error Handling
 
 The scheduler provides a comprehensive error hierarchy:

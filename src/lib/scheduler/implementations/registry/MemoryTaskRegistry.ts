@@ -253,6 +253,39 @@ export class MemoryTaskRegistry implements TaskRegistry {
           if (!task.metadata) return false;
           
           return Object.entries(filter.metadata!).every(([key, value]) => {
+            // Handle nested objects (like agentId)
+            if (value !== null && typeof value === 'object') {
+              // If the metadata key doesn't exist or isn't an object, no match
+              if (!task.metadata || !task.metadata[key] || typeof task.metadata[key] !== 'object') {
+                return false;
+              }
+              
+              // Check all properties in the nested object
+              return Object.entries(value).every(([nestedKey, nestedValue]) => {
+                const taskNestedObj = task.metadata![key] as Record<string, unknown>;
+                
+                // If the nested object has its own nested objects (like agentId.id)
+                if (nestedValue !== null && typeof nestedValue === 'object') {
+                  // If the nested key doesn't exist or isn't an object, no match
+                  if (!taskNestedObj[nestedKey] || typeof taskNestedObj[nestedKey] !== 'object') {
+                    return false;
+                  }
+                  
+                  // Check all properties in the deeply nested object
+                  return Object.entries(nestedValue as Record<string, unknown>).every(
+                    ([deepKey, deepValue]) => {
+                      const taskDeepObj = taskNestedObj[nestedKey] as Record<string, unknown>;
+                      return taskDeepObj[deepKey] === deepValue;
+                    }
+                  );
+                }
+                
+                // Simple nested property comparison
+                return taskNestedObj[nestedKey] === nestedValue;
+              });
+            }
+            
+            // Simple property comparison
             return task.metadata![key] === value;
           });
         });

@@ -23,8 +23,11 @@ async function schedulerFactoryExample() {
     defaultPriority: 5
   });
   
+  // Define agent ID for examples
+  const exampleAgentId = 'example-agent';
+  
   // Create tasks with vague expressions
-  const urgentTask = await scheduler.createTask({
+  const urgentTask = await scheduler.createTaskForAgent({
     name: 'Urgent Task',
     description: 'This task should execute immediately',
     scheduleType: TaskScheduleType.EXPLICIT,
@@ -35,9 +38,9 @@ async function schedulerFactoryExample() {
       return 'Urgent task completed';
     },
     status: TaskStatus.PENDING
-  });
+  }, exampleAgentId);
   
-  const soonTask = await scheduler.createTask({
+  const soonTask = await scheduler.createTaskForAgent({
     name: 'Soon Task',
     description: 'This task should execute soon',
     scheduleType: TaskScheduleType.EXPLICIT,
@@ -48,9 +51,9 @@ async function schedulerFactoryExample() {
       return 'Soon task completed';
     },
     status: TaskStatus.PENDING
-  });
+  }, exampleAgentId);
   
-  const lowPriorityTask = await scheduler.createTask({
+  const lowPriorityTask = await scheduler.createTaskForAgent({
     name: 'Low Priority Task',
     description: 'This is a low priority task',
     scheduleType: TaskScheduleType.EXPLICIT,
@@ -61,7 +64,7 @@ async function schedulerFactoryExample() {
       return 'Low priority task completed';
     },
     status: TaskStatus.PENDING
-  });
+  }, exampleAgentId);
   
   // Log task details
   console.log(`Created Urgent Task (${urgentTask.id}):`);

@@ -14,6 +14,9 @@ import { PriorityBasedStrategy } from '../implementations/strategies/PriorityBas
 import { BasicTaskExecutor } from '../implementations/executor/BasicTaskExecutor';
 import { BasicDateTimeProcessor } from '../implementations/datetime/BasicDateTimeProcessor';
 import { SchedulerConfig, DEFAULT_SCHEDULER_CONFIG } from '../models/SchedulerConfig.model';
+import { Task, TaskStatus } from '../models/Task.model';
+import { TaskExecutionResult } from '../models/TaskExecutionResult.model';
+import { TaskFilter } from '../models/TaskFilter.model';
 
 /**
  * Factory function to create a ModularSchedulerManager with standard components
@@ -59,6 +62,121 @@ export async function createSchedulerManager(config?: Partial<SchedulerConfig>):
   await manager.initialize();
   
   return manager;
+}
+
+/**
+ * Factory function to create a ModularSchedulerManager with agent ID support
+ * 
+ * This creates a scheduler manager that automatically filters tasks by agent ID.
+ * 
+ * @param config - Optional configuration to override defaults
+ * @param agentId - The ID of the agent to filter tasks for
+ * @returns A fully initialized ModularSchedulerManager instance with agent filtering
+ */
+export async function createSchedulerManagerForAgent(
+  config?: Partial<SchedulerConfig>,
+  agentId?: string
+): Promise<ModularSchedulerManager> {
+  // Create the standard scheduler manager
+  const manager = await createSchedulerManager(config);
+  
+  // If no agent ID is provided, return the standard manager
+  if (!agentId) {
+    return manager;
+  }
+  
+  // Store the agent ID for filtering
+  const agentAwareManager = manager as ModularSchedulerManager & { 
+    agentId: string;
+    findTasksForAgent: (agentId: string, filter?: TaskFilter) => Promise<Task[]>;
+  };
+  agentAwareManager.agentId = agentId;
+  
+  // Store original methods to avoid recursive calls
+  const originalExecuteDueTasks = manager.executeDueTasks.bind(manager);
+  const originalCreateTask = manager.createTask.bind(manager);
+  const originalFindTasks = manager.findTasks.bind(manager);
+  const originalExecuteTaskNow = manager.executeTaskNow.bind(manager);
+  
+  // Override the findTasks method to filter by agent ID
+  // We need to directly override the method on the object
+  Object.defineProperty(agentAwareManager, 'findTasks', {
+    value: async function(filter: TaskFilter = {}): Promise<Task[]> {
+      // Create a new filter that includes the agent ID
+      const agentFilter: TaskFilter = {
+        ...filter,
+        metadata: {
+          ...filter.metadata,
+          agentId: {
+            id: this.agentId
+          }
+        }
+      };
+      
+      // Use the original findTasks with the agent filter
+      return await originalFindTasks(agentFilter);
+    },
+    writable: true,
+    configurable: true
+  });
+  
+  // Override the createTask method to automatically add agent ID
+  Object.defineProperty(agentAwareManager, 'createTask', {
+    value: async function(task: Task): Promise<Task> {
+      // Ensure metadata exists
+      const metadata = task.metadata || {};
+      
+      // Set the agent ID in metadata
+      const taskWithAgentId: Task = {
+        ...task,
+        metadata: {
+          ...metadata,
+          agentId: {
+            namespace: 'agent',
+            type: 'agent',
+            id: this.agentId
+          }
+        }
+      };
+      
+      // Call the original createTask method to avoid recursion
+      return await originalCreateTask(taskWithAgentId);
+    },
+    writable: true,
+    configurable: true
+  });
+  
+  // Override the executeDueTasks method to filter by agent ID
+  Object.defineProperty(agentAwareManager, 'executeDueTasks', {
+    value: async function(): Promise<TaskExecutionResult[]> {
+      // Get pending tasks for this agent
+      const pendingTasks = await this.findTasks({
+        status: TaskStatus.PENDING
+      });
+      
+      if (!pendingTasks.length) {
+        return [];
+      }
+      
+      // Execute each due task individually
+      const results: TaskExecutionResult[] = [];
+      for (const task of pendingTasks) {
+        // Check if the task is due (has a scheduled time in the past)
+        const now = new Date();
+        if (task.scheduledTime && task.scheduledTime <= now) {
+          // Execute the task
+          const result = await originalExecuteTaskNow(task.id);
+          results.push(result);
+        }
+      }
+      
+      return results;
+    },
+    writable: true,
+    configurable: true
+  });
+  
+  return agentAwareManager;
 }
 
 /**

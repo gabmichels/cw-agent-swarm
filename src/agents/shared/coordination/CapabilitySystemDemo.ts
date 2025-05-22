@@ -256,7 +256,30 @@ class SpecializedAgent implements AgentBase {
       metadata: typeof options.metadata === 'object' ? options.metadata as Record<string, unknown> : undefined
     };
 
-    return scheduler.createTask(taskOptions);
+    // Get the agent ID
+    const agentId = this.getAgentId();
+    
+    // Use createTaskForAgent if available, otherwise fall back to createTask
+    // Use type assertion to avoid TypeScript errors
+    const modernScheduler = scheduler as unknown as { createTaskForAgent?: (task: TaskCreationOptions, agentId: string) => Promise<TaskCreationResult> };
+    
+    if (typeof modernScheduler.createTaskForAgent === 'function') {
+      return modernScheduler.createTaskForAgent(taskOptions, agentId);
+    } else {
+      // Fall back to createTask but add agent ID to metadata
+      if (!taskOptions.metadata) {
+        taskOptions.metadata = {};
+      }
+      
+      // Add agent ID to metadata
+      taskOptions.metadata.agentId = {
+        namespace: 'agent',
+        type: 'agent',
+        id: agentId
+      };
+      
+      return scheduler.createTask(taskOptions);
+    }
   }
 
   async getTask(taskId: string): Promise<Record<string, unknown> | null> {

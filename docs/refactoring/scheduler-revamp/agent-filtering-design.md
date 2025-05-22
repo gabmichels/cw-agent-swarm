@@ -1,231 +1,193 @@
-# Agent ID Filtering in Scheduler System: Design Document
+# Agent ID Filtering Design
 
-## 🎯 Problem Statement
+## Problem Statement
 
-The current ModularSchedulerManager implementation does not properly filter tasks by agent ID, which could lead to tasks being executed by unintended agents in a multi-agent system. This document outlines the design for implementing proper agent ID filtering in the scheduler system.
+The scheduler system needs to support filtering tasks by agent ID to ensure that:
 
-## 🔍 Current Implementation Issues
+1. Each agent only sees and processes its own tasks
+2. Tasks can be created and assigned to specific agents
+3. Tasks can be executed by their assigned agents only
+4. Queries for tasks can be filtered by agent ID
 
-1. **Task Creation**: When creating tasks, the agent ID is often hardcoded as "default" in the metadata rather than using the actual agent ID:
-   ```typescript
-   metadata: {
-     agentId: {
-       namespace: "agent",
-       type: "agent",
-       id: "default" // Should be the actual agent ID
-     }
-   }
-   ```
+## Current Implementation Issues
 
-2. **Task Filtering**: There's no automatic filtering mechanism to ensure agents only execute their own tasks. The `findTasks()` method doesn't specifically handle agent-based filtering.
+The current implementation lacks robust agent ID filtering capabilities:
 
-3. **Task Execution**: When executing due tasks, all tasks are considered regardless of which agent they belong to.
+1. The `TaskFilter` interface didn't properly support filtering by nested metadata objects like agent ID
+2. The `ModularSchedulerManager` lacked agent-specific methods for task management
+3. There was no clear way to create agent-specific scheduler instances
 
-## 📝 Design Solution
+## Design Solution
 
-### 1. Extended TaskFilter Interface
+### Extended Interfaces
 
-Extend the TaskFilter interface to support metadata filtering with agent ID:
+#### Enhanced TaskFilter Interface
+
+The `TaskFilter` interface has been enhanced to support nested metadata filtering, particularly for agent ID:
 
 ```typescript
-interface TaskFilter {
-  id?: string;
-  name?: string;
-  status?: TaskStatus;
-  priority?: number;
-  scheduleType?: TaskScheduleType;
+export interface TaskFilter {
+  // ... existing fields ...
+  
   metadata?: {
+    /**
+     * Filter by agent ID in metadata
+     */
     agentId?: {
+      /**
+       * The agent ID to filter by
+       */
       id?: string;
+      
+      /**
+       * The agent namespace to filter by
+       */
+      namespace?: string;
+      
+      /**
+       * The agent type to filter by
+       */
+      type?: string;
     };
+    
+    /**
+     * Filter by any other metadata fields
+     */
     [key: string]: unknown;
   };
+  
+  // ... existing fields ...
 }
 ```
 
-### 2. Agent-Specific Task Methods
+#### New Agent-Specific Methods
 
-Add agent-specific methods to the ModularSchedulerManager:
+The `ModularSchedulerManager` class now includes the following agent-specific methods:
 
 ```typescript
 /**
  * Find tasks for a specific agent
- * @param agentId The ID of the agent
- * @param filter Additional filter criteria
- * @returns Tasks matching the filter for the specified agent
+ * 
+ * @param agentId - The ID of the agent
+ * @param filter - Additional filter criteria
+ * @returns Array of tasks for the specified agent
  */
-async findTasksForAgent(agentId: string, filter: TaskFilter = {}): Promise<Task[]> {
-  const combinedFilter = {
-    ...filter,
-    metadata: {
-      ...filter.metadata,
-      agentId: {
-        id: agentId
-      }
-    }
-  };
-  return this.findTasks(combinedFilter);
-}
+findTasksForAgent(agentId: string, filter?: TaskFilter): Promise<Task[]>;
+
+/**
+ * Create a task for a specific agent
+ * 
+ * @param task - The task to create
+ * @param agentId - The ID of the agent
+ * @returns The created task
+ */
+createTaskForAgent(task: Task, agentId: string): Promise<Task>;
 
 /**
  * Execute due tasks for a specific agent
- * @param agentId The ID of the agent
- * @returns Execution results for the tasks that were executed
+ * 
+ * @param agentId - The ID of the agent
+ * @returns Array of execution results for tasks that were executed
  */
-async executeDueTasksForAgent(agentId: string): Promise<TaskExecutionResult[]> {
-  // Get all due tasks
-  const dueTasks = await this.taskScheduler.getDueTasks();
-  
-  // Filter tasks for the specified agent
-  const agentTasks = dueTasks.filter(task => 
-    task.metadata?.agentId?.id === agentId
-  );
-  
-  // Execute the agent's tasks
-  return this.taskExecutor.executeTasks(agentTasks);
-}
+executeDueTasksForAgent(agentId: string): Promise<TaskExecutionResult[]>;
 ```
 
-### 3. Task Creation with Correct Agent ID
+### Factory Function for Agent-Specific Schedulers
 
-Update the task creation process to include the correct agent ID:
+A new factory function `createSchedulerManagerForAgent` has been added to create agent-specific scheduler instances:
 
 ```typescript
 /**
- * Create a task for a specific agent
- * @param task The task to create
- * @param agentId The ID of the agent
- * @returns The created task
+ * Create a ModularSchedulerManager with agent ID support
+ * 
+ * @param config - Optional configuration to override defaults
+ * @param agentId - The ID of the agent to filter tasks for
+ * @returns A fully initialized ModularSchedulerManager instance with agent filtering
  */
-async createTaskForAgent(task: Task, agentId: string): Promise<Task> {
-  // Ensure metadata exists
-  if (!task.metadata) {
-    task.metadata = {};
-  }
-  
-  // Set the agent ID in metadata
-  task.metadata.agentId = {
+createSchedulerManagerForAgent(
+  config?: Partial<SchedulerConfig>,
+  agentId?: string
+): Promise<ModularSchedulerManager>;
+```
+
+This function creates a scheduler that automatically:
+- Adds the agent ID to all created tasks
+- Filters tasks by the agent ID when querying
+- Only executes tasks for the specified agent
+
+## Implementation Details
+
+### Metadata Structure for Agent ID
+
+Agent IDs are stored in task metadata using the following structure:
+
+```typescript
+metadata: {
+  agentId: {
     namespace: 'agent',
     type: 'agent',
-    id: agentId
-  };
-  
-  // Create the task
-  return this.createTask(task);
+    id: 'agent-123'
+  }
 }
 ```
 
-### 4. Scheduler Factory with Agent ID Support
+This structure allows for:
+- Filtering by agent ID
+- Future extensions for different agent types or namespaces
+- Compatibility with other metadata fields
 
-Update the scheduler factory to include agent ID support:
+### Enhanced Filtering Logic
 
-```typescript
-/**
- * Create a scheduler manager with agent ID support
- * @param config The scheduler configuration
- * @param agentId The ID of the agent
- * @returns A scheduler manager instance
- */
-export async function createSchedulerManagerForAgent(
-  config: SchedulerConfig, 
-  agentId: string
-): Promise<ModularSchedulerManager> {
-  const scheduler = await createSchedulerManager(config);
-  
-  // Store the agent ID for filtering
-  scheduler['agentId'] = agentId;
-  
-  // Override the executeDueTasks method to filter by agent ID
-  const originalExecuteDueTasks = scheduler.executeDueTasks.bind(scheduler);
-  scheduler.executeDueTasks = async function() {
-    // Get all due tasks
-    const dueTasks = await this.taskScheduler.getDueTasks();
-    
-    // Filter tasks for this agent
-    const agentTasks = dueTasks.filter(task => 
-      task.metadata?.agentId?.id === this['agentId']
-    );
-    
-    // Execute the agent's tasks
-    return this.taskExecutor.executeTasks(agentTasks);
-  };
-  
-  return scheduler;
-}
-```
-
-## 🧪 Testing Strategy
-
-1. **Unit Tests**:
-   - Test `findTasksForAgent` to ensure it correctly filters tasks by agent ID
-   - Test `executeDueTasksForAgent` to verify only the specified agent's tasks are executed
-   - Test `createTaskForAgent` to confirm the agent ID is properly set in metadata
-
-2. **Integration Tests**:
-   - Test multiple scheduler instances with different agent IDs
-   - Verify tasks are only executed by their intended agent
-   - Test concurrent execution of tasks by different agents
-
-3. **Migration Tests**:
-   - Test migration of existing tasks to include proper agent IDs
-   - Verify backward compatibility with tasks that don't have agent IDs
-
-## 📋 Implementation Plan
-
-1. Update the TaskFilter interface to support metadata filtering
-2. Implement agent-specific methods in ModularSchedulerManager
-3. Create a utility for migrating existing tasks to include agent IDs
-4. Update the scheduler factory to support agent ID filtering
-5. Add tests to verify agent ID filtering works correctly
-6. Update documentation to reflect the new agent ID filtering capabilities
-
-## 🔄 Migration Strategy
-
-For existing tasks without proper agent IDs:
-
-1. Identify the agent that created each task (if possible)
-2. Update task metadata to include the correct agent ID
-3. For tasks where the agent can't be identified, assign them to a default agent
-4. Provide a utility function to help with this migration:
+The `MemoryTaskRegistry` implementation has been updated to support nested object filtering in metadata:
 
 ```typescript
-/**
- * Migrate tasks to include agent IDs
- * @param tasks The tasks to migrate
- * @param defaultAgentId The default agent ID to use if none can be determined
- * @returns The migrated tasks
- */
-export function migrateTasksWithAgentIds(
-  tasks: Task[], 
-  defaultAgentId: string
-): Task[] {
-  return tasks.map(task => {
-    // Skip tasks that already have an agent ID
-    if (task.metadata?.agentId?.id) {
-      return task;
-    }
+if (filter.metadata) {
+  tasks = tasks.filter(task => {
+    if (!task.metadata) return false;
     
-    // Ensure metadata exists
-    if (!task.metadata) {
-      task.metadata = {};
-    }
-    
-    // Set the agent ID in metadata
-    task.metadata.agentId = {
-      namespace: 'agent',
-      type: 'agent',
-      id: defaultAgentId
-    };
-    
-    return task;
+    return Object.entries(filter.metadata!).every(([key, value]) => {
+      // Handle nested objects (like agentId)
+      if (value !== null && typeof value === 'object') {
+        // ... nested object filtering logic ...
+      }
+      
+      // Simple property comparison
+      return task.metadata![key] === value;
+    });
   });
 }
 ```
 
-## 📊 Expected Outcomes
+## Testing Strategy
 
-1. Tasks will only be executed by their intended agent
-2. Multi-agent systems will have proper task isolation
-3. Task filtering will be more efficient
-4. The scheduler system will be more robust and reliable
-5. Agents will have a clear view of their own tasks 
+The implementation is tested with the following scenarios:
+
+1. Creating tasks with agent ID through agent-specific methods
+2. Finding tasks for specific agents
+3. Executing tasks for specific agents
+4. Verifying that agent IDs are properly added to tasks
+5. Ensuring tasks are only executed by their assigned agents
+
+## Migration Approach
+
+Existing code can migrate to using agent-specific filtering in the following ways:
+
+1. Use the new agent-specific methods directly:
+   ```typescript
+   const agentTasks = await scheduler.findTasksForAgent('agent-123');
+   const newTask = await scheduler.createTaskForAgent(task, 'agent-123');
+   const results = await scheduler.executeDueTasksForAgent('agent-123');
+   ```
+
+2. Use the agent-specific scheduler factory:
+   ```typescript
+   const agentScheduler = await createSchedulerManagerForAgent(config, 'agent-123');
+   // All operations on this scheduler will be filtered by agent ID
+   ```
+
+## Next Steps
+
+1. Audit existing task creation code to ensure agent IDs are properly set
+2. Update query code to use the new agent filtering capabilities
+3. Consider adding additional agent metadata fields (capabilities, status, etc.)
+4. Implement agent-specific metrics and monitoring 

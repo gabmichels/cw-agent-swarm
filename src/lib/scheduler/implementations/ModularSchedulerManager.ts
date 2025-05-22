@@ -228,6 +228,70 @@ export class ModularSchedulerManager implements SchedulerManager {
   }
 
   /**
+   * Find tasks for a specific agent
+   * 
+   * @param agentId - The ID of the agent
+   * @param filter - Additional filter criteria
+   * @returns Array of tasks for the specified agent
+   * @throws {SchedulerError} If there's an error querying for tasks
+   */
+  async findTasksForAgent(agentId: string, filter: TaskFilter = {}): Promise<Task[]> {
+    try {
+      const combinedFilter: TaskFilter = {
+        ...filter,
+        metadata: {
+          ...filter.metadata,
+          agentId: {
+            id: agentId
+          }
+        }
+      };
+      
+      return await this.registry.findTasks(combinedFilter);
+    } catch (error) {
+      if (error instanceof SchedulerError) {
+        throw error;
+      }
+      throw new SchedulerError(`Error finding tasks for agent ${agentId}: ${error}`);
+    }
+  }
+
+  /**
+   * Create a task for a specific agent
+   * 
+   * @param task - The task to create
+   * @param agentId - The ID of the agent
+   * @returns The created task
+   * @throws {SchedulerError} If there's an error creating the task
+   */
+  async createTaskForAgent(task: Task, agentId: string): Promise<Task> {
+    try {
+      // Ensure metadata exists
+      const metadata = task.metadata || {};
+      
+      // Set the agent ID in metadata
+      const taskWithAgentId: Task = {
+        ...task,
+        metadata: {
+          ...metadata,
+          agentId: {
+            namespace: 'agent',
+            type: 'agent',
+            id: agentId
+          }
+        }
+      };
+      
+      return await this.createTask(taskWithAgentId);
+    } catch (error) {
+      if (error instanceof SchedulerError) {
+        throw error;
+      }
+      throw new SchedulerError(`Error creating task for agent ${agentId}: ${error}`);
+    }
+  }
+
+  /**
    * Execute tasks that are due according to scheduling strategies
    * 
    * @returns Array of execution results for tasks that were executed
@@ -299,6 +363,41 @@ export class ModularSchedulerManager implements SchedulerManager {
         `Failed to execute due tasks: ${(error as Error).message}`,
         'TASK_EXECUTION_ERROR'
       );
+    }
+  }
+
+  /**
+   * Execute due tasks for a specific agent
+   * 
+   * @param agentId - The ID of the agent
+   * @returns Array of execution results for tasks that were executed
+   * @throws {SchedulerError} If there's an error executing tasks
+   */
+  async executeDueTasksForAgent(agentId: string): Promise<TaskExecutionResult[]> {
+    try {
+      // Find pending tasks for the agent
+      const pendingTasks = await this.findTasksForAgent(agentId, {
+        status: TaskStatus.PENDING
+      });
+      
+      if (!pendingTasks.length) {
+        return [];
+      }
+      
+      // Get due tasks from the pending tasks
+      const dueTasks = await this.scheduler.getDueTasks(pendingTasks);
+      
+      if (!dueTasks.length) {
+        return [];
+      }
+      
+      // Execute the due tasks
+      return await this.executor.executeTasks(dueTasks, this.config.maxConcurrentTasks);
+    } catch (error) {
+      if (error instanceof SchedulerError) {
+        throw error;
+      }
+      throw new SchedulerError(`Error executing due tasks for agent ${agentId}: ${error}`);
     }
   }
 
