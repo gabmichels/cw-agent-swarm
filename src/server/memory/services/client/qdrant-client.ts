@@ -551,15 +551,21 @@ export class QdrantMemoryClient implements IMemoryClient {
       let vector = query.vector;
       
       if (!vector && query.query) {
-        const embeddingResult = await this.embeddingService.getEmbedding(query.query);
-        vector = embeddingResult.embedding;
+        try {
+          const embeddingResult = await this.embeddingService.getEmbedding(query.query);
+          vector = embeddingResult.embedding;
+        } catch (embeddingError) {
+          console.warn(`Error generating embedding for query: ${embeddingError}`);
+          // Continue with fallback mechanism
+        }
       }
       
-      // Search with vector - ensure vector is always defined before calling search
-      if (!vector) {
-        // Create a proper dummy vector with the right dimensionality
-        vector = new Array(DEFAULTS.DIMENSIONS).fill(0).map(() => Math.random() * 0.01);
-        console.log(`Using dummy vector with ${vector.length} dimensions for search`);
+      // Handle empty or invalid vector case properly
+      if (!vector || vector.length === 0 || (query.query && query.query.trim() === '')) {
+        console.log(`Empty or invalid vector detected for search in ${collectionName}. Using non-vector search fallback.`);
+        
+        // Use non-vector search approach - scroll points with filtering
+        return await this.handleEmptyVectorSearch<T>(collectionName, query);
       }
       
       try {
@@ -605,18 +611,52 @@ export class QdrantMemoryClient implements IMemoryClient {
       
       console.error(`Error searching in ${collectionName}:`, error);
       
-      // Fallback to in-memory search
-      const searchResults = this.fallbackStorage.searchPoints(
+      // Fallback to non-vector search
+      return await this.handleEmptyVectorSearch<T>(collectionName, query);
+    }
+  }
+  
+  /**
+   * Handle empty vector search cases with a proper fallback mechanism
+   * @private
+   */
+  private async handleEmptyVectorSearch<T extends BaseMemorySchema>(
+    collectionName: string,
+    query: SearchQuery
+  ): Promise<MemorySearchResult<T>[]> {
+    try {
+      // First try using scrollPoints as a fallback
+      const scrollResults = await this.scrollPoints<T>(
+        collectionName,
+        query.filter,
+        query.limit || DEFAULTS.DEFAULT_LIMIT,
+        query.offset
+      );
+      
+      if (scrollResults.length > 0) {
+        return scrollResults.map(point => ({
+          id: point.id,
+          score: 0.5, // Default middle score for non-semantic results
+          payload: point.payload
+        }));
+      }
+      
+      // If scroll returns nothing, try in-memory fallback
+      const fallbackResults = this.fallbackStorage.searchPoints(
         collectionName,
         query.query || '',
         query.limit || DEFAULTS.DEFAULT_LIMIT
       );
       
-      return searchResults.map(point => ({
+      return fallbackResults.map(point => ({
         id: point.id,
-        score: 1.0,
-        payload: point.payload
+        score: 0.5, // Default middle score
+        payload: point.payload as T
       }));
+    } catch (fallbackError) {
+      console.error(`Fallback search error in ${collectionName}:`, fallbackError);
+      // Return empty array as last resort
+      return [];
     }
   }
   

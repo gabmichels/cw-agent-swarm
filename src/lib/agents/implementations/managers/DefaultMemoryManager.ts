@@ -458,6 +458,9 @@ export class DefaultMemoryManager extends AbstractBaseManager implements MemoryM
       throw new MemoryError('Memory manager not initialized', 'NOT_INITIALIZED');
     }
 
+    // Validate query - normalize empty or undefined queries
+    const normalizedQuery = query?.trim() || '';
+    
     // Get accessible scopes for the agent
     const accessibleScopes = this.isolationManager.getScopesForAgent(
       this.getAgent().getAgentId()
@@ -471,12 +474,18 @@ export class DefaultMemoryManager extends AbstractBaseManager implements MemoryM
       return memoryScope !== undefined;
     });
 
-    // Apply search criteria (simple implementation - would use embeddings in production)
-    let results = accessibleMemories.filter(memory => {
-      const content = memory.content.toLowerCase();
-      const searchTerms = query.toLowerCase().split(' ');
-      return searchTerms.every(term => content.includes(term));
-    });
+    // Apply search criteria based on query presence
+    let results = accessibleMemories;
+    
+    // Only apply semantic search if we have a non-empty query
+    if (normalizedQuery.length > 0) {
+      // Apply search criteria (simple implementation - would use embeddings in production)
+      results = accessibleMemories.filter(memory => {
+        const content = memory.content.toLowerCase();
+        const searchTerms = normalizedQuery.toLowerCase().split(' ');
+        return searchTerms.every(term => content.includes(term));
+      });
+    }
 
     // Apply time range filter if specified
     if (options.timeRange) {
@@ -512,6 +521,20 @@ export class DefaultMemoryManager extends AbstractBaseManager implements MemoryM
     // Apply limit
     if (options.limit) {
       results = results.slice(0, options.limit);
+    }
+
+    // Log search statistics
+    const logData = {
+      query: normalizedQuery,
+      options,
+      resultCount: results.length,
+      agentId: this.getAgent().getAgentId(),
+      isEmpty: normalizedQuery.length === 0
+    };
+    
+    if (normalizedQuery.length === 0) {
+      console.log(`[${this.managerId}] Performing empty query search with filters only:`, 
+        JSON.stringify(logData, null, 2));
     }
 
     return results;

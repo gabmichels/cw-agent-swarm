@@ -71,9 +71,12 @@ export class EmbeddingService {
    */
   async getEmbedding(text: string): Promise<EmbeddingResult> {
     try {
+      // Normalize and validate input text
+      const normalizedText = text?.trim() || '';
+      
       // Check if text is empty or too short
-      if (!text || text.trim().length === 0) {
-        return this.getRandomEmbedding('Empty text provided');
+      if (normalizedText.length === 0) {
+        return this.getEmptyTextEmbedding();
       }
       
       // If OpenAI isn't initialized, use fallback
@@ -84,7 +87,7 @@ export class EmbeddingService {
       // Generate embeddings using OpenAI
       const response = await this.openai.embeddings.create({
         model: this.embeddingModel,
-        input: text,
+        input: normalizedText,
         encoding_format: 'float'
       });
       
@@ -227,5 +230,32 @@ export class EmbeddingService {
         () => (Math.random() * 2 - 1) / Math.sqrt(this.dimensions)
       );
     }
+  }
+  
+  /**
+   * Generate a consistent zero-like embedding for empty text
+   * This is more stable than random vectors for empty queries
+   */
+  private getEmptyTextEmbedding(): EmbeddingResult {
+    console.warn('Using empty text embedding (zero vector)');
+    
+    // Use a zero vector with a small amount of noise to avoid division errors
+    // This ensures that empty text queries are consistent rather than random
+    const emptyVector = Array.from(
+      { length: this.dimensions },
+      () => (Math.random() * 0.0001) // Very small noise to avoid zero magnitude
+    );
+    
+    // Add a single significant value to make this distinct
+    emptyVector[0] = 0.1;
+    
+    // Normalize the vector
+    const normalizedVector = this.normalizeVector(emptyVector);
+    
+    return {
+      embedding: normalizedVector,
+      usedFallback: true,
+      model: 'empty-text-fallback'
+    };
   }
 } 

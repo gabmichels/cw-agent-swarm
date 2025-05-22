@@ -109,6 +109,13 @@ export class SearchService {
     try {
       const { types = [], limit = 10, filter } = options;
       
+      // Normalize and validate query
+      const normalizedQuery = query?.trim() || '';
+      const isEmptyQuery = normalizedQuery.length === 0;
+      
+      // Log query information
+      console.log(`Memory search - Query: "${normalizedQuery}", Empty: ${isEmptyQuery}, Types: ${types.join(', ') || 'all'}`);
+      
       // Check if this is a causal chain search request
       if (options.maxDepth !== undefined || options.direction || options.analyze) {
         // Handle causal chain search as a special case
@@ -130,6 +137,12 @@ export class SearchService {
         return [];
       }
       
+      // If query is empty, use filter-based search instead of vector search
+      if (isEmptyQuery) {
+        console.log('Empty query detected, using filter-based search instead of vector search');
+        return await this.handleEmptyQuerySearch<T>(validCollections, filter, limit);
+      }
+      
       // If query optimizer is available and this is a single collection search,
       // use the optimizer for better performance
       if (this.queryOptimizer && types.length === 1) {
@@ -149,7 +162,7 @@ export class SearchService {
             // Execute optimized query
             const queryResponse = await this.queryOptimizer.query<T>(
               {
-                query,
+                query: normalizedQuery,
                 collection: collectionName,
                 limit,
                 minScore: options.minScore
@@ -181,8 +194,13 @@ export class SearchService {
       // Standard search when optimizer is not available or failed
       
       // Get an embedding for the query
-      const embeddingResult = await this.embeddingService.getEmbedding(query);
+      const embeddingResult = await this.embeddingService.getEmbedding(normalizedQuery);
       const vector = embeddingResult.embedding; // Extract the actual vector array
+      
+      // Log if we're using a fallback embedding
+      if (embeddingResult.usedFallback) {
+        console.log(`Using fallback embedding for search: ${embeddingResult.model || 'unknown fallback'}`);
+      }
       
       const results: SearchResult<T>[] = [];
       const missingCollections: string[] = [];
@@ -203,6 +221,7 @@ export class SearchService {
           
           const collectionResults = await this.client.searchPoints<T>(collectionName, {
             vector,
+            query: normalizedQuery, // Pass the normalized query for potential fallback
             limit,
             filter: filter ? this.buildQdrantFilter(filter) : undefined
           });
@@ -249,9 +268,62 @@ export class SearchService {
       // Sort by score descending
       return results.sort((a, b) => b.score - a.score);
     } catch (error) {
+      // Log error and throw
       console.error('Search error:', error);
-      throw error;
+      throw handleMemoryError(error, 'search');
     }
+  }
+  
+  /**
+   * Handle searches with empty queries by using filter-based approach
+   * @private
+   */
+  private async handleEmptyQuerySearch<T extends BaseMemorySchema>(
+    collections: string[],
+    filter?: MemoryFilter,
+    limit: number = 10
+  ): Promise<SearchResult<T>[]> {
+    const results: SearchResult<T>[] = [];
+    
+    // Search each collection using scrollPoints instead of vector search
+    for (const collectionName of collections) {
+      if (!collectionName) continue;
+      
+      try {
+        // Check if collection exists
+        const collectionExists = await this.client.collectionExists(collectionName);
+        if (!collectionExists) {
+          console.warn(`Collection ${collectionName} does not exist, skipping empty query search`);
+          continue;
+        }
+        
+        // Use scrollPoints with filter
+        const points = await this.client.scrollPoints<T>(
+          collectionName,
+          filter ? this.buildQdrantFilter(filter) : undefined,
+          limit
+        );
+        
+        // Add type and collection info to results
+        const type = this.getTypeFromCollectionName(collectionName);
+        
+        if (points.length > 0 && type) {
+          const mappedResults = points.map(point => ({
+            point: point as MemoryPoint<T>,
+            score: 0.5, // Default score for non-semantic search
+            type: type as MemoryType,
+            collection: collectionName
+          }));
+          
+          results.push(...mappedResults);
+        }
+      } catch (error) {
+        console.error(`Error in empty query search for collection ${collectionName}:`, error);
+        continue;
+      }
+    }
+    
+    return results;
   }
   
   /**
