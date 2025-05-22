@@ -423,3 +423,60 @@ GCP_PROJECT_ID=your-project-id
 GCP_STORAGE_BUCKET=your-bucket-name
 GCP_KEY_FILENAME=path/to/keyfile.json
 ```
+
+# CW Agent Swarm
+
+This repository contains the implementation of the CW Agent Swarm system.
+
+## Enhanced Date/Time Processing
+
+The scheduler system includes an enhanced date/time processing capability that can interpret:
+
+### Vague Temporal Expressions
+The system can understand and map vague temporal expressions to concrete dates and priorities:
+- **Urgent/Immediate**: Translates to the current time with highest priority (10)
+- **ASAP/Very Soon**: Translates to 1-2 hours from now with high priority (9)
+- **Soon/Shortly**: Translates to 4 hours from now with priority 8
+- **Today/End of Day**: Translates to the end of the current day (23:59:59) with priority 7
+- **A Couple Days/A Few Days**: Translates to 2-3 days from now with medium priority (5)
+- **This Week/End of Week**: Translates to the end of the current week with priority 4
+- **This Month/End of Month**: Translates to the end of the current month with priority 3
+- **Low Priority/Whenever**: Translates to 7-30 days from now with low priority (1-2)
+
+### Complex Expressions
+The system can parse complex date/time expressions:
+- **Day After Tomorrow**: Two days from the current date
+- **Next Week Tuesday**: The Tuesday of next week
+- **X Weeks/Months From Now**: Specific future dates calculated from the current time
+- **Next [Day of Week]**: The next occurrence of the specified day
+
+### Contextual Time Periods
+The system understands contextual time references:
+- **By the End of the Day/Week/Month/Year**: Translates to 23:59:59 on the last day of the specified period
+- **Every Weekday/Weekend**: For recurring tasks on specific day groups
+- **Every Morning/Evening**: For daily tasks at specific times of day
+- **Every Hour During Work Hours**: For recurring tasks during business hours
+
+### Usage Example
+
+```typescript
+import { BasicDateTimeProcessor } from './lib/scheduler/implementations/datetime/BasicDateTimeProcessor';
+
+const dateProcessor = new BasicDateTimeProcessor();
+
+// Parse vague expressions
+const urgentTask = dateProcessor.translateVagueTerm('urgent');
+console.log(`Urgent task scheduled for: ${urgentTask?.date}, Priority: ${urgentTask?.priority}`);
+
+// Parse complex expressions
+const nextWeekTuesday = dateProcessor.parseNaturalLanguage('next week tuesday');
+console.log(`Next week Tuesday: ${dateProcessor.formatDate(nextWeekTuesday, 'long')}`);
+
+// Parse contextual time periods
+const endOfWeek = dateProcessor.parseNaturalLanguage('by the end of the week');
+console.log(`End of week: ${dateProcessor.formatDate(endOfWeek, 'long')}`);
+```
+
+## License
+
+[Include license information here]

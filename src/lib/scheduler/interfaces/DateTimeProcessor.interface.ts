@@ -10,6 +10,15 @@
  */
 export interface DateTimeProcessor {
   /**
+   * Map vague temporal expressions to concrete time values and priorities
+   * 
+   * @param expression - The vague expression (e.g., "urgent", "soon")
+   * @param referenceDate - The reference date (defaults to current time)
+   * @returns Object with date and priority, or null if not a recognized vague term
+   */
+  translateVagueTerm(expression: string, referenceDate?: Date): { date: Date | null; priority: number } | null;
+
+  /**
    * Parse a natural language date/time expression into a standardized Date object
    * 
    * @param expression - The natural language expression to parse (e.g., "tomorrow", "next Tuesday", "in 3 days")
