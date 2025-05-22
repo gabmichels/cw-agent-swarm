@@ -7,6 +7,8 @@
 
 import { ModularSchedulerManager } from '../implementations/ModularSchedulerManager';
 import { MemoryTaskRegistry } from '../implementations/registry/MemoryTaskRegistry';
+import { QdrantTaskRegistry } from '../implementations/registry/QdrantTaskRegistry';
+import { BatchTaskRegistry } from '../implementations/registry/BatchTaskRegistry';
 import { StrategyBasedTaskScheduler } from '../implementations/scheduler/StrategyBasedTaskScheduler';
 import { ExplicitTimeStrategy } from '../implementations/strategies/ExplicitTimeStrategy';
 import { IntervalStrategy } from '../implementations/strategies/IntervalStrategy';
@@ -17,6 +19,90 @@ import { SchedulerConfig, DEFAULT_SCHEDULER_CONFIG } from '../models/SchedulerCo
 import { Task, TaskStatus } from '../models/Task.model';
 import { TaskExecutionResult } from '../models/TaskExecutionResult.model';
 import { TaskFilter } from '../models/TaskFilter.model';
+import { QdrantClient } from '@qdrant/js-client-rest';
+import { TaskRegistry } from '../interfaces/TaskRegistry.interface';
+import { AgentBase } from '../../../agents/shared/base/AgentBase.interface';
+
+/**
+ * Registry type options for scheduler
+ */
+export enum RegistryType {
+  MEMORY = 'memory',
+  QDRANT = 'qdrant'
+}
+
+/**
+ * Extended scheduler configuration including registry options
+ */
+export interface ExtendedSchedulerConfig extends SchedulerConfig {
+  registryType: RegistryType;
+  qdrantUrl?: string;
+  qdrantApiKey?: string;
+  qdrantCollectionName?: string;
+  cacheMaxSize?: number;
+  cacheTtlMs?: number;
+  useBatching?: boolean;
+  batchSize?: number;
+}
+
+/**
+ * Default extended configuration
+ */
+export const DEFAULT_EXTENDED_CONFIG: ExtendedSchedulerConfig = {
+  ...DEFAULT_SCHEDULER_CONFIG,
+  registryType: RegistryType.MEMORY,
+  qdrantUrl: 'http://localhost:6333',
+  qdrantCollectionName: 'tasks',
+  cacheMaxSize: 500,
+  cacheTtlMs: 60000,
+  useBatching: true,
+  batchSize: 50
+};
+
+/**
+ * Factory function to create a TaskRegistry based on configuration
+ */
+export async function createTaskRegistry(
+  config: Partial<ExtendedSchedulerConfig> = {}
+): Promise<TaskRegistry> {
+  const fullConfig = { ...DEFAULT_EXTENDED_CONFIG, ...config };
+  
+  let registry: TaskRegistry;
+  
+  if (fullConfig.registryType === RegistryType.QDRANT) {
+    // Create Qdrant-based registry
+    if (!fullConfig.qdrantUrl) {
+      throw new Error('qdrantUrl is required for Qdrant registry');
+    }
+    
+    const qdrantClient = new QdrantClient({
+      url: fullConfig.qdrantUrl,
+      apiKey: fullConfig.qdrantApiKey
+    });
+    
+    registry = new QdrantTaskRegistry(
+      qdrantClient,
+      fullConfig.qdrantCollectionName,
+      {
+        maxSize: fullConfig.cacheMaxSize,
+        ttlMs: fullConfig.cacheTtlMs
+      }
+    );
+    
+    // Initialize the registry
+    await (registry as QdrantTaskRegistry).initialize();
+  } else {
+    // Default to memory-based registry
+    registry = new MemoryTaskRegistry();
+  }
+  
+  // Wrap with batch operations if enabled
+  if (fullConfig.useBatching) {
+    registry = new BatchTaskRegistry(registry, fullConfig.batchSize);
+  }
+  
+  return registry;
+}
 
 /**
  * Factory function to create a ModularSchedulerManager with standard components
@@ -25,14 +111,18 @@ import { TaskFilter } from '../models/TaskFilter.model';
  * necessary components with sensible defaults.
  * 
  * @param config - Optional configuration to override defaults
+ * @param agent - Optional agent instance to associate with the scheduler
  * @returns A fully initialized ModularSchedulerManager instance
  */
-export async function createSchedulerManager(config?: Partial<SchedulerConfig>): Promise<ModularSchedulerManager> {
+export async function createSchedulerManager(
+  config?: Partial<ExtendedSchedulerConfig>,
+  agent?: AgentBase
+): Promise<ModularSchedulerManager> {
   // Create the date time processor
   const dateTimeProcessor = new BasicDateTimeProcessor();
   
   // Create the task registry
-  const registry = new MemoryTaskRegistry();
+  const registry = await createTaskRegistry(config);
   
   // Create the scheduling strategies
   const explicitStrategy = new ExplicitTimeStrategy();
@@ -55,7 +145,8 @@ export async function createSchedulerManager(config?: Partial<SchedulerConfig>):
     scheduler,
     executor,
     dateTimeProcessor,
-    config
+    config,
+    agent
   );
   
   // Initialize the manager

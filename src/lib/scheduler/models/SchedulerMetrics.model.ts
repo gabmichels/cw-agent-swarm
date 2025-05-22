@@ -115,7 +115,7 @@ export interface TaskStatusCounts {
 }
 
 /**
- * Scheduler performance metrics
+ * Interface for scheduler performance metrics
  */
 export interface SchedulerMetrics {
   /**
@@ -129,29 +129,51 @@ export interface SchedulerMetrics {
   isRunning: boolean;
   
   /**
-   * Time since the scheduler was started (milliseconds)
+   * Scheduler uptime in milliseconds
    */
   uptime: number;
   
   /**
-   * Total number of tasks in the system
+   * Total number of tasks across all statuses
    */
   totalTasks: number;
   
   /**
-   * Current counts of tasks by status
+   * Count of tasks by status
    */
-  taskStatusCounts: TaskStatusCounts;
+  taskStatusCounts: {
+    pending: number;
+    running: number;
+    completed: number;
+    failed: number;
+    cancelled: number;
+    deferred: number;
+  };
   
   /**
-   * Task execution statistics
+   * Stats about task execution
    */
-  executionStats: TaskExecutionStats;
+  executionStats: {
+    totalExecutions: number;
+    successfulExecutions: number;
+    failedExecutions: number;
+    cancelledExecutions: number;
+    retryAttempts: number;
+    averageExecutionTimeMs: number;
+    minExecutionTimeMs: number;
+    maxExecutionTimeMs: number;
+    averageWaitTimeMs: number;
+  };
   
   /**
-   * Current resource utilization
+   * Current resource utilization metrics
    */
-  currentResourceUtilization: ResourceUtilization;
+  currentResourceUtilization: {
+    cpuUtilization: number;
+    memoryBytes: number;
+    tokensPerMinute: number;
+    apiCallsPerMinute: number;
+  };
   
   /**
    * Number of scheduling iterations performed
@@ -159,17 +181,17 @@ export interface SchedulerMetrics {
   schedulingIterations: number;
   
   /**
-   * Average time per scheduling iteration in milliseconds
+   * Average time to process a scheduling cycle in milliseconds
    */
   averageSchedulingTimeMs: number;
   
   /**
-   * Number of task priority changes
+   * Number of priority adjustments made
    */
   priorityChanges: number;
   
   /**
-   * Number of task dependency violations
+   * Number of dependency violations detected
    */
   dependencyViolations: number;
   
@@ -179,31 +201,31 @@ export interface SchedulerMetrics {
   timeouts: number;
   
   /**
-   * Average scheduler loop time in milliseconds
+   * Average time for a scheduling loop in milliseconds
    */
   averageLoopTimeMs: number;
   
   /**
-   * Number of tasks currently in the queue
+   * Number of tasks in the queue
    */
   queuedTasks: number;
   
   /**
-   * Number of tasks by schedule type
+   * Number of tasks that are currently active/running
    */
-  scheduleTypeCounts: {
+  activeTasks: number;
+  
+  /**
+   * Task counts by schedule type
+   */
+  scheduledTasksByType: {
     explicit: number;
     interval: number;
     priority: number;
   };
   
   /**
-   * Task execution counts by hour of day (0-23)
+   * Information about currently running tasks
    */
-  executionsByHour: number[];
-  
-  /**
-   * Custom metrics
-   */
-  custom: Record<string, number>;
+  currentlyRunningTasks: any[];
 } 

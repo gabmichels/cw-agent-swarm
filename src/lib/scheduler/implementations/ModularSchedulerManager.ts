@@ -43,6 +43,17 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
   managerType: ManagerType;
   private agent!: AgentBase;
   private enabled = true;
+  
+  // Cache for frequently accessed metrics to reduce database queries
+  private metricsCache: {
+    lastUpdate: Date;
+    data: Partial<SchedulerMetrics>;
+    ttlMs: number;
+  } = {
+    lastUpdate: new Date(0), // Initialize with epoch to force first update
+    data: {},
+    ttlMs: 30000 // Cache metrics for 30 seconds by default
+  };
 
   /**
    * Create a new ModularSchedulerManager
@@ -343,13 +354,10 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
         this.config.maxConcurrentTasks
       );
 
-      // Update tasks with execution results
-      for (let i = 0; i < dueTasks.length; i++) {
-        const task = dueTasks[i];
+      // Prepare tasks for update
+      const tasksToUpdate = dueTasks.map((task, i) => {
         const result = results[i];
-
-        // Update task with execution result
-        await this.registry.updateTask({
+        return {
           ...task,
           status: result.status,
           lastExecutedAt: result.endTime,
@@ -366,7 +374,18 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
             ...task.interval,
             executionCount: task.interval.executionCount + 1
           } : undefined
-        });
+        };
+      });
+
+      // Check if registry supports batch updates
+      if ('updateTasks' in this.registry && typeof this.registry.updateTasks === 'function') {
+        // Use batch update for better performance
+        await (this.registry as any).updateTasks(tasksToUpdate);
+      } else {
+        // Fall back to individual updates
+        for (const task of tasksToUpdate) {
+          await this.registry.updateTask(task);
+        }
       }
 
       // Update metrics
@@ -567,6 +586,17 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
    */
   async getMetrics(): Promise<SchedulerMetrics> {
     try {
+      const now = new Date();
+      
+      // Check if cached metrics are still valid
+      if ((now.getTime() - this.metricsCache.lastUpdate.getTime()) < this.metricsCache.ttlMs) {
+        return {
+          ...this.metricsCache.data,
+          timestamp: now, // Always use current timestamp
+          isRunning: this.running // Always use current running state
+        } as SchedulerMetrics;
+      }
+
       // Get counts of tasks by status
       const pendingCount = await this.registry.countTasks({ status: TaskStatus.PENDING });
       const runningCount = await this.registry.countTasks({ status: TaskStatus.RUNNING });
@@ -589,7 +619,6 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
       const runningTasks = await this.executor.getRunningTasks();
 
       // Build metrics object
-      const now = new Date();
       const metrics: SchedulerMetrics = {
         timestamp: now,
         isRunning: this.running,
@@ -627,13 +656,20 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
         timeouts: 0, // Would need additional tracking
         averageLoopTimeMs: avgSchedulingTimeMs, // Using scheduling time as proxy
         queuedTasks: pendingCount,
-        scheduleTypeCounts: {
+        activeTasks: runningCount,
+        scheduledTasksByType: {
           explicit: explicitCount,
           interval: intervalCount,
           priority: priorityCount
         },
-        executionsByHour: Array(24).fill(0), // Would need additional tracking
-        custom: {} // For custom metrics
+        currentlyRunningTasks: runningTasks
+      };
+      
+      // Update the cache
+      this.metricsCache = {
+        lastUpdate: now,
+        data: metrics,
+        ttlMs: this.metricsCache.ttlMs
       };
 
       return metrics;
@@ -642,8 +678,8 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
         throw error;
       }
       throw new SchedulerError(
-        `Failed to get metrics: ${(error as Error).message}`,
-        'METRICS_ERROR'
+        `Failed to collect metrics: ${(error as Error).message}`,
+        'METRICS_COLLECTION_ERROR'
       );
     }
   }
@@ -775,6 +811,25 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
    */
   async shutdown(): Promise<void> {
     await this.stopScheduler();
+  }
+
+  /**
+   * Set the Time-To-Live (TTL) for the metrics cache
+   * 
+   * @param ttlMs - The cache TTL in milliseconds
+   */
+  setMetricsCacheTTL(ttlMs: number): void {
+    if (ttlMs < 0) {
+      throw new Error('Cache TTL must be a non-negative value');
+    }
+    
+    this.metricsCache.ttlMs = ttlMs;
+    
+    // Clear cache if TTL is set to 0 (disable caching)
+    if (ttlMs === 0) {
+      this.metricsCache.lastUpdate = new Date(0);
+      this.metricsCache.data = {};
+    }
   }
 
     // BaseManager.reset is already implemented above
