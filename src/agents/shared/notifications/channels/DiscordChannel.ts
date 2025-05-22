@@ -3,8 +3,14 @@
  * Provides integration with Discord using discord.js
  */
 
-import { Client, GatewayIntentBits, TextChannel } from 'discord.js';
+// Import discord.js only on the server side
+import type { Client, TextChannel } from 'discord.js';
+
+// Import interfaces
 import { NotificationChannel } from '../interfaces/NotificationManager.interface';
+
+// Declare types but don't import directly
+type GatewayIntentBits = any;
 
 /**
  * Discord channel configuration options
@@ -30,7 +36,7 @@ export class DiscordChannelError extends Error {
  * Discord channel implementation
  */
 export class DiscordNotificationChannel {
-  private client: Client;
+  private client: Client | null = null;
   private token: string;
   private channelId: string;
   private username?: string;
@@ -47,13 +53,6 @@ export class DiscordNotificationChannel {
     this.channelId = config.channelId;
     this.username = config.username;
     this.avatarUrl = config.avatarUrl;
-    
-    this.client = new Client({
-      intents: [
-        GatewayIntentBits.Guilds,
-        GatewayIntentBits.GuildMessages,
-      ],
-    });
   }
   
   /**
@@ -62,8 +61,25 @@ export class DiscordNotificationChannel {
    * @returns Promise resolving to initialization success
    */
   async initialize(): Promise<boolean> {
-    return new Promise((resolve) => {
+    // Only initialize on the server
+    if (typeof window !== 'undefined') {
+      console.warn('Discord client cannot be initialized in browser environment');
+      return false;
+    }
+    
+    return new Promise(async (resolve) => {
       try {
+        // Dynamically import discord.js to avoid client-side bundling issues
+        const { Client, GatewayIntentBits } = await import('discord.js');
+        
+        // Create Discord client
+        this.client = new Client({
+          intents: [
+            GatewayIntentBits.Guilds,
+            GatewayIntentBits.GuildMessages,
+          ],
+        });
+        
         // Set up ready event handler
         this.client.once('ready', () => {
           console.log('Discord notification channel is ready');
@@ -101,14 +117,21 @@ export class DiscordNotificationChannel {
       files?: any[];
     }
   ): Promise<boolean> {
+    // Only run on server
+    if (typeof window !== 'undefined') {
+      console.warn('Discord client cannot send messages in browser environment');
+      return false;
+    }
+    
     try {
-      if (!this.ready) {
-        console.warn('Discord client not ready, attempting to send anyway');
+      if (!this.client || !this.ready) {
+        console.warn('Discord client not ready, cannot send message');
+        return false;
       }
       
       // Get the channel
       const channel = await this.client.channels.fetch(this.channelId);
-      if (!channel || !(channel instanceof TextChannel)) {
+      if (!channel || !('send' in channel)) {
         console.error('Discord channel not found or not a text channel');
         return false;
       }
@@ -125,7 +148,7 @@ export class DiscordNotificationChannel {
       formattedMessage += `**${title}**\n${content}`;
       
       // Send the message (simple string version)
-      await channel.send(formattedMessage);
+      await (channel as TextChannel).send(formattedMessage);
       
       // If we have embeds or files, log that they're not supported in this implementation
       if ((options?.embeds && options.embeds.length > 0) || 
@@ -147,9 +170,16 @@ export class DiscordNotificationChannel {
    * @returns Promise resolving when shutdown is complete
    */
   async shutdown(): Promise<void> {
+    // Only run on server
+    if (typeof window !== 'undefined') {
+      return;
+    }
+    
     try {
-      await this.client.destroy();
-      console.log('Discord client disconnected');
+      if (this.client) {
+        await this.client.destroy();
+        console.log('Discord client disconnected');
+      }
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       console.error('Error shutting down Discord client:', errorMessage);

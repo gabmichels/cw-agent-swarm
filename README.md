@@ -197,6 +197,53 @@ For production environments, update your `.env` file with the appropriate storag
 
 This repository contains a flexible, extensible agent architecture designed for building AI agent systems. The architecture is based on a modular manager pattern, allowing agents to be composed of specialized components (managers) that provide different capabilities.
 
+## Integrated Agent Bootstrap System
+
+Agents are automatically bootstrapped when you start the Next.js server with `npm run dev`. The bootstrap process:
+
+1. Loads agents from the database (if enabled)
+2. Initializes the MCP (Master Control Program) agent system
+3. Starts all agents in always-online mode, running in the background
+
+### How It Works
+
+The agent bootstrap is fully integrated with Next.js:
+
+1. When you run `npm run dev`, Next.js starts its development server
+2. During server startup, Next.js loads `src/app/layout.tsx`
+3. The layout imports `src/lib/server-init.ts` which bootstraps the agents
+4. Agents are initialized once, at server startup, and stay running in the background
+
+> **Note:** You no longer need to run separate bootstrap scripts like `bootstrap-with-debug.js`. All bootstrapping happens automatically when the Next.js server starts.
+
+### Configuration
+
+You can configure the bootstrap process using environment variables:
+
+```bash
+# Enable enhanced debug mode with detailed logging
+AGENT_DEBUG_MODE=true
+
+# Debug level (error, warn, info, verbose, debug)
+DEBUG_LEVEL=debug
+
+# Whether to automatically bootstrap agents on server start
+AGENT_AUTO_BOOTSTRAP=true
+
+# Whether to load agents from database during bootstrap
+AGENT_LOAD_FROM_DB=true
+```
+
+Copy the settings from `agent-env.example` to your `.env` file to customize the agent system behavior.
+
+### Debug Mode
+
+When debug mode is enabled:
+- All agent actions are logged in detail
+- Detailed logging is enabled system-wide using winston logger
+
+This makes it easier to understand and debug the agent system's behavior.
+
 ## Core Architecture
 
 The agent architecture is built around the following key components:

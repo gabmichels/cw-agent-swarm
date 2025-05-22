@@ -1,0 +1,21 @@
+# Sample environment configuration file
+# Copy to .env to use these settings
+
+# Server Configuration
+PORT=3000
+
+# Agent System Configuration
+# Enable enhanced debug mode with detailed logging
+AGENT_DEBUG_MODE=false
+
+# Debug level (error, warn, info, verbose, debug)
+DEBUG_LEVEL=info
+
+# Whether to automatically bootstrap agents on server start
+AGENT_AUTO_BOOTSTRAP=true
+
+# Whether to load agents from database during bootstrap
+AGENT_LOAD_FROM_DB=true
+
+# Other agent system environment variables
+# Add your API keys and other configuration here 

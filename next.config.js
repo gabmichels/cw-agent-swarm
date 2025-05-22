@@ -4,10 +4,15 @@ const webpack = require('webpack');
 const nextConfig = {
   reactStrictMode: true,
   transpilePackages: [],
-  serverExternalPackages: [],
+  serverExternalPackages: ['zlib-sync', 'discord.js'],
   experimental: {
   },
   webpack: (config, { isServer }) => {
+    // Skip Discord.js and zlib-sync on the client side
+    if (!isServer) {
+      config.externals = [...(config.externals || []), 'discord.js', 'zlib-sync'];
+    }
+    
     // Only apply Node.js polyfills in the browser
     if (!isServer) {
       config.resolve = {

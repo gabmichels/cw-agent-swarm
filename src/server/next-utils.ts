@@ -5,18 +5,32 @@ import next from 'next';
 import { initializeWebSocketServer } from './websocket';
 import { bootstrapAgentsFromDatabase } from './agent/bootstrap-agents';
 import { bootstrapAgentSystem } from '../agents/mcp/bootstrapAgents';
+import { logger, createLogger, setLogLevel, configureLogger, LogLevel } from '../lib/logging/winston-logger';
+import serverConfig from './config';
+
+// Configure the default logger
+configureLogger({
+  level: process.env.LOG_LEVEL || 'info',
+  enableColors: true,
+  enableConsole: true
+});
 
 // Check if we're in development or production mode
 const dev = process.env.NODE_ENV !== 'production';
 const hostname = 'localhost';
 const port = parseInt(process.env.PORT || '3000', 10);
 
+// Create a logger for the server
+const serverLogger = createLogger({ moduleId: 'next-server' });
+
 // Log startup settings
-console.log('🔄 Starting server with configuration:');
-console.log(`- Development mode: ${dev}`);
-console.log(`- Hostname: ${hostname}`);
-console.log(`- Port: ${port}`);
-console.log('- Bootstrap status: Pending');
+serverLogger.info('🔄 Starting server with configuration:');
+serverLogger.info(`- Development mode: ${dev}`);
+serverLogger.info(`- Hostname: ${hostname}`);
+serverLogger.info(`- Port: ${port}`);
+serverLogger.info(`- Debug mode: ${serverConfig.debug.enabled ? 'Enabled' : 'Disabled'}`);
+serverLogger.info(`- Auto bootstrap: ${serverConfig.agents.autoBootstrap ? 'Enabled' : 'Disabled'}`);
+serverLogger.info('- Bootstrap status: Pending');
 
 // Define proper Next.js app interface
 interface NextAppOptions {
@@ -32,6 +46,37 @@ interface NextRequestHandler {
 interface NextApp {
   prepare(): Promise<void>;
   getRequestHandler(): NextRequestHandler;
+}
+
+/**
+ * Set up enhanced debugging if debug mode is requested
+ */
+function setupDebugMode() {
+  // Create a dedicated logger for this bootstrap process
+  const debugLogger = createLogger({ moduleId: 'debug-mode' });
+  
+  // Set debug environment variables
+  process.env.DEBUG_LEVEL = serverConfig.debug.level;
+  process.env.AGENT_DEBUG = 'true';
+  process.env.AUTONOMY_DEBUG = 'true';
+  process.env.CONSOLE_LOG_LEVEL = 'debug';
+  process.env.NODE_DEBUG = 'agent,autonomy,task,web-search';
+  process.env.LOG_LEVEL = 'debug';
+  
+  // Configure logger for debug level
+  configureLogger({
+    level: 'debug',
+    enableColors: true,
+    enableConsole: true
+  });
+  
+  debugLogger.info('==================================================');
+  debugLogger.info('🔍 ENHANCED DEBUG MODE ENABLED 🔍');
+  debugLogger.info('- All agent actions will be logged in detail');
+  debugLogger.info('- Debug level logging is enabled system-wide');
+  debugLogger.info('==================================================');
+  
+  return debugLogger;
 }
 
 // Initialize the Next.js app with appropriate type casting
@@ -52,7 +97,7 @@ export async function createCustomServer() {
       const parsedUrl = parse(req.url || '/', true);
       await handle(req, res, parsedUrl);
     } catch (err) {
-      console.error('Error occurred handling request:', err);
+      serverLogger.error('Error occurred handling request:', { error: err });
       res.statusCode = 500;
       res.end('Internal Server Error');
     }
@@ -65,32 +110,57 @@ export async function createCustomServer() {
 }
 
 /**
+ * Bootstrap all agent systems
+ */
+async function bootstrapAgents() {
+  if (!serverConfig.agents.autoBootstrap) {
+    serverLogger.info('⏭️ Agent auto-bootstrapping is disabled. Skipping.');
+    return;
+  }
+  
+  try {
+    serverLogger.info('🚀 Starting to bootstrap agents from database...');
+    
+    // Only load from database if configured to do so
+    let agentCount = 0;
+    if (serverConfig.agents.loadFromDatabase) {
+      agentCount = await bootstrapAgentsFromDatabase();
+      serverLogger.info(`> Bootstrapped ${agentCount} agents from database into runtime registry`);
+    }
+    
+    // Now bootstrap the MCP with these agents
+    serverLogger.info('🚀 Starting to bootstrap MCP agent system...');
+    await bootstrapAgentSystem();
+    serverLogger.info(`> MCP agent system bootstrapped and integrated with agents`);
+    serverLogger.info('- Bootstrap status: Complete');
+  } catch (error) {
+    serverLogger.error('Failed to bootstrap agents:', { error });
+    serverLogger.info('- Bootstrap status: Failed');
+  }
+}
+
+/**
  * Start the server and listen on the specified port
  */
 export async function startServer() {
-  console.log('⚙️ Starting server with WebSocket support...');
+  // Check if debug mode is enabled from config
+  const debugMode = serverConfig.debug.enabled;
+  
+  if (debugMode) {
+    const debugLogger = setupDebugMode();
+    debugLogger.info('Starting server with enhanced debugging capabilities...');
+  }
+  
+  serverLogger.info('⚙️ Starting server with WebSocket support...');
   const server = await createCustomServer();
   
-  server.listen(port, () => {
-    console.log(`> Ready on http://${hostname}:${port}`);
-    console.log('🔄 Beginning agent bootstrap process...');
-  });
-  
-  // Bootstrap agents from database into runtime registry
-  try {
-    console.log('🚀 Starting to bootstrap agents from database...');
-    const agentCount = await bootstrapAgentsFromDatabase();
-    console.log(`> Bootstrapped ${agentCount} agents from database into runtime registry`);
+  server.listen(port, async () => {
+    serverLogger.info(`> Ready on http://${hostname}:${port}`);
+    serverLogger.info('🔄 Beginning agent bootstrap process...');
     
-    // Now bootstrap the MCP with these agents
-    console.log('🚀 Starting to bootstrap MCP agent system...');
-    await bootstrapAgentSystem();
-    console.log(`> MCP agent system bootstrapped and integrated with database agents`);
-    console.log('- Bootstrap status: Complete');
-  } catch (error) {
-    console.error('Failed to bootstrap agents:', error);
-    console.log('- Bootstrap status: Failed');
-  }
+    // Bootstrap agents after server is ready
+    await bootstrapAgents();
+  });
   
   return server;
 }

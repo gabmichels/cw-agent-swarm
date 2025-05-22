@@ -131,6 +131,7 @@
     "winston": "^3.17.0",
     "winston-transport": "^4.9.0",
     "yaml": "^2.4.2",
+    "zlib-sync": "^0.1.10",
     "zod": "^3.24.3"
   },
   "devDependencies": {
