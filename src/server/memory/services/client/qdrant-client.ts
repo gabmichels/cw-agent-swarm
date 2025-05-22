@@ -552,8 +552,8 @@ export class QdrantMemoryClient implements IMemoryClient {
       
       if (!vector && query.query) {
         try {
-          const embeddingResult = await this.embeddingService.getEmbedding(query.query);
-          vector = embeddingResult.embedding;
+        const embeddingResult = await this.embeddingService.getEmbedding(query.query);
+        vector = embeddingResult.embedding;
         } catch (embeddingError) {
           console.warn(`Error generating embedding for query: ${embeddingError}`);
           // Continue with fallback mechanism
@@ -704,8 +704,8 @@ export class QdrantMemoryClient implements IMemoryClient {
           // Create a simplified search request focused on tasks
           const searchRequest = {
             limit: limit || 1000,
-            offset: offset || 0,
-            with_payload: true,
+        offset: offset || 0,
+        with_payload: true,
             with_vector: false,
             filter: { 
               must: [
@@ -723,10 +723,10 @@ export class QdrantMemoryClient implements IMemoryClient {
           console.log(`Simplified task search found ${response.points.length} points`);
           
           // Map points to memory format with type safety
-          return response.points.map(point => {
+        return response.points.map(point => {
             const payload = point.payload as Record<string, any>;
             const memoryPoint: any = {
-              id: String(point.id),
+            id: String(point.id),
               vector: Array.isArray(point.vector) ? point.vector : [],
               payload: payload,
               metadata: payload.metadata || {},
@@ -753,9 +753,9 @@ export class QdrantMemoryClient implements IMemoryClient {
       // Check if collection exists
       const exists = await this.collectionExists(collectionName);
       if (!exists) {
-        return [];
-      }
-
+          return [];
+        }
+        
       // Validate and simplify filter if provided
       let validatedFilter = undefined;
       if (filter) {

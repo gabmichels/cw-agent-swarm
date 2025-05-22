@@ -109,10 +109,11 @@ export class SearchService {
     try {
       const { types = [], limit = 10, filter } = options;
       
-      // Handle case where query is an object (incorrect usage)
-      if (typeof query !== 'string') {
-        console.warn('Non-string query provided to search, converting to empty string', { 
+      // Handle case where query is an object or null/undefined (incorrect usage)
+      if (query === null || query === undefined || typeof query !== 'string') {
+        console.warn('Invalid query provided to search:', { 
           queryType: typeof query,
+          queryValue: query,
           filter: options.filter
         });
         

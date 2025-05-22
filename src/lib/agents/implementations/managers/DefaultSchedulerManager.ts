@@ -1160,7 +1160,23 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
     if (this.tasks.size > 0) {
       this.logger.debug(`[${agentId}] Current tasks status:`);
       Array.from(this.tasks.entries()).forEach(([id, task]) => {
-        this.logger.debug(`[${agentId}] Task ${id}: status=${task.status}, created=${task.createdAt.toISOString()}, type=${task.type}, metadata=${JSON.stringify(task.metadata || {})}`);
+        try {
+          // Safely convert created date to string
+          let createdAtStr = "invalid date";
+          try {
+            if (task.createdAt instanceof Date && !isNaN(task.createdAt.getTime())) {
+              createdAtStr = task.createdAt.toISOString();
+            } else {
+              createdAtStr = String(task.createdAt);
+            }
+          } catch (dateError) {
+            createdAtStr = "invalid date";
+          }
+          
+          this.logger.debug(`[${agentId}] Task ${id}: status=${task.status}, created=${createdAtStr}, type=${task.type}, metadata=${JSON.stringify(task.metadata || {})}`);
+        } catch (loggingError) {
+          this.logger.error(`[${agentId}] Error logging task details for ${id}:`, { error: loggingError });
+        }
       });
     } else {
       this.logger.info(`[${agentId}] No tasks in queue to check`);
@@ -1181,9 +1197,29 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
         if (scheduledTime instanceof Date) {
           taskTime = scheduledTime;
         } else if (typeof scheduledTime === 'string') {
-          taskTime = new Date(scheduledTime);
+          try {
+            taskTime = new Date(scheduledTime);
+            // Validate the date is valid
+            if (isNaN(taskTime.getTime())) {
+              this.logger.warn(`[${agentId}] Task ${task.id} has invalid scheduledTime string value`);
+              return false;
+            }
+          } catch (e) {
+            this.logger.warn(`[${agentId}] Task ${task.id} has invalid scheduledTime that couldn't be parsed`);
+            return false;
+          }
         } else if (typeof scheduledTime === 'number') {
-          taskTime = new Date(scheduledTime);
+          try {
+            taskTime = new Date(scheduledTime);
+            // Validate the date is valid
+            if (isNaN(taskTime.getTime())) {
+              this.logger.warn(`[${agentId}] Task ${task.id} has invalid scheduledTime number value`);
+              return false;
+            }
+          } catch (e) {
+            this.logger.warn(`[${agentId}] Task ${task.id} has invalid scheduledTime number that couldn't be parsed`);
+            return false;
+          }
         } else {
           this.logger.warn(`[${agentId}] Task ${task.id} has invalid scheduledTime format: ${typeof scheduledTime}`);
           return false; // Invalid scheduledTime format
@@ -1192,10 +1228,22 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
         // Compare with current time
         const isDue = taskTime <= now;
         
+        // Safely get ISO string
+        let taskTimeStr = "invalid date";
+        let nowStr = now.toISOString();
+        
+        try {
+          if (!isNaN(taskTime.getTime())) {
+            taskTimeStr = taskTime.toISOString();
+          }
+        } catch (dateError) {
+          taskTimeStr = "invalid date";
+        }
+        
         if (isDue) {
-          this.logger.info(`[${agentId}] Scheduled task ${task.id} is due. Scheduled for: ${taskTime.toISOString()}, Current time: ${now.toISOString()}`);
+          this.logger.info(`[${agentId}] Scheduled task ${task.id} is due. Scheduled for: ${taskTimeStr}, Current time: ${nowStr}`);
         } else {
-          this.logger.debug(`[${agentId}] Scheduled task ${task.id} is not yet due. Scheduled for: ${taskTime.toISOString()}, Current time: ${now.toISOString()}`);
+          this.logger.debug(`[${agentId}] Scheduled task ${task.id} is not yet due. Scheduled for: ${taskTimeStr}, Current time: ${nowStr}`);
         }
         
         return isDue;
@@ -1255,9 +1303,39 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
         
         // Always log interval task status for debug purposes
         if (isDue) {
-          this.logger.info(`[${agentId}] Interval task ${task.id} is due. Created at ${new Date(createdAt).toISOString()}, last execution at ${new Date(lastExecution).toISOString()}, should run at ${new Date(shouldRunAt).toISOString()}, current time: ${now.toISOString()}`);
+          try {
+            // Safely convert timestamps to ISO strings
+            let createdAtStr = "invalid date";
+            let lastExecutionStr = "invalid date";
+            let shouldRunAtStr = "invalid date";
+            const nowStr = now.toISOString();
+            
+            try { createdAtStr = new Date(createdAt).toISOString(); } catch (e) {}
+            try { lastExecutionStr = new Date(lastExecution).toISOString(); } catch (e) {}
+            try { shouldRunAtStr = new Date(shouldRunAt).toISOString(); } catch (e) {}
+            
+            this.logger.info(`[${agentId}] Interval task ${task.id} is due. Created at ${createdAtStr}, last execution at ${lastExecutionStr}, should run at ${shouldRunAtStr}, current time: ${nowStr}`);
+          } catch (e) {
+            // Fallback to basic logging without dates if formatting fails
+            this.logger.info(`[${agentId}] Interval task ${task.id} is due (error formatting dates)`);
+          }
         } else {
-          this.logger.debug(`[${agentId}] Interval task ${task.id} not yet due. Created at ${new Date(createdAt).toISOString()}, last execution at ${new Date(lastExecution).toISOString()}, should run at ${new Date(shouldRunAt).toISOString()}, current time: ${now.toISOString()}`);
+          try {
+            // Safely convert timestamps to ISO strings
+            let createdAtStr = "invalid date";
+            let lastExecutionStr = "invalid date";
+            let shouldRunAtStr = "invalid date";
+            const nowStr = now.toISOString();
+            
+            try { createdAtStr = new Date(createdAt).toISOString(); } catch (e) {}
+            try { lastExecutionStr = new Date(lastExecution).toISOString(); } catch (e) {}
+            try { shouldRunAtStr = new Date(shouldRunAt).toISOString(); } catch (e) {}
+            
+            this.logger.debug(`[${agentId}] Interval task ${task.id} not yet due. Created at ${createdAtStr}, last execution at ${lastExecutionStr}, should run at ${shouldRunAtStr}, current time: ${nowStr}`);
+          } catch (e) {
+            // Fallback to basic logging without dates if formatting fails
+            this.logger.debug(`[${agentId}] Interval task ${task.id} not yet due (error formatting dates)`);
+          }
         }
         
         return isDue;
@@ -1446,7 +1524,14 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
 
       return executedCount;
     } catch (error) {
-      this.logger.error(`[${agentId}] Error polling for due tasks:`, { error });
+      // Properly stringify the error object to avoid empty objects in logs
+      const errorObj = error instanceof Error 
+        ? { message: error.message, name: error.name, stack: error.stack }
+        : typeof error === 'object' && error !== null
+          ? JSON.stringify(error)
+          : String(error);
+          
+      this.logger.error(`[${agentId}] Error polling for due tasks:`, { error: errorObj });
       return 0;
     }
   }
