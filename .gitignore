@@ -54,6 +54,15 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
+# Compiled JavaScript files (from TypeScript)
+/src/**/*.js
+/src/**/*.jsx
+/pages/**/*.js
+/tests/**/*.js
+/debug-*.js
+/test-*.js
+cleanup-js.ps1
+
 # turbo
 .turbo
 
