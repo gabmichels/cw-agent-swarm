@@ -108,3 +108,6 @@ data/cache/markdown-initialized.flag
 
 # Reference code (not part of the main codebase)
 src/agents/chloe/
+
+# Local agent registry
+.agent-registry.json
