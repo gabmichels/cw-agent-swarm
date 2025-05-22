@@ -24,11 +24,14 @@ import { ConsoleLogger } from '../../../agents/utils/logging/ConsoleLogger';
 // Interface for memory interaction
 interface MemoryInterface {
   addMemory(params: Record<string, any>): Promise<any>;
-  searchMemories(params: Record<string, any>): Promise<Array<{
+  searchMemories(query: string, options?: Record<string, any>): Promise<Array<{
     id: string;
     content: string;
     category?: string;
+    source?: string;
+    context?: string;
     tags?: string[];
+    timestamp?: Date;
   }>>;
 }
 
@@ -312,7 +315,35 @@ export class DefaultHumanCollaborationManager implements HumanCollaborationManag
     task: CollaborativeTask,
     correction: Correction
   ): Promise<CollaborativeTask> {
-    return CorrectionHandler.handleCorrection(task, correction, this.memoryManager);
+    // Create adapter for CorrectionHandler to use our MemoryInterface
+    const memoryAdapter = this.memoryManager ? {
+      addMemory: this.memoryManager.addMemory.bind(this.memoryManager),
+      searchMemories: async (options: { query: string; filters?: Array<{ field: string; value: any }>; limit?: number; }) => {
+        const results = await this.memoryManager!.searchMemories(
+          options.query, 
+          { 
+            limit: options.limit,
+            metadata: options.filters?.reduce((obj, filter) => {
+              obj[filter.field] = filter.value;
+              return obj;
+            }, {} as Record<string, any>) 
+          }
+        );
+        
+        // Transform results to match CorrectionHandler's expected format
+        return results.map(result => ({
+          id: result.id,
+          content: result.content,
+          category: result.category || '',
+          source: result.source || 'unknown',
+          context: result.context,
+          tags: result.tags,
+          timestamp: result.timestamp
+        }));
+      }
+    } : undefined;
+    
+    return CorrectionHandler.handleCorrection(task, correction, memoryAdapter);
   }
   
   /**
@@ -328,7 +359,35 @@ export class DefaultHumanCollaborationManager implements HumanCollaborationManag
     suggestedAdjustments: string[];
     relevantCorrections: string[];
   }> {
-    return CorrectionHandler.checkPastCorrections(task, this.memoryManager);
+    // Create adapter for CorrectionHandler to use our MemoryInterface
+    const memoryAdapter = this.memoryManager ? {
+      addMemory: this.memoryManager.addMemory.bind(this.memoryManager),
+      searchMemories: async (options: { query: string; filters?: Array<{ field: string; value: any }>; limit?: number; }) => {
+        const results = await this.memoryManager!.searchMemories(
+          options.query, 
+          { 
+            limit: options.limit,
+            metadata: options.filters?.reduce((obj, filter) => {
+              obj[filter.field] = filter.value;
+              return obj;
+            }, {} as Record<string, any>) 
+          }
+        );
+        
+        // Transform results to match CorrectionHandler's expected format
+        return results.map(result => ({
+          id: result.id,
+          content: result.content,
+          category: result.category || '',
+          source: result.source || 'unknown',
+          context: result.context,
+          tags: result.tags,
+          timestamp: result.timestamp
+        }));
+      }
+    } : undefined;
+    
+    return CorrectionHandler.checkPastCorrections(task, memoryAdapter);
   }
   
   /**

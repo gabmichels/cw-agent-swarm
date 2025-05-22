@@ -2,6 +2,7 @@ import { ImportanceLevel } from '../../constants/memory';
 
 // Re-export MemoryType from config/types.ts
 export { MemoryType } from './config/types';
+export { ImportanceLevel };
 
 // Default values for memory operations
 export const DEFAULTS = {

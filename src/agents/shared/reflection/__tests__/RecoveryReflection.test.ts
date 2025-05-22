@@ -31,7 +31,7 @@ class MockAgent extends AbstractAgentBase {
       createdBy: 'test',
       capabilities: [],
       parameters: {
-        model: process.env.OPENAI_MODEL_NAME,
+        model: process.env.OPENAI_MODEL_NAME || 'gpt-4',
         temperature: 0.7,
         maxTokens: 2048,
         tools: [],
@@ -184,8 +184,39 @@ class MockAgent extends AbstractAgentBase {
   }
   
   // Processing methods
-  async processInput(input: string, context?: Record<string, unknown>): Promise<string | null> {
-    return null;
+  async processUserInput(message: string): Promise<any> {
+    return {
+      content: 'Mock response',
+      thoughts: ['Processed user input'],
+      metadata: {}
+    };
+  }
+  
+  async think(message: string): Promise<any> {
+    return {
+      intent: { primary: 'test-intent', confidence: 1.0 },
+      entities: [],
+      reasoning: ['Test reasoning'],
+      complexity: 1,
+      priority: 1,
+      context: {},
+      shouldDelegate: false,
+      requiredCapabilities: [],
+      isUrgent: false,
+      contextUsed: {
+        memories: [],
+        files: [],
+        tools: []
+      }
+    };
+  }
+  
+  async getLLMResponse(message: string): Promise<any> {
+    return {
+      content: 'Mock LLM response',
+      thoughts: ['Generated response'],
+      metadata: {}
+    };
   }
 }
 

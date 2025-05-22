@@ -8,6 +8,16 @@
 import { ImportanceLevel } from '../../../../constants/memory';
 
 /**
+ * Knowledge gap importance level
+ */
+export enum KnowledgeGapImportanceLevel {
+  LOW = 'low',
+  MEDIUM = 'medium',
+  HIGH = 'high',
+  CRITICAL = 'critical'
+}
+
+/**
  * Knowledge gap detection confidence level
  */
 export enum KnowledgeGapConfidenceLevel {
@@ -78,7 +88,7 @@ export interface KnowledgeGap {
   importance: number;
   
   /** Importance level classification */
-  importanceLevel: ImportanceLevel;
+  importanceLevel: KnowledgeGapImportanceLevel;
   
   /** Current status of this knowledge gap */
   status: KnowledgeGapStatus;

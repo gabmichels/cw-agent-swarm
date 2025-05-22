@@ -24,6 +24,7 @@ import { LanguageDetector } from './language-detector';
 import { BasicSummaryGenerator } from './summary-generator';
 import { v4 as uuidv4 } from 'uuid';
 import { StructuredId, IdGenerator } from '../../../utils/ulid';
+import { importanceCalculatorService } from '../../importance/ImportanceCalculatorService';
 
 /**
  * Generate a file ID using proper StructuredId
@@ -147,7 +148,7 @@ export class FileProcessorService implements IFileProcessorService {
     // Initialize other services
     this.documentTypeDetector = config.documentTypeDetector || new DocumentTypeDetector();
     this.languageDetector = config.languageDetector || new LanguageDetector();
-    this.summaryGenerator = config.summaryGenerator || new BasicSummaryGenerator();
+    this.summaryGenerator = config.summaryGenerator || new BasicSummaryGenerator({}, importanceCalculatorService as any);
     
     // Initialize storage
     this.metadataStorage = config.metadataStorage || null;

@@ -224,8 +224,8 @@ describe('DefaultAgent', () => {
   });
 
   describe('LLM Integration', () => {
-    it('processInput should use LLM and return a response', async () => {
-      const response = await agent.processInput('Hello, how are you?');
+    it('processUserInput should use LLM and return a response', async () => {
+      const response = await agent.processUserInput('Hello, how are you?');
       
       // Verify we got a response from the (mocked) LLM
       expect(response).toBeTruthy();
@@ -273,10 +273,10 @@ describe('DefaultAgent', () => {
       expect(memories[1].content).toEqual('Test memory 2');
     });
     
-    it('processInput should store response with tags', async () => {
+    it('processUserInput should store response with tags', async () => {
       // This test primarily checks that processInput runs without errors
       // and tests the integration with LLM and memory
-      const response = await agent.processInput('Tell me about machine learning');
+      const response = await agent.processUserInput('Tell me about machine learning');
       
       // Verify we got a response
       expect(response).toBeTruthy();

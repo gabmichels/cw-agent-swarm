@@ -32,7 +32,27 @@ class TestableThinkingService extends ThinkingService {
   
   // Override the original constructor to prevent initialization
   constructor() {
-    super();
+    // Create a mock ImportanceCalculatorService that matches the interface
+    const mockImportanceCalculator = {
+      calculateImportance: vi.fn().mockResolvedValue({
+        importance: ImportanceLevel.MEDIUM,
+        importance_score: 0.5,
+        confidence: 0.8,
+        keywords: ['test'],
+        reasoning: 'Mock reasoning'
+      }),
+      ruleBasedCalculator: {},
+      llmCalculator: {},
+      defaultMode: 'hybrid',
+      hybridConfidenceThreshold: 0.7,
+      convertScoreToLevel: vi.fn().mockReturnValue(ImportanceLevel.MEDIUM),
+      convertLevelToScore: vi.fn().mockReturnValue(0.5),
+      ensureBothImportanceFields: vi.fn().mockImplementation(obj => obj),
+      llmService: {} as any
+    };
+    
+    super(mockImportanceCalculator as any);
+    
     // Replace the initializeCognitiveService method to prevent original from running
     this['initializeCognitiveService'] = async (): Promise<void> => { 
       // Do nothing - this prevents the original method from running

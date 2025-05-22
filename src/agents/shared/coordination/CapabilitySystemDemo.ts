@@ -49,6 +49,13 @@ import { ManagerHealth } from '../base/managers/ManagerHealth';
 import { MemoryEntry, MemoryConsolidationResult, MemoryPruningResult } from '../base/managers/MemoryManager.interface';
 import { AgentStatus as ServerAgentStatus, AgentCapability } from '../../../server/memory/schema/agent';
 import { ReflectionManager } from '../base/managers/ReflectionManager.interface';
+import { 
+  AgentResponse, 
+  MessageProcessingOptions, 
+  ThinkOptions, 
+  GetLLMResponseOptions 
+} from '../base/AgentBase.interface';
+import { ThinkingResult } from '../../../services/thinking/types';
 
 /**
  * Example agent implementation with specialized capabilities
@@ -653,11 +660,80 @@ class SpecializedAgent implements AgentBase {
   }
 
   async getFailedTasks(): Promise<ScheduledTask[]> {
-    const schedulerManager = this.getSchedulerManager();
-    if (!schedulerManager) {
+    const scheduler = this.getSchedulerManager();
+    if (!scheduler) {
       return [];
     }
-    return schedulerManager.getFailedTasks();
+    return scheduler.getFailedTasks();
+  }
+
+  /**
+   * Process user input with thinking and LLM response
+   * @param message User input message
+   * @param options Processing options
+   * @returns Agent response with content and possible metadata
+   */
+  async processUserInput(message: string, options?: MessageProcessingOptions): Promise<AgentResponse> {
+    // Simplified implementation for demo purposes
+    const thinkingResult = await this.think(message, options);
+    const response = await this.getLLMResponse(message, {
+      ...options,
+      thinkingResult
+    });
+    
+    return {
+      content: response.content,
+      thoughts: thinkingResult.reasoning || [],
+      metadata: {
+        intent: thinkingResult.intent,
+        entities: thinkingResult.entities,
+        requestId: options?.requestId || 'demo-request'
+      }
+    };
+  }
+  
+  /**
+   * Perform thinking analysis on user input
+   * @param message User input message
+   * @param options Thinking options
+   * @returns Thinking analysis result
+   */
+  async think(message: string, options?: ThinkOptions): Promise<ThinkingResult> {
+    // Simplified implementation for demo purposes
+    return {
+      intent: { primary: 'query', confidence: 0.9 },
+      entities: [],
+      reasoning: [`Analyzing input: ${message}`],
+      complexity: 2,
+      priority: 3,
+      context: {},
+      shouldDelegate: false,
+      requiredCapabilities: [],
+      isUrgent: false,
+      contextUsed: {
+        memories: [],
+        files: [],
+        tools: []
+      }
+    };
+  }
+  
+  /**
+   * Get LLM response based on user input and thinking results
+   * @param message User input message
+   * @param options LLM response options including thinking results
+   * @returns Agent response with content and possible metadata
+   */
+  async getLLMResponse(message: string, options?: GetLLMResponseOptions): Promise<AgentResponse> {
+    // Simplified implementation for demo purposes
+    return {
+      content: `Response to: ${message}`,
+      thoughts: options?.thinkingResult?.reasoning || [],
+      metadata: {
+        source: 'demo-specialized-agent',
+        processingTime: 100
+      }
+    };
   }
 
   // Tool Manager delegations

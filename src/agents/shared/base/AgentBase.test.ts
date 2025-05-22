@@ -5,6 +5,7 @@ import type { AgentBaseConfig } from './types';
 import { AgentStatus } from '../../../server/memory/schema/agent';
 import { createAgentId, IdGenerator, IdPrefix } from '../../../utils/ulid';
 import type { AgentBase } from './AgentBase.interface';
+import type { AgentResponse, ThinkOptions } from './AgentBase.interface';
 import { ManagerType } from './managers/ManagerType';
 import { Tool } from './managers/ToolManager.interface';
 import { TaskExecutionResult, TaskCreationResult } from './managers/SchedulerManager.interface';
@@ -12,6 +13,7 @@ import { AgentCapability } from './types';
 import { DefaultSchedulerManager } from '../../../lib/agents/implementations/managers/DefaultSchedulerManager';
 import { ScheduledTask } from './managers/SchedulerManager.interface';
 import { ManagerHealth } from './managers/ManagerHealth';
+import type { ThinkingResult } from '../../../services/thinking/types';
 
 // Create a minimal mock agent that implements AgentBase
 const mockConfig = {
@@ -144,7 +146,33 @@ const mockAgent: AgentBase = {
   getDueTasks: async () => [],
   getRunningTasks: async () => [],
   getPendingTasks: async () => [],
-  getFailedTasks: async () => []
+  getFailedTasks: async () => [],
+  processUserInput: async (message: string) => ({
+    content: 'Mock response to: ' + message,
+    thoughts: ['Mock thought'],
+    metadata: {}
+  }),
+  think: async (message: string) => ({
+    intent: { primary: 'mock-intent', confidence: 1.0 },
+    entities: [],
+    reasoning: ['Mock reasoning'],
+    complexity: 1,
+    priority: 1,
+    context: {},
+    shouldDelegate: false,
+    requiredCapabilities: [],
+    isUrgent: false,
+    contextUsed: {
+      memories: [],
+      files: [],
+      tools: []
+    }
+  }),
+  getLLMResponse: async (message: string) => ({
+    content: 'Mock LLM response to: ' + message,
+    thoughts: ['Mock thought'],
+    metadata: {}
+  })
 };
 
 class MockManager implements BaseManager {
@@ -215,6 +243,38 @@ class MockManager implements BaseManager {
 class TestAgent extends AbstractAgentBase {
   async initialize(): Promise<boolean> { return true; }
   async shutdown(): Promise<void> {}
+  async processUserInput(message: string): Promise<AgentResponse> {
+    return {
+      content: 'Test response to: ' + message,
+      thoughts: ['Test thought'],
+      metadata: {}
+    };
+  }
+  async think(message: string): Promise<ThinkingResult> {
+    return {
+      intent: { primary: 'test-intent', confidence: 1.0 },
+      entities: [],
+      reasoning: ['Test reasoning'],
+      complexity: 1,
+      priority: 1,
+      context: {},
+      shouldDelegate: false,
+      requiredCapabilities: [],
+      isUrgent: false,
+      contextUsed: {
+        memories: [],
+        files: [],
+        tools: []
+      }
+    };
+  }
+  async getLLMResponse(message: string): Promise<AgentResponse> {
+    return {
+      content: 'Test LLM response to: ' + message,
+      thoughts: ['Test thought'],
+      metadata: {}
+    };
+  }
 }
 
 describe('AgentBase', () => {

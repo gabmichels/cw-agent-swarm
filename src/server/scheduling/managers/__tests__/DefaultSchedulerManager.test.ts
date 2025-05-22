@@ -81,7 +81,33 @@ const mockAgent: AgentBase = {
   getDueTasks: async () => [],
   getRunningTasks: async () => [],
   getPendingTasks: async () => [],
-  getFailedTasks: async () => []
+  getFailedTasks: async () => [],
+  processUserInput: async (message: string) => ({
+    content: 'Test response to: ' + message,
+    thoughts: ['Test thought'],
+    metadata: {}
+  }),
+  think: async (message: string) => ({
+    intent: { primary: 'test-intent', confidence: 1.0 },
+    entities: [],
+    reasoning: ['Test reasoning'],
+    complexity: 1,
+    priority: 1,
+    context: {},
+    shouldDelegate: false,
+    requiredCapabilities: [],
+    isUrgent: false,
+    contextUsed: {
+      memories: [],
+      files: [],
+      tools: []
+    }
+  }),
+  getLLMResponse: async (message: string) => ({
+    content: 'Test LLM response to: ' + message,
+    thoughts: ['Test thought'],
+    metadata: {}
+  })
 };
 
 describe('DefaultSchedulerManager', () => {

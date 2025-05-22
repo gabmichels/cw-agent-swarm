@@ -10,7 +10,7 @@ import { ImportanceLevel, MemorySource } from '../../constants/memory';
 import { MemoryType } from '../../server/memory/config/types';
 import { MessageType } from '../../constants/message';
 import { storeInternalMessageToMemory } from './storeInternalMessageToMemory';
-import { ImportanceCalculator } from './ImportanceCalculator';
+import { ImportanceCalculator } from '../importance/ImportanceCalculator';
 
 export interface MemoryItem {
   id?: string;
@@ -325,19 +325,22 @@ Related Task: ${item.relatedTaskId || 'N/A'}
       // Ensure score stays within 0-1 range
       newScore = Math.max(0, Math.min(1, newScore));
       
+      // Create an instance of ImportanceCalculator to use its methods
+      const importanceCalculator = new ImportanceCalculator();
+      
+      // Also derive the importance level for backwards compatibility
+      const importanceLevel = importanceCalculator.convertScoreToLevel(newScore);
+      
       // Update the memory with new importance score
       const updates = {
         metadata: {
           ...memory.metadata,
           importance_score: newScore,
+          importance: importanceLevel,
           feedback_count: (memory.metadata.feedback_count || 0) + 1,
           last_feedback: new Date().toISOString()
         }
       };
-      
-      // Also derive the importance level for backwards compatibility
-      const importanceLevel = ImportanceCalculator.scoreToImportanceLevel(newScore);
-      updates.metadata.importance = importanceLevel;
       
       // Update the memory
       const updated = await this.memoryManager.updateMemory(memoryId, updates);
