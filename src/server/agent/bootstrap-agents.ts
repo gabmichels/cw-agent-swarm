@@ -20,7 +20,6 @@ import { AbstractAgentBase } from '../../agents/shared/base/AbstractAgentBase';
 import { BaseManager } from '../../agents/shared/base/managers/BaseManager';
 
 // Import ALL manager implementations
-import { DefaultSchedulerManager } from '../../lib/agents/implementations/managers/DefaultSchedulerManager';
 import { DefaultAutonomyManager } from '../../agents/shared/autonomy/managers/DefaultAutonomyManager';
 import { DefaultAutonomySystem } from '../../agents/shared/autonomy/systems/DefaultAutonomySystem';
 import { DefaultMemoryManager } from '../../lib/agents/implementations/managers/DefaultMemoryManager';
@@ -68,6 +67,9 @@ import {
   recordInitializationMetrics
 } from './agent-bootstrap-utils';
 
+import { createSchedulerManager } from '../../lib/scheduler/factories/SchedulerFactory';
+import { TaskScheduleType } from '../../lib/scheduler/models/Task.model';
+
 /**
  * Fully capable agent implementation with ALL required managers
  * 
@@ -81,8 +83,15 @@ class FullyCapableAgent extends AbstractAgentBase {
     super(agentConfig);
     
     this._agentConfig = agentConfig;
-    // Add ALL managers for full capability
-    this.setupManagers();
+    // Add ALL managers for full capability - setup happens asynchronously in initialize()
+  }
+  
+  override async initialize(): Promise<boolean> {
+    // Setup all managers first
+    await this.setupManagers();
+    
+    // Initialize each manager
+    return await super.initialize();
   }
   
   // Override getAgentId to ensure consistent ID retrieval
@@ -98,7 +107,7 @@ class FullyCapableAgent extends AbstractAgentBase {
   /**
    * Set up ALL managers to make this a fully capable agent
    */
-  private setupManagers(): void {
+  private async setupManagers(): Promise<void> {
     try {
       const agentId = this.getAgentId();
       console.log(`🔄 Setting up ALL managers for agent ${agentId}...`);
@@ -141,7 +150,7 @@ class FullyCapableAgent extends AbstractAgentBase {
       });
       
       // 5. SCHEDULER MANAGER
-      const schedulerManager = new DefaultSchedulerManager(this, {
+      const schedulerConfig = {
         enabled: true,
         maxConcurrentTasks: 5,
         maxRetryAttempts: 3,
@@ -150,52 +159,12 @@ class FullyCapableAgent extends AbstractAgentBase {
         schedulingIntervalMs: 30000, // 30 seconds
         enableTaskPrioritization: true,
         logSchedulingActivity: true, // Enable detailed logging
-      });
-      
-      // Add a debug task for testing scheduler functionality
-      setTimeout(() => {
-        console.log(`[${agentId}] Creating test scheduled task for agent`);
-        schedulerManager.createTask({
-          title: "Periodic health check",
-          description: "Check system health and report status",
-          type: "system_health",
-          priority: 0.7,
-          metadata: {
-            scheduleType: "interval",
-            intervalMs: 30000, // Every 30 seconds (shorter for testing)
-            startAfterMs: 10000, // Start after 10 seconds (shorter for testing)
-            isDebugTask: true,
-            action: "processUserInput", // Task will call the agent's processUserInput method
-            parameters: {
-              message: "Run a quick health check and report any issues."
-            }
-          }
-        }).then(taskResult => {
-          console.log(`[${agentId}] Test task created: ${JSON.stringify(taskResult)}`);
-          
-          // Also create an immediate task that should run right away
-          return schedulerManager.createTask({
-            title: "Immediate health check",
-            description: "Run an immediate system health check",
-            type: "system_health",
-            priority: 1.0, // Higher priority
-            metadata: {
-              scheduledTime: new Date(Date.now() + 5000), // 5 seconds from now
-              isDebugTask: true,
-              action: "processUserInput",
-              parameters: {
-                message: "Run an immediate health check to verify scheduler is working."
-              }
-            }
-          });
-        }).then(immediateTaskResult => {
-          if (immediateTaskResult) {
-            console.log(`[${agentId}] Immediate task created: ${JSON.stringify(immediateTaskResult)}`);
-          }
-        }).catch(err => {
-          console.error(`[${agentId}] Error creating test task:`, err);
-        });
-      }, 10000);
+      };
+
+      // Create ModularSchedulerManager using factory
+      const schedulerManager = await createSchedulerManager(schedulerConfig);
+      // Associate agent with scheduler
+      (schedulerManager as any).agent = this;
       
       // 6. AUTONOMY MANAGER 
       const autonomySystem = new DefaultAutonomySystem(this, {
@@ -410,35 +379,7 @@ class FullyCapableAgent extends AbstractAgentBase {
     }
   }
 
-  /**
-   * Initialize the agent
-   */
-  override async initialize(): Promise<boolean> {
-    const agentId = this.getAgentId();
-    console.log(`[${agentId}] Initializing agent and all managers...`);
-    
-    try {
-      // Get reference to all managers
-      const managers = this.getManagers();
-      console.log(`[${agentId}] Initializing ${managers.length} managers...`);
-      
-      // Initialize each manager individually
-      for (const manager of managers) {
-        try {
-          console.log(`[${agentId}] Initializing manager: ${manager.managerId}`);
-          const result = await manager.initialize();
-          console.log(`[${agentId}] Manager ${manager.managerId} initialized, result: ${result}`);
-        } catch (error) {
-          console.error(`[${agentId}] Error initializing manager ${manager.managerId}:`, error);
-        }
-      }
-      
-      return true;
-    } catch (error) {
-      console.error(`[${agentId}] Error initializing agent:`, error);
-      return false;
-    }
-  }
+  // The agent initialization is handled by the override in the constructor
 }
 
 /**

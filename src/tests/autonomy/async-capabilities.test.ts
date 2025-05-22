@@ -9,17 +9,23 @@ import { DefaultAgent } from '../../agents/shared/DefaultAgent';
 import { ManagerType } from '../../agents/shared/base/managers/ManagerType';
 import { vi, beforeEach, afterEach, describe, test, expect } from 'vitest';
 import { TaskCreationResult, TaskCreationOptions } from '../../agents/shared/base/managers/SchedulerManager.interface';
+import { AgentBase } from '../../agents/shared/base/AgentBase.interface';
+import { TaskStatus, TaskScheduleType } from '../../lib/scheduler/models/Task.model';
 
-// Define the Task interface here to avoid import issues
-interface Task extends Record<string, unknown> {
+// Store original process.env
+const originalEnv = process.env;
+
+// Mock Task interface to match what we need for tests
+interface Task {
   id: string;
-  title: string;
+  name: string;
   description: string;
-  type: string;
-  status: string;
-  created_at: Date;
-  updated_at: Date;
+  scheduleType: TaskScheduleType;
+  status: TaskStatus;
+  createdAt: Date;
+  updatedAt: Date;
   priority: number;
+  dependencies?: any[];
   metadata?: {
     scheduledTime?: Date;
     action?: string;
@@ -29,6 +35,7 @@ interface Task extends Record<string, unknown> {
     };
     [key: string]: unknown;
   };
+  handler?: (...args: unknown[]) => Promise<unknown>;
 }
 
 // Set longer timeout for async tests
@@ -156,7 +163,7 @@ vi.mock('../../services/thinking/ThinkingService', () => {
   };
 });
 
-// Define a type for scheduler manager for better type safety
+// Define a scheduler manager interface for tests
 interface SchedulerManager {
   getDueTasks: () => Promise<Task[]>;
   executeDueTask: (task: Task) => Promise<boolean>;
@@ -200,7 +207,7 @@ describe('DefaultAgent Asynchronous Capabilities', () => {
     vi.spyOn(agent, 'getName').mockReturnValue("AsyncCapabilityTester");
     
     // Mock createTask to track task creation
-    vi.spyOn(agent, 'createTask').mockImplementation(async () => {
+    vi.spyOn(agent, 'createTask').mockImplementation(async (options: any) => {
       scheduledTaskId = `task-${Date.now()}`;
       return scheduledTaskId as unknown as TaskCreationResult;
     });
@@ -213,17 +220,19 @@ describe('DefaultAgent Asynchronous Capabilities', () => {
         // For the first test, always return pending
         return {
           id: taskId,
-          title: "Test Scheduled Task",
+          name: "Test Scheduled Task",
           description: "A task that was scheduled for testing",
-          type: "scheduled",
-          status: "pending",
-          created_at: new Date(now - 10000),
-          updated_at: new Date(now - 10000),
+          scheduleType: TaskScheduleType.EXPLICIT,
+          status: TaskStatus.PENDING,
+          createdAt: new Date(now - 10000),
+          updatedAt: new Date(now - 10000),
           priority: 1,
+          dependencies: [],
           metadata: {
             scheduledTime: new Date(now + 3600000) // Scheduled 1 hour in the future
-          }
-        } as Task;
+          },
+          handler: async () => true
+        } as any;
       }
       return null;
     });
@@ -260,13 +269,13 @@ describe('DefaultAgent Asynchronous Capabilities', () => {
     test('Agent can create and retrieve a scheduled task', async () => {
       // Create a scheduled task
       const taskId = await agent.createTask({
-        title: "Future reminder",
+        name: "Future reminder",
         description: "Send a reminder about the weekly meeting",
-        type: "scheduled",
+        scheduleType: TaskScheduleType.EXPLICIT,
         metadata: {
           scheduledTime: new Date(Date.now() + 3600000) // 1 hour in future
         }
-      });
+      } as any);
       
       expect(taskId).toBeTruthy();
       
@@ -274,8 +283,8 @@ describe('DefaultAgent Asynchronous Capabilities', () => {
       const task = await agent.getTask(taskId as unknown as string);
       
       expect(task).toBeTruthy();
-      expect(task?.status).toBe("pending");
-      expect(task?.type).toBe("scheduled");
+      expect(task?.status).toBe(TaskStatus.PENDING);
+      expect(task?.scheduleType).toBe(TaskScheduleType.EXPLICIT);
     });
     
     test('Scheduler can track due tasks', async () => {
@@ -288,13 +297,13 @@ describe('DefaultAgent Asynchronous Capabilities', () => {
       
       // Create scheduled task
       const taskId = await agent.createTask({
-        title: "Soon due task",
+        name: "Soon due task",
         description: "This task should become due soon",
-        type: "scheduled",
+        scheduleType: TaskScheduleType.EXPLICIT,
         metadata: {
           scheduledTime: new Date(Date.now() + 1000) // 1 second in future
         }
-      });
+      } as any);
       
       // Mock scheduler manager methods if they exist
       if ('getDueTasks' in schedulerManager) {
@@ -315,16 +324,18 @@ describe('DefaultAgent Asynchronous Capabilities', () => {
         // Now mock that task is due
         mockGetDueTasks.mockResolvedValue([{
           id: taskId as unknown as string,
-          title: "Soon due task",
+          name: "Soon due task",
           description: "This task should become due soon",
-          type: "scheduled",
-          status: "pending",
-          created_at: new Date(Date.now() - 2000),
-          updated_at: new Date(Date.now() - 2000),
+          scheduleType: TaskScheduleType.EXPLICIT,
+          status: TaskStatus.PENDING,
+          createdAt: new Date(Date.now() - 2000),
+          updatedAt: new Date(Date.now() - 2000),
           priority: 1,
+          dependencies: [],
           metadata: {
             scheduledTime: new Date(Date.now() - 1000)
-          }
+          },
+          handler: async () => true
         } as Task]);
         
         // Now task should be due
@@ -346,9 +357,9 @@ describe('DefaultAgent Asynchronous Capabilities', () => {
       
       // Create a task that's due soon
       const taskId = await agent.createTask({
-        title: "Process data",
+        name: "Process data",
         description: "Process the latest data when due",
-        type: "scheduled",
+        scheduleType: TaskScheduleType.EXPLICIT,
         metadata: {
           scheduledTime: new Date(Date.now() + 1000), // 1 second in future
           action: "processUserInput",
@@ -356,7 +367,7 @@ describe('DefaultAgent Asynchronous Capabilities', () => {
             message: "Process the latest Bitcoin data"
           }
         }
-      });
+      } as any);
       
       // Initial execution count should be 0
       expect(executionCount).toBe(0);
@@ -388,21 +399,23 @@ describe('DefaultAgent Asynchronous Capabilities', () => {
       // Manually execute the due task (simulating scheduler polling)
       await typedSchedulerManager.executeDueTask({
         id: taskId as unknown as string,
-        title: "Process data",
+        name: "Process data",
         description: "Process the latest data when due",
-        type: "scheduled",
-        status: "pending",
-        created_at: new Date(Date.now() - 2000),
-        updated_at: new Date(Date.now() - 2000),
+        scheduleType: TaskScheduleType.EXPLICIT,
+        status: TaskStatus.PENDING,
+        createdAt: new Date(Date.now() - 2000),
+        updatedAt: new Date(Date.now() - 2000),
         priority: 1,
+        dependencies: [],
         metadata: {
           scheduledTime: new Date(Date.now() - 1000),
           action: "processUserInput",
           parameters: {
             message: "Process the latest Bitcoin data"
           }
-        }
-      } as Task);
+        },
+        handler: async () => true
+      } as any);
       
       // Check that the task was executed (processUserInput was called)
       expect(executionCount).toBe(1);
@@ -429,34 +442,39 @@ describe('DefaultAgent Asynchronous Capabilities', () => {
       });
       
       // Override createTask to store in our mock storage
-      vi.spyOn(agent1, 'createTask').mockImplementation(async (taskDetails: Record<string, unknown>) => {
+      vi.spyOn(agent1, 'createTask').mockImplementation(async (options: any) => {
         const taskId = `persist-${Date.now()}`;
         storedTasks.push({
           id: taskId,
-          ...taskDetails,
-          status: "pending",
-          created_at: new Date(),
-          updated_at: new Date()
-        } as Task);
+          ...options,
+          status: TaskStatus.PENDING,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          dependencies: [],
+          handler: async () => true
+        } as any);
         return taskId as unknown as TaskCreationResult;
       });
       
-      // Override getTask to retrieve from our mock storage
-      vi.spyOn(agent1, 'getTask').mockImplementation(async (taskId: string) => {
+      // Override getTask to retrieve from our mock storage with correct type casting
+      const mockGetTask = async (taskId: string) => {
         return storedTasks.find(t => t.id === taskId) || null;
-      });
+      };
+
+      // Use type assertion to bypass TypeScript checking
+      vi.spyOn(agent1, 'getTask').mockImplementation(mockGetTask as any);
       
       await agent1.initialize();
       
       // Create scheduled task with first agent
       const taskId = await agent1.createTask({
-        title: "Persistent task",
+        name: "Persistent task",
         description: "This task should persist across agent restarts",
-        type: "scheduled",
+        scheduleType: TaskScheduleType.EXPLICIT,
         metadata: {
           scheduledTime: new Date(Date.now() + 3600000) // 1 hour in future
         }
-      });
+      } as any);
       
       // Verify task was created
       expect(taskId).toBeTruthy();
@@ -476,9 +494,7 @@ describe('DefaultAgent Asynchronous Capabilities', () => {
       });
       
       // Override getTask to retrieve from our mock storage
-      vi.spyOn(agent2, 'getTask').mockImplementation(async (taskId: string) => {
-        return storedTasks.find(t => t.id === taskId) || null;
-      });
+      vi.spyOn(agent2, 'getTask').mockImplementation(mockGetTask as any);
       
       await agent2.initialize();
       
@@ -488,7 +504,7 @@ describe('DefaultAgent Asynchronous Capabilities', () => {
       // Task should still be retrievable
       expect(retrievedTask).toBeTruthy();
       expect(retrievedTask?.id).toBe(taskId as unknown as string);
-      expect(retrievedTask?.title).toBe("Persistent task");
+      expect(retrievedTask?.name).toBe("Persistent task");
       
       // Clean up
       await agent2.shutdown();
@@ -519,12 +535,12 @@ describe('DefaultAgent Asynchronous Capabilities', () => {
         // Create a due task
         const dueTask = {
           id: `auto-${now}`,
-          title: "Autonomous execution",
+          name: "Autonomous execution",
           description: "This task should execute autonomously",
-          type: "scheduled",
+          scheduleType: TaskScheduleType.EXPLICIT,
           status: "pending",
-          created_at: new Date(now - 60000),
-          updated_at: new Date(now - 60000),
+          createdAt: new Date(now - 60000),
+          updatedAt: new Date(now - 60000),
           priority: 1,
           metadata: {
             scheduledTime: new Date(now - 1000), // Due 1 second ago
@@ -577,17 +593,17 @@ describe('DefaultAgent Asynchronous Capabilities', () => {
       vi.spyOn(agent as any, 'reflect').mockImplementation(async () => {
         // During reflection, create a self-initiated task
         await agent.createTask({
-          title: "Self-initiated task",
+          name: "Self-initiated task",
           description: "This task was created by the agent based on reflection",
-          type: "scheduled",
+          scheduleType: TaskScheduleType.EXPLICIT,
           metadata: {
             scheduledTime: new Date(Date.now() + 1000),
             action: "processUserInput",
             parameters: {
-              message: "Check for important news updates"
+              message: "Execute autonomous analysis"
             }
           }
-        });
+        } as any);
         
         return {
           insights: [

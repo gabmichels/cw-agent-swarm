@@ -14,7 +14,6 @@ import { BaseManager } from './managers/BaseManager';
 import { AgentCapability } from './types';
 import type { AgentBase } from './AgentBase.interface';
 import type { ManagersConfig } from './ManagersConfig.interface';
-import { DefaultSchedulerManager } from '../../../lib/agents/implementations/managers/DefaultSchedulerManager';
 import type { 
   MemoryManager, 
   MemoryEntry, 
@@ -39,7 +38,6 @@ import type {
 } from './managers/KnowledgeManager.interface';
 import type {
   SchedulerManager,
-  ScheduledTask,
   TaskCreationOptions,
   TaskCreationResult,
   TaskExecutionResult
@@ -53,6 +51,10 @@ import type {
 import type { ThinkingResult } from '../../../services/thinking/types';
 import { ManagerType } from './managers/ManagerType';
 import { AgentMemoryEntity, AgentStatus } from '../../../server/memory/schema/agent';
+import { ModularSchedulerManager } from '../../../lib/scheduler/implementations/ModularSchedulerManager';
+import { Task, TaskStatus, TaskScheduleType } from '../../../lib/scheduler/models/Task.model';
+import { TaskDependency } from '../../../lib/scheduler/models/Task.model';
+import { ManagerHealth } from './managers/ManagerHealth';
 
 /**
  * Abstract implementation of the AgentBase interface
@@ -66,7 +68,7 @@ export abstract class AbstractAgentBase implements AgentBase {
   protected managers: Map<ManagerType, BaseManager> = new Map();
   
   /** Scheduler manager */
-  protected schedulerManager?: DefaultSchedulerManager;
+  protected schedulerManager?: ModularSchedulerManager;
   
   /**
    * Create a new agent instance
@@ -143,8 +145,8 @@ export abstract class AbstractAgentBase implements AgentBase {
     this.managers.set(managerType, manager);
     
     // Store specialized references for frequently used managers
-    if (managerType === ManagerType.SCHEDULER && manager instanceof DefaultSchedulerManager) {
-      this.schedulerManager = manager as DefaultSchedulerManager;
+    if (managerType === ManagerType.SCHEDULER && manager instanceof ModularSchedulerManager) {
+      this.schedulerManager = manager as ModularSchedulerManager;
     }
     
     return manager;
@@ -292,7 +294,7 @@ export abstract class AbstractAgentBase implements AgentBase {
   /**
    * Get the scheduler manager instance
    */
-  getSchedulerManager(): DefaultSchedulerManager | undefined {
+  getSchedulerManager(): ModularSchedulerManager | undefined {
     return this.schedulerManager;
   }
 
@@ -684,28 +686,27 @@ export abstract class AbstractAgentBase implements AgentBase {
   /**
    * Create a new task via the registered SchedulerManager
    */
-  async createTask(options: Record<string, unknown>): Promise<TaskCreationResult> {
+  async createTask(options: TaskCreationOptions): Promise<TaskCreationResult> {
     const schedulerManager = this.getManager<SchedulerManager>(ManagerType.SCHEDULER);
     if (!schedulerManager) throw new Error('SchedulerManager not registered');
     if (!schedulerManager.initialize) throw new Error('SchedulerManager not initialized');
-    return schedulerManager.createTask(options as unknown as TaskCreationOptions);
+    return schedulerManager.createTask(options);
   }
 
   /**
    * Get a task by ID via the registered SchedulerManager
    */
-  async getTask(taskId: string): Promise<Record<string, unknown> | null> {
+  async getTask(taskId: string): Promise<Task | null> {
     const schedulerManager = this.getManager<SchedulerManager>(ManagerType.SCHEDULER);
     if (!schedulerManager) throw new Error('SchedulerManager not registered');
     if (!schedulerManager.initialize) throw new Error('SchedulerManager not initialized');
-    const task = await schedulerManager.getTask(taskId);
-    return task ? { ...task } as Record<string, unknown> : null;
+    return schedulerManager.getTask(taskId);
   }
 
   /**
    * Get all tasks via the registered SchedulerManager
    */
-  async getAllTasks(): Promise<ScheduledTask[]> {
+  async getAllTasks(): Promise<Task[]> {
     const schedulerManager = this.getManager<SchedulerManager>(ManagerType.SCHEDULER);
     if (!schedulerManager) throw new Error('SchedulerManager not registered');
     if (!schedulerManager.initialize) throw new Error('SchedulerManager not initialized');
@@ -715,15 +716,15 @@ export abstract class AbstractAgentBase implements AgentBase {
   /**
    * Get tasks in a generic format
    */
-  async getTasks(): Promise<Record<string, unknown>[]> {
+  async getTasks(): Promise<Task[]> {
     const tasks = await this.getAllTasks();
-    return tasks.map(task => ({ ...task } as Record<string, unknown>));
+    return tasks;
   }
 
   /**
    * Update a task via the registered SchedulerManager
    */
-  async updateTask(taskId: string, updates: Partial<ScheduledTask>): Promise<ScheduledTask | null> {
+  async updateTask(taskId: string, updates: Partial<Task>): Promise<Task | null> {
     const schedulerManager = this.getManager<SchedulerManager>(ManagerType.SCHEDULER);
     if (!schedulerManager) throw new Error('SchedulerManager not registered');
     if (!schedulerManager.initialize) throw new Error('SchedulerManager not initialized');
@@ -734,21 +735,29 @@ export abstract class AbstractAgentBase implements AgentBase {
       return null;
     }
 
-    // Create updated task
+    // Create updated task by merging current task with updates
     const updatedTask = { ...task, ...updates };
     
-    // Cancel the current task
+    // If we're using a ModularSchedulerManager, we can use its updateTask method
+    if (this.schedulerManager instanceof ModularSchedulerManager) {
+      return this.schedulerManager.updateTask(updatedTask);
+    }
+    
+    // Fallback for other scheduler manager implementations
     await schedulerManager.cancelTask(taskId);
     
-    // Create a new task with the updates
+    // Create a new task with the updates, adapting to the Task structure
     const result = await schedulerManager.createTask({
-      title: updatedTask.title,
+      name: updatedTask.name,
       description: updatedTask.description,
-      type: updatedTask.type,
+      type: updates.metadata?.type as string,
       priority: updatedTask.priority,
-      dependencies: updatedTask.dependencies,
-      metadata: updatedTask.metadata
-    });
+      dependencies: updatedTask.dependencies?.map(dep => dep.taskId),
+      metadata: updatedTask.metadata,
+      handler: updatedTask.handler,
+      handlerArgs: updatedTask.handlerArgs,
+      scheduledTime: updatedTask.scheduledTime
+    } as TaskCreationOptions);
 
     return result.success ? result.task : null;
   }
@@ -786,7 +795,7 @@ export abstract class AbstractAgentBase implements AgentBase {
   /**
    * Get due tasks via the registered SchedulerManager
    */
-  async getDueTasks(): Promise<ScheduledTask[]> {
+  async getDueTasks(): Promise<Task[]> {
     const schedulerManager = this.getManager<SchedulerManager>(ManagerType.SCHEDULER);
     if (!schedulerManager) throw new Error('SchedulerManager not registered');
     if (!schedulerManager.initialize) throw new Error('SchedulerManager not initialized');
@@ -796,7 +805,7 @@ export abstract class AbstractAgentBase implements AgentBase {
   /**
    * Get running tasks via the registered SchedulerManager
    */
-  async getRunningTasks(): Promise<ScheduledTask[]> {
+  async getRunningTasks(): Promise<Task[]> {
     const schedulerManager = this.getManager<SchedulerManager>(ManagerType.SCHEDULER);
     if (!schedulerManager) throw new Error('SchedulerManager not registered');
     if (!schedulerManager.initialize) throw new Error('SchedulerManager not initialized');
@@ -806,7 +815,7 @@ export abstract class AbstractAgentBase implements AgentBase {
   /**
    * Get pending tasks via the registered SchedulerManager
    */
-  async getPendingTasks(): Promise<ScheduledTask[]> {
+  async getPendingTasks(): Promise<Task[]> {
     const schedulerManager = this.getManager<SchedulerManager>(ManagerType.SCHEDULER);
     if (!schedulerManager) throw new Error('SchedulerManager not registered');
     if (!schedulerManager.initialize) throw new Error('SchedulerManager not initialized');
@@ -816,7 +825,7 @@ export abstract class AbstractAgentBase implements AgentBase {
   /**
    * Get failed tasks via the registered SchedulerManager
    */
-  async getFailedTasks(): Promise<ScheduledTask[]> {
+  async getFailedTasks(): Promise<Task[]> {
     const schedulerManager = this.getManager<SchedulerManager>(ManagerType.SCHEDULER);
     if (!schedulerManager) throw new Error('SchedulerManager not registered');
     if (!schedulerManager.initialize) throw new Error('SchedulerManager not initialized');

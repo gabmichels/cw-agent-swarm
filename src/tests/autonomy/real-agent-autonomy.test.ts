@@ -116,9 +116,9 @@ describe('DefaultAgent Real Autonomy Test', () => {
       console.log('Mock reflection executing with options:', options);
       // Create a test task after reflection
       await agent.createTask({
-        title: "Follow-up task from reflection",
+        name: "Follow-up task from reflection",
         description: "This task was created by reflection",
-        type: "scheduled",
+        scheduleType: "scheduled",
         priority: 1,
         metadata: {
           scheduledTime: new Date(Date.now() + 60000), // 1 minute in the future
@@ -128,7 +128,7 @@ describe('DefaultAgent Real Autonomy Test', () => {
           },
           source: "reflection"
         }
-      });
+      } as any);
       
       // Use type assertion to avoid TypeScript errors
       return {
@@ -150,7 +150,7 @@ describe('DefaultAgent Real Autonomy Test', () => {
     
     // Monitor task creation without interfering
     const originalCreateTask = agent.createTask.bind(agent);
-    vi.spyOn(agent, 'createTask').mockImplementation(async (options: Record<string, unknown>) => {
+    vi.spyOn(agent, 'createTask').mockImplementation(async (options: any) => {
       const taskId = await originalCreateTask(options);
       console.log(`[REAL] Task created: ${JSON.stringify(options)} with ID: ${taskId}`);
       createdTasks.push(taskId);
@@ -250,9 +250,9 @@ describe('DefaultAgent Real Autonomy Test', () => {
     
     // Create a task that's due soon (real implementation)
     const taskId = await agent.createTask({
-      title: "Test due task",
+      name: "Test due task",
       description: "This task should be executed automatically",
-      type: "scheduled",
+      scheduleType: "scheduled",
       priority: 1,
       metadata: {
         scheduledTime: new Date(Date.now() + 500), // Due in 500ms
@@ -261,7 +261,7 @@ describe('DefaultAgent Real Autonomy Test', () => {
           message: "Auto-execute this scheduled task"
         }
       }
-    });
+    } as any);
     
     console.log(`Created test task with ID: ${taskId}`);
     

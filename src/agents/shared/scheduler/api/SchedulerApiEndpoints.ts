@@ -39,8 +39,10 @@ const createRouter = (): Router => {
   };
 };
 
-import { ScheduledTask, TaskCreationOptions, TaskBatch } from '../../../../lib/agents/base/managers/SchedulerManager';
-import { DefaultSchedulerManager } from '../../../../lib/agents/implementations/managers/DefaultSchedulerManager';
+import { Task, TaskStatus } from '../../../../lib/scheduler/models/Task.model';
+import { TaskCreationOptions } from '../../../../agents/shared/base/managers/SchedulerManager.interface';
+import { ModularSchedulerManager } from '../../../../lib/scheduler/implementations/ModularSchedulerManager';
+import { TaskFilter } from '../../../../lib/scheduler/models/TaskFilter.model';
 
 /**
  * Create and configure the scheduler API router
@@ -48,7 +50,7 @@ import { DefaultSchedulerManager } from '../../../../lib/agents/implementations/
  * @param schedulerManager The scheduler manager instance
  * @returns Configured Express router
  */
-export function createSchedulerApiRouter(schedulerManager: DefaultSchedulerManager): Router {
+export function createSchedulerApiRouter(schedulerManager: ModularSchedulerManager): Router {
   const router = createRouter();
   
   /**
@@ -88,18 +90,21 @@ export function createSchedulerApiRouter(schedulerManager: DefaultSchedulerManag
    * Create a new scheduled task
    */
   router.post('/tasks', asyncHandler(async (req, res) => {
-    const taskOptions: TaskCreationOptions = req.body;
-    const result = await schedulerManager.createTask(taskOptions);
+    const taskOptions: Partial<Task> = {
+      ...req.body,
+      status: TaskStatus.PENDING
+    };
     
-    if (result.success) {
+    try {
+      const task = await schedulerManager.createTask(taskOptions as Task);
       res.status(201).json({
         success: true,
-        task: result.task
+        task
       });
-    } else {
+    } catch (error) {
       res.status(400).json({
         success: false,
-        error: 'Failed to create task'
+        error: error instanceof Error ? error.message : 'Failed to create task'
       });
     }
   }));
@@ -112,64 +117,57 @@ export function createSchedulerApiRouter(schedulerManager: DefaultSchedulerManag
     const query = req.query;
     
     // Parse filtering options
-    const options: any = {};
+    const filter: TaskFilter = {};
     
     if (query.status) {
-      options.status = Array.isArray(query.status) 
-        ? query.status as ScheduledTask['status'][] 
-        : [query.status as ScheduledTask['status']];
+      filter.status = Array.isArray(query.status) 
+        ? query.status as TaskStatus[] 
+        : [query.status as TaskStatus];
     }
     
-    if (query.type) {
-      options.type = Array.isArray(query.type) 
-        ? query.type as string[] 
-        : [query.type as string];
+    if (query.type && typeof query.type === 'string') {
+      filter.metadata = {
+        ...filter.metadata,
+        type: query.type
+      };
     }
     
     if (query.priority) {
-      options.priority = Number(query.priority);
+      filter.priority = Number(query.priority);
     }
     
-    if (query.minPriority) {
-      options.minPriority = Number(query.minPriority);
-    }
-    
-    if (query.tags) {
-      options.tags = Array.isArray(query.tags) 
-        ? query.tags as string[] 
-        : [query.tags as string];
+    if (query.tags && typeof query.tags === 'string') {
+      filter.metadata = {
+        ...filter.metadata,
+        tags: Array.isArray(query.tags) 
+          ? query.tags
+          : [query.tags]
+      };
     }
     
     if (query.from) {
-      options.from = new Date(query.from as string);
+      filter.createdAfter = new Date(query.from as string);
     }
     
     if (query.to) {
-      options.to = new Date(query.to as string);
+      filter.createdBefore = new Date(query.to as string);
     }
     
-    if (query.limit) {
-      options.limit = Number(query.limit);
-    }
+    // These are not part of the filter but can be used for pagination
+    const limit = query.limit ? Number(query.limit) : undefined;
+    const offset = query.offset ? Number(query.offset) : undefined;
     
-    if (query.offset) {
-      options.offset = Number(query.offset);
-    }
+    const tasks = await schedulerManager.findTasks(filter);
     
-    if (query.sortBy) {
-      options.sortBy = query.sortBy as 'priority' | 'createdAt' | 'updatedAt';
-    }
-    
-    if (query.sortDirection) {
-      options.sortDirection = query.sortDirection as 'asc' | 'desc';
-    }
-    
-    const tasks = await schedulerManager.listTasks(options);
+    // Apply pagination manually if needed
+    const paginatedTasks = limit !== undefined && offset !== undefined
+      ? tasks.slice(offset, offset + limit)
+      : tasks;
     
     res.json({
       success: true,
-      count: tasks.length,
-      tasks
+      count: paginatedTasks.length,
+      tasks: paginatedTasks
     });
   }));
   
@@ -202,12 +200,29 @@ export function createSchedulerApiRouter(schedulerManager: DefaultSchedulerManag
     const { taskId } = req.params;
     const updates = req.body;
     
-    const updatedTask = await schedulerManager.updateTask(taskId, updates);
+    // Get the existing task first
+    const existingTask = await schedulerManager.getTask(taskId);
+    if (!existingTask) {
+      return res.status(404).json({
+        success: false,
+        error: 'Task not found'
+      });
+    }
     
-    if (updatedTask) {
+    // Create updated task by merging
+    const updatedTask = {
+      ...existingTask,
+      ...updates,
+      id: taskId // Ensure ID doesn't change
+    };
+    
+    // Update the task
+    const result = await schedulerManager.updateTask(updatedTask);
+    
+    if (result) {
       res.json({
         success: true,
-        task: updatedTask
+        task: result
       });
     } else {
       res.status(404).json({
@@ -244,9 +259,9 @@ export function createSchedulerApiRouter(schedulerManager: DefaultSchedulerManag
    */
   router.put('/tasks/:taskId/execute', asyncHandler(async (req, res) => {
     const { taskId } = req.params;
-    const result = await schedulerManager.executeTask(taskId);
+    const result = await schedulerManager.executeTaskNow(taskId);
     
-    if (result.success) {
+    if (result.successful) {
       const task = await schedulerManager.getTask(taskId);
       res.json({
         success: true,
@@ -255,7 +270,7 @@ export function createSchedulerApiRouter(schedulerManager: DefaultSchedulerManag
     } else {
       res.status(400).json({
         success: false,
-        error: result.error ?? 'Failed to execute task'
+        error: result.error ? result.error.message : 'Failed to execute task'
       });
     }
   }));
@@ -266,9 +281,9 @@ export function createSchedulerApiRouter(schedulerManager: DefaultSchedulerManag
    */
   router.post('/tasks/:taskId/cancel', asyncHandler(async (req, res) => {
     const { taskId } = req.params;
-    const cancelled = await schedulerManager.cancelTask(taskId);
+    const deleted = await schedulerManager.deleteTask(taskId);
     
-    if (cancelled) {
+    if (deleted) {
       res.json({
         success: true,
         message: 'Task cancelled'
@@ -287,18 +302,36 @@ export function createSchedulerApiRouter(schedulerManager: DefaultSchedulerManag
    */
   router.put('/tasks/:taskId/retry', asyncHandler(async (req, res) => {
     const { taskId } = req.params;
-    const result = await schedulerManager.retryTask(taskId);
     
-    if (result.success) {
-      const task = await schedulerManager.getTask(taskId);
+    // Get the task first to check if it's in a failed state
+    const task = await schedulerManager.getTask(taskId);
+    if (!task) {
+      return res.status(404).json({
+        success: false,
+        error: 'Task not found'
+      });
+    }
+    
+    if (task.status !== TaskStatus.FAILED) {
+      return res.status(400).json({
+        success: false,
+        error: 'Only failed tasks can be retried'
+      });
+    }
+    
+    // Execute the task again
+    const result = await schedulerManager.executeTaskNow(taskId);
+    
+    if (result.successful) {
+      const updatedTask = await schedulerManager.getTask(taskId);
       res.json({
         success: true,
-        task
+        task: updatedTask
       });
     } else {
       res.status(400).json({
         success: false,
-        error: result.error ?? 'Failed to retry task'
+        error: result.error ? result.error.message : 'Failed to retry task'
       });
     }
   }));
@@ -308,199 +341,22 @@ export function createSchedulerApiRouter(schedulerManager: DefaultSchedulerManag
    * Get tasks that are due for execution
    */
   router.get('/due-tasks', asyncHandler(async (req, res) => {
-    const tasks = await schedulerManager.getDueTasks();
+    // Find pending tasks that are scheduled for execution
+    const dueTasks = await schedulerManager.findTasks({
+      status: TaskStatus.PENDING,
+      // Use custom filtering for scheduledTime
+      // This is a workaround since scheduledBefore isn't part of TaskFilter
+    });
+    
+    // Filter tasks that are scheduled for execution and are due
+    const filteredDueTasks = dueTasks.filter(task => 
+      task.scheduledTime && task.scheduledTime <= new Date()
+    );
     
     res.json({
       success: true,
-      count: tasks.length,
-      tasks
-    });
-  }));
-  
-  /**
-   * POST /scheduler/batches
-   * Create a new task batch
-   */
-  router.post('/batches', asyncHandler(async (req, res) => {
-    const batchOptions = req.body;
-    const batch = await schedulerManager.createBatch(batchOptions);
-    
-    res.status(201).json({
-      success: true,
-      batch
-    });
-  }));
-  
-  /**
-   * GET /scheduler/batches
-   * List task batches
-   */
-  router.get('/batches', asyncHandler(async (req, res) => {
-    const query = req.query;
-    const options: any = {};
-    
-    // Parse filtering options
-    if (query.status) {
-      options.status = Array.isArray(query.status) 
-        ? query.status as TaskBatch['status'][] 
-        : [query.status as TaskBatch['status']];
-    }
-    
-    if (query.tags) {
-      options.tags = Array.isArray(query.tags) 
-        ? query.tags as string[] 
-        : [query.tags as string];
-    }
-    
-    if (query.from) {
-      options.from = new Date(query.from as string);
-    }
-    
-    if (query.to) {
-      options.to = new Date(query.to as string);
-    }
-    
-    if (query.limit) {
-      options.limit = Number(query.limit);
-    }
-    
-    if (query.offset) {
-      options.offset = Number(query.offset);
-    }
-    
-    const batches = await schedulerManager.listBatches(options);
-    
-    res.json({
-      success: true,
-      count: batches.length,
-      batches
-    });
-  }));
-  
-  /**
-   * GET /scheduler/batches/:batchId
-   * Get a specific batch
-   */
-  router.get('/batches/:batchId', asyncHandler(async (req, res) => {
-    const { batchId } = req.params;
-    const batch = await schedulerManager.getBatch(batchId);
-    
-    if (batch) {
-      res.json({
-        success: true,
-        batch
-      });
-    } else {
-      res.status(404).json({
-        success: false,
-        error: 'Batch not found'
-      });
-    }
-  }));
-  
-  /**
-   * POST /scheduler/batches/:batchId/cancel
-   * Cancel a batch
-   */
-  router.post('/batches/:batchId/cancel', asyncHandler(async (req, res) => {
-    const { batchId } = req.params;
-    const cancelled = await schedulerManager.cancelBatch(batchId);
-    
-    if (cancelled) {
-      res.json({
-        success: true,
-        message: 'Batch cancelled'
-      });
-    } else {
-      res.status(400).json({
-        success: false,
-        error: 'Batch could not be cancelled'
-      });
-    }
-  }));
-  
-  /**
-   * POST /scheduler/pause
-   * Pause the scheduler
-   */
-  router.post('/pause', asyncHandler(async (req, res) => {
-    const paused = await schedulerManager.pauseScheduler();
-    
-    res.json({
-      success: true,
-      paused
-    });
-  }));
-  
-  /**
-   * POST /scheduler/resume
-   * Resume the scheduler
-   */
-  router.post('/resume', asyncHandler(async (req, res) => {
-    const resumed = await schedulerManager.resumeScheduler();
-    
-    res.json({
-      success: true,
-      resumed
-    });
-  }));
-  
-  /**
-   * GET /scheduler/resource-utilization
-   * Get current resource utilization
-   */
-  router.get('/resource-utilization', asyncHandler(async (req, res) => {
-    const utilization = await schedulerManager.getResourceUtilization();
-    
-    res.json({
-      success: true,
-      utilization
-    });
-  }));
-  
-  /**
-   * GET /scheduler/resource-utilization/history
-   * Get resource utilization history
-   */
-  router.get('/resource-utilization/history', asyncHandler(async (req, res) => {
-    const query = req.query;
-    const options: any = {};
-    
-    if (query.from) {
-      options.from = new Date(query.from as string);
-    }
-    
-    if (query.to) {
-      options.to = new Date(query.to as string);
-    }
-    
-    if (query.interval) {
-      options.interval = query.interval as 'minute' | 'hour' | 'day';
-    }
-    
-    if (query.limit) {
-      options.limit = Number(query.limit);
-    }
-    
-    const history = await schedulerManager.getResourceUtilizationHistory(options);
-    
-    res.json({
-      success: true,
-      count: history.length,
-      history
-    });
-  }));
-  
-  /**
-   * POST /scheduler/resource-limits
-   * Set resource limits
-   */
-  router.post('/resource-limits', asyncHandler(async (req, res) => {
-    const limits = req.body;
-    const success = await schedulerManager.setResourceLimits(limits);
-    
-    res.json({
-      success
+      count: filteredDueTasks.length,
+      tasks: filteredDueTasks
     });
   }));
   
@@ -509,77 +365,11 @@ export function createSchedulerApiRouter(schedulerManager: DefaultSchedulerManag
    * Get scheduler metrics
    */
   router.get('/metrics', asyncHandler(async (req, res) => {
-    const query = req.query;
-    const options: any = {};
-    
-    if (query.from) {
-      options.from = new Date(query.from as string);
-    }
-    
-    if (query.to) {
-      options.to = new Date(query.to as string);
-    }
-    
-    if (query.includeResourceMetrics) {
-      options.includeResourceMetrics = query.includeResourceMetrics === 'true';
-    }
-    
-    if (query.includeBatchMetrics) {
-      options.includeBatchMetrics = query.includeBatchMetrics === 'true';
-    }
-    
-    const metrics = await schedulerManager.getMetrics(options);
+    const metrics = await schedulerManager.getMetrics();
     
     res.json({
       success: true,
       metrics
-    });
-  }));
-  
-  /**
-   * GET /scheduler/events
-   * Get scheduler events
-   */
-  router.get('/events', asyncHandler(async (req, res) => {
-    const query = req.query;
-    const options: any = {};
-    
-    if (query.types) {
-      options.types = Array.isArray(query.types) 
-        ? query.types as string[] 
-        : [query.types as string];
-    }
-    
-    if (query.from) {
-      options.from = new Date(query.from as string);
-    }
-    
-    if (query.to) {
-      options.to = new Date(query.to as string);
-    }
-    
-    if (query.taskId) {
-      options.taskId = query.taskId as string;
-    }
-    
-    if (query.batchId) {
-      options.batchId = query.batchId as string;
-    }
-    
-    if (query.limit) {
-      options.limit = Number(query.limit);
-    }
-    
-    if (query.offset) {
-      options.offset = Number(query.offset);
-    }
-    
-    const events = await schedulerManager.getEvents(options);
-    
-    res.json({
-      success: true,
-      count: events.length,
-      events
     });
   }));
   

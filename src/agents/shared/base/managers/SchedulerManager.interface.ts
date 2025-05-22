@@ -8,6 +8,11 @@
 
 import { BaseManager, ManagerConfig } from './BaseManager';
 import { ManagerType } from './ManagerType';
+import { Task, TaskStatus } from '../../../../lib/scheduler/models/Task.model';
+import { TaskFilter } from '../../../../lib/scheduler/models/TaskFilter.model';
+import { TaskExecutionResult } from '../../../../lib/scheduler/models/TaskExecutionResult.model';
+import { SchedulerConfig } from '../../../../lib/scheduler/models/SchedulerConfig.model';
+import { SchedulerMetrics } from '../../../../lib/scheduler/models/SchedulerMetrics.model';
 
 /**
  * Configuration options for scheduler managers
@@ -44,106 +49,6 @@ export interface SchedulerManagerConfig extends ManagerConfig {
 }
 
 /**
- * Status of a scheduled task
- */
-export type TaskStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled' | 'scheduled';
-
-/**
- * A task that can be scheduled and executed
- */
-export interface ScheduledTask {
-  /**
-   * Unique identifier for the task
-   */
-  id: string;
-
-  /**
-   * Title of the task
-   */
-  title: string;
-
-  /**
-   * Description of what the task does
-   */
-  description: string;
-
-  /**
-   * Type of task
-   */
-  type: string;
-
-  /**
-   * When the task was created
-   */
-  createdAt: Date;
-
-  /**
-   * When the task was last updated
-   */
-  updatedAt: Date;
-
-  /**
-   * Current status of the task
-   */
-  status: TaskStatus;
-
-  /**
-   * Priority of the task (0-1)
-   */
-  priority: number;
-
-  /**
-   * Number of retry attempts made
-   */
-  retryAttempts: number;
-
-  /**
-   * IDs of tasks that must complete before this one
-   */
-  dependencies: string[];
-
-  /**
-   * Additional task metadata
-   */
-  metadata: Record<string, unknown>;
-}
-
-/**
- * Options for creating a new task
- */
-export interface TaskCreationOptions {
-  /**
-   * Title of the task
-   */
-  title: string;
-
-  /**
-   * Description of what the task does
-   */
-  description: string;
-
-  /**
-   * Type of task
-   */
-  type: string;
-
-  /**
-   * Priority of the task (0-1)
-   */
-  priority?: number;
-
-  /**
-   * IDs of tasks that must complete before this one
-   */
-  dependencies?: string[];
-
-  /**
-   * Additional task metadata
-   */
-  metadata?: Record<string, unknown>;
-}
-
-/**
  * Result of creating a task
  */
 export interface TaskCreationResult {
@@ -155,32 +60,7 @@ export interface TaskCreationResult {
   /**
    * The created task if successful
    */
-  task: ScheduledTask;
-}
-
-/**
- * Result of executing a task
- */
-export interface TaskExecutionResult {
-  /**
-   * Whether the task executed successfully
-   */
-  success: boolean;
-
-  /**
-   * ID of the executed task
-   */
-  taskId: string;
-
-  /**
-   * Time taken to execute in milliseconds
-   */
-  durationMs?: number;
-
-  /**
-   * Error message if execution failed
-   */
-  error?: string;
+  task: Task;
 }
 
 /**
@@ -188,7 +68,7 @@ export interface TaskExecutionResult {
  */
 export interface TaskBatch {
   id: string;
-  tasks: ScheduledTask[];
+  tasks: Task[];
   status: 'pending' | 'in_progress' | 'completed' | 'failed';
   createdAt: Date;
   updatedAt: Date;
@@ -260,48 +140,60 @@ export interface SchedulerEvent {
   severity?: 'info' | 'warning' | 'error';
 }
 
+// Re-export Task type and related types for convenience
+export type { Task as ScheduledTask } from '../../../../lib/scheduler/models/Task.model';
+export type { TaskExecutionResult } from '../../../../lib/scheduler/models/TaskExecutionResult.model';
+export type { TaskFilter } from '../../../../lib/scheduler/models/TaskFilter.model';
+export type { SchedulerMetrics } from '../../../../lib/scheduler/models/SchedulerMetrics.model';
+
 /**
- * Scheduler metrics
+ * Task creation options - simplified version for agent usage
  */
-export interface SchedulerMetrics {
-  /** Time period for these metrics */
-  period: {
-    start: Date;
-    end: Date;
-  };
+export interface TaskCreationOptions {
+  /**
+   * Name of the task (required)
+   */
+  name: string;
+
+  /**
+   * Description of what the task does
+   */
+  description?: string;
+
+  /**
+   * Type of task (used for categorization)
+   */
+  type?: string;
+
+  /**
+   * Priority of the task (0-10, higher is more important)
+   */
+  priority?: number;
+
+  /**
+   * When to execute the task (specific time, natural language, or vague term)
+   */
+  scheduledTime?: Date | string;
+
+  /**
+   * IDs of tasks that must complete before this one
+   */
+  dependencies?: string[];
+
+  /**
+   * Function to execute (will be serialized or referenced)
+   */
+  handler?: (...args: unknown[]) => Promise<unknown>;
   
-  /** Task-related metrics */
-  taskMetrics?: {
-    totalTasks: number;
-    tasksCreated: number;
-    tasksCompleted: number;
-    tasksFailed: number;
-    successRate: number;
-    avgExecutionTime: number;
-    avgWaitTime: number;
-  };
-  
-  /** Batch-related metrics */
-  batchMetrics?: {
-    totalBatches: number;
-    batchesCompleted: number;
-    batchesFailed: number;
-    successRate: number;
-    avgCompletionTime: number;
-  };
-  
-  /** Resource utilization metrics */
-  resourceMetrics?: {
-    avgCpuUtilization: number;
-    peakCpuUtilization: number;
-    avgMemoryUsage: number;
-    peakMemoryUsage: number;
-    totalTokensConsumed: number;
-    totalApiCalls: number;
-  };
-  
-  /** Additional metrics */
-  [key: string]: unknown;
+  /**
+   * Arguments to pass to the handler
+   */
+  handlerArgs?: unknown[];
+
+  /**
+   * Additional task metadata
+   */
+  metadata?: Record<string, unknown>;
 }
 
 /**
@@ -316,12 +208,32 @@ export interface SchedulerManager extends BaseManager {
   /**
    * Get a task by ID
    */
-  getTask(taskId: string): Promise<ScheduledTask | null>;
+  getTask(taskId: string): Promise<Task | null>;
 
   /**
-   * Execute a task
+   * Find tasks matching a filter
+   */
+  findTasks(filter: TaskFilter): Promise<Task[]>;
+
+  /**
+   * Update an existing task
+   */
+  updateTask(task: Task): Promise<Task | null>;
+
+  /**
+   * Execute a task immediately
+   */
+  executeTaskNow(taskId: string): Promise<TaskExecutionResult>;
+
+  /**
+   * Execute a task (possibly according to schedule)
    */
   executeTask(taskId: string): Promise<TaskExecutionResult>;
+
+  /**
+   * Retry a failed task immediately
+   */
+  retryTaskNow(taskId: string): Promise<TaskExecutionResult>;
 
   /**
    * Retry a failed task
@@ -334,39 +246,49 @@ export interface SchedulerManager extends BaseManager {
   cancelTask(taskId: string): Promise<boolean>;
 
   /**
+   * Delete a task permanently
+   */
+  deleteTask(taskId: string): Promise<boolean>;
+
+  /**
    * Get all tasks
    */
-  getTasks(): Promise<ScheduledTask[]>;
+  getTasks(): Promise<Task[]>;
 
   /**
    * Get active tasks
    * @returns Promise resolving to active tasks
    */
-  getActiveTasks(): Promise<ScheduledTask[]>;
+  getActiveTasks(): Promise<Task[]>;
   
   /**
    * Get tasks that are due for execution
    * @returns Promise resolving to due tasks
    */
-  getDueTasks(): Promise<ScheduledTask[]>;
+  getDueTasks(): Promise<Task[]>;
   
   /**
    * Get tasks that are currently running
    * @returns Promise resolving to running tasks
    */
-  getRunningTasks(): Promise<ScheduledTask[]>;
+  getRunningTasks(): Promise<Task[]>;
   
   /**
    * Get tasks that are pending execution
    * @returns Promise resolving to pending tasks
    */
-  getPendingTasks(): Promise<ScheduledTask[]>;
+  getPendingTasks(): Promise<Task[]>;
   
   /**
    * Get tasks that have failed
    * @returns Promise resolving to failed tasks
    */
-  getFailedTasks(): Promise<ScheduledTask[]>;
+  getFailedTasks(): Promise<Task[]>;
+  
+  /**
+   * Get scheduler metrics
+   */
+  getMetrics(): Promise<SchedulerMetrics>;
   
   /**
    * Reset the manager state

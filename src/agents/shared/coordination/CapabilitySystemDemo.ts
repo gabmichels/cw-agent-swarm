@@ -14,7 +14,7 @@ import { CapabilityRegistry, CapabilityLevel } from './CapabilityRegistry';
 import { registerPredefinedCapabilities, SkillCapabilities, RoleCapabilities, DomainCapabilities } from './CapabilityDefinitions';
 import { BaseManager } from '../base/managers/BaseManager';
 import { ManagerType } from '../base/managers/ManagerType';
-import { DefaultSchedulerManager } from '../../../lib/agents/implementations/managers/DefaultSchedulerManager';
+import { ModularSchedulerManager } from '../../../lib/scheduler/implementations/ModularSchedulerManager';
 import { 
   TaskExecutionResult, 
   TaskCreationOptions, 
@@ -56,6 +56,7 @@ import {
   GetLLMResponseOptions 
 } from '../base/AgentBase.interface';
 import { ThinkingResult } from '../../../services/thinking/types';
+import { Task, TaskStatus, TaskScheduleType, createTask } from '../../../lib/scheduler/models/Task.model';
 
 /**
  * Example agent implementation with specialized capabilities
@@ -240,88 +241,108 @@ class SpecializedAgent implements AgentBase {
     return this.managers.has(type);
   }
 
-  async createTask(options: Record<string, unknown>): Promise<TaskCreationResult> {
-    const scheduler = this.getSchedulerManager();
-    if (!scheduler) {
+  async createTask(options: TaskCreationOptions): Promise<TaskCreationResult> {
+    const schedulerManager = this.getSchedulerManager();
+    if (!schedulerManager) {
       throw new Error('Scheduler manager not available');
     }
-
-    // Convert options to TaskCreationOptions
-    const taskOptions: TaskCreationOptions = {
-      title: String(options.title || 'Untitled Task'),
-      description: String(options.description || 'No description provided'),
-      type: String(options.type || 'default'),
-      priority: typeof options.priority === 'number' ? options.priority : 0.5,
-      dependencies: Array.isArray(options.dependencies) ? options.dependencies : undefined,
-      metadata: typeof options.metadata === 'object' ? options.metadata as Record<string, unknown> : undefined
+    
+    // Create a Task object from TaskCreationOptions
+    const task: Partial<Task> = {
+      name: options.name,
+      description: options.description,
+      handler: options.handler,
+      handlerArgs: options.handlerArgs,
+      priority: options.priority,
+      scheduleType: TaskScheduleType.EXPLICIT,
+      status: TaskStatus.PENDING,
+      metadata: {
+        ...options.metadata,
+        agentId: {
+          namespace: 'agent',
+          type: 'agent',
+          id: this.getAgentId()
+        }
+      }
     };
 
-    // Get the agent ID
-    const agentId = this.getAgentId();
-    
-    // Use createTaskForAgent if available, otherwise fall back to createTask
-    // Use type assertion to avoid TypeScript errors
-    const modernScheduler = scheduler as unknown as { createTaskForAgent?: (task: TaskCreationOptions, agentId: string) => Promise<TaskCreationResult> };
-    
-    if (typeof modernScheduler.createTaskForAgent === 'function') {
-      return modernScheduler.createTaskForAgent(taskOptions, agentId);
-    } else {
-      // Fall back to createTask but add agent ID to metadata
-      if (!taskOptions.metadata) {
-        taskOptions.metadata = {};
+    // Process scheduledTime correctly
+    if (options.scheduledTime) {
+      if (options.scheduledTime instanceof Date) {
+        task.scheduledTime = options.scheduledTime;
+      } else {
+        // Store as string for DateTimeProcessor to handle
+        task.scheduledTime = options.scheduledTime as any;
       }
-      
-      // Add agent ID to metadata
-      taskOptions.metadata.agentId = {
-        namespace: 'agent',
-        type: 'agent',
-        id: agentId
+    }
+    
+    try {
+      const createdTask = await schedulerManager.createTask(task as Task);
+      return {
+        success: true,
+        task: createdTask
       };
-      
-      return scheduler.createTask(taskOptions);
+    } catch (error) {
+      // Create a placeholder failed task for the error case
+      return {
+        success: false,
+        task: {
+          id: 'failed-task',
+          name: options.name || 'Failed Task',
+          description: options.description || `Task creation failed: ${error}`,
+          scheduleType: TaskScheduleType.EXPLICIT,
+          handler: async () => {},
+          status: TaskStatus.FAILED,
+          priority: options.priority || 0,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          dependencies: [],
+          metadata: {
+            error: String(error)
+          }
+        }
+      };
     }
   }
 
-  async getTask(taskId: string): Promise<Record<string, unknown> | null> {
-    const scheduler = this.getSchedulerManager();
-    if (!scheduler) {
+  async getTask(taskId: string): Promise<Task | null> {
+    const schedulerManager = this.getSchedulerManager();
+    if (!schedulerManager) {
       return null;
     }
-    const task = await scheduler.getTask(taskId);
-    return task ? { ...task } : null;
+    return schedulerManager.getTask(taskId);
   }
 
-  async getTasks(): Promise<Record<string, unknown>[]> {
-    const scheduler = this.getSchedulerManager();
-    if (!scheduler) {
+  async getTasks(): Promise<Task[]> {
+    const schedulerManager = this.getSchedulerManager();
+    if (!schedulerManager) {
       return [];
     }
-    const tasks = await scheduler.getTasks();
-    return tasks.map(task => ({ ...task }));
+    return schedulerManager.findTasks({});
   }
 
   async executeTask(taskId: string): Promise<TaskExecutionResult> {
-    const scheduler = this.getSchedulerManager();
-    if (!scheduler) {
+    const schedulerManager = this.getSchedulerManager();
+    if (!schedulerManager) {
       throw new Error('Scheduler manager not available');
     }
-    return scheduler.executeTask(taskId);
+    return schedulerManager.executeTaskNow(taskId);
   }
 
   async cancelTask(taskId: string): Promise<boolean> {
-    const scheduler = this.getSchedulerManager();
-    if (!scheduler) {
+    const schedulerManager = this.getSchedulerManager();
+    if (!schedulerManager) {
       throw new Error('Scheduler manager not available');
     }
-    return scheduler.cancelTask(taskId);
+    return schedulerManager.deleteTask(taskId);
   }
 
   async retryTask(taskId: string): Promise<TaskExecutionResult> {
-    const scheduler = this.getSchedulerManager();
-    if (!scheduler) {
+    const schedulerManager = this.getSchedulerManager();
+    if (!schedulerManager) {
       throw new Error('Scheduler manager not available');
     }
-    return scheduler.retryTask(taskId);
+    return schedulerManager.executeTaskNow(taskId);
   }
 
   getConfig(): Record<string, unknown> {
@@ -405,8 +426,8 @@ class SpecializedAgent implements AgentBase {
     };
   }
 
-  getSchedulerManager(): DefaultSchedulerManager | undefined {
-    return this.getManager(ManagerType.SCHEDULER) as DefaultSchedulerManager | undefined;
+  getSchedulerManager(): ModularSchedulerManager | undefined {
+    return this.getManager(ManagerType.SCHEDULER) as ModularSchedulerManager | undefined;
   }
 
   getToolManager(): ToolManager | undefined {
@@ -634,20 +655,31 @@ class SpecializedAgent implements AgentBase {
   }
 
   // Scheduler Manager delegations
-  async getAllTasks(): Promise<ScheduledTask[]> {
+  async getAllTasks(): Promise<Task[]> {
     const schedulerManager = this.getSchedulerManager();
     if (!schedulerManager) {
       return [];
     }
-    return schedulerManager.getAllTasks();
+    return schedulerManager.findTasks({});
   }
 
-  async updateTask(taskId: string, updates: Partial<ScheduledTask>): Promise<ScheduledTask | null> {
+  async updateTask(taskId: string, updates: Partial<Task>): Promise<Task | null> {
     const schedulerManager = this.getSchedulerManager();
     if (!schedulerManager) {
       throw new Error('Scheduler manager not available');
     }
-    return schedulerManager.updateTask(taskId, updates);
+    
+    const existingTask = await schedulerManager.getTask(taskId);
+    if (!existingTask) {
+      return null;
+    }
+    
+    const updatedTask: Task = {
+      ...existingTask,
+      ...updates
+    };
+    
+    return schedulerManager.updateTask(updatedTask);
   }
 
   async deleteTask(taskId: string): Promise<boolean> {
@@ -658,36 +690,36 @@ class SpecializedAgent implements AgentBase {
     return schedulerManager.deleteTask(taskId);
   }
 
-  async getDueTasks(): Promise<ScheduledTask[]> {
+  async getDueTasks(): Promise<Task[]> {
     const schedulerManager = this.getSchedulerManager();
     if (!schedulerManager) {
       return [];
     }
-    return schedulerManager.getDueTasks();
+    return schedulerManager.findTasks({ status: TaskStatus.PENDING });
   }
 
-  async getRunningTasks(): Promise<ScheduledTask[]> {
+  async getRunningTasks(): Promise<Task[]> {
     const schedulerManager = this.getSchedulerManager();
     if (!schedulerManager) {
       return [];
     }
-    return schedulerManager.getRunningTasks();
+    return schedulerManager.findTasks({ status: TaskStatus.RUNNING });
   }
 
-  async getPendingTasks(): Promise<ScheduledTask[]> {
+  async getPendingTasks(): Promise<Task[]> {
     const schedulerManager = this.getSchedulerManager();
     if (!schedulerManager) {
       return [];
     }
-    return schedulerManager.getPendingTasks();
+    return schedulerManager.findTasks({ status: TaskStatus.PENDING });
   }
 
-  async getFailedTasks(): Promise<ScheduledTask[]> {
+  async getFailedTasks(): Promise<Task[]> {
     const scheduler = this.getSchedulerManager();
     if (!scheduler) {
       return [];
     }
-    return scheduler.getFailedTasks();
+    return scheduler.findTasks({ status: TaskStatus.FAILED });
   }
 
   /**
@@ -798,9 +830,17 @@ class SpecializedAgent implements AgentBase {
     console.log(`[${this.getAgentId()}] Executing goal: ${goal}`);
     
     return {
-      success: true,
+      successful: true,
       taskId: 'demo-task',
-      durationMs: 0
+      status: TaskStatus.COMPLETED,
+      startTime: new Date(),
+      endTime: new Date(),
+      duration: 10,
+      result: {},
+      error: undefined,
+      wasRetry: false,
+      retryCount: 0,
+      metadata: {}
     };
   }
 }

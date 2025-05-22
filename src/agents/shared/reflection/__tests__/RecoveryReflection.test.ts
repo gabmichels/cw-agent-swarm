@@ -3,7 +3,9 @@ import { AgentBase } from "../..";
 import { ManagerType } from "../../base/managers/ManagerType";
 import { DefaultReflectionManager } from "../managers";
 import { BaseManager } from "../../base/managers/BaseManager";
-import { TaskCreationResult, TaskExecutionResult, ScheduledTask } from "../../base/managers/SchedulerManager.interface";
+import { TaskCreationResult, TaskCreationOptions } from "../../base/managers/SchedulerManager.interface";
+import { Task, TaskStatus, TaskScheduleType } from "../../../../lib/scheduler/models/Task.model";
+import { TaskExecutionResult } from "../../../../lib/scheduler/models/TaskExecutionResult.model";
 import { MemoryEntry } from "../../base/managers/MemoryManager.interface";
 import { AbstractAgentBase } from "../../base/AbstractAgentBase";
 import { AgentMemoryEntity, AgentCapability, AgentParameters, AgentMetadata, AgentStatus } from "../../../../server/memory/schema/agent";
@@ -63,7 +65,8 @@ class MockAgent extends AbstractAgentBase {
 
     super(config);
 
-    this.reflectionManager = new DefaultReflectionManager(this, {
+    // Initialize with a mock reflection manager
+    this.reflectionManager = new DefaultReflectionManager({} as AgentBase, {
       enabled: true,
       reflectionFrequency: {
         afterErrors: true,
@@ -113,20 +116,21 @@ class MockAgent extends AbstractAgentBase {
   async shutdown(): Promise<void> {}
   async reset(): Promise<void> {}
   
-  // Task-related methods
-  async createTask(options: Record<string, unknown>): Promise<TaskCreationResult> {
-    const task: ScheduledTask = {
+  // Task-related methods - override with compatible implementations
+  async createTask(options: TaskCreationOptions): Promise<TaskCreationResult> {
+    const now = new Date();
+    const task: Task = {
       id: 'mock-task',
-      title: 'Mock Task',
-      description: 'A mock task for testing',
-      type: 'test',
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      status: 'pending',
-      priority: 1,
-      retryAttempts: 0,
+      name: options.name || 'Mock Task',
+      description: options.description || 'A mock task for testing',
+      scheduleType: TaskScheduleType.EXPLICIT,
+      createdAt: now,
+      updatedAt: now,
+      status: TaskStatus.PENDING,
+      priority: options.priority || 1,
       dependencies: [],
-      metadata: {}
+      metadata: options.metadata || {},
+      handler: options.handler || (async () => { return true; })
     };
     
     return {
@@ -135,15 +139,34 @@ class MockAgent extends AbstractAgentBase {
     };
   }
   
-  async getTask(taskId: string): Promise<Record<string, unknown> | null> {
-    return null;
+  async getTask(taskId: string): Promise<Task | null> {
+    const task: Task = {
+      id: taskId,
+      name: 'Mock Task',
+      description: 'A mock task for testing',
+      scheduleType: TaskScheduleType.EXPLICIT,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      status: TaskStatus.PENDING,
+      priority: 1,
+      dependencies: [],
+      metadata: {},
+      handler: async () => { return true; }
+    };
+    return task;
   }
   
   async executeTask(taskId: string): Promise<TaskExecutionResult> {
     return {
-      success: true,
+      successful: true,
       taskId,
-      durationMs: 0
+      status: TaskStatus.COMPLETED,
+      startTime: new Date(),
+      endTime: new Date(),
+      duration: 0,
+      result: true,
+      wasRetry: false,
+      retryCount: 0
     };
   }
   
@@ -153,13 +176,19 @@ class MockAgent extends AbstractAgentBase {
   
   async retryTask(taskId: string): Promise<TaskExecutionResult> {
     return {
-      success: true,
+      successful: true,
       taskId,
-      durationMs: 0
+      status: TaskStatus.COMPLETED,
+      startTime: new Date(),
+      endTime: new Date(),
+      duration: 0,
+      result: true,
+      wasRetry: true,
+      retryCount: 1
     };
   }
   
-  async getTasks(): Promise<Record<string, unknown>[]> {
+  async getTasks(): Promise<Task[]> {
     return [];
   }
   
@@ -248,8 +277,11 @@ describe('RecoveryReflection', () => {
         success: true,
         action: {
           type: 'retry',
-          description: 'Retried task execution'
-        }
+          parameters: {
+            delay: 1000
+          }
+        },
+        reasoning: ['Error appeared transient', 'Retrying with delay']
       };
 
       // Trigger reflection through private method

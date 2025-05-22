@@ -36,7 +36,12 @@ export interface TaskFilter {
   scheduleType?: TaskScheduleType | TaskScheduleType[];
   
   /**
-   * Filter by minimum priority
+   * Filter by priority level
+   */
+  priority?: number;
+  
+  /**
+   * Filter by minimum priority level
    */
   minPriority?: number;
   
@@ -120,6 +125,26 @@ export interface TaskFilter {
   };
   
   /**
+   * Filter by tasks created after a specific time
+   */
+  createdAfter?: Date;
+  
+  /**
+   * Filter by tasks created before a specific time
+   */
+  createdBefore?: Date;
+  
+  /**
+   * Filter by tasks scheduled after a specific time
+   */
+  scheduledAfter?: Date;
+  
+  /**
+   * Filter by tasks scheduled before a specific time
+   */
+  scheduledBefore?: Date;
+  
+  /**
    * Limit the number of results
    */
   limit?: number;
@@ -130,9 +155,9 @@ export interface TaskFilter {
   offset?: number;
   
   /**
-   * Sort results by field
+   * Optional sorting criteria
    */
-  sortBy?: 'priority' | 'createdAt' | 'scheduledTime' | 'lastExecutedAt';
+  sortBy?: string;
   
   /**
    * Sort direction

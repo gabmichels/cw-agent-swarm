@@ -1,5 +1,5 @@
 import type { AgentStatus, AgentBaseConfig, AgentCapability } from './types';
-import type { DefaultSchedulerManager } from '../../../lib/agents/implementations/managers/DefaultSchedulerManager';
+import type { ModularSchedulerManager } from '../../../lib/scheduler/implementations/ModularSchedulerManager';
 import type { ManagersConfig } from './ManagersConfig.interface';
 import type { BaseManager } from './managers/BaseManager';
 import type { 
@@ -25,11 +25,11 @@ import type {
 } from './managers/KnowledgeManager.interface';
 import type {
   SchedulerManager,
-  ScheduledTask,
   TaskCreationOptions,
   TaskCreationResult,
   TaskExecutionResult
 } from './managers/SchedulerManager.interface';
+import type { Task } from '../../../lib/scheduler/models/Task.model';
 import { ManagerType } from './managers/ManagerType';
 
 // Import ThinkingService related types
@@ -113,9 +113,9 @@ export interface AgentBase {
   setManager<T extends BaseManager>(manager: T): void;
   removeManager(type: ManagerType): void;
   hasManager(type: ManagerType): boolean;
-  createTask(options: Record<string, unknown>): Promise<TaskCreationResult>;
-  getTask(taskId: string): Promise<Record<string, unknown> | null>;
-  getTasks(): Promise<Record<string, unknown>[]>;
+  createTask(options: TaskCreationOptions): Promise<TaskCreationResult>;
+  getTask(taskId: string): Promise<Task | null>;
+  getTasks(): Promise<Task[]>;
   executeTask(taskId: string): Promise<TaskExecutionResult>;
   cancelTask(taskId: string): Promise<boolean>;
   retryTask(taskId: string): Promise<TaskExecutionResult>;
@@ -134,7 +134,7 @@ export interface AgentBase {
       message?: string;
     }>;
   }>;
-  getSchedulerManager(): DefaultSchedulerManager | undefined;
+  getSchedulerManager(): ModularSchedulerManager | undefined;
   initializeManagers(): Promise<void>;
   shutdownManagers(): Promise<void>;
   
@@ -179,13 +179,13 @@ export interface AgentBase {
   getKnowledgeGap(id: string): Promise<KnowledgeGap | null>;
   
   // Scheduler Manager delegations
-  getAllTasks(): Promise<ScheduledTask[]>;
-  updateTask(taskId: string, updates: Partial<ScheduledTask>): Promise<ScheduledTask | null>;
+  getAllTasks(): Promise<Task[]>;
+  updateTask(taskId: string, updates: Partial<Task>): Promise<Task | null>;
   deleteTask(taskId: string): Promise<boolean>;
-  getDueTasks(): Promise<ScheduledTask[]>;
-  getRunningTasks(): Promise<ScheduledTask[]>;
-  getPendingTasks(): Promise<ScheduledTask[]>;
-  getFailedTasks(): Promise<ScheduledTask[]>;
+  getDueTasks(): Promise<Task[]>;
+  getRunningTasks(): Promise<Task[]>;
+  getPendingTasks(): Promise<Task[]>;
+  getFailedTasks(): Promise<Task[]>;
 
   // New agent message processing methods
   /**

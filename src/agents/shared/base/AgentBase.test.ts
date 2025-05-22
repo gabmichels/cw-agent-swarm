@@ -10,8 +10,8 @@ import { ManagerType } from './managers/ManagerType';
 import { Tool } from './managers/ToolManager.interface';
 import { TaskExecutionResult, TaskCreationResult } from './managers/SchedulerManager.interface';
 import { AgentCapability } from './types';
-import { DefaultSchedulerManager } from '../../../lib/agents/implementations/managers/DefaultSchedulerManager';
-import { ScheduledTask } from './managers/SchedulerManager.interface';
+import { ModularSchedulerManager } from '../../../lib/scheduler/implementations/ModularSchedulerManager';
+import { Task, TaskStatus, TaskScheduleType } from '../../../lib/scheduler/models/Task.model';
 import { ManagerHealth } from './managers/ManagerHealth';
 import type { ThinkingResult } from '../../../services/thinking/types';
 
@@ -54,24 +54,33 @@ const mockAgent: AgentBase = {
     version: '1.0.0',
     execute: async () => ({}) 
   }),
-  getManager: () => null,
-  getManagers: () => [],
-  setManager: () => {},
-  removeManager: () => {},
-  hasManager: () => false,
+  getManager: function<T extends BaseManager>(type: ManagerType): T | null {
+    return null;
+  },
+  getManagers: function(): BaseManager[] {
+    return [];
+  },
+  setManager: function<T extends BaseManager>(manager: T): void {
+    // Implementation needed
+  },
+  removeManager: function(type: ManagerType): void {
+    // Implementation needed
+  },
+  hasManager: function(managerType: ManagerType): boolean {
+    return false;
+  },
   createTask: async () => ({ 
     success: true, 
-    taskId: 'mock-task',
     task: {
       id: 'mock-task',
-      title: 'Mock Task',
+      name: 'Mock Task',
       description: 'A mock task for testing',
-      type: 'test',
+      scheduleType: TaskScheduleType.EXPLICIT,
+      handler: async () => {},
+      status: TaskStatus.PENDING,
+      priority: 5,
       createdAt: new Date(),
       updatedAt: new Date(),
-      status: 'pending',
-      priority: 0,
-      retryAttempts: 0,
       dependencies: [],
       metadata: {}
     }
@@ -79,15 +88,31 @@ const mockAgent: AgentBase = {
   getTask: async () => null,
   getTasks: async () => [],
   executeTask: async () => ({ 
-    success: true, 
+    successful: true, 
     taskId: 'mock-task',
-    durationMs: 0
+    status: TaskStatus.COMPLETED,
+    startTime: new Date(),
+    endTime: new Date(),
+    duration: 10,
+    result: {},
+    error: undefined,
+    wasRetry: false,
+    retryCount: 0,
+    metadata: {}
   }),
   cancelTask: async () => true,
   retryTask: async () => ({ 
-    success: true, 
+    successful: true, 
     taskId: 'mock-task',
-    durationMs: 0
+    status: TaskStatus.COMPLETED,
+    startTime: new Date(),
+    endTime: new Date(),
+    duration: 10,
+    result: {},
+    error: undefined,
+    wasRetry: true,
+    retryCount: 1,
+    metadata: {}
   }),
   getConfig: () => mockConfig,
   updateConfig: () => {},
@@ -281,9 +306,32 @@ describe('AgentBase', () => {
   let agent: AgentBase;
   let managerA: MockManager;
   let managerB: MockManager;
+  let managers: Map<ManagerType, BaseManager>;
 
   beforeEach(() => {
-    agent = { ...mockAgent };
+    // Create a fresh managers map for each test
+    managers = new Map<ManagerType, BaseManager>();
+    
+    // Create mock agent with working manager methods
+    agent = { 
+      ...mockAgent,
+      getManager: function<T extends BaseManager>(type: ManagerType): T | null {
+        return (managers.get(type) as T) || null;
+      },
+      getManagers: function(): BaseManager[] {
+        return Array.from(managers.values());
+      },
+      setManager: function<T extends BaseManager>(manager: T): void {
+        managers.set(manager.managerType, manager);
+      },
+      removeManager: function(type: ManagerType): void {
+        managers.delete(type);
+      },
+      hasManager: function(managerType: ManagerType): boolean {
+        return managers.has(managerType);
+      }
+    };
+    
     managerA = new MockManager(ManagerType.MEMORY, agent);
     managerB = new MockManager(ManagerType.PLANNING, agent);
   });

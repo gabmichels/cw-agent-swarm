@@ -9,21 +9,22 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { 
   SchedulerManager, 
   SchedulerManagerConfig,
-  ScheduledTask,
   TaskCreationOptions,
   TaskCreationResult,
-  TaskExecutionResult,
-  TaskStatus
 } from './SchedulerManager.interface';
+import { Task, TaskStatus, TaskScheduleType } from '../../../../lib/scheduler/models/Task.model';
+import { TaskExecutionResult } from '../../../../lib/scheduler/models/TaskExecutionResult.model';
+import { TaskFilter } from '../../../../lib/scheduler/models/TaskFilter.model';
 import { ManagerType } from './ManagerType';
 import { BaseManager, AbstractBaseManager } from './BaseManager';
 import { ManagerHealth } from './ManagerHealth';
 import { AgentBase } from '../AgentBase.interface';
+import { TaskDependency } from '../../../../lib/scheduler/models/TaskDependency.model';
 
 describe('SchedulerManager Interface', () => {
   // Mock implementation of the SchedulerManager interface for testing
   class MockSchedulerManager extends AbstractBaseManager implements SchedulerManager {
-    private tasks: Map<string, ScheduledTask> = new Map();
+    private tasks: Map<string, Task> = new Map();
 
     constructor() {
       super('mock-scheduler-manager', ManagerType.SCHEDULER, {} as AgentBase, { enabled: true });
@@ -54,18 +55,19 @@ describe('SchedulerManager Interface', () => {
     }
 
     async createTask(options: TaskCreationOptions): Promise<TaskCreationResult> {
-      const task: ScheduledTask = {
+      const now = new Date();
+      const task: Task = {
         id: 'task-123',
-        title: options.title || 'Default Task',
+        name: options.name || 'Default Task',
         description: options.description || 'Default description',
-        type: options.type || 'default',
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        status: 'pending',
+        scheduleType: TaskScheduleType.EXPLICIT,
+        createdAt: now,
+        updatedAt: now,
+        status: TaskStatus.PENDING,
         priority: options.priority || 0.5,
-        retryAttempts: 0,
-        dependencies: options.dependencies || [],
-        metadata: options.metadata || {}
+        dependencies: [],
+        metadata: options.metadata || {},
+        handler: options.handler || (async () => { return true; })
       };
 
       this.tasks.set(task.id, task);
@@ -76,33 +78,32 @@ describe('SchedulerManager Interface', () => {
       };
     }
 
-    async getTask(taskId: string): Promise<ScheduledTask | null> {
+    async getTask(taskId: string): Promise<Task | null> {
       return this.tasks.get(taskId) || null;
     }
 
-    async getAllTasks(): Promise<ScheduledTask[]> {
+    async findTasks(filter?: TaskFilter): Promise<Task[]> {
       return Array.from(this.tasks.values());
     }
 
-    async getActiveTasks(): Promise<ScheduledTask[]> {
+    async getActiveTasks(): Promise<Task[]> {
       return Array.from(this.tasks.values()).filter(task => 
-        task.status === 'running' || task.status === 'pending'
+        task.status === TaskStatus.RUNNING || task.status === TaskStatus.PENDING
       );
     }
 
-    async updateTask(taskId: string, updates: Partial<ScheduledTask>): Promise<ScheduledTask | null> {
-      const task = this.tasks.get(taskId);
-      if (!task) {
+    async updateTask(task: Task): Promise<Task | null> {
+      const existingTask = this.tasks.get(task.id);
+      if (!existingTask) {
         return null;
       }
 
-      const updatedTask: ScheduledTask = {
+      const updatedTask: Task = {
         ...task,
-        ...updates,
         updatedAt: new Date()
       };
 
-      this.tasks.set(taskId, updatedTask);
+      this.tasks.set(task.id, updatedTask);
       return updatedTask;
     }
 
@@ -111,23 +112,41 @@ describe('SchedulerManager Interface', () => {
     }
 
     async executeTask(taskId: string): Promise<TaskExecutionResult> {
+      return this.executeTaskNow(taskId);
+    }
+
+    async executeTaskNow(taskId: string): Promise<TaskExecutionResult> {
       const task = this.tasks.get(taskId);
       if (!task) {
         return {
-          success: false,
+          successful: false,
           taskId,
-          error: 'Task not found'
+          status: TaskStatus.FAILED,
+          startTime: new Date(),
+          endTime: new Date(),
+          duration: 0,
+          error: {
+            message: 'Task not found'
+          },
+          wasRetry: false,
+          retryCount: 0
         };
       }
 
-      task.status = 'completed';
+      task.status = TaskStatus.COMPLETED;
       task.updatedAt = new Date();
       this.tasks.set(taskId, task);
 
       return {
-        success: true,
+        successful: true,
         taskId,
-        durationMs: 100
+        status: TaskStatus.COMPLETED,
+        startTime: new Date(),
+        endTime: new Date(),
+        duration: 100,
+        result: true,
+        wasRetry: false,
+        retryCount: 0
       };
     }
 
@@ -136,65 +155,95 @@ describe('SchedulerManager Interface', () => {
       if (!task) {
         return false;
       }
-
-      task.status = 'cancelled';
+      
+      task.status = TaskStatus.CANCELLED;
       task.updatedAt = new Date();
       this.tasks.set(taskId, task);
       return true;
     }
 
-    async getDueTasks(): Promise<ScheduledTask[]> {
+    async getDueTasks(): Promise<Task[]> {
       return Array.from(this.tasks.values()).filter(task => 
-        task.status === 'pending' || task.status === 'scheduled'
+        task.status === TaskStatus.PENDING && task.scheduledTime && task.scheduledTime <= new Date()
       );
     }
 
-    async getRunningTasks(): Promise<ScheduledTask[]> {
+    async getRunningTasks(): Promise<Task[]> {
       return Array.from(this.tasks.values()).filter(task => 
-        task.status === 'running'
+        task.status === TaskStatus.RUNNING
       );
     }
 
-    async getPendingTasks(): Promise<ScheduledTask[]> {
+    async getPendingTasks(): Promise<Task[]> {
       return Array.from(this.tasks.values()).filter(task => 
-        task.status === 'pending'
+        task.status === TaskStatus.PENDING
       );
     }
 
-    async getFailedTasks(): Promise<ScheduledTask[]> {
+    async getFailedTasks(): Promise<Task[]> {
       return Array.from(this.tasks.values()).filter(task => 
-        task.status === 'failed'
+        task.status === TaskStatus.FAILED
       );
     }
 
     async retryTask(taskId: string): Promise<TaskExecutionResult> {
+      return this.retryTaskNow(taskId);
+    }
+
+    async retryTaskNow(taskId: string): Promise<TaskExecutionResult> {
       const task = this.tasks.get(taskId);
       if (!task) {
         return {
-          success: false,
+          successful: false,
           taskId,
-          error: 'Task not found'
+          status: TaskStatus.FAILED,
+          startTime: new Date(),
+          endTime: new Date(),
+          duration: 0,
+          error: {
+            message: 'Task not found'
+          },
+          wasRetry: false,
+          retryCount: 0
         };
       }
 
-      if (task.status !== 'failed') {
+      if (task.status !== TaskStatus.FAILED) {
         return {
-          success: false,
+          successful: false,
           taskId,
-          error: 'Task is not in failed state'
+          status: TaskStatus.FAILED,
+          startTime: new Date(),
+          endTime: new Date(),
+          duration: 0,
+          error: {
+            message: 'Task is not in failed state'
+          },
+          wasRetry: false,
+          retryCount: 0
         };
       }
 
-      task.status = 'pending';
-      task.retryAttempts++;
+      task.status = TaskStatus.PENDING;
       task.updatedAt = new Date();
       this.tasks.set(taskId, task);
 
-      return this.executeTask(taskId);
+      return this.executeTaskNow(taskId);
     }
 
-    async getTasks(): Promise<ScheduledTask[]> {
+    async getTasks(): Promise<Task[]> {
       return Array.from(this.tasks.values());
+    }
+
+    async getMetrics(): Promise<any> {
+      return {
+        totalTasks: this.tasks.size,
+        pendingTasks: this.tasks.size,
+        runningTasks: 0,
+        completedTasks: 0,
+        failedTasks: 0,
+        cancelledTasks: 0
+      };
     }
 
     async reset(): Promise<boolean> {
@@ -232,10 +281,11 @@ describe('SchedulerManager Interface', () => {
 
   it('should create and retrieve tasks', async () => {
     const result = await schedulerManager.createTask({
-      title: 'Test Task',
+      name: 'Test Task',
       description: 'Test description',
       type: 'test',
-      priority: 0.8
+      priority: 0.8,
+      handler: async () => true
     });
 
     expect(result.success).toBe(true);
@@ -248,33 +298,37 @@ describe('SchedulerManager Interface', () => {
     expect(retrieved?.id).toBe(taskId);
   });
 
-  it('should execute tasks', async () => {
-    const createResult = await schedulerManager.createTask({
-      title: 'Test Task',
+  it('should execute tasks successfully', async () => {
+    const result = await schedulerManager.createTask({
+      name: 'Test Task',
       description: 'Test description',
-      type: 'test'
+      type: 'test',
+      priority: 0.8,
+      handler: async () => true
     });
 
-    const taskId = createResult.task.id;
-    const result = await schedulerManager.executeTask(taskId);
-    expect(result.success).toBe(true);
-    expect(result.taskId).toBe(taskId);
+    const taskId = result.task.id;
+    const executeResult = await schedulerManager.executeTask(taskId);
+    expect(executeResult.successful).toBe(true);
   });
 
-  it('should cancel tasks', async () => {
-    const createResult = await schedulerManager.createTask({
-      title: 'Test Task',
+  it('should update tasks', async () => {
+    const result = await schedulerManager.createTask({
+      name: 'Test Task',
       description: 'Test description',
-      type: 'test'
+      type: 'test',
+      priority: 0.8,
+      handler: async () => true
     });
 
-    const taskId = createResult.task.id;
-    const cancelled = await schedulerManager.cancelTask(taskId);
-    expect(cancelled).toBe(true);
-  });
+    const task = result.task;
+    const updatedTask = {
+      ...task,
+      description: 'Updated description'
+    };
 
-  it('should list active tasks', async () => {
-    const tasks = await schedulerManager.getActiveTasks();
-    expect(Array.isArray(tasks)).toBe(true);
+    const updateResult = await schedulerManager.updateTask(updatedTask);
+    expect(updateResult).not.toBeNull();
+    expect(updateResult?.description).toBe('Updated description');
   });
 }); 

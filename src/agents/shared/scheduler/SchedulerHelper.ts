@@ -8,6 +8,7 @@
 import { ManagerType } from '../base/managers/ManagerType';
 import type { DefaultAgent } from '../DefaultAgent';
 import type { ScheduledTask } from '../base/managers/SchedulerManager.interface';
+import { Task, TaskStatus } from '../../../lib/scheduler/models/Task.model';
 
 /**
  * Scheduler Helper Class
@@ -134,9 +135,9 @@ export class SchedulerHelper {
       
       // Filter for pending tasks with due scheduledTime
       const now = new Date();
-      const dueTasks = tasks.filter((task: ScheduledTask) => {
+      const dueTasks = tasks.filter((task: Task) => {
         // Check if task is pending
-        if (task.status !== 'pending') {
+        if (task.status !== TaskStatus.PENDING) {
           return false;
         }
         
@@ -176,7 +177,7 @@ export class SchedulerHelper {
    * @param task - The task to execute
    * @returns Whether the task was executed successfully
    */
-  public static async executeDueTask(agent: DefaultAgent, task: ScheduledTask): Promise<boolean> {
+  public static async executeDueTask(agent: DefaultAgent, task: Task): Promise<boolean> {
     try {
       // Check if the task has an action and parameters
       const action = task.metadata?.action;
@@ -202,12 +203,21 @@ export class SchedulerHelper {
         // Update task status if possible
         const schedulerManager = agent.getManager(ManagerType.SCHEDULER);
         if (schedulerManager && 'updateTask' in schedulerManager) {
-          const updateMethod = schedulerManager.updateTask as (id: string, updates: Partial<ScheduledTask>) => Promise<unknown>;
-          await updateMethod(task.id, {
-            status: 'completed',
-            updatedAt: new Date()
-          });
-          console.log(`[SchedulerHelper] Task ${task.id} marked as completed`);
+          const updateMethod = schedulerManager.updateTask as (task: Task) => Promise<unknown>;
+          
+          // Get the existing task first
+          const existingTask = await (schedulerManager as any).getTask(task.id);
+          if (existingTask) {
+            // Create updated task
+            const updatedTask = {
+              ...existingTask,
+              status: TaskStatus.COMPLETED,
+              updatedAt: new Date()
+            };
+            
+            await updateMethod(updatedTask);
+            console.log(`[SchedulerHelper] Task ${task.id} marked as completed`);
+          }
         }
         
         return true;

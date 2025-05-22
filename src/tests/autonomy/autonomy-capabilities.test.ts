@@ -259,21 +259,21 @@ describe('DefaultAgent Autonomy Capabilities', () => {
         // Mock the getTask method to return a valid task
         (agent.getTask as any) = vi.fn().mockResolvedValue({
           id: 'task-123',
-          title: 'Test Task',
+          name: 'Test Task',
           description: 'This is a test task for autonomy testing',
-          type: 'test',
+          scheduleType: 'test',
           status: 'pending',
-          created_at: new Date(),
-          updated_at: new Date(),
+          createdAt: new Date(),
+          updatedAt: new Date(),
           priority: 1
         });
         
         // Create a test task
         const taskResult = await agent.createTask({
-          title: "Test Task",
+          name: "Test Task",
           description: "This is a test task for autonomy testing",
-          type: "test"
-        });
+          scheduleType: "test"
+        } as any);
         
         // Handle different possible return types
         const taskId = typeof taskResult === 'string' ? taskResult : (taskResult as any).id;

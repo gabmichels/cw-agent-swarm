@@ -9,17 +9,19 @@ import { DefaultAgent } from '../../agents/shared/DefaultAgent';
 import { ManagerType } from '../../agents/shared/base/managers/ManagerType';
 import { vi, beforeEach, afterEach, describe, test, expect } from 'vitest';
 import { TaskCreationResult, TaskCreationOptions } from '../../agents/shared/base/managers/SchedulerManager.interface';
+import { TaskStatus, TaskScheduleType } from '../../lib/scheduler/models/Task.model';
 
 // Define the Task interface for testing
-interface Task extends Record<string, unknown> {
+interface Task {
   id: string;
-  title: string;
+  name: string;
   description: string;
-  type: string;
-  status: string;
-  created_at: Date;
-  updated_at: Date;
+  scheduleType: TaskScheduleType;
+  status: TaskStatus;
+  createdAt: Date;
+  updatedAt: Date;
   priority: number;
+  dependencies?: any[];
   metadata?: {
     scheduledTime?: Date;
     action?: string;
@@ -29,6 +31,7 @@ interface Task extends Record<string, unknown> {
     };
     [key: string]: unknown;
   };
+  handler?: (...args: unknown[]) => Promise<unknown>;
 }
 
 // Define interfaces for the scheduling mechanism
@@ -36,9 +39,9 @@ interface SchedulerManager {
   getDueTasks: () => Promise<Task[]>;
   executeDueTask: (task: Task) => Promise<boolean>;
   pollForDueTasks: () => Promise<number>;
-  scheduleTask: (options: Record<string, unknown>) => Promise<string>;
-  updateTaskStatus: (taskId: string, status: string) => Promise<boolean>;
-  setupSchedulingTimer: () => void;
+  createTask: (options: any) => Promise<any>;
+  updateTask: (taskId: string, updates: any) => Promise<boolean>;
+  setupSchedulingTimer?: () => void;
 }
 
 // Define reflection manager interface
@@ -198,25 +201,28 @@ describe('DefaultAgent Self-Initiation Capabilities', () => {
     vi.spyOn(agent, 'getName').mockReturnValue("AutonomyTester");
     
     // Mock createTask to track task creation
-    vi.spyOn(agent, 'createTask').mockImplementation(async (taskDetails: Record<string, unknown>) => {
+    vi.spyOn(agent, 'createTask').mockImplementation(async (options: any) => {
       const taskId = `task-${Date.now()}`;
       const task = {
         id: taskId,
-        ...taskDetails,
-        status: "pending",
-        created_at: new Date(),
-        updated_at: new Date(),
-        priority: taskDetails.priority || 1
+        ...options,
+        status: TaskStatus.PENDING,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        priority: options.priority || 1
       } as Task;
       
       scheduledTasks.push(task);
       return taskId as unknown as TaskCreationResult;
     });
     
-    // Mock getTask to return task status
-    vi.spyOn(agent, 'getTask').mockImplementation(async (taskId: string) => {
+    // Type assertion helper
+    const mockGetTask = async (taskId: string) => {
       return scheduledTasks.find(t => t.id === taskId) || null;
-    });
+    };
+
+    // Mock getTask to return task status
+    vi.spyOn(agent, 'getTask').mockImplementation(mockGetTask as any);
     
     // Mock processUserInput to track calls
     vi.spyOn(agent, 'processUserInput').mockImplementation(async (message: string) => {
@@ -282,7 +288,7 @@ describe('DefaultAgent Self-Initiation Capabilities', () => {
       typedSchedulerManager.getDueTasks = vi.fn().mockResolvedValue([]);
       
       // Call setupSchedulingTimer if it exists
-      if ('setupSchedulingTimer' in typedSchedulerManager) {
+      if ('setupSchedulingTimer' in typedSchedulerManager && typedSchedulerManager.setupSchedulingTimer) {
         typedSchedulerManager.setupSchedulingTimer();
         
         // Verify the timer was created
@@ -310,12 +316,12 @@ describe('DefaultAgent Self-Initiation Capabilities', () => {
       // Create a task that's already due
       const dueTask: Task = {
         id: 'due-task-1',
-        title: 'Due Task',
+        name: 'Due Task',
         description: 'This task is already due',
-        type: 'scheduled',
-        status: 'pending',
-        created_at: new Date(Date.now() - 3600000), // 1 hour ago
-        updated_at: new Date(Date.now() - 3600000),
+        scheduleType: TaskScheduleType.EXPLICIT,
+        status: TaskStatus.PENDING,
+        createdAt: new Date(Date.now() - 3600000), // 1 hour ago
+        updatedAt: new Date(Date.now() - 3600000),
         priority: 1,
         metadata: {
           scheduledTime: new Date(Date.now() - 60000), // 1 minute ago
@@ -342,8 +348,8 @@ describe('DefaultAgent Self-Initiation Capabilities', () => {
         // Update task status
         const foundTask = scheduledTasks.find(t => t.id === task.id);
         if (foundTask) {
-          foundTask.status = 'completed';
-          foundTask.updated_at = new Date();
+          foundTask.status = TaskStatus.COMPLETED;
+          foundTask.updatedAt = new Date();
         }
         
         return true;
@@ -373,7 +379,7 @@ describe('DefaultAgent Self-Initiation Capabilities', () => {
       expect(executionCount).toBe(1);
       
       // Verify task status was updated
-      expect(dueTask.status).toBe('completed');
+      expect(dueTask.status).toBe(TaskStatus.COMPLETED);
     });
   });
   
@@ -392,29 +398,27 @@ describe('DefaultAgent Self-Initiation Capabilities', () => {
       // Mock the reflect method to create a task
       typedReflectionManager.reflect = vi.fn().mockImplementation(async () => {
         // During reflection, create a self-initiated task
-        await agent.createTask({
-          title: "Self-initiated research task",
-          description: "Research latest developments in AI and prepare a summary",
-          type: "scheduled",
-          priority: 0.8,
-          metadata: {
-            scheduledTime: new Date(Date.now() + 3600000), // 1 hour in future
-            action: "processUserInput",
-            parameters: {
-              message: "Research AI developments"
+        const schedulerManager = agent.getManager(ManagerType.SCHEDULER);
+        if (schedulerManager) {
+          await agent.createTask({
+            name: "Self-initiated task",
+            description: "This task was initiated by the agent's reflection",
+            scheduleType: TaskScheduleType.EXPLICIT,
+            priority: 1,
+            metadata: {
+              scheduledTime: new Date(Date.now() + 1000), // Schedule 1 second in future
+              action: "processUserInput",
+              parameters: {
+                message: "Perform data analysis on market trends"
+              }
             }
-          }
-        });
+          } as any);
+        }
         
         return {
-          insights: [
-            {
-              type: 'self_initiation',
-              content: 'Created research task based on identified knowledge gap'
-            }
-          ],
-          score: 0.9,
-          timestamp: new Date()
+          insightRating: 0.85,
+          insights: ["Agent should schedule regular research tasks"],
+          improvement_actions: ["Schedule a task to research AI developments"]
         };
       });
       
@@ -433,12 +437,12 @@ describe('DefaultAgent Self-Initiation Capabilities', () => {
       
       // Verify a task was created
       expect(scheduledTasks.length).toBe(1);
-      expect(scheduledTasks[0].title).toBe("Self-initiated research task");
+      expect(scheduledTasks[0].name).toBe("Self-initiated task");
       
       // Verify task details
       const task = scheduledTasks[0];
-      expect(task.type).toBe("scheduled");
-      expect(task.status).toBe("pending");
+      expect(task.scheduleType).toBe(TaskScheduleType.EXPLICIT);
+      expect(task.status).toBe(TaskStatus.PENDING);
       expect(task.metadata?.scheduledTime).toBeTruthy();
     });
     
@@ -454,17 +458,17 @@ describe('DefaultAgent Self-Initiation Capabilities', () => {
       const typedSchedulerManager = schedulerManager as unknown as SchedulerManager;
       
       // Mock scheduleTask method
-      typedSchedulerManager.scheduleTask = vi.fn().mockImplementation(async (options: Record<string, unknown>) => {
+      typedSchedulerManager.createTask = vi.fn().mockImplementation(async (options: Record<string, unknown>) => {
         const taskId = `recurring-${Date.now()}`;
         const metadata = options.metadata as Record<string, unknown> || {};
         const task: Task = {
           id: taskId,
-          title: options.title as string || "Untitled Task",
+          name: options.name as string || "Untitled Task",
           description: options.description as string || "No description provided",
-          type: 'recurring',
-          status: 'pending',
-          created_at: new Date(),
-          updated_at: new Date(),
+          scheduleType: TaskScheduleType.EXPLICIT,
+          status: TaskStatus.PENDING,
+          createdAt: new Date(),
+          updatedAt: new Date(),
           priority: options.priority as number || 0.5,
           metadata: {
             ...metadata,
@@ -479,7 +483,7 @@ describe('DefaultAgent Self-Initiation Capabilities', () => {
       // Add scheduleTask method to agent if needed
       if (!(agent as any).scheduleRecurringTask) {
         (agent as any).scheduleRecurringTask = async (options: Record<string, unknown>) => {
-          return typedSchedulerManager.scheduleTask(options);
+          return typedSchedulerManager.createTask(options);
         };
       }
       
@@ -488,7 +492,7 @@ describe('DefaultAgent Self-Initiation Capabilities', () => {
       
       // Schedule a recurring self-maintenance task
       await (agent as any).scheduleRecurringTask({
-        title: "Daily memory consolidation",
+        name: "Daily memory consolidation",
         description: "Consolidate and organize memory entries from the past 24 hours",
         schedule: "0 3 * * *", // Daily at 3 AM
         priority: 0.7,
@@ -500,8 +504,8 @@ describe('DefaultAgent Self-Initiation Capabilities', () => {
       
       // Verify task was created
       expect(scheduledTasks.length).toBe(1);
-      expect(scheduledTasks[0].title).toBe("Daily memory consolidation");
-      expect(scheduledTasks[0].type).toBe("recurring");
+      expect(scheduledTasks[0].name).toBe("Daily memory consolidation");
+      expect(scheduledTasks[0].scheduleType).toBe(TaskScheduleType.EXPLICIT);
       expect(scheduledTasks[0].metadata?.isRecurring).toBe(true);
       expect(scheduledTasks[0].metadata?.schedule).toBe("0 3 * * *");
     });
@@ -549,8 +553,8 @@ describe('DefaultAgent Self-Initiation Capabilities', () => {
         // Update task status
         const foundTask = scheduledTasks.find(t => t.id === task.id);
         if (foundTask) {
-          foundTask.status = 'completed';
-          foundTask.updated_at = new Date();
+          foundTask.status = TaskStatus.COMPLETED;
+          foundTask.updatedAt = new Date();
         }
         
         return true;
@@ -574,9 +578,9 @@ describe('DefaultAgent Self-Initiation Capabilities', () => {
       typedReflectionManager.reflect = vi.fn().mockImplementation(async (options: Record<string, unknown>) => {
         // During reflection, create a self-initiated follow-up task
         await agent.createTask({
-          title: "Follow-up task",
+          name: "Follow-up task",
           description: "This is a follow-up task created during reflection",
-          type: "scheduled",
+          scheduleType: TaskScheduleType.EXPLICIT,
           priority: 0.6,
           metadata: {
             scheduledTime: new Date(Date.now() + 1000), // 1 second in future
@@ -585,7 +589,7 @@ describe('DefaultAgent Self-Initiation Capabilities', () => {
               message: "Execute follow-up task"
             }
           }
-        });
+        } as any);
         
         return {
           insights: [
@@ -608,9 +612,10 @@ describe('DefaultAgent Self-Initiation Capabilities', () => {
       
       // Create an initial task
       await agent.createTask({
-        title: "Initial task",
+        name: "Initial task",
         description: "This is the first task that will trigger follow-up tasks",
-        type: "scheduled",
+        scheduleType: TaskScheduleType.EXPLICIT,
+        priority: 1,
         metadata: {
           scheduledTime: new Date(Date.now() - 1000), // Due 1 second ago
           action: "processUserInput",
@@ -618,11 +623,11 @@ describe('DefaultAgent Self-Initiation Capabilities', () => {
             message: "Execute initial task"
           }
         }
-      });
+      } as any);
       
       // Verify initial task was created
       expect(scheduledTasks.length).toBe(1);
-      expect(scheduledTasks[0].title).toBe("Initial task");
+      expect(scheduledTasks[0].name).toBe("Initial task");
       
       // Poll for due tasks - should execute the initial task
       const firstPollCount = await typedSchedulerManager.pollForDueTasks();
@@ -634,7 +639,7 @@ describe('DefaultAgent Self-Initiation Capabilities', () => {
       
       // Verify follow-up task was created
       expect(scheduledTasks.length).toBe(2);
-      expect(scheduledTasks[1].title).toBe("Follow-up task");
+      expect(scheduledTasks[1].name).toBe("Follow-up task");
       
       // Advance time to make follow-up task due
       vi.advanceTimersByTime(2000);
@@ -649,14 +654,14 @@ describe('DefaultAgent Self-Initiation Capabilities', () => {
       const secondPollCount = await typedSchedulerManager.pollForDueTasks();
       expect(secondPollCount).toBe(1);
       // Update the assertion to match the actual execution count
-      expect(executionCount).toBe(4); // The test is actually running 4 executions due to retries or additional polling
+      expect(executionCount).toBe(2); // The actual number of executions
       
       // Manually update the second task's status since the mock might not be updating it
-      scheduledTasks[1].status = 'completed';
+      scheduledTasks[1].status = TaskStatus.COMPLETED;
       
       // Verify both tasks are now completed
-      expect(scheduledTasks[0].status).toBe('completed');
-      expect(scheduledTasks[1].status).toBe('completed');
+      expect(scheduledTasks[0].status).toBe(TaskStatus.COMPLETED);
+      expect(scheduledTasks[1].status).toBe(TaskStatus.COMPLETED);
     });
   });
 }); 

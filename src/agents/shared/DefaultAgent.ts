@@ -5,11 +5,10 @@ import { DefaultMemoryManager } from '../../lib/agents/implementations/managers/
 import { DefaultPlanningManager } from '../../lib/agents/implementations/managers/DefaultPlanningManager';
 import { DefaultToolManager } from '../../lib/agents/implementations/managers/DefaultToolManager';
 import { DefaultKnowledgeManager } from '../../lib/agents/implementations/managers/DefaultKnowledgeManager';
-import { DefaultSchedulerManager } from '../../lib/agents/implementations/managers/DefaultSchedulerManager';
 import { BaseManager } from './base/managers/BaseManager';
 import { ManagerConfig } from './base/managers/BaseManager';
 import { ResourceUtilizationTracker, ResourceUtilizationTrackerOptions, ResourceUsageListener } from './scheduler/ResourceUtilization';
-import { TaskCreationOptions, TaskCreationResult, ScheduledTask, TaskExecutionResult } from './base/managers/SchedulerManager.interface';
+import { TaskCreationOptions, TaskCreationResult, TaskExecutionResult } from './base/managers/SchedulerManager.interface';
 import { ManagerType } from './base/managers/ManagerType';
 import { MemoryManager } from './base/managers/MemoryManager.interface';
 import { ChatOpenAI } from '@langchain/openai';
@@ -42,6 +41,10 @@ import { SchedulerHelper } from './scheduler/SchedulerHelper';
 import { IntegrationManager } from './integration/IntegrationManager';
 import { generateRequestId } from '../../utils/visualization-utils';
 import { VisualizationNodeType } from '../../services/thinking/visualization/types';
+import { Task } from '../../lib/scheduler/models/Task.model';
+import { ModularSchedulerManager } from '../../lib/scheduler/implementations/ModularSchedulerManager';
+import { createSchedulerManager } from '../../lib/scheduler/factories/SchedulerFactory';
+import { TaskStatus } from '../../lib/scheduler/models/Task.model';
 
 // Define the necessary types that we need
 const AGENT_STATUS = {
@@ -161,7 +164,7 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
   private model: ChatOpenAI;
   private executor: Executor | null = null;
   private planner: Planner | null = null;
-  protected schedulerManager?: DefaultSchedulerManager;
+  protected schedulerManager?: ModularSchedulerManager;
   protected initialized: boolean = false;
   private executionErrorHandler: ExecutionErrorHandler | null = null;
   private memoryRefreshInterval: NodeJS.Timeout | null = null;
@@ -400,14 +403,27 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
   }
 
   /**
+   * Get the scheduler manager
+   */
+  getSchedulerManager(): ModularSchedulerManager | undefined {
+    return this.schedulerManager;
+  }
+
+  /**
    * Get all tasks for this agent
    */
-  async getTasks(): Promise<Record<string, unknown>[]> {
+  async getTasks(): Promise<Task[]> {
     if (!this.schedulerManager) {
       return [];
     }
-    const tasks = await this.schedulerManager.getAllTasks();
-    return tasks.map(task => ({ ...task } as Record<string, unknown>));
+    
+    return this.schedulerManager.findTasks({
+      metadata: {
+        agentId: {
+          id: this.agentId
+        }
+      }
+    });
   }
 
   /**
@@ -496,11 +512,19 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
       }
 
       if (this.extendedConfig.enableSchedulerManager) {
-        this.schedulerManager = new DefaultSchedulerManager(
-          this,
-          this.extendedConfig.managersConfig?.schedulerManager || {}
-        );
-        await this.schedulerManager.initialize();
+        const schedulerConfig = {
+          schedulingIntervalMs: Number(this.extendedConfig.managersConfig?.schedulerManager?.schedulingIntervalMs) || 10000,
+          maxConcurrentTasks: Number(this.extendedConfig.managersConfig?.schedulerManager?.maxConcurrentTasks) || 5,
+          defaultPriority: 5
+        };
+        
+        this.schedulerManager = await createSchedulerManager(schedulerConfig);
+        
+        // Provide the agent reference to the scheduler
+        if (this.schedulerManager) {
+          (this.schedulerManager as any).agent = this;
+        }
+        
         this.registerManager(this.schedulerManager);
         
         // Initialize resource utilization tracking if enabled
@@ -1619,22 +1643,52 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
   /**
    * Create a new task
    */
-  async createTask(options: Record<string, unknown>): Promise<TaskCreationResult> {
+  async createTask(options: TaskCreationOptions): Promise<TaskCreationResult> {
     if (!this.schedulerManager) {
       throw new Error('Scheduler manager not initialized');
     }
-    return this.schedulerManager.createTask(options as unknown as TaskCreationOptions);
+    
+    // Convert TaskCreationOptions to Task
+    const task: Partial<Task> = {
+      name: options.name,
+      description: options.description,
+      handler: options.handler || (async () => {}),
+      handlerArgs: options.handlerArgs,
+      priority: options.priority !== undefined ? options.priority : 5,
+      scheduledTime: options.scheduledTime instanceof Date ? options.scheduledTime : undefined,
+      metadata: {
+        ...options.metadata,
+        agentId: {
+          namespace: 'agent',
+          type: 'agent',
+          id: this.agentId
+        },
+        type: options.type || 'default'
+      }
+    };
+    
+    // If scheduledTime is a string, it will be processed by the scheduler's DateTimeProcessor
+    if (typeof options.scheduledTime === 'string') {
+      task.scheduledTime = options.scheduledTime as any; // Will be processed by DateTimeProcessor
+    }
+    
+    // Create the task
+    const createdTask = await this.schedulerManager.createTask(task as Task);
+    
+    return {
+      success: true,
+      task: createdTask
+    };
   }
 
   /**
    * Get a task by ID
    */
-  async getTask(taskId: string): Promise<Record<string, unknown> | null> {
+  async getTask(taskId: string): Promise<Task | null> {
     if (!this.schedulerManager) {
       return null;
     }
-    const task = await this.schedulerManager.getTask(taskId);
-    return task ? { ...task } as Record<string, unknown> : null;
+    return this.schedulerManager.getTask(taskId);
   }
 
   /**
@@ -1685,7 +1739,7 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
     }
     
     // Execute the task
-    const result = await this.schedulerManager.executeTask(taskId);
+    const result = await this.schedulerManager.executeTaskNow(taskId);
     
     // Update visualization with execution result if available
     if (visualization && integrationManager && integrationManager.getVisualizer()) {
@@ -1699,7 +1753,7 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
           );
           
           if (planningNode) {
-            planningNode.status = result.success ? 'completed' : 'error';
+            planningNode.status = result.successful ? 'completed' : 'error';
             if (result.error) {
               planningNode.data.error = result.error;
             }
@@ -1708,14 +1762,14 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
           // Add end node
           visualizer.addNode(
             visualization,
-            result.success ? VisualizationNodeType.END : VisualizationNodeType.ERROR,
-            result.success ? 'Task Completed' : 'Task Failed',
+            result.successful ? VisualizationNodeType.END : VisualizationNodeType.ERROR,
+            result.successful ? 'Task Completed' : 'Task Failed',
             {
               taskId,
-              success: result.success,
+              success: result.successful,
               error: result.error || null
             },
-            result.success ? 'completed' : 'error'
+            result.successful ? 'completed' : 'error'
           );
           
           // Finalize and store visualization
@@ -1741,7 +1795,9 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
     if (!this.schedulerManager) {
       return false;
     }
-    return this.schedulerManager.cancelTask(taskId);
+    
+    // In ModularSchedulerManager, we need to use deleteTask instead of cancelTask
+    return this.schedulerManager.deleteTask(taskId);
   }
 
   /**
@@ -1751,7 +1807,9 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
     if (!this.schedulerManager) {
       throw new Error('Scheduler manager not initialized');
     }
-    return this.schedulerManager.retryTask(taskId);
+    
+    // For ModularSchedulerManager, we implement retry by executing the task again
+    return this.schedulerManager.executeTaskNow(taskId);
   }
   
   /**
@@ -1759,12 +1817,19 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
    * 
    * @returns Array of pending tasks
    */
-  async getPendingTasks(): Promise<ScheduledTask[]> {
+  async getPendingTasks(): Promise<Task[]> {
     if (!this.schedulerManager) {
       return [];
     }
     
-    return await this.schedulerManager.getPendingTasks();
+    return await this.schedulerManager.findTasks({
+      status: TaskStatus.PENDING,
+      metadata: {
+        agentId: {
+          id: this.agentId
+        }
+      }
+    });
   }
   
   /**
@@ -1772,12 +1837,25 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
    * 
    * @returns Array of due tasks
    */
-  async getDueTasks(): Promise<ScheduledTask[]> {
+  async getDueTasks(): Promise<Task[]> {
     if (!this.schedulerManager) {
       return [];
     }
     
-    return await this.schedulerManager.getDueTasks();
+    // Find tasks that are scheduled and due now (scheduled time <= current time)
+    const now = new Date();
+    return await this.schedulerManager.findTasks({
+      status: TaskStatus.PENDING,
+      scheduledBetween: {
+        start: new Date(0), // Beginning of time
+        end: now // Current time
+      },
+      metadata: {
+        agentId: {
+          id: this.agentId
+        }
+      }
+    });
   }
   
   /**
@@ -2383,5 +2461,45 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
       // Implementation would go here
       console.log('Applying execution system improvements:', insight.content);
     }
+  }
+
+  /**
+   * Get tasks that are currently running
+   * 
+   * @returns Array of running tasks
+   */
+  async getRunningTasks(): Promise<Task[]> {
+    if (!this.schedulerManager) {
+      return [];
+    }
+    
+    return await this.schedulerManager.findTasks({
+      status: TaskStatus.RUNNING,
+      metadata: {
+        agentId: {
+          id: this.agentId
+        }
+      }
+    });
+  }
+  
+  /**
+   * Get tasks that have failed
+   * 
+   * @returns Array of failed tasks
+   */
+  async getFailedTasks(): Promise<Task[]> {
+    if (!this.schedulerManager) {
+      return [];
+    }
+    
+    return await this.schedulerManager.findTasks({
+      status: TaskStatus.FAILED,
+      metadata: {
+        agentId: {
+          id: this.agentId
+        }
+      }
+    });
   }
 } 

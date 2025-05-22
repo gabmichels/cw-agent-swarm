@@ -17,12 +17,16 @@ import { DateTimeProcessor } from '../interfaces/DateTimeProcessor.interface';
 import { SchedulerConfig, DEFAULT_SCHEDULER_CONFIG } from '../models/SchedulerConfig.model';
 import { SchedulerMetrics } from '../models/SchedulerMetrics.model';
 import { SchedulerError } from '../errors/SchedulerError';
+import { BaseManager, ManagerConfig } from '../../../agents/shared/base/managers/BaseManager';
+import { AgentBase } from '../../../agents/shared/base/AgentBase.interface';
+import { ManagerType } from '../../../agents/shared/base/managers/ManagerType';
+import { ManagerHealth } from '../../../agents/shared/base/managers/ManagerHealth';
 
 /**
  * Implementation of the SchedulerManager interface that orchestrates
  * the TaskRegistry, TaskScheduler, and TaskExecutor components.
  */
-export class ModularSchedulerManager implements SchedulerManager {
+export class ModularSchedulerManager implements SchedulerManager, BaseManager {
   private readonly id: string;
   private config: SchedulerConfig;
   private registry: TaskRegistry;
@@ -35,6 +39,10 @@ export class ModularSchedulerManager implements SchedulerManager {
   private schedulingIterations = 0;
   private schedulingTimes: number[] = [];
   private metrics: Partial<SchedulerMetrics> = {};
+  managerId: string;
+  managerType: ManagerType;
+  private agent!: AgentBase;
+  private enabled = true;
 
   /**
    * Create a new ModularSchedulerManager
@@ -44,33 +52,45 @@ export class ModularSchedulerManager implements SchedulerManager {
    * @param executor - Task executor component
    * @param dateTimeProcessor - Date/time processing component
    * @param config - Optional configuration
+   * @param agent - Optional agent
    */
   constructor(
     registry: TaskRegistry,
     scheduler: TaskScheduler,
     executor: TaskExecutor,
     dateTimeProcessor: DateTimeProcessor,
-    config?: Partial<SchedulerConfig>
+    config?: Partial<SchedulerConfig>,
+    agent?: AgentBase
   ) {
     this.id = `scheduler-manager-${ulid()}`;
+    this.managerId = this.id;
+    this.managerType = ManagerType.SCHEDULER;
     this.registry = registry;
     this.scheduler = scheduler;
     this.executor = executor;
     this.dateTimeProcessor = dateTimeProcessor;
     this.config = { ...DEFAULT_SCHEDULER_CONFIG, ...config };
+    if (agent) {
+      this.agent = agent;
+    }
   }
 
   /**
    * Initialize the scheduler manager
    * 
-   * @param config - Optional configuration to override defaults
+   * @param configOrAgent - Optional configuration or AgentBase to override defaults
    * @returns true if initialization was successful
    * @throws {SchedulerError} If there's an error during initialization
    */
-  async initialize(config?: Partial<SchedulerConfig>): Promise<boolean> {
+  async initialize(configOrAgent?: Partial<SchedulerConfig> | AgentBase): Promise<boolean> {
     try {
-      if (config) {
-        this.config = { ...this.config, ...config };
+      // Handle both agent and config parameters for compatibility with BaseManager
+      if (configOrAgent instanceof Object && 'getAgentId' in configOrAgent) {
+        // It's an AgentBase instance
+        this.agent = configOrAgent as AgentBase;
+      } else if (configOrAgent) {
+        // It's a config object
+        this.config = { ...this.config, ...(configOrAgent as Partial<SchedulerConfig>) };
       }
 
       // If auto-scheduling is enabled, start the scheduler
@@ -663,4 +683,99 @@ export class ModularSchedulerManager implements SchedulerManager {
       );
     }
   }
+
+  /**
+   * Set the agent that owns this manager
+   */
+  getAgent(): AgentBase {
+    if (!this.agent) {
+      throw new Error('Agent not set for ModularSchedulerManager');
+    }
+    return this.agent;
+  }
+
+  /**
+   * Check if the manager is enabled
+   */
+  isEnabled(): boolean {
+    return this.enabled;
+  }
+
+  /**
+   * Enable or disable the manager
+   */
+  setEnabled(enabled: boolean): boolean {
+    this.enabled = enabled;
+    return this.enabled;
+  }
+
+  /**
+   * Get the manager configuration
+   */
+  getConfig<T extends ManagerConfig>(): T {
+    return this.config as unknown as T;
+  }
+
+  /**
+   * Update the manager configuration
+   */
+  updateConfig<T extends ManagerConfig>(config: Partial<T>): T {
+    this.config = { ...this.config, ...config as unknown as Partial<SchedulerConfig> };
+    return this.config as unknown as T;
+  }
+
+  /**
+   * Get the manager health
+   */
+  async getHealth(): Promise<ManagerHealth> {
+    const now = new Date();
+    const status = this.enabled ? 'healthy' : 'degraded';
+    
+    return {
+      status,
+      message: this.enabled ? 'Scheduler is running normally' : 'Scheduler is disabled',
+      metrics: {
+        tasksManaged: await this.registry.countTasks({}),
+        isRunning: this.running,
+        schedulerIterations: this.schedulingIterations
+      },
+      details: {
+        lastCheck: now,
+        issues: this.enabled ? [] : [
+          {
+            severity: 'medium',
+            message: 'Scheduler is disabled',
+            detectedAt: now
+          }
+        ],
+        metrics: {
+          averageSchedulingTimeMs: this.schedulingTimes.length 
+            ? this.schedulingTimes.reduce((sum, time) => sum + time, 0) / this.schedulingTimes.length 
+            : 0
+        }
+      }
+    };
+  }
+
+  /**
+   * Get the manager status
+   */
+  getStatus(): { status: string; health?: { status: string; message?: string } } {
+    return { 
+      status: this.isEnabled() ? 'available' : 'unavailable',
+      health: { 
+        status: this.isEnabled() ? 'healthy' : 'degraded',
+        message: this.isEnabled() ? undefined : 'Manager is disabled'
+      }
+    };
+  }
+
+  /**
+   * Shutdown the manager
+   */
+  async shutdown(): Promise<void> {
+    await this.stopScheduler();
+  }
+
+    // BaseManager.reset is already implemented above
 } 

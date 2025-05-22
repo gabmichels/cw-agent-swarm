@@ -11,7 +11,7 @@ import { DefaultMemoryManager } from '../lib/agents/implementations/managers/Def
 import { DefaultPlanningManager } from '../lib/agents/implementations/managers/DefaultPlanningManager';
 import { DefaultToolManager } from '../lib/agents/implementations/managers/DefaultToolManager';
 import { DefaultKnowledgeManager } from '../lib/agents/implementations/managers/DefaultKnowledgeManager';
-import { DefaultSchedulerManager } from '../lib/agents/implementations/managers/DefaultSchedulerManager';
+import { createSchedulerManager } from '../lib/scheduler/factories/SchedulerFactory';
 import { DefaultAutonomyManager } from '../agents/shared/autonomy/managers/DefaultAutonomyManager';
 import { DefaultInputProcessor } from '../agents/shared/input/managers/DefaultInputProcessor';
 import { DefaultOutputProcessor } from '../agents/shared/output/managers/DefaultOutputProcessor';
@@ -124,7 +124,7 @@ export function getAllManagerTypes(): ManagerInfo[] {
       name: 'Scheduler Manager',
       description: 'Manages task scheduling and execution',
       implementationStatus: ManagerImplementationStatus.FULL,
-      implementationClass: 'DefaultSchedulerManager',
+      implementationClass: 'ModularSchedulerManager',
       interfaceName: 'SchedulerManager',
       isRequired: true,
       capabilities: ['task_scheduling', 'task_execution', 'task_prioritization']
@@ -329,7 +329,18 @@ export function createManagerInstance(type: ManagerType, agent: AgentBase): any 
       return new DefaultReflectionManager(agent, { enabled: true });
     
     case ManagerType.SCHEDULER:
-      return new DefaultSchedulerManager(agent, { enabled: true });
+      // Use the scheduler factory instead of direct instantiation
+      // This returns a Promise, so we need to handle it differently
+      return { 
+        __schedulerPromise: createSchedulerManager({ enabled: true }).then(schedulerManager => {
+          // Associate agent with scheduler
+          (schedulerManager as any).agent = agent;
+          return schedulerManager;
+        }).catch(error => {
+          console.error('Failed to create scheduler manager:', error);
+          return null;
+        }) 
+      };
     
     case ManagerType.INPUT:
       return new DefaultInputProcessor(agent, { enabled: true });
