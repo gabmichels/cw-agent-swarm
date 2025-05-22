@@ -11,17 +11,11 @@ import { LoggerManager } from '../../shared/base/managers/LoggerManager.interfac
 import { ManagerType } from '../../shared/base/managers/ManagerType';
 import { AbstractBaseManager } from '../../shared/base/managers/BaseManager';
 import { ManagerHealth } from '../../shared/base/managers/ManagerHealth';
-import { logger as systemLogger } from '../../../lib/logging';
 import { ManagerConfig } from '../../shared/base/managers/BaseManager';
+import { LogLevel, getManagerLogger, setLogLevel } from '../../../lib/logging/winston-logger';
 
-// Enum for log levels
-export enum LogLevel {
-  DEBUG = 'debug',
-  INFO = 'info',
-  WARN = 'warn',
-  ERROR = 'error',
-  FATAL = 'fatal'
-}
+// Re-export log level enum for convenience
+export { LogLevel } from '../../../lib/logging/winston-logger';
 
 // Interface for log entry
 export interface LogEntry {
@@ -52,6 +46,7 @@ export class DefaultLoggerManager extends AbstractBaseManager implements LoggerM
   public readonly managerType = ManagerType.LOGGER;
   private logHistory: LogEntry[] = [];
   private config: LoggerManagerConfig;
+  private logger: ReturnType<typeof getManagerLogger>;
 
   /**
    * Create a new DefaultLoggerManager
@@ -81,6 +76,12 @@ export class DefaultLoggerManager extends AbstractBaseManager implements LoggerM
 
     this.managerId = `logger-manager-${uuidv4()}`;
     this.config = defaultConfig;
+    
+    // Create Winston logger with agent/manager context
+    this.logger = getManagerLogger(this.managerId, agent.getAgentId());
+    
+    // Apply the configured log level
+    setLogLevel(this.config.level);
   }
 
   /**
@@ -132,8 +133,7 @@ export class DefaultLoggerManager extends AbstractBaseManager implements LoggerM
   private createLogEntry(
     level: LogLevel, 
     message: string, 
-    metadata?: Record<string, unknown>,
-    managerId?: string
+    metadata?: Record<string, unknown>
   ): LogEntry {
     const logEntry: LogEntry = {
       id: uuidv4(),
@@ -141,7 +141,7 @@ export class DefaultLoggerManager extends AbstractBaseManager implements LoggerM
       level,
       message,
       agentId: this.getAgent().getAgentId(),
-      managerId,
+      managerId: this.managerId,
       metadata
     };
 
@@ -183,50 +183,36 @@ export class DefaultLoggerManager extends AbstractBaseManager implements LoggerM
    * Log a debug message
    */
   debug(message: string, metadata?: Record<string, unknown>): void {
-    if (!this.isEnabled() || this.config.level === LogLevel.INFO || 
-        this.config.level === LogLevel.WARN || this.config.level === LogLevel.ERROR) {
+    if (!this.isEnabled()) {
       return;
     }
 
     const entry = this.createLogEntry(LogLevel.DEBUG, message, metadata);
-    
-    if (this.config.logToConsole) {
-      const formattedMessage = this.formatLogMessage(entry);
-      systemLogger.debug(formattedMessage, this.config.includeMetadata ? metadata : undefined);
-    }
+    this.logger.debug(message, metadata);
   }
 
   /**
    * Log an info message
    */
   info(message: string, metadata?: Record<string, unknown>): void {
-    if (!this.isEnabled() || this.config.level === LogLevel.WARN || 
-        this.config.level === LogLevel.ERROR) {
+    if (!this.isEnabled()) {
       return;
     }
 
     const entry = this.createLogEntry(LogLevel.INFO, message, metadata);
-    
-    if (this.config.logToConsole) {
-      const formattedMessage = this.formatLogMessage(entry);
-      systemLogger.info(formattedMessage, this.config.includeMetadata ? metadata : undefined);
-    }
+    this.logger.info(message, metadata);
   }
 
   /**
    * Log a warning message
    */
   warn(message: string, metadata?: Record<string, unknown>): void {
-    if (!this.isEnabled() || this.config.level === LogLevel.ERROR) {
+    if (!this.isEnabled()) {
       return;
     }
 
     const entry = this.createLogEntry(LogLevel.WARN, message, metadata);
-    
-    if (this.config.logToConsole) {
-      const formattedMessage = this.formatLogMessage(entry);
-      systemLogger.warn(formattedMessage, this.config.includeMetadata ? metadata : undefined);
-    }
+    this.logger.warn(message, metadata);
   }
 
   /**
@@ -238,11 +224,43 @@ export class DefaultLoggerManager extends AbstractBaseManager implements LoggerM
     }
 
     const entry = this.createLogEntry(LogLevel.ERROR, message, metadata);
-    
-    if (this.config.logToConsole) {
-      const formattedMessage = this.formatLogMessage(entry);
-      systemLogger.error(formattedMessage, this.config.includeMetadata ? metadata : undefined);
+    this.logger.error(message, metadata);
+  }
+
+  /**
+   * Log a fatal error message
+   */
+  fatal(message: string, metadata?: Record<string, unknown>): void {
+    if (!this.isEnabled()) {
+      return;
     }
+
+    const entry = this.createLogEntry(LogLevel.FATAL, message, metadata);
+    this.logger.fatal(message, metadata);
+  }
+
+  /**
+   * Log a system message (for system-level events)
+   */
+  system(message: string, metadata?: Record<string, unknown>): void {
+    if (!this.isEnabled()) {
+      return;
+    }
+
+    const entry = this.createLogEntry(LogLevel.SYSTEM, message, metadata);
+    this.logger.system(message, metadata);
+  }
+
+  /**
+   * Log a success message
+   */
+  success(message: string, metadata?: Record<string, unknown>): void {
+    if (!this.isEnabled()) {
+      return;
+    }
+
+    const entry = this.createLogEntry(LogLevel.SUCCESS, message, metadata);
+    this.logger.success(message, metadata);
   }
 
   /**
@@ -302,6 +320,11 @@ export class DefaultLoggerManager extends AbstractBaseManager implements LoggerM
     };
     
     this.config = updatedConfig as LoggerManagerConfig;
+    
+    // Update log level if specified
+    if ('level' in config && typeof config.level === 'string') {
+      setLogLevel(config.level as LogLevel);
+    }
     
     return this.config as unknown as T;
   }

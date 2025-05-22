@@ -35,4 +35,19 @@ export interface LoggerManager extends BaseManager {
    * Log an error level message
    */
   error(message: string, metadata?: Record<string, unknown>): void;
+
+  /**
+   * Log a fatal error message
+   */
+  fatal(message: string, metadata?: Record<string, unknown>): void;
+
+  /**
+   * Log a system message (for system-level events)
+   */
+  system(message: string, metadata?: Record<string, unknown>): void;
+
+  /**
+   * Log a success message
+   */
+  success(message: string, metadata?: Record<string, unknown>): void;
 } 

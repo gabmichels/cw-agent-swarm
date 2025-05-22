@@ -13,6 +13,7 @@ process.env.AGENT_DEBUG = 'true';
 process.env.AUTONOMY_DEBUG = 'true';
 process.env.CONSOLE_LOG_LEVEL = 'debug';
 process.env.NODE_DEBUG = 'agent,autonomy,task,web-search';
+process.env.LOG_LEVEL = 'debug'; // Set Winston logger level to debug
 
 // Handle Next.js path aliases
 const tsconfig = require('./tsconfig.json');
@@ -41,33 +42,19 @@ require('ts-node').register({
   },
 });
 
-// Monkey patch console methods to add timestamps and improved formatting
+// Initialize logger directly from our CommonJS bootstrap logger
+const { logger, createLogger, setLogLevel } = require('./bootstrap-logger');
+
+// Force debug level logging
+setLogLevel('debug');
+
+// Create a dedicated logger for this bootstrap script
+const bootstrapLogger = createLogger({ moduleId: 'bootstrap-debug' });
+
+bootstrapLogger.info('🔍 Initializing debug mode with Winston logger...');
+
+// Store original methods in case we need them
 const originalConsole = { ...console };
-const getTimeStamp = () => {
-  const now = new Date();
-  return `[${now.toLocaleTimeString('en-US', { hour12: false })}:${now.getMilliseconds().toString().padStart(3, '0')}]`;
-};
-
-// Enhance console methods with timestamps and tag formatting
-console.log = (...args) => {
-  originalConsole.log(getTimeStamp(), ...args);
-};
-
-console.debug = (...args) => {
-  originalConsole.debug('\x1b[36m' + getTimeStamp() + ' [DEBUG]', ...args, '\x1b[0m');
-};
-
-console.info = (...args) => {
-  originalConsole.info('\x1b[32m' + getTimeStamp() + ' [INFO]', ...args, '\x1b[0m');
-};
-
-console.warn = (...args) => {
-  originalConsole.warn('\x1b[33m' + getTimeStamp() + ' [WARN]', ...args, '\x1b[0m');
-};
-
-console.error = (...args) => {
-  originalConsole.error('\x1b[31m' + getTimeStamp() + ' [ERROR]', ...args, '\x1b[0m');
-};
 
 // Patch the autonomy system to show more logs
 const patchAutonomySystem = () => {
@@ -79,43 +66,56 @@ const patchAutonomySystem = () => {
     const originalProcessOpportunity = autonomyModule.DefaultAutonomySystem.prototype.processOpportunity;
     const originalPlanAndExecuteTask = autonomyModule.DefaultAutonomySystem.prototype.planAndExecuteTask;
 
+    // Create a logger specifically for autonomy system
+    const autonomyLogger = createLogger({ moduleId: 'autonomy-system' });
+
     // Patch the executeTask method to add more logging
     autonomyModule.DefaultAutonomySystem.prototype.executeTask = async function(taskId) {
-      console.log(`🔍 [AUTONOMY DEBUG] Starting execution of task ${taskId}`);
+      autonomyLogger.debug(`Starting execution of task ${taskId}`, { action: 'execute-task' });
       const result = await originalExecuteTask.call(this, taskId);
-      console.log(`✅ [AUTONOMY DEBUG] Finished execution of task ${taskId}, result: ${result ? 'success' : 'failure'}`);
+      autonomyLogger.info(`Finished execution of task ${taskId}`, { 
+        action: 'execute-task-complete',
+        success: result ? true : false 
+      });
       return result;
     };
 
     // Patch the processOpportunity method
     autonomyModule.DefaultAutonomySystem.prototype.processOpportunity = async function(opportunity) {
-      console.log(`🚀 [AUTONOMY DEBUG] Processing opportunity of type "${opportunity.type}": ${opportunity.id}`);
+      autonomyLogger.info(`Processing opportunity of type "${opportunity.type}"`, { 
+        opportunityId: opportunity.id,
+        action: 'process-opportunity'
+      });
       await originalProcessOpportunity.call(this, opportunity);
-      console.log(`✓ [AUTONOMY DEBUG] Processed opportunity ${opportunity.id}`);
+      autonomyLogger.info(`Processed opportunity ${opportunity.id}`, { action: 'opportunity-processed' });
     };
 
     // Patch the planAndExecuteTask method
     autonomyModule.DefaultAutonomySystem.prototype.planAndExecuteTask = async function(task, options) {
-      console.log(`📝 [AUTONOMY DEBUG] Planning execution for task: ${task.name || task.id}`);
-      console.log(`📋 Task details: ${JSON.stringify({
+      autonomyLogger.info(`Planning execution for task: ${task.name || task.id}`, { action: 'plan-execution' });
+      autonomyLogger.debug(`Task details`, {
         id: task.id,
         description: task.description,
         tags: task.tags
-      })}`);
+      });
       
       const result = await originalPlanAndExecuteTask.call(this, task, options);
       
-      console.log(`🏁 [AUTONOMY DEBUG] Plan execution completed: ${result.success ? 'Success' : 'Failed'}`);
-      if (!result.success) {
-        console.error(`❌ Error: ${result.message || result.error}`);
+      if (result.success) {
+        autonomyLogger.success(`Plan execution completed successfully`, { taskId: task.id });
+      } else {
+        autonomyLogger.error(`Plan execution failed`, { 
+          taskId: task.id,
+          error: result.message || result.error
+        });
       }
       
       return result;
     };
 
-    console.log('✅ Successfully patched Autonomy System for enhanced logging');
+    bootstrapLogger.success('Successfully patched Autonomy System for enhanced logging');
   } catch (error) {
-    console.error('❌ Failed to patch Autonomy System:', error);
+    bootstrapLogger.error('Failed to patch Autonomy System', { error });
   }
 };
 
@@ -126,19 +126,30 @@ const patchWebSearchTool = () => {
     const webSearchModule = require(webSearchPath);
     const originalExecute = webSearchModule.ApifyWebSearchTool.prototype.execute;
     
+    // Create a dedicated logger for web search
+    const webSearchLogger = createLogger({ moduleId: 'web-search-tool' });
+    
     webSearchModule.ApifyWebSearchTool.prototype.execute = async function(args) {
-      console.log(`🌐 [WEB SEARCH DEBUG] Starting web search: "${args.query}"`);
+      webSearchLogger.info(`Starting web search`, { query: args.query });
       const result = await originalExecute.call(this, args);
-      console.log(`🌐 [WEB SEARCH DEBUG] Web search completed with status: ${result.success ? 'Success' : 'Failed'}`);
+      
       if (result.success) {
-        console.log(`🌐 Found ${Array.isArray(result.data) ? result.data.length : '?'} results`);
+        webSearchLogger.success(`Web search completed successfully`, { 
+          resultCount: Array.isArray(result.data) ? result.data.length : 0
+        });
+      } else {
+        webSearchLogger.error(`Web search failed`, { 
+          query: args.query,
+          error: result.error
+        });
       }
+      
       return result;
     };
     
-    console.log('✅ Successfully patched Web Search Tool for enhanced logging');
+    bootstrapLogger.success('Successfully patched Web Search Tool for enhanced logging');
   } catch (error) {
-    console.error('❌ Failed to patch Web Search Tool:', error);
+    bootstrapLogger.error('Failed to patch Web Search Tool', { error });
   }
 };
 
@@ -146,21 +157,21 @@ const patchWebSearchTool = () => {
 patchAutonomySystem();
 patchWebSearchTool();
 
-console.log('==================================================');
-console.log('🔍 ENHANCED DEBUG MODE ENABLED 🔍');
-console.log('- All agent actions will be logged in detail');
-console.log('- Web searches will show progress and results');
-console.log('- Autonomous operations will display breadcrumbs');
-console.log('==================================================');
+bootstrapLogger.info('==================================================');
+bootstrapLogger.info('🔍 ENHANCED DEBUG MODE ENABLED 🔍');
+bootstrapLogger.info('- All agent actions will be logged in detail');
+bootstrapLogger.info('- Web searches will show progress and results');
+bootstrapLogger.info('- Autonomous operations will display breadcrumbs');
+bootstrapLogger.info('==================================================');
 
 // Explicitly log the state
-console.log('🔄 Starting bootstrap process outside of Next.js build system...');
-console.log('⚙️ Environment:', process.env.NODE_ENV);
-console.log('📂 Working directory:', process.cwd());
+bootstrapLogger.info('Starting bootstrap process outside of Next.js build system...');
+bootstrapLogger.info(`Environment: ${process.env.NODE_ENV}`);
+bootstrapLogger.info(`Working directory: ${process.cwd()}`);
 
 async function bootstrap() {
   try {
-    console.log('🧪 Loading bootstrap functions...');
+    bootstrapLogger.info('Loading bootstrap functions...');
     
     // Set NODE_ENV to development to ensure proper environment
     process.env.NODE_ENV = 'development';
@@ -170,16 +181,16 @@ async function bootstrap() {
     const { bootstrapAgentSystem } = require('./src/agents/mcp/bootstrapAgents');
     
     // Database bootstrap
-    console.log('🚀 Bootstrapping agents from database...');
+    bootstrapLogger.info('Bootstrapping agents from database...');
     const agentCount = await bootstrapAgentsFromDatabase();
-    console.log(`✅ Bootstrapped ${agentCount} agents from database`);
+    bootstrapLogger.success(`Bootstrapped ${agentCount} agents from database`);
     
     // MCP bootstrap
-    console.log('🚀 Bootstrapping MCP agent system...');
+    bootstrapLogger.info('Bootstrapping MCP agent system...');
     await bootstrapAgentSystem();
-    console.log('✅ MCP agent system bootstrapped');
+    bootstrapLogger.success('MCP agent system bootstrapped');
     
-    console.log('🎉 Bootstrap process completed successfully!');
+    bootstrapLogger.success('Bootstrap process completed successfully!');
     
     if (process.argv.includes('--exit')) {
       process.exit(0);
@@ -187,7 +198,7 @@ async function bootstrap() {
     
     // Start Next.js if requested
     if (process.argv.includes('--start-next')) {
-      console.log('🚀 Starting Next.js development server...');
+      bootstrapLogger.info('Starting Next.js development server...');
       // Use the child_process module to start Next.js
       const { spawn } = require('child_process');
       const nextProcess = spawn('npx', ['next', 'dev'], { 
@@ -197,16 +208,16 @@ async function bootstrap() {
       
       // Handle Next.js process events
       nextProcess.on('error', (error) => {
-        console.error('❌ Failed to start Next.js:', error);
+        bootstrapLogger.error('Failed to start Next.js', { error });
       });
       
       nextProcess.on('close', (code) => {
-        console.log(`Next.js process exited with code ${code}`);
+        bootstrapLogger.info(`Next.js process exited with code ${code}`);
         process.exit(code);
       });
     }
   } catch (error) {
-    console.error('❌ Bootstrap process failed:', error);
+    bootstrapLogger.error('Bootstrap process failed', { error });
     if (process.argv.includes('--exit')) {
       process.exit(1);
     }

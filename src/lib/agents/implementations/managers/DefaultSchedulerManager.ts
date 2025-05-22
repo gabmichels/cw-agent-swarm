@@ -32,7 +32,7 @@ import { ThinkingVisualization, VisualizationService } from '../../../../service
 import { generateRequestId } from '../../../../utils/request-utils';
 import { MemoryManager } from '../../base/managers/MemoryManager';
 import { MemoryService } from './DefaultMemoryManager';
-import { createSchedulerLogger } from '../../../../lib/logging/colorLogger';
+import { getManagerLogger } from '../../../logging/winston-logger';
 
 /**
  * Task metadata interface
@@ -81,7 +81,7 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
   private batches: Map<string, TaskBatch> = new Map();
   private resourceTracker: ResourceUtilizationTracker;
   private events: SchedulerEvent[] = [];
-  private logger: ReturnType<typeof createSchedulerLogger>;
+  private logger: ReturnType<typeof getManagerLogger>;
 
   /**
    * Create a new DefaultSchedulerManager instance
@@ -127,11 +127,8 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
       trackPerTaskUtilization: true
     });
     
-    // Initialize the color logger
-    this.logger = createSchedulerLogger(this.managerId);
-    
-    // Set log level to debug for more verbose logging
-    this.logger.setLogLevel('debug');
+    // Initialize the winston logger
+    this.logger = getManagerLogger(this.managerId, agent.getAgentId());
     
     this.logger.info(`Scheduler manager created with ID: ${this.managerId}`);
     this.logger.debug(`Scheduler config: ${JSON.stringify(this.config)}`);
@@ -162,22 +159,22 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
 
     try {
       // Load any existing tasks from database
-      this.logger.system(`About to load tasks from database at ${new Date().toISOString()}`);
+      this.logger.info(`About to load tasks from database at ${new Date().toISOString()}`);
       
       // Try to load tasks but don't fail initialization if it fails
       // The reason is that memory manager might not be ready yet during bootstrapping
       try {
         await this.loadTasksFromDatabase();
-        this.logger.system(`Completed loading tasks from database at ${new Date().toISOString()}`);
+        this.logger.info(`Completed loading tasks from database at ${new Date().toISOString()}`);
       } catch (loadError) {
-        this.logger.warn(`Could not load tasks during initialization (memory manager might not be ready)`, loadError);
-        this.logger.system(`Will retry loading tasks in 5 seconds`);
+        this.logger.warn(`Could not load tasks during initialization (memory manager might not be ready)`, { error: loadError });
+        this.logger.info(`Will retry loading tasks in 5 seconds`);
         
         // Schedule a retry after a short delay (memory manager might be ready then)
         setTimeout(() => {
-          this.logger.system(`Retrying loadTasksFromDatabase after initialization delay...`);
+          this.logger.info(`Retrying loadTasksFromDatabase after initialization delay...`);
           this.loadTasksFromDatabase().catch(err => {
-            this.logger.error(`Error in delayed loadTasksFromDatabase:`, err);
+            this.logger.error(`Error in delayed loadTasksFromDatabase:`, { error: err });
           });
         }, 5000);
       }
@@ -187,14 +184,14 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
       
       // Set up the scheduling timer if auto-scheduling is enabled
       if (this.config.enableAutoScheduling) {
-        this.logger.system(`Setting up scheduling timer at ${new Date().toISOString()}`);
+        this.logger.info(`Setting up scheduling timer at ${new Date().toISOString()}`);
         this.setupSchedulingTimer();
         this.logger.success(`Autonomous scheduling initialized with interval ${this.config.schedulingIntervalMs}ms`);
       }
       
       return true;
     } catch (error) {
-      this.logger.error(`Error initializing scheduler manager:`, error);
+      this.logger.error(`Error initializing scheduler manager:`, { error });
       return false;
     }
   }
@@ -211,7 +208,7 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
       const memoryManager = agent.getManager(ManagerType.MEMORY);
       
       // Debug the memory manager to see if it exists
-      this.logger.system(`DEBUG: Memory manager exists: ${Boolean(memoryManager)}, type: ${memoryManager ? memoryManager.managerType : 'none'}`);
+      this.logger.info(`DEBUG: Memory manager exists: ${Boolean(memoryManager)}, type: ${memoryManager ? memoryManager.managerType : 'none'}`);
       
       // Check if it's the expected type
       if (memoryManager) {
@@ -232,9 +229,9 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
         
         // Schedule a retry in 5 seconds
         setTimeout(() => {
-          this.logger.system(`Retrying loadTasksFromDatabase after delay for agent ${agentId}...`);
+          this.logger.info(`Retrying loadTasksFromDatabase after delay for agent ${agentId}...`);
           this.loadTasksFromDatabase().catch(err => {
-            this.logger.error(`Error in delayed loadTasksFromDatabase for agent ${agentId}:`, err);
+            this.logger.error(`Error in delayed loadTasksFromDatabase for agent ${agentId}:`, { error: err });
           });
         }, 5000);
         
@@ -261,7 +258,7 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
         const memoryService = await memoryServicePromise;
         this.logger.debug(`MemoryService obtained successfully for agent ${agentId}`);
         
-        this.logger.system(`Querying memory service for scheduled tasks (status: pending, scheduled, in_progress)`);
+        this.logger.info(`Querying memory service for scheduled tasks (status: pending, scheduled, in_progress)`);
         
         const result = await memoryService.searchMemories({
           type: 'task',
@@ -288,7 +285,7 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
           this.logger.success(`✅ Successfully loaded ${convertedTasks.length} tasks from database for agent ${agentId}`);
           return;
         } else {
-          this.logger.system(`No pending tasks found in database for agent ${agentId} ${result.error ? `(Error: ${result.error})` : ''}`);
+          this.logger.info(`No pending tasks found in database for agent ${agentId} ${result.error ? `(Error: ${result.error})` : ''}`);
         }
       } catch (error) {
         // Check if it's a timeout error
@@ -298,22 +295,22 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
           
           // Schedule another retry
           setTimeout(() => {
-            this.logger.system(`Retrying loadTasksFromDatabase after timeout for agent ${agentId}...`);
+            this.logger.info(`Retrying loadTasksFromDatabase after timeout for agent ${agentId}...`);
             this.loadTasksFromDatabase().catch(err => {
-              this.logger.error(`Error in retry after timeout for agent ${agentId}:`, err);
+              this.logger.error(`Error in retry after timeout for agent ${agentId}:`, { error: err });
             });
           }, 5000);
           
           return;
         }
         
-        this.logger.error(`Error querying memory service for agent ${agentId}:`, error);
+        this.logger.error(`Error querying memory service for agent ${agentId}:`, { error });
         throw error; // Re-throw to allow caller to handle it
       }
       
       this.logger.info(`No tasks loaded from database for agent ${agentId}`);
     } catch (error) {
-      this.logger.error(`Error loading tasks from database:`, error);
+      this.logger.error(`Error loading tasks from database:`, { error });
       throw error; // Re-throw to allow caller to handle it
     }
   }
@@ -697,7 +694,7 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
           );
         }
       } catch (error) {
-        this.logger.error('Error creating scheduled task visualization:', error);
+        this.logger.error('Error creating scheduled task visualization:', { error });
       }
     }
 
@@ -806,7 +803,7 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
             }
           }
         } catch (error) {
-          this.logger.error(`Error updating scheduled task visualization:`, error);
+          this.logger.error(`Error updating scheduled task visualization:`, { error });
         }
       }
 
@@ -866,7 +863,7 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
             }
           );
         } catch (vizError) {
-          this.logger.error('Error updating task visualization with error:', vizError);
+          this.logger.error('Error updating task visualization with error:', { error: vizError });
         }
       }
       
@@ -980,7 +977,7 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
         try {
           createdAt = task.createdAt instanceof Date ? task.createdAt.getTime() : new Date(task.createdAt).getTime();
         } catch (e) {
-          this.logger.error(`[${agentId}] Error parsing createdAt for task ${task.id}:`, e);
+          this.logger.error(`[${agentId}] Error parsing createdAt for task ${task.id}:`, { error: e });
           return false;
         }
         
@@ -1001,7 +998,7 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
             try {
               lastExecution = new Date(metadata.lastExecutionTime).getTime();
             } catch (e) {
-              this.logger.error(`[${agentId}] Error parsing lastExecutionTime string for task ${task.id}:`, e);
+              this.logger.error(`[${agentId}] Error parsing lastExecutionTime string for task ${task.id}:`, { error: e });
               lastExecution = createdAt + startAfterMs;
             }
           } else if (metadata.lastExecutionTime instanceof Date) {
@@ -1063,7 +1060,7 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
     const intervalMs = this.config.schedulingIntervalMs || 60000;
     
     this.logger.info(`[${agentId}] Setting up scheduling timer with interval ${intervalMs}ms`);
-    this.logger.system(`[${agentId}] Autonomous scheduling initialized with interval ${intervalMs}ms at ${new Date().toISOString()}`);
+    this.logger.info(`[${agentId}] Autonomous scheduling initialized with interval ${intervalMs}ms at ${new Date().toISOString()}`);
     
     // Log the current tasks count for debugging
     const totalTasks = this.tasks.size;
@@ -1073,12 +1070,12 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
       const taskIds = Array.from(this.tasks.keys()).join(', ');
       this.logger.debug(`[${agentId}] Task IDs: ${taskIds}`);
     } else {
-      this.logger.system(`[${agentId}] Agent has no tasks loaded yet`);
+      this.logger.info(`[${agentId}] Agent has no tasks loaded yet`);
       
       // If we have no tasks, try to load them again after a delay (memory manager might be ready by then)
       this.logger.info(`[${agentId}] Scheduling a delayed task loading attempt in 10 seconds`);
       setTimeout(() => {
-        this.logger.system(`[${agentId}] Attempting to load tasks from database after a delay...`);
+        this.logger.info(`[${agentId}] Attempting to load tasks from database after a delay...`);
         this.loadTasksFromDatabase()
           .then(result => {
             const newTaskCount = this.tasks.size;
@@ -1089,7 +1086,7 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
             }
           })
           .catch(error => {
-            this.logger.error(`[${agentId}] Error loading tasks from database after delay:`, error);
+            this.logger.error(`[${agentId}] Error loading tasks from database after delay:`, { error });
           });
       }, 10000); // 10 second delay
     }
@@ -1104,10 +1101,10 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
         if (dueTaskCount > 0) {
           this.logger.success(`[${agentId}] Initial task check found ${dueTaskCount} due tasks`);
         } else {
-          this.logger.system(`[${agentId}] Initial task check found no due tasks`);
+          this.logger.info(`[${agentId}] Initial task check found no due tasks`);
         }
       } catch (error) {
-        this.logger.error(`[${agentId}] Error in initial scheduled task check:`, error);
+        this.logger.error(`[${agentId}] Error in initial scheduled task check:`, { error });
       }
     }, 5000); // Run 5 seconds after initialization to ensure everything is ready
     
@@ -1124,7 +1121,7 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
           this.logger.info(`[${agentId}] No due tasks found during scheduled check`);
           }
         } catch (error) {
-        this.logger.error(`[${agentId}] Error in scheduled task processing:`, error);
+        this.logger.error(`[${agentId}] Error in scheduled task processing:`, { error });
         }
       }, intervalMs);
     
@@ -1202,7 +1199,7 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
             }
           })
           .catch(error => {
-            this.logger.error(`[${agentId}] Unexpected error executing task ${task.id}:`, error);
+            this.logger.error(`[${agentId}] Unexpected error executing task ${task.id}:`, { error });
           });
         
         executedCount++;
@@ -1210,7 +1207,7 @@ export class DefaultSchedulerManager extends AbstractBaseManager implements Sche
 
       return executedCount;
     } catch (error) {
-      this.logger.error(`[${agentId}] Error polling for due tasks:`, error);
+      this.logger.error(`[${agentId}] Error polling for due tasks:`, { error });
       return 0;
     }
   }
