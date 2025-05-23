@@ -13,6 +13,7 @@ import { StrategyBasedTaskScheduler } from '../implementations/scheduler/Strateg
 import { ExplicitTimeStrategy } from '../implementations/strategies/ExplicitTimeStrategy';
 import { IntervalStrategy } from '../implementations/strategies/IntervalStrategy';
 import { PriorityBasedStrategy } from '../implementations/strategies/PriorityBasedStrategy';
+import { CapacityBasedStrategy } from '../implementations/strategies/CapacityBasedStrategy';
 import { BasicTaskExecutor } from '../implementations/executor/BasicTaskExecutor';
 import { BasicDateTimeProcessor } from '../implementations/datetime/BasicDateTimeProcessor';
 import { SchedulerConfig, DEFAULT_SCHEDULER_CONFIG } from '../models/SchedulerConfig.model';
@@ -22,6 +23,7 @@ import { TaskFilter } from '../models/TaskFilter.model';
 import { QdrantClient } from '@qdrant/js-client-rest';
 import { TaskRegistry } from '../interfaces/TaskRegistry.interface';
 import { AgentBase } from '../../../agents/shared/base/AgentBase.interface';
+import { RuntimeAgentRegistry } from '../implementations/agent/RuntimeAgentRegistry';
 
 /**
  * Registry type options for scheduler
@@ -152,6 +154,9 @@ export async function createSchedulerManager(
   // Create the task registry
   const registry = await createTaskRegistry(config);
   
+  // Create agent registry for capacity-based strategy
+  const agentRegistry = new RuntimeAgentRegistry();
+  
   // Create the scheduling strategies
   const explicitStrategy = new ExplicitTimeStrategy();
   const intervalStrategy = new IntervalStrategy();
@@ -159,12 +164,15 @@ export async function createSchedulerManager(
   // - Priority threshold 7 (so priority 7+ tasks execute immediately)
   // - Pending time 30 minutes (so lower priority tasks become due after 30 min)
   const priorityStrategy = new PriorityBasedStrategy(7, 30 * 60 * 1000);
+  // Capacity-based strategy: Execute low-priority tasks when < 70% capacity used
+  const capacityStrategy = new CapacityBasedStrategy(agentRegistry, 0.7, 7);
   
   // Create the scheduler with all strategies
   const scheduler = new StrategyBasedTaskScheduler([
     explicitStrategy,
     intervalStrategy,
-    priorityStrategy
+    priorityStrategy,
+    capacityStrategy
   ]);
   
   // Create the task executor
@@ -333,17 +341,23 @@ export function createSchedulerComponents() {
   const dateTimeProcessor = new BasicDateTimeProcessor();
   const registry = new MemoryTaskRegistry();
   
+  // Create agent registry for capacity-based strategy
+  const agentRegistry = new RuntimeAgentRegistry();
+  
   const explicitStrategy = new ExplicitTimeStrategy();
   const intervalStrategy = new IntervalStrategy();
   // Development-friendly PriorityBasedStrategy:
   // - Priority threshold 7 (so priority 7+ tasks execute immediately)
   // - Pending time 30 minutes (so lower priority tasks become due after 30 min)
   const priorityStrategy = new PriorityBasedStrategy(7, 30 * 60 * 1000);
+  // Capacity-based strategy: Execute low-priority tasks when < 70% capacity used
+  const capacityStrategy = new CapacityBasedStrategy(agentRegistry, 0.7, 7);
   
   const scheduler = new StrategyBasedTaskScheduler([
     explicitStrategy,
     intervalStrategy,
-    priorityStrategy
+    priorityStrategy,
+    capacityStrategy
   ]);
   
   const executor = new BasicTaskExecutor();
@@ -356,7 +370,8 @@ export function createSchedulerComponents() {
     strategies: {
       explicitStrategy,
       intervalStrategy,
-      priorityStrategy
+      priorityStrategy,
+      capacityStrategy
     }
   };
 }

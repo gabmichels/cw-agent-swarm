@@ -68,11 +68,13 @@ const dueTasks = await this.scheduler.getDueTasks(pendingTasks);
 1. **ExplicitTimeStrategy**: Tasks with scheduled times in the past
 2. **IntervalStrategy**: Recurring tasks due for next execution  
 3. **PriorityBasedStrategy**: High priority (7+) or aged tasks (30+ min)
+4. **🆕 CapacityBasedStrategy**: Low priority tasks when < 70% capacity used
 
 **Smart Ordering:**
 1. Time-based tasks (by scheduled time)
 2. Priority-based tasks (high to low priority)
-3. Other tasks (by priority)
+3. Capacity-based tasks (when spare capacity available)
+4. Other tasks (by priority)
 
 ### **4. Capacity Management**
 ```typescript
