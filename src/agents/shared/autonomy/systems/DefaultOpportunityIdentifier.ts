@@ -7,7 +7,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { AgentBase } from '../../base/AgentBase.interface';
 import { ManagerType } from '../../base/managers/ManagerType';
-import { MemoryManager } from '../../base/managers/MemoryManager';
+import { MemoryManager, MemoryEntry } from '../../base/managers/MemoryManager';
 import { KnowledgeManager, KnowledgeEntry } from '../../base/managers/KnowledgeManager.interface';
 import { ReflectionManager } from '../../base/managers/ReflectionManager.interface';
 import { 
@@ -15,6 +15,15 @@ import {
   OpportunityTrigger, OpportunityContext, IdentifiedOpportunity,
   TriggerDetectionOptions, OpportunityDetectionResult
 } from '../../autonomy/interfaces/OpportunityIdentification.interface';
+// Import the new opportunity management system
+import { 
+  createOpportunitySystem, 
+  OpportunityManager,
+  OpportunitySystemConfig,
+  OpportunityStorageType,
+  Opportunity as NewOpportunity,
+  OpportunityStatus
+} from '../../../../lib/opportunity';
 
 /**
  * Error class for opportunity identification
@@ -35,6 +44,8 @@ export class DefaultOpportunityIdentifier implements OpportunityIdentifier {
   private opportunities: Map<string, IdentifiedOpportunity> = new Map();
   private activeTriggers: Set<string> = new Set();
   private triggerPatterns: Map<string, RegExp> = new Map();
+  // Add the opportunity manager from our new system
+  private opportunityManager: OpportunityManager | null = null;
 
   constructor(agent: AgentBase) {
     this.agent = agent;
@@ -104,6 +115,24 @@ export class DefaultOpportunityIdentifier implements OpportunityIdentifier {
       if (!memoryManager || !knowledgeManager || !reflectionManager) {
         console.warn(`[OpportunityIdentifier] Some managers are missing. Opportunity identification will have limited functionality.`);
       }
+
+      // Initialize the opportunity management system
+      const config: OpportunitySystemConfig = {
+        storage: {
+          type: OpportunityStorageType.MEMORY // Use in-memory storage for simplicity
+        },
+        autoEvaluate: true,
+        managerConfig: {
+          autoProcessing: {
+            enabled: true,
+            minScoreThreshold: 0.5
+          }
+        }
+      };
+
+      // Initialize the opportunity manager
+      this.opportunityManager = createOpportunitySystem(config);
+      await this.opportunityManager.initialize();
 
       this.initialized = true;
       console.log(`[OpportunityIdentifier] Successfully initialized for agent ${agentId}`);
@@ -194,15 +223,65 @@ export class DefaultOpportunityIdentifier implements OpportunityIdentifier {
     const opportunities: IdentifiedOpportunity[] = [];
     const now = new Date();
 
-    for (const trigger of triggers) {
-      try {
-        const opportunity = await this.createOpportunityFromTrigger(trigger);
-        if (opportunity) {
-          opportunities.push(opportunity);
-          this.opportunities.set(opportunity.id, opportunity);
+    // Make sure opportunity manager is available
+    if (!this.opportunityManager) {
+      console.error("Opportunity manager not initialized, falling back to internal implementation");
+      
+      // Fall back to the internal implementation if opportunity manager is not available
+      for (const trigger of triggers) {
+        try {
+          const opportunity = await this.createOpportunityFromTrigger(trigger);
+          if (opportunity) {
+            opportunities.push(opportunity);
+            this.opportunities.set(opportunity.id, opportunity);
+          }
+        } catch (error) {
+          console.error(`Error processing trigger ${trigger.id}:`, error);
         }
-      } catch (error) {
-        console.error(`Error processing trigger ${trigger.id}:`, error);
+      }
+    } else {
+      // Use the new opportunity management system
+      for (const trigger of triggers) {
+        try {
+          // Convert the legacy trigger into a format suitable for the new system
+          const opportunityType = this.mapTriggerToOpportunityType(trigger.type);
+          if (!opportunityType) continue;
+          
+          const agentId = this.agent.getAgentId();
+          const priority = this.calculateOpportunityPriority(trigger);
+          
+          // Create the opportunity using the new system
+          const opportunity = await this.opportunityManager.createOpportunityForAgent({
+            title: `${opportunityType} opportunity from ${trigger.source}`,
+            description: typeof trigger.context.content === 'string' ? trigger.context.content : 'Opportunity detected',
+            type: opportunityType, 
+            priority: priority.toString().toLowerCase(),
+            metadata: {
+              trigger: trigger,
+              confidence: trigger.confidence,
+              agentId
+            },
+            expiresAt: new Date(now.getTime() + 24 * 60 * 60 * 1000), // 24 hours
+          }, agentId);
+          
+          // Convert to the legacy format for compatibility
+          const legacyOpportunity: IdentifiedOpportunity = {
+            id: opportunity.id,
+            type: opportunityType,
+            trigger,
+            priority,
+            context: await this.gatherOpportunityContext(trigger),
+            detectedAt: opportunity.createdAt,
+            status: 'pending',
+            validUntil: opportunity.expiresAt || new Date(now.getTime() + 24 * 60 * 60 * 1000),
+            confidence: trigger.confidence
+          };
+          
+          opportunities.push(legacyOpportunity);
+          this.opportunities.set(legacyOpportunity.id, legacyOpportunity);
+        } catch (error) {
+          console.error(`Error processing trigger ${trigger.id}:`, error);
+        }
       }
     }
 
@@ -248,38 +327,52 @@ export class DefaultOpportunityIdentifier implements OpportunityIdentifier {
   private mapTriggerToOpportunityType(triggerType: string): OpportunityType | null {
     const mappings: Record<string, OpportunityType> = {
       'task_completion': OpportunityType.TASK_OPTIMIZATION,
-      'error_occurrence': OpportunityType.ERROR_PREVENTION,
+      'error_occurrence': OpportunityType.ERROR_RECOVERY,
       'resource_change': OpportunityType.RESOURCE_OPTIMIZATION,
       'user_request': OpportunityType.USER_ASSISTANCE,
-      'schedule_event': OpportunityType.SCHEDULE_OPTIMIZATION,
+      'schedule_event': OpportunityType.SCHEDULED_TASK,
       'knowledge_gap': OpportunityType.KNOWLEDGE_ACQUISITION,
       'performance_issue': OpportunityType.PERFORMANCE_OPTIMIZATION,
       'optimization': OpportunityType.SYSTEM_OPTIMIZATION
     };
-
+    
     return mappings[triggerType] || null;
   }
 
   /**
-   * Calculate opportunity priority
+   * Calculate priority for an opportunity
    */
   private calculateOpportunityPriority(trigger: OpportunityTrigger): OpportunityPriority {
-    const priorityMappings: Record<string, OpportunityPriority> = {
-      'error_occurrence': OpportunityPriority.HIGH,
-      'user_request': OpportunityPriority.HIGH,
-      'performance_issue': OpportunityPriority.MEDIUM,
-      'knowledge_gap': OpportunityPriority.MEDIUM,
-      'resource_change': OpportunityPriority.MEDIUM,
-      'schedule_event': OpportunityPriority.MEDIUM,
-      'task_completion': OpportunityPriority.LOW,
-      'optimization': OpportunityPriority.LOW
+    // Quick mapping of urgency by trigger type
+    const typePriorities: Record<string, number> = {
+      'error_occurrence': 0.9,
+      'user_request': 0.8,
+      'schedule_event': 0.7,
+      'performance_issue': 0.6,
+      'resource_change': 0.5,
+      'task_completion': 0.4,
+      'knowledge_gap': 0.3,
+      'optimization': 0.2
     };
-
-    return priorityMappings[trigger.type] || OpportunityPriority.LOW;
+    
+    const basePriority = typePriorities[trigger.type] || 0.5;
+    const confidenceWeight = 0.3;
+    
+    // Calculate score based on base priority and confidence
+    const score = (basePriority * (1 - confidenceWeight)) + (trigger.confidence * confidenceWeight);
+    
+    // Map score to priority level
+    if (score >= 0.8) {
+      return OpportunityPriority.HIGH;
+    } else if (score >= 0.5) {
+      return OpportunityPriority.MEDIUM;
+    } else {
+      return OpportunityPriority.LOW;
+    }
   }
 
   /**
-   * Gather context for an opportunity
+   * Gather additional context information for an opportunity
    */
   private async gatherOpportunityContext(
     trigger: OpportunityTrigger
@@ -287,71 +380,62 @@ export class DefaultOpportunityIdentifier implements OpportunityIdentifier {
     const context: OpportunityContext = {
       trigger: trigger.context,
       timestamp: new Date(),
-      source: trigger.source
+      source: 'opportunity-identifier',
+      relevantMemories: [],
+      relevantKnowledge: [],
+      insights: [],
+      metadata: {}
     };
-
+    
+    // Try to get relevant memories if memory manager is available
     try {
-      // Safely get managers if available, and provide fallbacks if they're not
-      
-      // Get relevant memories if available
-      try {
-        if (this.agent.hasManager && this.agent.hasManager(ManagerType.MEMORY)) {
-          const memoryManager = this.agent.getManager<MemoryManager>(ManagerType.MEMORY);
-          if (memoryManager) {
-            try {
-              const recentMemories = await memoryManager.getRecentMemories(5);
-              context.recentMemories = recentMemories;
-            } catch (err: any) {
-              console.warn(`[OpportunityIdentifier] Error getting recent memories: ${err.message}`);
-              context.recentMemories = [];
-            }
-          } else {
-            context.recentMemories = [];
-          }
-        } else {
-          context.recentMemories = [];
+      if (this.agent.hasManager && this.agent.hasManager(ManagerType.MEMORY)) {
+        const memoryManager = this.agent.getManager<MemoryManager>(ManagerType.MEMORY);
+        if (memoryManager) {
+          const relevantMemories = await memoryManager.searchMemories(
+            typeof trigger.context.content === 'string' ? trigger.context.content : '',
+            { limit: 5 }
+          );
+          
+          context.relevantMemories = relevantMemories.map(memory => ({
+            id: memory.id,
+            content: memory.content,
+            importance: (memory as any).importance || 0,
+            metadata: memory.metadata || {},
+            createdAt: memory.createdAt || new Date(),
+            lastAccessedAt: memory.lastAccessedAt || new Date(),
+            accessCount: memory.accessCount || 0
+          } as MemoryEntry));
         }
-      } catch (memErr) {
-        console.warn(`[OpportunityIdentifier] Memory manager access error: ${memErr}`);
-        context.recentMemories = [];
-      }
-
-      // Get relevant knowledge if available
-      try {
-        if (this.agent.hasManager && this.agent.hasManager(ManagerType.KNOWLEDGE)) {
-          const knowledgeManager = this.agent.getManager<KnowledgeManager>(ManagerType.KNOWLEDGE);
-          if (knowledgeManager) {
-            try {
-              const content = typeof trigger.context.content === 'string' ? trigger.context.content : '';
-              const searchResults = await knowledgeManager.searchKnowledge(content, { limit: 3 });
-              // Extract entries from search results
-              context.relevantKnowledge = searchResults.map(result => result.entry);
-            } catch (err: any) {
-              console.warn(`[OpportunityIdentifier] Error searching knowledge: ${err.message}`);
-              context.relevantKnowledge = [];
-            }
-          } else {
-            context.relevantKnowledge = [];
-          }
-        } else {
-          context.relevantKnowledge = [];
-        }
-      } catch (knowledgeErr) {
-        console.warn(`[OpportunityIdentifier] Knowledge manager access error: ${knowledgeErr}`);
-        context.relevantKnowledge = [];
       }
     } catch (error) {
-      console.error('[OpportunityIdentifier] Error gathering opportunity context:', error);
-      // Provide empty arrays as fallbacks
-      context.recentMemories = context.recentMemories || [];
-      context.relevantKnowledge = context.relevantKnowledge || [];
+      console.warn('[OpportunityIdentifier] Error fetching relevant memories:', error);
     }
-
+    
+    // Try to get relevant knowledge if knowledge manager is available
+    try {
+      if (this.agent.hasManager && this.agent.hasManager(ManagerType.KNOWLEDGE)) {
+        const knowledgeManager = this.agent.getManager<KnowledgeManager>(ManagerType.KNOWLEDGE);
+        if (knowledgeManager && 'getRelevantKnowledge' in knowledgeManager) {
+          const query = typeof trigger.context.content === 'string' ? trigger.context.content : '';
+          const relevantKnowledge = await (knowledgeManager as any).getRelevantKnowledge(query, 3);
+          
+          context.relevantKnowledge = relevantKnowledge.map((knowledge: any) => ({
+            id: knowledge.id,
+            title: knowledge.title,
+            content: knowledge.content
+          }));
+        }
+      }
+    } catch (error) {
+      console.warn('[OpportunityIdentifier] Error fetching relevant knowledge:', error);
+    }
+    
     return context;
   }
 
   /**
-   * Get all identified opportunities
+   * Get opportunities matching filter criteria
    */
   async getOpportunities(
     filter?: {
@@ -360,59 +444,174 @@ export class DefaultOpportunityIdentifier implements OpportunityIdentifier {
       status?: string;
     }
   ): Promise<IdentifiedOpportunity[]> {
-    // Initialize if not already initialized
-    if (!this.initialized) {
+    this.ensureInitialized();
+    
+    if (this.opportunityManager) {
       try {
-        await this.initialize();
+        // Use the new opportunity system
+        const agentId = this.agent.getAgentId();
+        const newFilter: any = {};
+        
+        if (filter?.type) newFilter.types = [filter.type];
+        if (filter?.priority) newFilter.priorities = [filter.priority.toString().toLowerCase()];
+        if (filter?.status) {
+          // Map the status
+          const statusMap: Record<string, string> = {
+            'pending': OpportunityStatus.PENDING,
+            'in_progress': OpportunityStatus.IN_PROGRESS,
+            'completed': OpportunityStatus.COMPLETED,
+            'failed': OpportunityStatus.FAILED,
+            'expired': OpportunityStatus.EXPIRED
+          };
+          
+          newFilter.statuses = [statusMap[filter.status] || OpportunityStatus.PENDING];
+        }
+        
+        // Retrieve opportunities for this agent using the new system
+        const newOpportunities = await this.opportunityManager.findOpportunitiesForAgent(
+          agentId,
+          newFilter
+        );
+        
+        // Convert to legacy format
+        return newOpportunities.map(this.convertToLegacyOpportunity.bind(this));
       } catch (error) {
-        console.warn('[OpportunityIdentifier] Auto-initializing during get opportunities:', error);
-        this.initialized = true; // Force initialized to avoid blocking
+        console.error("Error retrieving opportunities from new system, falling back to internal storage:", error);
       }
     }
-
+    
+    // Fallback to internal storage if new system fails or isn't available
     let opportunities = Array.from(this.opportunities.values());
-
+    
     if (filter) {
-      opportunities = opportunities.filter(opp => {
-        if (filter.type && opp.type !== filter.type) return false;
-        if (filter.priority && opp.priority !== filter.priority) return false;
-        if (filter.status && opp.status !== filter.status) return false;
-        return true;
-      });
+      if (filter.type !== undefined) {
+        opportunities = opportunities.filter(o => o.type === filter.type);
+      }
+      
+      if (filter.priority !== undefined) {
+        opportunities = opportunities.filter(o => o.priority === filter.priority);
+      }
+      
+      if (filter.status !== undefined) {
+        opportunities = opportunities.filter(o => o.status === filter.status);
+      }
     }
-
+    
     return opportunities;
   }
 
   /**
-   * Update opportunity status
+   * Convert new opportunity format to legacy format
+   */
+  private convertToLegacyOpportunity(newOpp: NewOpportunity): IdentifiedOpportunity {
+    // Extract trigger from metadata if available
+    const trigger = (newOpp.metadata?.trigger as OpportunityTrigger) || {
+      id: uuidv4(),
+      type: 'unknown',
+      source: 'system',
+      timestamp: newOpp.createdAt,
+      confidence: newOpp.metadata?.confidence as number || 0.5,
+      context: {
+        content: newOpp.description
+      }
+    };
+    
+    // Map priority from string to enum
+    const priorityMap: Record<string, OpportunityPriority> = {
+      'high': OpportunityPriority.HIGH,
+      'medium': OpportunityPriority.MEDIUM,
+      'low': OpportunityPriority.LOW
+    };
+    
+    // Map opportunity type
+    const typeMap: Record<string, OpportunityType> = {
+      'task_optimization': OpportunityType.TASK_OPTIMIZATION,
+      'error_recovery': OpportunityType.ERROR_RECOVERY,
+      'resource_optimization': OpportunityType.RESOURCE_OPTIMIZATION,
+      'user_assistance': OpportunityType.USER_ASSISTANCE,
+      'scheduled_task': OpportunityType.SCHEDULED_TASK,
+      'knowledge_acquisition': OpportunityType.KNOWLEDGE_ACQUISITION,
+      'performance_optimization': OpportunityType.PERFORMANCE_OPTIMIZATION,
+      'system_optimization': OpportunityType.SYSTEM_OPTIMIZATION
+    };
+    
+    // Map status
+    const statusMap: Record<string, string> = {
+      [OpportunityStatus.PENDING]: 'pending',
+      [OpportunityStatus.IN_PROGRESS]: 'in_progress',
+      [OpportunityStatus.COMPLETED]: 'completed',
+      [OpportunityStatus.FAILED]: 'failed',
+      [OpportunityStatus.EXPIRED]: 'expired'
+    };
+    
+    return {
+      id: newOpp.id,
+      type: typeMap[newOpp.type] || OpportunityType.TASK_OPTIMIZATION,
+      trigger,
+      priority: priorityMap[newOpp.priority] || OpportunityPriority.MEDIUM,
+      context: {
+        trigger: {},
+        timestamp: new Date(),
+        source: 'conversion',
+        metadata: newOpp.metadata || {},
+        relevantMemories: [],
+        relevantKnowledge: [],
+        insights: []
+      },
+      detectedAt: newOpp.createdAt,
+      status: statusMap[newOpp.status] || 'pending',
+      validUntil: newOpp.expiresAt || new Date(Date.now() + 24 * 60 * 60 * 1000),
+      confidence: newOpp.metadata?.confidence as number || 0.5
+    };
+  }
+
+  /**
+   * Update the status of an opportunity
    */
   async updateOpportunityStatus(
     opportunityId: string,
     status: string,
     result?: Record<string, unknown>
   ): Promise<boolean> {
-    // Initialize if not already initialized
-    if (!this.initialized) {
+    this.ensureInitialized();
+    
+    if (this.opportunityManager) {
       try {
-        await this.initialize();
+        // Map legacy status to new status
+        const statusMap: Record<string, OpportunityStatus> = {
+          'pending': OpportunityStatus.PENDING,
+          'in_progress': OpportunityStatus.IN_PROGRESS,
+          'completed': OpportunityStatus.COMPLETED,
+          'failed': OpportunityStatus.FAILED,
+          'expired': OpportunityStatus.EXPIRED
+        };
+        
+        const newStatus = statusMap[status] || OpportunityStatus.PENDING;
+        
+        // Update status in the new system
+        const updated = await this.opportunityManager.updateOpportunityStatus(
+          opportunityId,
+          newStatus,
+          result
+        );
+        
+        return !!updated;
       } catch (error) {
-        console.warn('[OpportunityIdentifier] Auto-initializing during status update:', error);
-        this.initialized = true; // Force initialized to avoid blocking
+        console.error(`Error updating opportunity status in new system:`, error);
       }
     }
-
+    
+    // Fallback to internal storage
     const opportunity = this.opportunities.get(opportunityId);
     if (!opportunity) {
       return false;
     }
-
+    
     opportunity.status = status;
     if (result) {
       opportunity.result = result;
     }
-    opportunity.lastUpdated = new Date();
-
+    
     this.opportunities.set(opportunityId, opportunity);
     return true;
   }
@@ -421,31 +620,39 @@ export class DefaultOpportunityIdentifier implements OpportunityIdentifier {
    * Clear expired opportunities
    */
   async clearExpiredOpportunities(): Promise<number> {
-    // Initialize if not already initialized
-    if (!this.initialized) {
-      try {
-        await this.initialize();
-      } catch (error) {
-        console.warn('[OpportunityIdentifier] Auto-initializing during clear expired:', error);
-        this.initialized = true; // Force initialized to avoid blocking
-      }
-    }
-
+    this.ensureInitialized();
+    
     const now = new Date();
-    let cleared = 0;
-
-    for (const [id, opportunity] of Array.from(this.opportunities.entries())) {
-      if (opportunity.validUntil && opportunity.validUntil < now) {
-        this.opportunities.delete(id);
-        cleared++;
+    let expiredCount = 0;
+    
+    if (this.opportunityManager) {
+      try {
+        // Use the new system to clear expired opportunities
+        expiredCount = await this.opportunityManager.clearExpiredOpportunities(now);
+      } catch (error) {
+        console.error(`Error clearing expired opportunities in new system:`, error);
       }
     }
-
-    return cleared;
+    
+    // Always clear from internal storage as well
+    const expiredIds: string[] = [];
+    
+    const opportunitiesArray = Array.from(this.opportunities.entries());
+    for (const [id, opportunity] of opportunitiesArray) {
+      if (opportunity.validUntil && opportunity.validUntil < now) {
+        expiredIds.push(id);
+      }
+    }
+    
+    for (const id of expiredIds) {
+      this.opportunities.delete(id);
+    }
+    
+    return expiredCount || expiredIds.length;
   }
 
   /**
-   * Ensure the identifier is initialized
+   * Ensure the system is initialized
    */
   private ensureInitialized(): void {
     if (!this.initialized) {

@@ -179,6 +179,11 @@ export interface Opportunity {
   validUntil?: Date;
   result?: OpportunityResult;
   tags: string[];
+  
+  // Additional properties for agent integration
+  createdAt: Date;
+  expiresAt?: Date;
+  metadata?: Record<string, unknown>;
 }
 
 /**
@@ -260,7 +265,10 @@ export function createOpportunity(options: OpportunityCreationOptions): Opportun
     detectedAt: now,
     updatedAt: now,
     validUntil: options.validUntil || new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000), // Default 7 days
-    tags: options.tags || []
+    tags: options.tags || [],
+    createdAt: now,
+    expiresAt: options.validUntil || new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000),
+    metadata: {}
   };
 }
 

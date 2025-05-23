@@ -45,12 +45,21 @@ import { Task } from '../../lib/scheduler/models/Task.model';
 import { ModularSchedulerManager } from '../../lib/scheduler/implementations/ModularSchedulerManager';
 import { createSchedulerManager } from '../../lib/scheduler/factories/SchedulerFactory';
 import { TaskStatus } from '../../lib/scheduler/models/Task.model';
+// Import the opportunity management system
+import { 
+  createOpportunitySystem, 
+  OpportunityManager,
+  OpportunitySystemConfig,
+  OpportunityStorageType,
+  OpportunitySource
+} from '../../lib/opportunity';
 
 // Define the necessary types that we need
 const AGENT_STATUS = {
   AVAILABLE: 'available',
   BUSY: 'busy',
-  OFFLINE: 'offline'
+  OFFLINE: 'offline',
+  ERROR: 'error'
 } as const;
 
 // Simple implementation of agent memory entity for local usage
@@ -169,6 +178,8 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
   private executionErrorHandler: ExecutionErrorHandler | null = null;
   private memoryRefreshInterval: NodeJS.Timeout | null = null;
   private lastMemoryRefreshTime: Date | null = null;
+  // Add opportunity manager
+  private opportunityManager: OpportunityManager | null = null;
   
   /**
    * Create a new DefaultAgent
@@ -433,128 +444,181 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
     if (this.initialized) {
       return true;
     }
-
+    
     try {
-      // Register all managers based on configuration
+      console.log(`[Agent] Initializing agent ${this.agentId}`);
+      
+      // Initialize memory manager - we'll use this to store our persona, memories, etc.
       if (this.extendedConfig.enableMemoryManager) {
-        // Check if enhanced memory is enabled
+        console.log(`[Agent] Initializing Memory Manager`);
+        
+        // Use enhanced memory manager if specified
         if (this.extendedConfig.useEnhancedMemory) {
-          // Use EnhancedMemoryManager instead of DefaultMemoryManager
-          const enhancedMemoryManager = new EnhancedMemoryManager(
-            this,
-            this.extendedConfig.managersConfig?.memoryManager || {}
-          );
-          await enhancedMemoryManager.initialize();
-          this.registerManager(enhancedMemoryManager);
+          console.log(`[Agent] Using Enhanced Memory Manager`);
+          const memoryManager = new EnhancedMemoryManager(this, {
+            enabled: true,
+            systemMemoryScope: `agent-${this.agentId}-system`,
+            userMemoryScope: `agent-${this.agentId}-user`,
+            createPrivateScope: true,
+            defaultScopeName: `agent-${this.agentId}-default`,
+          });
+          this.setManager(memoryManager);
         } else {
-          // Use DefaultMemoryManager
-          const memoryManager = new DefaultMemoryManager(
-            this, 
-            this.extendedConfig.managersConfig?.memoryManager || {}
-          );
-          await memoryManager.initialize();
-          this.registerManager(memoryManager);
+          const memoryManager = new DefaultMemoryManager(this, {
+            enabled: true,
+            systemMemoryScope: `agent-${this.agentId}-system`,
+            userMemoryScope: `agent-${this.agentId}-user`,
+            createPrivateScope: true,
+            defaultScopeName: `agent-${this.agentId}-default`,
+          });
+          this.setManager(memoryManager);
         }
       }
-
+      
+      // Initialize planning manager - used for complex task planning
       if (this.extendedConfig.enablePlanningManager) {
-        const planningManager = new DefaultPlanningManager(
-          this,
-          this.extendedConfig.managersConfig?.planningManager || {}
-        );
-        await planningManager.initialize();
-        this.registerManager(planningManager);
+        console.log(`[Agent] Initializing Planning Manager`);
         
-        // Initialize the Planner with the agent's model
-        this.planner = new Planner();
-      }
-
-      if (this.extendedConfig.enableToolManager) {
-        const toolManager = new DefaultToolManager(
-          this,
-          this.extendedConfig.managersConfig?.toolManager || {}
-        );
-        await toolManager.initialize();
-        this.registerManager(toolManager);
+        const planningManager = new DefaultPlanningManager(this);
+        this.setManager(planningManager);
         
-        // Initialize executor with error handling
+        // Setup executor
         this.setupExecutor();
       }
-
-      if (this.extendedConfig.enableKnowledgeManager) {
-        const knowledgeManager = new DefaultKnowledgeManager(
-          this,
-          this.extendedConfig.managersConfig?.knowledgeManager || {}
-        );
-        await knowledgeManager.initialize();
-        this.registerManager(knowledgeManager);
+      
+      // Initialize tool manager - used to provide capabilities to the agent
+      if (this.extendedConfig.enableToolManager) {
+        console.log(`[Agent] Initializing Tool Manager`);
+        
+        const toolManager = new DefaultToolManager(this);
+        this.setManager(toolManager);
       }
-
+      
+      // Initialize knowledge manager - used to store and retrieve knowledge
+      if (this.extendedConfig.enableKnowledgeManager) {
+        console.log(`[Agent] Initializing Knowledge Manager`);
+        
+        const knowledgeManager = new DefaultKnowledgeManager(this);
+        this.setManager(knowledgeManager);
+      }
+      
+      // Initialize scheduler manager - used for task scheduling
+      if (this.extendedConfig.enableSchedulerManager) {
+        console.log(`[Agent] Initializing Scheduler Manager`);
+        
+        // Create proper config for scheduler
+        const schedulerConfig = this.extendedConfig.managersConfig?.schedulerManager || {};
+        
+        // Create scheduler manager
+        this.schedulerManager = await createSchedulerManager({
+          maxConcurrentTasks: 5,
+          ...schedulerConfig
+        });
+        
+        // Set agent reference
+        (this.schedulerManager as any).agent = this;
+        
+        this.setManager(this.schedulerManager);
+      }
+      
+      // Initialize reflection manager if enabled - for enhanced self-reflection
       if (this.extendedConfig.enableReflectionManager) {
-        // Check if enhanced reflection is enabled
+        console.log(`[Agent] Initializing Reflection Manager`);
+        
+        // Use enhanced reflection manager if specified
         if (this.extendedConfig.useEnhancedReflection) {
-          // Use EnhancedReflectionManager 
-          const reflectionManager = new EnhancedReflectionManager(
-            this,
-            this.extendedConfig.managersConfig?.reflectionManager || {}
-          );
-          await reflectionManager.initialize();
-          this.registerManager(reflectionManager);
+          console.log(`[Agent] Using Enhanced Reflection Manager`);
+          const reflectionManager = new EnhancedReflectionManager(this, {
+            enabled: true,
+            reflectionFrequencyMs: 3600000, // 1 hour
+            maxReflectionDepth: 3,
+            keepReflectionHistory: true,
+            maxHistoryItems: 10
+          });
+          this.setManager(reflectionManager);
         } else {
-          // Use DefaultReflectionManager
-          const reflectionManager = new DefaultReflectionManager(
-            this,
-            this.extendedConfig.managersConfig?.reflectionManager || {}
-          );
-          await reflectionManager.initialize();
-          this.registerManager(reflectionManager);
+          const reflectionManager = new DefaultReflectionManager(this, {
+            enabled: true,
+            reflectionFrequencyMs: 3600000, // 1 hour
+            maxReflectionDepth: 3,
+            keepReflectionHistory: true,
+            maxHistoryItems: 10
+          });
+          this.setManager(reflectionManager);
         }
       }
-
-      if (this.extendedConfig.enableSchedulerManager) {
-        const schedulerConfig = {
-          schedulingIntervalMs: Number(this.extendedConfig.managersConfig?.schedulerManager?.schedulingIntervalMs) || 10000,
-          maxConcurrentTasks: Number(this.extendedConfig.managersConfig?.schedulerManager?.maxConcurrentTasks) || 5,
-          defaultPriority: 5
+      
+      // Initialize input and output processors if enabled
+      if (this.extendedConfig.enableInputProcessor) {
+        console.log(`[Agent] Initializing Input Processor`);
+        
+        /* Input processor not implemented yet
+        const inputConfig = this.extendedConfig.managersConfig?.inputProcessor || {};
+        const inputProcessor = new DefaultInputProcessor(this, inputConfig);
+        this.setManager(inputProcessor);
+        */
+      }
+      
+      if (this.extendedConfig.enableOutputProcessor) {
+        console.log(`[Agent] Initializing Output Processor`);
+        
+        /* Output processor not implemented yet
+        const outputConfig = this.extendedConfig.managersConfig?.outputProcessor || {};
+        const outputProcessor = new DefaultOutputProcessor(this, outputConfig);
+        this.setManager(outputProcessor);
+        */
+      }
+      
+      // Initialize resource tracking if enabled
+      if (this.extendedConfig.enableResourceTracking) {
+        this.initializeResourceTracking();
+      }
+      
+      // Initialize opportunity manager
+      console.log(`[Agent] Initializing Opportunity Manager`);
+      try {
+        // Configure the opportunity system
+        const opportunityConfig: OpportunitySystemConfig = {
+          storage: {
+            type: OpportunityStorageType.FILE,
+            storageDir: `data/agents/${this.agentId}/opportunities`,
+            filename: 'opportunities.json',
+            saveOnMutation: true
+          },
+          autoEvaluate: true
         };
         
-        this.schedulerManager = await createSchedulerManager(schedulerConfig);
-        
-        // Provide the agent reference to the scheduler
-        if (this.schedulerManager) {
-          (this.schedulerManager as any).agent = this;
-        }
-        
-        this.registerManager(this.schedulerManager);
-        
-        // Initialize resource utilization tracking if enabled
-        if (this.extendedConfig.enableResourceTracking) {
-          this.initializeResourceTracking();
-        }
+        // Create and initialize the opportunity manager
+        this.opportunityManager = createOpportunitySystem(opportunityConfig);
+        await this.opportunityManager.initialize();
+        console.log(`[Agent] Successfully initialized Opportunity Manager`);
+      } catch (error) {
+        console.error(`[Agent] Error initializing Opportunity Manager:`, error);
+        // Continue without the opportunity manager - it's not critical
       }
-
-      // For now we'll skip input/output processor initialization due to type issues
-      // We'll implement them properly when needed for actual input/output processing
-
+      
       // Wire managers together
       this.wireManagersTogether();
-
-      // Set up memory refresh if enabled
+      
+      // Set up memory refresh if configured
       if (this.extendedConfig.memoryRefresh?.enabled) {
         this.setupMemoryRefresh();
       }
-
-      // Setup autonomous scheduling if scheduler manager is available
-      const schedulerManager = this.getManager(ManagerType.SCHEDULER);
-      if (schedulerManager) {
-        console.log(`[Agent ${this.agentId}] Setting up autonomous scheduling`);
-        // Use 10 second polling interval for autonomous scheduling
-        SchedulerHelper.setupSchedulingTimer(this, 10000);
-      }
-
-      return super.initialize();
+      
+      this.initialized = true;
+      console.log(`[Agent] Agent ${this.agentId} initialized successfully`);
+      
+      return true;
     } catch (error) {
-      console.error('Error initializing DefaultAgent:', error);
+      console.error(`[Agent] Error during initialization:`, error);
+      
+      // Clean up any resources that were created
+      try {
+        await this.shutdown();
+      } catch (shutdownError) {
+        console.error(`[Agent] Error during shutdown after failed initialization:`, shutdownError);
+      }
+      
       return false;
     }
   }
@@ -690,33 +754,48 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
       return;
     }
 
-    // Clean up the scheduling timer
-    SchedulerHelper.cleanup();
+    console.log(`[Agent] Shutting down agent ${this.agentId}`);
 
-    // Stop memory refresh if active
+    // Stop memory refresh interval if running
     if (this.memoryRefreshInterval) {
       clearInterval(this.memoryRefreshInterval);
       this.memoryRefreshInterval = null;
     }
-    
-    // Stop resource tracking if active
+
+    // Clear resource tracker if active
     if (this.resourceTracker) {
-      this.resourceTracker.stop();
+      this.resourceTracker.removeListener(this);
+      this.resourceTracker.stop(); // Correct method name
       this.resourceTracker = null;
     }
     
-    // Shutdown the executor if initialized
-    if (this.executor) {
-      await this.executor.shutdown();
+    // Shutdown opportunity manager if available
+    if (this.opportunityManager) {
+      try {
+        // Stop polling for opportunities
+        await this.opportunityManager.stopPolling();
+      } catch (error) {
+        console.error(`[Agent] Error shutting down opportunity manager:`, error);
+      }
     }
-    
-    // Shutdown all registered managers
-    await this.shutdownManagers();
-    
-    // Set agent status to offline
-    this.config.status = AGENT_STATUS.OFFLINE as any;
+
+    // Get all managers
+    const managers = this.getManagers();
+
+    // Shutdown each manager in reverse order
+    for (let i = managers.length - 1; i >= 0; i--) {
+      try {
+        const manager = managers[i];
+        if (manager && typeof manager.shutdown === 'function') {
+          await manager.shutdown();
+        }
+      } catch (error) {
+        console.error(`[Agent] Error shutting down manager:`, error);
+      }
+    }
 
     this.initialized = false;
+    console.log(`[Agent] Agent ${this.agentId} shut down`);
   }
 
   /**
@@ -2531,5 +2610,105 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
         }
       }
     });
+  }
+
+  /**
+   * Get opportunity manager
+   */
+  getOpportunityManager(): OpportunityManager | null {
+    return this.opportunityManager;
+  }
+
+  /**
+   * Detect opportunities in content
+   */
+  async detectOpportunities(content: string, sourceType: string = 'user'): Promise<any> {
+    if (!this.opportunityManager) {
+      console.warn(`[Agent] Opportunity manager not available`);
+      return { opportunities: [] };
+    }
+    
+    try {
+      // Map the string source to the OpportunitySource enum
+      const sourceMap: Record<string, OpportunitySource> = {
+        'user': OpportunitySource.USER_INTERACTION,
+        'memory': OpportunitySource.MEMORY_PATTERN,
+        'knowledge': OpportunitySource.KNOWLEDGE_GRAPH,
+        'schedule': OpportunitySource.SCHEDULE,
+        'calendar': OpportunitySource.CALENDAR,
+        'news': OpportunitySource.NEWS,
+        'market': OpportunitySource.MARKET_DATA,
+        'collaboration': OpportunitySource.COLLABORATION,
+        'analytics': OpportunitySource.ANALYTICS,
+        'api': OpportunitySource.EXTERNAL_API
+      };
+      
+      // Convert the source string to an enum value if possible
+      const source = sourceMap[sourceType] || OpportunitySource.USER_INTERACTION;
+      
+      // Detect opportunities using the opportunity manager
+      const result = await this.opportunityManager.detectOpportunities(content, {
+        source,
+        agentId: this.agentId,
+        context: { agentId: this.agentId }
+      });
+      
+      return result;
+    } catch (error) {
+      console.error(`[Agent] Error detecting opportunities:`, error);
+      return { opportunities: [] };
+    }
+  }
+  
+  /**
+   * Add opportunity
+   */
+  async addOpportunity(title: string, description: string, type: string, priority: string = 'medium'): Promise<any> {
+    if (!this.opportunityManager) {
+      console.warn(`[Agent] Opportunity manager not available`);
+      return null;
+    }
+    
+    try {
+      // Create a new opportunity using the simplified interface
+      const opportunity = await this.opportunityManager.createOpportunityForAgent({
+        title,
+        description,
+        type,
+        priority,
+        metadata: {
+          agentId: this.agentId,
+          createdBy: 'agent'
+        }
+      }, this.agentId);
+      
+      return opportunity;
+    } catch (error) {
+      console.error(`[Agent] Error adding opportunity:`, error);
+      return null;
+    }
+  }
+  
+  /**
+   * Get agent's opportunities
+   */
+  async getOpportunities(filter?: any): Promise<any[]> {
+    if (!this.opportunityManager) {
+      console.warn(`[Agent] Opportunity manager not available`);
+      return [];
+    }
+    
+    try {
+      // Get opportunities for this agent
+      const opportunities = await this.opportunityManager.findOpportunitiesForAgent(
+        this.agentId,
+        filter
+      );
+      
+      return opportunities;
+    } catch (error) {
+      console.error(`[Agent] Error getting opportunities:`, error);
+      return [];
+    }
   }
 } 

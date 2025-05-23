@@ -36,6 +36,8 @@ import {
   BatchProcessingResult 
 } from '../interfaces/OpportunityProcessor.interface';
 import { OpportunityManagerError } from '../errors/OpportunityError';
+import { AgentOpportunityInput } from '../interfaces/OpportunityManager.interface';
+import { OpportunityType, OpportunityPriority, OpportunitySource } from '../models/opportunity.model';
 
 /**
  * Basic implementation of the OpportunityManager
@@ -61,16 +63,50 @@ export class BasicOpportunityManager implements OpportunityManager {
     }
   };
   
+  // Add required properties for components
+  private registry: OpportunityRegistry;
+  private detector: OpportunityDetector;
+  private evaluator: OpportunityEvaluator;
+  private processor: OpportunityProcessor;
   /**
    * Constructor for the BasicOpportunityManager
    */
   constructor(
-    private readonly registry: OpportunityRegistry,
-    private readonly detector: OpportunityDetector,
-    private readonly evaluator: OpportunityEvaluator,
-    private readonly processor: OpportunityProcessor
+    private readonly options: {
+      id?: string;
+      registry: OpportunityRegistry;
+      detector: OpportunityDetector;
+      evaluator: OpportunityEvaluator;
+      processor: OpportunityProcessor;
+      config?: OpportunityManagerConfig;
+    }
   ) {
-    this.id = ulid();
+    this.id = options.id || ulid();
+    
+    // Store the components
+    this.registry = options.registry;
+    this.detector = options.detector;
+    this.evaluator = options.evaluator;
+    this.processor = options.processor;
+    
+    // Merge config if provided
+    if (options.config) {
+      this.config = {
+        detector: options.config.detector || {},
+        evaluator: options.config.evaluator || {},
+        processor: options.config.processor || {},
+        autoProcessing: {
+          enabled: options.config.autoProcessing?.enabled ?? this.config.autoProcessing.enabled,
+          minScoreThreshold: options.config.autoProcessing?.minScoreThreshold ?? this.config.autoProcessing.minScoreThreshold,
+          minPriorityThreshold: options.config.autoProcessing?.minPriorityThreshold ?? this.config.autoProcessing.minPriorityThreshold
+        },
+        polling: {
+          enabled: options.config.polling?.enabled ?? this.config.polling.enabled,
+          intervalMs: options.config.polling?.intervalMs ?? this.config.polling.intervalMs,
+          sources: options.config.polling?.sources ?? this.config.polling.sources
+        }
+      };
+    }
   }
   
   /**
@@ -242,19 +278,61 @@ export class BasicOpportunityManager implements OpportunityManager {
    * Create an opportunity for a specific agent
    */
   async createOpportunityForAgent(
-    options: OpportunityCreationOptions,
+    input: AgentOpportunityInput,
     agentId: string
   ): Promise<Opportunity> {
-    // Set agent ID in context
-    const optionsWithAgent: OpportunityCreationOptions = {
-      ...options,
-      context: {
-        ...options.context,
-        agentId
+    // Convert agent-friendly input to full creation options
+    const now = new Date();
+    
+    // Convert type string to OpportunityType enum if needed
+    let opportunityType: OpportunityType;
+    if (typeof input.type === 'string') {
+      // Try to map string to enum
+      opportunityType = (OpportunityType as any)[input.type.toUpperCase()] || 
+                        Object.values(OpportunityType).find(t => t === input.type) || 
+                        OpportunityType.TASK_OPTIMIZATION;
+    } else {
+      opportunityType = input.type;
+    }
+    
+    // Convert priority string to OpportunityPriority enum if needed
+    let opportunityPriority: OpportunityPriority | undefined = undefined;
+    if (input.priority) {
+      if (typeof input.priority === 'string') {
+        // Try to map string to enum
+        opportunityPriority = (OpportunityPriority as any)[input.priority.toUpperCase()] || 
+                              Object.values(OpportunityPriority).find(p => p === input.priority) || 
+                              OpportunityPriority.MEDIUM;
+      } else {
+        opportunityPriority = input.priority;
       }
+    }
+    
+    // Create full options
+    const options: OpportunityCreationOptions = {
+      title: input.title,
+      description: input.description,
+      type: opportunityType,
+      priority: opportunityPriority,
+      source: OpportunitySource.USER_INTERACTION,
+      trigger: {
+        type: 'agent_created',
+        source: OpportunitySource.USER_INTERACTION,
+        timestamp: now,
+        content: input.description,
+        confidence: 1.0,
+        context: {}
+      },
+      context: {
+        agentId,
+        source: 'agent',
+        metadata: input.metadata || {}
+      },
+      validUntil: input.expiresAt,
+      tags: ['agent_created', `agent:${agentId}`]
     };
     
-    return this.createOpportunity(optionsWithAgent);
+    return this.createOpportunity(options);
   }
   
   /**

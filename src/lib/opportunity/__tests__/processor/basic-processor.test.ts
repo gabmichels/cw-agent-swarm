@@ -79,6 +79,7 @@ describe('BasicOpportunityProcessor', () => {
       },
       detectedAt: now,
       updatedAt: now,
+      createdAt: now,
       tags: ['user-assistance', 'configuration'],
       ...overrides
     };
@@ -88,27 +89,18 @@ describe('BasicOpportunityProcessor', () => {
     // Reset mock call history
     vi.clearAllMocks();
     
-    processor = new BasicOpportunityProcessor(
-      mockRegistry as any,
-      mockTaskScheduler as any
-    );
+    processor = new BasicOpportunityProcessor();
     await processor.initialize();
   });
   
   test('should initialize successfully', async () => {
-    const processor = new BasicOpportunityProcessor(
-      mockRegistry as any,
-      mockTaskScheduler as any
-    );
+    const processor = new BasicOpportunityProcessor();
     const result = await processor.initialize();
     expect(result).toBe(true);
   });
   
   test('should throw error if not initialized', async () => {
-    const uninitializedProcessor = new BasicOpportunityProcessor(
-      mockRegistry as any,
-      mockTaskScheduler as any
-    );
+    const uninitializedProcessor = new BasicOpportunityProcessor();
     
     await expect(uninitializedProcessor.processOpportunity(
       createSampleOpportunity()

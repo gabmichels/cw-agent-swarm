@@ -62,6 +62,7 @@ describe('BasicOpportunityEvaluator', () => {
       },
       detectedAt: now,
       updatedAt: now,
+      createdAt: now,
       tags: ['user-assistance', 'configuration', 'help'],
       ...overrides
     };

@@ -21,6 +21,20 @@ import { DefaultOpportunityIdentifier } from './DefaultOpportunityIdentifier';
 import { OpportunityIdentifier, OpportunityType, OpportunityPriority } from '../interfaces/OpportunityIdentification.interface';
 import { IdentifiedOpportunity } from '../interfaces/OpportunityIdentification.interface';
 
+// Import the new opportunity management system
+import { 
+  createOpportunitySystem, 
+  OpportunityManager,
+  OpportunitySystemConfig,
+  OpportunityStorageType,
+  Opportunity,
+  OpportunityStatus,
+  OpportunitySource
+} from '../../../../lib/opportunity';
+
+// Import the TaskScheduleType enum
+import { TaskScheduleType } from '../../../../lib/scheduler/models/Task.model';
+
 /**
  * Internal extension of ScheduledTask with additional properties for the autonomy system
  * This interface properly extends ScheduledTask, ensuring all required properties exist
@@ -52,6 +66,8 @@ export class DefaultAutonomySystem implements AutonomySystem {
     lastRunTime?: Date;
   }> = new Map();
   private opportunityIdentifier: OpportunityIdentifier;
+  // Add the opportunity manager from our new system
+  private opportunityManager: OpportunityManager | null = null;
   
   /**
    * Create a new DefaultAutonomySystem
@@ -63,6 +79,7 @@ export class DefaultAutonomySystem implements AutonomySystem {
     this.agent = agent;
     this.config = config;
     this.autonomyMode = config.enableAutonomyOnStartup || false;
+    // Still create a DefaultOpportunityIdentifier for backward compatibility
     this.opportunityIdentifier = new DefaultOpportunityIdentifier(agent);
   }
   
@@ -76,6 +93,23 @@ export class DefaultAutonomySystem implements AutonomySystem {
       if (!opportunityInitialized) {
         console.error('[AutonomySystem] Failed to initialize opportunity identifier');
         return false;
+      }
+
+      // Initialize our new opportunity management system
+      try {
+        const config: OpportunitySystemConfig = {
+          storage: {
+            type: OpportunityStorageType.MEMORY // Use in-memory storage for simplicity in autonomy system
+          },
+          autoEvaluate: true
+        };
+        
+        this.opportunityManager = createOpportunitySystem(config);
+        await this.opportunityManager.initialize();
+        console.log('[AutonomySystem] Successfully initialized opportunity management system');
+      } catch (error) {
+        console.error('[AutonomySystem] Failed to initialize opportunity management system:', error);
+        // We'll continue even if the new system fails, as we still have the legacy identifier
       }
 
       // Check if managers we depend on are available
@@ -178,24 +212,66 @@ export class DefaultAutonomySystem implements AutonomySystem {
           }
 
           const recentMemories = await memoryManager.getRecentMemories(10);
-          for (const memory of recentMemories) {
-            // Detect triggers in memory content
-            const triggers = await this.opportunityIdentifier.detectTriggers(
-              memory.content,
-              {
-                source: 'memory',
-                context: { memoryId: memory.id }
+          
+          // Flag to track if we've used the new system successfully
+          let usedNewSystem = false;
+          
+          // Try to use the new opportunity system if available
+          if (this.opportunityManager) {
+            try {
+              for (const memory of recentMemories) {
+                // Detect opportunities using the new system
+                const result = await this.opportunityManager.detectOpportunities(
+                  memory.content,
+                  {
+                    source: OpportunitySource.MEMORY_PATTERN,
+                    agentId: this.agent.getAgentId(),
+                    context: { memoryId: memory.id }
+                  }
+                );
+                
+                // Process high priority opportunities immediately
+                if (result.opportunities && result.opportunities.length > 0) {
+                  // Process high priority opportunities
+                  const highPriorityOpps = result.opportunities.filter(
+                    opp => opp.priority === 'high'
+                  );
+                  
+                  for (const opportunity of highPriorityOpps) {
+                    await this.processNewOpportunity(opportunity);
+                  }
+                }
               }
-            );
-
-            if (triggers.length > 0) {
-              // Identify opportunities from triggers
-              const result = await this.opportunityIdentifier.identifyOpportunities(triggers);
               
-              // Process high priority opportunities immediately
-              for (const opportunity of result.opportunities) {
-                if (opportunity.priority === OpportunityPriority.HIGH) {
-                  await this.processOpportunity(opportunity);
+              // Mark that we successfully used the new system
+              usedNewSystem = true;
+            } catch (error) {
+              console.error('[AutonomySystem] Error using new opportunity system:', error);
+              // If the new system fails, we'll fall back to the legacy system below
+            }
+          }
+          
+          // Fall back to the legacy system if the new one failed or isn't available
+          if (!usedNewSystem) {
+            for (const memory of recentMemories) {
+              // Detect triggers in memory content using legacy system
+              const triggers = await this.opportunityIdentifier.detectTriggers(
+                memory.content,
+                {
+                  source: 'memory',
+                  context: { memoryId: memory.id }
+                }
+              );
+
+              if (triggers.length > 0) {
+                // Identify opportunities from triggers using legacy system
+                const result = await this.opportunityIdentifier.identifyOpportunities(triggers);
+                
+                // Process high priority opportunities immediately
+                for (const opportunity of result.opportunities) {
+                  if (opportunity.priority === OpportunityPriority.HIGH) {
+                    await this.processOpportunity(opportunity);
+                  }
                 }
               }
             }
@@ -204,79 +280,237 @@ export class DefaultAutonomySystem implements AutonomySystem {
           console.error('[AutonomySystem] Error in opportunity detection:', error);
         }
       },
-      null, // onComplete
-      true, // start
-      'UTC' // timeZone
+      null,
+      true, // Start the job right away
+      'America/New_York' // Timezone (can be configured)
     );
-
-    // No need to call job.start() since we pass true to start parameter
+    
+    // Store the job so we can stop it later if needed
+    this.activeJobs.set('opportunity-detection', job);
   }
   
   /**
-   * Process an identified opportunity
+   * Process an opportunity using the new system
    */
-  private async processOpportunity(opportunity: IdentifiedOpportunity): Promise<void> {
+  private async processNewOpportunity(opportunity: Opportunity): Promise<void> {
     try {
-      // Create a task based on the opportunity type
-      const task: InternalScheduledTask = {
-        id: uuidv4(),
-        name: `Opportunity: ${opportunity.type}`,
-        description: `Auto-generated task for ${opportunity.type} opportunity`,
-        goalPrompt: this.createGoalPromptForOpportunity(opportunity),
-        schedule: '* * * * *', // Run immediately
-        enabled: true,
-        tags: ['auto-generated', 'opportunity', opportunity.type],
-        metadata: {
+      console.log(`[AutonomySystem] Processing high priority opportunity: ${opportunity.id}`);
+      
+      // First try to use our opportunity manager's built-in processor
+      if (this.opportunityManager) {
+        try {
+          // Process the opportunity into tasks
+          const result = await this.opportunityManager.processOpportunity(opportunity.id);
+          
+          // Schedule the tasks that were created
+          if (result.taskIds && result.taskIds.length > 0) {
+            console.log(`[AutonomySystem] Created ${result.taskIds.length} tasks from opportunity`);
+            
+            // Update the opportunity status to in progress
+            await this.opportunityManager.updateOpportunityStatus(
+              opportunity.id, 
+              OpportunityStatus.IN_PROGRESS
+            );
+            
+            return; // Successfully processed with the new system
+          }
+        } catch (error) {
+          console.error(`[AutonomySystem] Error processing opportunity with new system: ${error}`);
+          // Fall through to manual processing below
+        }
+      }
+      
+      // Manual processing if the built-in processor fails or isn't available
+      const title = opportunity.title || 'Untitled Opportunity';
+      const description = opportunity.description || '';
+      
+      // Create a goal prompt from the opportunity
+      const goalPrompt = this.createGoalPromptForNewOpportunity(opportunity);
+      
+      // Get scheduler manager if available
+      const schedulerManager = this.agent.getManager<SchedulerManager>(ManagerType.SCHEDULER);
+      if (!schedulerManager) {
+        console.error('[AutonomySystem] Cannot process opportunity - Scheduler manager not available');
+        return;
+      }
+      
+      // Create a task from the opportunity
+      const taskOptions = {
+        name: `Opportunity: ${title}`,
+        description,
+        priority: opportunity.priority === 'high' ? 8 : (opportunity.priority === 'medium' ? 5 : 3),
+        context: {
           opportunityId: opportunity.id,
           opportunityType: opportunity.type,
-          opportunityContext: opportunity.context
+          goalPrompt
+        },
+        goalPrompt,
+        scheduleType: TaskScheduleType.PRIORITY,
+        schedule: {
+          type: 'immediate'
         }
       };
-
-      // Add task to scheduled tasks
-      this.scheduledTasks.set(task.id, task);
-
-      // Start the task
-      await this.startTask(task.id);
-
-      // Update opportunity status
-      await this.opportunityIdentifier.updateOpportunityStatus(
-        opportunity.id,
-        'processing',
-        { taskId: task.id }
-      );
+      
+      // Schedule the task
+      const taskId = await schedulerManager.createTask(taskOptions);
+      
+      console.log(`[AutonomySystem] Created task ${taskId} for opportunity ${opportunity.id}`);
+      
+      // Update the opportunity status
+      if (this.opportunityManager) {
+        await this.opportunityManager.updateOpportunityStatus(
+          opportunity.id,
+          OpportunityStatus.IN_PROGRESS,
+          { taskId }
+        );
+      }
     } catch (error) {
-      console.error('[AutonomySystem] Error processing opportunity:', error);
-      await this.opportunityIdentifier.updateOpportunityStatus(
-        opportunity.id,
-        'failed',
-        { error: String(error) }
-      );
+      console.error(`[AutonomySystem] Error processing opportunity: ${error}`);
     }
   }
   
   /**
-   * Create a goal prompt for an opportunity
+   * Create a goal prompt from an opportunity
+   */
+  private createGoalPromptForNewOpportunity(opportunity: Opportunity): string {
+    const title = opportunity.title || '';
+    const description = opportunity.description || '';
+    const type = opportunity.type || '';
+    
+    // Basic template
+    let prompt = `Process this opportunity: ${title}.\n\n`;
+    
+    if (description) {
+      prompt += `Details: ${description}\n\n`;
+    }
+    
+    // Add type-specific guidance using string type values
+    switch (typeof type === 'string' ? type : String(type)) {
+      case 'task_optimization':
+        prompt += 'Optimize this task to improve efficiency and results.';
+        break;
+      case 'error_recovery':
+        prompt += 'Analyze this error and develop a recovery strategy.';
+        break;
+      case 'resource_optimization':
+        prompt += 'Optimize resource usage for better efficiency.';
+        break;
+      case 'user_assistance':
+        prompt += 'Provide assistance to the user with their request.';
+        break;
+      case 'scheduled_task':
+        prompt += 'Execute this scheduled task according to requirements.';
+        break;
+      case 'knowledge_acquisition':
+        prompt += 'Acquire and integrate this missing knowledge.';
+        break;
+      case 'performance_optimization':
+        prompt += 'Identify and address performance bottlenecks.';
+        break;
+      case 'system_optimization':
+        prompt += 'Optimize system configuration and settings.';
+        break;
+      default:
+        prompt += 'Analyze and address this opportunity appropriately.';
+    }
+    
+    return prompt;
+  }
+  
+  /**
+   * Process an opportunity from the legacy system
+   */
+  private async processOpportunity(opportunity: IdentifiedOpportunity): Promise<void> {
+    try {
+      console.log(`[AutonomySystem] Processing high priority opportunity: ${opportunity.id}`);
+      
+      // Create a goal prompt from the opportunity
+      const goalPrompt = this.createGoalPromptForOpportunity(opportunity);
+      
+      // Get scheduler manager if available
+      const schedulerManager = this.agent.getManager<SchedulerManager>(ManagerType.SCHEDULER);
+      if (!schedulerManager) {
+        console.error('[AutonomySystem] Cannot process opportunity - Scheduler manager not available');
+        return;
+      }
+      
+      // Create a task from the opportunity
+      const taskOptions = {
+        name: `Opportunity: ${opportunity.type}`,
+        description: typeof opportunity.trigger.context.content === 'string' ? 
+          opportunity.trigger.context.content : 'Opportunity detected',
+        priority: opportunity.priority === OpportunityPriority.HIGH ? 8 : 
+                (opportunity.priority === OpportunityPriority.MEDIUM ? 5 : 3),
+        context: {
+          opportunityId: opportunity.id,
+          opportunityType: opportunity.type,
+          trigger: opportunity.trigger,
+          goalPrompt
+        },
+        goalPrompt,
+        scheduleType: TaskScheduleType.PRIORITY,
+        schedule: {
+          type: 'immediate'
+        }
+      };
+      
+      // Schedule the task
+      const taskId = await schedulerManager.createTask(taskOptions);
+      
+      console.log(`[AutonomySystem] Created task ${taskId} for opportunity ${opportunity.id}`);
+      
+      // Update the opportunity status
+      await this.opportunityIdentifier.updateOpportunityStatus(
+        opportunity.id,
+        'in_progress',
+        { taskId }
+      );
+    } catch (error) {
+      console.error(`[AutonomySystem] Error processing opportunity: ${error}`);
+    }
+  }
+  
+  /**
+   * Create a goal prompt for an opportunity from the legacy system
    */
   private createGoalPromptForOpportunity(opportunity: IdentifiedOpportunity): string {
-    const basePrompt = 'You are an autonomous agent tasked with handling an identified opportunity. ';
+    let prompt = `Process a ${opportunity.type} opportunity.\n\n`;
     
-    const typePrompts: Record<OpportunityType, string> = {
-      [OpportunityType.TASK_OPTIMIZATION]: 'Analyze and optimize the task execution process to improve efficiency.',
-      [OpportunityType.ERROR_PREVENTION]: 'Implement preventive measures to avoid potential errors.',
-      [OpportunityType.RESOURCE_OPTIMIZATION]: 'Optimize resource allocation and usage.',
-      [OpportunityType.USER_ASSISTANCE]: 'Provide proactive assistance to the user.',
-      [OpportunityType.SCHEDULE_OPTIMIZATION]: 'Optimize task scheduling and timing.',
-      [OpportunityType.KNOWLEDGE_ACQUISITION]: 'Acquire and integrate new knowledge.',
-      [OpportunityType.PERFORMANCE_OPTIMIZATION]: 'Improve system performance.',
-      [OpportunityType.SYSTEM_OPTIMIZATION]: 'Optimize overall system operation.'
-    };
-
-    const contextPrompt = opportunity.context.trigger.content
-      ? `\n\nContext: ${opportunity.context.trigger.content}`
-      : '';
-
-    return `${basePrompt}${typePrompts[opportunity.type]}${contextPrompt}`;
+    if (opportunity.trigger && opportunity.trigger.context && opportunity.trigger.context.content) {
+      prompt += `Context: ${opportunity.trigger.context.content}\n\n`;
+    }
+    
+    // Add type-specific guidance
+    switch (typeof opportunity.type === 'string' ? opportunity.type : String(opportunity.type)) {
+      case 'task_optimization':
+        prompt += 'Optimize this task to improve efficiency and results.';
+        break;
+      case 'error_recovery':
+        prompt += 'Analyze this error and develop a recovery strategy.';
+        break;
+      case 'resource_optimization':
+        prompt += 'Optimize resource usage for better efficiency.';
+        break;
+      case 'user_assistance':
+        prompt += 'Provide assistance to the user with their request.';
+        break;
+      case 'scheduled_task':
+        prompt += 'Execute this scheduled task according to requirements.';
+        break;
+      case 'knowledge_acquisition':
+        prompt += 'Acquire and integrate this missing knowledge.';
+        break;
+      case 'performance_optimization':
+        prompt += 'Identify and address performance bottlenecks.';
+        break;
+      case 'system_optimization':
+        prompt += 'Optimize system configuration and settings.';
+        break;
+      default:
+        prompt += 'Analyze and address this opportunity appropriately.';
+    }
+    
+    return prompt;
   }
   
   /**

@@ -9,7 +9,7 @@ import { MemoryEntry } from '../../../../lib/agents/base/managers/MemoryManager'
 import { KnowledgeEntry } from '../../../../lib/agents/base/managers/KnowledgeManager';
 
 /**
- * Opportunity types that can be identified
+ * Opportunity types
  */
 export enum OpportunityType {
   TASK_OPTIMIZATION = 'task_optimization',
@@ -18,8 +18,15 @@ export enum OpportunityType {
   USER_ASSISTANCE = 'user_assistance',
   SCHEDULE_OPTIMIZATION = 'schedule_optimization',
   KNOWLEDGE_ACQUISITION = 'knowledge_acquisition',
+  MARKET_OPPORTUNITY = 'market_opportunity',
+  COLLABORATION = 'collaboration',
+  IMPROVEMENT = 'improvement',
+  RISK_MITIGATION = 'risk_mitigation',
+  // Legacy types for backward compatibility
+  ERROR_RECOVERY = 'error_recovery',
+  SYSTEM_OPTIMIZATION = 'system_optimization',
   PERFORMANCE_OPTIMIZATION = 'performance_optimization',
-  SYSTEM_OPTIMIZATION = 'system_optimization'
+  SCHEDULED_TASK = 'scheduled_task'
 }
 
 /**
@@ -88,8 +95,14 @@ export interface OpportunityContext {
   /** Recent relevant memories */
   recentMemories?: MemoryEntry[];
   
+  /** For backward compatibility */
+  relevantMemories?: MemoryEntry[];
+  
   /** Relevant knowledge items */
   relevantKnowledge?: KnowledgeEntry[];
+  
+  /** Insights derived from analysis */
+  insights?: Array<{id: string; content: string; relevance?: number}>;
   
   /** Additional metadata */
   metadata?: Record<string, unknown>;

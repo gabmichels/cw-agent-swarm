@@ -141,12 +141,12 @@ describe('BasicOpportunityManager', () => {
     // Reset mock call history
     vi.clearAllMocks();
     
-    manager = new BasicOpportunityManager(
-      mockRegistry as any,
-      mockDetector as any,
-      mockEvaluator as any,
-      mockProcessor as any
-    );
+    manager = new BasicOpportunityManager({
+      registry: mockRegistry as any,
+      detector: mockDetector as any,
+      evaluator: mockEvaluator as any,
+      processor: mockProcessor as any
+    });
     
     await manager.initialize();
   });
@@ -155,12 +155,12 @@ describe('BasicOpportunityManager', () => {
     // Reset mocks to ensure clean state for this test
     vi.clearAllMocks();
     
-    const newManager = new BasicOpportunityManager(
-      mockRegistry as any,
-      mockDetector as any,
-      mockEvaluator as any,
-      mockProcessor as any
-    );
+    const newManager = new BasicOpportunityManager({
+      registry: mockRegistry as any,
+      detector: mockDetector as any,
+      evaluator: mockEvaluator as any,
+      processor: mockProcessor as any
+    });
     
     const result = await newManager.initialize();
     expect(result).toBe(true);
@@ -173,12 +173,12 @@ describe('BasicOpportunityManager', () => {
   });
   
   test('should throw error if not initialized', async () => {
-    const uninitializedManager = new BasicOpportunityManager(
-      mockRegistry as any,
-      mockDetector as any,
-      mockEvaluator as any,
-      mockProcessor as any
-    );
+    const uninitializedManager = new BasicOpportunityManager({
+      registry: mockRegistry as any,
+      detector: mockDetector as any,
+      evaluator: mockEvaluator as any,
+      processor: mockProcessor as any
+    });
     
     await expect(uninitializedManager.createOpportunity(
       sampleOpportunityData
@@ -266,12 +266,12 @@ describe('BasicOpportunityManager', () => {
       }
     });
     
-    const managerWithAutoProcess = new BasicOpportunityManager(
-      mockRegistry as any,
-      mockDetector as any,
-      mockEvaluator as any,
-      mockProcessor as any
-    );
+    const managerWithAutoProcess = new BasicOpportunityManager({
+      registry: mockRegistry as any,
+      detector: mockDetector as any,
+      evaluator: mockEvaluator as any,
+      processor: mockProcessor as any
+    });
     
     // Configure for auto-processing
     await managerWithAutoProcess.initialize({

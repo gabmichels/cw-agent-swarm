@@ -118,17 +118,14 @@ describe('Opportunity Management System Integration', () => {
     
     evaluator = new BasicOpportunityEvaluator();
     
-    processor = new BasicOpportunityProcessor(
-      registry,
-      mockTaskScheduler as any
-    );
+    processor = new BasicOpportunityProcessor();
     
-    manager = new BasicOpportunityManager(
-      registry,
-      mockDetector as any,
-      evaluator,
-      processor
-    );
+    manager = new BasicOpportunityManager({
+      registry: registry,
+      detector: mockDetector as any,
+      evaluator: evaluator,
+      processor: processor
+    });
     
     // Initialize the manager with auto-processing disabled to prevent errors
     await manager.initialize({

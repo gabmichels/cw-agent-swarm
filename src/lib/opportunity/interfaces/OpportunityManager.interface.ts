@@ -5,11 +5,13 @@
  */
 
 import {
-  Opportunity,
-  OpportunityCreationOptions,
+  Opportunity, 
+  OpportunityCreationOptions, 
   OpportunityFilter,
   OpportunityOrderOptions,
-  OpportunityStatus
+  OpportunityStatus,
+  OpportunityType,
+  OpportunityPriority
 } from '../models/opportunity.model';
 import { 
   TriggerDetectionOptions, 
@@ -17,7 +19,7 @@ import {
   OpportunityDetectorConfig 
 } from './OpportunityDetector.interface';
 import { 
-  OpportunityEvaluation, 
+  OpportunityEvaluation,
   EvaluationResult,
   OpportunityEvaluatorConfig
 } from './OpportunityEvaluator.interface';
@@ -94,6 +96,19 @@ export interface OpportunityManagerStatus {
 }
 
 /**
+ * Simplified interface for creating agent opportunities
+ * Used for direct agent integration to avoid complex type requirements
+ */
+export interface AgentOpportunityInput {
+  title: string;
+  description: string;
+  type: string | OpportunityType;
+  priority?: string | OpportunityPriority;
+  metadata?: Record<string, unknown>;
+  expiresAt?: Date;
+}
+
+/**
  * Interface for the opportunity management system
  */
 export interface OpportunityManager {
@@ -124,12 +139,12 @@ export interface OpportunityManager {
   createOpportunity(options: OpportunityCreationOptions): Promise<Opportunity>;
   
   /**
-   * Create an opportunity for a specific agent
-   * @param options Opportunity creation options
+   * Create an opportunity for a specific agent with simplified input
+   * @param input Simplified opportunity input
    * @param agentId The agent ID
    * @returns The created opportunity
    */
-  createOpportunityForAgent(options: OpportunityCreationOptions, agentId: string): Promise<Opportunity>;
+  createOpportunityForAgent(input: AgentOpportunityInput, agentId: string): Promise<Opportunity>;
   
   /**
    * Get an opportunity by ID
