@@ -21,6 +21,7 @@ import { BaseManager, ManagerConfig } from '../../../agents/shared/base/managers
 import { AgentBase } from '../../../agents/shared/base/AgentBase.interface';
 import { ManagerType } from '../../../agents/shared/base/managers/ManagerType';
 import { ManagerHealth } from '../../../agents/shared/base/managers/ManagerHealth';
+import { createLogger, getManagerLogger } from '@/lib/logging/winston-logger';
 
 /**
  * Implementation of the SchedulerManager interface that orchestrates
@@ -43,6 +44,7 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
   managerType: ManagerType;
   private agent!: AgentBase;
   private enabled = true;
+  private logger: ReturnType<typeof createLogger>;
   
   // Cache for frequently accessed metrics to reduce database queries
   private metricsCache: {
@@ -73,6 +75,7 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
     config?: Partial<SchedulerConfig>,
     agent?: AgentBase
   ) {
+    // Normal initialization
     this.id = `scheduler-manager-${ulid()}`;
     this.managerId = this.id;
     this.managerType = ManagerType.SCHEDULER;
@@ -84,6 +87,14 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
     if (agent) {
       this.agent = agent;
     }
+    
+    // Initialize logger
+    this.logger = createLogger({
+      moduleId: this.id,
+      agentId: agent?.getId() ?? ''
+    });
+    
+    console.log("🔥 EXTREME LATE: ModularSchedulerManager constructor EXIT POINT");
   }
 
   /**

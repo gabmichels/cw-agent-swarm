@@ -6,12 +6,28 @@ const nextConfig = {
   transpilePackages: [],
   serverExternalPackages: ['zlib-sync', 'discord.js'],
   experimental: {
+    // Force fresh compilation
+    forceSwcTransforms: true,
   },
-  webpack: (config, { isServer }) => {
-    // Skip Discord.js and zlib-sync on the client side
-    if (!isServer) {
-      config.externals = [...(config.externals || []), 'discord.js', 'zlib-sync'];
+  webpack: (config, { dev, isServer }) => {
+    // Disable webpack caching in development
+    if (dev) {
+      config.cache = false;
+      
+      // Force module resolution to always check file system
+      config.resolve.cache = false;
+      
+      // Disable persistent caching
+      config.infrastructureLogging = {
+        level: 'error',
+      };
     }
+    
+    // Always resolve TypeScript files properly
+    config.resolve.extensionAlias = {
+      '.js': ['.ts', '.tsx', '.js', '.jsx'],
+      '.jsx': ['.tsx', '.jsx'],
+    };
     
     // Only apply Node.js polyfills in the browser
     if (!isServer) {

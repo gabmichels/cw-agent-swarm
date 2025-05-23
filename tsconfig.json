@@ -12,12 +12,12 @@
     "forceConsistentCasingInFileNames": true,
     "noEmit": true,
     "esModuleInterop": true,
-    "module": "commonjs",
-    "moduleResolution": "node",
+    "module": "esnext",
+    "moduleResolution": "bundler",
     "resolveJsonModule": true,
     "isolatedModules": true,
     "jsx": "preserve",
-    "incremental": true,
+    "incremental": false,
     "downlevelIteration": true,
     "baseUrl": ".",
     "paths": {
@@ -34,7 +34,10 @@
         "name": "next"
       }
     ],
-    "types": ["node", "react", "jest"]
+    "types": ["node", "react", "jest"],
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false
   },
   "include": [
     "next-env.d.ts",

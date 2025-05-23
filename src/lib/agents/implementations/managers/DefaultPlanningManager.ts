@@ -34,6 +34,7 @@ import { createConfigFactory } from '../../../../agents/shared/config';
 import { PlanningManagerConfigSchema } from '../../../../agents/shared/planning/config/PlanningManagerConfigSchema';
 import { ManagerType } from '../../../../agents/shared/base/managers/ManagerType';
 import { ManagerHealth } from '../../../../agents/shared/base/managers/ManagerHealth';
+import { createLogger } from '@/lib/logging/winston-logger';
 
 /**
  * Error class for planning-related errors
@@ -41,12 +42,18 @@ import { ManagerHealth } from '../../../../agents/shared/base/managers/ManagerHe
 class PlanningError extends Error {
   public readonly code: string;
   public readonly context: Record<string, unknown>;
+  private logger: ReturnType<typeof createLogger>;
 
   constructor(message: string, code = 'PLANNING_ERROR', context: Record<string, unknown> = {}) {
     super(message);
     this.name = 'PlanningError';
     this.code = code;
     this.context = context;
+    this.logger = createLogger({
+      moduleId: 'planning-manager',
+    });
+    this.logger.info('PlanningError constructor called - winston');
+    console.log('PlanningError constructor called - console.log');
   }
 }
 
@@ -76,6 +83,36 @@ export class DefaultPlanningManager extends AbstractBaseManager implements Plann
    */
   constructor(agent: AgentBase, config: Partial<PlanningManagerConfig> = {}) {
     const managerId = `planning-manager-${uuidv4()}`;
+    
+    // DIAGNOSTIC: Direct console methods with distinct messages
+    console.log("DIAGNOSTIC 1: DefaultPlanningManager constructor - console.log");
+    console.info("DIAGNOSTIC 2: DefaultPlanningManager constructor - console.info");
+    console.warn("DIAGNOSTIC 3: DefaultPlanningManager constructor - console.warn");
+    console.error("DIAGNOSTIC 4: DefaultPlanningManager constructor - console.error");
+    
+    // DIAGNOSTIC: Process.stdout direct write
+    process.stdout.write("DIAGNOSTIC 5: DefaultPlanningManager constructor - process.stdout\n");
+    
+    // DIAGNOSTIC: Create logger directly
+    try {
+      const directLogger = createLogger({
+        moduleId: 'planning-manager-diagnostic',
+      });
+      directLogger.info("DIAGNOSTIC 6: DefaultPlanningManager constructor - direct logger");
+    } catch (error) {
+      console.error("Error creating diagnostic logger:", error);
+    }
+    
+    // DIAGNOSTIC: Log object details to help debug
+    console.log("DIAGNOSTIC AGENT:", {
+      agentExists: !!agent,
+      agentId: agent?.getId?.() || 'unknown',
+      agentType: agent?.getType?.() || 'unknown',
+      configIsObject: typeof config === 'object',
+      configKeys: Object.keys(config || {})
+    });
+    
+    // Call super constructor
     super(
       managerId,
       ManagerType.PLANNING,
@@ -89,6 +126,10 @@ export class DefaultPlanningManager extends AbstractBaseManager implements Plann
         ...config
       }
     );
+    
+    // DIAGNOSTIC: Post-super initialization logging
+    console.log("DIAGNOSTIC 7: DefaultPlanningManager constructor AFTER super() - console.log");
+    process.stdout.write("DIAGNOSTIC 8: DefaultPlanningManager POST-SUPER - process.stdout\n");
   }
 
   /**

@@ -140,17 +140,30 @@ export async function createSchedulerManager(
   const executor = new BasicTaskExecutor();
   
   // Create the scheduler manager with all components
-  const manager = new ModularSchedulerManager(
-    registry,
-    scheduler,
-    executor,
-    dateTimeProcessor,
-    config,
-    agent
-  );
+  let manager;
+  try {
+    manager = new ModularSchedulerManager(
+      registry,
+      scheduler,
+      executor,
+      dateTimeProcessor,
+      config,
+      agent
+    );
+  } catch (constructorError: unknown) {
+    console.error("[SCHEDULER FACTORY] ERROR in ModularSchedulerManager constructor:", constructorError);
+    console.error("[SCHEDULER FACTORY] Constructor error stack:", (constructorError as Error).stack);
+    throw constructorError;
+  }
   
   // Initialize the manager
-  await manager.initialize();
+  try {
+    await manager.initialize();
+  } catch (initError: unknown) {
+    console.error("[SCHEDULER FACTORY] ERROR in manager.initialize():", initError);
+    console.error("[SCHEDULER FACTORY] Initialize error stack:", (initError as Error).stack);
+    throw initError;
+  }
   
   return manager;
 }

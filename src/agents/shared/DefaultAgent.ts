@@ -47,12 +47,14 @@ import { createSchedulerManager } from '../../lib/scheduler/factories/SchedulerF
 import { TaskStatus } from '../../lib/scheduler/models/Task.model';
 // Import the opportunity management system
 import { 
-  createOpportunitySystem, 
   OpportunityManager,
-  OpportunitySystemConfig,
   OpportunityStorageType,
+  createOpportunitySystem,
+  OpportunitySystemConfig,
   OpportunitySource
 } from '../../lib/opportunity';
+import { DefaultLoggerManager } from './logger/DefaultLoggerManager';
+import { LogLevel } from './logger/DefaultLoggerManager';
 
 // Define the necessary types that we need
 const AGENT_STATUS = {
@@ -448,42 +450,83 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
     try {
       console.log(`[Agent] Initializing agent ${this.agentId}`);
       
+      // DIAGNOSTIC: Order of operations logging
+      console.log(`[DIAGNOSTIC] DefaultAgent initialize() - BEGINNING. Agent ID: ${this.agentId}`);
+      
+      // Initialize logger manager first - other managers can use it during initialization
+      console.log(`[Agent] Initializing Logger Manager`);
+      const loggerManager = new DefaultLoggerManager(this, {
+        enabled: true,
+        level: LogLevel.INFO,
+        logToConsole: true,
+        formatMessages: true,
+        trackLogHistory: true
+      });
+      this.setManager(loggerManager);
+      
       // Initialize memory manager - we'll use this to store our persona, memories, etc.
       if (this.extendedConfig.enableMemoryManager) {
         console.log(`[Agent] Initializing Memory Manager`);
+        console.log(`[DIAGNOSTIC] About to create Memory Manager`);
         
         // Use enhanced memory manager if specified
         if (this.extendedConfig.useEnhancedMemory) {
           console.log(`[Agent] Using Enhanced Memory Manager`);
-          const memoryManager = new EnhancedMemoryManager(this, {
-            enabled: true,
-            systemMemoryScope: `agent-${this.agentId}-system`,
-            userMemoryScope: `agent-${this.agentId}-user`,
-            createPrivateScope: true,
-            defaultScopeName: `agent-${this.agentId}-default`,
-          });
-          this.setManager(memoryManager);
+          console.log(`[DIAGNOSTIC] Creating EnhancedMemoryManager...`);
+          
+          try {
+            const memoryManager = new EnhancedMemoryManager(this, {
+              enabled: true,
+              systemMemoryScope: `agent-${this.agentId}-system`,
+              userMemoryScope: `agent-${this.agentId}-user`,
+              createPrivateScope: true,
+              defaultScopeName: `agent-${this.agentId}-default`,
+            });
+            console.log(`[DIAGNOSTIC] EnhancedMemoryManager created successfully`);
+            this.setManager(memoryManager);
+            console.log(`[DIAGNOSTIC] EnhancedMemoryManager set as manager`);
+          } catch (error) {
+            console.error(`[DIAGNOSTIC] Error creating EnhancedMemoryManager:`, error);
+          }
         } else {
-          const memoryManager = new DefaultMemoryManager(this, {
-            enabled: true,
-            systemMemoryScope: `agent-${this.agentId}-system`,
-            userMemoryScope: `agent-${this.agentId}-user`,
-            createPrivateScope: true,
-            defaultScopeName: `agent-${this.agentId}-default`,
-          });
-          this.setManager(memoryManager);
+          console.log(`[DIAGNOSTIC] Creating DefaultMemoryManager...`);
+          
+          try {
+            const memoryManager = new DefaultMemoryManager(this, {
+              enabled: true,
+              systemMemoryScope: `agent-${this.agentId}-system`,
+              userMemoryScope: `agent-${this.agentId}-user`,
+              createPrivateScope: true,
+              defaultScopeName: `agent-${this.agentId}-default`,
+            });
+            console.log(`[DIAGNOSTIC] DefaultMemoryManager created successfully`);
+            this.setManager(memoryManager);
+            console.log(`[DIAGNOSTIC] DefaultMemoryManager set as manager`);
+          } catch (error) {
+            console.error(`[DIAGNOSTIC] Error creating DefaultMemoryManager:`, error);
+          }
         }
       }
       
       // Initialize planning manager - used for complex task planning
       if (this.extendedConfig.enablePlanningManager) {
         console.log(`[Agent] Initializing Planning Manager`);
+        console.log(`[DIAGNOSTIC] About to create Planning Manager`);
         
-        const planningManager = new DefaultPlanningManager(this);
-        this.setManager(planningManager);
+        try {
+          console.log(`[DIAGNOSTIC] Creating DefaultPlanningManager...`);
+          const planningManager = new DefaultPlanningManager(this);
+          console.log(`[DIAGNOSTIC] DefaultPlanningManager created successfully`);
+          this.setManager(planningManager);
+          console.log(`[DIAGNOSTIC] DefaultPlanningManager set as manager`);
         
-        // Setup executor
-        this.setupExecutor();
+          // Setup executor
+          console.log(`[DIAGNOSTIC] About to setup executor...`);
+          this.setupExecutor();
+          console.log(`[DIAGNOSTIC] Executor setup completed`);
+        } catch (error) {
+          console.error(`[DIAGNOSTIC] Error in Planning Manager initialization:`, error);
+        }
       }
       
       // Initialize tool manager - used to provide capabilities to the agent
@@ -506,19 +549,28 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
       if (this.extendedConfig.enableSchedulerManager) {
         console.log(`[Agent] Initializing Scheduler Manager`);
         
-        // Create proper config for scheduler
-        const schedulerConfig = this.extendedConfig.managersConfig?.schedulerManager || {};
-        
-        // Create scheduler manager
-        this.schedulerManager = await createSchedulerManager({
-          maxConcurrentTasks: 5,
-          ...schedulerConfig
-        });
-        
-        // Set agent reference
-        (this.schedulerManager as any).agent = this;
-        
-        this.setManager(this.schedulerManager);
+        try {
+          // Create proper config for scheduler
+          const schedulerConfig = this.extendedConfig.managersConfig?.schedulerManager || {};
+          
+          // Create scheduler manager
+          this.schedulerManager = await createSchedulerManager({
+            maxConcurrentTasks: 5,
+            ...schedulerConfig
+          });
+          
+          // Set agent reference
+          (this.schedulerManager as any).agent = this;
+          
+          this.setManager(this.schedulerManager);
+          
+          console.log(`[Agent] Scheduler Manager initialized successfully`);
+          
+        } catch (error) {
+          console.error(`[Agent] ERROR: Failed to initialize scheduler manager:`, error);
+          console.error(`[Agent] ERROR: Error stack:`, (error as Error).stack);
+          // Continue without scheduler manager - not critical for basic operation
+        }
       }
       
       // Initialize reflection manager if enabled - for enhanced self-reflection
