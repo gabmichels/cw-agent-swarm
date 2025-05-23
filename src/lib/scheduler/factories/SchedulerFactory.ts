@@ -50,7 +50,7 @@ export interface ExtendedSchedulerConfig extends SchedulerConfig {
  */
 export const DEFAULT_EXTENDED_CONFIG: ExtendedSchedulerConfig = {
   ...DEFAULT_SCHEDULER_CONFIG,
-  registryType: RegistryType.MEMORY,
+  registryType: RegistryType.QDRANT,
   qdrantUrl: 'http://localhost:6333',
   qdrantCollectionName: 'tasks',
   cacheMaxSize: 500,
@@ -67,39 +67,67 @@ export async function createTaskRegistry(
 ): Promise<TaskRegistry> {
   const fullConfig = { ...DEFAULT_EXTENDED_CONFIG, ...config };
   
+  console.log("🔧 🔧 🔧 SCHEDULER FACTORY DEBUG:");
+  console.log("Registry type:", fullConfig.registryType);
+  console.log("Qdrant URL:", fullConfig.qdrantUrl);
+  console.log("Collection name:", fullConfig.qdrantCollectionName);
+  console.log("Full config:", JSON.stringify(fullConfig, null, 2));
+  
   let registry: TaskRegistry;
   
   if (fullConfig.registryType === RegistryType.QDRANT) {
+    console.log("✅ Creating QdrantTaskRegistry...");
     // Create Qdrant-based registry
     if (!fullConfig.qdrantUrl) {
       throw new Error('qdrantUrl is required for Qdrant registry');
     }
     
+    try {
     const qdrantClient = new QdrantClient({
       url: fullConfig.qdrantUrl,
       apiKey: fullConfig.qdrantApiKey
     });
+      
+      console.log("📡 Qdrant client created, initializing registry...");
     
+    // Create task registry with agent integration
+    console.log("🔥 Creating QdrantTaskRegistry with REAL AGENT INTEGRATION");
     registry = new QdrantTaskRegistry(
       qdrantClient,
-      fullConfig.qdrantCollectionName,
+      'tasks',
       {
         maxSize: fullConfig.cacheMaxSize,
         ttlMs: fullConfig.cacheTtlMs
       }
     );
+    console.log("✅ Task registry created with FULL agent.planAndExecute() integration");
     
+      console.log("🔄 Calling registry.initialize()...");
     // Initialize the registry
     await (registry as QdrantTaskRegistry).initialize();
+      console.log("✅ QdrantTaskRegistry initialized successfully!");
+      
+    } catch (error) {
+      console.error("❌ ERROR creating/initializing QdrantTaskRegistry:", error);
+      console.error("❌ Error stack:", (error as Error).stack);
+      console.log("🔄 Falling back to MemoryTaskRegistry due to error");
+      // Fall back to memory registry if Qdrant fails
+      registry = new MemoryTaskRegistry();
+    }
   } else {
+    console.log("📝 Creating MemoryTaskRegistry (registry type was not QDRANT)");
     // Default to memory-based registry
     registry = new MemoryTaskRegistry();
   }
   
   // Wrap with batch operations if enabled
   if (fullConfig.useBatching) {
+    console.log("📦 Wrapping registry with BatchTaskRegistry");
     registry = new BatchTaskRegistry(registry, fullConfig.batchSize);
   }
+  
+  console.log("🏁 Final registry type:", registry.constructor.name);
+  console.log("🔧 🔧 🔧 SCHEDULER FACTORY DEBUG COMPLETE");
   
   return registry;
 }
@@ -127,7 +155,10 @@ export async function createSchedulerManager(
   // Create the scheduling strategies
   const explicitStrategy = new ExplicitTimeStrategy();
   const intervalStrategy = new IntervalStrategy();
-  const priorityStrategy = new PriorityBasedStrategy();
+  // Development-friendly PriorityBasedStrategy:
+  // - Priority threshold 7 (so priority 7+ tasks execute immediately)
+  // - Pending time 30 minutes (so lower priority tasks become due after 30 min)
+  const priorityStrategy = new PriorityBasedStrategy(7, 30 * 60 * 1000);
   
   // Create the scheduler with all strategies
   const scheduler = new StrategyBasedTaskScheduler([
@@ -142,14 +173,22 @@ export async function createSchedulerManager(
   // Create the scheduler manager with all components
   let manager;
   try {
+    // Development-friendly config overrides
+    const devConfig = {
+      schedulingIntervalMs: 60000, // Check every 60 seconds (1 minute)
+      maxConcurrentTasks: 5, // Start with 5 concurrent tasks for development
+      defaultTaskTimeoutMs: 120000, // 2 minutes timeout for tasks
+      ...config
+    };
+    
     manager = new ModularSchedulerManager(
-      registry,
-      scheduler,
-      executor,
-      dateTimeProcessor,
-      config,
-      agent
-    );
+    registry,
+    scheduler,
+    executor,
+    dateTimeProcessor,
+    devConfig,
+    agent
+  );
   } catch (constructorError: unknown) {
     console.error("[SCHEDULER FACTORY] ERROR in ModularSchedulerManager constructor:", constructorError);
     console.error("[SCHEDULER FACTORY] Constructor error stack:", (constructorError as Error).stack);
@@ -158,7 +197,7 @@ export async function createSchedulerManager(
   
   // Initialize the manager
   try {
-    await manager.initialize();
+  await manager.initialize();
   } catch (initError: unknown) {
     console.error("[SCHEDULER FACTORY] ERROR in manager.initialize():", initError);
     console.error("[SCHEDULER FACTORY] Initialize error stack:", (initError as Error).stack);
@@ -296,7 +335,10 @@ export function createSchedulerComponents() {
   
   const explicitStrategy = new ExplicitTimeStrategy();
   const intervalStrategy = new IntervalStrategy();
-  const priorityStrategy = new PriorityBasedStrategy();
+  // Development-friendly PriorityBasedStrategy:
+  // - Priority threshold 7 (so priority 7+ tasks execute immediately)
+  // - Pending time 30 minutes (so lower priority tasks become due after 30 min)
+  const priorityStrategy = new PriorityBasedStrategy(7, 30 * 60 * 1000);
   
   const scheduler = new StrategyBasedTaskScheduler([
     explicitStrategy,

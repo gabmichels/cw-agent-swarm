@@ -177,14 +177,54 @@ export class AgentBootstrapRegistry {
   public isLockStale(agentId: string): boolean {
     const info = this.getAgentBootstrapInfo(agentId);
     
-    if (!info || !info.locked || !info.lockTimestamp) {
+    if (!info) {
       return false;
     }
     
-    const now = new Date();
-    const lockDuration = now.getTime() - info.lockTimestamp.getTime();
+    // Check for stale locks (if locked with timestamp)
+    if (info.locked && info.lockTimestamp) {
+      const now = new Date();
+      const lockDuration = now.getTime() - info.lockTimestamp.getTime();
+      
+      if (lockDuration > this.maxLockDurationMs) {
+        return true;
+      }
+    }
     
-    return lockDuration > this.maxLockDurationMs;
+    // Check for stale IN_PROGRESS states (stuck without locks)
+    if (info.state === AgentBootstrapState.IN_PROGRESS && info.startTime) {
+      const now = new Date();
+      const stateDuration = now.getTime() - info.startTime.getTime();
+      
+      // If the agent has been in IN_PROGRESS state for more than the max duration
+      // and is not currently locked, it's likely stale
+      if (stateDuration > this.maxLockDurationMs && !info.locked) {
+        return true;
+      }
+    }
+    
+    return false;
+  }
+  
+  /**
+   * Check if a bootstrap state is stale (agent stuck in IN_PROGRESS for too long)
+   */
+  public isBootstrapStateStale(agentId: string): boolean {
+    const info = this.getAgentBootstrapInfo(agentId);
+    
+    if (!info || info.state !== AgentBootstrapState.IN_PROGRESS) {
+      return false;
+    }
+    
+    // Check if the agent has been in IN_PROGRESS state for too long
+    if (info.startTime) {
+      const now = new Date();
+      const stateDuration = now.getTime() - info.startTime.getTime();
+      return stateDuration > this.maxLockDurationMs;
+    }
+    
+    // If no start time but in IN_PROGRESS state, consider it stale
+    return true;
   }
   
   /**
@@ -198,10 +238,28 @@ export class AgentBootstrapRegistry {
     const info = this.getAgentBootstrapInfo(agentId);
     
     if (info) {
-      info.locked = false;
-      info.lockTimestamp = undefined;
+      // Reset lock state if it was locked
+      if (info.locked) {
+        info.locked = false;
+        info.lockTimestamp = undefined;
+        logger.warn(`Force released stale lock for agent ${agentId} (lock was held for too long)`);
+      }
       
-      logger.warn(`Force released stale lock for agent ${agentId} (lock was held for too long)`);
+      // Reset bootstrap state if it's stale
+      if (info.state === AgentBootstrapState.IN_PROGRESS && info.startTime) {
+        const now = new Date();
+        const stateDuration = now.getTime() - info.startTime.getTime();
+        
+        if (stateDuration > this.maxLockDurationMs) {
+          info.state = AgentBootstrapState.NOT_STARTED;
+          info.startTime = undefined;
+          info.endTime = undefined;
+          info.error = undefined;
+          info.retries = 0;
+          
+          logger.warn(`Reset stale bootstrap state for agent ${agentId} (was stuck in IN_PROGRESS for ${Math.round(stateDuration / 1000)}s)`);
+        }
+      }
       
       // Save updated registry to disk
       this.saveToDisk();
@@ -213,22 +271,57 @@ export class AgentBootstrapRegistry {
   }
   
   /**
-   * Reset all locks in the registry
-   * Used on server startup to clear any stale locks
+   * Reset all locks and stale states in the registry
+   * Used on server startup to clear any stale locks or stuck bootstrap states
    */
   public resetAllLocks(): void {
     let resetCount = 0;
+    const now = new Date();
     
     this.bootstrapRegistry.forEach((info, agentId) => {
+      let wasModified = false;
+      
+      // Reset stale locks
       if (info.locked) {
         info.locked = false;
         info.lockTimestamp = undefined;
+        logger.warn(`Reset lock for agent ${agentId} on startup`);
         resetCount++;
+        wasModified = true;
+      }
+      
+      // Reset stale IN_PROGRESS states
+      if (info.state === AgentBootstrapState.IN_PROGRESS) {
+        let shouldReset = false;
+        let reason = '';
+        
+        if (info.startTime) {
+          const stateDuration = now.getTime() - info.startTime.getTime();
+          if (stateDuration > this.maxLockDurationMs) {
+            shouldReset = true;
+            reason = `stuck for ${Math.round(stateDuration / 1000)}s`;
+          }
+        } else {
+          shouldReset = true;
+          reason = 'no start time recorded';
+        }
+        
+        if (shouldReset) {
+          info.state = AgentBootstrapState.NOT_STARTED;
+          info.startTime = undefined;
+          info.endTime = undefined;
+          info.error = undefined;
+          info.retries = 0;
+          
+          logger.warn(`Reset stale bootstrap state for agent ${agentId} on startup (${reason})`);
+          resetCount++;
+          wasModified = true;
+        }
       }
     });
     
     if (resetCount > 0) {
-      logger.warn(`Reset ${resetCount} agent bootstrap locks on startup`);
+      logger.warn(`Reset ${resetCount} stale agent bootstrap locks/states on startup`);
       
       // Save updated registry to disk
       this.saveToDisk();

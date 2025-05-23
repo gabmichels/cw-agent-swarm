@@ -53,26 +53,53 @@ export class PriorityBasedStrategy implements SchedulingStrategy {
    */
   async isTaskDue(task: Task, referenceTime?: Date): Promise<boolean> {
     if (!this.appliesTo(task)) {
+      console.log(`    🚫 PriorityBasedStrategy: Task ${task.id} doesn't apply to this strategy`);
       return false;
     }
 
     const now = referenceTime || new Date();
     
-    // High priority tasks are always due
+    console.log(`    🔍 PriorityBasedStrategy evaluating task ${task.id}:`);
+    console.log(`      📊 Priority: ${task.priority} (high priority threshold: ${this.highPriorityThreshold})`);
+    console.log(`      📅 Created: ${task.createdAt}`);
+    console.log(`      ⏰ Now: ${now}`);
+    
+    // High priority tasks (>= threshold) are always due
     if (task.priority >= this.highPriorityThreshold) {
+      console.log(`      ✅ HIGH PRIORITY: Priority ${task.priority} >= ${this.highPriorityThreshold} - TASK IS DUE`);
       return true;
     }
 
+    console.log(`      📝 MEDIUM/LOW PRIORITY: Checking pending time...`);
+
     // For medium and low priority tasks, check how long they've been pending
     const pendingTime = now.getTime() - task.createdAt.getTime();
+    const pendingTimeHours = pendingTime / (60 * 60 * 1000);
+    const pendingTimeMinutes = pendingTime / (60 * 1000);
+    
     const priorityFactor = task.priority / 10; // Normalize priority to 0-1 range
     
     // Calculate adjusted max pending time based on priority
     // Higher priority tasks become due sooner
     const adjustedMaxPendingTime = this.maxPendingTimeMs * (1 - priorityFactor);
+    const adjustedMaxPendingTimeHours = adjustedMaxPendingTime / (60 * 60 * 1000);
+    
+    console.log(`      ⏱️ Pending time: ${pendingTimeMinutes.toFixed(1)} minutes (${pendingTimeHours.toFixed(2)} hours)`);
+    console.log(`      🎯 Priority factor: ${priorityFactor} (priority ${task.priority} / 10)`);
+    console.log(`      📏 Max pending time: ${this.maxPendingTimeMs / (60 * 60 * 1000)} hours`);
+    console.log(`      🔧 Adjusted max pending time: ${adjustedMaxPendingTimeHours.toFixed(2)} hours`);
+    console.log(`      ❓ Is due? ${pendingTime} >= ${adjustedMaxPendingTime} = ${pendingTime >= adjustedMaxPendingTime}`);
     
     // The task is due if it has been pending longer than the adjusted max pending time
-    return pendingTime >= adjustedMaxPendingTime;
+    const isDue = pendingTime >= adjustedMaxPendingTime;
+    
+    if (isDue) {
+      console.log(`      ✅ TASK IS DUE: Pending ${pendingTimeHours.toFixed(2)}h >= ${adjustedMaxPendingTimeHours.toFixed(2)}h`);
+    } else {
+      console.log(`      ❌ TASK NOT DUE: Pending ${pendingTimeHours.toFixed(2)}h < ${adjustedMaxPendingTimeHours.toFixed(2)}h`);
+    }
+    
+    return isDue;
   }
 
   /**

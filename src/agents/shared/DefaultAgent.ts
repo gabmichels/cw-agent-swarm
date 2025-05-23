@@ -55,6 +55,7 @@ import {
 } from '../../lib/opportunity';
 import { DefaultLoggerManager } from './logger/DefaultLoggerManager';
 import { LogLevel } from './logger/DefaultLoggerManager';
+import { createLogger } from '@/lib/logging/winston-logger';
 
 // Define the necessary types that we need
 const AGENT_STATUS = {
@@ -182,6 +183,7 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
   private lastMemoryRefreshTime: Date | null = null;
   // Add opportunity manager
   private opportunityManager: OpportunityManager | null = null;
+  private logger: ReturnType<typeof createLogger>;
   
   /**
    * Create a new DefaultAgent
@@ -244,7 +246,20 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
     this.model = createChatOpenAI({
       model: config.modelName || process.env.OPENAI_MODEL_NAME || 'gpt-4.1-2025-04-14',
       temperature: config.temperature || 0.7,
-      maxTokens: config.maxTokens || (process.env.OPENAI_MAX_TOKENS ? parseInt(process.env.OPENAI_MAX_TOKENS, 10) : 32000)
+      maxTokens: config.maxTokens || (process.env.OPENAI_MAX_TOKENS ? parseInt(process.env.OPENAI_MAX_TOKENS, 10) : 32000),
+    });
+    
+    // Initialize logger
+    this.logger = createLogger({
+      moduleId: `default-agent-${agentId}`,
+      agentId: agentId
+    });
+    
+    this.logger.system("DefaultAgent created", {
+      agentId: agentId,
+      agentName: config.name || 'Default Agent',
+      modelName: config.modelName,
+      config: config
     });
   }
 
@@ -457,7 +472,7 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
       console.log(`[Agent] Initializing Logger Manager`);
       const loggerManager = new DefaultLoggerManager(this, {
         enabled: true,
-        level: LogLevel.INFO,
+        level: LogLevel.DEBUG,  // Changed from INFO to DEBUG
         logToConsole: true,
         formatMessages: true,
         trackLogHistory: true
@@ -550,19 +565,18 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
         console.log(`[Agent] Initializing Scheduler Manager`);
         
         try {
-          // Create proper config for scheduler
-          const schedulerConfig = this.extendedConfig.managersConfig?.schedulerManager || {};
-          
-          // Create scheduler manager
-          this.schedulerManager = await createSchedulerManager({
-            maxConcurrentTasks: 5,
-            ...schedulerConfig
-          });
-          
-          // Set agent reference
-          (this.schedulerManager as any).agent = this;
-          
-          this.setManager(this.schedulerManager);
+        // Create proper config for scheduler
+        const schedulerConfig = this.extendedConfig.managersConfig?.schedulerManager || {};
+        
+          // Create scheduler manager WITH agent reference
+        this.schedulerManager = await createSchedulerManager({
+          maxConcurrentTasks: 5,
+          ...schedulerConfig
+          }, this); // Pass 'this' agent as second parameter
+        
+          // Agent reference is now set during creation, no need to set manually
+        
+        this.setManager(this.schedulerManager);
           
           console.log(`[Agent] Scheduler Manager initialized successfully`);
           
@@ -1552,6 +1566,12 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
    * @returns Analysis results
    */
   async think(message: string, options?: ThinkOptions): Promise<ThinkingResult> {
+    const startTime = Date.now();
+    this.logger.info("Starting thinking process", {
+      message: message.substring(0, 100) + (message.length > 100 ? '...' : ''),
+      userId: options?.userId || 'default-user'
+    });
+    
     try {
       // Import ThinkingService dynamically to avoid circular dependencies
       const { ThinkingService } = await import('../../services/thinking');
@@ -1721,10 +1741,34 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
         thinkingResult.context.chatHistoryLength = chatHistory.length;
       }
       
+      const thinkingTime = Date.now() - startTime;
+      
+      // Log what thinking memory will be stored
+      this.logger.info("Thinking process completed - memory to be stored", {
+        thinkingTimeMs: thinkingTime,
+        intent: thinkingResult.intent?.primary,
+        confidence: thinkingResult.intent?.confidence,
+        entities: thinkingResult.entities?.map(e => `${e.type}: ${e.value}`),
+        reasoningSteps: thinkingResult.reasoning,
+        shouldDelegate: thinkingResult.shouldDelegate,
+        complexity: thinkingResult.complexity,
+        priority: thinkingResult.priority,
+        contextUsed: {
+          memories: recentMemories.length,
+          tools: availableTools.length,
+          hasVision: isVisionRequest
+        }
+      });
+      
       // Return enhanced thinking results
       return thinkingResult;
     } catch (error: unknown) {
-      console.error('Error in think method:', error);
+      const thinkingTime = Date.now() - startTime;
+      this.logger.error("Thinking process failed", {
+        thinkingTimeMs: thinkingTime,
+        error: error instanceof Error ? error.message : String(error),
+        userId: options?.userId
+      });
       
       // If it's already a ThinkingError, rethrow it
       if (error instanceof ThinkingError) {
@@ -1737,7 +1781,8 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
         AgentErrorCodes.THINKING_FAILED,
         { 
           message, 
-          options: JSON.stringify(options || {})
+          options: JSON.stringify(options || {}),
+          thinkingTimeMs: thinkingTime
         },
         error instanceof Error ? error : undefined
       );

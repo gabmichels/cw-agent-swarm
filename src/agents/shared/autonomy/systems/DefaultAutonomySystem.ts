@@ -35,6 +35,8 @@ import {
 // Import the TaskScheduleType enum
 import { TaskScheduleType } from '../../../../lib/scheduler/models/Task.model';
 
+import { createLogger } from '@/lib/logging/winston-logger';
+
 /**
  * Internal extension of ScheduledTask with additional properties for the autonomy system
  * This interface properly extends ScheduledTask, ensuring all required properties exist
@@ -68,6 +70,7 @@ export class DefaultAutonomySystem implements AutonomySystem {
   private opportunityIdentifier: OpportunityIdentifier;
   // Add the opportunity manager from our new system
   private opportunityManager: OpportunityManager | null = null;
+  private logger: ReturnType<typeof createLogger>;
   
   /**
    * Create a new DefaultAutonomySystem
@@ -81,17 +84,31 @@ export class DefaultAutonomySystem implements AutonomySystem {
     this.autonomyMode = config.enableAutonomyOnStartup || false;
     // Still create a DefaultOpportunityIdentifier for backward compatibility
     this.opportunityIdentifier = new DefaultOpportunityIdentifier(agent);
+    
+    // Initialize logger
+    this.logger = createLogger({
+      moduleId: `autonomy-system-${agent.getAgentId()}`,
+      agentId: agent.getAgentId()
+    });
+    
+    this.logger.system("DefaultAutonomySystem initialized", {
+      agentId: agent.getAgentId(),
+      config: config,
+      enableAutonomyOnStartup: config.enableAutonomyOnStartup
+    });
   }
   
   /**
    * Initialize the autonomy system
    */
   async initialize(): Promise<boolean> {
+    this.logger.info("Initializing autonomy system");
+    
     try {
       // Initialize opportunity identifier
       const opportunityInitialized = await this.opportunityIdentifier.initialize();
       if (!opportunityInitialized) {
-        console.error('[AutonomySystem] Failed to initialize opportunity identifier');
+        this.logger.error('[AutonomySystem] Failed to initialize opportunity identifier');
         return false;
       }
 
@@ -133,6 +150,11 @@ export class DefaultAutonomySystem implements AutonomySystem {
         if (this.config.enableAutonomyOnStartup) {
           await this.setAutonomyMode(true);
         }
+        
+        this.logger.success("Autonomy system initialized successfully", {
+          status: this.status,
+          opportunityDetectionEnabled: !!this.config.enableOpportunityDetection
+        });
         
         return true;
       } else {
@@ -517,20 +539,45 @@ export class DefaultAutonomySystem implements AutonomySystem {
    * Shutdown the autonomy system
    */
   async shutdown(): Promise<void> {
-    // Stop all active jobs
-    for (const [id, job] of Array.from(this.activeJobs.entries())) {
-      job.stop();
-      console.log(`[AutonomySystem] Stopped job: ${id}`);
-    }
+    this.logger.info("Shutting down autonomy system");
     
-    this.activeJobs.clear();
-    this.status = AutonomyStatus.INACTIVE;
+    try {
+      // Disable autonomy mode
+      if (this.autonomyMode) {
+        this.logger.debug("Disabling autonomy mode before shutdown");
+        await this.setAutonomyMode(false);
+      }
+      
+      // Stop all active jobs
+      for (const [taskId, job] of Array.from(this.activeJobs.entries())) {
+        this.logger.debug("Stopping scheduled job", { taskId });
+        job.stop();
+      }
+      this.activeJobs.clear();
+      
+      // Shutdown opportunity manager if available
+      if (this.opportunityManager) {
+        this.logger.debug("Shutting down opportunity manager");
+        // Note: OpportunityManager doesn't have a shutdown method
+        // Just clear the reference
+        this.opportunityManager = null;
+      }
+      
+      this.status = AutonomyStatus.INACTIVE;
+      
+      this.logger.success("Autonomy system shutdown completed");
+    } catch (error) {
+      this.logger.error("Error during autonomy system shutdown", {
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
   }
   
   /**
    * Get the current status of the autonomy system
    */
   getStatus(): AutonomyStatus {
+    this.logger.debug("Status requested", { status: this.status });
     return this.status;
   }
   
@@ -538,14 +585,27 @@ export class DefaultAutonomySystem implements AutonomySystem {
    * Set the autonomy mode (enable/disable autonomous operation)
    */
   async setAutonomyMode(enabled: boolean): Promise<boolean> {
+    this.logger.info("Setting autonomy mode", {
+      enabled,
+      currentMode: this.autonomyMode,
+      currentStatus: this.status
+    });
+    
     try {
       this.autonomyMode = enabled;
       
       if (enabled) {
         // Start all enabled scheduled tasks
+        let startedTaskCount = 0;
         for (const [id, task] of Array.from(this.scheduledTasks.entries())) {
           if (task.enabled) {
+            this.logger.debug("Starting scheduled task", {
+              taskId: id,
+              taskName: task.name,
+              schedule: task.schedule
+            });
             this.startTask(id);
+            startedTaskCount++;
           }
         }
         
@@ -559,16 +619,24 @@ export class DefaultAutonomySystem implements AutonomySystem {
             { 
               type: 'SYSTEM_EVENT',
               eventType: 'autonomy_enabled',
-              timestamp: new Date().toISOString() 
+              timestamp: new Date().toISOString(),
+              startedTasks: startedTaskCount
             }
           );
         }
         
-        console.log(`[AutonomySystem] Autonomy mode enabled for agent ${this.agent.getAgentId()}`);
+        this.logger.success("Autonomy mode enabled", {
+          agentId: this.agent.getAgentId(),
+          startedTasks: startedTaskCount,
+          totalScheduledTasks: this.scheduledTasks.size
+        });
       } else {
         // Stop all scheduled tasks
+        let stoppedTaskCount = 0;
         for (const [id, job] of Array.from(this.activeJobs.entries())) {
+          this.logger.debug("Stopping scheduled job", { taskId: id });
           job.stop();
+          stoppedTaskCount++;
         }
         
         this.activeJobs.clear();
@@ -582,17 +650,25 @@ export class DefaultAutonomySystem implements AutonomySystem {
             { 
               type: 'SYSTEM_EVENT',
               eventType: 'autonomy_disabled',
-              timestamp: new Date().toISOString() 
+              timestamp: new Date().toISOString(),
+              stoppedTasks: stoppedTaskCount
             }
           );
         }
         
-        console.log(`[AutonomySystem] Autonomy mode disabled for agent ${this.agent.getAgentId()}`);
+        this.logger.success("Autonomy mode disabled", {
+          agentId: this.agent.getAgentId(),
+          stoppedTasks: stoppedTaskCount
+        });
       }
       
       return true;
     } catch (error) {
-      console.error('[AutonomySystem] Error setting autonomy mode:', error);
+      this.logger.error("Error setting autonomy mode", {
+        enabled,
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined
+      });
       return false;
     }
   }
@@ -601,6 +677,7 @@ export class DefaultAutonomySystem implements AutonomySystem {
    * Get the current autonomy mode
    */
   getAutonomyMode(): boolean {
+    this.logger.debug("Autonomy mode requested", { mode: this.autonomyMode });
     return this.autonomyMode;
   }
   
@@ -608,14 +685,32 @@ export class DefaultAutonomySystem implements AutonomySystem {
    * Get all scheduled tasks
    */
   getScheduledTasks(): ScheduledTask[] {
-    // Return the ScheduledTask part of our internal task objects
-    return Array.from(this.scheduledTasks.values());
+    this.logger.debug("Retrieving scheduled tasks", {
+      taskCount: this.scheduledTasks.size
+    });
+    
+    const tasks = Array.from(this.scheduledTasks.values());
+    
+    this.logger.debug("Scheduled tasks retrieved", {
+      taskCount: tasks.length,
+      taskIds: tasks.map(t => t.id).slice(0, 10) // Log first 10 task IDs
+    });
+    
+    return tasks;
   }
   
   /**
    * Schedule a new task
    */
   async scheduleTask(task: ScheduledTask): Promise<boolean> {
+    this.logger.info("Scheduling new task", {
+      taskId: task.id,
+      taskName: task.name,
+      schedule: task.schedule,
+      goalPrompt: task.goalPrompt?.substring(0, 100),
+      enabled: task.enabled
+    });
+    
     try {
       // Convert ScheduledTask to InternalScheduledTask
       const internalTask: InternalScheduledTask = {
@@ -628,13 +723,32 @@ export class DefaultAutonomySystem implements AutonomySystem {
       
       // Start the task if autonomy mode is enabled and task is enabled
       if (this.autonomyMode && internalTask.enabled) {
+        this.logger.debug("Starting task immediately (autonomy mode active)", {
+          taskId: task.id
+        });
         this.startTask(task.id);
+      } else {
+        this.logger.debug("Task scheduled but not started", {
+          taskId: task.id,
+          autonomyMode: this.autonomyMode,
+          taskEnabled: internalTask.enabled
+        });
       }
       
-      console.log(`[AutonomySystem] Scheduled task: ${task.name} (${task.id})`);
+      this.logger.success("Task scheduled successfully", {
+        taskId: task.id,
+        taskName: task.name,
+        totalScheduledTasks: this.scheduledTasks.size
+      });
+      
       return true;
     } catch (error) {
-      console.error(`[AutonomySystem] Error scheduling task ${task.id}:`, error);
+      this.logger.error("Error scheduling task", {
+        taskId: task.id,
+        taskName: task.name,
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined
+      });
       return false;
     }
   }
@@ -642,42 +756,54 @@ export class DefaultAutonomySystem implements AutonomySystem {
   /**
    * Start a scheduled task
    */
-  private startTask(taskId: string): boolean {
+  private startTask(taskId: string): void {
+    this.logger.debug("Starting scheduled task", { taskId });
+    
+    const task = this.scheduledTasks.get(taskId);
+    if (!task) {
+      this.logger.error("Cannot start task - not found", { taskId });
+      return;
+    }
+
     try {
-      const task = this.scheduledTasks.get(taskId);
-      if (!task) {
-        console.warn(`[AutonomySystem] No task found with ID ${taskId}`);
-        return false;
+      // Stop existing job if running
+      const existingJob = this.activeJobs.get(taskId);
+      if (existingJob) {
+        this.logger.debug("Stopping existing job before restart", { taskId });
+        existingJob.stop();
       }
-      
-      // Don't start if already running or disabled
-      if (this.activeJobs.has(taskId) || !task.enabled) {
-        return true;
-      }
-      
-      // Create a new CronJob
+
+      // Create and start the cron job
       const job = new CronJob(
-        task.schedule, // Use the schedule from the task
-        async () => {
-          console.log(`[AutonomySystem] Executing scheduled task: ${task.name} (${taskId})`);
-          try {
-            await this.executeTask(taskId);
-          } catch (error) {
-            console.error(`[AutonomySystem] Error executing task ${taskId}:`, error);
-          }
+        task.schedule,
+        () => {
+          this.logger.debug("Cron job triggered", {
+            taskId,
+            taskName: task.name,
+            schedule: task.schedule
+          });
+          this.executeTask(taskId);
         },
-        null, // onComplete
-        true, // start immediately
-        'UTC' // timezone
+        null,
+        true, // Start immediately
+        'UTC'
       );
-      
-      // Store the job
+
       this.activeJobs.set(taskId, job);
-      console.log(`[AutonomySystem] Started task: ${task.name} (${taskId})`);
-      return true;
+      
+      this.logger.success("Scheduled task started", {
+        taskId,
+        taskName: task.name,
+        schedule: task.schedule,
+        activeJobs: this.activeJobs.size
+      });
     } catch (error) {
-      console.error(`[AutonomySystem] Error starting task ${taskId}:`, error);
-      return false;
+      this.logger.error("Error starting scheduled task", {
+        taskId,
+        taskName: task.name,
+        schedule: task.schedule,
+        error: error instanceof Error ? error.message : String(error)
+      });
     }
   }
   
@@ -687,9 +813,15 @@ export class DefaultAutonomySystem implements AutonomySystem {
   private async executeTask(taskId: string): Promise<boolean> {
     const task = this.scheduledTasks.get(taskId);
     if (!task) {
-      console.warn(`[AutonomySystem] No task found with ID ${taskId}`);
+      this.logger.error("Task not found for execution", { taskId });
       return false;
     }
+    
+    this.logger.info("Executing scheduled task", {
+      taskId,
+      taskName: task.name,
+      goalPrompt: task.goalPrompt?.substring(0, 100)
+    });
     
     // Update task history
     let taskStats = this.taskHistory.get(taskId) || {
@@ -707,10 +839,14 @@ export class DefaultAutonomySystem implements AutonomySystem {
     task.lastRun = new Date();
     this.scheduledTasks.set(taskId, task);
     
+    this.logger.debug("Task execution started", {
+      taskId,
+      runCount: taskStats.runs,
+      lastRun: task.lastRun
+    });
+    
     const startTime = Date.now();
     try {
-      console.log(`[AutonomySystem] Executing task ${task.name} (${taskId})`);
-      
       // Initialize task execution options
       const executionOptions: AutonomousExecutionOptions = {
         goalPrompt: task.goalPrompt || task.description,
@@ -720,33 +856,61 @@ export class DefaultAutonomySystem implements AutonomySystem {
         recordReasoning: true
       };
       
+      this.logger.debug("Planning and executing task", {
+        taskId,
+        goalPrompt: executionOptions.goalPrompt?.substring(0, 100),
+        autonomyMode: executionOptions.autonomyMode
+      });
+      
       // Execute the task
       const result = await this.planAndExecuteTask(task, executionOptions);
       
       // Update task stats
       const endTime = Date.now();
-      taskStats.totalTimeMs += (endTime - startTime);
+      const executionTime = endTime - startTime;
+      taskStats.totalTimeMs += executionTime;
       
       if (result.success) {
         taskStats.successes++;
         this.taskHistory.set(taskId, taskStats);
         
-        console.log(`[AutonomySystem] Task ${task.name} (${taskId}) completed successfully`);
+        this.logger.success("Task execution completed successfully", {
+          taskId,
+          taskName: task.name,
+          executionTimeMs: executionTime,
+          totalRuns: taskStats.runs,
+          successRate: (taskStats.successes / taskStats.runs * 100).toFixed(1) + '%'
+        });
         return true;
       } else {
         taskStats.failures++;
         this.taskHistory.set(taskId, taskStats);
         
-        console.error(`[AutonomySystem] Task ${task.name} (${taskId}) failed: ${result.message}`);
+        this.logger.error("Task execution failed", {
+          taskId,
+          taskName: task.name,
+          executionTimeMs: executionTime,
+          error: result.message,
+          totalRuns: taskStats.runs,
+          failureRate: (taskStats.failures / taskStats.runs * 100).toFixed(1) + '%'
+        });
         return false;
       }
     } catch (error) {
       const endTime = Date.now();
-      taskStats.totalTimeMs += (endTime - startTime);
+      const executionTime = endTime - startTime;
       taskStats.failures++;
+      taskStats.totalTimeMs += executionTime;
       this.taskHistory.set(taskId, taskStats);
       
-      console.error(`[AutonomySystem] Error executing task ${task.name} (${taskId}):`, error);
+      this.logger.error("Task execution threw exception", {
+        taskId,
+        taskName: task.name,
+        executionTimeMs: executionTime,
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        totalRuns: taskStats.runs
+      });
       return false;
     }
   }
@@ -758,16 +922,30 @@ export class DefaultAutonomySystem implements AutonomySystem {
     task: ScheduledTask, 
     options: AutonomousExecutionOptions
   ): Promise<AutonomousExecutionResult> {
+    this.logger.debug("Planning and executing task", {
+      taskId: task.id,
+      taskName: task.name,
+      goalPrompt: options.goalPrompt?.substring(0, 100)
+    });
+    
     try {
       // Get the planning manager
       const planningManager = this.agent.getManager(ManagerType.PLANNING) as PlanningManager;
       if (!planningManager) {
+        this.logger.error("Planning manager not available for task execution", {
+          taskId: task.id
+        });
         return {
           success: false,
           message: 'Planning manager not available',
           error: 'PLANNING_MANAGER_NOT_AVAILABLE'
         };
       }
+      
+      this.logger.debug("Planning manager found, starting plan execution", {
+        taskId: task.id,
+        goalPrompt: options.goalPrompt?.substring(0, 50)
+      });
       
       // Combine task parameters with options
       const executionOptions: PlanAndExecuteOptions = {
@@ -778,6 +956,13 @@ export class DefaultAutonomySystem implements AutonomySystem {
       // Execute the plan - adding a cast to any since some Planning Managers might have this method
       // This is a temporary solution until PlanningManager interface is updated with this method
       const result = await (planningManager as any).planAndExecute(executionOptions.goalPrompt, executionOptions);
+      
+      this.logger.debug("Plan execution completed", {
+        taskId: task.id,
+        success: result.success,
+        hasSteps: !!result.plan?.steps,
+        stepCount: result.plan?.steps?.length || 0
+      });
       
       // Add analytics data
       const analyticsResult: AutonomousExecutionResult = {
@@ -794,8 +979,20 @@ export class DefaultAutonomySystem implements AutonomySystem {
         }
       };
       
+      this.logger.debug("Analytics added to execution result", {
+        taskId: task.id,
+        stepsExecuted: analyticsResult.analytics?.stepsExecuted || 0
+      });
+      
       return analyticsResult;
     } catch (error) {
+      this.logger.error("Error during task plan and execute", {
+        taskId: task.id,
+        taskName: task.name,
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined
+      });
+      
       return {
         success: false,
         message: `Error executing task: ${error}`,
@@ -808,37 +1005,57 @@ export class DefaultAutonomySystem implements AutonomySystem {
    * Run a task immediately
    */
   async runTask(taskId: string): Promise<boolean> {
-    try {
-      console.log(`[AutonomySystem] Running task ${taskId} immediately`);
-      return await this.executeTask(taskId);
-    } catch (error) {
-      console.error(`[AutonomySystem] Error running task ${taskId}:`, error);
+    this.logger.info("Running task immediately", { taskId });
+    
+    const task = this.scheduledTasks.get(taskId);
+    if (!task) {
+      this.logger.error("Task not found for immediate execution", { taskId });
       return false;
     }
+    
+    this.logger.debug("Task found for immediate execution", {
+      taskId,
+      taskName: task.name,
+      enabled: task.enabled
+    });
+    
+    // Execute the task regardless of schedule
+    return await this.executeTask(taskId);
   }
   
   /**
    * Cancel a scheduled task
    */
   async cancelTask(taskId: string): Promise<boolean> {
+    this.logger.info("Cancelling task", { taskId });
+    
     try {
-      // Stop the job if running
+      // Stop the job if it's running
       const job = this.activeJobs.get(taskId);
       if (job) {
+        this.logger.debug("Stopping active job", { taskId });
         job.stop();
         this.activeJobs.delete(taskId);
       }
       
-      // Mark task as cancelled if it exists
-      const task = this.scheduledTasks.get(taskId);
-      if (task) {
-        this.scheduledTasks.set(taskId, task);
+      // Remove from scheduled tasks
+      const taskRemoved = this.scheduledTasks.delete(taskId);
+      
+      if (taskRemoved) {
+        this.logger.success("Task cancelled and removed", {
+          taskId,
+          remainingTasks: this.scheduledTasks.size
+        });
+      } else {
+        this.logger.warn("Task not found for cancellation", { taskId });
       }
       
-      console.log(`[AutonomySystem] Cancelled task ${taskId}`);
-      return true;
+      return taskRemoved;
     } catch (error) {
-      console.error(`[AutonomySystem] Error cancelling task ${taskId}:`, error);
+      this.logger.error("Error cancelling task", {
+        taskId,
+        error: error instanceof Error ? error.message : String(error)
+      });
       return false;
     }
   }
@@ -847,34 +1064,48 @@ export class DefaultAutonomySystem implements AutonomySystem {
    * Enable or disable a task
    */
   async setTaskEnabled(taskId: string, enabled: boolean): Promise<boolean> {
+    this.logger.info("Setting task enabled status", { taskId, enabled });
+    
     try {
       const task = this.scheduledTasks.get(taskId);
       if (!task) {
-        console.warn(`[AutonomySystem] No task found with ID ${taskId}`);
+        this.logger.error("Task not found for enable/disable", { taskId });
         return false;
       }
       
-      // Update task enabled state
+      // Update the task's enabled status
       task.enabled = enabled;
       this.scheduledTasks.set(taskId, task);
       
-      // Start or stop the task
       if (this.autonomyMode) {
         if (enabled) {
+          // Start the task if autonomy mode is active
+          this.logger.debug("Starting task (now enabled)", { taskId });
           this.startTask(taskId);
         } else {
+          // Stop the task if it's running
           const job = this.activeJobs.get(taskId);
           if (job) {
+            this.logger.debug("Stopping task (now disabled)", { taskId });
             job.stop();
             this.activeJobs.delete(taskId);
           }
         }
       }
       
-      console.log(`[AutonomySystem] Task ${taskId} ${enabled ? 'enabled' : 'disabled'}`);
+      this.logger.success("Task enabled status updated", {
+        taskId,
+        enabled,
+        taskName: task.name
+      });
+      
       return true;
     } catch (error) {
-      console.error(`[AutonomySystem] Error setting task ${taskId} enabled state:`, error);
+      this.logger.error("Error setting task enabled status", {
+        taskId,
+        enabled,
+        error: error instanceof Error ? error.message : String(error)
+      });
       return false;
     }
   }

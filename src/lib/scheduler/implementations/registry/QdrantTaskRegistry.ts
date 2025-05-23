@@ -6,7 +6,7 @@
  */
 
 import { QdrantClient } from '@qdrant/js-client-rest';
-import { Task, TaskStatus, createTask } from '../../models/Task.model';
+import { Task, TaskStatus, createTask, TaskScheduleType } from '../../models/Task.model';
 import { TaskFilter } from '../../models/TaskFilter.model';
 import { TaskRegistry } from '../../interfaces/TaskRegistry.interface';
 import { TaskRegistryError, TaskRegistryErrorCode } from '../../errors/TaskRegistryError';
@@ -133,7 +133,7 @@ export class QdrantTaskRegistry implements TaskRegistry {
     if (filter.status) {
       const statuses = Array.isArray(filter.status) ? filter.status : [filter.status];
       must.push({
-        key: 'status',
+        key: 'metadata.status',
         match: {
           any: statuses,
         },
@@ -378,16 +378,73 @@ export class QdrantTaskRegistry implements TaskRegistry {
    * Check if a payload is a valid Task
    */
   private isValidTaskPayload(payload: Record<string, unknown>): boolean {
-    // Check for required Task properties
-    return (
+    console.log(`🔍 Validating payload for task ${payload.id}:`, {
+      hasId: typeof payload.id === 'string',
+      hasType: typeof payload.type === 'string',
+      typeValue: payload.type,
+      hasText: typeof payload.text === 'string',
+      hasMetadata: payload.metadata !== null && typeof payload.metadata === 'object',
+      metadataKeys: payload.metadata ? Object.keys(payload.metadata as any) : [],
+      metadataStatus: payload.metadata ? (payload.metadata as any).status : 'no metadata',
+      metadataAgentId: payload.metadata ? (payload.metadata as any).agentId : 'no agentId'
+    });
+    
+    // More flexible validation based on actual data structure
+    // Basic requirements: id, type=task, and either text or metadata with basic info
+    const hasBasicRequirements = (
       typeof payload.id === 'string' &&
-      typeof payload.name === 'string' &&
-      typeof payload.scheduleType === 'string' &&
-      typeof payload.status === 'string' &&
-      // When stored in Qdrant, functions are converted to strings
-      // We need to check if it's either a function or if the handler property exists
-      (typeof payload.handler === 'function' || payload.handler !== undefined)
+      typeof payload.type === 'string' &&
+      payload.type === 'task'
     );
+    
+    if (!hasBasicRequirements) {
+      console.log(`❌ Task ${payload.id} failed basic requirements`);
+      return false;
+    }
+    
+    // Check for content (either text or metadata with title)
+    const hasContent = (
+      typeof payload.text === 'string' ||
+      (payload.metadata && 
+       typeof payload.metadata === 'object' && 
+       (payload.metadata as any).title)
+    );
+    
+    if (!hasContent) {
+      console.log(`❌ Task ${payload.id} has no content (text or title)`);
+      return false;
+    }
+    
+    // Check for metadata with status
+    const hasValidMetadata = (
+      payload.metadata !== null &&
+      typeof payload.metadata === 'object' &&
+      typeof (payload.metadata as any).status === 'string'
+    );
+    
+    if (!hasValidMetadata) {
+      console.log(`❌ Task ${payload.id} has invalid metadata or missing status`);
+      return false;
+    }
+    
+    // Check for agentId (can be flexible about the structure)
+    const hasAgentId = (
+      payload.metadata &&
+      (payload.metadata as any).agentId &&
+      (
+        typeof (payload.metadata as any).agentId === 'string' ||
+        (typeof (payload.metadata as any).agentId === 'object' &&
+         (payload.metadata as any).agentId.id)
+      )
+    );
+    
+    if (!hasAgentId) {
+      console.log(`❌ Task ${payload.id} has no valid agentId`);
+      return false;
+    }
+    
+    console.log(`✅ Task ${payload.id} passed validation`);
+    return true;
   }
 
   /**
@@ -496,15 +553,20 @@ export class QdrantTaskRegistry implements TaskRegistry {
         await this.initialize();
       }
 
+      console.log("🔍 🔍 🔍 QdrantTaskRegistry.findTasks DEBUG:");
+      console.log("Input filter:", JSON.stringify(filter, null, 2));
+
       // For common queries like pending tasks, check the cache first
       const cacheKey = this.getCacheKey(filter);
       const cachedResult = this.queryCache.get(cacheKey);
       if (cachedResult) {
+        console.log("📦 Returning cached result:", cachedResult.length, "tasks");
         return cachedResult;
       }
 
       // Create Qdrant filter
       const qdrantFilter = this.buildQdrantFilter(filter);
+      console.log("🎯 Built Qdrant filter:", JSON.stringify(qdrantFilter, null, 2));
 
       // Set up search parameters
       const searchParams: any = {
@@ -517,10 +579,49 @@ export class QdrantTaskRegistry implements TaskRegistry {
         searchParams.offset = filter.offset;
       }
 
+      console.log("📡 Search params being sent to Qdrant:", JSON.stringify(searchParams, null, 2));
+
       // Execute search
       const response = await this.client.scroll(this.collectionName, searchParams);
       
+      console.log("📥 Qdrant response:", {
+        collectionName: this.collectionName,
+        pointsCount: response?.points?.length || 0,
+        hasResponse: !!response,
+        hasPoints: !!response?.points
+      });
+      
+      // DEBUG: Let's also try a query without any filter to see what's in the collection
+      if ((response?.points?.length || 0) === 0) {
+        console.log("🔍 DEBUGGING: No results found, trying query without filter...");
+        try {
+          const unfilteredResponse = await this.client.scroll(this.collectionName, {
+            with_payload: true,
+            limit: 5  // Just get first 5 tasks to see the structure
+          });
+          console.log("📋 Unfiltered query results:", {
+            totalPoints: unfilteredResponse?.points?.length || 0,
+            hasAnyTasks: !!(unfilteredResponse?.points?.length)
+          });
+          
+          if (unfilteredResponse?.points?.length > 0) {
+            // Show structure of first task
+            const firstTask = unfilteredResponse.points[0];
+            console.log("📝 First task structure:", {
+              id: firstTask.id,
+              payloadKeys: Object.keys(firstTask.payload || {}),
+              status: (firstTask.payload as any)?.status,
+              agentId: (firstTask.payload as any)?.metadata?.agentId,
+              fullMetadata: (firstTask.payload as any)?.metadata
+            });
+          }
+        } catch (debugError) {
+          console.error("❌ Debug query failed:", debugError);
+        }
+      }
+      
       if (!response || !response.points) {
+        console.log("❌ No response or points from Qdrant");
         return [];
       }
 
@@ -528,11 +629,127 @@ export class QdrantTaskRegistry implements TaskRegistry {
       const tasks: Task[] = [];
       for (const point of response.points) {
         const payload = point.payload as Record<string, unknown>;
+        console.log("📝 Processing point:", {
+          pointId: point.id,
+          hasValidPayload: this.isValidTaskPayload(payload),
+          payloadKeys: Object.keys(payload),
+          type: payload.type,
+          agentId: payload.metadata ? (payload.metadata as any).agentId : 'no agentId in metadata'
+        });
+        
         // Validate the payload has required Task properties before conversion
         if (this.isValidTaskPayload(payload)) {
-          tasks.push(payload as unknown as Task);
+          // Convert the Qdrant payload format to Task interface format
+          const metadata = payload.metadata as Record<string, unknown>;
+          
+          // Improved date parsing with debugging
+          let createdAt: Date;
+          const rawTimestamp = payload.timestamp;
+          console.log(`🕒 Parsing timestamp for task ${payload.id}:`, {
+            rawTimestamp,
+            timestampType: typeof rawTimestamp,
+            isNumber: typeof rawTimestamp === 'number',
+            isString: typeof rawTimestamp === 'string'
+          });
+          
+          if (rawTimestamp) {
+            // Try different timestamp formats
+            if (typeof rawTimestamp === 'number') {
+              // Check if it's seconds or milliseconds
+              const timestampMs = rawTimestamp > 1e12 ? rawTimestamp : rawTimestamp * 1000;
+              createdAt = new Date(timestampMs);
+            } else if (typeof rawTimestamp === 'string') {
+              // Try parsing as ISO string or number string
+              const parsedNumber = parseInt(rawTimestamp, 10);
+              if (!isNaN(parsedNumber)) {
+                const timestampMs = parsedNumber > 1e12 ? parsedNumber : parsedNumber * 1000;
+                createdAt = new Date(timestampMs);
+              } else {
+                createdAt = new Date(rawTimestamp);
+              }
+            } else {
+              // Unknown format, use current time
+              console.log(`⚠️ Unknown timestamp format for task ${payload.id}, using current time`);
+              createdAt = new Date();
+            }
+          } else {
+            // No timestamp, use current time
+            console.log(`⚠️ No timestamp for task ${payload.id}, using current time`);
+            createdAt = new Date();
+          }
+          
+          // Validate the resulting date
+          if (isNaN(createdAt.getTime())) {
+            console.log(`❌ Invalid date parsed for task ${payload.id}, using current time`);
+            createdAt = new Date();
+          } else {
+            console.log(`✅ Successfully parsed date for task ${payload.id}: ${createdAt.toISOString()}`);
+          }
+          
+          const task: Task = {
+            id: payload.id as string,
+            name: (metadata.title as string) || (payload.text as string).slice(0, 50) + '...',
+            status: metadata.status as TaskStatus,
+            priority: this.convertPriority(metadata.priority as string) || 5, // Default medium priority
+            scheduleType: TaskScheduleType.PRIORITY, // Default for converted tasks
+            createdAt: createdAt,
+            updatedAt: new Date(),
+            metadata: metadata,
+            handler: async (...args) => {
+              // **REAL AGENT TASK EXECUTION - NO SIMULATION**
+              console.log(`🚀 REAL EXECUTION: Starting task ${metadata.title || payload.text}`);
+              
+              try {
+                // Create AgentTaskHandler for real execution
+                const { AgentTaskHandler } = await import('../agent/AgentTaskHandler');
+                const agentHandler = new AgentTaskHandler();
+                
+                // Execute through real agent planning system
+                console.log(`🧠 Calling REAL agent task handler for task ${payload.id}`);
+                const executionResult = await agentHandler.handleTask(task);
+                
+                console.log(`✅ REAL EXECUTION completed for task ${payload.id}:`, {
+                  successful: executionResult.successful,
+                  status: executionResult.status,
+                  duration: executionResult.duration,
+                  hasResult: Boolean(executionResult.result)
+                });
+                
+                // Return real execution result
+                return {
+                  success: executionResult.successful,
+                  result: executionResult.result || 'Task completed through agent execution',
+                  details: {
+                    executedAt: new Date().toISOString(),
+                    duration: executionResult.duration,
+                    agentExecuted: true,
+                    planAndExecuteUsed: true,
+                    status: executionResult.status,
+                    executionMethod: 'AgentTaskHandler.handleTask'
+                  }
+                };
+              } catch (error) {
+                console.error(`❌ REAL EXECUTION failed for task ${payload.id}:`, error);
+                return { 
+                  success: false, 
+                  result: 'Real agent execution failed',
+                  error: error instanceof Error ? error.message : String(error),
+                  details: {
+                    executedAt: new Date().toISOString(),
+                    agentExecuted: false,
+                    executionMethod: 'AgentTaskHandler.handleTask',
+                    errorType: 'AGENT_EXECUTION_FAILURE'
+                  }
+                };
+              }
+            }
+          };
+          
+          tasks.push(task);
         }
       }
+
+      console.log("✅ Extracted tasks:", tasks.length);
 
       // Apply any additional filtering that can't be done in Qdrant
       let filteredTasks = tasks;
@@ -601,6 +818,8 @@ export class QdrantTaskRegistry implements TaskRegistry {
         });
       }
 
+      console.log("🏁 Final filtered tasks:", filteredTasks.length);
+
       // Cache frequently accessed queries
       if (this.shouldCacheQuery(filter)) {
         this.queryCache.set(cacheKey, filteredTasks);
@@ -613,6 +832,7 @@ export class QdrantTaskRegistry implements TaskRegistry {
 
       return filteredTasks;
     } catch (error) {
+      console.error("❌ Error in QdrantTaskRegistry.findTasks:", error);
       if (error instanceof TaskRegistryError) {
         throw error;
       }
@@ -704,5 +924,13 @@ export class QdrantTaskRegistry implements TaskRegistry {
   invalidateCaches(): void {
     this.taskCache.clear();
     this.queryCache.clear();
+  }
+
+  /**
+   * Convert priority string to a number
+   */
+  private convertPriority(priority: string): number {
+    const priorityNumber = parseInt(priority, 10);
+    return isNaN(priorityNumber) ? 5 : priorityNumber;
   }
 } 

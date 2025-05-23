@@ -75,6 +75,16 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
     config?: Partial<SchedulerConfig>,
     agent?: AgentBase
   ) {
+    // Unique version identifier to verify latest code is loading
+    const timestamp = new Date().toISOString();
+    const versionId = "LATEST-VERSION-" + Date.now();
+    
+    console.log("=".repeat(80));
+    console.log("🔥🔥🔥🔥 ModularSchedulerManager constructor called 🔥🔥🔥🔥");
+    console.log(`🕒 Timestamp: ${timestamp}`);
+    console.log(`🆔 Version ID: ${versionId}`);
+    console.log("=".repeat(80));
+    
     // Normal initialization
     this.id = `scheduler-manager-${ulid()}`;
     this.managerId = this.id;
@@ -94,7 +104,18 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
       agentId: agent?.getId() ?? ''
     });
     
-    console.log("🔥 EXTREME LATE: ModularSchedulerManager constructor EXIT POINT");
+    console.log("🔥 🔥 🔥 🔥 ModularSchedulerManager constructor called");
+    
+    this.logger.info("🔥🔥 ModularSchedulerManager constructor called", {
+      managerId: this.id,
+      agentId: agent?.getId(),
+      config: this.config,
+      enableAutoScheduling: this.config.enableAutoScheduling,
+      versionId: versionId
+    });
+    
+    console.log("✅ ModularSchedulerManager constructor completed successfully");
+    console.log("=".repeat(80));
   }
 
   /**
@@ -105,23 +126,65 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
    * @throws {SchedulerError} If there's an error during initialization
    */
   async initialize(configOrAgent?: Partial<SchedulerConfig> | AgentBase): Promise<boolean> {
+    const initTimestamp = new Date().toISOString();
+    const initVersionId = "INIT-LATEST-" + Date.now();
+    
+    console.log("*".repeat(80));
+    console.log(`🔥🔥🔥🔥 ModularSchedulerManager.initialize() called - START 🔥🔥🔥🔥`);
+    console.log(`🕒 Init Timestamp: ${initTimestamp}`);
+    console.log(`🆔 Init Version ID: ${initVersionId}`);
+    console.log("*".repeat(80));
+    
+    this.logger.info("Initializing scheduler manager", { 
+      managerId: this.id,
+      initVersionId: initVersionId
+    });
+    
     try {
       // Handle both agent and config parameters for compatibility with BaseManager
       if (configOrAgent instanceof Object && 'getAgentId' in configOrAgent) {
         // It's an AgentBase instance
         this.agent = configOrAgent as AgentBase;
+        this.logger.info("Agent instance provided during initialization", {
+          agentId: this.agent.getId()
+        });
       } else if (configOrAgent) {
         // It's a config object
         this.config = { ...this.config, ...(configOrAgent as Partial<SchedulerConfig>) };
+        this.logger.info("Configuration updated during initialization", {
+          updatedConfig: configOrAgent
+        });
       }
 
       // If auto-scheduling is enabled, start the scheduler
       if (this.config.enabled && this.config.enableAutoScheduling) {
+        this.logger.info("Auto-scheduling enabled, starting scheduler");
         await this.startScheduler();
       }
 
+      this.logger.info("Scheduler manager initialized successfully", {
+        managerId: this.id,
+        enabled: this.config.enabled,
+        autoScheduling: this.config.enableAutoScheduling
+      });
+
+      console.log("*".repeat(80));
+      console.log(`✅ ✅ ✅ ✅ ModularSchedulerManager.initialize() completed - SUCCESS ✅ ✅ ✅ ✅`);
+      console.log(`🕒 Completion Timestamp: ${new Date().toISOString()}`);
+      console.log(`🆔 Init Version ID: ${initVersionId}`);
+      console.log("*".repeat(80));
       return true;
     } catch (error) {
+      console.log("*".repeat(80));
+      console.log(`❌ ❌ ❌ ❌ ModularSchedulerManager.initialize() failed - ERROR: ❌ ❌ ❌ ❌`);
+      console.log(`🆔 Init Version ID: ${initVersionId}`);
+      console.log(`Error:`, error);
+      console.log("*".repeat(80));
+      this.logger.error("Failed to initialize scheduler manager", {
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined
+      });
+      
       if (error instanceof SchedulerError) {
         throw error;
       }
@@ -140,41 +203,40 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
    * @throws {SchedulerError} If the task cannot be created
    */
   async createTask(task: Task): Promise<Task> {
+    this.logger.info("Creating new task", {
+      taskName: task.name,
+      taskId: task.id,
+      scheduleType: task.scheduleType,
+      priority: task.priority,
+      scheduledTime: task.scheduledTime,
+      hasAgent: !!this.agent
+    });
+    
     try {
-      // Handle vague temporal expressions if present
-      let scheduledTime = task.scheduledTime;
-      let priority = task.priority ?? this.config.defaultPriority;
-      
-      if (task.scheduleType === TaskScheduleType.EXPLICIT && 
-          typeof task.scheduledTime === 'string') {
-        // Try to parse as vague temporal expression
-        const vagueResult = this.dateTimeProcessor.translateVagueTerm(task.scheduledTime);
+      // If we have an agent, automatically scope the task to that agent
+      if (this.agent) {
+        const agentId = this.agent.getId();
+        console.log(`🎯 createTask: Auto-scoping task to agent ${agentId}`);
         
-        if (vagueResult) {
-          // Use the date and priority from the vague term
-          if (vagueResult.date) {
-            scheduledTime = vagueResult.date;
-          }
-          priority = vagueResult.priority;
-        } else {
-          // Try to parse as natural language date
-          const parsedDate = this.dateTimeProcessor.parseNaturalLanguage(task.scheduledTime);
-          if (parsedDate) {
-            scheduledTime = parsedDate;
-          }
-        }
+        // Process the task normally first (handle vague temporal expressions, etc.)
+        const processedTask = await this.processTaskForCreation(task);
+        
+        // Then create it for the specific agent
+        return await this.createTaskForAgentInternal(processedTask, agentId);
       }
-
-      // Apply default values
-      const taskWithDefaults = createTask({
-        ...task,
-        scheduledTime,
-        priority
+      
+      // No agent, create task normally
+      console.log(`🌐 createTask: No agent set, creating task without agent scope`);
+      return await this.processTaskForCreation(task);
+      
+    } catch (error) {
+      this.logger.error("Failed to create task", {
+        taskId: task.id,
+        taskName: task.name,
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined
       });
       
-      // Store the task in the registry
-      return await this.registry.storeTask(taskWithDefaults);
-    } catch (error) {
       if (error instanceof SchedulerError) {
         throw error;
       }
@@ -186,6 +248,117 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
   }
 
   /**
+   * Internal method to process a task for creation (handles vague temporal expressions, defaults, etc.)
+   * This is the core task processing logic extracted from the original createTask method.
+   */
+  private async processTaskForCreation(task: Task): Promise<Task> {
+      // Handle vague temporal expressions if present
+      let scheduledTime = task.scheduledTime;
+      let priority = task.priority ?? this.config.defaultPriority;
+      
+      if (task.scheduleType === TaskScheduleType.EXPLICIT && 
+          typeof task.scheduledTime === 'string') {
+      this.logger.info("Processing vague temporal expression", {
+        taskId: task.id,
+        originalScheduledTime: task.scheduledTime
+      });
+      
+        // Try to parse as vague temporal expression
+        const vagueResult = this.dateTimeProcessor.translateVagueTerm(task.scheduledTime);
+        
+        if (vagueResult) {
+          // Use the date and priority from the vague term
+          if (vagueResult.date) {
+            scheduledTime = vagueResult.date;
+          this.logger.info("Vague term translated to date", {
+            taskId: task.id,
+            originalTerm: task.scheduledTime,
+            translatedDate: vagueResult.date,
+            priority: vagueResult.priority
+          });
+          }
+          priority = vagueResult.priority;
+        } else {
+          // Try to parse as natural language date
+          const parsedDate = this.dateTimeProcessor.parseNaturalLanguage(task.scheduledTime);
+          if (parsedDate) {
+            scheduledTime = parsedDate;
+          this.logger.info("Natural language date parsed", {
+            taskId: task.id,
+            originalTerm: task.scheduledTime,
+            parsedDate: parsedDate
+          });
+          }
+        }
+      }
+
+      // Apply default values
+      const taskWithDefaults = createTask({
+        ...task,
+        scheduledTime,
+        priority
+      });
+    
+    this.logger.info("Task processed with defaults", {
+      taskId: taskWithDefaults.id,
+      finalScheduledTime: taskWithDefaults.scheduledTime,
+      finalPriority: taskWithDefaults.priority,
+      hasMetadata: !!taskWithDefaults.metadata
+      });
+      
+      // Store the task in the registry
+    const storedTask = await this.registry.storeTask(taskWithDefaults);
+    
+    this.logger.success("Task created successfully", {
+      taskId: storedTask.id,
+      taskName: storedTask.name,
+      status: storedTask.status,
+      createdAt: storedTask.createdAt
+    });
+    
+    return storedTask;
+  }
+
+  /**
+   * Internal method to create a task for a specific agent (without the processing logic)
+   * This calls the agent-scoped creation after processing.
+   */
+  private async createTaskForAgentInternal(task: Task, agentId: string): Promise<Task> {
+    // Ensure metadata exists
+    const metadata = task.metadata || {};
+    
+    // Set the agent ID in metadata
+    const taskWithAgentId: Task = {
+      ...task,
+      metadata: {
+        ...metadata,
+        agentId: {
+          namespace: 'agent',
+          type: 'agent',
+          id: agentId
+        }
+      }
+    };
+    
+    this.logger.info("Task prepared with agent metadata", {
+      taskId: task.id,
+      agentId,
+      metadataKeys: Object.keys(taskWithAgentId.metadata || {})
+    });
+    
+    // Store the task with agent metadata in the registry
+    const storedTask = await this.registry.storeTask(taskWithAgentId);
+    
+    this.logger.success("Task created for agent successfully", {
+      taskId: storedTask.id,
+      agentId,
+      status: storedTask.status
+    });
+    
+    return storedTask;
+  }
+
+  /**
    * Update an existing task
    * 
    * @param task - The task with updated fields
@@ -193,9 +366,30 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
    * @throws {SchedulerError} If the task cannot be updated
    */
   async updateTask(task: Task): Promise<Task> {
+    this.logger.info("Updating task", {
+      taskId: task.id,
+      taskName: task.name,
+      status: task.status,
+      priority: task.priority
+    });
+    
     try {
-      return await this.registry.updateTask(task);
+      const updatedTask = await this.registry.updateTask(task);
+      
+      this.logger.success("Task updated successfully", {
+        taskId: updatedTask.id,
+        taskName: updatedTask.name,
+        status: updatedTask.status,
+        updatedAt: updatedTask.updatedAt
+      });
+      
+      return updatedTask;
     } catch (error) {
+      this.logger.error("Failed to update task", {
+        taskId: task.id,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      
       if (error instanceof SchedulerError) {
         throw error;
       }
@@ -214,9 +408,24 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
    * @throws {SchedulerError} If the task cannot be deleted
    */
   async deleteTask(taskId: string): Promise<boolean> {
+    this.logger.info("Deleting task", { taskId });
+    
     try {
-      return await this.registry.deleteTask(taskId);
+      const result = await this.registry.deleteTask(taskId);
+      
+      if (result) {
+        this.logger.success("Task deleted successfully", { taskId });
+      } else {
+        this.logger.warn("Task deletion returned false", { taskId });
+      }
+      
+      return result;
     } catch (error) {
+      this.logger.error("Failed to delete task", {
+        taskId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      
       if (error instanceof SchedulerError) {
         throw error;
       }
@@ -235,9 +444,28 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
    * @throws {SchedulerError} If there's an error retrieving the task
    */
   async getTask(taskId: string): Promise<Task | null> {
+    this.logger.info("Retrieving task", { taskId });
+    
     try {
-      return await this.registry.getTaskById(taskId);
+      const task = await this.registry.getTaskById(taskId);
+      
+      if (task) {
+        this.logger.info("Task retrieved successfully", {
+          taskId,
+          taskName: task.name,
+          status: task.status
+        });
+      } else {
+        this.logger.info("Task not found", { taskId });
+      }
+      
+      return task;
     } catch (error) {
+      this.logger.error("Failed to get task", {
+        taskId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      
       if (error instanceof SchedulerError) {
         throw error;
       }
@@ -256,9 +484,37 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
    * @throws {SchedulerError} If there's an error querying for tasks
    */
   async findTasks(filter: TaskFilter): Promise<Task[]> {
+    this.logger.info("Finding tasks with filter", {
+      filter,
+      filterKeys: Object.keys(filter),
+      hasAgent: !!this.agent
+    });
+    
     try {
-      return await this.registry.findTasks(filter);
+      // If we have an agent, automatically scope to that agent
+      if (this.agent) {
+        const agentId = this.agent.getId();
+        console.log(`🎯 findTasks: Auto-scoping to agent ${agentId}`);
+        return await this.findTasksForAgent(agentId, filter);
+      }
+      
+      // No agent, find all tasks matching the filter
+      console.log(`🌐 findTasks: No agent set, finding all tasks`);
+      const tasks = await this.registry.findTasks(filter);
+      
+      this.logger.info("Tasks found", {
+        taskCount: tasks.length,
+        filter,
+        taskIds: tasks.map(t => t.id).slice(0, 10) // Log first 10 task IDs
+      });
+      
+      return tasks;
     } catch (error) {
+      this.logger.error("Failed to find tasks", {
+        filter,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      
       if (error instanceof SchedulerError) {
         throw error;
       }
@@ -278,6 +534,11 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
    * @throws {SchedulerError} If there's an error querying for tasks
    */
   async findTasksForAgent(agentId: string, filter: TaskFilter = {}): Promise<Task[]> {
+    this.logger.info("Finding tasks for agent", {
+      agentId,
+      additionalFilter: filter
+    });
+    
     try {
       const combinedFilter: TaskFilter = {
         ...filter,
@@ -289,8 +550,22 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
         }
       };
       
-      return await this.registry.findTasks(combinedFilter);
+      const tasks = await this.registry.findTasks(combinedFilter);
+      
+      this.logger.info("Agent tasks found", {
+        agentId,
+        taskCount: tasks.length,
+        taskIds: tasks.map(t => t.id).slice(0, 5) // Log first 5 task IDs
+      });
+      
+      return tasks;
     } catch (error) {
+      this.logger.error("Error finding tasks for agent", {
+        agentId,
+        filter,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      
       if (error instanceof SchedulerError) {
         throw error;
       }
@@ -307,25 +582,27 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
    * @throws {SchedulerError} If there's an error creating the task
    */
   async createTaskForAgent(task: Task, agentId: string): Promise<Task> {
+    this.logger.info("Creating task for agent", {
+      taskId: task.id,
+      taskName: task.name,
+      agentId,
+      scheduleType: task.scheduleType
+    });
+    
     try {
-      // Ensure metadata exists
-      const metadata = task.metadata || {};
+      // Process the task normally first (handle vague temporal expressions, etc.)
+      const processedTask = await this.processTaskForCreation(task);
       
-      // Set the agent ID in metadata
-      const taskWithAgentId: Task = {
-        ...task,
-        metadata: {
-          ...metadata,
-          agentId: {
-            namespace: 'agent',
-            type: 'agent',
-            id: agentId
-          }
-        }
-      };
+      // Then create it for the specific agent
+      return await this.createTaskForAgentInternal(processedTask, agentId);
       
-      return await this.createTask(taskWithAgentId);
     } catch (error) {
+      this.logger.error("Error creating task for agent", {
+        taskId: task.id,
+        agentId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      
       if (error instanceof SchedulerError) {
         throw error;
       }
@@ -340,30 +617,58 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
    * @throws {SchedulerError} If there's an error during scheduled execution
    */
   async executeDueTasks(): Promise<TaskExecutionResult[]> {
-    try {
       const startTime = Date.now();
+    this.logger.info("Starting execution of due tasks", {
+      schedulingIteration: this.schedulingIterations + 1
+    });
 
+    try {
       // Get all pending tasks
       const pendingTasks = await this.registry.findTasks({
         status: TaskStatus.PENDING
       });
 
+      this.logger.info("Retrieved pending tasks", {
+        pendingTaskCount: pendingTasks.length,
+        pendingTaskIds: pendingTasks.map(t => t.id).slice(0, 10)
+      });
+
       if (!pendingTasks.length) {
+        this.logger.info("No pending tasks found");
         return [];
       }
 
       // Determine which tasks are due
       const dueTasks = await this.scheduler.getDueTasks(pendingTasks);
 
+      this.logger.info("Due tasks identified", {
+        totalPending: pendingTasks.length,
+        dueTaskCount: dueTasks.length,
+        dueTaskIds: dueTasks.map(t => t.id),
+        dueTaskNames: dueTasks.map(t => t.name)
+      });
+
       if (!dueTasks.length) {
+        this.logger.info("No tasks are due for execution");
         return [];
       }
 
       // Execute the due tasks
+      this.logger.info("Starting execution of due tasks", {
+        taskCount: dueTasks.length,
+        maxConcurrentTasks: this.config.maxConcurrentTasks
+      });
+      
       const results = await this.executor.executeTasks(
         dueTasks,
         this.config.maxConcurrentTasks
       );
+
+      this.logger.info("Task execution completed", {
+        executedTaskCount: results.length,
+        successfulTasks: results.filter(r => r.successful).length,
+        failedTasks: results.filter(r => !r.successful).length
+      });
 
       // Prepare tasks for update
       const tasksToUpdate = dueTasks.map((task, i) => {
@@ -388,12 +693,18 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
         };
       });
 
+      this.logger.info("Updating task statuses after execution", {
+        tasksToUpdateCount: tasksToUpdate.length
+      });
+
       // Check if registry supports batch updates
       if ('updateTasks' in this.registry && typeof this.registry.updateTasks === 'function') {
         // Use batch update for better performance
+        this.logger.info("Using batch update for task statuses");
         await (this.registry as any).updateTasks(tasksToUpdate);
       } else {
         // Fall back to individual updates
+        this.logger.info("Using individual updates for task statuses");
         for (const task of tasksToUpdate) {
           await this.registry.updateTask(task);
         }
@@ -401,11 +712,26 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
 
       // Update metrics
       const endTime = Date.now();
-      this.schedulingTimes.push(endTime - startTime);
+      const executionTime = endTime - startTime;
+      this.schedulingTimes.push(executionTime);
       this.schedulingIterations++;
+
+      this.logger.success("Due task execution cycle completed", {
+        executionTimeMs: executionTime,
+        schedulingIteration: this.schedulingIterations,
+        averageExecutionTimeMs: this.schedulingTimes.reduce((sum, time) => sum + time, 0) / this.schedulingTimes.length
+      });
 
       return results;
     } catch (error) {
+      const executionTime = Date.now() - startTime;
+      this.logger.error("Failed to execute due tasks", {
+        executionTimeMs: executionTime,
+        schedulingIteration: this.schedulingIterations + 1,
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined
+      });
+      
       if (error instanceof SchedulerError) {
         throw error;
       }
@@ -424,26 +750,154 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
    * @throws {SchedulerError} If there's an error executing tasks
    */
   async executeDueTasksForAgent(agentId: string): Promise<TaskExecutionResult[]> {
+    this.logger.info("Executing due tasks for specific agent", { agentId });
+    
     try {
       // Find pending tasks for the agent
       const pendingTasks = await this.findTasksForAgent(agentId, {
         status: TaskStatus.PENDING
       });
       
+      this.logger.info("Retrieved pending tasks for agent", {
+        agentId,
+        pendingTaskCount: pendingTasks.length
+      });
+      
+      // TEMPORARY DEBUG: Let's also check if there are ANY pending tasks (regardless of agent)
+      if (pendingTasks.length === 0) {
+        console.log("🔍 DEBUG: No tasks found for agent, checking all pending tasks...");
+        const allPendingTasks = await this.registry.findTasks({
+          status: TaskStatus.PENDING
+        });
+        console.log("📊 All pending tasks in system:", {
+          totalPendingTasks: allPendingTasks.length,
+          agentIds: allPendingTasks.map(t => t.metadata?.agentId).slice(0, 10),
+          taskNames: allPendingTasks.map(t => t.name).slice(0, 5)
+        });
+      }
+      
       if (!pendingTasks.length) {
+        this.logger.info("No pending tasks found for agent", { agentId });
         return [];
       }
       
       // Get due tasks from the pending tasks
       const dueTasks = await this.scheduler.getDueTasks(pendingTasks);
       
+      this.logger.info("Due tasks identified for agent", {
+        agentId,
+        dueTaskCount: dueTasks.length,
+        dueTaskIds: dueTasks.map(t => t.id)
+      });
+      
       if (!dueTasks.length) {
+        this.logger.info("No tasks are due for agent", { agentId });
         return [];
       }
       
-      // Execute the due tasks
-      return await this.executor.executeTasks(dueTasks, this.config.maxConcurrentTasks);
+      // SMART SCHEDULING: Order tasks by priority and limit by capacity
+      const orderedTasks = this.orderTasksByPriority(dueTasks);
+      const tasksToExecute = orderedTasks.slice(0, this.config.maxConcurrentTasks);
+      
+      this.logger.info("Smart scheduling applied", {
+        agentId,
+        totalDueTasks: dueTasks.length,
+        tasksSelectedForExecution: tasksToExecute.length,
+        maxConcurrentTasks: this.config.maxConcurrentTasks,
+        selectedTaskIds: tasksToExecute.map(t => t.id),
+        selectedTaskPriorities: tasksToExecute.map(t => `${t.name}(p:${t.priority})`).slice(0, 5)
+      });
+      
+      // CRITICAL FIX: Immediately mark tasks as RUNNING to prevent re-execution
+      this.logger.info("Marking due tasks as RUNNING to prevent re-execution", {
+        agentId,
+        taskIds: tasksToExecute.map(t => t.id)
+      });
+      
+      const runningTasks = tasksToExecute.map(task => ({
+        ...task,
+        status: TaskStatus.RUNNING,
+        updatedAt: new Date()
+      }));
+      
+      // Update tasks to RUNNING status immediately
+      for (const task of runningTasks) {
+        try {
+          await this.registry.updateTask(task);
+        } catch (error) {
+          this.logger.error("Failed to mark task as running", {
+            taskId: task.id,
+            error: error instanceof Error ? error.message : String(error)
+          });
+        }
+      }
+      
+      // Execute the due tasks (now marked as RUNNING)
+      const results = await this.executor.executeTasks(runningTasks, this.config.maxConcurrentTasks);
+      
+      this.logger.info("Task execution completed for agent", {
+        agentId,
+        executedTaskCount: results.length,
+        successfulTasks: results.filter(r => r.successful).length,
+        failedTasks: results.filter(r => !r.successful).length
+      });
+
+      // CRITICAL FIX: Update task statuses in registry after execution
+      // This was missing and causing tasks to remain PENDING forever
+      const tasksToUpdate = runningTasks.map((task, i) => {
+        const result = results[i];
+        return {
+          ...task,
+          status: result.status,
+          lastExecutedAt: result.endTime,
+          metadata: {
+            ...task.metadata,
+            executionTime: result.duration,
+            retryCount: (task.metadata?.retryCount || 0) + (result.wasRetry ? 1 : 0),
+            ...(result.successful ? {} : {
+              errorInfo: result.error
+            })
+          },
+          // Increment execution count for interval tasks
+          interval: task.interval ? {
+            ...task.interval,
+            executionCount: task.interval.executionCount + 1
+          } : undefined
+        };
+      });
+
+      this.logger.info("Updating task statuses after execution for agent", {
+        agentId,
+        tasksToUpdateCount: tasksToUpdate.length
+      });
+
+      // Check if registry supports batch updates
+      if ('updateTasks' in this.registry && typeof this.registry.updateTasks === 'function') {
+        // Use batch update for better performance
+        this.logger.info("Using batch update for task statuses for agent", { agentId });
+        await (this.registry as any).updateTasks(tasksToUpdate);
+      } else {
+        // Fall back to individual updates
+        this.logger.info("Using individual updates for task statuses for agent", { agentId });
+        for (const task of tasksToUpdate) {
+          await this.registry.updateTask(task);
+        }
+      }
+      
+      this.logger.success("Completed execution of due tasks for agent", {
+        agentId,
+        executedTaskCount: results.length,
+        successfulTasks: results.filter(r => r.successful).length,
+        failedTasks: results.filter(r => !r.successful).length
+      });
+
+      return results;
     } catch (error) {
+      this.logger.error("Error executing due tasks for agent", {
+        agentId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      
       if (error instanceof SchedulerError) {
         throw error;
       }
@@ -459,16 +913,33 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
    * @throws {SchedulerError} If the task cannot be executed
    */
   async executeTaskNow(taskId: string): Promise<TaskExecutionResult> {
+    this.logger.info("Executing task immediately", { taskId });
+    
     try {
       // Get the task
       const task = await this.registry.getTaskById(taskId);
       
       if (!task) {
+        this.logger.error("Task not found for immediate execution", { taskId });
         throw new SchedulerError(`Task with ID ${taskId} not found`, 'TASK_NOT_FOUND');
       }
 
+      this.logger.info("Task retrieved for immediate execution", {
+        taskId,
+        taskName: task.name,
+        taskStatus: task.status
+      });
+
       // Execute the task
       const result = await this.executor.executeTask(task);
+
+      this.logger.info("Immediate task execution completed", {
+        taskId,
+        taskName: task.name,
+        successful: result.successful,
+        duration: result.duration,
+        status: result.status
+      });
 
       // Update the task with execution result
       await this.registry.updateTask({
@@ -490,8 +961,19 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
         } : undefined
       });
 
+      this.logger.success("Task updated after immediate execution", {
+        taskId,
+        newStatus: result.status
+      });
+
       return result;
     } catch (error) {
+      this.logger.error("Failed to execute task immediately", {
+        taskId,
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined
+      });
+      
       if (error instanceof SchedulerError) {
         throw error;
       }
@@ -509,39 +991,84 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
    * @throws {SchedulerError} If the scheduler cannot be started
    */
   async startScheduler(): Promise<boolean> {
+    console.log(`🚀 🚀 🚀 ModularSchedulerManager.startScheduler() called`);
+    this.logger.info("Starting scheduler", {
+      schedulingIntervalMs: this.config.schedulingIntervalMs,
+      maxConcurrentTasks: this.config.maxConcurrentTasks
+    });
+    
     try {
       if (this.running) {
+        console.log(`⚠️ Scheduler is already running, returning false`);
+        this.logger.warn("Scheduler is already running");
         return false; // Already running
       }
 
       this.running = true;
       this.startTime = new Date();
+      console.log(`✅ Set scheduler running state to true, startTime: ${this.startTime}`);
 
       // Execute the scheduling loop
       const scheduleLoop = async () => {
+        console.log(`🔄 🔄 🔄 scheduleLoop function called, running=${this.running}`);
         if (!this.running) {
+          console.log(`❌ scheduleLoop exiting - scheduler not running`);
+          this.logger.info("Scheduler loop exiting - not running");
           return;
         }
 
         try {
+          console.log(`🔍 🔍 🔍 About to execute scheduling loop`);
+          this.logger.info("Executing scheduling loop");
+          
+          // Execute tasks for the specific agent if we have one, otherwise execute all tasks
+          if (this.agent) {
+            const agentId = this.agent.getId();
+            console.log(`🎯 Executing due tasks for agent: ${agentId}`);
+            await this.executeDueTasksForAgent(agentId);
+          } else {
+            console.log(`🌐 No specific agent set, executing all due tasks`);
           await this.executeDueTasks();
+          }
+          
+          console.log(`✅ executeDueTasks completed`);
         } catch (error) {
-          console.error('Error executing due tasks:', error);
+          console.log(`❌ Error in scheduling loop:`, error);
+          this.logger.error("Error in scheduling loop", {
+            error: error instanceof Error ? error.message : String(error),
+            stack: error instanceof Error ? error.stack : undefined
+          });
         }
       };
 
+      console.log(`⏰ Setting up interval timer with ${this.config.schedulingIntervalMs}ms`);
       // Set up the scheduling timer
       this.schedulingTimer = setInterval(
         scheduleLoop,
         this.config.schedulingIntervalMs
       );
+      console.log(`✅ Interval timer set up successfully, timer ID: ${this.schedulingTimer}`);
+
+      this.logger.success("Scheduler started successfully", {
+        startTime: this.startTime,
+        schedulingIntervalMs: this.config.schedulingIntervalMs
+      });
 
       // Execute immediately on start
+      console.log(`🏃‍♂️ 🏃‍♂️ 🏃‍♂️ Executing initial scheduling loop immediately`);
+      this.logger.info("Executing initial scheduling loop");
       scheduleLoop();
+      console.log(`✅ Initial scheduling loop call completed`);
 
       return true;
     } catch (error) {
       this.running = false;
+      console.log(`❌ Failed to start scheduler:`, error);
+      this.logger.error("Failed to start scheduler", {
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined
+      });
+      
       if (error instanceof SchedulerError) {
         throw error;
       }
@@ -559,8 +1086,11 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
    * @throws {SchedulerError} If the scheduler cannot be stopped
    */
   async stopScheduler(): Promise<boolean> {
+    this.logger.info("Stopping scheduler");
+    
     try {
       if (!this.running) {
+        this.logger.warn("Scheduler is already stopped");
         return false; // Already stopped
       }
 
@@ -569,10 +1099,20 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
       if (this.schedulingTimer) {
         clearInterval(this.schedulingTimer);
         this.schedulingTimer = null;
+        this.logger.info("Scheduling timer cleared");
       }
+
+      this.logger.success("Scheduler stopped successfully", {
+        totalIterations: this.schedulingIterations,
+        uptime: this.startTime ? Date.now() - this.startTime.getTime() : 0
+      });
 
       return true;
     } catch (error) {
+      this.logger.error("Failed to stop scheduler", {
+        error: error instanceof Error ? error.message : String(error)
+      });
+      
       throw new SchedulerError(
         `Failed to stop scheduler: ${(error as Error).message}`,
         'SCHEDULER_STOP_ERROR'
@@ -586,6 +1126,7 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
    * @returns true if the scheduler is running
    */
   isSchedulerRunning(): boolean {
+    this.logger.info("Checking scheduler running status", { running: this.running });
     return this.running;
   }
 
@@ -596,17 +1137,26 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
    * @throws {SchedulerError} If metrics cannot be collected
    */
   async getMetrics(): Promise<SchedulerMetrics> {
+    this.logger.info("Collecting scheduler metrics");
+    
     try {
       const now = new Date();
       
       // Check if cached metrics are still valid
       if ((now.getTime() - this.metricsCache.lastUpdate.getTime()) < this.metricsCache.ttlMs) {
+        this.logger.info("Returning cached metrics", {
+          cacheAge: now.getTime() - this.metricsCache.lastUpdate.getTime(),
+          cacheTtl: this.metricsCache.ttlMs
+        });
+        
         return {
           ...this.metricsCache.data,
           timestamp: now, // Always use current timestamp
           isRunning: this.running // Always use current running state
         } as SchedulerMetrics;
       }
+
+      this.logger.info("Cache expired, collecting fresh metrics");
 
       // Get counts of tasks by status
       const pendingCount = await this.registry.countTasks({ status: TaskStatus.PENDING });
@@ -628,6 +1178,16 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
 
       // Get running tasks
       const runningTasks = await this.executor.getRunningTasks();
+
+      this.logger.info("Metrics collected successfully", {
+        totalTasks: pendingCount + runningCount + completedCount + failedCount + cancelledCount + deferredCount,
+        pendingCount,
+        runningCount,
+        completedCount,
+        failedCount,
+        avgSchedulingTimeMs,
+        schedulingIterations: this.schedulingIterations
+      });
 
       // Build metrics object
       const metrics: SchedulerMetrics = {
@@ -683,8 +1243,15 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
         ttlMs: this.metricsCache.ttlMs
       };
 
+      this.logger.info("Metrics cache updated");
+
       return metrics;
     } catch (error) {
+      this.logger.error("Failed to collect metrics", {
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined
+      });
+      
       if (error instanceof SchedulerError) {
         throw error;
       }
@@ -702,16 +1269,21 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
    * @throws {SchedulerError} If the scheduler cannot be reset
    */
   async reset(): Promise<boolean> {
+    this.logger.info("Resetting scheduler state");
+    
     try {
       // Stop the scheduler
       if (this.running) {
+        this.logger.info("Stopping scheduler before reset");
         await this.stopScheduler();
       }
 
       // Clear all tasks
+      this.logger.info("Clearing all tasks from registry");
       await this.registry.clearAllTasks();
 
       // Reset the scheduler
+      this.logger.info("Resetting scheduler component");
       await this.scheduler.reset();
 
       // Reset metrics
@@ -719,8 +1291,17 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
       this.schedulingTimes = [];
       this.startTime = null;
 
+      this.logger.success("Scheduler reset successfully", {
+        managerId: this.id
+      });
+
       return true;
     } catch (error) {
+      this.logger.error("Failed to reset scheduler", {
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined
+      });
+      
       if (error instanceof SchedulerError) {
         throw error;
       }
@@ -843,5 +1424,55 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
     }
   }
 
-    // BaseManager.reset is already implemented above
+  /**
+   * Order tasks by priority according to scheduling strategy:
+   * 1. Time-based tasks (explicit schedule times) first, ordered by scheduled time
+   * 2. Priority-based tasks ordered by priority (high to low)
+   * 3. Other tasks
+   * 
+   * @param tasks - Array of tasks to order
+   * @returns Ordered array of tasks
+   */
+  private orderTasksByPriority(tasks: Task[]): Task[] {
+    const timeBased: Task[] = [];
+    const priorityBased: Task[] = [];
+    const other: Task[] = [];
+    
+    // Categorize tasks
+    for (const task of tasks) {
+      if (task.scheduleType === TaskScheduleType.EXPLICIT && task.scheduledTime) {
+        timeBased.push(task);
+      } else if (task.scheduleType === TaskScheduleType.PRIORITY) {
+        priorityBased.push(task);
+      } else {
+        other.push(task);
+      }
+    }
+    
+    // Sort time-based tasks by scheduled time (earliest first)
+    timeBased.sort((a, b) => {
+      const timeA = a.scheduledTime ? a.scheduledTime.getTime() : Number.MAX_SAFE_INTEGER;
+      const timeB = b.scheduledTime ? b.scheduledTime.getTime() : Number.MAX_SAFE_INTEGER;
+      return timeA - timeB;
+    });
+    
+    // Sort priority-based tasks by priority (highest first)
+    priorityBased.sort((a, b) => b.priority - a.priority);
+    
+    // Sort other tasks by priority as well
+    other.sort((a, b) => b.priority - a.priority);
+    
+    // Combine in order: time-based, priority-based, other
+    const orderedTasks = [...timeBased, ...priorityBased, ...other];
+    
+    console.log("🎯 Task ordering applied:");
+    console.log(`  📅 Time-based tasks: ${timeBased.length}`);
+    console.log(`  🏆 Priority-based tasks: ${priorityBased.length}`);
+    console.log(`  📝 Other tasks: ${other.length}`);
+    console.log(`  🔀 Final order (first 10):`, orderedTasks.slice(0, 10).map(t => 
+      `${t.name}(${t.scheduleType}:p${t.priority})`
+    ));
+    
+    return orderedTasks;
+  }
 } 

@@ -261,15 +261,19 @@ export async function bootstrapAgentsFromDatabase(): Promise<number> {
         // Check if this agent is already being bootstrapped
         const bootstrapInfo = agentBootstrapRegistry.getAgentBootstrapInfo(dbAgent.id);
         if (bootstrapInfo && bootstrapInfo.state === AgentBootstrapState.IN_PROGRESS) {
-          // Check if the lock is stale
-          if (agentBootstrapRegistry.isLockStale(dbAgent.id)) {
-            logger.warn(`Detected stale lock for agent ${dbAgent.id}, force releasing`, { 
+          // Check if the lock or bootstrap state is stale
+          if (agentBootstrapRegistry.isLockStale(dbAgent.id) || agentBootstrapRegistry.isBootstrapStateStale(dbAgent.id)) {
+            logger.warn(`Detected stale lock/state for agent ${dbAgent.id}, force releasing`, { 
               agentId: dbAgent.id,
-              lockTimestamp: bootstrapInfo.lockTimestamp
+              lockTimestamp: bootstrapInfo.lockTimestamp,
+              startTime: bootstrapInfo.startTime,
+              state: bootstrapInfo.state,
+              locked: bootstrapInfo.locked
             });
             
-            // Force release the stale lock
+            // Force release the stale lock and reset state
             agentBootstrapRegistry.forceReleaseStaleLock(dbAgent.id);
+            console.log(`🔧 Reset stale bootstrap state for agent ${dbAgent.id} (${dbAgent.name})`);
           } else {
             // Another bootstrap process is handling this agent
             const logMsg = `Agent ${dbAgent.id} is already being bootstrapped by another process, skipping`;
