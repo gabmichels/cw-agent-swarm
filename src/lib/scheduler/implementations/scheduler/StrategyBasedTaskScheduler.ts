@@ -101,73 +101,73 @@ export class StrategyBasedTaskScheduler implements TaskScheduler {
    */
   async getDueTasks(allTasks: Task[]): Promise<Task[]> {
     try {
-      console.log("🎯 🎯 🎯 StrategyBasedTaskScheduler.getDueTasks DEBUG:");
-      console.log("📊 Input tasks:", allTasks.length);
-      console.log("📋 Registered strategies:", this.strategies.size);
+      // console.log("🎯 🎯 🎯 StrategyBasedTaskScheduler.getDueTasks DEBUG:");
+      // console.log("📊 Input tasks:", allTasks.length);
+      // console.log("📋 Registered strategies:", this.strategies.size);
       
       if (!allTasks.length) {
-        console.log("❌ No tasks provided, returning empty array");
+        // console.log("❌ No tasks provided, returning empty array");
         return [];
       }
 
       if (!this.strategies.size) {
-        console.log("❌ No strategies registered!");
-        console.log("🔍 Strategy map contents:", Array.from(this.strategies.entries()));
+        // console.log("❌ No strategies registered!");
+        // console.log("🔍 Strategy map contents:", Array.from(this.strategies.entries()));
         throw new SchedulerError('No scheduling strategies registered', 'NO_STRATEGIES');
       }
 
-      console.log("✅ Strategy details:");
-      Array.from(this.strategies.entries()).forEach(([id, strategy]) => {
-        console.log(`  - ${id}: ${strategy.name}`);
-      });
+      // console.log("✅ Strategy details:");
+      // Array.from(this.strategies.entries()).forEach(([id, strategy]) => {
+      //   console.log(`  - ${id}: ${strategy.name}`);
+      // });
 
       const dueTasks: Task[] = [];
       const strategyArray = Array.from(this.strategies.values());
 
-      console.log("🔍 Evaluating tasks...");
+      // console.log("🔍 Evaluating tasks...");
       
       // For each task, check if it's due according to any strategy
       for (const task of allTasks) {
-        console.log(`📝 Evaluating task: ${task.id} (${task.name}) - Schedule Type: ${task.scheduleType}, Status: ${task.status}`);
+        // console.log(`📝 Evaluating task: ${task.id} (${task.name}) - Schedule Type: ${task.scheduleType}, Status: ${task.status}`);
         
         // Find the strategies that apply to this task
         const applicableStrategies = strategyArray.filter(strategy => {
           const applies = strategy.appliesTo(task);
-          console.log(`  🎯 Strategy "${strategy.name}" applies: ${applies}`);
+          // console.log(`  🎯 Strategy "${strategy.name}" applies: ${applies}`);
           return applies;
         });
 
-        console.log(`  📋 Applicable strategies: ${applicableStrategies.length}`);
+        // console.log(`  📋 Applicable strategies: ${applicableStrategies.length}`);
 
         // If no strategies apply, skip this task
         if (!applicableStrategies.length) {
-          console.log(`  ⏭️ No strategies apply to task ${task.id}, skipping`);
+          // console.log(`  ⏭️ No strategies apply to task ${task.id}, skipping`);
           continue;
         }
 
         // Check if the task is due according to any applicable strategy
         let taskIsDue = false;
         for (const strategy of applicableStrategies) {
-          console.log(`  🔍 Checking if task is due according to "${strategy.name}"`);
+          // console.log(`  🔍 Checking if task is due according to "${strategy.name}"`);
           const isDue = await strategy.isTaskDue(task);
-          console.log(`  📊 Strategy "${strategy.name}" says task is due: ${isDue}`);
+          // console.log(`  📊 Strategy "${strategy.name}" says task is due: ${isDue}`);
           if (isDue) {
-            console.log(`  ✅ Task ${task.id} is DUE according to "${strategy.name}"`);
+            // console.log(`  ✅ Task ${task.id} is DUE according to "${strategy.name}"`);
             dueTasks.push(task);
             taskIsDue = true;
             break; // Task is due, no need to check other strategies
           }
         }
         
-        if (!taskIsDue) {
-          console.log(`  ❌ Task ${task.id} is NOT due according to any strategy`);
-        }
+        // if (!taskIsDue) {
+        //   console.log(`  ❌ Task ${task.id} is NOT due according to any strategy`);
+        // }
       }
 
-      console.log("🏁 Final results:");
-      console.log(`📊 Total tasks evaluated: ${allTasks.length}`);
-      console.log(`🎯 Due tasks found: ${dueTasks.length}`);
-      console.log(`📋 Due task IDs: [${dueTasks.map(t => t.id).join(', ')}]`);
+      // console.log("🏁 Final results:");
+      // console.log(`📊 Total tasks evaluated: ${allTasks.length}`);
+      // console.log(`🎯 Due tasks found: ${dueTasks.length}`);
+      // console.log(`📋 Due task IDs: [${dueTasks.map(t => t.id).join(', ')}]`);
 
       return dueTasks;
     } catch (error) {

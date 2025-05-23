@@ -88,7 +88,7 @@ export class RuntimeAgentRegistry implements TaskAgentRegistry {
     const capableAgents: AgentBase[] = [];
 
     try {
-      this.logger.info("Starting capable agent search", {
+      this.logger.debug("Starting capable agent search", {
         taskId: task.id,
         currentCachedAgents: this.agents.size,
         hasSpecificAgent: !!task.metadata?.agentId
@@ -107,7 +107,7 @@ export class RuntimeAgentRegistry implements TaskAgentRegistry {
             // Since there's an LLM behind every agent, it should be able to handle the task
             const isAvailable = await this.isAgentAvailable(agentId);
             
-            this.logger.info("Checking specifically assigned agent", {
+            this.logger.debug("Checking specifically assigned agent", {
               taskId: task.id,
               agentId,
               isAvailable,
@@ -116,7 +116,7 @@ export class RuntimeAgentRegistry implements TaskAgentRegistry {
             
             if (isAvailable) {
               capableAgents.push(specificAgent);
-              this.logger.info("Using specifically assigned agent (available)", {
+              this.logger.debug("Using specifically assigned agent (available)", {
                 taskId: task.id,
                 agentId
               });
@@ -124,7 +124,7 @@ export class RuntimeAgentRegistry implements TaskAgentRegistry {
             } else {
               // Even if not "available", still try the assigned agent since it's specifically requested
               // The LLM should be able to handle it
-              this.logger.warn("Assigned agent not fully available, but using anyway (LLM fallback)", {
+              this.logger.debug("Assigned agent not fully available, but using anyway (LLM fallback)", {
                 taskId: task.id,
                 agentId,
                 reason: "Agent specifically assigned to task"
@@ -145,7 +145,7 @@ export class RuntimeAgentRegistry implements TaskAgentRegistry {
       const { getAllAgents } = await import('../../../../server/agent/agent-service');
       const allAgents = getAllAgents();
       
-      this.logger.info("Retrieved agents from agent-service", {
+      this.logger.debug("Retrieved agents from agent-service", {
         taskId: task.id,
         totalAgents: allAgents.length,
         agentIds: allAgents.map(a => {
@@ -168,7 +168,7 @@ export class RuntimeAgentRegistry implements TaskAgentRegistry {
       for (let i = 0; i < allAgents.length; i++) {
         const agent = allAgents[i];
         try {
-          this.logger.info(`Agent ${i} details`, {
+          this.logger.debug(`Agent ${i} details`, {
             taskId: task.id,
             agentId: agent.getId ? agent.getId() : 'no-getId-method',
             hasGetId: typeof agent.getId === 'function',
@@ -177,7 +177,7 @@ export class RuntimeAgentRegistry implements TaskAgentRegistry {
             agentType: agent.constructor.name
           });
         } catch (e) {
-          this.logger.warn(`Error examining agent ${i}`, {
+          this.logger.debug(`Error examining agent ${i}`, {
             taskId: task.id,
             error: e instanceof Error ? e.message : String(e)
           });
@@ -190,7 +190,7 @@ export class RuntimeAgentRegistry implements TaskAgentRegistry {
         try {
           const agentId = agent.getId();
           
-          this.logger.info("Checking agent for task", {
+          this.logger.debug("Checking agent for task", {
             taskId: task.id,
             agentId,
             checkingAvailability: true
@@ -206,18 +206,18 @@ export class RuntimeAgentRegistry implements TaskAgentRegistry {
               // Cache for future use
               this.agents.set(agentId, agent);
               
-              this.logger.info("Agent added to capable agents list", {
+              this.logger.debug("Agent added to capable agents list", {
                 taskId: task.id,
                 agentId
               });
             } else {
-              this.logger.warn("Agent not available but has capabilities", {
+              this.logger.debug("Agent not available but has capabilities", {
                 taskId: task.id,
                 agentId
               });
             }
           } else {
-            this.logger.warn("Agent failed basic capability check", {
+            this.logger.debug("Agent failed basic capability check", {
               taskId: task.id,
               agentId
             });
@@ -233,7 +233,7 @@ export class RuntimeAgentRegistry implements TaskAgentRegistry {
       // FALLBACK: If no agents are "capable" but we have agents, pick the first healthy one
       // Since every agent has an LLM, it should be able to attempt the task
       if (capableAgents.length === 0 && allAgents.length > 0) {
-        this.logger.warn("No agents passed capability checks, using LLM fallback strategy", {
+        this.logger.debug("No agents passed capability checks, using LLM fallback strategy", {
           taskId: task.id,
           totalAgents: allAgents.length
         });
@@ -245,7 +245,7 @@ export class RuntimeAgentRegistry implements TaskAgentRegistry {
             
             if (health.status === 'healthy' || health.status === 'degraded') {
               capableAgents.push(agent);
-              this.logger.info("Using agent as LLM fallback", {
+              this.logger.debug("Using agent as LLM fallback", {
                 taskId: task.id,
                 agentId,
                 healthStatus: health.status,
@@ -254,7 +254,7 @@ export class RuntimeAgentRegistry implements TaskAgentRegistry {
               break; // Just use the first healthy agent
             }
           } catch (e) {
-            this.logger.warn("Error checking agent health for fallback", {
+            this.logger.debug("Error checking agent health for fallback", {
               taskId: task.id,
               error: e instanceof Error ? e.message : String(e)
             });
@@ -302,7 +302,7 @@ export class RuntimeAgentRegistry implements TaskAgentRegistry {
 
       const available = isHealthy && hasCapacity;
       
-      this.logger.info("Agent availability check", {
+      this.logger.debug("Agent availability check", {
         agentId,
         isHealthy,
         hasCapacity,
@@ -426,7 +426,7 @@ export class RuntimeAgentRegistry implements TaskAgentRegistry {
 
       const isCapable = hasBasicMethods && hasExecutionCapability;
 
-      this.logger.info("Basic agent capability check", {
+      this.logger.debug("Basic agent capability check", {
         agentId: agent.getId(),
         taskId: task.id,
         hasBasicMethods,
@@ -447,7 +447,7 @@ export class RuntimeAgentRegistry implements TaskAgentRegistry {
       });
       
       // If we can't check capabilities, assume the agent can try (LLM fallback)
-      this.logger.warn("Capability check failed, defaulting to LLM fallback assumption", {
+      this.logger.debug("Capability check failed, defaulting to LLM fallback assumption", {
         taskId: task.id,
         agentId: agent.getId ? agent.getId() : 'unknown'
       });
@@ -474,7 +474,7 @@ export class RuntimeAgentRegistry implements TaskAgentRegistry {
       // Check if agent has planAndExecute capability for Chloe agents
       const hasPlanAndExecute = Boolean((agent as any).planAndExecute);
 
-      this.logger.info("Agent capability check", {
+      this.logger.debug("Agent capability check", {
         agentId: agent.getId(),
         taskId: task.id,
         hasBasicCapabilities,

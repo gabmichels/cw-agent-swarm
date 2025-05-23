@@ -24,7 +24,11 @@ export function registerAgent(agent: AgentBase): AgentBase {
   logger.info(`Agent registered: ${agentId}`, {
     agentId,
     agentType: agent.constructor.name,
-    totalAgents: agentRegistry.size,
+    totalAgents: agentRegistry.size
+  });
+  
+  logger.debug('Agent registration details', {
+    agentId,
     hasGetId: typeof agent.getId === 'function',
     hasGetHealth: typeof agent.getHealth === 'function',
     hasPlanAndExecute: typeof (agent as any).planAndExecute === 'function'
@@ -55,7 +59,7 @@ export function getAllAgents(): AgentBase[] {
   const agents = Array.from(agentRegistry.values());
   
   // Add debugging information
-  logger.info('getAllAgents called', {
+  logger.debug('getAllAgents called', {
     totalAgents: agents.length,
     registrySize: agentRegistry.size,
     agentIds: agents.map(a => {

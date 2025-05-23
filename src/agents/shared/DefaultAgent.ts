@@ -666,6 +666,57 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
       // Wire managers together
       this.wireManagersTogether();
       
+      // Initialize all managers that were created
+      console.log(`[Agent] Initializing all managers for agent ${this.agentId}`);
+      try {
+        // Custom manager initialization with detailed logging
+        const managers = Array.from(this.managers.values());
+        console.log(`[Agent] Found ${managers.length} managers to initialize`);
+        
+        for (const manager of managers) {
+          const managerType = manager.managerType;
+          const managerId = manager.managerId;
+          
+          console.log(`[Agent] Initializing manager: ${managerType} (${managerId})`);
+          
+          if (typeof manager.initialize === 'function') {
+            try {
+              const result = await manager.initialize();
+              console.log(`[Agent] Manager ${managerType} initialization result: ${result}`);
+              
+              // Check if manager was actually initialized
+              const isInitialized = (manager as any)._initialized;
+              console.log(`[Agent] Manager ${managerType} _initialized flag: ${isInitialized}`);
+            } catch (managerError) {
+              console.error(`[Agent] ERROR initializing manager ${managerType}:`, managerError);
+              throw managerError;
+            }
+          } else {
+            console.warn(`[Agent] Manager ${managerType} does not have initialize method`);
+          }
+        }
+        
+        console.log(`[Agent] All managers initialized for agent ${this.agentId}`);
+        
+        // Verify planning manager is initialized if it was enabled
+        if (this.extendedConfig.enablePlanningManager) {
+          const planningManager = this.getManager(ManagerType.PLANNING);
+          if (planningManager) {
+            // Access the private _initialized property to verify it's been initialized
+            const isInitialized = (planningManager as any)._initialized;
+            console.log(`[Agent] Planning manager initialization status: ${isInitialized}`);
+            if (!isInitialized) {
+              console.error(`[Agent] ERROR: Planning manager was not properly initialized!`);
+            }
+          } else {
+            console.error(`[Agent] ERROR: Planning manager not found after initialization!`);
+          }
+        }
+      } catch (error) {
+        console.error(`[Agent] ERROR during manager initialization:`, error);
+        throw error;
+      }
+      
       // Set up memory refresh if configured
       if (this.extendedConfig.memoryRefresh?.enabled) {
         this.setupMemoryRefresh();

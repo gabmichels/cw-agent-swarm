@@ -53,24 +53,24 @@ export class PriorityBasedStrategy implements SchedulingStrategy {
    */
   async isTaskDue(task: Task, referenceTime?: Date): Promise<boolean> {
     if (!this.appliesTo(task)) {
-      console.log(`    🚫 PriorityBasedStrategy: Task ${task.id} doesn't apply to this strategy`);
+      // console.log(`    🚫 PriorityBasedStrategy: Task ${task.id} doesn't apply to this strategy`);
       return false;
     }
 
     const now = referenceTime || new Date();
     
-    console.log(`    🔍 PriorityBasedStrategy evaluating task ${task.id}:`);
-    console.log(`      📊 Priority: ${task.priority} (high priority threshold: ${this.highPriorityThreshold})`);
-    console.log(`      📅 Created: ${task.createdAt}`);
-    console.log(`      ⏰ Now: ${now}`);
+    // console.log(`    🔍 PriorityBasedStrategy evaluating task ${task.id}:`);
+    // console.log(`      📊 Priority: ${task.priority} (high priority threshold: ${this.highPriorityThreshold})`);
+    // console.log(`      📅 Created: ${task.createdAt}`);
+    // console.log(`      ⏰ Now: ${now}`);
     
     // High priority tasks (>= threshold) are always due
     if (task.priority >= this.highPriorityThreshold) {
-      console.log(`      ✅ HIGH PRIORITY: Priority ${task.priority} >= ${this.highPriorityThreshold} - TASK IS DUE`);
+      // console.log(`      ✅ HIGH PRIORITY: Priority ${task.priority} >= ${this.highPriorityThreshold} - TASK IS DUE`);
       return true;
     }
 
-    console.log(`      📝 MEDIUM/LOW PRIORITY: Checking pending time...`);
+    // console.log(`      📝 MEDIUM/LOW PRIORITY: Checking pending time...`);
 
     // For medium and low priority tasks, check how long they've been pending
     const pendingTime = now.getTime() - task.createdAt.getTime();
@@ -84,20 +84,20 @@ export class PriorityBasedStrategy implements SchedulingStrategy {
     const adjustedMaxPendingTime = this.maxPendingTimeMs * (1 - priorityFactor);
     const adjustedMaxPendingTimeHours = adjustedMaxPendingTime / (60 * 60 * 1000);
     
-    console.log(`      ⏱️ Pending time: ${pendingTimeMinutes.toFixed(1)} minutes (${pendingTimeHours.toFixed(2)} hours)`);
-    console.log(`      🎯 Priority factor: ${priorityFactor} (priority ${task.priority} / 10)`);
-    console.log(`      📏 Max pending time: ${this.maxPendingTimeMs / (60 * 60 * 1000)} hours`);
-    console.log(`      🔧 Adjusted max pending time: ${adjustedMaxPendingTimeHours.toFixed(2)} hours`);
-    console.log(`      ❓ Is due? ${pendingTime} >= ${adjustedMaxPendingTime} = ${pendingTime >= adjustedMaxPendingTime}`);
+    // console.log(`      ⏱️ Pending time: ${pendingTimeMinutes.toFixed(1)} minutes (${pendingTimeHours.toFixed(2)} hours)`);
+    // console.log(`      🎯 Priority factor: ${priorityFactor} (priority ${task.priority} / 10)`);
+    // console.log(`      📏 Max pending time: ${this.maxPendingTimeMs / (60 * 60 * 1000)} hours`);
+    // console.log(`      🔧 Adjusted max pending time: ${adjustedMaxPendingTimeHours.toFixed(2)} hours`);
+    // console.log(`      ❓ Is due? ${pendingTime} >= ${adjustedMaxPendingTime} = ${pendingTime >= adjustedMaxPendingTime}`);
     
     // The task is due if it has been pending longer than the adjusted max pending time
     const isDue = pendingTime >= adjustedMaxPendingTime;
     
-    if (isDue) {
-      console.log(`      ✅ TASK IS DUE: Pending ${pendingTimeHours.toFixed(2)}h >= ${adjustedMaxPendingTimeHours.toFixed(2)}h`);
-    } else {
-      console.log(`      ❌ TASK NOT DUE: Pending ${pendingTimeHours.toFixed(2)}h < ${adjustedMaxPendingTimeHours.toFixed(2)}h`);
-    }
+    // if (isDue) {
+    //   console.log(`      ✅ TASK IS DUE: Pending ${pendingTimeHours.toFixed(2)}h >= ${adjustedMaxPendingTimeHours.toFixed(2)}h`);
+    // } else {
+    //   console.log(`      ❌ TASK NOT DUE: Pending ${pendingTimeHours.toFixed(2)}h < ${adjustedMaxPendingTimeHours.toFixed(2)}h`);
+    // }
     
     return isDue;
   }

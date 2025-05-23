@@ -75,7 +75,7 @@ async function createAgentInstance(dbAgent: AgentMemoryEntity): Promise<AgentBas
   }
   
   // Create the agent instance
-  console.log(`🔍 Creating DefaultAgent for ${dbAgent.id} (${dbAgent.name})...`);
+  logger.debug(`🔍 Creating DefaultAgent for ${dbAgent.id} (${dbAgent.name})...`);
   
   // Create agent configuration
   const agentConfig = {
@@ -193,7 +193,7 @@ async function createAgentInstance(dbAgent: AgentMemoryEntity): Promise<AgentBas
     );
   }
   
-  console.log(`✓ Agent ID verified: ${agentId}`);
+  logger.debug(`✓ Agent ID verified: ${agentId}`);
   return agent;
 }
 
@@ -209,7 +209,7 @@ export async function bootstrapAgentsFromDatabase(): Promise<number> {
     logger.info('Bootstrapping agents from database into runtime registry...', { 
       requestId: bootstrapRequestId 
     });
-    console.log('🤖 Starting agent bootstrap process...');
+    logger.debug('🤖 Starting agent bootstrap process...');
     
     // Get memory service
     const { memoryService } = await getMemoryServices();
@@ -223,7 +223,7 @@ export async function bootstrapAgentsFromDatabase(): Promise<number> {
         (getResult.error?.message || 'Unknown error');
       
       logger.error(errorMsg, { requestId: bootstrapRequestId });
-      console.error('❌ ' + errorMsg);
+      logger.debug('❌ ' + errorMsg);
       return 0;
     }
     
@@ -232,12 +232,12 @@ export async function bootstrapAgentsFromDatabase(): Promise<number> {
       requestId: bootstrapRequestId,
       agentCount: dbAgents.length
     });
-    console.log(`📋 Found ${dbAgents.length} agents in database`);
+    logger.debug(`📋 Found ${dbAgents.length} agents in database`);
     
     // Log all available agents in database
-    console.log('📝 Agents available in database:');
+    logger.debug('📝 Agents available in database:');
     dbAgents.forEach((agent: AgentMemoryEntity) => {
-      console.log(`   - Agent ID: ${agent.id}, Name: ${agent.name}`);
+      logger.debug(`   - Agent ID: ${agent.id}, Name: ${agent.name}`);
     });
     
     let loadedCount = 0;
@@ -254,7 +254,7 @@ export async function bootstrapAgentsFromDatabase(): Promise<number> {
             agentName: dbAgent.name,
             requestId: bootstrapRequestId
           });
-          console.log(`⏩ ${logMsg}`);
+          logger.debug(`⏩ ${logMsg}`);
           continue;
         }
         
@@ -273,12 +273,12 @@ export async function bootstrapAgentsFromDatabase(): Promise<number> {
             
             // Force release the stale lock and reset state
             agentBootstrapRegistry.forceReleaseStaleLock(dbAgent.id);
-            console.log(`🔧 Reset stale bootstrap state for agent ${dbAgent.id} (${dbAgent.name})`);
+            logger.debug(`🔧 Reset stale bootstrap state for agent ${dbAgent.id} (${dbAgent.name})`);
           } else {
             // Another bootstrap process is handling this agent
             const logMsg = `Agent ${dbAgent.id} is already being bootstrapped by another process, skipping`;
             logger.info(logMsg, { agentId: dbAgent.id, bootstrapInfo });
-            console.log(`⏩ ${logMsg}`);
+            logger.debug(`⏩ ${logMsg}`);
             continue;
           }
         }
@@ -287,7 +287,7 @@ export async function bootstrapAgentsFromDatabase(): Promise<number> {
         if (!agentBootstrapRegistry.acquireLock(dbAgent.id)) {
           const logMsg = `Cannot acquire lock for agent ${dbAgent.id}, skipping`;
           logger.warn(logMsg, { agentId: dbAgent.id });
-          console.log(`⚠️ ${logMsg}`);
+          logger.debug(`⚠️ ${logMsg}`);
           
           failedAgents.push({ 
             id: dbAgent.id, 
@@ -319,7 +319,7 @@ export async function bootstrapAgentsFromDatabase(): Promise<number> {
         });
         
         // Initialize with error boundary
-        console.log(`🔄 Initializing agent ${dbAgent.id}...`);
+        logger.debug(`🔄 Initializing agent ${dbAgent.id}...`);
         
         const startTime = Date.now();
         const initResult = await safelyInitializeAgent(agent, {
@@ -359,10 +359,10 @@ export async function bootstrapAgentsFromDatabase(): Promise<number> {
           
           // Handle post-initialization
           handlePostInitialization(agent);
-          console.log(`✅ Successfully initialized agent ${dbAgent.id} and all its managers`);
+          logger.debug(`✅ Successfully initialized agent ${dbAgent.id} and all its managers`);
           
           // Register with runtime registry
-          console.log(`📝 Registering agent ${dbAgent.id} with runtime registry...`);
+          logger.debug(`📝 Registering agent ${dbAgent.id} with runtime registry...`);
           registerAgent(agent);
           
           // VERIFY REGISTRATION: Check if agent was actually registered
@@ -381,23 +381,31 @@ export async function bootstrapAgentsFromDatabase(): Promise<number> {
             const agentId = registeredAgent.getId();
             const health = await registeredAgent.getHealth();
             
-            console.log(`🔍 Verified registered agent ${dbAgent.id}:`);
-            console.log(`   - Agent ID: ${agentId}`);
-            console.log(`   - Health Status: ${health.status}`);
-            console.log(`   - Has planAndExecute: ${typeof (registeredAgent as any).planAndExecute === 'function'}`);
+            logger.debug(`Verified registered agent ${dbAgent.id}`, {
+              agentId,
+              healthStatus: health.status,
+              hasPlanAndExecute: typeof (registeredAgent as any).planAndExecute === 'function'
+            });
             
           } catch (verificationError) {
-            console.warn(`⚠️ Agent ${dbAgent.id} registered but verification failed:`, verificationError);
+            logger.debug(`Agent verification failed for ${dbAgent.id}`, {
+              error: verificationError instanceof Error ? verificationError.message : String(verificationError)
+            });
           }
           
-          logger.info(`Registered agent ${dbAgent.id} (${dbAgent.name}) in runtime registry`, {
+          logger.info(`Agent registered: ${dbAgent.id} (${dbAgent.name})`, {
             agentId: dbAgent.id,
             requestId: bootstrapRequestId,
-            agentType: agent.constructor.name,
+            agentType: agent.constructor.name
+          });
+          
+          logger.debug('Agent registration capabilities', {
+            agentId: dbAgent.id,
             hasGetId: typeof agent.getId === 'function',
             hasGetHealth: typeof agent.getHealth === 'function',
             hasPlanAndExecute: typeof (agent as any).planAndExecute === 'function'
           });
+          
           console.log(`✅ Registered agent ${dbAgent.id} (${dbAgent.name}) in runtime registry as DefaultAgent with all managers`);
           
           // Perform initial health check
@@ -430,7 +438,7 @@ export async function bootstrapAgentsFromDatabase(): Promise<number> {
             requestId: bootstrapRequestId,
             error: initResult.error
           });
-          console.error(`❌ ${errorMsg}`);
+          logger.debug(`❌ ${errorMsg}`);
           
           failedAgents.push({ 
             id: dbAgent.id, 
@@ -453,7 +461,7 @@ export async function bootstrapAgentsFromDatabase(): Promise<number> {
           agentId: dbAgent.id,
           requestId: bootstrapRequestId
         });
-        console.error(`❌ Error bootstrapping agent ${dbAgent.id} (${dbAgent.name}):`, error);
+        logger.debug(`❌ Error bootstrapping agent ${dbAgent.id} (${dbAgent.name}):`, error);
         
         failedAgents.push({ 
           id: dbAgent.id, 
@@ -470,23 +478,22 @@ export async function bootstrapAgentsFromDatabase(): Promise<number> {
     const finalAgents = getAllAgents();
     const finalStats = getRegistryStats();
     
-    console.log(`🔍 Final runtime registry verification:`);
-    console.log(`   - Agents in runtime registry: ${finalAgents.length}`);
-    console.log(`   - Registry size: ${finalStats.totalAgents}`);
-    console.log(`   - Agent IDs: [${finalStats.agentIds.join(', ')}]`);
-    console.log(`   - Agent Types: [${finalStats.agentTypes.join(', ')}]`);
+    logger.debug(`🔍 Final runtime registry verification:`);
+    logger.debug(`   - Agents in runtime registry: ${finalAgents.length}`);
+    logger.debug(`   - Registry size: ${finalStats.totalAgents}`);
+    logger.debug(`   - Agent IDs: [${finalStats.agentIds.join(', ')}]`);
+    logger.debug(`   - Agent Types: [${finalStats.agentTypes.join(', ')}]`);
     
     if (finalAgents.length === 0 && loadedCount > 0) {
-      console.error(`❌ CRITICAL: ${loadedCount} agents were supposedly loaded but runtime registry is empty!`);
       logger.error('Runtime registry empty despite successful agent loading', {
         requestId: bootstrapRequestId,
         loadedCount,
         finalAgentCount: finalAgents.length
       });
     } else if (finalAgents.length !== loadedCount) {
-      console.warn(`⚠️ WARNING: Registry count (${finalAgents.length}) doesn't match loaded count (${loadedCount})`);
+      logger.warn(`⚠️ WARNING: Registry count (${finalAgents.length}) doesn't match loaded count (${loadedCount})`);
     } else {
-      console.log(`✅ Registry verification successful: ${finalAgents.length} agents available`);
+      logger.info(`✅ Registry verification successful: ${finalAgents.length} agents available`);
     }
     
     // Log summary of bootstrap process
@@ -499,20 +506,20 @@ export async function bootstrapAgentsFromDatabase(): Promise<number> {
       summaryMetrics,
       finalRuntimeRegistryCount: finalAgents.length
     });
-    console.log(`🚀 ${summaryMsg}`);
+    logger.debug(`🚀 ${summaryMsg}`);
     
     if (failedAgents.length > 0) {
-      console.log(`⚠️ Failed to bootstrap ${failedAgents.length} agents:`);
+      logger.debug(`⚠️ Failed to bootstrap ${failedAgents.length} agents:`);
       failedAgents.forEach(({ id, reason }) => {
-        console.log(`   - Agent ID: ${id}, Reason: ${reason}`);
+        logger.debug(`   - Agent ID: ${id}, Reason: ${reason}`);
       });
     }
     
     // Output summary metrics to console
-    console.log(`📊 Bootstrap Summary:`);
-    console.log(`   - Total Agents: ${summaryMetrics.totalAgents}`);
-    console.log(`   - Success Rate: ${(summaryMetrics.initializationSuccessRate * 100).toFixed(1)}%`);
-    console.log(`   - Avg Init Time: ${(summaryMetrics.averageInitializationTime / 1000).toFixed(2)}s`);
+    logger.debug(`📊 Bootstrap Summary:`);
+    logger.debug(`   - Total Agents: ${summaryMetrics.totalAgents}`);
+    logger.debug(`   - Success Rate: ${(summaryMetrics.initializationSuccessRate * 100).toFixed(1)}%`);
+    logger.debug(`   - Avg Init Time: ${(summaryMetrics.averageInitializationTime / 1000).toFixed(2)}s`);
     
     return loadedCount;
   } catch (error) {
@@ -522,7 +529,7 @@ export async function bootstrapAgentsFromDatabase(): Promise<number> {
       error: errorObj,
       requestId: bootstrapRequestId
     });
-    console.error('❌ Error bootstrapping agents from database:', error);
+    logger.debug('❌ Error bootstrapping agents from database:', error);
     return 0;
   }
 } 

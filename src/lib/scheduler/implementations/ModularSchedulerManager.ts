@@ -618,7 +618,7 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
    */
   async executeDueTasks(): Promise<TaskExecutionResult[]> {
       const startTime = Date.now();
-    this.logger.info("Starting execution of due tasks", {
+    this.logger.debug("Starting execution of due tasks", {
       schedulingIteration: this.schedulingIterations + 1
     });
 
@@ -628,33 +628,30 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
         status: TaskStatus.PENDING
       });
 
-      this.logger.info("Retrieved pending tasks", {
-        pendingTaskCount: pendingTasks.length,
-        pendingTaskIds: pendingTasks.map(t => t.id).slice(0, 10)
+      this.logger.info("Tasks fetched", {
+        pendingTaskCount: pendingTasks.length
       });
 
       if (!pendingTasks.length) {
-        this.logger.info("No pending tasks found");
+        this.logger.debug("No pending tasks found");
         return [];
       }
 
       // Determine which tasks are due
       const dueTasks = await this.scheduler.getDueTasks(pendingTasks);
 
-      this.logger.info("Due tasks identified", {
+      this.logger.info("Tasks ready for execution", {
         totalPending: pendingTasks.length,
-        dueTaskCount: dueTasks.length,
-        dueTaskIds: dueTasks.map(t => t.id),
-        dueTaskNames: dueTasks.map(t => t.name)
+        dueTaskCount: dueTasks.length
       });
 
       if (!dueTasks.length) {
-        this.logger.info("No tasks are due for execution");
+        this.logger.debug("No tasks are due for execution");
         return [];
       }
 
       // Execute the due tasks
-      this.logger.info("Starting execution of due tasks", {
+      this.logger.debug("Starting execution of due tasks", {
         taskCount: dueTasks.length,
         maxConcurrentTasks: this.config.maxConcurrentTasks
       });
@@ -663,6 +660,28 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
         dueTasks,
         this.config.maxConcurrentTasks
       );
+
+      // Log task completion details
+      results.forEach((result, index) => {
+        const task = dueTasks[index];
+        if (result.successful) {
+          this.logger.info("Task completed successfully", {
+            taskId: task.id,
+            taskName: task.name,
+            status: result.status,
+            duration: result.duration,
+            result: result.result
+          });
+        } else {
+          this.logger.error("Task execution failed", {
+            taskId: task.id,
+            taskName: task.name,
+            status: result.status,
+            duration: result.duration,
+            error: result.error
+          });
+        }
+      });
 
       this.logger.info("Task execution completed", {
         executedTaskCount: results.length,
@@ -750,7 +769,7 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
    * @throws {SchedulerError} If there's an error executing tasks
    */
   async executeDueTasksForAgent(agentId: string): Promise<TaskExecutionResult[]> {
-    this.logger.info("Executing due tasks for specific agent", { agentId });
+    this.logger.debug("Executing due tasks for specific agent", { agentId });
     
     try {
       // Find pending tasks for the agent
@@ -758,18 +777,20 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
         status: TaskStatus.PENDING
       });
       
-      this.logger.info("Retrieved pending tasks for agent", {
+      this.logger.info("Tasks fetched for agent", {
         agentId,
         pendingTaskCount: pendingTasks.length
       });
       
       // TEMPORARY DEBUG: Let's also check if there are ANY pending tasks (regardless of agent)
       if (pendingTasks.length === 0) {
-        console.log("🔍 DEBUG: No tasks found for agent, checking all pending tasks...");
+        this.logger.debug("No tasks found for agent, checking all pending tasks", {
+          agentId
+        });
         const allPendingTasks = await this.registry.findTasks({
           status: TaskStatus.PENDING
         });
-        console.log("📊 All pending tasks in system:", {
+        this.logger.debug("All pending tasks in system", {
           totalPendingTasks: allPendingTasks.length,
           agentIds: allPendingTasks.map(t => t.metadata?.agentId).slice(0, 10),
           taskNames: allPendingTasks.map(t => t.name).slice(0, 5)
@@ -777,21 +798,21 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
       }
       
       if (!pendingTasks.length) {
-        this.logger.info("No pending tasks found for agent", { agentId });
+        this.logger.debug("No pending tasks found for agent", { agentId });
         return [];
       }
       
       // Get due tasks from the pending tasks
       const dueTasks = await this.scheduler.getDueTasks(pendingTasks);
       
-      this.logger.info("Due tasks identified for agent", {
+      this.logger.info("Tasks ready for execution", {
         agentId,
-        dueTaskCount: dueTasks.length,
-        dueTaskIds: dueTasks.map(t => t.id)
+        totalPending: pendingTasks.length,
+        dueTaskCount: dueTasks.length
       });
       
       if (!dueTasks.length) {
-        this.logger.info("No tasks are due for agent", { agentId });
+        this.logger.debug("No tasks are due for agent", { agentId });
         return [];
       }
       
@@ -799,17 +820,15 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
       const orderedTasks = this.orderTasksByPriority(dueTasks);
       const tasksToExecute = orderedTasks.slice(0, this.config.maxConcurrentTasks);
       
-      this.logger.info("Smart scheduling applied", {
+      this.logger.debug("Smart scheduling applied", {
         agentId,
         totalDueTasks: dueTasks.length,
         tasksSelectedForExecution: tasksToExecute.length,
-        maxConcurrentTasks: this.config.maxConcurrentTasks,
-        selectedTaskIds: tasksToExecute.map(t => t.id),
-        selectedTaskPriorities: tasksToExecute.map(t => `${t.name}(p:${t.priority})`).slice(0, 5)
+        maxConcurrentTasks: this.config.maxConcurrentTasks
       });
       
       // CRITICAL FIX: Immediately mark tasks as RUNNING to prevent re-execution
-      this.logger.info("Marking due tasks as RUNNING to prevent re-execution", {
+      this.logger.debug("Marking due tasks as RUNNING to prevent re-execution", {
         agentId,
         taskIds: tasksToExecute.map(t => t.id)
       });
@@ -835,56 +854,31 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
       // Execute the due tasks (now marked as RUNNING)
       const results = await this.executor.executeTasks(runningTasks, this.config.maxConcurrentTasks);
       
-      this.logger.info("Task execution completed for agent", {
-        agentId,
-        executedTaskCount: results.length,
-        successfulTasks: results.filter(r => r.successful).length,
-        failedTasks: results.filter(r => !r.successful).length
-      });
-
-      // CRITICAL FIX: Update task statuses in registry after execution
-      // This was missing and causing tasks to remain PENDING forever
-      const tasksToUpdate = runningTasks.map((task, i) => {
-        const result = results[i];
-        return {
-          ...task,
-          status: result.status,
-          lastExecutedAt: result.endTime,
-          metadata: {
-            ...task.metadata,
-            executionTime: result.duration,
-            retryCount: (task.metadata?.retryCount || 0) + (result.wasRetry ? 1 : 0),
-            ...(result.successful ? {} : {
-              errorInfo: result.error
-            })
-          },
-          // Increment execution count for interval tasks
-          interval: task.interval ? {
-            ...task.interval,
-            executionCount: task.interval.executionCount + 1
-          } : undefined
-        };
-      });
-
-      this.logger.info("Updating task statuses after execution for agent", {
-        agentId,
-        tasksToUpdateCount: tasksToUpdate.length
-      });
-
-      // Check if registry supports batch updates
-      if ('updateTasks' in this.registry && typeof this.registry.updateTasks === 'function') {
-        // Use batch update for better performance
-        this.logger.info("Using batch update for task statuses for agent", { agentId });
-        await (this.registry as any).updateTasks(tasksToUpdate);
-      } else {
-        // Fall back to individual updates
-        this.logger.info("Using individual updates for task statuses for agent", { agentId });
-        for (const task of tasksToUpdate) {
-          await this.registry.updateTask(task);
+      // Log task completion details for each task
+      results.forEach((result, index) => {
+        const task = runningTasks[index];
+        if (result.successful) {
+          this.logger.info("Task completed successfully", {
+            agentId,
+            taskId: task.id,
+            taskName: task.name,
+            status: result.status,
+            duration: result.duration,
+            result: result.result
+          });
+        } else {
+          this.logger.error("Task execution failed", {
+            agentId,
+            taskId: task.id,
+            taskName: task.name,
+            status: result.status,
+            duration: result.duration,
+            error: result.error
+          });
         }
-      }
-      
-      this.logger.success("Completed execution of due tasks for agent", {
+      });
+
+      this.logger.info("Task execution completed for agent", {
         agentId,
         executedTaskCount: results.length,
         successfulTasks: results.filter(r => r.successful).length,
