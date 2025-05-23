@@ -2259,15 +2259,20 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
    */
   private setupExecutor(): void {
     if (!this.model) {
-      throw new Error('Cannot set up executor: Model not initialized');
+      console.warn('Cannot set up executor: Model not initialized');
+      return;
     }
 
     try {
       const toolManager = this.getManager<ToolManager>(ManagerType.TOOL);
       
-      if (!toolManager) {
-        throw new Error('Tool manager not found');
-      }
+      // Create empty tool router as fallback
+      const toolRouter = new ToolRouter();
+      
+      // Initialize tool router
+      toolRouter.initialize().catch(err => {
+        console.error('Error initializing tool router:', err);
+      });
       
       // Create error handler with reference to this agent
       const errorHandler = new ExecutionErrorHandler(undefined, this);
@@ -2277,102 +2282,101 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
         console.error('Error initializing executor error handler:', err);
       });
       
-      // Create tool router from tool manager
-      const toolRouter = new ToolRouter();
-      
-      // Initialize tool router
-      toolRouter.initialize().catch(err => {
-        console.error('Error initializing tool router:', err);
-      });
-      
-      // Get agent capabilities
-      const agentCapabilities = this.config.capabilities || [];
-      // Extract capability IDs for comparison
-      const capabilityIds = agentCapabilities.map(cap => {
-        if (typeof cap === 'string') return cap;
-        // Handle the AgentCapability object
-        if (typeof cap === 'object' && cap !== null) {
-          // If it has an id property, use it
-          if ('id' in cap && typeof cap.id === 'string') return cap.id;
-          // Otherwise try to construct from type and name if available
-          if ('type' in cap && 'name' in cap) {
-            return `${cap.type}.${cap.name}`;
+      // If we have a tool manager, set up tools properly
+      if (toolManager) {
+        console.log(`Setting up tools for agent ${this.getId()}...`);
+        
+        // Get agent capabilities
+        const agentCapabilities = this.config.capabilities || [];
+        // Extract capability IDs for comparison
+        const capabilityIds = agentCapabilities.map(cap => {
+          if (typeof cap === 'string') return cap;
+          // Handle the AgentCapability object
+          if (typeof cap === 'object' && cap !== null) {
+            // If it has an id property, use it
+            if ('id' in cap && typeof cap.id === 'string') return cap.id;
+            // Otherwise try to construct from type and name if available
+            if ('type' in cap && 'name' in cap) {
+              return `${cap.type}.${cap.name}`;
+            }
           }
-        }
-        // Fallback for unrecognized format
-        return String(cap);
-      });
-      
-      console.log(`Agent ${this.getId()} has capabilities:`, capabilityIds);
-      
-      // Register tools from tool manager with capability-aware filtering
-      toolManager.getTools().then(tools => {
-        // Filter tools based on agent capabilities if capabilities are specified
-        const filteredTools = tools.filter(tool => {
-          // Extract tool capabilities from metadata if available
-          const toolRequiredCapabilities = (tool.metadata?.requiredCapabilities as string[]) || [];
-          
-          // If no required capabilities specified for the tool, include it
-          if (toolRequiredCapabilities.length === 0) {
-            return true;
-          }
-          
-          // If agent has no capabilities, only include tools without requirements
-          if (capabilityIds.length === 0) {
-            return false;
-          }
-          
-          // Check if the agent has any of the required capabilities
-          return toolRequiredCapabilities.some((cap: string) => 
-            capabilityIds.includes(cap)
-          );
+          // Fallback for unrecognized format
+          return String(cap);
         });
         
-        // Sort tools by capability match score
-        filteredTools.sort((a, b) => {
-          const scoreA = this.calculateToolCapabilityScore(a, capabilityIds);
-          const scoreB = this.calculateToolCapabilityScore(b, capabilityIds);
-          return scoreB - scoreA; // Higher scores first
-        });
+        console.log(`Agent ${this.getId()} has capabilities:`, capabilityIds);
         
-        console.log(`Agent has access to ${filteredTools.length} of ${tools.length} tools based on capabilities`);
-        
-        // Register the filtered and sorted tools
-        filteredTools.forEach(tool => {
-          // Convert Tool to ToolDefinition
-          const toolDef: ToolDefinition = {
-            name: tool.name,
-            description: tool.description || '',
-            parameters: (tool.metadata?.parameters as Record<string, unknown>) || {},
-            requiredParams: (tool.metadata?.requiredParams as string[]) || [],
-            execute: async (params: Record<string, unknown>, agentContext?: Record<string, unknown>) => {
-              try {
-                const result = await tool.execute(params);
-                return {
-                  success: true,
-                  data: result
-                };
-              } catch (error) {
-                return {
-                  success: false,
-                  error: error instanceof Error ? error.message : String(error)
-                };
-              }
-            },
-            category: tool.categories?.[0] || 'general',
-            requiredCapabilityLevel: (tool.metadata?.requiredCapabilityLevel as string) || 'basic'
-          };
+        // Register tools from tool manager with capability-aware filtering
+        toolManager.getTools().then(tools => {
+          // Filter tools based on agent capabilities if capabilities are specified
+          const filteredTools = tools.filter(tool => {
+            // Extract tool capabilities from metadata if available
+            const toolRequiredCapabilities = (tool.metadata?.requiredCapabilities as string[]) || [];
+            
+            // If no required capabilities specified for the tool, include it
+            if (toolRequiredCapabilities.length === 0) {
+              return true;
+            }
+            
+            // If agent has no capabilities, only include tools without requirements
+            if (capabilityIds.length === 0) {
+              return false;
+            }
+            
+            // Check if the agent has any of the required capabilities
+            return toolRequiredCapabilities.some((cap: string) => 
+              capabilityIds.includes(cap)
+            );
+          });
           
-          toolRouter.registerTool(toolDef);
+          // Sort tools by capability match score
+          filteredTools.sort((a, b) => {
+            const scoreA = this.calculateToolCapabilityScore(a, capabilityIds);
+            const scoreB = this.calculateToolCapabilityScore(b, capabilityIds);
+            return scoreB - scoreA; // Higher scores first
+          });
+          
+          console.log(`Agent has access to ${filteredTools.length} of ${tools.length} tools based on capabilities`);
+          
+          // Register the filtered and sorted tools
+          filteredTools.forEach(tool => {
+            // Convert Tool to ToolDefinition
+            const toolDef: ToolDefinition = {
+              name: tool.name,
+              description: tool.description || '',
+              parameters: (tool.metadata?.parameters as Record<string, unknown>) || {},
+              requiredParams: (tool.metadata?.requiredParams as string[]) || [],
+              execute: async (params: Record<string, unknown>, agentContext?: Record<string, unknown>) => {
+                try {
+                  const result = await tool.execute(params);
+                  return {
+                    success: true,
+                    data: result
+                  };
+                } catch (error) {
+                  return {
+                    success: false,
+                    error: error instanceof Error ? error.message : String(error)
+                  };
+                }
+              },
+              category: tool.categories?.[0] || 'general',
+              requiredCapabilityLevel: (tool.metadata?.requiredCapabilityLevel as string) || 'basic'
+            };
+            
+            toolRouter.registerTool(toolDef);
+          });
+          
+          // Set tool permissions for this agent
+          toolRouter.setAgentToolPermissions(this.getId(), filteredTools.map(t => t.name));
+        }).catch(err => {
+          console.error('Error registering tools:', err);
         });
-        
-        // Set tool permissions for this agent
-        toolRouter.setAgentToolPermissions(this.getId(), filteredTools.map(t => t.name));
-      }).catch(err => {
-        console.error('Error registering tools:', err);
-      });
+      } else {
+        console.warn(`Tool manager not found for agent ${this.getId()}. Continuing with limited functionality.`);
+      }
       
-      // Initialize executor with tool router
+      // Initialize executor with tool router regardless
       this.executor = new Executor(this.model, toolRouter);
       
       // Store error handler reference
@@ -2380,7 +2384,15 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
       
     } catch (error) {
       console.error('Error setting up executor:', error);
-      throw error;
+      // Don't throw, just log the error and continue
+      // Create a minimal executor without tools if possible
+      try {
+        const emptyToolRouter = new ToolRouter();
+        this.executor = new Executor(this.model, emptyToolRouter);
+        console.log('Created minimal executor without tools');
+      } catch (fallbackError) {
+        console.error('Failed to create minimal executor:', fallbackError);
+      }
     }
   }
 
