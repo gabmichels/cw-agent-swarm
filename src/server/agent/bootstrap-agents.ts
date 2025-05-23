@@ -365,9 +365,38 @@ export async function bootstrapAgentsFromDatabase(): Promise<number> {
           console.log(`📝 Registering agent ${dbAgent.id} with runtime registry...`);
           registerAgent(agent);
           
+          // VERIFY REGISTRATION: Check if agent was actually registered
+          const registeredAgent = getAgentById(dbAgent.id);
+          if (!registeredAgent) {
+            throw new AgentBootstrapError(
+              `Agent registration failed - agent not found in registry after registration`,
+              dbAgent.id,
+              'REGISTRATION_VERIFICATION_FAILED',
+              { agentId: dbAgent.id, agentName: dbAgent.name }
+            );
+          }
+          
+          // VERIFY AGENT METHODS: Ensure the agent has required methods
+          try {
+            const agentId = registeredAgent.getId();
+            const health = await registeredAgent.getHealth();
+            
+            console.log(`🔍 Verified registered agent ${dbAgent.id}:`);
+            console.log(`   - Agent ID: ${agentId}`);
+            console.log(`   - Health Status: ${health.status}`);
+            console.log(`   - Has planAndExecute: ${typeof (registeredAgent as any).planAndExecute === 'function'}`);
+            
+          } catch (verificationError) {
+            console.warn(`⚠️ Agent ${dbAgent.id} registered but verification failed:`, verificationError);
+          }
+          
           logger.info(`Registered agent ${dbAgent.id} (${dbAgent.name}) in runtime registry`, {
             agentId: dbAgent.id,
-            requestId: bootstrapRequestId
+            requestId: bootstrapRequestId,
+            agentType: agent.constructor.name,
+            hasGetId: typeof agent.getId === 'function',
+            hasGetHealth: typeof agent.getHealth === 'function',
+            hasPlanAndExecute: typeof (agent as any).planAndExecute === 'function'
           });
           console.log(`✅ Registered agent ${dbAgent.id} (${dbAgent.name}) in runtime registry as DefaultAgent with all managers`);
           
@@ -436,6 +465,30 @@ export async function bootstrapAgentsFromDatabase(): Promise<number> {
     // Get summary metrics
     const summaryMetrics = getAgentsSummaryMetrics();
     
+    // FINAL VERIFICATION: Check runtime registry state
+    const { getAllAgents, getRegistryStats } = await import('./agent-service');
+    const finalAgents = getAllAgents();
+    const finalStats = getRegistryStats();
+    
+    console.log(`🔍 Final runtime registry verification:`);
+    console.log(`   - Agents in runtime registry: ${finalAgents.length}`);
+    console.log(`   - Registry size: ${finalStats.totalAgents}`);
+    console.log(`   - Agent IDs: [${finalStats.agentIds.join(', ')}]`);
+    console.log(`   - Agent Types: [${finalStats.agentTypes.join(', ')}]`);
+    
+    if (finalAgents.length === 0 && loadedCount > 0) {
+      console.error(`❌ CRITICAL: ${loadedCount} agents were supposedly loaded but runtime registry is empty!`);
+      logger.error('Runtime registry empty despite successful agent loading', {
+        requestId: bootstrapRequestId,
+        loadedCount,
+        finalAgentCount: finalAgents.length
+      });
+    } else if (finalAgents.length !== loadedCount) {
+      console.warn(`⚠️ WARNING: Registry count (${finalAgents.length}) doesn't match loaded count (${loadedCount})`);
+    } else {
+      console.log(`✅ Registry verification successful: ${finalAgents.length} agents available`);
+    }
+    
     // Log summary of bootstrap process
     const summaryMsg = `Successfully bootstrapped ${loadedCount} agents from database into runtime registry`;
     logger.info(summaryMsg, { 
@@ -443,7 +496,8 @@ export async function bootstrapAgentsFromDatabase(): Promise<number> {
       loadedCount,
       failedCount: failedAgents.length,
       failedAgents,
-      summaryMetrics
+      summaryMetrics,
+      finalRuntimeRegistryCount: finalAgents.length
     });
     console.log(`🚀 ${summaryMsg}`);
     

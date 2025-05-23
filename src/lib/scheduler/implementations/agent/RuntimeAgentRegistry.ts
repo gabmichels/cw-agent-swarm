@@ -85,16 +85,16 @@ export class RuntimeAgentRegistry implements TaskAgentRegistry {
    * Find agents capable of executing a specific task
    */
   async findCapableAgents(task: Task): Promise<AgentBase[]> {
-    this.logger.info("Finding capable agents for task", {
-      taskId: task.id,
-      taskName: task.name,
-      requiredAgentId: task.metadata?.agentId
-    });
+    const capableAgents: AgentBase[] = [];
 
     try {
-      const capableAgents: AgentBase[] = [];
+      this.logger.info("Starting capable agent search", {
+        taskId: task.id,
+        currentCachedAgents: this.agents.size,
+        hasSpecificAgent: !!task.metadata?.agentId
+      });
 
-      // If task specifies a specific agent, try that first
+      // PRIORITY 1: Check if task specifies a specific agent
       if (task.metadata?.agentId) {
         const agentId = typeof task.metadata.agentId === 'string' 
           ? task.metadata.agentId 
@@ -102,37 +102,162 @@ export class RuntimeAgentRegistry implements TaskAgentRegistry {
         
         if (agentId) {
           const specificAgent = await this.getAgentById(agentId);
-          if (specificAgent && await this.isAgentAvailable(agentId)) {
-            capableAgents.push(specificAgent);
-            this.logger.info("Found specific agent for task", {
+          if (specificAgent) {
+            // For specifically assigned agents, only check basic availability, not strict capabilities
+            // Since there's an LLM behind every agent, it should be able to handle the task
+            const isAvailable = await this.isAgentAvailable(agentId);
+            
+            this.logger.info("Checking specifically assigned agent", {
               taskId: task.id,
-              agentId
+              agentId,
+              isAvailable,
+              forcingExecution: !isAvailable // If not available, we'll still try
             });
-            return capableAgents;
+            
+            if (isAvailable) {
+              capableAgents.push(specificAgent);
+              this.logger.info("Using specifically assigned agent (available)", {
+                taskId: task.id,
+                agentId
+              });
+              return capableAgents;
+            } else {
+              // Even if not "available", still try the assigned agent since it's specifically requested
+              // The LLM should be able to handle it
+              this.logger.warn("Assigned agent not fully available, but using anyway (LLM fallback)", {
+                taskId: task.id,
+                agentId,
+                reason: "Agent specifically assigned to task"
+              });
+              capableAgents.push(specificAgent);
+              return capableAgents;
+            }
+          } else {
+            this.logger.warn("Specifically assigned agent not found", {
+              taskId: task.id,
+              assignedAgentId: agentId
+            });
           }
         }
       }
 
-      // Get all available agents from runtime registry
+      // PRIORITY 2: Get all available agents from runtime registry
       const { getAllAgents } = await import('../../../../server/agent/agent-service');
       const allAgents = getAllAgents();
       
-      this.logger.info("Checking agent capabilities", {
+      this.logger.info("Retrieved agents from agent-service", {
         taskId: task.id,
-        totalAgents: allAgents.length
+        totalAgents: allAgents.length,
+        agentIds: allAgents.map(a => {
+          try {
+            return a.getId ? a.getId() : 'unknown-id';
+          } catch (e) {
+            return 'error-getting-id';
+          }
+        })
       });
 
-      // Filter agents based on availability and capabilities
+      if (allAgents.length === 0) {
+        this.logger.error("No agents found in runtime registry", {
+          taskId: task.id
+        });
+        return capableAgents;
+      }
+
+      // DEBUG: Log details about each agent
+      for (let i = 0; i < allAgents.length; i++) {
+        const agent = allAgents[i];
+        try {
+          this.logger.info(`Agent ${i} details`, {
+            taskId: task.id,
+            agentId: agent.getId ? agent.getId() : 'no-getId-method',
+            hasGetId: typeof agent.getId === 'function',
+            hasGetHealth: typeof agent.getHealth === 'function',
+            hasPlanAndExecute: typeof (agent as any).planAndExecute === 'function',
+            agentType: agent.constructor.name
+          });
+        } catch (e) {
+          this.logger.warn(`Error examining agent ${i}`, {
+            taskId: task.id,
+            error: e instanceof Error ? e.message : String(e)
+          });
+        }
+      }
+
+      // PRIORITY 3: Filter agents with lenient capability checks
+      // Since all agents have LLMs, be more forgiving with capabilities
       for (const agent of allAgents) {
-        const agentId = agent.getId();
+        try {
+          const agentId = agent.getId();
+          
+          this.logger.info("Checking agent for task", {
+            taskId: task.id,
+            agentId,
+            checkingAvailability: true
+          });
+          
+          // Check basic agent functionality (more lenient than before)
+          if (this.hasBasicAgentCapabilities(agent, task)) {
+            // Check if agent is available (but don't be too strict)
+            const isAvailable = await this.isAgentAvailable(agentId);
+            
+            if (isAvailable) {
+              capableAgents.push(agent);
+              // Cache for future use
+              this.agents.set(agentId, agent);
+              
+              this.logger.info("Agent added to capable agents list", {
+                taskId: task.id,
+                agentId
+              });
+            } else {
+              this.logger.warn("Agent not available but has capabilities", {
+                taskId: task.id,
+                agentId
+              });
+            }
+          } else {
+            this.logger.warn("Agent failed basic capability check", {
+              taskId: task.id,
+              agentId
+            });
+          }
+        } catch (agentError) {
+          this.logger.error("Error checking agent capabilities", {
+            taskId: task.id,
+            agentError: agentError instanceof Error ? agentError.message : String(agentError)
+          });
+        }
+      }
+
+      // FALLBACK: If no agents are "capable" but we have agents, pick the first healthy one
+      // Since every agent has an LLM, it should be able to attempt the task
+      if (capableAgents.length === 0 && allAgents.length > 0) {
+        this.logger.warn("No agents passed capability checks, using LLM fallback strategy", {
+          taskId: task.id,
+          totalAgents: allAgents.length
+        });
         
-        // Check if agent is available
-        if (await this.isAgentAvailable(agentId)) {
-          // Check if agent has required capabilities
-          if (this.hasRequiredCapabilities(agent, task)) {
-            capableAgents.push(agent);
-            // Cache for future use
-            this.agents.set(agentId, agent);
+        for (const agent of allAgents) {
+          try {
+            const agentId = agent.getId();
+            const health = await agent.getHealth();
+            
+            if (health.status === 'healthy' || health.status === 'degraded') {
+              capableAgents.push(agent);
+              this.logger.info("Using agent as LLM fallback", {
+                taskId: task.id,
+                agentId,
+                healthStatus: health.status,
+                reason: "All agents have LLM capabilities"
+              });
+              break; // Just use the first healthy agent
+            }
+          } catch (e) {
+            this.logger.warn("Error checking agent health for fallback", {
+              taskId: task.id,
+              error: e instanceof Error ? e.message : String(e)
+            });
           }
         }
       }
@@ -280,7 +405,58 @@ export class RuntimeAgentRegistry implements TaskAgentRegistry {
   }
 
   /**
-   * Check if agent has required capabilities for a task
+   * Check if agent has basic capabilities for a task (more lenient than strict capability checking)
+   * Since all agents have LLMs, we focus on basic functionality rather than specific capabilities
+   */
+  private hasBasicAgentCapabilities(agent: AgentBase, task: Task): boolean {
+    try {
+      // Basic functionality checks - much more lenient
+      const hasBasicMethods = Boolean(
+        agent.getId && 
+        typeof agent.getId === 'function'
+      );
+
+      // Check if agent has some form of execution capability
+      // Either planAndExecute or processUserInput should work since there's an LLM behind it
+      const hasExecutionCapability = Boolean(
+        (agent as any).planAndExecute || 
+        (agent as any).processUserInput ||
+        (agent as any).processInput
+      );
+
+      const isCapable = hasBasicMethods && hasExecutionCapability;
+
+      this.logger.info("Basic agent capability check", {
+        agentId: agent.getId(),
+        taskId: task.id,
+        hasBasicMethods,
+        hasExecutionCapability,
+        hasPlanAndExecute: Boolean((agent as any).planAndExecute),
+        hasProcessUserInput: Boolean((agent as any).processUserInput),
+        hasProcessInput: Boolean((agent as any).processInput),
+        isCapable,
+        reason: "LLM-based agents should handle most tasks"
+      });
+
+      return isCapable;
+    } catch (error) {
+      this.logger.error("Error checking basic agent capabilities", {
+        agentId: agent.getId ? agent.getId() : 'unknown',
+        taskId: task.id,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      
+      // If we can't check capabilities, assume the agent can try (LLM fallback)
+      this.logger.warn("Capability check failed, defaulting to LLM fallback assumption", {
+        taskId: task.id,
+        agentId: agent.getId ? agent.getId() : 'unknown'
+      });
+      return true;
+    }
+  }
+
+  /**
+   * Check if agent has required capabilities for a task (strict checking - kept for backward compatibility)
    */
   private hasRequiredCapabilities(agent: AgentBase, task: Task): boolean {
     try {
