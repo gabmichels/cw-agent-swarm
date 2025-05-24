@@ -654,6 +654,8 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
           }))
         );
         
+        console.log(`Page.tsx: Received ${formattedMessages.length} messages from API`);
+        
         setMessages(formattedMessages);
         // Reset loading state after messages are fetched
         setIsLoading(false);

@@ -29,6 +29,7 @@ let lastUserMessageId: string | null = null;
 /**
  * GET /api/multi-agent/chats/[chatId]/messages
  * Returns all messages for a chat, or an empty array if none exist
+ * STRICTLY FILTERS TO ONLY MemoryType.MESSAGE ITEMS
  */
 export async function GET(
   request: NextRequest,
@@ -67,10 +68,11 @@ export async function GET(
     const { searchService } = await getMemoryServices();
     
     console.log(`Searching for messages with chatId: ${chatId}`);
+    console.log(`STRICT FILTER: Only MemoryType.MESSAGE (${MemoryType.MESSAGE}) will be returned`);
     
-    // Build filter for search
+    // Build STRICT filter for search - ONLY MESSAGES
     const mustFilters = [
-      { key: "type", match: { value: MemoryType.MESSAGE } },
+      { key: "type", match: { value: MemoryType.MESSAGE } }, // STRICT: Only 'message' type
       { key: "metadata.chatId.id", match: { value: chatId } }
     ];
     
@@ -83,10 +85,17 @@ export async function GET(
       });
     }
     
+    console.log(`Search filters being applied:`, JSON.stringify(mustFilters, null, 2));
+    
     // Search for messages with this chat ID
+    console.log(`Searching for messages using filter-based approach...`);
     const searchResults = await searchService.search("", {
+      // Note: We're NOT using types restriction since it was blocking all results
       filter: {
-        must: mustFilters,
+        must: [
+          { key: "type", match: { value: MemoryType.MESSAGE } }, // Filter for message type in results
+          { key: "metadata.chatId.id", match: { value: chatId } }
+        ],
         must_not: includeInternal ? [] : [
           { key: "metadata.isInternalMessage", match: { value: true } }
         ]
@@ -96,12 +105,43 @@ export async function GET(
       sort: { field: "timestamp", direction: "asc" }
     });
 
-    // Format the messages
-    const messages = searchResults.map(result => {
+    console.log(`Found ${searchResults.length} total items, filtering to message types only...`);
+    
+    // Filter to only message types (client-side validation)
+    const messageResults = searchResults.filter(result => {
+      const payloadType = result.point?.payload?.type;
+      const metadataType = (result.point?.payload?.metadata as any)?.type;
+      const actualType = payloadType || metadataType;
+      return actualType === MemoryType.MESSAGE;
+    });
+    
+    console.log(`✅ Filtered to ${messageResults.length} message items (removed ${searchResults.length - messageResults.length} non-message items)`);
+    
+    const nonMessageResults = searchResults.filter(result => {
+      const payloadType = result.point?.payload?.type;
+      const metadataType = (result.point?.payload?.metadata as any)?.type;
+      const actualType = payloadType || metadataType;
+      return actualType !== MemoryType.MESSAGE;
+    });
+    
+    const validatedResults = messageResults; // Use filtered message results
+
+    // Format the messages with additional type checking
+    const messages = validatedResults.map(result => {
       const point = result.point;
       const payload = point.payload;
       // Properly type the metadata
       const metadata = (payload.metadata || {}) as MessageMetadata;
+      
+      // Verify this is a message type (should always be true now with type restriction)
+      const contentType = payload.type || (metadata as any).type;
+      if (contentType !== MemoryType.MESSAGE) {
+        console.error(`UNEXPECTED: Non-message item in results:`, {
+          id: point.id,
+          type: contentType,
+          expected: MemoryType.MESSAGE
+        });
+      }
       
       // Fix timestamp parsing for numeric strings
       let parsedTimestamp: number | null = null;
@@ -121,9 +161,9 @@ export async function GET(
         id: point.id,
         content: payload.text,
         sender: {
-          id: metadata.role === 'user' ? metadata.userId.id : metadata.agentId.id,
-          name: metadata.role === 'user' ? 'You' : metadata.agentId.id,
-          role: metadata.role
+          id: metadata.role === 'user' ? metadata.userId?.id || 'unknown' : metadata.agentId?.id || 'unknown',
+          name: metadata.role === 'user' ? 'You' : metadata.agentId?.id || 'Assistant',
+          role: metadata.role || 'assistant'
         },
         // Convert numeric string timestamps to numbers for the client
         timestamp: typeof payload.timestamp === 'string' && /^\d+$/.test(payload.timestamp) 
@@ -131,15 +171,42 @@ export async function GET(
           : payload.timestamp,
         status: 'delivered',
         attachments: metadata.attachments || [],
-        tags: metadata.tags || [] // Include tags in the response
+        tags: metadata.tags || [], // Include tags in the response
+        
+        // DEBUG: Include type information for troubleshooting
+        _debug: {
+          originalType: contentType,
+          memoryId: point.id,
+          collection: 'messages' // Should always be messages now
+        }
       };
     });
+    
+    console.log(`Final response: ${messages.length} messages prepared for client`);
+    
+    // Log sample content for debugging (first message only)
+    if (messages.length > 0) {
+      const firstMessage = messages[0];
+      console.log(`Sample message content:`, {
+        id: firstMessage.id,
+        contentPreview: firstMessage.content?.substring(0, 100),
+        sender: firstMessage.sender,
+        type: firstMessage._debug?.originalType
+      });
+    }
     
     return NextResponse.json({
       chatId,
       messages,
       totalCount: messages.length,
-      hasMore: messages.length === limit
+      hasMore: messages.length === limit,
+      _meta: {
+        searchResultsCount: searchResults.length,
+        finalMessageCount: messages.length,
+        typeFilter: MemoryType.MESSAGE,
+        collectionSearched: 'all (filtered by type)',
+        nonMessageItemsFound: nonMessageResults.length
+      }
     });
   } catch (error) {
     console.error(`Error retrieving messages for chat ${params.chatId}:`, error);

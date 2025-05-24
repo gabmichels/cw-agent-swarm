@@ -33,15 +33,17 @@ const ChatMessages: React.FC<ChatMessagesProps> = ({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   
-  // Simplified message processing - just sort by timestamp
+  // Process and sort messages
   const sortedMessages = useMemo(() => {
     if (!messages || !Array.isArray(messages)) {
       console.warn('Messages is not an array or is empty:', messages);
       return [];
     }
     
-    // Create a copy of messages to avoid mutating props
-    let sortedMessages = [...messages].map(msg => ({
+    console.log(`ChatMessages: Received ${messages.length} messages from API`);
+    
+    // Process messages to ensure consistent sender format
+    const processedMessages = messages.map(msg => ({
       ...msg,
       // Ensure sender is consistently an object
       sender: typeof msg.sender === 'string'
@@ -50,13 +52,13 @@ const ChatMessages: React.FC<ChatMessagesProps> = ({
     }));
 
     // Sort messages by timestamp
-    sortedMessages.sort((a: MessageWithSortTime, b: MessageWithSortTime) => {
+    processedMessages.sort((a: MessageWithSortTime, b: MessageWithSortTime) => {
       const aTime = a.timestamp instanceof Date ? a.timestamp.getTime() : new Date(a.timestamp).getTime();
       const bTime = b.timestamp instanceof Date ? b.timestamp.getTime() : new Date(b.timestamp).getTime();
       return aTime - bTime;
     });
     
-    return sortedMessages;
+    return processedMessages;
   }, [messages]);
 
   // Scroll to bottom function
@@ -186,8 +188,6 @@ const ChatMessages: React.FC<ChatMessagesProps> = ({
           scrollbar-color: #4a5568 #1a202c;
         }
       `}</style>
-      
-      {/* Debug info removed */}
     
       {sortedMessages.map((message, index) => (
         <ChatBubble
