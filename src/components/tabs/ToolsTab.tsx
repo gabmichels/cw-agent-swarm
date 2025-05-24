@@ -41,26 +41,91 @@ const ToolsTab: React.FC<ToolsTabProps> = ({
   const [codaInputValue, setCodaInputValue] = useState('');
   const [activeTab, setActiveTab] = useState<string>('legacy');
   
-  // Get memory hook for standardized memory system access
-  // We're only using the methods, not triggering automatic data loading
-  const { executeTool } = useToolsMemory();
+  // Collection management state
+  const [selectedCollections, setSelectedCollections] = useState<Set<string>>(new Set());
+  const [isCollectionDeleteLoading, setIsCollectionDeleteLoading] = useState(false);
   
-  // Initialize useMemory without initialTypes to prevent auto-loading
-  const { getMemories, deleteMemory } = useMemory();
-  
-  // Define results and success message variables
-  const results = {
-    markdownCacheCleared: false,
-    documentDirectSearched: false,
-    allCollectionsReset: false,
-    documentReset: false,
-    memoryReset: false,
-    searchDeleted: false,
-    documentPurged: false,
-    memoryRestarted: false
+  // Define available collections from the memory system
+  const availableCollections = [
+    'messages',
+    'thoughts', 
+    'documents',
+    'tasks',
+    'agents',
+    'chat_sessions',
+    'reflections',
+    'insights',
+    'analysis',
+    'memory_edits'
+  ];
+
+  // Collection management functions
+  const toggleCollectionSelection = (collection: string) => {
+    const newSelected = new Set(selectedCollections);
+    if (newSelected.has(collection)) {
+      newSelected.delete(collection);
+    } else {
+      newSelected.add(collection);
+    }
+    setSelectedCollections(newSelected);
   };
 
-  let successMessage = '';
+  const selectAllCollections = () => {
+    setSelectedCollections(new Set(availableCollections));
+  };
+
+  const deselectAllCollections = () => {
+    setSelectedCollections(new Set());
+  };
+
+  const deleteSelectedCollections = async () => {
+    if (selectedCollections.size === 0) {
+      alert('Please select at least one collection to delete.');
+      return;
+    }
+
+    const collectionsToDelete = Array.from(selectedCollections);
+    const confirmMessage = `Are you sure you want to delete the following collections?\n\n${collectionsToDelete.join(', ')}\n\nThis action cannot be undone. All data in these collections will be permanently lost.`;
+    
+    if (!confirm(confirmMessage)) {
+      return;
+    }
+
+    setIsCollectionDeleteLoading(true);
+    try {
+      console.log('Deleting collections:', collectionsToDelete);
+      
+      // Call API to delete selected collections
+      const response = await fetch('/api/debug/delete-collections', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ 
+          collections: collectionsToDelete,
+          recreate: true // Recreate collections after deletion
+        }),
+      });
+
+      const data = await response.json();
+      
+      if (data.success) {
+        alert(`Successfully deleted and recreated ${collectionsToDelete.length} collections:\n${collectionsToDelete.join(', ')}`);
+        setSelectedCollections(new Set()); // Clear selection
+      } else {
+        alert(`Failed to delete collections: ${data.error || 'Unknown error'}`);
+      }
+    } catch (error) {
+      console.error('Error deleting collections:', error);
+      alert('An error occurred while deleting collections. See console for details.');
+    } finally {
+      setIsCollectionDeleteLoading(false);
+    }
+  };
+  
+  // Get memory hook for standardized memory system access
+  const { executeTool } = useToolsMemory();
+  const { getMemories, deleteMemory } = useMemory();
   
   // Function to check Qdrant connection
   const checkQdrantConnection = async () => {
@@ -91,38 +156,22 @@ const ToolsTab: React.FC<ToolsTabProps> = ({
     
     setIsDebugLoading(true);
     try {
-      // First, try the new standardized memory system approach
-      if (activeTab === 'memory') {
-        // Execute the tool through the memory system
-        const result = await executeTool('clear_chat', { confirmationRequired: true });
-        setDebugResults(result);
-        
-        if (result.success) {
-          alert('Successfully deleted chat history using the standardized memory system.');
-          window.location.reload();
-        } else {
-          // If new system fails, fall back to legacy approach
-          throw new Error('Memory system clear_chat failed, falling back to legacy API');
-        }
+      const response = await fetch('/api/debug/reset-chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ userId: 'gab' }),
+      });
+      
+      const data = await response.json();
+      setDebugResults(data);
+      
+      if (data.success) {
+        alert(`Successfully deleted chat history. Deleted ${data.deletedMessageCount} messages.`);
+        window.location.reload();
       } else {
-        // Legacy approach
-        const response = await fetch('/api/debug/reset-chat', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ userId: 'gab' }),
-        });
-        
-        const data = await response.json();
-        setDebugResults(data);
-        
-        if (data.success) {
-          alert(`Successfully deleted chat history. Deleted ${data.deletedMessageCount} messages.`);
-          window.location.reload();
-        } else {
-          alert(`Failed to delete chat history: ${data.error}`);
-        }
+        alert(`Failed to delete chat history: ${data.error}`);
       }
     } catch (error) {
       console.error('Error deleting chat history:', error);
@@ -140,7 +189,6 @@ const ToolsTab: React.FC<ToolsTabProps> = ({
     
     setIsDebugLoading(true);
     try {
-      // Make the API request to clear markdown cache using the App Router endpoint
       const response = await fetch('/api/debug/clear-markdown-cache', {
         method: 'POST',
         headers: {
@@ -153,10 +201,8 @@ const ToolsTab: React.FC<ToolsTabProps> = ({
       
       if (data.success) {
         alert('Successfully cleared markdown cache. Files will be re-ingested on next reload.');
-        console.log('Markdown cache cleared successfully:', data);
       } else {
         alert(`Failed to clear markdown cache: ${data.error || 'Unknown error'}`);
-        console.error('Error clearing markdown cache:', data);
       }
     } catch (error) {
       console.error('Error clearing markdown cache:', error);
@@ -174,52 +220,32 @@ const ToolsTab: React.FC<ToolsTabProps> = ({
     
     setIsDebugLoading(true);
     try {
-      // First, try the new standardized memory system approach
-      if (activeTab === 'memory') {
-        // Execute the tool through the memory system
-        const result = await executeTool('clear_images', { confirmationRequired: true });
-        setDebugResults(result);
-        
-        if (result.success) {
-          alert('Successfully cleared image data using the standardized memory system.');
-          window.location.reload();
-        } else {
-          // If new system fails, fall back to legacy approach
-          throw new Error('Memory system clear_images failed, falling back to legacy API');
-        }
-      } else {
-        // Legacy approach
-        // 1. Clear server-side image data
-        const serverResponse = await fetch('/api/debug/clear-images', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ userId: 'gab' }),
+      const serverResponse = await fetch('/api/debug/clear-images', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ userId: 'gab' }),
+      });
+      
+      const serverData = await serverResponse.json();
+      
+      const localStorageResponse = await fetch('/api/debug/clear-local-storage');
+      const localStorageData = await localStorageResponse.json();
+      
+      if (localStorageData.success) {
+        localStorageData.storagesToClear.forEach((key: string) => {
+          localStorage.removeItem(key);
         });
-        
-        const serverData = await serverResponse.json();
-        
-        // 2. Clear local storage
-        const localStorageResponse = await fetch('/api/debug/clear-local-storage');
-        const localStorageData = await localStorageResponse.json();
-        
-        if (localStorageData.success) {
-          // Execute the instructions
-          localStorageData.storagesToClear.forEach((key: string) => {
-            localStorage.removeItem(key);
-          });
-        }
-        
-        // Combine the results
-        setDebugResults({
-          server: serverData,
-          localStorage: localStorageData
-        });
-        
-        alert('Successfully cleared image data. Please reload the page to see the changes.');
-        window.location.reload();
       }
+      
+      setDebugResults({
+        server: serverData,
+        localStorage: localStorageData
+      });
+      
+      alert('Successfully cleared image data. Please reload the page to see the changes.');
+      window.location.reload();
     } catch (error) {
       console.error('Error clearing images:', error);
       alert('An error occurred while clearing images. See console for details.');
@@ -228,7 +254,7 @@ const ToolsTab: React.FC<ToolsTabProps> = ({
     }
   };
 
-  // Function to delete all data (chat history and images)
+  // Function to delete all data
   const handleDeleteAllData = async () => {
     if (!confirm('Are you sure you want to delete ALL your data including chat history, images, and memory collections? This cannot be undone.')) {
       return;
@@ -238,10 +264,7 @@ const ToolsTab: React.FC<ToolsTabProps> = ({
     let successMessage = 'Data Reset Status:\n\n';
     
     try {
-      console.log("Starting full data deletion process...");
-      
       // Delete ALL collections directly from Qdrant
-      console.log("Deleting ALL Qdrant collections...");
       const deleteAllResponse = await fetch('/api/debug/qdrant-direct', {
         method: 'POST',
         headers: {
@@ -254,7 +277,6 @@ const ToolsTab: React.FC<ToolsTabProps> = ({
       
       if (deleteAllResponse.ok) {
         const deleteAllResult = await deleteAllResponse.json();
-        console.log('Delete all collections result:', deleteAllResult);
         
         if (deleteAllResult?.success === true && deleteAllResult?.result) {
           const totalDeleted = deleteAllResult.result.deletedCollections || 0;
@@ -262,16 +284,13 @@ const ToolsTab: React.FC<ToolsTabProps> = ({
           
           successMessage += `✓ Deleted ${totalDeleted}/${totalCollections} Qdrant collections\n`;
           
-          // Recreate standard collections to avoid 404 errors when ingesting documents
-          console.log("Recreating standard collections...");
+          // Recreate standard collections
           try {
-            // Prepare the collections config
-            const collectionsToCreate = Object.values(COLLECTIONS).map(name => ({
+            const collectionsToCreate = Object.values(COLLECTIONS || {}).map(name => ({
               name,
-              dimensions: DEFAULTS.DIMENSIONS
+              dimensions: DEFAULTS?.DIMENSIONS || 1536
             }));
             
-            // Call the createCollections API
             const createResponse = await fetch('/api/debug/qdrant-direct', {
               method: 'POST',
               headers: {
@@ -285,7 +304,6 @@ const ToolsTab: React.FC<ToolsTabProps> = ({
             
             if (createResponse.ok) {
               const createResult = await createResponse.json();
-              console.log('Collections recreation result:', createResult);
               
               if (createResult.success) {
                 const createdCount = createResult.result?.totalCreated || 0;
@@ -296,18 +314,14 @@ const ToolsTab: React.FC<ToolsTabProps> = ({
             console.error('Error recreating collections:', recreateError);
           }
         }
-      } else {
-        console.error('Error deleting all collections:', await deleteAllResponse.text().catch(() => 'Unknown error'));
       }
       
       // Clear local storage
       try {
-        console.log("Clearing local storage...");
         const localStorageResponse = await fetch('/api/debug/clear-local-storage');
         const localStorageData = await localStorageResponse.json();
         
         if (localStorageData.success) {
-          // Execute the instructions
           localStorageData.storagesToClear.forEach((key: string) => {
             localStorage.removeItem(key);
           });
@@ -317,203 +331,29 @@ const ToolsTab: React.FC<ToolsTabProps> = ({
         console.error('Error clearing local storage:', error);
       }
       
-      // After deleting Qdrant collections, also clear the markdown cache
-      console.log("Clearing markdown cache...");
+      // Clear markdown cache
       try {
         const clearCacheResponse = await fetch('/api/debug/clear-markdown-cache', {
           method: 'POST',
         });
         
         if (clearCacheResponse.ok) {
-          const cacheResult = await clearCacheResponse.json();
-          console.log("Markdown cache cleared:", cacheResult);
-          successMessage += "Markdown cache cleared successfully.\n";
+          successMessage += "✓ Markdown cache cleared successfully.\n";
         } else {
-          console.error("Failed to clear markdown cache");
           successMessage += "Failed to clear markdown cache.\n";
         }
       } catch (cacheError) {
-        console.error("Error clearing markdown cache:", cacheError);
         successMessage += "Error clearing markdown cache.\n";
       }
       
       successMessage += '\nThe page will now reload to apply these changes.';
       alert(successMessage);
       
-      // Just reload the page
-      // window.location.reload();
     } catch (error) {
       console.error('Error deleting all data:', error);
       alert('An error occurred while deleting all data. See console for details.');
     } finally {
       setIsDebugLoading(false);
-    }
-  };
-
-  // New functions for Coda test tools
-  const createCodaTestDocument = async () => {
-    setIsCodaLoading(true);
-    setCodaResults(null);
-    try {
-      const response = await fetch('/api/tools/coda-test-doc', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ title: codaInputValue }),
-      });
-      const data = await response.json();
-      setCodaResults(data);
-    } catch (error) {
-      console.error('Error creating Coda test document:', error);
-      setCodaResults({ error: 'Failed to create Coda document' });
-    } finally {
-      setIsCodaLoading(false);
-    }
-  };
-
-  const readCodaPage = async () => {
-    setIsCodaLoading(true);
-    setCodaResults(null);
-    try {
-      const response = await fetch('/api/tools/coda-read-page', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ pageId: codaInputValue || 'canvas-12gCwjgwEO' }),
-      });
-      const data = await response.json();
-      setCodaResults(data);
-    } catch (error) {
-      console.error('Error reading Coda page:', error);
-      setCodaResults({ error: 'Failed to read Coda page' });
-    } finally {
-      setIsCodaLoading(false);
-    }
-  };
-
-  const appendCodaLine = async () => {
-    setIsCodaLoading(true);
-    setCodaResults(null);
-    try {
-      const response = await fetch('/api/tools/coda-append-line', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ 
-          line: codaInputValue,
-          pageId: 'canvas-12gCwjgwEO' 
-        }),
-      });
-      const data = await response.json();
-      setCodaResults(data);
-    } catch (error) {
-      console.error('Error appending to Coda document:', error);
-      setCodaResults({ error: 'Failed to append line to Coda document' });
-    } finally {
-      setIsCodaLoading(false);
-    }
-  };
-
-  // New function to resolve Coda browser links
-  const resolveCodaBrowserLink = async () => {
-    setIsCodaLoading(true);
-    setCodaResults(null);
-    try {
-      const browserLink = codaInputValue;
-      if (!browserLink || !browserLink.includes('coda.io')) {
-        setCodaResults({ 
-          success: false, 
-          error: "Please enter a valid Coda URL (e.g., https://coda.io/d/...)" 
-        });
-        setIsCodaLoading(false);
-        return;
-      }
-      
-      const response = await fetch('/api/tools/coda-resolve-link', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ browserLink }),
-      });
-      const data = await response.json();
-      setCodaResults(data);
-    } catch (error) {
-      console.error('Error resolving Coda browser link:', error);
-      setCodaResults({ error: String(error) });
-    } finally {
-      setIsCodaLoading(false);
-    }
-  };
-
-  // New function to directly test document access with different ID formats
-  const testDirectDocAccess = async () => {
-    setIsCodaLoading(true);
-    setCodaResults(null);
-    try {
-      const input = codaInputValue;
-      const isUrl = input.includes('coda.io/');
-      
-      let requestBody = {};
-      if (isUrl) {
-        requestBody = { url: input };
-      } else {
-        requestBody = { id: input };
-      }
-      
-      const response = await fetch('/api/tools/coda-direct-access', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(requestBody),
-      });
-      
-      const data = await response.json();
-      setCodaResults(data);
-    } catch (error) {
-      console.error('Error testing direct document access:', error);
-      setCodaResults({ error: String(error) });
-    } finally {
-      setIsCodaLoading(false);
-    }
-  };
-
-  // New function to create a document with LLM content
-  const createDocWithLLM = async () => {
-    setIsCodaLoading(true);
-    setCodaResults(null);
-    try {
-      // Split the input by '|' to get title and content prompt
-      const [title, contentPrompt] = codaInputValue.split('|').map(part => part.trim());
-      
-      if (!title || !contentPrompt) {
-        setCodaResults({ 
-          success: false, 
-          error: "Please format your input as 'Title | Content instructions'" 
-        });
-        setIsCodaLoading(false);
-        return;
-      }
-      
-      const response = await fetch('/api/tools/coda-create-from-llm', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ title, contentPrompt }),
-      });
-      
-      const data = await response.json();
-      setCodaResults(data);
-    } catch (error) {
-      console.error('Error creating document with LLM content:', error);
-      setCodaResults({ error: String(error) });
-    } finally {
-      setIsCodaLoading(false);
     }
   };
 
@@ -653,7 +493,6 @@ const ToolsTab: React.FC<ToolsTabProps> = ({
                     try {
                       const response = await fetch('/api/debug/test-watcher');
                       if (response.ok) {
-                        const data = await response.json();
                         alert('Markdown watcher test started. Check console for results.');
                       } else {
                         alert('Error testing markdown watcher');
@@ -672,8 +511,68 @@ const ToolsTab: React.FC<ToolsTabProps> = ({
             </div>
           </div>
 
-          {/* Keep the rest of the original UI ... */}
-          {/* ... existing code ... */}
+          {/* Collection Management Section */}
+          <div className="bg-gray-800 p-4 rounded-lg mb-8">
+            <h2 className="text-lg font-medium mb-4">Collection Management</h2>
+            <p className="text-sm text-gray-400 mb-4">
+              Select collections to delete and recreate. This will permanently remove all data in the selected collections.
+            </p>
+            
+            {/* Collection Selection */}
+            <div className="mb-4">
+              <div className="flex gap-2 mb-3">
+                <button
+                  onClick={selectAllCollections}
+                  className="px-3 py-1 bg-blue-600 hover:bg-blue-700 rounded text-sm text-white"
+                >
+                  Select All
+                </button>
+                <button
+                  onClick={deselectAllCollections}
+                  className="px-3 py-1 bg-gray-600 hover:bg-gray-700 rounded text-sm text-white"
+                >
+                  Deselect All
+                </button>
+              </div>
+              
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                {availableCollections.map((collection) => (
+                  <label key={collection} className="flex items-center space-x-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={selectedCollections.has(collection)}
+                      onChange={() => toggleCollectionSelection(collection)}
+                      className="form-checkbox h-4 w-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500"
+                    />
+                    <span className="text-sm">{collection}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+            
+            {/* Delete Button */}
+            <div className="flex justify-end">
+              <button
+                onClick={deleteSelectedCollections}
+                disabled={isCollectionDeleteLoading || selectedCollections.size === 0}
+                className={`px-4 py-2 rounded text-white font-medium ${
+                  selectedCollections.size === 0 
+                    ? 'bg-gray-600 cursor-not-allowed' 
+                    : 'bg-red-600 hover:bg-red-700'
+                } ${isCollectionDeleteLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
+              >
+                {isCollectionDeleteLoading ? 'Deleting...' : `Delete Selected (${selectedCollections.size})`}
+              </button>
+            </div>
+            
+            {selectedCollections.size > 0 && (
+              <div className="mt-2 p-2 bg-yellow-900/20 border border-yellow-600 rounded">
+                <p className="text-sm text-yellow-200">
+                  <strong>Warning:</strong> You have selected {selectedCollections.size} collection(s) for deletion: {Array.from(selectedCollections).join(', ')}
+                </p>
+              </div>
+            )}
+          </div>
         </TabsContent>
         
         <TabsContent value="memory" className="mt-4">

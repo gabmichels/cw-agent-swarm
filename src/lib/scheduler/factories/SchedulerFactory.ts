@@ -183,7 +183,7 @@ export async function createSchedulerManager(
   try {
     // Development-friendly config overrides
     const devConfig = {
-      schedulingIntervalMs: 60000, // Check every 60 seconds (1 minute)
+      schedulingIntervalMs: 300000, // Check every 60 seconds (1 minute)
       maxConcurrentTasks: 5, // Start with 5 concurrent tasks for development
       defaultTaskTimeoutMs: 120000, // 2 minutes timeout for tasks
       ...config

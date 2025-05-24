@@ -31,6 +31,7 @@ import { ImportanceLevel } from '@/constants/memory';
 import MemoryTab from '@/components/tabs/MemoryTab';
 import TasksTab from '@/components/tabs/TasksTab';
 import KnowledgeTab from '@/components/tabs/KnowledgeTab';
+import ToolsTab from '@/components/tabs/ToolsTab';
 
 // Define message priority enum
 enum MessagePriority {
@@ -845,6 +846,23 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
         );
       case 'knowledge':
         return <KnowledgeTab />;
+      case 'tools':
+        return (
+          <ToolsTab
+            isLoading={isLoading}
+            checkChloe={() => console.log('Check Chloe')}
+            runDiagnostics={() => console.log('Run Diagnostics')}
+            inspectChloeMemory={() => console.log('Inspect Memory')}
+            resetChatHistory={() => console.log('Reset Chat')}
+            testChloeAgent={() => console.log('Test Agent')}
+            showFixInstructions={() => console.log('Show Instructions')}
+            runDirectMarketScan={() => console.log('Market Scan')}
+            diagnosticResults={{}}
+            chloeCheckResults={{}}
+            fixInstructions={{}}
+            isDebugMode={false}
+          />
+        );
       case 'visualizations':
         // Use an iframe to embed the visualizations page with loading state
         return (
