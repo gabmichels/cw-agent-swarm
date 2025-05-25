@@ -41,6 +41,8 @@ export class SharedToolRegistry implements IToolRegistry {
   private tools: Map<string, Tool> = new Map();
   private config: SharedToolRegistryConfig;
   private apifyManager: IApifyManager;
+  private initialized: boolean = false;
+  private initializationPromise: Promise<void> | null = null;
   
   /**
    * Create a new shared tool registry
@@ -58,8 +60,35 @@ export class SharedToolRegistry implements IToolRegistry {
     
     this.apifyManager = config.apifyManager || defaultApifyManager;
     
-    // Register default tools
-    this.registerDefaultTools();
+    // Start initialization but don't wait for it in constructor
+    this.initializationPromise = this.initialize();
+  }
+  
+  /**
+   * Initialize the registry and register all default tools
+   */
+  async initialize(): Promise<void> {
+    if (this.initialized) {
+      return;
+    }
+
+    try {
+      await this.registerDefaultTools();
+      this.initialized = true;
+      logger.info('SharedToolRegistry initialized successfully');
+    } catch (error) {
+      logger.error('Error initializing SharedToolRegistry:', error);
+      throw error;
+    }
+  }
+  
+  /**
+   * Ensure the registry is initialized before use
+   */
+  async ensureInitialized(): Promise<void> {
+    if (this.initializationPromise) {
+      await this.initializationPromise;
+    }
   }
   
   /**
@@ -70,7 +99,14 @@ export class SharedToolRegistry implements IToolRegistry {
   registerTool(tool: Tool): void {
     // Apply configuration-based enabling/disabling
     const enabled = this.shouldEnableTool(tool);
-    const toolWithConfig = { ...tool, enabled };
+    
+    // Create a proper copy that preserves the execute function
+    const toolWithConfig: Tool = {
+      ...tool,
+      enabled,
+      // Explicitly preserve the execute function
+      execute: tool.execute
+    };
     
     this.tools.set(tool.id, toolWithConfig);
     logger.info(`Registered tool: ${tool.id} (${enabled ? 'enabled' : 'disabled'})`);
@@ -246,7 +282,7 @@ export class SharedToolRegistry implements IToolRegistry {
    * 
    * @private
    */
-  private registerDefaultTools(): void {
+  private async registerDefaultTools(): Promise<void> {
     // Register Apify tools
     const apifyTools = createApifyTools(this.apifyManager);
     
@@ -309,9 +345,10 @@ export class SharedToolRegistry implements IToolRegistry {
     
     // Register web search tool
     try {
-      const { createWebSearchTool } = require('../web');
+      const { createWebSearchTool } = await import('../web');
       const webSearchTool = createWebSearchTool();
       this.registerTool(webSearchTool);
+      logger.info(`[INFO] Registered tool: ${webSearchTool.id} (enabled)`);
     } catch (error) {
       logger.warn('Could not register web search tool:', error);
     }

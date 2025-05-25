@@ -15,7 +15,10 @@ const STANDARD_LIMIT = 25;
 const ABSOLUTE_MAXIMUM = 100;
 
 // Check if mock mode is enabled
-const MOCK_ENABLED = process.env.USE_MOCK_SEARCH === 'true' || process.env.NODE_ENV === 'development';
+const MOCK_ENABLED = process.env.USE_MOCK_SEARCH === 'true' || 
+                     process.env.NODE_ENV === 'development' || 
+                     process.env.NODE_ENV === 'test' ||
+                     (typeof process !== 'undefined' && process.env.npm_lifecycle_event?.includes('test'));
 
 /**
  * Web search tool using Apify's Google Search Scraper
@@ -26,6 +29,18 @@ export class ApifyWebSearchTool implements Tool {
   description = 'Search the web for information using Google Search. Default limit: 5 results (use "limit X" for more results, or "approve X for web search" for large requests)';
   category = ToolCategory.WEB;
   enabled = true;
+  
+  /**
+   * Constructor - bind methods to maintain 'this' context
+   */
+  constructor() {
+    // Bind the execute method to maintain 'this' context when called through tool registration
+    this.execute = this.execute.bind(this);
+    this.executeSearch = this.executeSearch.bind(this);
+    this.handleApprovalRequest = this.handleApprovalRequest.bind(this);
+    this.formatSearchResults = this.formatSearchResults.bind(this);
+    this.extractDomain = this.extractDomain.bind(this);
+  }
   
   /**
    * Schema for the web search tool parameters
@@ -218,7 +233,10 @@ export class ApifyWebSearchTool implements Tool {
         );
         
         // If search failed and mock mode is enabled, use mock results instead
-        if (MOCK_ENABLED && (!searchResult.success || !searchResult.data || (Array.isArray(searchResult.data) && searchResult.data.length === 0))) {
+        if (MOCK_ENABLED && (!searchResult.success || !searchResult.data || 
+            (searchResult.data && typeof searchResult.data === 'object' && 
+             'results' in searchResult.data && Array.isArray(searchResult.data.results) && 
+             searchResult.data.results.length === 0))) {
           logger.warn('[MOCK] Real web search failed or returned no results, using mock results');
           
           // Generate mock results
@@ -532,18 +550,76 @@ export class ApifyWebSearchTool implements Tool {
         }
       }
       
+      // Check if Apify API key is configured
+      const hasApiKey = process.env.APIFY_API_KEY && process.env.APIFY_API_KEY.trim() !== '';
+      
+      // If no API key is configured and mock mode is enabled, use mock immediately
+      if (!hasApiKey && MOCK_ENABLED) {
+        logger.warn('[MOCK] No Apify API key configured, using mock results');
+        
+        // Generate mock results
+        const mockResult = mockWebSearch(query, maxResults);
+        
+        return {
+          id: IdGenerator.generate('tres'),
+          toolId: this.id,
+          success: true,
+          data: mockResult.data,
+          metrics: {
+            startTime,
+            endTime: Date.now(),
+            durationMs: Date.now() - startTime
+          }
+        };
+      }
+      
+      // If no API key and mock is disabled, return error
+      if (!hasApiKey) {
+        throw new Error('Apify API key not configured and mock mode is disabled');
+      }
+
       // Use Apify Google Search Scraper
       const result = await defaultApifyManager.runApifyActor({
         actorId: 'apify/google-search-scraper',
         input: {
-          queries: [query],
+          queries: query, // Single query as string
           maxPagesPerQuery: 1,
           resultsPerPage: maxResults,
-          countryCode: country,
+          countryCode: country.toLowerCase(),
+          languageCode: 'en',
           safeSearch,
           mobileResults: false
         }
       });
+      
+      // Check if the Apify call was successful
+      if (!result.success) {
+        const errorMessage = result.error || 'Apify actor execution failed';
+        logger.error(`Apify search failed: ${errorMessage}`);
+        
+        // Update visualization with error
+        if (visualization && visualizer && searchNodeId) {
+          try {
+            visualizer.updateNode(
+              visualization,
+              searchNodeId,
+              {
+                status: 'error',
+                data: {
+                  error: errorMessage,
+                  errorCode: 'APIFY_EXECUTION_FAILED',
+                  executionCompleted: Date.now(),
+                  durationMs: Date.now() - startTime
+                }
+              }
+            );
+          } catch (visualizationError) {
+            logger.error('Error updating web search visualization with Apify error:', visualizationError);
+          }
+        }
+        
+        throw new Error(`Apify search failed: ${errorMessage}`);
+      }
       
       // Retrieve search results
       const searchResults = (result?.output || []).slice(0, maxResults);
@@ -600,7 +676,7 @@ export class ApifyWebSearchTool implements Tool {
         }
       }
       
-      return {
+      const finalResult = {
         id: IdGenerator.generate('tres'),
         toolId: this.id,
         success: true,
@@ -611,6 +687,8 @@ export class ApifyWebSearchTool implements Tool {
           durationMs: endTime - startTime
         }
       };
+      
+      return finalResult;
     } catch (error) {
       logger.error('Error executing search:', error);
       

@@ -169,20 +169,23 @@ export class DefaultApifyManager implements IApifyManager {
         }
       }
       
-      // Create actor run
-      const runResponse = await fetch(`${this.baseApiUrl}/acts/${options.actorId}/runs`, {
+      // Convert actor ID format: replace '/' with '~' for API endpoint
+      const apiActorId = options.actorId.replace('/', '~');
+      
+      // Build query parameters for run options
+      const queryParams = new URLSearchParams();
+      queryParams.append('token', this.apiToken);
+      queryParams.append('memory', '4096');
+      queryParams.append('timeout', '300');
+      queryParams.append('build', 'latest');
+      
+      // Send the input directly as the request body (not wrapped)
+      const runResponse = await fetch(`${this.baseApiUrl}/acts/${apiActorId}/runs?${queryParams.toString()}`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${this.apiToken}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({
-          memory: 4096,
-          timeout: 300,
-          build: 'latest',
-          webhooks: [],
-          input: options.input
-        })
+        body: JSON.stringify(options.input)
       });
       
       if (!runResponse.ok) {
@@ -228,9 +231,9 @@ export class DefaultApifyManager implements IApifyManager {
         await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 5 seconds
         attempts++;
         
-        const statusResponse = await fetch(`${this.baseApiUrl}/actor-runs/${runId}`, {
+        const statusResponse = await fetch(`${this.baseApiUrl}/actor-runs/${runId}?token=${this.apiToken}`, {
           headers: {
-            'Authorization': `Bearer ${this.apiToken}`
+            'Content-Type': 'application/json'
           }
         });
         
@@ -302,9 +305,9 @@ export class DefaultApifyManager implements IApifyManager {
       }
       
       // Get the run results
-      const datasetResponse = await fetch(`${this.baseApiUrl}/actor-runs/${runId}/dataset/items`, {
+      const datasetResponse = await fetch(`${this.baseApiUrl}/actor-runs/${runId}/dataset/items?token=${this.apiToken}`, {
         headers: {
-          'Authorization': `Bearer ${this.apiToken}`
+          'Content-Type': 'application/json'
         }
       });
       

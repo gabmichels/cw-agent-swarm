@@ -333,93 +333,46 @@ export class DefaultToolManager extends AbstractBaseManager implements ToolManag
         { toolId }
       );
     }
-    
-    if (!tool.enabled) {
-      throw new ToolError(
-        `Tool with ID ${toolId} is disabled`,
-        'TOOL_DISABLED',
-        { toolId }
-      );
-    }
-    
-    const startTime = new Date();
-    const startedAt = new Date(startTime);
-    let result: unknown;
-    let success = false;
-    let error: { message: string; code?: string } | undefined;
-    
-    // Apply timeout if specified
-    const timeoutMs = options?.timeoutMs ?? tool.timeoutMs ?? this.config.defaultToolTimeoutMs ?? 30000;
-    const maxRetries = options?.retries ?? this.config.maxToolRetries ?? 0;
-    
+
     try {
       // Execute the tool with timeout
-      result = await this.executeWithTimeout(
-        tool.execute.bind(null, params, options?.context),
-        timeoutMs
-      );
-      success = true;
-    } catch (err) {
-      const isTimeout = err instanceof Error && err.name === 'TimeoutError';
-      const errorMessage = err instanceof Error ? err.message : String(err);
-      const errorCode = (err as any).code || (isTimeout ? 'TIMEOUT' : 'EXECUTION_ERROR');
+      const timeoutMs = options?.timeoutMs || this.getConfig<ToolManagerConfig>().defaultToolTimeoutMs || 30000;
       
-      error = {
-        message: errorMessage,
-        code: errorCode
+      const result = await this.executeWithTimeout(
+        () => tool.execute(params, options?.context),
+        timeoutMs
+      ) as ToolExecutionResult;
+      
+      return result;
+    } catch (error) {
+      const isTimeout = error instanceof Error && error.name === 'TimeoutError';
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorCode = (error as any).code || (isTimeout ? 'TIMEOUT' : 'EXECUTION_ERROR');
+      
+      const executionResult: ToolExecutionResult = {
+        toolId,
+        success: false,
+        result: undefined,
+        error: {
+          message: errorMessage,
+          code: errorCode
+        },
+        durationMs: 0,
+        startedAt: new Date(),
+        metrics: {
+          inputSize: JSON.stringify(params).length,
+          outputSize: 0,
+        }
       };
       
-      // Try fallbacks if enabled and available
-      if (options?.useFallbacks !== false) {
-        const fallbackResult = await this.tryFallback(tool, err, params, options);
-        if (fallbackResult) {
-          return fallbackResult;
-        }
+      // Update tool metrics
+      const config = this.getConfig<ToolManagerConfig>();
+      if (config.trackToolPerformance) {
+        this.updateToolMetrics(toolId, executionResult);
       }
       
-      // Try retry logic if retries are available
-      if (maxRetries > 0) {
-        try {
-          const retryResult = await this.executeWithRetries(
-            tool,
-            params,
-            maxRetries,
-            options
-          );
-          
-          if (retryResult) {
-            return retryResult;
-          }
-        } catch (retryErr) {
-          // If retry also fails, continue with original error
-          console.log(`Retry failed for tool ${toolId}: ${retryErr}`);
-        }
-      }
+      return executionResult;
     }
-    
-    const endTime = new Date();
-    const durationMs = endTime.getTime() - startTime.getTime();
-    
-    const executionResult: ToolExecutionResult = {
-      toolId,
-      success,
-      result: success ? result : undefined,
-      error,
-      durationMs,
-      startedAt,
-      metrics: {
-        // Simple metrics for now
-        inputSize: JSON.stringify(params).length,
-        outputSize: success ? JSON.stringify(result).length : 0,
-      }
-    };
-    
-    // Update tool metrics
-    if (this.config.trackToolPerformance) {
-      this.updateToolMetrics(toolId, executionResult);
-    }
-    
-    return executionResult;
   }
 
   /**
@@ -455,7 +408,8 @@ export class DefaultToolManager extends AbstractBaseManager implements ToolManag
     }
     
     // If adaptive tool selection is disabled, return a random tool
-    if (!this.config.useAdaptiveToolSelection) {
+    const config = this.getConfig<ToolManagerConfig>();
+    if (!config.useAdaptiveToolSelection) {
       return enabledTools[Math.floor(Math.random() * enabledTools.length)];
     }
     

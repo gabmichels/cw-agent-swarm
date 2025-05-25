@@ -15,6 +15,7 @@ import { IntervalStrategy } from '../implementations/strategies/IntervalStrategy
 import { PriorityBasedStrategy } from '../implementations/strategies/PriorityBasedStrategy';
 import { CapacityBasedStrategy } from '../implementations/strategies/CapacityBasedStrategy';
 import { BasicTaskExecutor } from '../implementations/executor/BasicTaskExecutor';
+import { AgentAwareTaskExecutor } from '../implementations/executor/AgentAwareTaskExecutor';
 import { BasicDateTimeProcessor } from '../implementations/datetime/BasicDateTimeProcessor';
 import { SchedulerConfig, DEFAULT_SCHEDULER_CONFIG } from '../models/SchedulerConfig.model';
 import { Task, TaskStatus } from '../models/Task.model';
@@ -175,15 +176,24 @@ export async function createSchedulerManager(
     capacityStrategy
   ]);
   
-  // Create the task executor
-  const executor = new BasicTaskExecutor();
+  // Create the task executor - REAL AGENT EXECUTION!
+  const executor = agent 
+    ? new AgentAwareTaskExecutor(agent, config?.maxConcurrentTasks || 5)
+    : new BasicTaskExecutor();
+  
+  // Log which executor is being used
+  if (agent) {
+    console.log(`🔥 Creating REAL AgentAwareTaskExecutor for agent ${agent.getId()}`);
+  } else {
+    console.log(`⚠️ No agent provided - using BasicTaskExecutor placeholder`);
+  }
   
   // Create the scheduler manager with all components
   let manager;
   try {
     // Development-friendly config overrides
     const devConfig = {
-      schedulingIntervalMs: 300000, // Check every 60 seconds (1 minute)
+      schedulingIntervalMs: 60000, // Check every 60 seconds (1 minute)
       maxConcurrentTasks: 5, // Start with 5 concurrent tasks for development
       defaultTaskTimeoutMs: 120000, // 2 minutes timeout for tasks
       ...config

@@ -550,6 +550,64 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
         
         const toolManager = new DefaultToolManager(this);
         this.setManager(toolManager);
+        
+        // Initialize the tool manager first
+        await toolManager.initialize();
+        
+        // Now register shared tools from the SharedToolRegistry
+        console.log(`[Agent] Registering shared tools from SharedToolRegistry`);
+        try {
+          // Import the shared tool registry
+          const { default: sharedToolRegistry } = await import('./tools/registry');
+          
+          // Ensure the registry is fully initialized
+          await sharedToolRegistry.ensureInitialized();
+          
+          // Get all available tools from the shared registry
+          const sharedTools = sharedToolRegistry.getAllTools();
+          console.log(`[Agent] Found ${sharedTools.length} shared tools to register`);
+          
+          // Register each shared tool with the tool manager
+          for (const tool of sharedTools) {
+            console.log(`[Agent] Processing shared tool: ${tool.id} (enabled: ${tool.enabled})`);
+            if (tool.enabled) {
+              try {
+                // Convert shared registry Tool to ToolManager Tool interface
+                const managerTool = {
+                  id: tool.id,
+                  name: tool.name,
+                  description: tool.description || '',
+                  enabled: tool.enabled,
+                  categories: tool.category ? [tool.category] : [],
+                  capabilities: [],
+                  version: '1.0.0',
+                  experimental: false,
+                  costPerUse: 1,
+                  metadata: tool.metadata || {},
+                  execute: async (params: unknown, context?: unknown) => {
+                    const args = params as Record<string, unknown>;
+                    const result = await tool.execute(args);
+                    
+                    // Return the full ToolExecutionResult - the ToolManager expects this format
+                    return result;
+                  }
+                };
+                
+                console.log(`[Agent] Attempting to register tool: ${tool.id} with tool manager`);
+                await toolManager.registerTool(managerTool);
+                console.log(`[Agent] Successfully registered shared tool: ${tool.id}`);
+              } catch (error) {
+                console.warn(`[Agent] Failed to register shared tool ${tool.id}:`, error);
+              }
+            } else {
+              console.log(`[Agent] Skipping disabled shared tool: ${tool.id}`);
+            }
+          }
+          
+          console.log(`[Agent] Shared tool registration completed`);
+        } catch (error) {
+          console.warn(`[Agent] Failed to register shared tools:`, error);
+        }
       }
       
       // Initialize knowledge manager - used to store and retrieve knowledge
@@ -2307,7 +2365,14 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
         description: goal,
         goals: [goal],
         priority: options.priority as number || 1,
-        metadata: options || {}
+        metadata: options || {},
+        generateSteps: true, // Enable automatic step generation
+        context: {
+          autonomyMode: options.autonomyMode || false,
+          requireApproval: options.requireApproval || false,
+          priority: options.priority || 1,
+          ...options
+        }
       };
       
       // Create plan using planning manager

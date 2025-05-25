@@ -11,6 +11,7 @@ import { TaskFilter } from '../../models/TaskFilter.model';
 import { TaskRegistry } from '../../interfaces/TaskRegistry.interface';
 import { TaskRegistryError, TaskRegistryErrorCode } from '../../errors/TaskRegistryError';
 import { ulid } from 'ulid';
+import { randomUUID } from 'crypto';
 import { LRUCache } from 'lru-cache';
 
 // Define the cache options type
@@ -107,8 +108,10 @@ export class QdrantTaskRegistry implements TaskRegistry {
 
     // Add filters for each relevant field
     if (filter.ids && filter.ids.length > 0) {
+      // Convert ULIDs to UUIDs for Qdrant has_id filter
+      const qdrantIds = filter.ids.map(ulid => this.ulidToUuid(ulid));
       must.push({
-        has_id: filter.ids,
+        has_id: qdrantIds,
       });
     }
 
@@ -299,7 +302,7 @@ export class QdrantTaskRegistry implements TaskRegistry {
       await this.client.upsert(this.collectionName, {
         points: [
           {
-            id: taskToStore.id,
+            id: this.ulidToUuid(taskToStore.id),
             payload: taskToStore as unknown as Record<string, unknown>,
             vector: [0], // Dummy vector
           },
@@ -344,9 +347,12 @@ export class QdrantTaskRegistry implements TaskRegistry {
         return cachedTask;
       }
 
+      // Convert ULID to UUID for Qdrant lookup
+      const qdrantId = this.ulidToUuid(taskId);
+      
       // Not in cache, retrieve from Qdrant
       const response = await this.client.retrieve(this.collectionName, {
-        ids: [taskId],
+        ids: [qdrantId],
       });
 
       if (!response || response.length === 0) {
@@ -462,9 +468,12 @@ export class QdrantTaskRegistry implements TaskRegistry {
         updatedAt: new Date(),
       };
 
+      // Convert ULID to UUID for Qdrant
+      const qdrantId = this.ulidToUuid(task.id);
+
       // Update the task in Qdrant
       await this.client.setPayload(this.collectionName, {
-        points: [task.id],
+        points: [qdrantId],
         payload: updatedTask,
       });
 
@@ -506,9 +515,12 @@ export class QdrantTaskRegistry implements TaskRegistry {
         return false;
       }
 
+      // Convert ULID to UUID for Qdrant
+      const qdrantId = this.ulidToUuid(taskId);
+
       // Delete the task from Qdrant
       await this.client.delete(this.collectionName, {
-        points: [taskId],
+        points: [qdrantId],
       });
 
       // Remove from cache
@@ -611,7 +623,7 @@ export class QdrantTaskRegistry implements TaskRegistry {
           }
           
           const task: Task = {
-            id: payload.id as string,
+            id: payload.id as string, // Use the original ULID from payload
             name: (metadata.title as string) || (payload.text as string).slice(0, 50) + '...',
             status: metadata.status as TaskStatus,
             priority: this.convertPriority(metadata.priority as string) || 5, // Default medium priority
@@ -839,5 +851,42 @@ export class QdrantTaskRegistry implements TaskRegistry {
   private convertPriority(priority: string): number {
     const priorityNumber = parseInt(priority, 10);
     return isNaN(priorityNumber) ? 5 : priorityNumber;
+  }
+
+  /**
+   * Convert ULID to UUID for Qdrant compatibility
+   * Qdrant only accepts UUIDs or integers as point IDs
+   */
+  private ulidToUuid(ulidString: string): string {
+    // Simple deterministic mapping: use the ULID as a seed for consistent UUID generation
+    // We'll create a hash-like transformation to ensure the same ULID always produces the same UUID
+    let hash = 0;
+    for (let i = 0; i < ulidString.length; i++) {
+      hash = ((hash << 5) - hash + ulidString.charCodeAt(i)) & 0xffffffff;
+    }
+    
+    // Convert to positive and create hex string
+    const hex = Math.abs(hash).toString(16).padStart(8, '0');
+    
+    // Generate a deterministic UUID format
+    // We'll use the original ULID string to create more entropy
+    const part1 = ulidString.slice(0, 8).replace(/[^a-fA-F0-9]/g, '0').padStart(8, '0').slice(0, 8);
+    const part2 = ulidString.slice(8, 12).replace(/[^a-fA-F0-9]/g, '0').padStart(4, '0').slice(0, 4);
+    const part3 = '4' + ulidString.slice(12, 15).replace(/[^a-fA-F0-9]/g, '0').padStart(3, '0').slice(0, 3);
+    const part4 = '8' + ulidString.slice(15, 18).replace(/[^a-fA-F0-9]/g, '0').padStart(3, '0').slice(0, 3);
+    const part5 = ulidString.slice(18).replace(/[^a-fA-F0-9]/g, '0').padStart(12, '0').slice(0, 12);
+    
+    return `${part1}-${part2}-${part3}-${part4}-${part5}`;
+  }
+
+  /**
+   * Convert UUID back to ULID - this is just for the lookup methods
+   * Since we store the original ULID in the payload, we can retrieve it from there
+   */
+  private uuidToUlid(uuid: string): string {
+    // For lookup methods, we need to convert back
+    // Since we have the original ULID in the payload, this is mainly for the point ID
+    // We'll just return the UUID for now and rely on payload data
+    return uuid;
   }
 } 

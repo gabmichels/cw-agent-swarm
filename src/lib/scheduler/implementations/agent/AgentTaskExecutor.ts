@@ -15,6 +15,7 @@ import {
 } from '../../interfaces/AgentTaskHandler.interface';
 import { PlanAndExecuteOptions } from '../../../../agents/chloe/planAndExecute';
 import { PlanningState } from '../../../../agents/chloe/graph/nodes/types';
+import { PlanExecutionResult } from '../../../../agents/shared/base/managers/PlanningManager.interface';
 import { createLogger } from '@/lib/logging/winston-logger';
 
 /**
@@ -61,25 +62,7 @@ export class AgentTaskExecutor implements IAgentTaskExecutor {
         );
       }
 
-      // Create plan-and-execute options
-      const planAndExecuteOptions = this.createPlanAndExecuteOptions(task);
-
-      this.logger.info("Calling agent.planAndExecute() - REAL EXECUTION", {
-        executionId,
-        taskId: task.id,
-        agentId: agent.getId(),
-        options: {
-          goalPrompt: planAndExecuteOptions.goalPrompt,
-          autonomyMode: planAndExecuteOptions.autonomyMode,
-          requireApproval: planAndExecuteOptions.requireApproval,
-          tags: planAndExecuteOptions.tags
-        }
-      });
-
-      // **REAL AGENT EXECUTION - NO SIMULATION**
-      let agentResult: PlanningState;
-      
-      // Check if agent has planAndExecute method (for Chloe agents)
+      // Check if agent has planAndExecute method
       if ((agent as any).planAndExecute && typeof (agent as any).planAndExecute === 'function') {
         this.logger.info("Using agent.planAndExecute() method", {
           executionId,
@@ -87,7 +70,83 @@ export class AgentTaskExecutor implements IAgentTaskExecutor {
           agentId: agent.getId()
         });
 
-        agentResult = await (agent as any).planAndExecute(planAndExecuteOptions);
+        // Determine agent type and call the appropriate planAndExecute method
+        let agentResult: PlanningState | PlanExecutionResult;
+        
+        // For DefaultAgent: planAndExecute(goal: string, options?: Record<string, unknown>)
+        // For Chloe agents: planAndExecute(options: PlanAndExecuteOptions)
+        try {
+          // Try DefaultAgent format first (most common)
+          const goalPrompt = this.extractGoalFromTask(task);
+          const executeOptions = {
+            priority: task.priority,
+            autonomyMode: task.priority >= 8,
+            requireApproval: task.priority < 7,
+            metadata: task.metadata || {}
+          };
+          
+          this.logger.info("Calling DefaultAgent.planAndExecute()", {
+            executionId,
+            taskId: task.id,
+            agentId: agent.getId(),
+            goalPrompt,
+            options: executeOptions
+          });
+
+          agentResult = await (agent as any).planAndExecute(goalPrompt, executeOptions);
+          
+          this.logger.info("DefaultAgent planAndExecute completed", {
+            executionId,
+            taskId: task.id,
+            agentId: agent.getId(),
+            resultType: typeof agentResult,
+            success: (agentResult as PlanExecutionResult).success,
+            hasError: Boolean((agentResult as PlanExecutionResult).error)
+          });
+
+        } catch (defaultAgentError) {
+          this.logger.warn("DefaultAgent format failed, trying Chloe agent format", {
+            executionId,
+            taskId: task.id,
+            agentId: agent.getId(),
+            error: defaultAgentError instanceof Error ? defaultAgentError.message : String(defaultAgentError)
+          });
+
+          // Try Chloe agent format as fallback
+          const planAndExecuteOptions = this.createPlanAndExecuteOptions(task);
+          agentResult = await (agent as any).planAndExecute(planAndExecuteOptions);
+          
+          this.logger.info("Chloe agent planAndExecute completed", {
+            executionId,
+            taskId: task.id,
+            agentId: agent.getId(),
+            resultKeys: Object.keys(agentResult || {}),
+            finalResult: (agentResult as PlanningState)?.finalResult
+          });
+        }
+
+        // Map agent result to task execution result
+        const taskResult = this.mapAgentResult(agentResult, task);
+
+        const endTime = new Date();
+        const duration = endTime.getTime() - startTime.getTime();
+
+        this.logger.success("Task execution completed successfully", {
+          executionId,
+          taskId: task.id,
+          agentId: agent.getId(),
+          duration,
+          successful: taskResult.successful,
+          status: taskResult.status
+        });
+
+        return {
+          ...taskResult,
+          startTime,
+          endTime,
+          duration
+        };
+
       } else {
         this.logger.error("Agent does not have planAndExecute method", {
           executionId,
@@ -106,37 +165,6 @@ export class AgentTaskExecutor implements IAgentTaskExecutor {
           }
         );
       }
-
-      this.logger.info("Agent execution completed", {
-        executionId,
-        taskId: task.id,
-        agentId: agent.getId(),
-        agentResultKeys: Object.keys(agentResult || {}),
-        finalResult: agentResult?.finalResult,
-        taskStatus: agentResult?.task?.status
-      });
-
-      // Map agent result to task execution result
-      const taskResult = this.mapExecutionResult(agentResult, task);
-
-      const endTime = new Date();
-      const duration = endTime.getTime() - startTime.getTime();
-
-      this.logger.success("Task execution completed successfully", {
-        executionId,
-        taskId: task.id,
-        agentId: agent.getId(),
-        duration,
-        successful: taskResult.successful,
-        status: taskResult.status
-      });
-
-      return {
-        ...taskResult,
-        startTime,
-        endTime,
-        duration
-      };
 
     } catch (error) {
       const endTime = new Date();
@@ -207,7 +235,7 @@ export class AgentTaskExecutor implements IAgentTaskExecutor {
   }
 
   /**
-   * Create plan-and-execute options from a task
+   * Create plan-and-execute options from a task (for Chloe agents)
    */
   createPlanAndExecuteOptions(task: Task): PlanAndExecuteOptions {
     this.logger.info("Creating plan-and-execute options", {
@@ -243,10 +271,102 @@ export class AgentTaskExecutor implements IAgentTaskExecutor {
   }
 
   /**
-   * Map agent execution result to task execution result
+   * Map agent execution result to task execution result (unified for both agent types)
+   */
+  mapAgentResult(agentResult: PlanningState | PlanExecutionResult, task: Task): TaskExecutionResult {
+    this.logger.info("Mapping agent result to task result", {
+      taskId: task.id,
+      resultType: typeof agentResult,
+      hasSuccess: 'success' in agentResult ? agentResult.success : undefined,
+      hasError: 'error' in agentResult ? Boolean(agentResult.error) : undefined
+    });
+
+    try {
+      // Handle DefaultAgent PlanExecutionResult
+      if ('success' in agentResult && typeof agentResult.success === 'boolean') {
+        const planResult = agentResult as PlanExecutionResult;
+        
+        this.logger.info("Processing DefaultAgent PlanExecutionResult", {
+          taskId: task.id,
+          success: planResult.success,
+          hasError: Boolean(planResult.error),
+          hasPlan: Boolean(planResult.plan)
+        });
+
+        const successful = planResult.success && !planResult.error;
+        const status = successful ? TaskStatus.COMPLETED : TaskStatus.FAILED;
+        const result = planResult.plan ? 
+          `Plan execution completed. Plan ID: ${planResult.plan.id}` : 
+          'Task execution completed';
+        const error = planResult.error ? {
+          message: planResult.error,
+          code: 'PLAN_EXECUTION_ERROR'
+        } : undefined;
+
+        return {
+          taskId: task.id,
+          successful,
+          status,
+          result,
+          error,
+          wasRetry: false,
+          retryCount: 0,
+          startTime: new Date(),
+          endTime: new Date(),
+          duration: 0, // Will be overridden by caller
+          metadata: {
+            planResult: planResult,
+            executedBy: 'AgentTaskExecutor',
+            executionMethod: 'planAndExecute',
+            agentType: 'DefaultAgent'
+          }
+        };
+      }
+      
+      // Handle Chloe agent PlanningState (fallback)
+      else {
+        const planningState = agentResult as PlanningState;
+        
+        this.logger.info("Processing Chloe agent PlanningState", {
+          taskId: task.id,
+          taskStatus: planningState?.task?.status,
+          finalResult: planningState?.finalResult
+        });
+
+        return this.mapExecutionResult(planningState, task);
+      }
+
+    } catch (error) {
+      this.logger.error("Error mapping agent result", {
+        taskId: task.id,
+        error: error instanceof Error ? error.message : String(error)
+      });
+
+      // Return failed result on mapping error
+      const now = new Date();
+      return {
+        taskId: task.id,
+        successful: false,
+        status: TaskStatus.FAILED,
+        startTime: now,
+        endTime: now,
+        duration: 0,
+        result: 'Failed to map agent execution result',
+        error: {
+          message: error instanceof Error ? error.message : String(error),
+          code: 'RESULT_MAPPING_ERROR'
+        },
+        wasRetry: false,
+        retryCount: 0
+      };
+    }
+  }
+
+  /**
+   * Map Chloe agent execution result to task execution result (legacy method)
    */
   mapExecutionResult(agentResult: PlanningState, task: Task): TaskExecutionResult {
-    this.logger.info("Mapping agent result to task result", {
+    this.logger.info("Mapping Chloe agent result to task result", {
       taskId: task.id,
       agentResultStatus: agentResult?.task?.status,
       finalResult: agentResult?.finalResult
@@ -302,11 +422,12 @@ export class AgentTaskExecutor implements IAgentTaskExecutor {
         metadata: {
           agentResult: agentResult,
           executedBy: 'AgentTaskExecutor',
-          executionMethod: 'planAndExecute'
+          executionMethod: 'planAndExecute',
+          agentType: 'Chloe'
         }
       };
 
-      this.logger.info("Agent result mapped successfully", {
+      this.logger.info("Chloe agent result mapped successfully", {
         taskId: task.id,
         successful,
         status,
@@ -316,7 +437,7 @@ export class AgentTaskExecutor implements IAgentTaskExecutor {
 
       return taskResult;
     } catch (error) {
-      this.logger.error("Error mapping agent result", {
+      this.logger.error("Error mapping Chloe agent result", {
         taskId: task.id,
         error: error instanceof Error ? error.message : String(error)
       });
@@ -345,65 +466,46 @@ export class AgentTaskExecutor implements IAgentTaskExecutor {
    * Extract goal prompt from task
    */
   private extractGoalFromTask(task: Task): string {
-    // Try different sources for the goal prompt
-    const title = task.metadata?.title as string;
-    const description = task.metadata?.description as string;
-    const text = (task as any).text as string;
+    // Use description as the main goal
+    let goal = task.description || task.name || 'Complete the assigned task';
     
-    // Build comprehensive goal prompt
-    let goalPrompt = task.name;
-    
-    if (title && title !== task.name) {
-      goalPrompt = title;
+    // Add any additional context from metadata
+    if (task.metadata?.context) {
+      goal += `\n\nContext: ${task.metadata.context}`;
     }
     
-    if (description) {
-      goalPrompt += `\n\nDescription: ${description}`;
+    if (task.metadata?.requirements) {
+      goal += `\n\nRequirements: ${task.metadata.requirements}`;
     }
     
-    if (text && text !== title && text !== task.name) {
-      goalPrompt += `\n\nAdditional context: ${text}`;
-    }
-
-    // Add priority context
-    if (task.priority >= 8) {
-      goalPrompt += `\n\nNOTE: This is a HIGH PRIORITY task (priority ${task.priority}/10).`;
-    }
-
-    this.logger.info("Goal extracted from task", {
-      taskId: task.id,
-      goalLength: goalPrompt.length,
-      hasTitle: Boolean(title),
-      hasDescription: Boolean(description),
-      hasText: Boolean(text)
-    });
-
-    return goalPrompt;
+    return goal;
   }
 
   /**
    * Extract tags from task metadata
    */
   private extractTagsFromTask(task: Task): string[] {
-    const tags: string[] = ['scheduled-task'];
+    const tags: string[] = [];
     
-    // Add priority-based tags
-    if (task.priority >= 8) {
-      tags.push('high-priority');
-    } else if (task.priority >= 6) {
-      tags.push('medium-priority');
-    } else {
-      tags.push('low-priority');
+    // Add task name as tag
+    if (task.name) {
+      tags.push(task.name.toLowerCase().replace(/\s+/g, '_'));
     }
     
-    // Add schedule type tag
-    tags.push(`schedule-${task.scheduleType}`);
-    
-    // Add metadata tags if available
+    // Add metadata tags if they exist
     if (task.metadata?.tags && Array.isArray(task.metadata.tags)) {
       tags.push(...task.metadata.tags);
     }
-
+    
+    // Add priority-based tag
+    if (task.priority >= 9) {
+      tags.push('urgent');
+    } else if (task.priority >= 7) {
+      tags.push('high_priority');
+    } else if (task.priority <= 3) {
+      tags.push('low_priority');
+    }
+    
     return tags;
   }
 } 
