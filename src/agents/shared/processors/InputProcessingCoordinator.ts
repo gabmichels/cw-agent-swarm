@@ -127,9 +127,9 @@ export class InputProcessingCoordinator {
       removeSpecialCharacters: false,
       enableContentFiltering: true,
       blockedPatterns: [
-        '(?i)(password|secret|token|key)\\s*[:=]\\s*[\\w\\-]+',
-        '(?i)(api[_\\s]?key|access[_\\s]?token)\\s*[:=]\\s*[\\w\\-]+',
-        '(?i)(credit[_\\s]?card|ssn|social[_\\s]?security)'
+        '(password|secret|token|key)\\s*[:=]\\s*[\\w\\-]+',
+        '(api[_\\s]?key|access[_\\s]?token)\\s*[:=]\\s*[\\w\\-]+',
+        '(credit[_\\s]?card|ssn|social[_\\s]?security)'
       ],
       allowedLanguages: ['en', 'es', 'fr', 'de', 'it', 'pt', 'ru', 'zh', 'ja', 'ko'],
       ...config

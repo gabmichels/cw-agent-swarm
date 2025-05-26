@@ -269,6 +269,11 @@ export class ThinkingProcessor {
       // Update cognitive load metrics
       this.updateCognitiveLoadMetrics(reasoningChain);
       
+      // Add to completed chains if status is completed
+      if (reasoningChain.status === 'completed') {
+        this.completedChains.push(reasoningChain);
+      }
+      
       const result = this.createThinkingResult(reasoningChain, startTime, false);
       
       this.logger.info(`Thinking process completed successfully in ${result.processingTime}ms`);
@@ -348,8 +353,10 @@ export class ThinkingProcessor {
   ): Promise<ReasoningChain> {
     this.logger.info(`Executing thinking strategy: ${strategy.name}`);
     
+    let reasoningChain: ReasoningChain;
+    
     try {
-      const reasoningChain = await strategy.execute(context);
+      reasoningChain = await strategy.execute(context);
       
       // Add to active chains
       this.activeChains.set(reasoningChain.id, reasoningChain);
@@ -368,8 +375,10 @@ export class ThinkingProcessor {
       this.logger.error(`Strategy ${strategy.name} execution failed:`, { error: error instanceof Error ? error.message : String(error) });
       throw error;
     } finally {
-      // Remove from active chains when done
-      this.activeChains.delete(context.input);
+      // Remove from active chains when done (if reasoningChain was created)
+      if (reasoningChain!) {
+        this.activeChains.delete(reasoningChain.id);
+      }
     }
   }
 
@@ -687,7 +696,7 @@ export class ThinkingProcessor {
   private createEmptyReasoningChain(input: string): ReasoningChain {
     return {
       id: `error_${Date.now()}`,
-      topic: input.substring(0, 50),
+      topic: input ? input.substring(0, 50) : 'Invalid input',
       steps: [],
       startTime: new Date(),
       status: 'failed',

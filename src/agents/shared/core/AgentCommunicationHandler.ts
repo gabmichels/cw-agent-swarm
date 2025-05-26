@@ -126,6 +126,10 @@ export class AgentCommunicationHandler {
   private messageQueue: ProcessedMessage[] = [];
   private rateLimitTracker: Map<string, { count: number; lastReset: Date }> = new Map();
   private processingQueue: Promise<void> = Promise.resolve();
+  private statistics = {
+    totalMessages: 0,
+    processingTimes: [] as number[]
+  };
 
   constructor(agent: AgentBase, config: Partial<CommunicationConfig> = {}) {
     this.agent = agent;
@@ -151,9 +155,9 @@ export class AgentCommunicationHandler {
       security: {
         enableContentFiltering: true,
         blockedPatterns: [
-          '(?i)(password|secret|token|key)\\s*[:=]\\s*[\\w\\-]+',
-          '(?i)(api[_\\s]?key|access[_\\s]?token)\\s*[:=]\\s*[\\w\\-]+',
-          '(?i)(credit[_\\s]?card|ssn|social[_\\s]?security)'
+          '(password|secret|token|key)\\s*[:=]\\s*[\\w\\-]+',
+          '(api[_\\s]?key|access[_\\s]?token)\\s*[:=]\\s*[\\w\\-]+',
+          '(credit[_\\s]?card|ssn|social[_\\s]?security)'
         ],
         allowedDomains: []
       },
@@ -168,8 +172,12 @@ export class AgentCommunicationHandler {
     content: string,
     options: MessageProcessingOptions = {}
   ): Promise<AgentResponse> {
+    const startTime = Date.now();
     try {
       this.logger.info('Processing incoming message');
+      
+      // Track message
+      this.statistics.totalMessages++;
       
       // Create processed message
       const processedMessage = await this.createProcessedMessage(content, options);
@@ -203,6 +211,10 @@ export class AgentCommunicationHandler {
       if (this.config.enableOutputSanitization) {
         response.content = this.sanitizeOutput(response.content);
       }
+      
+      // Track processing time
+      const processingTime = Date.now() - startTime;
+      this.statistics.processingTimes.push(processingTime);
       
       this.logger.info('Message processed successfully');
       return response;
@@ -629,11 +641,15 @@ export class AgentCommunicationHandler {
     rateLimitedUsers: number;
     averageProcessingTime: number;
   } {
+    const avgProcessingTime = this.statistics.processingTimes.length > 0
+      ? this.statistics.processingTimes.reduce((sum, time) => sum + time, 0) / this.statistics.processingTimes.length
+      : 0;
+      
     return {
-      totalMessages: 0, // Would track in real implementation
+      totalMessages: this.statistics.totalMessages,
       queuedMessages: this.messageQueue.length,
       rateLimitedUsers: this.rateLimitTracker.size,
-      averageProcessingTime: 0 // Would calculate in real implementation
+      averageProcessingTime: avgProcessingTime
     };
   }
 

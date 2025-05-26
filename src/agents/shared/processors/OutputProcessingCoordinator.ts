@@ -153,9 +153,9 @@ export class OutputProcessingCoordinator {
         enableEncryption: false
       },
       sensitivePatterns: [
-        '(?i)(password|secret|token|key)\\s*[:=]\\s*[\\w\\-]+',
-        '(?i)(api[_\\s]?key|access[_\\s]?token)\\s*[:=]\\s*[\\w\\-]+',
-        '(?i)(credit[_\\s]?card|ssn|social[_\\s]?security)',
+        '(password|secret|token|key)\\s*[:=]\\s*[\\w\\-]+',
+        '(api[_\\s]?key|access[_\\s]?token)\\s*[:=]\\s*[\\w\\-]+',
+        '(credit[_\\s]?card|ssn|social[_\\s]?security)',
         '\\b\\d{4}[\\s\\-]?\\d{4}[\\s\\-]?\\d{4}[\\s\\-]?\\d{4}\\b', // Credit card pattern
         '\\b\\d{3}[\\s\\-]?\\d{2}[\\s\\-]?\\d{4}\\b' // SSN pattern
       ],
@@ -320,7 +320,8 @@ export class OutputProcessingCoordinator {
         metadata: {
           error: true,
           errorMessage: (error as Error).message,
-          processingTime
+          processingTime,
+          originalMetadata: response.metadata
         },
         warnings: [],
         errors: [(error as Error).message]
