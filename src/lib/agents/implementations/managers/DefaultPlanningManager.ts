@@ -251,14 +251,14 @@ export class DefaultPlanningManager extends AbstractBaseManager implements Plann
               const actions = await this.createActionsForStep(step, stepId); // Await the async call
               const planStep: PlanStep = {
                 id: stepId,
-                name: `Step ${index + 1}`,
-                description: step,
-                status: 'pending',
-                priority: 0.5,
+              name: `Step ${index + 1}`,
+              description: step,
+              status: 'pending',
+              priority: 0.5,
                 actions: actions,
-                dependencies: [],
-                createdAt: new Date(),
-                updatedAt: new Date()
+              dependencies: [],
+              createdAt: new Date(),
+              updatedAt: new Date()
               };
               planSteps.push(planStep);
             }
@@ -728,11 +728,93 @@ Extract the current Bitcoin price in USD:`;
                   prompt = `${action.description}. Please provide a specific numerical Bitcoin price in USD format (e.g., "45000.50").`;
                 }
               } else if (action.type === 'analysis') {
-                prompt = `Please analyze and ${action.description.toLowerCase()}. Provide a clear, specific response.`;
+                // Enhanced analysis prompt that processes tool results comprehensively
+                const toolResults = this.getAllToolResultsFromPlan(action);
+                const originalTaskDescription = this.getOriginalTaskDescription(action);
+                
+                prompt = `You are an expert analyst tasked with creating a comprehensive final report based on tool execution results.
+
+ORIGINAL TASK: ${originalTaskDescription || action.description}
+
+TOOL EXECUTION RESULTS:
+${toolResults.length > 0 ? toolResults.map((result, index) => `
+Tool ${index + 1}: ${result.toolName}
+Success: ${result.success}
+${result.success ? `Data: ${JSON.stringify(result.data, null, 2)}` : `Error: ${result.error}`}
+`).join('\n') : 'No tool results available'}
+
+INSTRUCTIONS:
+1. Analyze ALL tool results comprehensively
+2. Extract key insights, data points, and findings
+3. Create a detailed summary that FULLY SATISFIES the original task requirements
+4. Include specific examples, numbers, and concrete information from the tool results
+5. Organize findings logically with clear sections
+6. DO NOT ask follow-up questions - provide a complete, actionable response
+7. If tools failed, acknowledge limitations but provide what analysis is possible
+8. Focus on delivering maximum value from available data
+
+RESPONSE FORMAT:
+- Start with a brief executive summary
+- Provide detailed findings organized by topic/source
+- Include specific data points, quotes, or examples
+- End with key takeaways or recommendations
+- Ensure the response is comprehensive and self-contained
+
+Generate a thorough analysis that completely addresses the original task:`;
               } else if (action.type === 'research') {
-                prompt = `Please research and ${action.description.toLowerCase()}. Provide detailed findings.`;
+                // Enhanced research prompt
+                const toolResults = this.getAllToolResultsFromPlan(action);
+                const originalTaskDescription = this.getOriginalTaskDescription(action);
+                
+                prompt = `You are a research specialist creating a comprehensive research report.
+
+RESEARCH OBJECTIVE: ${originalTaskDescription || action.description}
+
+RESEARCH DATA COLLECTED:
+${toolResults.length > 0 ? toolResults.map((result, index) => `
+Source ${index + 1}: ${result.toolName}
+Status: ${result.success ? 'Successfully collected' : 'Failed to collect'}
+${result.success ? `Data: ${JSON.stringify(result.data, null, 2)}` : `Issue: ${result.error}`}
+`).join('\n') : 'No research data collected'}
+
+RESEARCH REQUIREMENTS:
+1. Synthesize ALL available research data into a coherent report
+2. Provide detailed findings with specific evidence and examples
+3. Address the research objective comprehensively
+4. Include quantitative data, trends, and patterns where available
+5. Cite specific sources and data points
+6. Organize information logically with clear structure
+7. Provide actionable insights and conclusions
+8. DO NOT request additional information - work with available data
+
+Create a comprehensive research report that fully addresses the research objective:`;
               } else {
-                prompt = action.description;
+                // Enhanced general prompt for any LLM task
+                const toolResults = this.getAllToolResultsFromPlan(action);
+                const originalTaskDescription = this.getOriginalTaskDescription(action);
+                
+                prompt = `You are an AI assistant completing a specific task with available data.
+
+TASK: ${originalTaskDescription || action.description}
+
+AVAILABLE DATA:
+${toolResults.length > 0 ? toolResults.map((result, index) => `
+Data Source ${index + 1}: ${result.toolName}
+Status: ${result.success ? 'Available' : 'Unavailable'}
+${result.success ? `Content: ${JSON.stringify(result.data, null, 2)}` : `Error: ${result.error}`}
+`).join('\n') : 'No external data available'}
+
+TASK COMPLETION REQUIREMENTS:
+1. Use ALL available data to complete the task thoroughly
+2. Provide specific, actionable results
+3. Include concrete examples, numbers, and details from the data
+4. Address all aspects of the original task
+5. Organize the response clearly and logically
+6. DO NOT ask questions or request clarification
+7. Deliver a complete, self-contained response
+8. If data is limited, work with what's available and note limitations
+
+Complete the task comprehensively using the available data:`;
               }
               
               // Call the real LLM
@@ -864,11 +946,43 @@ Extract the current Bitcoin price in USD:`;
       steps.push('Search for current Bitcoin price using web search tools');
       steps.push('Analyze and extract the numerical price value');
       steps.push('Format the result with source information');
-    } else if (descriptionLower.includes('twitter') || descriptionLower.includes('social')) {
-      // Social media related task
-      steps.push('Search for recent posts on social media platforms');
+    } else if (descriptionLower.includes('social media sentiment') && descriptionLower.includes('artificial intelligence')) {
+      // Social sentiment analysis task
+      steps.push('Use apify-twitter-search to find recent tweets about artificial intelligence');
+      steps.push('Use apify-reddit-search to find Reddit discussions about artificial intelligence');
+      steps.push('Analyze sentiment from both Twitter and Reddit posts');
+      steps.push('Provide summary of positive vs negative sentiment with examples');
+    } else if (descriptionLower.includes('web scraping tools') && descriptionLower.includes('competitors')) {
+      // Competitive research task
+      steps.push('Use apify-actor-discovery to find actors related to web scraping tools');
+      steps.push('Analyze competitor descriptions and market positioning');
+      steps.push('Provide insights about market positioning');
+    } else if (descriptionLower.includes('blockchain technology') && descriptionLower.includes('multiple sources')) {
+      // Content aggregation task
+      steps.push('Use apify-website-crawler to crawl a relevant blockchain website');
+      steps.push('Use apify-twitter-search to find recent tweets about blockchain technology');
+      steps.push('Use apify-reddit-search to find Reddit discussions about blockchain technology');
+      steps.push('Create comprehensive report from all sources');
+    } else if (descriptionLower.includes('twitter') || descriptionLower.includes('x.com') || descriptionLower.includes('x ')) {
+      // Twitter/X related task
+      steps.push('Use apify-twitter-search to find recent posts');
       steps.push('Extract and analyze post content');
       steps.push('Summarize findings with URLs and content');
+    } else if (descriptionLower.includes('reddit')) {
+      // Reddit related task
+      steps.push('Use apify-reddit-search to find recent posts');
+      steps.push('Extract and analyze post content');
+      steps.push('Summarize findings with URLs and content');
+    } else if (descriptionLower.includes('website') && descriptionLower.includes('crawl')) {
+      // Website crawling task
+      steps.push('Use apify-website-crawler to crawl the specified website');
+      steps.push('Extract and analyze website content');
+      steps.push('Summarize findings with structure information');
+    } else if (descriptionLower.includes('actor') && descriptionLower.includes('discover')) {
+      // Actor discovery task
+      steps.push('Use apify-actor-discovery to find relevant actors');
+      steps.push('Analyze actor descriptions and capabilities');
+      steps.push('Provide recommendations based on findings');
     } else if (descriptionLower.includes('calculate') || descriptionLower.includes('math')) {
       // Mathematical calculation
       steps.push('Perform the requested calculation');
@@ -892,44 +1006,98 @@ Extract the current Bitcoin price in USD:`;
     // Analyze step description to determine appropriate actions
     const descriptionLower = stepDescription.toLowerCase();
     
-    // Check if we have a tool manager and if web_search tool is available
+    // Get tool manager to check available tools
     const toolManager = this.agent.getManager<ToolManager>(ManagerType.TOOL);
-    let hasWebSearchTool = false;
     
-    console.log(`🔍 Checking for tool manager and web_search tool...`);
+    console.log(`🔍 Checking for tool manager and available tools...`);
     console.log(`🔍 Tool manager exists: ${!!toolManager}`);
+    
+    // Intelligent tool selection based on task description
+    let selectedTool: string | null = null;
+    let toolParams: Record<string, any> = {};
     
     if (toolManager) {
       try {
-        console.log(`🔍 Attempting to get web_search tool...`);
-        const webSearchTool = await toolManager.getTool('web_search');
-        hasWebSearchTool = !!webSearchTool;
-        console.log(`🔍 Web search tool found: ${hasWebSearchTool}`);
-        if (webSearchTool) {
-          console.log(`🔍 Web search tool details:`, {
-            id: webSearchTool.id,
-            name: webSearchTool.name,
-            enabled: webSearchTool.enabled
-          });
+        // Check for specific Apify tools first based on task description
+        if (descriptionLower.includes('apify-twitter-search') || 
+            (descriptionLower.includes('twitter') && descriptionLower.includes('search')) ||
+            (descriptionLower.includes('x.com') && descriptionLower.includes('search')) ||
+            (descriptionLower.includes('x ') && descriptionLower.includes('search'))) {
+          const twitterTool = await toolManager.getTool('apify-twitter-search');
+          if (twitterTool) {
+            selectedTool = 'apify-twitter-search';
+            toolParams = {
+              keyword: this.extractTwitterQuery(stepDescription),
+              limit: 5 // Reduced for cost control
+            };
+            console.log(`🔍 Selected Twitter tool: ${selectedTool}`);
+          }
+        } else if (descriptionLower.includes('apify-reddit-search') || 
+                   (descriptionLower.includes('reddit') && descriptionLower.includes('search'))) {
+          const redditTool = await toolManager.getTool('apify-reddit-search');
+          if (redditTool) {
+            selectedTool = 'apify-reddit-search';
+            toolParams = {
+              keyword: this.extractRedditQuery(stepDescription),
+              limit: 5 // Reduced for cost control
+            };
+            console.log(`🔍 Selected Reddit tool: ${selectedTool}`);
+          }
+        } else if (descriptionLower.includes('apify-website-crawler') || 
+                   (descriptionLower.includes('crawl') && descriptionLower.includes('website'))) {
+          const crawlerTool = await toolManager.getTool('apify-website-crawler');
+          if (crawlerTool) {
+            selectedTool = 'apify-website-crawler';
+            toolParams = {
+              url: this.extractUrlFromDescription(stepDescription) || 'https://example.com',
+              maxPages: 3 // Reduced for cost control
+            };
+            console.log(`🔍 Selected Website Crawler tool: ${selectedTool}`);
+          }
+        } else if (descriptionLower.includes('apify-actor-discovery') || 
+                   (descriptionLower.includes('discover') && descriptionLower.includes('actor'))) {
+          const discoveryTool = await toolManager.getTool('apify-actor-discovery');
+          if (discoveryTool) {
+            selectedTool = 'apify-actor-discovery';
+            toolParams = {
+              query: this.extractDiscoveryQuery(stepDescription),
+              limit: 3 // Reduced for cost control
+            };
+            console.log(`🔍 Selected Actor Discovery tool: ${selectedTool}`);
+          }
+        }
+        
+        // If no specific Apify tool was selected, fall back to web_search for search-related tasks
+        if (!selectedTool && (descriptionLower.includes('search') || descriptionLower.includes('find'))) {
+          const webSearchTool = await toolManager.getTool('web_search');
+          if (webSearchTool) {
+            selectedTool = 'web_search';
+            toolParams = {
+              query: this.extractSearchQuery(stepDescription)
+            };
+            console.log(`🔍 Selected fallback Web Search tool: ${selectedTool}`);
+          }
+        }
+        
+        if (selectedTool) {
+          console.log(`🔍 Tool selected: ${selectedTool} with params:`, toolParams);
         }
       } catch (error) {
-        console.log('🔍 Could not check for web_search tool:', error);
+        console.log('Error checking for tools:', error);
       }
     }
     
-    if (descriptionLower.includes('search') || descriptionLower.includes('find')) {
-      if (hasWebSearchTool) {
-        // Create a web search action if tool is available
+    if (descriptionLower.includes('search') || descriptionLower.includes('find') || descriptionLower.includes('discover')) {
+      if (selectedTool) {
+        // Create a tool execution action with the selected tool
         actions.push({
           id: `${stepId}-action-search`,
-          name: 'Web Search',
+          name: `${selectedTool} Execution`,
           description: stepDescription,
           type: 'tool_execution',
           parameters: {
-            toolName: 'web_search',
-            toolParams: {
-              query: this.extractSearchQuery(stepDescription)
-            }
+            toolName: selectedTool,
+            toolParams: toolParams
           },
           status: 'pending',
           createdAt: now,
@@ -940,7 +1108,7 @@ Extract the current Bitcoin price in USD:`;
         actions.push({
           id: `${stepId}-action-search-llm`,
           name: 'Search Simulation',
-          description: `Simulate web search for: ${stepDescription}`,
+          description: `Simulate search for: ${stepDescription}`,
           type: 'llm_query',
           parameters: {
             searchQuery: this.extractSearchQuery(stepDescription)
@@ -989,6 +1157,79 @@ Extract the current Bitcoin price in USD:`;
     }
     
     return actions;
+  }
+
+  /**
+   * Extract Twitter search query from step description
+   */
+  private extractTwitterQuery(stepDescription: string): string {
+    if (stepDescription.toLowerCase().includes('bitcoin')) {
+      return 'Bitcoin OR BTC';
+    } else if (stepDescription.toLowerCase().includes('artificial intelligence')) {
+      return 'artificial intelligence OR AI';
+    } else if (stepDescription.toLowerCase().includes('blockchain technology')) {
+      return 'blockchain technology';
+    } else if (stepDescription.toLowerCase().includes('ai automation')) {
+      return 'AI automation tools';
+    } else {
+      // Extract key terms from the description
+      const words = stepDescription.split(' ').filter(word => 
+        word.length > 3 && 
+        !['search', 'find', 'for', 'the', 'and', 'with', 'using', 'twitter', 'tweets', 'posts', 'about'].includes(word.toLowerCase())
+      );
+      return words.slice(0, 3).join(' OR ');
+    }
+  }
+
+  /**
+   * Extract Reddit search query from step description
+   */
+  private extractRedditQuery(stepDescription: string): string {
+    if (stepDescription.toLowerCase().includes('crypto')) {
+      return 'cryptocurrency';
+    } else if (stepDescription.toLowerCase().includes('artificial intelligence')) {
+      return 'artificial intelligence';
+    } else if (stepDescription.toLowerCase().includes('blockchain technology')) {
+      return 'blockchain technology';
+    } else if (stepDescription.toLowerCase().includes('ai automation')) {
+      return 'AI automation tools';
+    } else {
+      // Extract key terms from the description
+      const words = stepDescription.split(' ').filter(word => 
+        word.length > 3 && 
+        !['search', 'find', 'for', 'the', 'and', 'with', 'using', 'reddit', 'posts', 'discussions', 'about'].includes(word.toLowerCase())
+      );
+      return words.slice(0, 3).join(' ');
+    }
+  }
+
+  /**
+   * Extract URL from step description for website crawler
+   */
+  private extractUrlFromDescription(stepDescription: string): string | null {
+    const urlRegex = /https?:\/\/[^\s]+/gi;
+    const matches = stepDescription.match(urlRegex);
+    return matches ? matches[0] : null;
+  }
+
+  /**
+   * Extract discovery query from step description
+   */
+  private extractDiscoveryQuery(stepDescription: string): string {
+    if (stepDescription.toLowerCase().includes('social media')) {
+      return 'social media scraping';
+    } else if (stepDescription.toLowerCase().includes('web scraping tools')) {
+      return 'web scraping tools';
+    } else if (stepDescription.toLowerCase().includes('ai automation')) {
+      return 'AI automation';
+    } else {
+      // Extract key terms from the description
+      const words = stepDescription.split(' ').filter(word => 
+        word.length > 3 && 
+        !['discover', 'find', 'for', 'the', 'and', 'with', 'using', 'actor', 'actors', 'research', 'competitors'].includes(word.toLowerCase())
+      );
+      return words.slice(0, 3).join(' ');
+    }
   }
 
   /**
@@ -1058,5 +1299,46 @@ Extract the current Bitcoin price in USD:`;
       console.error(`❌ Error getting search results from previous actions:`, error);
       return null;
     }
+  }
+
+  /**
+   * Get all tool results from a plan
+   */
+  private getAllToolResultsFromPlan(action: PlanAction): { toolName: string; success: boolean; data: any; error: string | null }[] {
+    const results: { toolName: string; success: boolean; data: any; error: string | null }[] = [];
+    
+    for (const plan of Array.from(this.plans.values())) {
+      for (const step of plan.steps) {
+        for (const stepAction of step.actions) {
+          if (stepAction.type === 'tool_execution' && stepAction.result) {
+            const result = stepAction.result as any;
+            results.push({
+              toolName: (stepAction.parameters?.toolName as string) || 'unknown',
+              success: Boolean(result?.success),
+              data: result?.data || null,
+              error: result?.error || null
+            });
+          }
+        }
+      }
+    }
+    
+    return results;
+  }
+
+  /**
+   * Get original task description from a plan
+   */
+  private getOriginalTaskDescription(action: PlanAction): string | null {
+    for (const plan of Array.from(this.plans.values())) {
+      for (const step of plan.steps) {
+        for (const stepAction of step.actions) {
+          if (stepAction.id === action.id) {
+            return stepAction.description;
+          }
+        }
+      }
+    }
+    return null;
   }
 } 

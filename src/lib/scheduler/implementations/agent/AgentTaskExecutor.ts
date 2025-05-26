@@ -295,9 +295,68 @@ export class AgentTaskExecutor implements IAgentTaskExecutor {
 
         const successful = planResult.success && !planResult.error;
         const status = successful ? TaskStatus.COMPLETED : TaskStatus.FAILED;
-        const result = planResult.plan ? 
-          `Plan execution completed. Plan ID: ${planResult.plan.id}` : 
-          'Task execution completed';
+        
+        // Extract actual results from plan steps instead of generic message
+        let result = 'Task execution completed';
+        let toolResults: any[] = [];
+        let toolSuccessInfo: Record<string, boolean> = {};
+        
+        if (planResult.plan && planResult.plan.steps) {
+          const stepResults: string[] = [];
+          
+          planResult.plan.steps.forEach((step: any) => {
+            if (step.actions) {
+              step.actions.forEach((action: any) => {
+                if (action.type === 'tool_execution' && action.result) {
+                  const toolName = action.parameters?.toolName || 'unknown_tool';
+                  const toolSuccess = action.result.success || false;
+                  
+                  // Track tool success for satisfaction scoring
+                  toolSuccessInfo[toolName] = toolSuccess;
+                  
+                  if (toolSuccess && action.result.data) {
+                    // Extract meaningful data from successful tool executions
+                    let toolData = action.result.data;
+                    if (typeof toolData === 'string') {
+                      stepResults.push(`${toolName}: ${toolData.substring(0, 500)}${toolData.length > 500 ? '...' : ''}`);
+                    } else {
+                      stepResults.push(`${toolName}: ${JSON.stringify(toolData).substring(0, 500)}...`);
+                    }
+                    toolResults.push({
+                      tool: toolName,
+                      success: true,
+                      data: toolData
+                    });
+                  } else {
+                    // Handle failed tool executions
+                    const errorMsg = action.result.error || 'Tool execution failed';
+                    stepResults.push(`${toolName}: FAILED - ${errorMsg}`);
+                    toolResults.push({
+                      tool: toolName,
+                      success: false,
+                      error: errorMsg
+                    });
+                  }
+                } else if (action.type === 'analysis' || action.type === 'llm_query') {
+                  // Extract LLM results
+                  if (action.result && action.result.success && action.result.data) {
+                    let llmData = action.result.data;
+                    if (typeof llmData === 'string') {
+                      stepResults.push(`LLM Analysis: ${llmData.substring(0, 300)}${llmData.length > 300 ? '...' : ''}`);
+                    }
+                  }
+                }
+              });
+            }
+          });
+          
+          if (stepResults.length > 0) {
+            result = stepResults.join('\n\n');
+          } else {
+            result = `Plan execution completed. Plan ID: ${planResult.plan.id}`;
+          }
+        }
+        
         const error = planResult.error ? {
           message: planResult.error,
           code: 'PLAN_EXECUTION_ERROR'
@@ -316,6 +375,8 @@ export class AgentTaskExecutor implements IAgentTaskExecutor {
           duration: 0, // Will be overridden by caller
           metadata: {
             planResult: planResult,
+            toolResults: toolResults,
+            toolSuccessInfo: toolSuccessInfo,
             executedBy: 'AgentTaskExecutor',
             executionMethod: 'planAndExecute',
             agentType: 'DefaultAgent'

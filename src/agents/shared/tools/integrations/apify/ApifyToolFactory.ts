@@ -193,7 +193,13 @@ export function createApifyTools(apifyManager: IApifyManager): Record<string, To
           });
           
           if (actors.length === 0) {
-            return `No actors found matching "${args.query}". Try a different search term or category.`;
+            return `No actors found matching "${args.query}". This could be due to:
+1. No matching actors in the Apify Store for your search term
+2. API rate limiting or temporary service issues
+3. Network connectivity problems
+
+The search was performed using the official Apify Store API endpoint.
+Try a different search term or check the Apify Store directly at https://apify.com/store?search=${encodeURIComponent(args.query)}`;
           }
           
           // Format the results
@@ -212,7 +218,19 @@ export function createApifyTools(apifyManager: IApifyManager): Record<string, To
           return result;
         } catch (error) {
           logger.error('Error in apify-actor-discovery tool:', error);
-          return `Error discovering actors: ${error instanceof Error ? error.message : String(error)}`;
+          
+          // Provide helpful error message based on error type
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          
+          if (errorMessage.includes('401') || errorMessage.includes('unauthorized')) {
+            return `Actor discovery failed: Invalid or missing Apify API key. Please check your APIFY_API_KEY environment variable.`;
+          } else if (errorMessage.includes('429') || errorMessage.includes('rate limit')) {
+            return `Actor discovery failed: API rate limit exceeded. Please try again later or reduce the frequency of requests.`;
+          } else if (errorMessage.includes('network') || errorMessage.includes('fetch')) {
+            return `Actor discovery failed: Network connectivity issue. Please check your internet connection and try again.`;
+          } else {
+            return `Actor discovery failed: ${errorMessage}. You can browse actors manually at https://apify.com/store`;
+          }
         }
       }
     },

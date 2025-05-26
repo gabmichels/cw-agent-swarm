@@ -1117,11 +1117,6 @@ export class DefaultApifyManager implements IApifyManager {
    * @returns List of actor metadata
    */
   async discoverActors(query: string, options?: ActorDiscoveryOptions): Promise<ApifyActorMetadata[]> {
-    if (!this.apiToken) {
-      logger.warn('Cannot discover actors: APIFY_API_KEY is not set');
-      return [];
-    }
-    
     try {
       // Default options
       const limit = options?.limit || 10;
@@ -1147,22 +1142,56 @@ export class DefaultApifyManager implements IApifyManager {
         queryParams.append('pricingModel', usageTier === 'paid' ? 'PAID' : 'FREE');
       }
       
+      // Prepare headers - the public store API might not require authentication
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json'
+      };
+      
+      // Add authorization header only if API token is available
+      if (this.apiToken) {
+        headers['Authorization'] = `Bearer ${this.apiToken}`;
+      } else {
+        logger.info('No API token provided for actor discovery - attempting public access');
+      }
+      
+      const url = `${this.baseApiUrl}/store?${queryParams.toString()}`;
+      logger.debug(`Making request to Apify Store API: ${url}`);
+      
       // Make request to Apify API
-      const response = await fetch(`${this.baseApiUrl}/store/acts?${queryParams.toString()}`, {
-        headers: {
-          'Authorization': `Bearer ${this.apiToken}`,
-          'Content-Type': 'application/json'
-        }
-      });
+      const response = await fetch(url, { headers });
       
       if (!response.ok) {
         const error = await response.text();
-        logger.error(`Failed to discover actors: ${error}`);
+        logger.error(`Failed to discover actors (${response.status}): ${error}`);
+        logger.error(`Request URL: ${url}`);
+        logger.error(`Request headers: ${JSON.stringify(headers, null, 2)}`);
+        
+        // Provide specific error messages based on status code
+        if (response.status === 401) {
+          logger.warn('Unauthorized access to Apify Store API - this might be expected for public access');
+          return [];
+        } else if (response.status === 404) {
+          logger.error('Apify Store API endpoint not found - check if the URL is correct');
+          return [];
+        } else if (response.status === 429) {
+          logger.warn('Rate limit exceeded for Apify Store API');
+          return [];
+        }
+        
         return [];
       }
       
       const data = await response.json();
+      logger.debug(`Apify Store API response structure: ${JSON.stringify(Object.keys(data), null, 2)}`);
+      
+      // Check if the response has the expected structure
+      if (!data.data || !data.data.items) {
+        logger.error(`Unexpected response structure from Apify Store API: ${JSON.stringify(data, null, 2)}`);
+        return [];
+      }
+      
       const actors = data.data.items;
+      logger.info(`Found ${actors.length} actors from Apify Store API`);
       
       // Map to our metadata format and filter by minimum rating
       return actors
@@ -1185,6 +1214,14 @@ export class DefaultApifyManager implements IApifyManager {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       logger.error(`Error discovering actors: ${errorMessage}`);
+      
+      // Provide helpful error context
+      if (errorMessage.includes('fetch')) {
+        logger.error('Network error occurred while accessing Apify Store API');
+      } else if (errorMessage.includes('JSON')) {
+        logger.error('Failed to parse JSON response from Apify Store API');
+      }
+      
       return [];
     }
   }

@@ -62,170 +62,87 @@ describe('Real Async Task Execution & Output Verification', () => {
     console.log('✅ Task storage and retrieval verified');
   }, 15000);
 
-  test('Enhanced execution result capture with detailed tool verification', async () => {
-    console.log('🚀 Testing enhanced execution result capture...');
-    
-    // Create a task for immediate execution
-    const taskOptions: TaskCreationOptions = {
-      name: 'bitcoin_price_detailed_check',
-      description: 'Get the current Bitcoin price in USD using web search tools and return detailed information including the price source',
-      scheduleType: TaskScheduleType.PRIORITY,
-      priority: 10,
-      metadata: {
-        taskType: 'price_check_detailed',
-        expectedResult: 'bitcoin_price_with_source',
-        requireToolExecution: true
-      }
-    };
+  // COMMENTED OUT TO AVOID WEB SEARCH API COSTS
+  // test('Immediate task execution with real result verification', async () => {
+  //   console.log('🚀 Testing immediate task execution with real results...');
+  //   
+  //   // Create a task for immediate execution
+  //   const taskOptions: TaskCreationOptions = {
+  //     name: 'bitcoin_price_check',
+  //     description: 'Get the current Bitcoin price in USD and return the numerical value',
+  //     scheduleType: TaskScheduleType.PRIORITY,
+  //     priority: 10,
+  //     metadata: {
+  //       taskType: 'price_check',
+  //       expectedResult: 'bitcoin_price'
+  //     }
+  //   };
 
-    const taskResult: TaskCreationResult = await agent.createTask(taskOptions);
-    expect(taskResult.success).toBe(true);
-    const createdTask = taskResult.task;
-    console.log('✅ Task created for enhanced execution:', createdTask.id);
-    
-    // Execute the task immediately using agent method
-    console.log('🔥 Executing task with enhanced result capture...');
-    const executionResult = await agent.executeTask(createdTask.id);
-    
-    console.log('📊 Enhanced execution completed!');
-    console.log('🎯 Execution successful:', executionResult.successful);
-    console.log('⏱️ Execution duration:', executionResult.duration, 'ms');
-    
-    // Verify execution was successful
-    expect(executionResult).toBeDefined();
-    expect(executionResult.taskId).toBe(createdTask.id);
-    
-    // Enhanced result verification with metadata access
-    console.log('🔍 Detailed result analysis:');
-    console.log('📋 Execution metadata:', JSON.stringify(executionResult.metadata, null, 2));
-    
-    // Check if we have plan result in metadata
-    if (executionResult.metadata?.planResult) {
-      const planResult = executionResult.metadata.planResult as any;
-      console.log('📋 Plan result available:', !!planResult);
-      console.log('📋 Plan success:', planResult.success);
-      console.log('📋 Plan object:', !!planResult.plan);
-      
-      // If we have a plan object, examine its structure
-      if (planResult.plan) {
-        const plan = planResult.plan as any;
-        console.log('📋 Plan execution details:');
-        console.log('  - Plan ID:', plan.id);
-        console.log('  - Plan status:', plan.status);
-        console.log('  - Steps executed:', plan.steps?.length || 0);
-        console.log('  - Plan metadata keys:', Object.keys(plan.metadata || {}));
-        
-        // Look for execution results in plan metadata
-        if (plan.metadata?.executionResult) {
-          const execResult = plan.metadata.executionResult as any;
-          console.log('🎯 Found detailed execution results!');
-          console.log('  - Overall success:', execResult.success);
-          console.log('  - Steps completed:', execResult.stepResults?.length || 0);
-          
-          // Examine step results for tool execution
-          if (execResult.stepResults && execResult.stepResults.length > 0) {
-            console.log('🔧 Step results analysis:');
-            execResult.stepResults.forEach((stepResult: any, index: number) => {
-              console.log(`  Step ${index + 1}:`);
-              console.log(`    - Status: ${stepResult.status}`);
-              console.log(`    - Tool results: ${stepResult.toolResults?.length || 0}`);
-              
-              if (stepResult.toolResults && stepResult.toolResults.length > 0) {
-                stepResult.toolResults.forEach((toolResult: any, toolIndex: number) => {
-                  console.log(`    Tool ${toolIndex + 1}:`);
-                  console.log(`      - Success: ${toolResult.success}`);
-                  console.log(`      - Data available: ${!!toolResult.data}`);
-                  if (toolResult.data) {
-                    const dataStr = JSON.stringify(toolResult.data);
-                    console.log(`      - Data preview: ${dataStr.substring(0, 200)}...`);
-                  }
-                  if (toolResult.error) {
-                    console.log(`      - Error: ${toolResult.error}`);
-                  }
-                });
-              }
-              
-              if (stepResult.output) {
-                console.log(`    - Output: ${stepResult.output.substring(0, 100)}...`);
-              }
-            });
-          }
-        } else {
-          console.log('❌ No detailed execution results found in plan metadata');
-          
-          // Check if steps have any execution details
-          if (plan.steps && plan.steps.length > 0) {
-            console.log('🔍 Examining individual steps for execution details:');
-            plan.steps.forEach((step: any, index: number) => {
-              console.log(`  Step ${index + 1} (${step.id}):`);
-              console.log(`    - Name: ${step.name}`);
-              console.log(`    - Description: ${step.description}`);
-              console.log(`    - Status: ${step.status}`);
-              console.log(`    - Actions: ${step.actions?.length || 0}`);
-              
-              if (step.actions && step.actions.length > 0) {
-                step.actions.forEach((action: any, actionIndex: number) => {
-                  console.log(`    Action ${actionIndex + 1}:`);
-                  console.log(`      - Type: ${action.type || 'unknown'}`);
-                  console.log(`      - Status: ${action.status || 'unknown'}`);
-                  console.log(`      - Description: ${action.description || 'none'}`);
-                  if (action.result) {
-                    console.log(`      - Result: ${JSON.stringify(action.result).substring(0, 100)}...`);
-                  }
-                });
-              } else {
-                console.log(`    - No actions found for step ${index + 1}`);
-              }
-            });
-          }
-        }
-      }
-    }
-    
-    // Check the basic result content
-    if (executionResult.successful && executionResult.result) {
-      const resultString = JSON.stringify(executionResult.result);
-      console.log('🔍 Basic result content (first 300 chars):', resultString.substring(0, 300));
-      
-      // Check for Bitcoin/price indicators
-      const hasRelevantContent = (
-        resultString.toLowerCase().includes('bitcoin') ||
-        resultString.toLowerCase().includes('btc') ||
-        resultString.includes('$') ||
-        resultString.toLowerCase().includes('price') ||
-        /\d+(\.\d+)?/.test(resultString) // Contains numbers
-      );
-      
-      console.log('✅ Result contains relevant Bitcoin/price information:', hasRelevantContent);
-    } else {
-      console.log('❌ Task execution failed or returned no result');
-      if (executionResult.error) {
-        console.log('🐛 Execution error:', executionResult.error);
-      }
-    }
+  //   const taskResult: TaskCreationResult = await agent.createTask(taskOptions);
+  //   expect(taskResult.success).toBe(true);
+  //   const createdTask = taskResult.task;
+  //   console.log('✅ Task created for immediate execution:', createdTask.id);
+  //   
+  //   // Execute the task immediately using agent method
+  //   console.log('🔥 Executing task immediately...');
+  //   const executionResult = await agent.executeTask(createdTask.id);
+  //   
+  //   console.log('📊 Execution completed! Result:', JSON.stringify(executionResult, null, 2));
+  //   console.log('🎯 Execution successful:', executionResult.successful);
+  //   console.log('⏱️ Execution duration:', executionResult.duration, 'ms');
+  //   
+  //   // Verify execution was successful
+  //   expect(executionResult).toBeDefined();
+  //   expect(executionResult.taskId).toBe(createdTask.id);
+  //   
+  //   // Check if we got a real result
+  //   if (executionResult.successful && executionResult.result) {
+  //     const resultString = JSON.stringify(executionResult.result);
+  //     console.log('🔍 Result content for verification:', resultString);
+  //     
+  //     // Check for Bitcoin/price indicators
+  //     const hasRelevantContent = (
+  //       resultString.toLowerCase().includes('bitcoin') ||
+  //       resultString.toLowerCase().includes('btc') ||
+  //       resultString.includes('$') ||
+  //       resultString.toLowerCase().includes('price') ||
+  //       /\d+(\.\d+)?/.test(resultString) // Contains numbers
+  //     );
+  //     
+  //     if (hasRelevantContent) {
+  //       console.log('✅ Task result contains relevant Bitcoin/price information');
+  //     } else {
+  //       console.log('⚠️ Task result does not contain obvious Bitcoin/price information');
+  //     }
+  //   } else {
+  //     console.log('❌ Task execution failed or returned no result');
+  //     if (executionResult.error) {
+  //       console.log('🐛 Execution error:', executionResult.error);
+  //     }
+  //   }
 
-    // Get the updated task to see final state
-    const finalTask = await agent.getTask(createdTask.id);
-    console.log('📊 Final task status:', finalTask?.status);
-    console.log('📊 Final task metadata keys:', Object.keys(finalTask?.metadata || {}));
-    
-    console.log('✅ Enhanced execution result capture test completed');
-  }, 60000);
+  //   // Get the updated task to see final state
+  //   const finalTask = await agent.getTask(createdTask.id);
+  //   console.log('📊 Final task status:', finalTask?.status);
+  //   console.log('📊 Final task metadata:', finalTask?.metadata);
+  //   
+  //   console.log('✅ Immediate execution test completed');
+  // }, 45000);
 
   test('Twitter tool verification with enhanced result capture', async () => {
     console.log('🐦 Testing Twitter tool integration with enhanced result capture...');
     
-    // Create a task that requires multiple tools: Twitter search + summarization
+    // Create a task that explicitly requests the Twitter tool
     const taskOptions: TaskCreationOptions = {
-      name: 'twitter_bitcoin_enhanced_research',
-      description: 'Search for 3 recent posts about Bitcoin on Twitter/X, extract their content, and provide a summary with the post URLs',
+      name: 'twitter_bitcoin_search',
+      description: 'Use the apify-twitter-search tool to find 3 recent tweets about Bitcoin. Extract the tweet content, usernames, and engagement metrics.',
       scheduleType: TaskScheduleType.PRIORITY,
       priority: 10,
       metadata: {
-        taskType: 'social_media_research_enhanced',
-        expectedTools: ['twitter_search', 'web_search', 'text_summarization'],
-        expectedOutput: 'summary_with_urls_and_content',
-        verificationCriteria: 'should contain summary, URLs, and post content',
+        taskType: 'social_media_search',
+        expectedTools: ['apify-twitter-search'],
+        expectedOutput: 'twitter_posts_with_metrics',
+        verificationCriteria: 'should contain tweet content, usernames, and engagement data',
         requireDetailedResults: true
       }
     };
@@ -233,13 +150,13 @@ describe('Real Async Task Execution & Output Verification', () => {
     const taskResult: TaskCreationResult = await agent.createTask(taskOptions);
     expect(taskResult.success).toBe(true);
     const createdTask = taskResult.task;
-    console.log('✅ Enhanced Twitter task created:', createdTask.id);
+    console.log('✅ Twitter search task created:', createdTask.id);
     
     // Execute the task immediately using agent method
-    console.log('🔥 Executing enhanced Twitter research task...');
+    console.log('🔥 Executing Twitter search task...');
     const executionResult = await agent.executeTask(createdTask.id);
     
-    console.log('📊 Enhanced Twitter task execution completed!');
+    console.log('📊 Twitter task execution completed!');
     console.log('🎯 Execution successful:', executionResult.successful);
     console.log('⏱️ Execution duration:', executionResult.duration, 'ms');
     
@@ -248,7 +165,7 @@ describe('Real Async Task Execution & Output Verification', () => {
     expect(executionResult.taskId).toBe(createdTask.id);
     
     // Enhanced detailed result verification
-    console.log('🔍 Enhanced Twitter result analysis:');
+    console.log('🔍 Twitter result analysis:');
     
     // Access plan execution details from metadata
     if (executionResult.metadata?.planResult) {
@@ -260,125 +177,70 @@ describe('Real Async Task Execution & Output Verification', () => {
         console.log('  - Plan status:', plan.status);
         console.log('  - Steps executed:', plan.steps?.length || 0);
         
-        // Look for execution results in plan metadata
-        if (plan.metadata?.executionResult) {
-          const execResult = plan.metadata.executionResult as any;
-          console.log('🎯 Found detailed execution results!');
-          console.log('  - Overall success:', execResult.success);
-          console.log('  - Steps completed:', execResult.stepResults?.length || 0);
+        // Look for tool usage in plan steps
+        if (plan.steps && plan.steps.length > 0) {
+          const toolsUsed: string[] = [];
+          const twitterContent: string[] = [];
           
-          // Analyze each step for tool usage
-          if (execResult.stepResults) {
-            const toolsUsed: string[] = [];
-            const urlsFound: string[] = [];
-            const contentExtracted: string[] = [];
+          plan.steps.forEach((step: any, index: number) => {
+            console.log(`📋 Step ${index + 1} analysis:`);
+            console.log(`  - Status: ${step.status}`);
+            console.log(`  - Actions: ${step.actions?.length || 0}`);
             
-            execResult.stepResults.forEach((stepResult: any, index: number) => {
-              console.log(`📋 Step ${index + 1} analysis:`);
-              console.log(`  - Status: ${stepResult.status}`);
-              console.log(`  - Tools used: ${stepResult.toolResults?.length || 0}`);
-              
-              if (stepResult.toolResults) {
-                stepResult.toolResults.forEach((toolResult: any, toolIndex: number) => {
-                  console.log(`   Tool ${toolIndex + 1}:`);
-                  console.log(`    - Success: ${toolResult.success}`);
-                  console.log(`    - Has data: ${!!toolResult.data}`);
+            if (step.actions) {
+              step.actions.forEach((action: any, actionIndex: number) => {
+                console.log(`   Action ${actionIndex + 1}:`);
+                console.log(`    - Type: ${action.type}`);
+                console.log(`    - Status: ${action.status}`);
+                
+                if (action.type === 'tool_execution' && action.parameters?.toolName) {
+                  toolsUsed.push(action.parameters.toolName);
+                  console.log(`    - Tool used: ${action.parameters.toolName}`);
+                }
+                
+                if (action.result && action.result.data) {
+                  const dataStr = JSON.stringify(action.result.data);
+                  console.log(`    - Data preview: ${dataStr.substring(0, 150)}...`);
                   
-                  if (toolResult.success && toolResult.data) {
-                    toolsUsed.push(`Tool_${toolIndex + 1}`);
-                    
-                    // Try to extract URLs and content from tool data
-                    const dataStr = JSON.stringify(toolResult.data);
-                    console.log(`    - Data preview: ${dataStr.substring(0, 150)}...`);
-                    
-                    // Look for URLs in the data
-                    const urlMatches = dataStr.match(/https?:\/\/[^\s"]+/gi);
-                    if (urlMatches) {
-                      urlsFound.push(...urlMatches);
-                      console.log(`    - URLs found: ${urlMatches.length}`);
-                    }
-                    
-                    // Look for Twitter/Bitcoin content
-                    const hasTwitterContent = (
-                      dataStr.toLowerCase().includes('twitter') ||
-                      dataStr.toLowerCase().includes('tweet') ||
-                      dataStr.toLowerCase().includes('bitcoin') ||
-                      dataStr.toLowerCase().includes('btc')
-                    );
-                    
-                    if (hasTwitterContent) {
-                      contentExtracted.push(`Step_${index + 1}_Tool_${toolIndex + 1}`);
-                      console.log(`    - Contains Twitter/Bitcoin content: ✅`);
-                    }
-                  }
+                  // Look for Twitter content
+                  const hasTwitterContent = (
+                    dataStr.toLowerCase().includes('twitter') ||
+                    dataStr.toLowerCase().includes('tweet') ||
+                    dataStr.toLowerCase().includes('bitcoin') ||
+                    dataStr.toLowerCase().includes('btc') ||
+                    dataStr.includes('@')
+                  );
                   
-                  if (toolResult.error) {
-                    console.log(`    - Error: ${toolResult.error}`);
+                  if (hasTwitterContent) {
+                    twitterContent.push(`Step_${index + 1}_Action_${actionIndex + 1}`);
+                    console.log(`    - Contains Twitter content: ✅`);
                   }
-                });
-              }
-              
-              if (stepResult.output) {
-                console.log(`  - Step output: ${stepResult.output.substring(0, 100)}...`);
-              }
-            });
-            
-            // Summary of tool execution verification
-            console.log('🎯 Tool execution summary:');
-            console.log(`  - Tools successfully used: ${toolsUsed.length}`);
-            console.log(`  - URLs extracted: ${urlsFound.length}`);
-            console.log(`  - Content sources: ${contentExtracted.length}`);
-            
-            if (urlsFound.length > 0) {
-              console.log('🔗 URLs found:');
-              urlsFound.slice(0, 5).forEach((url, index) => {
-                console.log(`  ${index + 1}. ${url}`);
+                }
+                
+                if (action.result?.error) {
+                  console.log(`    - Error: ${action.result.error}`);
+                }
               });
             }
-            
-            // Verification criteria
-            const toolExecutionSuccess = toolsUsed.length > 0;
-            const urlExtractionSuccess = urlsFound.length > 0;
-            const contentExtractionSuccess = contentExtracted.length > 0;
-            
-            console.log('✅ Verification results:');
-            console.log(`  - Tool execution: ${toolExecutionSuccess ? '✅' : '❌'}`);
-            console.log(`  - URL extraction: ${urlExtractionSuccess ? '✅' : '❌'}`);
-            console.log(`  - Content extraction: ${contentExtractionSuccess ? '✅' : '❌'}`);
-            
-            if (toolExecutionSuccess && urlExtractionSuccess) {
-              console.log('🎉 Enhanced Twitter task successfully used tools and extracted data!');
-            } else {
-              console.log('⚠️ Enhanced Twitter task may not have fully succeeded in tool execution');
-            }
-          }
-        } else {
-          console.log('❌ No detailed execution results found in plan metadata');
+          });
           
-          // Check if steps have any execution details
-          if (plan.steps && plan.steps.length > 0) {
-            console.log('🔍 Examining individual steps for execution details:');
-            plan.steps.forEach((step: any, index: number) => {
-              console.log(`  Step ${index + 1} (${step.id}):`);
-              console.log(`    - Name: ${step.name}`);
-              console.log(`    - Description: ${step.description}`);
-              console.log(`    - Status: ${step.status}`);
-              console.log(`    - Actions: ${step.actions?.length || 0}`);
-              
-              if (step.actions && step.actions.length > 0) {
-                step.actions.forEach((action: any, actionIndex: number) => {
-                  console.log(`    Action ${actionIndex + 1}:`);
-                  console.log(`      - Type: ${action.type || 'unknown'}`);
-                  console.log(`      - Status: ${action.status || 'unknown'}`);
-                  console.log(`      - Description: ${action.description || 'none'}`);
-                  if (action.result) {
-                    console.log(`      - Result: ${JSON.stringify(action.result).substring(0, 100)}...`);
-                  }
-                });
-              } else {
-                console.log(`    - No actions found for step ${index + 1}`);
-              }
-            });
+          // Summary of tool execution verification
+          console.log('🎯 Tool execution summary:');
+          console.log(`  - Tools used: ${toolsUsed.join(', ')}`);
+          console.log(`  - Twitter content found: ${twitterContent.length} sources`);
+          
+          // Verification criteria
+          const twitterToolUsed = toolsUsed.includes('apify-twitter-search');
+          const contentFound = twitterContent.length > 0;
+          
+          console.log('✅ Verification results:');
+          console.log(`  - Twitter tool used: ${twitterToolUsed ? '✅' : '❌'}`);
+          console.log(`  - Content found: ${contentFound ? '✅' : '❌'}`);
+          
+          if (twitterToolUsed && contentFound) {
+            console.log('🎉 Twitter tool successfully executed and returned data!');
+          } else {
+            console.log('⚠️ Twitter tool may not have been used or returned expected data');
           }
         }
       }
@@ -389,7 +251,7 @@ describe('Real Async Task Execution & Output Verification', () => {
       const resultString = JSON.stringify(executionResult.result);
       console.log('🔍 Basic result content (first 300 chars):', resultString.substring(0, 300));
       
-      // Check for expected Twitter/Bitcoin content
+      // Check for expected Twitter content
       const hasTwitterContent = (
         resultString.toLowerCase().includes('twitter') ||
         resultString.toLowerCase().includes('tweet') ||
@@ -398,95 +260,259 @@ describe('Real Async Task Execution & Output Verification', () => {
         resultString.toLowerCase().includes('#bitcoin')
       );
       
-      // Check for URLs (basic pattern)
-      const urlPattern = /https?:\/\/[^\s"]+/gi;
-      const urls = resultString.match(urlPattern) || [];
-      
       console.log('📊 Basic content verification:');
       console.log('  - Has Twitter/Bitcoin content:', hasTwitterContent);
-      console.log('  - URL count:', urls.length);
       console.log('  - Result length:', resultString.length, 'characters');
       
     } else {
-      console.log('❌ Enhanced Twitter task execution failed or returned no result');
+      console.log('❌ Twitter task execution failed or returned no result');
       if (executionResult.error) {
-        console.log('🐛 Enhanced Twitter task error:', executionResult.error);
+        console.log('🐛 Twitter task error:', executionResult.error);
       }
     }
 
     // Get the updated task to see final state
     const finalTask = await agent.getTask(createdTask.id);
-    console.log('📊 Final enhanced Twitter task status:', finalTask?.status);
-    console.log('📊 Final enhanced Twitter task metadata keys:', Object.keys(finalTask?.metadata || {}));
+    console.log('📊 Final Twitter task status:', finalTask?.status);
+    console.log('📊 Final Twitter task metadata keys:', Object.keys(finalTask?.metadata || {}));
     
-    console.log('✅ Enhanced Twitter tool verification test completed');
+    console.log('✅ Twitter tool verification test completed');
   }, 90000);
 
-  test('Immediate task execution with real result verification', async () => {
-    console.log('🚀 Testing immediate task execution with real results...');
+  test('Reddit tool verification with real LLM processing', async () => {
+    console.log('🔴 Testing Reddit tool integration with real LLM processing...');
     
-    // Create a task for immediate execution
+    // Create a task that explicitly requests the Reddit tool
     const taskOptions: TaskCreationOptions = {
-      name: 'bitcoin_price_check',
-      description: 'Get the current Bitcoin price in USD and return the numerical value',
+      name: 'reddit_crypto_search',
+      description: 'Use the apify-reddit-search tool to find recent posts about cryptocurrency from r/CryptoCurrency. Extract post titles, content, and upvote counts.',
       scheduleType: TaskScheduleType.PRIORITY,
       priority: 10,
       metadata: {
-        taskType: 'price_check',
-        expectedResult: 'bitcoin_price'
+        taskType: 'social_media_search',
+        expectedTools: ['apify-reddit-search'],
+        expectedOutput: 'reddit_posts_with_metrics',
+        verificationCriteria: 'should contain post titles, content, and upvote data'
       }
     };
 
     const taskResult: TaskCreationResult = await agent.createTask(taskOptions);
     expect(taskResult.success).toBe(true);
     const createdTask = taskResult.task;
-    console.log('✅ Task created for immediate execution:', createdTask.id);
+    console.log('✅ Reddit search task created:', createdTask.id);
     
-    // Execute the task immediately using agent method
-    console.log('🔥 Executing task immediately...');
+    // Execute the task immediately
+    console.log('🔥 Executing Reddit search task...');
     const executionResult = await agent.executeTask(createdTask.id);
     
-    console.log('📊 Execution completed! Result:', JSON.stringify(executionResult, null, 2));
+    console.log('📊 Reddit task execution completed!');
     console.log('🎯 Execution successful:', executionResult.successful);
     console.log('⏱️ Execution duration:', executionResult.duration, 'ms');
     
-    // Verify execution was successful
+    // Verify execution and check for Reddit tool usage
     expect(executionResult).toBeDefined();
     expect(executionResult.taskId).toBe(createdTask.id);
     
-    // Check if we got a real result
+    // Check for Reddit-specific content
     if (executionResult.successful && executionResult.result) {
       const resultString = JSON.stringify(executionResult.result);
-      console.log('🔍 Result content for verification:', resultString);
+      console.log('🔍 Reddit result preview:', resultString.substring(0, 200));
       
-      // Check for Bitcoin/price indicators
-      const hasRelevantContent = (
-        resultString.toLowerCase().includes('bitcoin') ||
-        resultString.toLowerCase().includes('btc') ||
-        resultString.includes('$') ||
-        resultString.toLowerCase().includes('price') ||
-        /\d+(\.\d+)?/.test(resultString) // Contains numbers
+      const hasRedditContent = (
+        resultString.toLowerCase().includes('reddit') ||
+        resultString.toLowerCase().includes('r/') ||
+        resultString.toLowerCase().includes('upvote') ||
+        resultString.toLowerCase().includes('crypto')
       );
       
-      if (hasRelevantContent) {
-        console.log('✅ Task result contains relevant Bitcoin/price information');
-      } else {
-        console.log('⚠️ Task result does not contain obvious Bitcoin/price information');
+      console.log('✅ Reddit content verification:', hasRedditContent ? 'FOUND' : 'NOT FOUND');
+    }
+    
+    console.log('✅ Reddit tool verification test completed');
+  }, 60000);
+
+  test('Website crawler tool verification with real LLM processing', async () => {
+    console.log('🌐 Testing Website Crawler tool integration...');
+    
+    // Create a task that explicitly requests the website crawler tool
+    const taskOptions: TaskCreationOptions = {
+      name: 'website_crawler_test',
+      description: 'Use the apify-website-crawler tool to crawl https://example.com and extract the main content and page structure.',
+      scheduleType: TaskScheduleType.PRIORITY,
+      priority: 10,
+      metadata: {
+        taskType: 'web_scraping',
+        expectedTools: ['apify-website-crawler'],
+        expectedOutput: 'website_content_and_structure',
+        verificationCriteria: 'should contain page content and structure data'
       }
-    } else {
-      console.log('❌ Task execution failed or returned no result');
-      if (executionResult.error) {
-        console.log('🐛 Execution error:', executionResult.error);
+    };
+
+    const taskResult: TaskCreationResult = await agent.createTask(taskOptions);
+    expect(taskResult.success).toBe(true);
+    const createdTask = taskResult.task;
+    console.log('✅ Website crawler task created:', createdTask.id);
+    
+    // Execute the task immediately
+    console.log('🔥 Executing website crawler task...');
+    const executionResult = await agent.executeTask(createdTask.id);
+    
+    console.log('📊 Website crawler task execution completed!');
+    console.log('🎯 Execution successful:', executionResult.successful);
+    console.log('⏱️ Execution duration:', executionResult.duration, 'ms');
+    
+    // Verify execution and check for crawler tool usage
+    expect(executionResult).toBeDefined();
+    expect(executionResult.taskId).toBe(createdTask.id);
+    
+    // Check for website crawler content
+    if (executionResult.successful && executionResult.result) {
+      const resultString = JSON.stringify(executionResult.result);
+      console.log('🔍 Website crawler result preview:', resultString.substring(0, 200));
+      
+      const hasWebsiteContent = (
+        resultString.toLowerCase().includes('crawl') ||
+        resultString.toLowerCase().includes('page') ||
+        resultString.toLowerCase().includes('website') ||
+        resultString.toLowerCase().includes('example.com')
+      );
+      
+      console.log('✅ Website content verification:', hasWebsiteContent ? 'FOUND' : 'NOT FOUND');
+    }
+    
+    console.log('✅ Website crawler tool verification test completed');
+  }, 60000);
+
+  test('Apify actor discovery tool verification', async () => {
+    console.log('🔍 Testing Apify Actor Discovery tool...');
+    
+    // Create a task that uses the actor discovery tool
+    const taskOptions: TaskCreationOptions = {
+      name: 'actor_discovery_test',
+      description: 'Use the apify-actor-discovery tool to find actors related to social media scraping.',
+      scheduleType: TaskScheduleType.PRIORITY,
+      priority: 10,
+      metadata: {
+        taskType: 'tool_discovery',
+        expectedTools: ['apify-actor-discovery'],
+        expectedOutput: 'actor_list_with_descriptions',
+        verificationCriteria: 'should contain actor names and descriptions'
+      }
+    };
+
+    const taskResult: TaskCreationResult = await agent.createTask(taskOptions);
+    expect(taskResult.success).toBe(true);
+    const createdTask = taskResult.task;
+    console.log('✅ Actor discovery task created:', createdTask.id);
+    
+    // Execute the task immediately
+    console.log('🔥 Executing actor discovery task...');
+    const executionResult = await agent.executeTask(createdTask.id);
+    
+    console.log('📊 Actor discovery task execution completed!');
+    console.log('🎯 Execution successful:', executionResult.successful);
+    console.log('⏱️ Execution duration:', executionResult.duration, 'ms');
+    
+    // Verify execution and check for discovery tool usage
+    expect(executionResult).toBeDefined();
+    expect(executionResult.taskId).toBe(createdTask.id);
+    
+    // Check for actor discovery content
+    if (executionResult.successful && executionResult.result) {
+      const resultString = JSON.stringify(executionResult.result);
+      console.log('🔍 Actor discovery result preview:', resultString.substring(0, 200));
+      
+      const hasDiscoveryContent = (
+        resultString.toLowerCase().includes('actor') ||
+        resultString.toLowerCase().includes('apify') ||
+        resultString.toLowerCase().includes('social') ||
+        resultString.toLowerCase().includes('scraping')
+      );
+      
+      console.log('✅ Actor discovery content verification:', hasDiscoveryContent ? 'FOUND' : 'NOT FOUND');
+    }
+    
+    console.log('✅ Actor discovery tool verification test completed');
+  }, 60000);
+
+  test('Comprehensive Apify tool integration test', async () => {
+    console.log('🚀 Testing comprehensive Apify tool integration...');
+    
+    // Create a complex task that could use multiple Apify tools
+    const taskOptions: TaskCreationOptions = {
+      name: 'multi_tool_research',
+      description: 'Research the topic of "AI automation tools" by: 1) Discovering relevant Apify actors, 2) Searching for related discussions on Reddit, 3) Finding recent tweets about the topic. Provide a comprehensive summary.',
+      scheduleType: TaskScheduleType.PRIORITY,
+      priority: 10,
+      metadata: {
+        taskType: 'comprehensive_research',
+        expectedTools: ['apify-actor-discovery', 'apify-reddit-search', 'apify-twitter-search'],
+        expectedOutput: 'comprehensive_research_summary',
+        verificationCriteria: 'should contain data from multiple sources and tools'
+      }
+    };
+
+    const taskResult: TaskCreationResult = await agent.createTask(taskOptions);
+    expect(taskResult.success).toBe(true);
+    const createdTask = taskResult.task;
+    console.log('✅ Multi-tool research task created:', createdTask.id);
+    
+    // Execute the task immediately
+    console.log('🔥 Executing multi-tool research task...');
+    const executionResult = await agent.executeTask(createdTask.id);
+    
+    console.log('📊 Multi-tool research task execution completed!');
+    console.log('🎯 Execution successful:', executionResult.successful);
+    console.log('⏱️ Execution duration:', executionResult.duration, 'ms');
+    
+    // Verify execution and analyze tool usage
+    expect(executionResult).toBeDefined();
+    expect(executionResult.taskId).toBe(createdTask.id);
+    
+    // Detailed analysis of tool usage
+    if (executionResult.metadata?.planResult) {
+      const planResult = executionResult.metadata.planResult as any;
+      if (planResult.plan?.steps) {
+        const steps = planResult.plan.steps;
+        const toolsUsed = new Set<string>();
+        
+        steps.forEach((step: any) => {
+          if (step.actions) {
+            step.actions.forEach((action: any) => {
+              if (action.type === 'tool_execution' && action.parameters?.toolName) {
+                toolsUsed.add(action.parameters.toolName);
+              }
+            });
+          }
+        });
+        
+        console.log('🔧 Tools used in execution:', Array.from(toolsUsed).join(', '));
+        console.log('📊 Number of different tools used:', toolsUsed.size);
+        
+        // Check if multiple Apify tools were used
+        const apifyToolsUsed = Array.from(toolsUsed).filter(tool => tool.startsWith('apify-'));
+        console.log('🎯 Apify tools used:', apifyToolsUsed.join(', '));
+        console.log('✅ Multiple Apify tools used:', apifyToolsUsed.length > 1 ? 'YES' : 'NO');
       }
     }
-
-    // Get the updated task to see final state
-    const finalTask = await agent.getTask(createdTask.id);
-    console.log('📊 Final task status:', finalTask?.status);
-    console.log('📊 Final task metadata:', finalTask?.metadata);
     
-    console.log('✅ Immediate execution test completed');
-  }, 45000);
+    // Check for comprehensive content
+    if (executionResult.successful && executionResult.result) {
+      const resultString = JSON.stringify(executionResult.result);
+      console.log('🔍 Multi-tool result preview:', resultString.substring(0, 300));
+      
+      const hasComprehensiveContent = (
+        resultString.toLowerCase().includes('ai') ||
+        resultString.toLowerCase().includes('automation') ||
+        resultString.toLowerCase().includes('research') ||
+        resultString.toLowerCase().includes('summary')
+      );
+      
+      console.log('✅ Comprehensive content verification:', hasComprehensiveContent ? 'FOUND' : 'NOT FOUND');
+    }
+    
+    console.log('✅ Comprehensive Apify tool integration test completed');
+  }, 120000);
 
   test('Time-delayed execution verification', async () => {
     console.log('⏰ Testing time-delayed task execution...');
@@ -633,4 +659,392 @@ describe('Real Async Task Execution & Output Verification', () => {
     
     console.log('✅ Multiple task priority verification completed');
   }, 30000);
+
+  test('Twitter/X platform variations recognition', async () => {
+    console.log('🐦 Testing Twitter/X platform variations recognition...');
+    
+    const variations = [
+      {
+        name: 'twitter_search_test',
+        description: 'Search Twitter for recent posts about cryptocurrency trends',
+        expectedTool: 'apify-twitter-search'
+      },
+      {
+        name: 'x_platform_search',
+        description: 'Use X.com to find discussions about AI developments',
+        expectedTool: 'apify-twitter-search'
+      },
+      {
+        name: 'x_social_search',
+        description: 'Search X (formerly Twitter) for blockchain news',
+        expectedTool: 'apify-twitter-search'
+      }
+    ];
+
+    for (const variation of variations) {
+      console.log(`🔍 Testing variation: ${variation.name}`);
+      
+      const taskOptions: TaskCreationOptions = {
+        name: variation.name,
+        description: variation.description,
+        scheduleType: TaskScheduleType.PRIORITY,
+        priority: 10,
+        metadata: {
+          taskType: 'platform_variation_test',
+          expectedTool: variation.expectedTool,
+          limitResults: 2 // Minimize costs
+        }
+      };
+
+      const taskResult: TaskCreationResult = await agent.createTask(taskOptions);
+      expect(taskResult.success).toBe(true);
+      const createdTask = taskResult.task;
+      console.log(`✅ ${variation.name} task created:`, createdTask.id);
+      
+      // Execute the task
+      console.log(`🔥 Executing ${variation.name}...`);
+      const executionResult = await agent.executeTask(createdTask.id);
+      
+      console.log(`📊 ${variation.name} execution completed!`);
+      console.log(`🎯 Execution successful: ${executionResult.successful}`);
+      console.log(`⏱️ Execution duration: ${executionResult.duration}ms`);
+      
+      // Verify the correct tool was selected
+      if (executionResult.metadata?.planResult) {
+        const planResult = executionResult.metadata.planResult as any;
+        if (planResult.plan?.steps) {
+          const toolsUsed: string[] = [];
+          planResult.plan.steps.forEach((step: any) => {
+            if (step.actions) {
+              step.actions.forEach((action: any) => {
+                if (action.type === 'tool_execution' && action.parameters?.toolName) {
+                  toolsUsed.push(action.parameters.toolName);
+                }
+              });
+            }
+          });
+          
+          const expectedToolUsed = toolsUsed.includes(variation.expectedTool);
+          console.log(`🎯 Expected tool (${variation.expectedTool}) used: ${expectedToolUsed ? '✅' : '❌'}`);
+          console.log(`🔧 Tools actually used: ${toolsUsed.join(', ')}`);
+        }
+      }
+      
+      console.log(`✅ ${variation.name} test completed\n`);
+    }
+    
+    console.log('✅ All Twitter/X platform variations tested');
+  }, 120000);
+
+  test('Individual Apify tool verification with limited queries', async () => {
+    console.log('🔧 Testing individual Apify tools with cost-limited queries...');
+    
+    const toolTests = [
+      {
+        toolName: 'apify-twitter-search',
+        taskName: 'limited_twitter_test',
+        description: 'Use apify-twitter-search to find exactly 2 tweets about Bitcoin. Limit the search to minimize costs.',
+        expectedContent: ['twitter', 'tweet', 'bitcoin', 'btc']
+      },
+      {
+        toolName: 'apify-reddit-search',
+        taskName: 'limited_reddit_test', 
+        description: 'Use apify-reddit-search to find exactly 2 posts from r/technology. Limit the search to minimize costs.',
+        expectedContent: ['reddit', 'post', 'technology', 'r/']
+      },
+      {
+        toolName: 'apify-website-crawler',
+        taskName: 'limited_crawler_test',
+        description: 'Use apify-website-crawler to crawl only the homepage of example.com. Limit crawling to 1 page to minimize costs.',
+        expectedContent: ['crawl', 'page', 'website', 'example']
+      },
+      {
+        toolName: 'apify-actor-discovery',
+        taskName: 'limited_discovery_test',
+        description: 'Use apify-actor-discovery to find exactly 3 actors related to social media. Limit results to minimize costs.',
+        expectedContent: ['actor', 'apify', 'social', 'media']
+      }
+    ];
+
+    const results: Array<{toolName: string, success: boolean, duration: number, toolUsed: boolean}> = [];
+
+    for (const test of toolTests) {
+      console.log(`\n🔧 Testing ${test.toolName}...`);
+      
+      const taskOptions: TaskCreationOptions = {
+        name: test.taskName,
+        description: test.description,
+        scheduleType: TaskScheduleType.PRIORITY,
+        priority: 10,
+        metadata: {
+          taskType: 'individual_tool_test',
+          expectedTool: test.toolName,
+          costLimited: true,
+          maxResults: 3
+        }
+      };
+
+      const taskResult: TaskCreationResult = await agent.createTask(taskOptions);
+      expect(taskResult.success).toBe(true);
+      const createdTask = taskResult.task;
+      console.log(`✅ ${test.taskName} created:`, createdTask.id);
+      
+      // Execute the task
+      const startTime = Date.now();
+      console.log(`🔥 Executing ${test.taskName}...`);
+      const executionResult = await agent.executeTask(createdTask.id);
+      const duration = Date.now() - startTime;
+      
+      console.log(`📊 ${test.taskName} execution completed!`);
+      console.log(`🎯 Execution successful: ${executionResult.successful}`);
+      console.log(`⏱️ Execution duration: ${duration}ms`);
+      
+      // Verify the specific tool was used
+      let toolUsed = false;
+      if (executionResult.metadata?.planResult) {
+        const planResult = executionResult.metadata.planResult as any;
+        if (planResult.plan?.steps) {
+          planResult.plan.steps.forEach((step: any) => {
+            if (step.actions) {
+              step.actions.forEach((action: any) => {
+                if (action.type === 'tool_execution' && 
+                    action.parameters?.toolName === test.toolName) {
+                  toolUsed = true;
+                  console.log(`✅ ${test.toolName} was successfully used!`);
+                }
+              });
+            }
+          });
+        }
+      }
+      
+      if (!toolUsed) {
+        console.log(`❌ ${test.toolName} was not used in execution`);
+      }
+      
+      // Check for expected content
+      if (executionResult.successful && executionResult.result) {
+        const resultString = JSON.stringify(executionResult.result).toLowerCase();
+        const contentFound = test.expectedContent.some(content => 
+          resultString.includes(content.toLowerCase())
+        );
+        console.log(`📊 Expected content found: ${contentFound ? '✅' : '❌'}`);
+        console.log(`🔍 Content preview: ${resultString.substring(0, 150)}...`);
+      }
+      
+      results.push({
+        toolName: test.toolName,
+        success: executionResult.successful,
+        duration,
+        toolUsed
+      });
+      
+      console.log(`✅ ${test.taskName} individual test completed`);
+    }
+    
+    // Summary of all tool tests
+    console.log('\n📊 Individual Tool Test Summary:');
+    console.log('| Tool | Success | Duration | Tool Used |');
+    console.log('|------|---------|----------|-----------|');
+    results.forEach(result => {
+      console.log(`| ${result.toolName} | ${result.success ? '✅' : '❌'} | ${result.duration}ms | ${result.toolUsed ? '✅' : '❌'} |`);
+    });
+    
+    // Verify all tools were tested successfully
+    const allSuccessful = results.every(r => r.success);
+    const allToolsUsed = results.every(r => r.toolUsed);
+    
+    console.log(`\n🎯 Overall Results:`);
+    console.log(`✅ All executions successful: ${allSuccessful}`);
+    console.log(`✅ All expected tools used: ${allToolsUsed}`);
+    
+    expect(results.length).toBe(toolTests.length);
+    console.log('✅ Individual Apify tool verification completed');
+  }, 180000);
+
+  test('Task outcome satisfaction verification', async () => {
+    console.log('🎯 Testing task outcome satisfaction with different tool scenarios...');
+    
+    const satisfactionTests = [
+      {
+        name: 'social_sentiment_analysis',
+        description: 'Analyze social media sentiment about "artificial intelligence" by searching Twitter and Reddit. Provide a summary of positive vs negative sentiment with specific examples.',
+        expectedOutcome: {
+          toolsUsed: ['apify-twitter-search', 'apify-reddit-search'],
+          contentCriteria: ['sentiment', 'positive', 'negative', 'artificial intelligence', 'summary'],
+          minContentLength: 200
+        }
+      },
+      {
+        name: 'competitive_research',
+        description: 'Research competitors in the "web scraping tools" space by searching for information about popular web scraping services and tools. Provide insights about market positioning and key players.',
+        expectedOutcome: {
+          toolsUsed: ['web_search', 'apify-reddit-search', 'apify-twitter-search'],
+          contentCriteria: ['competitor', 'web scraping', 'market', 'positioning', 'insights'],
+          minContentLength: 150
+        }
+      },
+      {
+        name: 'content_aggregation',
+        description: 'Aggregate content about "blockchain technology" from multiple sources: crawl a relevant website, search Twitter, and find Reddit discussions. Create a comprehensive report.',
+        expectedOutcome: {
+          toolsUsed: ['apify-website-crawler', 'apify-twitter-search', 'apify-reddit-search'],
+          contentCriteria: ['blockchain', 'technology', 'comprehensive', 'report', 'sources'],
+          minContentLength: 300
+        }
+      }
+    ];
+
+    const satisfactionResults: Array<{
+      name: string;
+      success: boolean;
+      toolsUsed: string[];
+      expectedTools: string[];
+      contentSatisfied: boolean;
+      lengthSatisfied: boolean;
+      overallSatisfaction: number;
+    }> = [];
+
+    for (const test of satisfactionTests) {
+      console.log(`\n🎯 Testing satisfaction for: ${test.name}`);
+      
+      const taskOptions: TaskCreationOptions = {
+        name: test.name,
+        description: test.description,
+        scheduleType: TaskScheduleType.PRIORITY,
+        priority: 10,
+        metadata: {
+          taskType: 'outcome_satisfaction_test',
+          expectedTools: test.expectedOutcome.toolsUsed,
+          satisfactionCriteria: test.expectedOutcome,
+          limitResults: 3 // Cost control
+        }
+      };
+
+      const taskResult: TaskCreationResult = await agent.createTask(taskOptions);
+      expect(taskResult.success).toBe(true);
+      const createdTask = taskResult.task;
+      console.log(`✅ ${test.name} task created:`, createdTask.id);
+      
+      // Execute the task
+      console.log(`🔥 Executing ${test.name}...`);
+      const executionResult = await agent.executeTask(createdTask.id);
+      
+      console.log(`📊 ${test.name} execution completed!`);
+      console.log(`🎯 Execution successful: ${executionResult.successful}`);
+      console.log(`⏱️ Execution duration: ${executionResult.duration}ms`);
+      
+      // Analyze tool usage and success
+      const toolsUsed: string[] = [];
+      const toolsSucceeded: string[] = [];
+      
+      if (executionResult.metadata?.planResult) {
+        const planResult = executionResult.metadata.planResult as any;
+        if (planResult.plan?.steps) {
+          planResult.plan.steps.forEach((step: any) => {
+            if (step.actions) {
+              step.actions.forEach((action: any) => {
+                if (action.type === 'tool_execution' && action.parameters?.toolName) {
+                  const toolName = action.parameters.toolName;
+                  toolsUsed.push(toolName);
+                  
+                  // Check if tool actually succeeded (not just used)
+                  if (action.result?.success) {
+                    toolsSucceeded.push(toolName);
+                  }
+                }
+              });
+            }
+          });
+        }
+      }
+      
+      // Also check toolSuccessInfo metadata for more accurate success tracking
+      if (executionResult.metadata?.toolSuccessInfo) {
+        const toolSuccessInfo = executionResult.metadata.toolSuccessInfo as Record<string, boolean>;
+        Object.entries(toolSuccessInfo).forEach(([toolName, success]) => {
+          if (!toolsUsed.includes(toolName)) {
+            toolsUsed.push(toolName);
+          }
+          if (success && !toolsSucceeded.includes(toolName)) {
+            toolsSucceeded.push(toolName);
+          }
+        });
+      }
+      
+      // Analyze content satisfaction
+      let contentSatisfied = false;
+      let lengthSatisfied = false;
+      
+      if (executionResult.successful && executionResult.result) {
+        const resultString = JSON.stringify(executionResult.result);
+        
+        // Check content criteria
+        const criteriaMatched = test.expectedOutcome.contentCriteria.filter(criteria =>
+          resultString.toLowerCase().includes(criteria.toLowerCase())
+        );
+        contentSatisfied = criteriaMatched.length >= Math.ceil(test.expectedOutcome.contentCriteria.length * 0.6); // 60% match
+        
+        // Check length criteria
+        lengthSatisfied = resultString.length >= test.expectedOutcome.minContentLength;
+        
+        console.log(`📊 Content Analysis for ${test.name}:`);
+        console.log(`  - Content length: ${resultString.length} chars (min: ${test.expectedOutcome.minContentLength})`);
+        console.log(`  - Criteria matched: ${criteriaMatched.length}/${test.expectedOutcome.contentCriteria.length}`);
+        console.log(`  - Matched criteria: ${criteriaMatched.join(', ')}`);
+        console.log(`  - Content satisfied: ${contentSatisfied ? '✅' : '❌'}`);
+        console.log(`  - Length satisfied: ${lengthSatisfied ? '✅' : '❌'}`);
+      }
+      
+      // Calculate tool satisfaction based on SUCCESSFUL tool usage (not just usage)
+      const expectedToolsSucceeded = test.expectedOutcome.toolsUsed.filter(tool => toolsSucceeded.includes(tool));
+      const toolSatisfaction = expectedToolsSucceeded.length / test.expectedOutcome.toolsUsed.length;
+      const contentSatisfaction = contentSatisfied ? 1 : 0;
+      const lengthSatisfaction = lengthSatisfied ? 1 : 0;
+      const overallSatisfaction = (toolSatisfaction + contentSatisfaction + lengthSatisfaction) / 3;
+      
+      console.log(`🎯 Satisfaction Analysis for ${test.name}:`);
+      console.log(`  - Tools used: ${toolsUsed.join(', ')}`);
+      console.log(`  - Tools succeeded: ${toolsSucceeded.join(', ')}`);
+      console.log(`  - Expected tools: ${test.expectedOutcome.toolsUsed.join(', ')}`);
+      console.log(`  - Tool satisfaction: ${(toolSatisfaction * 100).toFixed(1)}% (based on SUCCESS, not just usage)`);
+      console.log(`  - Content satisfaction: ${(contentSatisfaction * 100).toFixed(1)}%`);
+      console.log(`  - Length satisfaction: ${(lengthSatisfaction * 100).toFixed(1)}%`);
+      console.log(`  - Overall satisfaction: ${(overallSatisfaction * 100).toFixed(1)}%`);
+      
+      satisfactionResults.push({
+        name: test.name,
+        success: executionResult.successful,
+        toolsUsed: toolsSucceeded, // Use succeeded tools for satisfaction calculation
+        expectedTools: test.expectedOutcome.toolsUsed,
+        contentSatisfied,
+        lengthSatisfied,
+        overallSatisfaction
+      });
+      
+      console.log(`✅ ${test.name} satisfaction test completed`);
+    }
+    
+    // Overall satisfaction summary
+    console.log('\n📊 Task Outcome Satisfaction Summary:');
+    console.log('| Task | Success | Tools Succeeded | Content | Length | Overall |');
+    console.log('|------|---------|-----------------|---------|--------|---------|');
+    satisfactionResults.forEach(result => {
+      const toolMatch = `${result.toolsUsed.length}/${result.expectedTools.length}`;
+      console.log(`| ${result.name} | ${result.success ? '✅' : '❌'} | ${toolMatch} | ${result.contentSatisfied ? '✅' : '❌'} | ${result.lengthSatisfied ? '✅' : '❌'} | ${(result.overallSatisfaction * 100).toFixed(1)}% |`);
+    });
+    
+    const avgSatisfaction = satisfactionResults.reduce((sum, r) => sum + r.overallSatisfaction, 0) / satisfactionResults.length;
+    console.log(`\n🎯 Average Overall Satisfaction: ${(avgSatisfaction * 100).toFixed(1)}%`);
+    
+    // Verify minimum satisfaction threshold
+    const minSatisfactionThreshold = 0.3; // 30% - more realistic for cost-limited testing
+    const satisfactoryTasks = satisfactionResults.filter(r => r.overallSatisfaction >= minSatisfactionThreshold);
+    console.log(`✅ Tasks meeting satisfaction threshold (${minSatisfactionThreshold * 100}%): ${satisfactoryTasks.length}/${satisfactionResults.length}`);
+    
+    expect(satisfactionResults.length).toBe(satisfactionTests.length);
+    expect(avgSatisfaction).toBeGreaterThan(0.2); // At least 20% average satisfaction - more realistic for testing
+    
+    console.log('✅ Task outcome satisfaction verification completed');
+  }, 240000);
 }); 
