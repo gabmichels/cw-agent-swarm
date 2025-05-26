@@ -730,8 +730,15 @@ export class DefaultApifyManager implements IApifyManager {
         actorId: 'apidojo/twitter-scraper-lite',
         input: {
           searchTerms: [query],
-          maxTweets: maxResults,
-          scrapeTweetReplies: false,
+          maxItems: Math.min(maxResults, 40), // Enforce max 40 results as per documentation
+          includeSearchTerms: false,
+          onlyImage: false,
+          onlyQuote: false,
+          onlyTwitterBlue: false,
+          onlyVerifiedUsers: true,
+          onlyVideo: false,
+          sort: 'Latest',
+          tweetLanguage: 'en'
         },
         label: `Twitter search: ${query}`,
         dryRun
