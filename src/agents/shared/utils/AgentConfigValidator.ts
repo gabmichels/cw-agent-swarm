@@ -736,6 +736,166 @@ export class AgentConfigValidator {
         }
       }
     });
+
+    // DefaultAgent configuration schema
+    this.addSchema('DefaultAgent', {
+      type: 'object',
+      required: true,
+      properties: {
+        id: {
+          type: 'string',
+          required: false,
+          description: 'Optional agent ID'
+        },
+        name: {
+          type: 'string',
+          required: false,
+          description: 'Optional agent name'
+        },
+        description: {
+          type: 'string',
+          required: false,
+          description: 'Optional agent description'
+        },
+        type: {
+          type: 'string',
+          required: false,
+          default: 'default',
+          description: 'Optional agent type'
+        },
+        modelName: {
+          type: 'string',
+          required: false,
+          description: 'LLM model name'
+        },
+        temperature: {
+          type: 'number',
+          required: false,
+          minimum: 0,
+          maximum: 2,
+          default: 0.7,
+          description: 'LLM temperature'
+        },
+        maxTokens: {
+          type: 'number',
+          required: false,
+          minimum: 1,
+          default: 32000,
+          description: 'Maximum tokens'
+        },
+        enableMemoryManager: {
+          type: 'boolean',
+          required: false,
+          default: false,
+          description: 'Enable memory manager'
+        },
+        enablePlanningManager: {
+          type: 'boolean',
+          required: false,
+          default: false,
+          description: 'Enable planning manager'
+        },
+        enableToolManager: {
+          type: 'boolean',
+          required: false,
+          default: false,
+          description: 'Enable tool manager'
+        },
+        enableKnowledgeManager: {
+          type: 'boolean',
+          required: false,
+          default: false,
+          description: 'Enable knowledge manager'
+        },
+        enableSchedulerManager: {
+          type: 'boolean',
+          required: false,
+          default: false,
+          description: 'Enable scheduler manager'
+        },
+        enableInputProcessor: {
+          type: 'boolean',
+          required: false,
+          default: false,
+          description: 'Enable input processor'
+        },
+        enableOutputProcessor: {
+          type: 'boolean',
+          required: false,
+          default: false,
+          description: 'Enable output processor'
+        },
+        enableResourceTracking: {
+          type: 'boolean',
+          required: false,
+          default: false,
+          description: 'Enable resource tracking'
+        },
+        enableReflectionManager: {
+          type: 'boolean',
+          required: false,
+          default: false,
+          description: 'Enable reflection manager'
+        },
+        useEnhancedMemory: {
+          type: 'boolean',
+          required: false,
+          default: false,
+          description: 'Use enhanced memory manager'
+        },
+        useEnhancedReflection: {
+          type: 'boolean',
+          required: false,
+          default: false,
+          description: 'Use enhanced reflection manager'
+        },
+        adaptiveBehavior: {
+          type: 'boolean',
+          required: false,
+          default: false,
+          description: 'Enable adaptive behavior'
+        },
+        systemPrompt: {
+          type: 'string',
+          required: false,
+          description: 'System prompt'
+        },
+        persona: {
+          type: 'object',
+          required: false,
+          description: 'Persona information'
+        },
+        memoryRefresh: {
+          type: 'object',
+          required: false,
+          properties: {
+            enabled: {
+              type: 'boolean',
+              required: true,
+              description: 'Enable memory refresh'
+            },
+            interval: {
+              type: 'number',
+              required: true,
+              minimum: 1000,
+              description: 'Refresh interval in milliseconds'
+            },
+            maxCriticalMemories: {
+              type: 'number',
+              required: true,
+              minimum: 1,
+              description: 'Maximum critical memories'
+            }
+          },
+          description: 'Memory refresh configuration'
+        },
+        componentsConfig: {
+          type: 'object',
+          required: false,
+          description: 'Component configurations'
+        }
+      }
+    });
   }
 
   /**

@@ -14,6 +14,7 @@ import { logger } from '../../lib/logging';
 import { AgentMemoryEntity, AgentStatus } from '../memory/schema/agent';
 import { AgentBase } from '../../agents/shared/base/AgentBase.interface';
 import { DefaultAgent } from '../../agents/shared/DefaultAgent';
+import { ManagerType } from '../../agents/shared/base/managers/ManagerType';
 
 // Import new bootstrap utilities at the top of the file
 import { 
@@ -41,6 +42,8 @@ import {
   logAgentInitializationStage,
   recordInitializationMetrics
 } from './agent-bootstrap-utils';
+
+
 
 /**
  * Create a fully capable agent instance with proper bootstrap tracking
@@ -115,65 +118,56 @@ async function createAgentInstance(dbAgent: AgentMemoryEntity): Promise<AgentBas
                  
     persona: (dbAgent.metadata as any)?.persona || {},
     
-    // Manager configurations
-    managersConfig: {
-      memoryManager: {
+    // Clean slate component configurations
+    componentsConfig: {
+      initializer: {
         enabled: true,
-        createPrivateScope: true,
-        defaultScopeName: `agent-${dbAgent.id}-memory`,
-        enableAutoPruning: true,
-        enableAutoConsolidation: true,
-        pruningIntervalMs: 3600000, // 1 hour
-        consolidationIntervalMs: 86400000, // 24 hours
-        maxMemoryItems: 10000
+        timeoutMs: 60000
       },
-      planningManager: {
+      lifecycleManager: {
         enabled: true,
-        maxPlans: 100,
-        enablePlanOptimization: true,
-        enablePlanAdaptation: true,
-        enablePlanValidation: true
+        healthCheckInterval: 30000,
+        memoryRefreshInterval: 3600000
       },
-      toolManager: {
+      communicationHandler: {
         enabled: true,
-        maxTools: 50,
-        enableAutoDiscovery: true,
-        allowUnsafeTool: false
+        maxConcurrentMessages: 10
       },
-      knowledgeManager: {
-        enabled: true,
-        enableAutoRefresh: true,
-        refreshIntervalMs: 300000,
-        maxKnowledgeItems: 1000
-      },
-      schedulerManager: {
+      executionEngine: {
         enabled: true,
         maxConcurrentTasks: 5,
-        maxRetryAttempts: 3,
-        defaultTaskTimeoutMs: 30000,
-        enableAutoScheduling: true,
-        schedulingIntervalMs: 30000, // 30 seconds
-        enableTaskPrioritization: true,
-        logSchedulingActivity: true
+        taskTimeoutMs: 30000
       },
-      reflectionManager: {
+      inputProcessor: {
         enabled: true,
-        reflectionFrequencyMs: 3600000, // 1 hour
-        maxReflectionDepth: 3,
-        keepReflectionHistory: true,
-        maxHistoryItems: 50
+        processingSteps: ['validate', 'sanitize', 'transform'],
+        maxInputLength: 50000
+      },
+      outputProcessor: {
+        enabled: true,
+        processingSteps: ['format', 'validate', 'sanitize'],
+        maxOutputLength: 50000
+      },
+      thinkingProcessor: {
+        enabled: true,
+        maxReasoningDepth: 5,
+        enableReflection: true
+      },
+      configValidator: {
+        enabled: true,
+        strictValidation: false
       },
       resourceTracker: {
-        samplingIntervalMs: 60000, // 1 minute
-        maxHistorySamples: 60, // 1 hour of history at 1 min interval
+        samplingIntervalMs: 60000,
+        maxHistorySamples: 60,
         defaultLimits: {
-          cpuUtilization: 0.8, // 80% maximum CPU usage
-          memoryBytes: 1024 * 1024 * 512, // 512MB memory limit
-          tokensPerMinute: 50000, // 50K tokens per minute
-          apiCallsPerMinute: 100 // 100 API calls per minute
+          cpuUtilization: 0.8,
+          memoryBytes: 1024 * 1024 * 512,
+          tokensPerMinute: 50000,
+          apiCallsPerMinute: 100
         },
         enforceResourceLimits: true,
-        limitWarningBuffer: 0.2, // Warn at 80% of limit
+        limitWarningBuffer: 0.2,
         trackPerTaskUtilization: true
       }
     }

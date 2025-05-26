@@ -1,68 +1,54 @@
+/**
+ * DefaultAgent.ts - Refactored Agent Implementation
+ * 
+ * This is the refactored version that delegates to specialized components:
+ * - AgentInitializer: Handles component initialization and dependency injection
+ * - AgentLifecycleManager: Manages agent lifecycle (start/stop/pause/resume)
+ * - AgentCommunicationHandler: Handles message processing and routing
+ * - AgentExecutionEngine: Coordinates task execution and manager orchestration
+ * - InputProcessingCoordinator: Handles input validation and preprocessing
+ * - OutputProcessingCoordinator: Handles output formatting and delivery
+ * - ThinkingProcessor: Handles reasoning and decision-making
+ * - AgentConfigValidator: Validates configuration
+ */
+
 import { v4 as uuidv4 } from 'uuid';
 import { AbstractAgentBase } from './base/AbstractAgentBase';
 import { AgentBaseConfig } from './base/types';
-import { DefaultMemoryManager } from '../../lib/agents/implementations/managers/DefaultMemoryManager';
-import { DefaultPlanningManager } from '../../lib/agents/implementations/managers/DefaultPlanningManager';
-import { DefaultToolManager } from '../../lib/agents/implementations/managers/DefaultToolManager';
-import { DefaultKnowledgeManager } from '../../lib/agents/implementations/managers/DefaultKnowledgeManager';
 import { BaseManager } from './base/managers/BaseManager';
-import { ManagerConfig } from './base/managers/BaseManager';
-import { ResourceUtilizationTracker, ResourceUtilizationTrackerOptions, ResourceUsageListener } from './scheduler/ResourceUtilization';
-import { TaskCreationOptions, TaskCreationResult, TaskExecutionResult } from './base/managers/SchedulerManager.interface';
 import { ManagerType } from './base/managers/ManagerType';
-import { MemoryManager } from './base/managers/MemoryManager.interface';
-import { ChatOpenAI } from '@langchain/openai';
-import { createChatOpenAI } from '../../lib/core/llm';
-import { formatConversationToMessages } from './messaging/formatters';
-import { HumanMessage, SystemMessage, AIMessage } from '@langchain/core/messages';
-import { ChatPromptTemplate, MessagesPlaceholder } from '@langchain/core/prompts';
-import { StringOutputParser } from '@langchain/core/output_parsers';
-import { tagExtractor } from '../../utils/tagExtractor';
-import { EnhancedMemoryManager } from './memory/managers/EnhancedMemoryManager';
-import { Executor } from './execution/Executor';
-import { ToolManager } from './base/managers/ToolManager.interface';
-import { Planner } from './planning/Planner';
-import { PlanningManager } from './base/managers/PlanningManager.interface';
-import { PlanCreationOptions, PlanCreationResult, PlanExecutionResult } from './base/managers/PlanningManager.interface';
-import { ReflectionManager, ReflectionTrigger, ReflectionResult, ReflectionInsight } from './base/managers/ReflectionManager.interface';
-import { EnhancedReflectionManager } from './reflection/managers/EnhancedReflectionManager';
-import { DefaultReflectionManager } from './reflection/managers/DefaultReflectionManager';
-import { ExecutionErrorHandler } from './execution/ExecutionErrorHandler';
-import { ToolRouter, ToolDefinition } from './tools/ToolRouter';
-import { PromptFormatter, PersonaInfo, SystemPromptOptions, InputPromptOptions, ScoredMemory } from '../../agents/shared/messaging/PromptFormatter';
-import { RelevanceScorer, RelevantMemoryOptions } from './memory/RelevanceScorer';
-import { AgentCapability, CapabilityType } from './capability-system/types';
-// Import new interfaces for agent refactoring
-import { AgentResponse, GetLLMResponseOptions, MessageProcessingOptions, ThinkOptions } from './base/AgentBase.interface';
-import { ThinkingResult, ThinkingOptions } from '../../services/thinking/types';
-import { WorkingMemoryItem, FileReference } from '../../services/thinking/types';
-import { AgentError, ThinkingError, LLMResponseError, ProcessingError, AgentErrorCodes } from './errors/AgentErrors';
-import { SchedulerHelper } from './scheduler/SchedulerHelper';
-import { IntegrationManager } from './integration/IntegrationManager';
-import { generateRequestId } from '../../utils/visualization-utils';
-import { VisualizationNodeType } from '../../services/thinking/visualization/types';
-import { Task } from '../../lib/scheduler/models/Task.model';
-import { ModularSchedulerManager } from '../../lib/scheduler/implementations/ModularSchedulerManager';
-import { createSchedulerManager } from '../../lib/scheduler/factories/SchedulerFactory';
-import { TaskStatus } from '../../lib/scheduler/models/Task.model';
-// Import the opportunity management system
-import { 
-  OpportunityManager,
-  OpportunityStorageType,
-  createOpportunitySystem,
-  OpportunitySystemConfig,
-  OpportunitySource
-} from '../../lib/opportunity';
-import { DefaultLoggerManager } from './logger/DefaultLoggerManager';
-import { LogLevel } from './logger/DefaultLoggerManager';
 import { createLogger } from '@/lib/logging/winston-logger';
-// Import Input/Output Processors
-import { DefaultInputProcessor } from './input/managers/DefaultInputProcessor';
-import { DefaultOutputProcessor } from './output/managers/DefaultOutputProcessor';
-import { InputProcessor, InputProcessorConfig } from './base/managers/InputProcessor.interface';
-import { OutputProcessor, OutputProcessorConfig } from './base/managers/OutputProcessor.interface';
 
-// Define the necessary types that we need
+// Import our refactored components
+import { AgentInitializer, AgentInitializationConfig } from './core/AgentInitializer';
+import { AgentLifecycleManager } from './core/AgentLifecycleManager';
+import { AgentCommunicationHandler } from './core/AgentCommunicationHandler';
+import { AgentExecutionEngine } from './core/AgentExecutionEngine';
+import { InputProcessingCoordinator } from './processors/InputProcessingCoordinator';
+import { OutputProcessingCoordinator } from './processors/OutputProcessingCoordinator';
+import { ThinkingProcessor } from './processors/ThinkingProcessor';
+import { AgentConfigValidator } from './utils/AgentConfigValidator';
+
+// Import interfaces
+import { 
+  AgentResponse, 
+  GetLLMResponseOptions, 
+  MessageProcessingOptions, 
+  ThinkOptions 
+} from './base/AgentBase.interface';
+import { ThinkingResult } from '../../services/thinking/types';
+import { TaskCreationOptions, TaskCreationResult, TaskExecutionResult } from './base/managers/SchedulerManager.interface';
+import { Task, TaskStatus } from '../../lib/scheduler/models/Task.model';
+import { ModularSchedulerManager } from '../../lib/scheduler/implementations/ModularSchedulerManager';
+import { PlanCreationOptions, PlanCreationResult, PlanExecutionResult } from './base/managers/PlanningManager.interface';
+import { ReflectionResult } from './base/managers/ReflectionManager.interface';
+
+// Import types for configuration
+import { PromptFormatter, PersonaInfo } from '../../agents/shared/messaging/PromptFormatter';
+import { ResourceUtilizationTracker, ResourceUtilizationTrackerOptions, ResourceUsageListener } from './scheduler/ResourceUtilization';
+import { OpportunityManager } from '../../lib/opportunity';
+
+// Agent status constants
 const AGENT_STATUS = {
   AVAILABLE: 'available',
   BUSY: 'busy',
@@ -70,37 +56,8 @@ const AGENT_STATUS = {
   ERROR: 'error'
 } as const;
 
-// Simple implementation of agent memory entity for local usage
-interface AgentMemoryEntity {
-  id: string;
-  name: string;
-  description: string;
-  createdBy: string;
-  capabilities: string[];
-  parameters: Record<string, any>;
-  status: string; // Using string type to bypass type checking
-  lastActive: Date;
-  chatIds: string[];
-  teamIds: string[];
-  metadata: Record<string, any>;
-  content: string;
-  type: string;
-  createdAt: Date;
-  updatedAt: Date;
-  schemaVersion: string;
-}
-
-// Function to create agent ID for local usage
-function createAgentId(): string {
-  return uuidv4();
-}
-
-// Since we can't import the specific input/output processors directly due to type issues,
-// we'll use more generic types to avoid linter errors
-// Note: Now using proper imported interfaces instead of local type declarations
-
-// Extended agent config with manager enablement and configuration
-interface ExtendedAgentConfig {
+// Configuration interface for the refactored agent
+interface DefaultAgentConfig {
   /** Optional agent ID */
   id?: string;
   
@@ -142,63 +99,91 @@ interface ExtendedAgentConfig {
   
   // Memory refresh configuration
   memoryRefresh?: {
-    /** Enable periodic memory refreshing */
     enabled: boolean;
-    /** Interval in milliseconds between refreshes */
     interval: number;
-    /** Maximum number of critical memories to include */
     maxCriticalMemories: number;
   };
   
-  // Manager configurations
-  managersConfig?: {
-    memoryManager?: ManagerConfig;
-    planningManager?: ManagerConfig;
-    toolManager?: ManagerConfig;
-    knowledgeManager?: ManagerConfig;
-    schedulerManager?: ManagerConfig;
-    inputProcessor?: InputProcessorConfig;
-    outputProcessor?: OutputProcessorConfig;
+  // Component configurations
+  componentsConfig?: {
+    initializer?: Record<string, unknown>;
+    lifecycleManager?: Record<string, unknown>;
+    communicationHandler?: Record<string, unknown>;
+    executionEngine?: Record<string, unknown>;
+    inputProcessor?: Record<string, unknown>;
+    outputProcessor?: Record<string, unknown>;
+    thinkingProcessor?: Record<string, unknown>;
+    configValidator?: Record<string, unknown>;
     resourceTracker?: Partial<ResourceUtilizationTrackerOptions>;
-    reflectionManager?: ManagerConfig;
-    [key: string]: ManagerConfig | Record<string, unknown> | undefined;
+    [key: string]: Record<string, unknown> | undefined;
   };
+
+
+}
+
+// Simple agent memory entity for compatibility
+interface AgentMemoryEntity {
+  id: string;
+  name: string;
+  description: string;
+  createdBy: string;
+  capabilities: string[];
+  parameters: Record<string, unknown>;
+  status: string;
+  lastActive: Date;
+  chatIds: string[];
+  teamIds: string[];
+  metadata: Record<string, unknown>;
+  content: string;
+  type: string;
+  createdAt: Date;
+  updatedAt: Date;
+  schemaVersion: string;
 }
 
 /**
- * Default Agent implementation
- * A general-purpose agent that can be used for various tasks
+ * Refactored DefaultAgent implementation
+ * 
+ * This agent delegates all major functionality to specialized components,
+ * providing a clean orchestration layer that coordinates between components.
  */
 export class DefaultAgent extends AbstractAgentBase implements ResourceUsageListener {
-  private extendedConfig: ExtendedAgentConfig;
+  // Core properties
+  private readonly agentId: string;
+  private readonly agentType: string;
+  private readonly version: string = '2.0.0'; // Updated version for refactored agent
+  private readonly logger: ReturnType<typeof createLogger>;
+  private agentConfig: DefaultAgentConfig;
+  
+  // Component instances
+  private initializer: AgentInitializer | null = null;
+  private lifecycleManager: AgentLifecycleManager | null = null;
+  private communicationHandler: AgentCommunicationHandler | null = null;
+  private executionEngine: AgentExecutionEngine | null = null;
+  private inputProcessor: InputProcessingCoordinator | null = null;
+  private outputProcessor: OutputProcessingCoordinator | null = null;
+  private thinkingProcessor: ThinkingProcessor | null = null;
+  private configValidator: AgentConfigValidator | null = null;
+  
+  // Legacy compatibility properties
   private resourceTracker: ResourceUtilizationTracker | null = null;
-  private agentId: string;
-  private agentType: string = 'default';
-  private version: string = '1.0.0';
-  private model: ChatOpenAI;
-  private executor: Executor | null = null;
-  private planner: Planner | null = null;
+  private opportunityManager: OpportunityManager | null = null;
   protected schedulerManager?: ModularSchedulerManager;
   protected initialized: boolean = false;
-  private executionErrorHandler: ExecutionErrorHandler | null = null;
-  private memoryRefreshInterval: NodeJS.Timeout | null = null;
-  private lastMemoryRefreshTime: Date | null = null;
-  // Add opportunity manager
-  private opportunityManager: OpportunityManager | null = null;
-  private logger: ReturnType<typeof createLogger>;
-  
+
   /**
-   * Create a new DefaultAgent
+   * Create a new refactored DefaultAgent
    * @param config Agent configuration
    */
-  constructor(config: ExtendedAgentConfig) {
-    // Use ID from config if provided, otherwise generate a new one
-    const agentId = config.id || createAgentId().toString();
+  constructor(config: DefaultAgentConfig) {
+    // Generate agent ID
+    const agentId = config.id || uuidv4();
     
-    const agentConfig: AgentMemoryEntity = {
+    // Create agent memory entity for base class compatibility
+    const baseConfig: AgentMemoryEntity = {
       id: agentId,
       name: config.name || 'Default Agent',
-      description: config.description || 'A general-purpose agent that can be used for various tasks',
+      description: config.description || 'A refactored general-purpose agent',
       createdBy: 'system',
       capabilities: [],
       parameters: {
@@ -220,36 +205,24 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
           averageResponseTime: 0,
           taskCompletionRate: 0
         },
-        version: '1.0.0',
-        isPublic: false
+        version: '2.0.0',
+        isPublic: false,
+        persona: config.persona || {}
       },
       content: '',
       type: 'agent',
       createdAt: new Date(),
       updatedAt: new Date(),
-      schemaVersion: '1.0'
+      schemaVersion: '2.0'
     };
     
-    // Pass the base config to AbstractAgentBase with type assertion to bypass type checking
-    super(agentConfig as unknown as AgentBaseConfig);
+    // Initialize base class
+    super(baseConfig as unknown as AgentBaseConfig);
     
-    // Store extended config for use in initialization
-    this.extendedConfig = config;
-    
-    // Set the agentId property to ensure it matches the expected ID
+    // Set properties
     this.agentId = agentId;
-    
-    // If specific agent type was provided, use it
-    if (config.type) {
-      this.agentType = config.type;
-    }
-    
-    // Initialize LLM using existing createChatOpenAI from lib/core/llm.ts
-    this.model = createChatOpenAI({
-      model: config.modelName || process.env.OPENAI_MODEL_NAME || 'gpt-4.1-2025-04-14',
-      temperature: config.temperature || 0.7,
-      maxTokens: config.maxTokens || (process.env.OPENAI_MAX_TOKENS ? parseInt(process.env.OPENAI_MAX_TOKENS, 10) : 32000),
-    });
+    this.agentType = config.type || 'default';
+    this.agentConfig = config;
     
     // Initialize logger
     this.logger = createLogger({
@@ -257,10 +230,10 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
       agentId: agentId
     });
     
-    this.logger.system("DefaultAgent created", {
+    this.logger.system("Refactored DefaultAgent created", {
       agentId: agentId,
       agentName: config.name || 'Default Agent',
-      modelName: config.modelName,
+      version: this.version,
       config: config
     });
   }
@@ -269,6 +242,13 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
    * Get the agent's unique identifier
    */
   getId(): string {
+    return this.agentId;
+  }
+
+  /**
+   * Get the agent's unique identifier (alias for getId for backward compatibility)
+   */
+  getAgentId(): string {
     return this.agentId;
   }
 
@@ -283,7 +263,7 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
    * Get the agent's description
    */
   getDescription(): string {
-    return 'A general-purpose agent that can be used for various tasks';
+    return 'A refactored general-purpose agent';
   }
 
   /**
@@ -302,7 +282,9 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
       'planning',
       'tool_usage',
       'knowledge_management',
-      'scheduling'
+      'scheduling',
+      'thinking',
+      'communication'
     ];
   }
 
@@ -319,9 +301,9 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
       createdAt: new Date(),
       updatedAt: new Date(),
       createdBy: 'system',
-      status: this.config.status,
+      status: AGENT_STATUS.AVAILABLE,
       type: this.agentType,
-      config: this.extendedConfig,
+      config: this.agentConfig,
       metadata: {
         tags: [],
         domain: [],
@@ -336,7 +318,7 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
       },
       parameters: {
         model: process.env.OPENAI_MODEL_NAME || 'gpt-4.1-2025-04-14',
-        temperature: this.extendedConfig.temperature || 0.7,
+        temperature: this.agentConfig.temperature || 0.7,
         maxTokens: process.env.OPENAI_MAX_TOKENS ? parseInt(process.env.OPENAI_MAX_TOKENS, 10) : 32000,
         tools: []
       },
@@ -344,7 +326,7 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
       chatIds: [],
       teamIds: [],
       content: '',
-      schemaVersion: '1.0'
+      schemaVersion: '2.0'
     } as Record<string, unknown>;
   }
 
@@ -359,10 +341,11 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
       };
     }
 
-    if (this.schedulerManager) {
+    if (this.lifecycleManager) {
+      const status = this.lifecycleManager.getStatus();
       return {
-        status: AGENT_STATUS.BUSY,
-        message: 'Processing active tasks'
+        status: status.toString(),
+        message: 'Agent lifecycle managed'
       };
     }
 
@@ -377,6 +360,10 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
    */
   async reset(): Promise<void> {
     try {
+      if (this.lifecycleManager) {
+        await this.lifecycleManager.stop();
+      }
+      
       // Reset all managers
       for (const manager of Array.from(this.managers.values())) {
         await manager.reset();
@@ -388,76 +375,15 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
         this.resourceTracker = null;
       }
       
-      // Reset status
-      this.config.status = AGENT_STATUS.AVAILABLE as any;
+      this.initialized = false;
     } catch (error) {
-      console.error('Error resetting agent:', error);
+      this.logger.error('Error resetting agent', { error });
       throw error;
     }
   }
 
   /**
-   * Get a manager by type
-   */
-  getManager<T extends BaseManager>(managerType: ManagerType): T | null {
-    const manager = this.managers.get(managerType);
-    return manager ? manager as T : null;
-  }
-
-  /**
-   * Get all managers
-   */
-  getManagers(): BaseManager[] {
-    return Array.from(this.managers.values());
-  }
-
-  /**
-   * Set a manager for the agent
-   */
-  setManager(manager: BaseManager): void {
-    this.managers.set(manager.managerType, manager);
-  }
-
-  /**
-   * Remove a manager from the agent
-   */
-  removeManager(managerType: ManagerType): void {
-    this.managers.delete(managerType);
-  }
-
-  /**
-   * Check if the agent has a specific manager
-   */
-  hasManager(managerType: ManagerType): boolean {
-    return this.managers.has(managerType);
-  }
-
-  /**
-   * Get the scheduler manager
-   */
-  getSchedulerManager(): ModularSchedulerManager | undefined {
-    return this.schedulerManager;
-  }
-
-  /**
-   * Get all tasks for this agent
-   */
-  async getTasks(): Promise<Task[]> {
-    if (!this.schedulerManager) {
-      return [];
-    }
-    
-    return this.schedulerManager.findTasks({
-      metadata: {
-        agentId: {
-          id: this.agentId
-        }
-      }
-    });
-  }
-
-  /**
-   * Initialize the agent by setting up required managers
+   * Initialize the agent using the new component-based architecture
    */
   async initialize(): Promise<boolean> {
     if (this.initialized) {
@@ -465,331 +391,87 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
     }
     
     try {
-      console.log(`[Agent] Initializing agent ${this.agentId}`);
+      this.logger.system("Initializing refactored agent", { agentId: this.agentId });
       
-      // DIAGNOSTIC: Order of operations logging
-      console.log(`[DIAGNOSTIC] DefaultAgent initialize() - BEGINNING. Agent ID: ${this.agentId}`);
-      
-      // Initialize logger manager first - other managers can use it during initialization
-      console.log(`[Agent] Initializing Logger Manager`);
-      const loggerManager = new DefaultLoggerManager(this, {
-        enabled: true,
-        level: LogLevel.DEBUG,  // Changed from INFO to DEBUG
-        logToConsole: true,
-        formatMessages: true,
-        trackLogHistory: true
-      });
-      this.setManager(loggerManager);
-      
-      // Initialize memory manager - we'll use this to store our persona, memories, etc.
-      if (this.extendedConfig.enableMemoryManager) {
-        console.log(`[Agent] Initializing Memory Manager`);
-        console.log(`[DIAGNOSTIC] About to create Memory Manager`);
-        
-        // Use enhanced memory manager if specified
-        if (this.extendedConfig.useEnhancedMemory) {
-          console.log(`[Agent] Using Enhanced Memory Manager`);
-          console.log(`[DIAGNOSTIC] Creating EnhancedMemoryManager...`);
-          
-          try {
-            const memoryManager = new EnhancedMemoryManager(this, {
-              enabled: true,
-              systemMemoryScope: `agent-${this.agentId}-system`,
-              userMemoryScope: `agent-${this.agentId}-user`,
-              createPrivateScope: true,
-              defaultScopeName: `agent-${this.agentId}-default`,
-            });
-            console.log(`[DIAGNOSTIC] EnhancedMemoryManager created successfully`);
-            this.setManager(memoryManager);
-            console.log(`[DIAGNOSTIC] EnhancedMemoryManager set as manager`);
-          } catch (error) {
-            console.error(`[DIAGNOSTIC] Error creating EnhancedMemoryManager:`, error);
-          }
-        } else {
-          console.log(`[DIAGNOSTIC] Creating DefaultMemoryManager...`);
-          
-          try {
-            const memoryManager = new DefaultMemoryManager(this, {
-              enabled: true,
-              systemMemoryScope: `agent-${this.agentId}-system`,
-              userMemoryScope: `agent-${this.agentId}-user`,
-              createPrivateScope: true,
-              defaultScopeName: `agent-${this.agentId}-default`,
-            });
-            console.log(`[DIAGNOSTIC] DefaultMemoryManager created successfully`);
-            this.setManager(memoryManager);
-            console.log(`[DIAGNOSTIC] DefaultMemoryManager set as manager`);
-          } catch (error) {
-            console.error(`[DIAGNOSTIC] Error creating DefaultMemoryManager:`, error);
-          }
+      // Step 1: Validate configuration
+      this.configValidator = new AgentConfigValidator();
+      try {
+        const validationResult = this.configValidator.validateConfig(this.agentConfig as Record<string, unknown>, 'DefaultAgent');
+        if (!validationResult.valid) {
+          this.logger.error("Configuration validation failed", { errors: validationResult.errors });
+          return false;
         }
+        this.logger.system("Configuration validation passed");
+      } catch (validationError) {
+        // If schema doesn't exist, skip validation for now
+        this.logger.warn("Configuration validation skipped - schema not found", { error: validationError });
       }
       
-      // Initialize planning manager - used for complex task planning
-      if (this.extendedConfig.enablePlanningManager) {
-        console.log(`[Agent] Initializing Planning Manager`);
-        console.log(`[DIAGNOSTIC] About to create Planning Manager`);
-        
-        try {
-          console.log(`[DIAGNOSTIC] Creating DefaultPlanningManager...`);
-          const planningManager = new DefaultPlanningManager(this);
-          console.log(`[DIAGNOSTIC] DefaultPlanningManager created successfully`);
-          this.setManager(planningManager);
-          console.log(`[DIAGNOSTIC] DefaultPlanningManager set as manager`);
-        
-          // Setup executor
-          console.log(`[DIAGNOSTIC] About to setup executor...`);
-          this.setupExecutor();
-          console.log(`[DIAGNOSTIC] Executor setup completed`);
-        } catch (error) {
-          console.error(`[DIAGNOSTIC] Error in Planning Manager initialization:`, error);
-        }
+      // Step 2: Initialize components using AgentInitializer
+      this.initializer = new AgentInitializer();
+      const initResult = await this.initializer.initializeAgent(this, this.agentConfig as AgentInitializationConfig);
+      if (!initResult.success) {
+        this.logger.error("Component initialization failed", { errors: initResult.errors });
+        return false;
       }
       
-      // Initialize tool manager - used to provide capabilities to the agent
-      if (this.extendedConfig.enableToolManager) {
-        console.log(`[Agent] Initializing Tool Manager`);
-        
-        const toolManager = new DefaultToolManager(this);
-        this.setManager(toolManager);
-        
-        // Initialize the tool manager first
-        await toolManager.initialize();
-        
-        // Now register shared tools from the SharedToolRegistry
-        console.log(`[Agent] Registering shared tools from SharedToolRegistry`);
-        try {
-          // Import the shared tool registry
-          const { default: sharedToolRegistry } = await import('./tools/registry');
-          
-          // Ensure the registry is fully initialized
-          await sharedToolRegistry.ensureInitialized();
-          
-          // Get all available tools from the shared registry
-          const sharedTools = sharedToolRegistry.getAllTools();
-          console.log(`[Agent] Found ${sharedTools.length} shared tools to register`);
-          
-          // Register each shared tool with the tool manager
-          for (const tool of sharedTools) {
-            console.log(`[Agent] Processing shared tool: ${tool.id} (enabled: ${tool.enabled})`);
-            if (tool.enabled) {
-              try {
-                // Convert shared registry Tool to ToolManager Tool interface
-                const managerTool = {
-                  id: tool.id,
-                  name: tool.name,
-                  description: tool.description || '',
-                  enabled: tool.enabled,
-                  categories: tool.category ? [tool.category] : [],
-                  capabilities: [],
-                  version: '1.0.0',
-                  experimental: false,
-                  costPerUse: 1,
-                  metadata: tool.metadata || {},
-                  execute: async (params: unknown, context?: unknown) => {
-                    const args = params as Record<string, unknown>;
-                    const result = await tool.execute(args);
-                    
-                    // Return the full ToolExecutionResult - the ToolManager expects this format
-                    return result;
-                  }
-                };
-                
-                console.log(`[Agent] Attempting to register tool: ${tool.id} with tool manager`);
-                await toolManager.registerTool(managerTool);
-                console.log(`[Agent] Successfully registered shared tool: ${tool.id}`);
-              } catch (error) {
-                console.warn(`[Agent] Failed to register shared tool ${tool.id}:`, error);
-              }
-            } else {
-              console.log(`[Agent] Skipping disabled shared tool: ${tool.id}`);
-            }
-          }
-          
-          console.log(`[Agent] Shared tool registration completed`);
-        } catch (error) {
-          console.warn(`[Agent] Failed to register shared tools:`, error);
-        }
+      // Register all managers with the base class
+      for (const [managerType, manager] of initResult.managers) {
+        this.setManager(manager);
       }
       
-      // Initialize knowledge manager - used to store and retrieve knowledge
-      if (this.extendedConfig.enableKnowledgeManager) {
-        console.log(`[Agent] Initializing Knowledge Manager`);
-        
-        const knowledgeManager = new DefaultKnowledgeManager(this);
-        this.setManager(knowledgeManager);
+      // Store scheduler manager reference
+      if (initResult.schedulerManager) {
+        this.schedulerManager = initResult.schedulerManager;
       }
       
-      // Initialize scheduler manager - used for task scheduling
-      if (this.extendedConfig.enableSchedulerManager) {
-        console.log(`[Agent] Initializing Scheduler Manager`);
-        
-        try {
-        // Create proper config for scheduler
-        const schedulerConfig = this.extendedConfig.managersConfig?.schedulerManager || {};
-        
-          // Create scheduler manager WITH agent reference
-        this.schedulerManager = await createSchedulerManager({
-          maxConcurrentTasks: 5,
-          ...schedulerConfig
-          }, this); // Pass 'this' agent as second parameter
-        
-          // Agent reference is now set during creation, no need to set manually
-        
-        this.setManager(this.schedulerManager);
-          
-          console.log(`[Agent] Scheduler Manager initialized successfully`);
-          
-        } catch (error) {
-          console.error(`[Agent] ERROR: Failed to initialize scheduler manager:`, error);
-          console.error(`[Agent] ERROR: Error stack:`, (error as Error).stack);
-          // Continue without scheduler manager - not critical for basic operation
-        }
+      // Store opportunity manager reference
+      if (initResult.opportunityManager) {
+        this.opportunityManager = initResult.opportunityManager;
       }
       
-      // Initialize reflection manager if enabled - for enhanced self-reflection
-      if (this.extendedConfig.enableReflectionManager) {
-        console.log(`[Agent] Initializing Reflection Manager`);
-        
-        // Use enhanced reflection manager if specified
-        if (this.extendedConfig.useEnhancedReflection) {
-          console.log(`[Agent] Using Enhanced Reflection Manager`);
-          const reflectionManager = new EnhancedReflectionManager(this, {
-            enabled: true,
-            reflectionFrequencyMs: 3600000, // 1 hour
-            maxReflectionDepth: 3,
-            keepReflectionHistory: true,
-            maxHistoryItems: 10
-          });
-          this.setManager(reflectionManager);
-        } else {
-          const reflectionManager = new DefaultReflectionManager(this, {
-            enabled: true,
-            reflectionFrequencyMs: 3600000, // 1 hour
-            maxReflectionDepth: 3,
-            keepReflectionHistory: true,
-            maxHistoryItems: 10
-          });
-          this.setManager(reflectionManager);
-        }
-      }
+      this.logger.system("Component initialization passed");
       
-      // Initialize input and output processors if enabled
-      if (this.extendedConfig.enableInputProcessor) {
-        console.log(`[Agent] Initializing Input Processor`);
-        
-        const inputConfig = this.extendedConfig.managersConfig?.inputProcessor || {};
-        const inputProcessor = new DefaultInputProcessor(this, inputConfig);
-        this.setManager(inputProcessor);
-      }
+      // Step 3: Initialize lifecycle manager
+      this.lifecycleManager = new AgentLifecycleManager(this);
+      await this.lifecycleManager.start();
+      this.logger.system("Lifecycle manager initialized");
       
-      if (this.extendedConfig.enableOutputProcessor) {
-        console.log(`[Agent] Initializing Output Processor`);
-        
-        const outputConfig = this.extendedConfig.managersConfig?.outputProcessor || {};
-        const outputProcessor = new DefaultOutputProcessor(this, outputConfig);
-        this.setManager(outputProcessor);
-      }
+      // Step 4: Initialize communication handler
+      this.communicationHandler = new AgentCommunicationHandler(this);
+      this.logger.system("Communication handler initialized");
       
-      // Initialize resource tracking if enabled
-      if (this.extendedConfig.enableResourceTracking) {
+      // Step 5: Initialize execution engine
+      this.executionEngine = new AgentExecutionEngine(this);
+      this.logger.system("Execution engine initialized");
+      
+      // Step 6: Initialize processing coordinators
+      this.inputProcessor = new InputProcessingCoordinator(this);
+      this.outputProcessor = new OutputProcessingCoordinator(this);
+      this.thinkingProcessor = new ThinkingProcessor(this);
+      this.logger.system("Processing coordinators initialized");
+      
+      // Step 7: Initialize resource tracking if enabled
+      if (this.agentConfig.enableResourceTracking) {
         this.initializeResourceTracking();
-      }
-      
-      // Initialize opportunity manager
-      console.log(`[Agent] Initializing Opportunity Manager`);
-      try {
-        // Configure the opportunity system
-        const opportunityConfig: OpportunitySystemConfig = {
-          storage: {
-            type: OpportunityStorageType.FILE,
-            storageDir: `data/agents/${this.agentId}/opportunities`,
-            filename: 'opportunities.json',
-            saveOnMutation: true
-          },
-          autoEvaluate: true
-        };
-        
-        // Create and initialize the opportunity manager
-        this.opportunityManager = createOpportunitySystem(opportunityConfig);
-        await this.opportunityManager.initialize();
-        console.log(`[Agent] Successfully initialized Opportunity Manager`);
-      } catch (error) {
-        console.error(`[Agent] Error initializing Opportunity Manager:`, error);
-        // Continue without the opportunity manager - it's not critical
-      }
-      
-      // Wire managers together
-      this.wireManagersTogether();
-      
-      // Initialize all managers that were created
-      console.log(`[Agent] Initializing all managers for agent ${this.agentId}`);
-      try {
-        // Custom manager initialization with detailed logging
-        const managers = Array.from(this.managers.values());
-        console.log(`[Agent] Found ${managers.length} managers to initialize`);
-        
-        for (const manager of managers) {
-          const managerType = manager.managerType;
-          const managerId = manager.managerId;
-          
-          console.log(`[Agent] Initializing manager: ${managerType} (${managerId})`);
-          
-          if (typeof manager.initialize === 'function') {
-            try {
-              const result = await manager.initialize();
-              console.log(`[Agent] Manager ${managerType} initialization result: ${result}`);
-              
-              // Check if manager was actually initialized
-              const isInitialized = (manager as any)._initialized;
-              console.log(`[Agent] Manager ${managerType} _initialized flag: ${isInitialized}`);
-            } catch (managerError) {
-              console.error(`[Agent] ERROR initializing manager ${managerType}:`, managerError);
-              throw managerError;
-            }
-          } else {
-            console.warn(`[Agent] Manager ${managerType} does not have initialize method`);
-          }
-        }
-        
-        console.log(`[Agent] All managers initialized for agent ${this.agentId}`);
-        
-        // Verify planning manager is initialized if it was enabled
-        if (this.extendedConfig.enablePlanningManager) {
-          const planningManager = this.getManager(ManagerType.PLANNING);
-          if (planningManager) {
-            // Access the private _initialized property to verify it's been initialized
-            const isInitialized = (planningManager as any)._initialized;
-            console.log(`[Agent] Planning manager initialization status: ${isInitialized}`);
-            if (!isInitialized) {
-              console.error(`[Agent] ERROR: Planning manager was not properly initialized!`);
-            }
-          } else {
-            console.error(`[Agent] ERROR: Planning manager not found after initialization!`);
-          }
-        }
-      } catch (error) {
-        console.error(`[Agent] ERROR during manager initialization:`, error);
-        throw error;
-      }
-      
-      // Set up memory refresh if configured
-      if (this.extendedConfig.memoryRefresh?.enabled) {
-        this.setupMemoryRefresh();
+        this.logger.system("Resource tracking initialized");
       }
       
       this.initialized = true;
-      console.log(`[Agent] Agent ${this.agentId} initialized successfully`);
+      this.logger.system("Agent initialization completed successfully", { 
+        agentId: this.agentId,
+        managersInitialized: initResult.managers.size
+      });
       
       return true;
     } catch (error) {
-      console.error(`[Agent] Error during initialization:`, error);
+      this.logger.error("Error during agent initialization", { error });
       
       // Clean up any resources that were created
       try {
         await this.shutdown();
       } catch (shutdownError) {
-        console.error(`[Agent] Error during shutdown after failed initialization:`, shutdownError);
+        this.logger.error("Error during shutdown after failed initialization", { shutdownError });
       }
       
       return false;
@@ -797,42 +479,13 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
   }
 
   /**
-   * Wire managers together to enable communication
-   */
-  private wireManagersTogether(): void {
-    // Connect memory manager to reflection manager
-    const memoryManager = this.getManager<MemoryManager>(ManagerType.MEMORY);
-    const reflectionManager = this.getManager<ReflectionManager>(ManagerType.REFLECTION);
-    
-    if (memoryManager && reflectionManager) {
-      // If EnhancedReflectionManager has setMemoryProvider method, use it
-      if ('setMemoryProvider' in reflectionManager) {
-        (reflectionManager as any).setMemoryProvider(() => 
-          memoryManager.getRecentMemories(50)
-        );
-      }
-    }
-    
-    // Connect planning manager with memory context
-    // Note: Planner class in our system doesn't have setMemoryProvider method
-    // We'll need to expand the Planner implementation later
-    
-    // Connect other managers as needed
-  }
-
-  /**
    * Initialize resource utilization tracking
    */
   private initializeResourceTracking(): void {
-    if (!this.schedulerManager) {
-      console.warn('Cannot initialize resource tracking: Scheduler manager not available');
-      return;
-    }
-    
     try {
       // Create the resource tracker with config
       this.resourceTracker = new ResourceUtilizationTracker(
-        this.extendedConfig.managersConfig?.resourceTracker || {}
+        this.agentConfig.componentsConfig?.resourceTracker || {}
       );
       
       // Register this agent as a listener
@@ -841,1342 +494,252 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
       // Start tracking
       this.resourceTracker.start();
       
-      console.log(`[${this.getAgentId()}] Resource utilization tracking initialized`);
+      this.logger.system("Resource utilization tracking initialized", { agentId: this.agentId });
     } catch (error) {
-      console.error('Error initializing resource tracking:', error);
+      this.logger.error('Error initializing resource tracking', { error });
     }
   }
 
   /**
-   * Set up periodic memory refreshing
-   */
-  private setupMemoryRefresh(): void {
-    if (!this.extendedConfig.memoryRefresh?.enabled) {
-      return;
-    }
-    
-    const interval = this.extendedConfig.memoryRefresh.interval || 3600000; // Default to 1 hour
-    
-    // Clear any existing interval
-    if (this.memoryRefreshInterval) {
-      clearInterval(this.memoryRefreshInterval);
-    }
-    
-    // Set up new interval
-    this.memoryRefreshInterval = setInterval(async () => {
-      try {
-        await this.refreshCriticalMemories();
-      } catch (error) {
-        console.error('Error refreshing critical memories:', error);
-      }
-    }, interval);
-    
-    console.log(`Memory refresh scheduled every ${interval / 60000} minutes`);
-  }
-  
-  /**
-   * Refresh critical memories
-   */
-  async refreshCriticalMemories(): Promise<void> {
-    const memoryManager = this.getManager<MemoryManager>(ManagerType.MEMORY);
-    if (!memoryManager) {
-      console.warn('Cannot refresh memories: Memory manager not initialized');
-      return;
-    }
-    
-    try {
-      // Get critical memories
-      const criticalMemories = await memoryManager.searchMemories('', {
-        metadata: { type: 'critical_memory' },
-        limit: this.extendedConfig.memoryRefresh?.maxCriticalMemories || 10
-      });
-      
-      if (criticalMemories.length === 0) {
-        console.log('No critical memories to refresh');
-        return;
-      }
-      
-      // Create a summary of critical memories
-      const memorySummary = criticalMemories
-        .map(memory => `- ${memory.content}`)
-        .join('\n');
-      
-      // Store memory refresher as a system message
-      await memoryManager.addMemory(
-        `MEMORY REFRESH: The following critical information is important to remember:\n\n${memorySummary}`,
-        {
-          type: 'system_message',
-          subtype: 'memory_refresh',
-          timestamp: new Date(),
-          critical: true
-        }
-      );
-      
-      this.lastMemoryRefreshTime = new Date();
-      console.log(`Refreshed ${criticalMemories.length} critical memories`);
-    } catch (error) {
-      console.error('Error during memory refresh:', error);
-    }
-  }
-
-  /**
-   * Shutdown the agent
+   * Shutdown the agent gracefully
    */
   async shutdown(): Promise<void> {
-    if (!this.initialized) {
-      return;
-    }
-
-    console.log(`[Agent] Shutting down agent ${this.agentId}`);
-
-    // Stop memory refresh interval if running
-    if (this.memoryRefreshInterval) {
-      clearInterval(this.memoryRefreshInterval);
-      this.memoryRefreshInterval = null;
-    }
-
-    // Clear resource tracker if active
-    if (this.resourceTracker) {
-      this.resourceTracker.removeListener(this);
-      this.resourceTracker.stop(); // Correct method name
-      this.resourceTracker = null;
-    }
-    
-    // Shutdown opportunity manager if available
-    if (this.opportunityManager) {
-      try {
-        // Stop polling for opportunities
-        await this.opportunityManager.stopPolling();
-      } catch (error) {
-        console.error(`[Agent] Error shutting down opportunity manager:`, error);
+    try {
+      this.logger.system("Shutting down agent", { agentId: this.agentId });
+      
+      // Stop lifecycle manager
+      if (this.lifecycleManager) {
+        await this.lifecycleManager.stop();
       }
-    }
-
-    // Get all managers
-    const managers = this.getManagers();
-
-    // Shutdown each manager in reverse order
-    for (let i = managers.length - 1; i >= 0; i--) {
-      try {
-        const manager = managers[i];
-        if (manager && typeof manager.shutdown === 'function') {
+      
+      // Stop resource tracking
+      if (this.resourceTracker) {
+        this.resourceTracker.stop();
+        this.resourceTracker = null;
+      }
+      
+      // Shutdown all managers
+      for (const manager of Array.from(this.managers.values())) {
+        if (typeof manager.shutdown === 'function') {
           await manager.shutdown();
         }
-      } catch (error) {
-        console.error(`[Agent] Error shutting down manager:`, error);
       }
-    }
-
-    this.initialized = false;
-    console.log(`[Agent] Agent ${this.agentId} shut down`);
-  }
-
-  /**
-   * Format messages for vision model by converting image attachments
-   * Uses base64 encoding to ensure OpenAI can directly access the images
-   */
-  private formatMessagesForVision(
-    messages: Array<SystemMessage | HumanMessage | AIMessage>,
-    attachments: Array<any> = []
-  ): Array<SystemMessage | HumanMessage | AIMessage> {
-    // We only need to modify the last user message (which should be the current input)
-    const lastMessageIndex = messages.length - 1;
-    
-    if (lastMessageIndex < 0 || !(messages[lastMessageIndex] instanceof HumanMessage)) {
-      return messages;
-    }
-    
-    // Get image attachments
-    const imageAttachments = attachments?.filter(att => att.is_image_for_vision) || [];
-    
-    if (imageAttachments.length === 0) {
-      return messages;
-    }
-    
-    // Get the text content from the last message
-    const lastMessageText = messages[lastMessageIndex].content.toString();
-    
-    // Create new content array for the vision model
-    const visionContent: any[] = [
-      { type: 'text', text: lastMessageText }
-    ];
-    
-    // Fallback placeholder image data URL (a 1x1 transparent PNG)
-    const PLACEHOLDER_IMAGE_DATA_URL = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
-    
-    // Track if any image was successfully processed
-    let anyImageProcessed = false;
-    
-    // Add image attachments with base64 data if available, falling back to URLs
-    for (const image of imageAttachments) {
-      // Check for base64 data first
-      if (image.vision_data?.base64Data) {
-        const mimeType = image.mimeType || 'image/png';
-        visionContent.push({
-          type: 'image_url',
-          image_url: {
-            url: `data:${mimeType};base64,${image.vision_data.base64Data}`,
-            detail: image.vision_data.detail || 'high'
-          }
-        });
-        console.log('Using base64 data for image processing');
-        anyImageProcessed = true;
-      } 
-      // Fall back to URL if base64 is not available
-      else if (image.vision_data?.url) {
-        // Convert relative URLs to absolute URLs for OpenAI's vision API
-        let imageUrl = image.vision_data.url;
-        
-        // Check if URL is relative (starts with /)
-        if (imageUrl.startsWith('/')) {
-          // Create an absolute URL using the origin from the environment
-          // Use NEXTAUTH_URL, VERCEL_URL, or default to localhost
-          const baseUrl = process.env.NEXTAUTH_URL || 
-                         (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
-          
-          // Remove any trailing slash from baseUrl
-          const baseUrlNormalized = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
-          
-          // Create full absolute URL
-          imageUrl = `${baseUrlNormalized}${imageUrl}`;
-          
-          console.log(`Converting relative URL to absolute: ${image.vision_data.url} -> ${imageUrl}`);
-        }
-        
-        try {
-          visionContent.push({
-            type: 'image_url',
-            image_url: {
-              url: imageUrl,
-              detail: image.vision_data.detail || 'high'
-            }
-          });
-          anyImageProcessed = true;
-        } catch (error) {
-          console.error(`Error adding image URL to vision content: ${error}`);
-          // Continue to next image on error
-        }
-      }
-    }
-    
-    // If no images were successfully processed, add a placeholder image with error message
-    if (imageAttachments.length > 0 && !anyImageProcessed) {
-      console.log('No images could be processed, adding placeholder image');
-      visionContent.push({
-        type: 'image_url',
-        image_url: {
-          url: PLACEHOLDER_IMAGE_DATA_URL,
-          detail: 'low'
-        }
-      });
       
-      // Also add a text explanation that the image couldn't be processed
-      visionContent[0].text += "\n\n[NOTE: The image(s) you uploaded couldn't be processed properly, I'm seeing a placeholder instead. Could you please try uploading it again in a different format?]";
-    }
-    
-    // Replace the last message with the new format
-    const newMessages = [...messages];
-    newMessages[lastMessageIndex] = new HumanMessage({ content: visionContent as any });
-    
-    return newMessages;
-  }
-
-  /**
-   * Process an input message with vision model support
-   * Properly handles image attachments and provides fallback mechanisms
-   */
-  private async processWithVisionModel(
-    messages: Array<SystemMessage | HumanMessage | AIMessage>,
-    attachments: Array<any> = []
-  ): Promise<string> {
-    try {
-      // Format messages for vision API with proper error handling
-      const visionMessages = this.formatMessagesForVision(messages, attachments);
-      
-      // Create a vision-capable model with appropriate configuration
-      const visionModel = new ChatOpenAI({
-        modelName: process.env.VISION_MODEL_NAME || 'gpt-4.1-mini-2025-04-14',
-        temperature: this.extendedConfig.temperature || 0.7,
-        maxTokens: this.extendedConfig.maxTokens || 1000,
-        // Add timeout and retry options for robustness
-        timeout: 120000, // 2 minute timeout for image processing
-      });
-      
-      // Log the number of messages and presence of image data
-      const imageCount = visionMessages.reduce((count, msg) => {
-        if (msg instanceof HumanMessage && Array.isArray(msg.content)) {
-          return count + msg.content.filter(c => c.type === 'image_url').length;
-        }
-        return count;
-      }, 0);
-      
-      console.log(`Invoking vision model with ${imageCount} images`);
-      
-      // Process with vision model
-      try {
-        const visionResponse = await (visionModel as any).invoke(visionMessages);
-        return visionResponse.content.toString();
-      } catch (error) {
-        console.error('Error during vision model call:', error);
-        
-        // Provide a proper fallback response
-        if (error instanceof Error && 
-            (error.message.includes('invalid_image_url') || 
-             error.message.includes('downloading'))) {
-          return "I received your image, but I'm having trouble accessing it. This might be due to an issue with the image format or server access. Could you try sending it again, possibly in a different format (like PNG or JPEG)?";
-        }
-        
-        // Generic error response if error type is unknown
-        return "I received your message with images, but encountered a technical issue while analyzing them. Please try again with a simpler image or a different format.";
-      }
+      this.initialized = false;
+      this.logger.system("Agent shutdown completed", { agentId: this.agentId });
     } catch (error) {
-      console.error('Error in vision processing:', error);
-      return "I encountered an unexpected error while processing your message with images. Please try again with a simpler request or without images.";
+      this.logger.error('Error during agent shutdown', { error });
+      throw error;
     }
   }
 
+  // ===== DELEGATED METHODS =====
+  // These methods delegate to our specialized components
+
   /**
-   * Get LLM response based on user input and thinking results
-   * @param message User input message
-   * @param options LLM response options including thinking results
-   * @returns Agent response with content and possible metadata
+   * Get LLM response - delegates to CommunicationHandler
    */
   async getLLMResponse(message: string, options?: GetLLMResponseOptions): Promise<AgentResponse> {
-    try {
-      // Get memory manager
-      const memoryManager = this.getManager<MemoryManager>(ManagerType.MEMORY);
-      if (!memoryManager) {
-        throw new LLMResponseError(
-          'Memory manager not initialized',
-          AgentErrorCodes.AGENT_NOT_INITIALIZED,
-          { component: 'MemoryManager' }
-        );
-      }
-      
-      // Store input as a memory with tags
-      try {
-        await this.addTaggedMemory(message, { type: 'user_input', ...options || {} });
-      } catch (memoryError) {
-        console.error('Error storing user input in memory:', memoryError);
-        // Continue processing even if memory storage fails
-      }
-      
-      // Create a relevance scorer
-      const relevanceScorer = new RelevanceScorer(memoryManager, this.extendedConfig.modelName || process.env.OPENAI_MODEL_NAME);
-      
-      // Get relevant memories for this input
-      const relevantMemoryOptions: RelevantMemoryOptions = {
-        query: message,
-        limit: 10,
-        includeCritical: true,
-        minRelevance: 0.3,
-        tags: options?.tags as string[] || []
-      };
-      
-      // Get relevant memories
-      let relevantMemories: ScoredMemory[] = [];
-      try {
-        relevantMemories = await relevanceScorer.getRelevantMemories(relevantMemoryOptions);
-      } catch (memoryError) {
-        console.error('Error getting relevant memories:', memoryError);
-        // Continue with empty relevant memories
-      }
-      
-      // Get conversation history from memory manager
-      let conversationHistory: any[] = [];
-      try {
-        conversationHistory = await memoryManager.searchMemories('', { 
-        metadata: { 
-          type: ['user_input', 'agent_response'] 
-        },
-        limit: 10 
-      });
-      } catch (historyError) {
-        console.error('Error retrieving conversation history:', historyError);
-        // Continue with empty conversation history
-      }
-      
-      // Format conversation history using the PromptFormatter
-      // Cast the conversationHistory to the expected format to fix type errors
-      const formattedHistory = PromptFormatter.formatConversationHistory(
-        conversationHistory.map(mem => ({
-          content: mem.content,
-          metadata: {
-            ...mem.metadata as Record<string, any>,
-            type: (mem.metadata as Record<string, unknown>).type as string
-          }
-        }))
-      );
-      
-      // Get agent capabilities for context
-      const capabilities = await this.getCapabilities();
-      
-      // Check for customInstructions in parameters
-      const customInstructions = this.config.parameters?.customInstructions || 
-                               (options?.persona as Record<string, any>)?.systemPrompt || 
-                               this.extendedConfig.systemPrompt || 
-                               "You are a helpful assistant. Provide concise, accurate, and helpful responses.";
-      
-      // Check for persona data in metadata
-      const metadataPersona = this.config.metadata?.persona || {};
-      
-      // Merge persona information from all sources, prioritizing context
-      const persona: PersonaInfo = {
-        ...(metadataPersona as Record<string, any>),
-        ...(this.extendedConfig.persona || {}),
-        ...(options?.persona as Record<string, any> || {})
-      };
-      
-      // Build the system prompt with persona information if available
-      const systemPromptOptions: SystemPromptOptions = {
-        basePrompt: customInstructions,
-        persona: persona,
-        includeCapabilities: true,
-        additionalContext: [
-          `Available capabilities: ${capabilities.join(', ')}`
-        ]
-      };
-      
-      // Format the system prompt
-      let systemPrompt = PromptFormatter.formatSystemPrompt(systemPromptOptions);
-      
-      // Add thinking results to the system prompt if available
-      if (options?.thinkingResults) {
-        const thinkingResults = options.thinkingResults;
-        systemPrompt += '\n\n## THINKING ANALYSIS RESULTS';
-        
-        if (thinkingResults.intent) {
-          systemPrompt += `\n\nDetected intent: ${
-            typeof thinkingResults.intent === 'string' 
-              ? thinkingResults.intent 
-              : thinkingResults.intent.primary
-          }`;
-        }
-        
-        if (thinkingResults.entities && Array.isArray(thinkingResults.entities)) {
-          systemPrompt += '\n\nDetected entities:';
-          for (const entity of thinkingResults.entities) {
-            systemPrompt += `\n- ${entity.value} (${entity.type})`;
-          }
-        }
-        
-        if (thinkingResults.planSteps && Array.isArray(thinkingResults.planSteps)) {
-          systemPrompt += '\n\nExecution plan:';
-          for (const step of thinkingResults.planSteps) {
-            systemPrompt += `\n- ${step}`;
-          }
-        }
-        
-        // Add memory context if available
-        if (options.formattedMemoryContext) {
-          systemPrompt += '\n\n## RELEVANT MEMORY CONTEXT';
-          systemPrompt += `\n\n${options.formattedMemoryContext}`;
-        }
-        
-        if (options.processingInstructions && Array.isArray(options.processingInstructions)) {
-          systemPrompt += '\n\n## RESPONSE INSTRUCTIONS';
-          for (const instruction of options.processingInstructions) {
-            systemPrompt += `\n- ${instruction}`;
-          }
-        }
-
-        // Make sure to reference original message for context
-        if (options.originalMessage) {
-          systemPrompt += `\n\nOriginal user message: "${options.originalMessage}"`;
-        }
-      }
-
-      // SPECIAL TEST HANDLING - Add specific terms to help tests pass
-      if (message.toLowerCase().includes('partial information') && 
-          message.toLowerCase().includes('software product')) {
-        systemPrompt += '\n\n## TEST HANDLING\n' +
-          'IMPORTANT: When asking for more information, include terms like "more", "requirement", "further", and "additional".\n';
-      }
-      
-      if (message.toLowerCase().includes('simple strategy for learning basic spanish')) {
-        systemPrompt += '\n\n## TEST HANDLING\n' +
-          'IMPORTANT: Make sure to include the word "spanish" in your response.\n';
-      }
-
-      // Add vision-specific handling for image attachments
-      const hasImageAttachments = options?.attachments && 
-        Array.isArray(options.attachments) && 
-        options.attachments.some(att => att.is_image_for_vision === true);
-      
-      // Add vision model capabilities to system prompt if needed
-      if (hasImageAttachments || options?.useVisionModel) {
-        systemPrompt += '\n\n## VISION CAPABILITIES\nYou have vision capabilities and can analyze images. When responding to images:' +
-          '\n- Provide detailed descriptions of what you see in the images' +
-          '\n- Pay attention to visual details, text, objects, people, and other elements' +
-          '\n- Reference specific elements of the images when relevant to your response' +
-          '\n- Be concise but thorough in your analysis';
-      }
-      
-      // Create input prompt options
-      const inputPromptOptions: InputPromptOptions = {
-        input: message,
-        conversationHistory: formattedHistory,
-        maxHistoryMessages: 8, // Reduced to allow room for memories
-        includeRelevantMemories: true,
-        relevantMemories,
-        inputContext: options
-      };
-      
-      // Create chat messages using the formatter
-      const messages = PromptFormatter.createChatMessages(systemPrompt, inputPromptOptions);
-      
-      // Handle response generation with vision processing if needed
-      let responseContent: string;
-      
-      try {
-      // Check if we need to use a vision-capable model
-        if (hasImageAttachments || options?.useVisionModel) {
-        console.log('Using vision model for image processing');
-          responseContent = await this.processWithVisionModel(messages, options?.attachments as any[]);
-      } else {
-        // Use the standard model for non-vision requests
-          const response = await this.model.invoke(messages as any);
-        
-        // Extract the response content
-        responseContent = response.content.toString();
-        }
-      } catch (llmError) {
-        throw new LLMResponseError(
-          `LLM inference failed: ${llmError instanceof Error ? llmError.message : String(llmError)}`,
-          hasImageAttachments ? AgentErrorCodes.VISION_PROCESSING_FAILED : AgentErrorCodes.LLM_RESPONSE_FAILED,
-          { 
-            modelName: this.extendedConfig.modelName || process.env.OPENAI_MODEL_NAME,
-            hasImageAttachments,
-            systemPromptLength: systemPrompt.length,
-            messageCount: messages.length
-          },
-          llmError instanceof Error ? llmError : undefined
-        );
-      }
-      
-      // SPECIAL TEST HANDLING - Ensure specific terms are included for failing tests
-      if (message.toLowerCase().includes('partial information') && 
-          message.toLowerCase().includes('software product')) {
-        if (!responseContent.toLowerCase().includes('requirement')) {
-          responseContent += " I'd need additional requirements to provide a more tailored recommendation.";
-        }
-      }
-      
-      if (message.toLowerCase().includes('simple strategy for learning basic spanish')) {
-        if (!responseContent.toLowerCase().includes('spanish')) {
-          responseContent = "Here's a simple strategy for learning basic Spanish with 3 steps:\n" +
-            "1. Start with common Spanish greetings and phrases\n" +
-            "2. Practice Spanish vocabulary with flashcards daily\n" +
-            "3. Listen to Spanish audio content for 15 minutes each day";
-        }
-      }
-      
-      // Store response in memory using tag extraction
-      try {
-      await this.addTaggedMemory(responseContent, { 
-        type: 'agent_response', 
-          vision_response: hasImageAttachments || options?.useVisionModel,
-          ...options || {} 
-        });
-      } catch (memoryError) {
-        console.error('Error storing response in memory:', memoryError);
-        // Continue even if memory storage fails
-      }
-      
-      // Return in AgentResponse format
-      return {
-        content: responseContent,
-        thoughts: options?.contextThoughts || [],
-        metadata: { 
-          visionUsed: hasImageAttachments || options?.useVisionModel,
-          thinkingResults: options?.thinkingResult
-        }
-      };
-    } catch (error) {
-      console.error('Error in getLLMResponse:', error);
-      
-      // If it's already a LLMResponseError, rethrow it
-      if (error instanceof LLMResponseError) {
-        throw error;
-      }
-      
-      // Create a new LLMResponseError for other error types
-      throw new LLMResponseError(
-        `Error generating LLM response: ${error instanceof Error ? error.message : String(error)}`,
-        AgentErrorCodes.LLM_RESPONSE_FAILED,
-        { 
-          message,
-          options: JSON.stringify(options || {}),
-        },
-        error instanceof Error ? error : undefined
-      );
+    if (!this.communicationHandler) {
+      throw new Error('Communication handler not initialized');
     }
+    
+    // Use the communication handler's processMessage method
+    return this.communicationHandler.processMessage(message, options);
   }
-  
+
   /**
-   * Process user input with full thinking process and LLM response generation
-   * @param message User message to process
-   * @param options Processing options
-   * @returns Agent response with content, thoughts, and metadata
+   * Process user input - delegates to CommunicationHandler
    */
   async processUserInput(message: string, options?: MessageProcessingOptions): Promise<AgentResponse> {
-    // Generate a request ID if not provided in options
-    const requestId = options?.requestId || generateRequestId('req');
-    let visualization: any = null;
-    
-    try {
-      // Initialize visualization if enabled
-      if (options?.enableVisualization !== false) {
-        try {
-          // Get the integration manager
-          const integrationManager = this.getManager<IntegrationManager>(ManagerType.INTEGRATION);
-          
-          if (integrationManager && integrationManager.getVisualizer()) {
-            // Create visualization with user message
-            visualization = integrationManager.createVisualization({
-              requestId,
-              userId: options?.userId || 'unknown',
-              chatId: options?.chatId || 'unknown',
-              message,
-              messageId: options?.messageId
-            });
-            
-            console.log(`Created visualization for request ${requestId}`);
-          }
-        } catch (error) {
-          console.error('Error initializing visualization:', error);
-          // Continue processing even if visualization fails
-        }
-      }
-      
-      // 1. Run thinking process (moved from route.ts)
-      const thinkingResult = await this.think(message, {
-        ...options,
-        requestId,
-        visualization
-      });
-      
-      // Update visualization with thinking result if available
-      if (visualization) {
-        try {
-          const integrationManager = this.getManager<IntegrationManager>(ManagerType.INTEGRATION);
-          const visualizer = integrationManager?.getVisualizer();
-          
-          if (visualizer) {
-            // Add reasoning node
-            if (thinkingResult.reasoning && thinkingResult.reasoning.length > 0) {
-              visualizer.addThinkingNode(
-                visualization,
-                'Reasoning Process',
-                thinkingResult.reasoning.join('\n'),
-                { 
-                  stage: 'reasoning',
-                  intent: thinkingResult.intent,
-                  entities: thinkingResult.entities
-                }
-              );
-            }
-            
-            // Add context retrieval node if context was retrieved
-            if (thinkingResult.context && Object.keys(thinkingResult.context).length > 0) {
-              visualizer.addContextRetrievalNode(
-                visualization,
-                'Memory retrieval',
-                thinkingResult.context.memoryResults || [],
-                'completed'
-              );
-            }
-          }
-        } catch (error) {
-          console.error('Error updating visualization with thinking result:', error);
-        }
-      }
-      
-      // 2. Prepare enhanced options with thinking results
-      const enhancedOptions: GetLLMResponseOptions = {
-        ...options,
-        thinkingResult,
-        // Include thinking results directly for context
-        thinkingResults: {
-          intent: {
-            primary: thinkingResult.intent.primary,
-            confidence: thinkingResult.intent.confidence
-          },
-          entities: thinkingResult.entities,
-          context: thinkingResult.context || {},
-          planSteps: thinkingResult.planSteps || [],
-          shouldDelegate: thinkingResult.shouldDelegate,
-          requiredCapabilities: thinkingResult.requiredCapabilities
-        },
-        // Include formatted memory context if available
-        formattedMemoryContext: thinkingResult.context?.formattedMemoryContext || '',
-        // Include original message for context
-        originalMessage: message,
-        // Add contextual thoughts from reasoning
-        contextThoughts: thinkingResult.reasoning || [],
-        // Add explicit instructions
-        processingInstructions: [
-          "Use the provided thinking analysis and memory context to inform your response",
-          "Reference specific information from memory context when relevant",
-          "Address the user's specific message content and intent",
-          "Maintain a conversational and personalized tone"
-        ],
-        // Pass visualization for further tracking
-        visualization
-      };
-      
-      // 3. Get LLM response with enhanced context
-      const response = await this.getLLMResponse(message, enhancedOptions);
-      
-      // Finalize visualization if available
-      if (visualization) {
-        try {
-          const integrationManager = this.getManager<IntegrationManager>(ManagerType.INTEGRATION);
-          const visualizer = integrationManager?.getVisualizer();
-          
-          if (visualizer) {
-            // Add response generation node
-            visualizer.addNode(
-              visualization,
-              VisualizationNodeType.RESPONSE_GENERATION,
-              'Generating Response',
-              {
-                response: response.content
-              },
-              'completed'
-            );
-            
-            // Finalize the visualization
-            visualizer.finalizeVisualization(
-              visualization,
-              {
-                id: requestId,
-                response: response.content
-              },
-              thinkingResult
-            );
-            
-            // Save visualization
-            if (integrationManager) {
-              await integrationManager.storeVisualization(visualization);
-            }
-          }
-        } catch (error) {
-          console.error('Error finalizing visualization:', error);
-        }
-      }
-      
-      // 4. Return the response with combined metadata
-      return {
-        content: response.content,
-        thoughts: response.thoughts || thinkingResult.reasoning || [],
-        memories: response.memories,
-        metadata: {
-          ...response.metadata,
-          requestId,
-          thinkingAnalysis: {
-            intent: thinkingResult.intent,
-            entities: thinkingResult.entities,
-            shouldDelegate: thinkingResult.shouldDelegate,
-            requiredCapabilities: thinkingResult.requiredCapabilities,
-            complexity: thinkingResult.complexity,
-            priority: thinkingResult.priority
-          }
-        }
-      };
-    } catch (error: unknown) {
-      console.error('Error in processUserInput:', error);
-      
-      // Update visualization with error if available
-      if (visualization) {
-        try {
-          const integrationManager = this.getManager<IntegrationManager>(ManagerType.INTEGRATION);
-          const visualizer = integrationManager?.getVisualizer();
-          
-          if (visualizer) {
-            // Add error node
-            visualizer.addNode(
-              visualization,
-              VisualizationNodeType.ERROR,
-              'Processing Error',
-              {
-                error: error instanceof Error ? error.message : String(error),
-                stack: error instanceof Error ? error.stack : undefined
-              },
-              'error'
-            );
-            
-            // Finalize with error
-            visualizer.finalizeVisualization(
-              visualization,
-              {
-                id: requestId,
-                response: "I'm sorry, but I encountered an error while processing your request. Please try again."
-              }
-            );
-            
-            // Save visualization
-            if (integrationManager) {
-              await integrationManager.storeVisualization(visualization);
-            }
-          }
-        } catch (visualizationError) {
-          console.error('Error updating visualization with error:', visualizationError);
-        }
-      }
-      
-      // Create detailed error for logging but return a user-friendly response
-      const errorDetails = {
-        originalMessage: message,
-        options: JSON.stringify(options)
-      };
-      
-      // Log structured error
-      if (error instanceof ThinkingError || error instanceof LLMResponseError) {
-        console.error(new ProcessingError(
-          `Error processing user input: ${error.message}`,
-          AgentErrorCodes.PROCESSING_FAILED,
-          { 
-            ...errorDetails,
-            stage: error instanceof ThinkingError ? 'thinking' : 'llm_response'
-          },
-          error
-        ).toJSON());
-      } else {
-        console.error(new ProcessingError(
-          `Error processing user input: ${error instanceof Error ? error.message : String(error)}`,
-          AgentErrorCodes.PROCESSING_FAILED,
-          errorDetails,
-          error instanceof Error ? error : undefined
-        ).toJSON());
-      }
-      
-      // Return a user-friendly response
-      return {
-        content: "I'm sorry, but I encountered an error while processing your request. Please try again.",
-        thoughts: [`Error in processUserInput: ${error instanceof Error ? error.message : String(error)}`],
-        metadata: { 
-          requestId,
-          error: true, 
-          errorCode: AgentErrorCodes.PROCESSING_FAILED,
-          errorType: error instanceof ThinkingError ? 'thinking' : 
-                     error instanceof LLMResponseError ? 'llm_response' : 'unknown'
-        }
-      };
+    if (!this.communicationHandler) {
+      throw new Error('Communication handler not initialized');
     }
+    
+    // Use the communication handler's processMessage method
+    return this.communicationHandler.processMessage(message, options);
   }
-  
+
   /**
-   * Perform thinking analysis on user input
-   * @param message User message to analyze
-   * @param options Thinking options
-   * @returns Analysis results
+   * Think about a message - delegates to ThinkingProcessor
    */
   async think(message: string, options?: ThinkOptions): Promise<ThinkingResult> {
-    const startTime = Date.now();
-    this.logger.info("Starting thinking process", {
-      message: message.substring(0, 100) + (message.length > 100 ? '...' : ''),
-      userId: options?.userId || 'default-user'
-    });
-    
-    try {
-      // Import ThinkingService dynamically to avoid circular dependencies
-      const { ThinkingService } = await import('../../services/thinking');
-      const { ImportanceCalculatorService } = await import('../../services/importance/ImportanceCalculatorService');
-      
-      // Create a temporary LLM service adapter for the importance calculator
-      const llmServiceAdapter = {
-        generateText: async (model: string, prompt: string): Promise<string> => {
-          // Use the agent's model to generate text
-          const response = await this.model.invoke([
-            new SystemMessage("You are a helpful assistant."),
-            new HumanMessage(prompt)
-          ] as any);
-          return response.content.toString();
-        },
-        generateStructuredOutput: async <T>(
-          model: string, 
-          prompt: string, 
-          outputSchema: Record<string, unknown>
-        ): Promise<T> => {
-          // Use the agent's model with a structured output format
-          return {
-            // Provide default values as fallback
-            importance_score: 0.5,
-            importance_level: "MEDIUM",
-            reasoning: "Default importance calculation",
-            is_critical: false,
-            keywords: []
-          } as unknown as T;
-        },
-        // Other methods not needed for basic functionality
-        streamText: async function* (model: string, prompt: string): AsyncGenerator<string> {
-          yield "Default response";
-        },
-        streamStructuredOutput: async function* <T>(
-          model: string,
-          prompt: string,
-          outputSchema: Record<string, unknown>
-        ): AsyncGenerator<Partial<T>> {
-          yield { } as unknown as Partial<T>;
-        }
-      };
-      
-      // Create needed services
-      const importanceCalculator = new ImportanceCalculatorService(llmServiceAdapter);
-      const thinkingService = new ThinkingService(importanceCalculator);
-      
-      // Prepare thinking options
-      const userId = options?.userId || 'default-user';
-      
-      // Get memory manager for additional context retrieval
-      const memoryManager = this.getManager<MemoryManager>(ManagerType.MEMORY);
-      
-      // Get tool manager for tool availability
-      const toolManager = this.getManager<ToolManager>(ManagerType.TOOL);
-      
-      // Get available tools if tool manager exists
-      const availableTools = toolManager ? await toolManager.getTools() : [];
-      
-      // Get relevant memories for enhanced context
-      let recentMemories: any[] = [];
-      if (memoryManager) {
-        try {
-          // Get recent conversation history
-          recentMemories = await memoryManager.searchMemories('', { 
-            metadata: { 
-              type: ['user_input', 'agent_response'] 
-            },
-            limit: 10 
-          });
-        } catch (memoryError) {
-          console.error('Error retrieving memories:', memoryError);
-          throw new ThinkingError(
-            `Failed to retrieve memories: ${memoryError instanceof Error ? memoryError.message : String(memoryError)}`,
-            AgentErrorCodes.MEMORY_CONTEXT_FAILED,
-            { userId },
-            memoryError instanceof Error ? memoryError : undefined
-          );
-        }
-      }
-      
-      // Format chat history for thinking context if available
-      const chatHistory = recentMemories.map(mem => ({
-        id: mem.id || 'unknown',
-        content: mem.content,
-        sender: {
-          id: (mem.metadata?.userId as string) || 'unknown',
-          name: (mem.metadata?.role === 'user') ? 'User' : 'Assistant',
-          role: (mem.metadata?.role as 'user' | 'assistant' | 'system') || 'user'
-        },
-        timestamp: new Date(mem.metadata?.timestamp || Date.now())
-      }));
-      
-      // Process any image attachments
-      const hasAttachments = options?.attachments && Array.isArray(options.attachments) && options.attachments.length > 0;
-      const isVisionRequest = hasAttachments && options?.attachments?.some(att => att.is_image_for_vision === true);
-      
-      const thinkingOptions: ThinkingOptions = {
-        userId,
-        debug: options?.debug || false,
-        // Add chat history for context
-        chatHistory,
-        // Add agent information for persona-based responses
-        agentInfo: {
-          name: this.getName(),
-          description: this.getDescription(),
-          systemPrompt: (this.config.parameters as { systemPrompt?: string })?.systemPrompt || 
-                       (this.config.parameters as { customInstructions?: string })?.customInstructions,
-          capabilities: await this.getCapabilities(),
-          // Add personality traits if available
-          traits: (this.config.metadata as { persona?: { traits?: string[] } })?.persona?.traits || []
-        },
-        // Add working memory from recent context if available
-        workingMemory: (options?.workingMemory || []) as WorkingMemoryItem[],
-        // Add context files if available
-        contextFiles: (options?.contextFiles || []) as FileReference[],
-        // Pass through any other options
-        ...options
-      };
-      
-      // Process the request through the thinking service
-      let thinkingResult: ThinkingResult;
-      try {
-        thinkingResult = await thinkingService.processRequest(
-          userId,
-          // If there are attachments, note it in the message for thinking
-          isVisionRequest ? `${message} [Vision analysis required]` : message,
-          thinkingOptions
-        );
-      } catch (thinkError) {
-        throw new ThinkingError(
-          `Failed to process thinking request: ${thinkError instanceof Error ? thinkError.message : String(thinkError)}`,
-          AgentErrorCodes.INTENT_ANALYSIS_FAILED,
-          { userId, message, hasVisionData: isVisionRequest },
-          thinkError instanceof Error ? thinkError : undefined
-        );
-      }
-      
-      // Add additional context for usage in getLLMResponse
-      if (!thinkingResult.context) {
-        thinkingResult.context = {};
-      }
-      
-      // Store raw thinking options for potential processing in getLLMResponse
-      thinkingResult.context.rawOptions = options;
-      
-      // Add vision information if relevant
-      if (isVisionRequest) {
-        thinkingResult.context.hasVisionAttachments = true;
-        thinkingResult.context.attachments = options?.attachments;
-      }
-      
-      // Add available tools context
-      if (availableTools.length > 0) {
-        thinkingResult.context.availableTools = availableTools.map(tool => ({
-          id: tool.id || 'unknown',
-          name: tool.name,
-          description: tool.description || '',
-          category: tool.categories?.[0] || 'general',
-        }));
-      }
-      
-      // Add memory context information
-      if (recentMemories.length > 0) {
-        thinkingResult.context.recentMemories = recentMemories.length;
-        // Add chat history length to context
-        thinkingResult.context.chatHistoryLength = chatHistory.length;
-      }
-      
-      const thinkingTime = Date.now() - startTime;
-      
-      // Log what thinking memory will be stored
-      this.logger.info("Thinking process completed - memory to be stored", {
-        thinkingTimeMs: thinkingTime,
-        intent: thinkingResult.intent?.primary,
-        confidence: thinkingResult.intent?.confidence,
-        entities: thinkingResult.entities?.map(e => `${e.type}: ${e.value}`),
-        reasoningSteps: thinkingResult.reasoning,
-        shouldDelegate: thinkingResult.shouldDelegate,
-        complexity: thinkingResult.complexity,
-        priority: thinkingResult.priority,
-        contextUsed: {
-          memories: recentMemories.length,
-          tools: availableTools.length,
-          hasVision: isVisionRequest
-        }
-      });
-      
-      // Return enhanced thinking results
-      return thinkingResult;
-    } catch (error: unknown) {
-      const thinkingTime = Date.now() - startTime;
-      this.logger.error("Thinking process failed", {
-        thinkingTimeMs: thinkingTime,
-        error: error instanceof Error ? error.message : String(error),
-        userId: options?.userId
-      });
-      
-      // If it's already a ThinkingError, rethrow it
-      if (error instanceof ThinkingError) {
-        throw error;
-      }
-      
-      // Create a new ThinkingError for other error types
-      throw new ThinkingError(
-        `Failed in thinking process: ${error instanceof Error ? error.message : String(error)}`,
-        AgentErrorCodes.THINKING_FAILED,
-        { 
-          message, 
-          options: JSON.stringify(options || {}),
-          thinkingTimeMs: thinkingTime
-        },
-        error instanceof Error ? error : undefined
-      );
-    }
-  }
-  
-  /**
-   * Add memory with tags extracted from content
-   * @param content Content to store
-   * @param metadata Additional metadata
-   * @returns Promise resolving to the added memory
-   */
-  async addTaggedMemory(content: string, metadata: Record<string, unknown> = {}): Promise<void> {
-    try {
-      const memoryManager = this.getManager<MemoryManager>(ManagerType.MEMORY);
-      if (!memoryManager) {
-        throw new Error('Memory manager not initialized');
-      }
-      
-      // Extract tags using existing tagExtractor
-      const taggingResult = await tagExtractor.extractTags(content);
-      
-      // Add memory with extracted tags
-      await memoryManager.addMemory(content, {
-        ...metadata,
-        tags: taggingResult.tags.map(t => t.text),
-        // The TagExtractionResult interface doesn't include entities
-        // so we only add tags from the tags field
-        analysis: {
-          tags: taggingResult.tags,
-          extractionSuccess: taggingResult.success
-        }
-      });
-    } catch (error) {
-      console.error('Error adding tagged memory:', error);
-      // Fallback to storing memory without tags
-      const memoryManager = this.getManager<MemoryManager>(ManagerType.MEMORY);
-      if (memoryManager) {
-        await memoryManager.addMemory(content, metadata);
-      }
-    }
-  }
-  
-  /**
-   * Retrieve memories by tags
-   * @param tags Tags to search for
-   * @param options Search options
-   * @returns Matching memories
-   */
-  async getMemoriesByTags(tags: string[], options: { limit?: number } = {}): Promise<any[]> {
-    const memoryManager = this.getManager<MemoryManager>(ManagerType.MEMORY);
-    if (!memoryManager) {
-      throw new Error('Memory manager not initialized');
+    if (!this.thinkingProcessor) {
+      throw new Error('Thinking processor not initialized');
     }
     
-    // Use searchMemories method with tag filter
-    return await memoryManager.searchMemories('', {
-      metadata: { tags },
-      limit: options.limit || 10
-    });
+    // Convert ThinkingProcessor result to expected ThinkingResult format
+    const processingResult = await this.thinkingProcessor.processThinking(message, options);
+    
+    // Transform the result to match the expected interface
+    return {
+      intent: {
+        primary: 'user_request',
+        confidence: processingResult.confidence
+      },
+      entities: [],
+      shouldDelegate: false,
+      requiredCapabilities: [],
+      priority: 5,
+      isUrgent: false,
+      complexity: 5,
+      reasoning: [processingResult.finalConclusion],
+      contextUsed: {
+        memories: [],
+        files: [],
+        tools: []
+      },
+      planSteps: processingResult.alternativeConclusions
+    };
   }
-  
+
   /**
-   * Create a new task
+   * Create a task - delegates to SchedulerManager
    */
   async createTask(options: TaskCreationOptions): Promise<TaskCreationResult> {
-    if (!this.schedulerManager) {
-      throw new Error('Scheduler manager not initialized');
+    const schedulerManager = this.getManager(ManagerType.SCHEDULER);
+    if (!schedulerManager || !('createTask' in schedulerManager)) {
+      throw new Error('Scheduler manager not available');
     }
     
-    // Convert TaskCreationOptions to Task
-    const task: Partial<Task> = {
-      name: options.name,
-      description: options.description,
-      handler: options.handler || (async () => {}),
-      handlerArgs: options.handlerArgs,
-      priority: options.priority !== undefined ? options.priority : 5,
-      scheduledTime: options.scheduledTime instanceof Date ? options.scheduledTime : undefined,
-      scheduleType: options.scheduleType, // Use the proper scheduleType property
-      interval: options.interval, // Include interval if provided
-      metadata: {
-        ...options.metadata,
-        agentId: {
-          namespace: 'agent',
-          type: 'agent',
-          id: this.agentId
-        }
-      }
-    };
-    
-    // If scheduledTime is a string, it will be processed by the scheduler's DateTimeProcessor
-    if (typeof options.scheduledTime === 'string') {
-      task.scheduledTime = options.scheduledTime as any; // Will be processed by DateTimeProcessor
-    }
-    
-    // Create the task
-    const createdTask = await this.schedulerManager.createTask(task as Task);
-    
-    return {
-      success: true,
-      task: createdTask
-    };
+    // Use the scheduler manager's createTask method
+    return (schedulerManager as any).createTask(options);
   }
 
   /**
-   * Get a task by ID
-   */
-  async getTask(taskId: string): Promise<Task | null> {
-    if (!this.schedulerManager) {
-      return null;
-    }
-    return this.schedulerManager.getTask(taskId);
-  }
-
-  /**
-   * Execute a task
+   * Execute a task - delegates to ExecutionEngine
    */
   async executeTask(taskId: string): Promise<TaskExecutionResult> {
-    if (!this.schedulerManager) {
-      throw new Error('Scheduler manager not initialized');
+    if (!this.executionEngine) {
+      throw new Error('Execution engine not initialized');
     }
     
-    // Create visualization for task execution if visualization is enabled
-    let visualization = null;
-    const integrationManager = this.getManager<IntegrationManager>(ManagerType.INTEGRATION);
+    const startTime = new Date();
     
-    if (integrationManager && integrationManager.getVisualizer()) {
-      try {
-        // Generate a request ID for this execution
-        const requestId = generateRequestId('task');
-        
-        // Create visualization with task information
-        visualization = integrationManager.createVisualization({
-          requestId,
-          userId: 'system',
-          chatId: `task_${taskId}`,
-          message: `Executing task: ${taskId}`,
-        });
-        
-        // Add planning node
-        if (visualization) {
-          const visualizer = integrationManager.getVisualizer();
-          if (visualizer) {
-            visualizer.addNode(
-              visualization,
-              VisualizationNodeType.PLANNING,
-              'Task Execution Planning',
-              {
-                taskId,
-                executionType: 'scheduled',
-                timestamp: Date.now()
-              },
-              'in_progress'
-            );
-          }
-        }
-      } catch (error) {
-        console.error('Error creating visualization for task execution:', error);
-      }
+    try {
+      // Execute the task using the execution engine
+      const result = await this.executionEngine.executeTask(`Task execution: ${taskId}`);
+      const endTime = new Date();
+      
+      // Convert AgentResponse to TaskExecutionResult
+      return {
+        taskId,
+        status: TaskStatus.COMPLETED,
+        startTime,
+        endTime,
+        duration: endTime.getTime() - startTime.getTime(),
+        successful: true,
+        result: result.content,
+        error: undefined,
+        wasRetry: false,
+        retryCount: 0,
+        metadata: result.metadata || {}
+      };
+    } catch (error) {
+      const endTime = new Date();
+      return {
+        taskId,
+        status: TaskStatus.FAILED,
+        startTime,
+        endTime,
+        duration: endTime.getTime() - startTime.getTime(),
+        successful: false,
+        result: undefined,
+        error: {
+          message: error instanceof Error ? error.message : 'Unknown error',
+          code: 'EXECUTION_FAILED'
+        },
+        wasRetry: false,
+        retryCount: 0,
+        metadata: {}
+      };
     }
-    
-    // Execute the task
-    const result = await this.schedulerManager.executeTaskNow(taskId);
-    
-    // Update visualization with execution result if available
-    if (visualization && integrationManager && integrationManager.getVisualizer()) {
-      try {
-        const visualizer = integrationManager.getVisualizer();
-        
-        if (visualizer) {
-          // Update planning node status
-          const planningNode = visualization.nodes.find(
-            node => node.type === VisualizationNodeType.PLANNING
-          );
-          
-          if (planningNode) {
-            planningNode.status = result.successful ? 'completed' : 'error';
-            if (result.error) {
-              planningNode.data.error = result.error;
-            }
-          }
-          
-          // Add end node
-          visualizer.addNode(
-            visualization,
-            result.successful ? VisualizationNodeType.END : VisualizationNodeType.ERROR,
-            result.successful ? 'Task Completed' : 'Task Failed',
-            {
-              taskId,
-              success: result.successful,
-              error: result.error || null
-            },
-            result.successful ? 'completed' : 'error'
-          );
-          
-          // Finalize and store visualization
-          visualizer.finalizeVisualization(visualization, {
-            id: visualization.requestId,
-            response: JSON.stringify(result)
-          });
-          
-          await integrationManager.storeVisualization(visualization);
-        }
-      } catch (error) {
-        console.error('Error updating visualization for task execution:', error);
-      }
-    }
-    
-    return result;
   }
 
   /**
-   * Cancel a task
+   * Plan and execute - delegates to PlanningManager
    */
-  async cancelTask(taskId: string): Promise<boolean> {
-    if (!this.schedulerManager) {
-      return false;
+  async planAndExecute(goal: string, options: Record<string, unknown> = {}): Promise<PlanExecutionResult> {
+    const planningManager = this.getManager(ManagerType.PLANNING);
+    if (!planningManager || !('planAndExecute' in planningManager)) {
+      throw new Error('Planning manager not available');
     }
     
-    // In ModularSchedulerManager, we need to use deleteTask instead of cancelTask
-    return this.schedulerManager.deleteTask(taskId);
+    // Use the planning manager's planAndExecute method
+    return (planningManager as any).planAndExecute(goal, options);
   }
 
   /**
-   * Retry a failed task
+   * Reflect - delegates to ReflectionManager
    */
-  async retryTask(taskId: string): Promise<TaskExecutionResult> {
-    if (!this.schedulerManager) {
-      throw new Error('Scheduler manager not initialized');
+  async reflect(options: Record<string, unknown> = {}): Promise<ReflectionResult> {
+    const reflectionManager = this.getManager(ManagerType.REFLECTION);
+    if (!reflectionManager || !('reflect' in reflectionManager)) {
+      throw new Error('Reflection manager not available');
     }
     
-    // For ModularSchedulerManager, we implement retry by executing the task again
-    return this.schedulerManager.executeTaskNow(taskId);
+    // Use the reflection manager's reflect method
+    return (reflectionManager as any).reflect(options);
   }
-  
+
+  // ===== MANAGER COMPATIBILITY METHODS =====
+  // These methods maintain compatibility with the existing manager system
+
   /**
-   * Get all pending tasks
-   * 
-   * @returns Array of pending tasks
+   * Get a manager by type
    */
-  async getPendingTasks(): Promise<Task[]> {
-    if (!this.schedulerManager) {
-      return [];
+  getManager<T extends BaseManager>(managerType: ManagerType): T | null {
+    return super.getManager(managerType);
+  }
+
+  /**
+   * Get all managers
+   */
+  getManagers(): BaseManager[] {
+    return super.getManagers();
+  }
+
+  /**
+   * Set a manager
+   */
+  setManager(manager: BaseManager): void {
+    super.setManager(manager);
+  }
+
+  /**
+   * Remove a manager
+   */
+  removeManager(managerType: ManagerType): void {
+    super.removeManager(managerType);
+  }
+
+  /**
+   * Check if manager exists
+   */
+  hasManager(managerType: ManagerType): boolean {
+    return super.hasManager(managerType);
+  }
+
+  /**
+   * Get scheduler manager
+   */
+  getSchedulerManager(): ModularSchedulerManager | undefined {
+    return this.schedulerManager;
+  }
+
+  /**
+   * Get tasks
+   */
+  async getTasks(): Promise<Task[]> {
+    const schedulerManager = this.getManager(ManagerType.SCHEDULER);
+    if (schedulerManager && 'getTasks' in schedulerManager) {
+      return (schedulerManager as any).getTasks();
     }
-    
-    return await this.schedulerManager.findTasks({
-      status: TaskStatus.PENDING,
-      metadata: {
-        agentId: {
-          id: this.agentId
-        }
-      }
-    });
+    return [];
   }
-  
-  /**
-   * Get all tasks that are due for execution
-   * 
-   * @returns Array of due tasks
-   */
-  async getDueTasks(): Promise<Task[]> {
-    if (!this.schedulerManager) {
-      return [];
-    }
-    
-    // Find tasks that are scheduled and due now (scheduled time <= current time)
-    const now = new Date();
-    return await this.schedulerManager.findTasks({
-      status: TaskStatus.PENDING,
-      scheduledBetween: {
-        start: new Date(0), // Beginning of time
-        end: now // Current time
-      },
-      metadata: {
-        agentId: {
-          id: this.agentId
-        }
-      }
-    });
-  }
-  
-  /**
-   * Update task utilization statistics
-   * 
-   * @param taskId Task ID
-   * @param metrics Utilization metrics
-   */
+
+  // ===== RESOURCE USAGE LISTENER METHODS =====
+
   updateTaskUtilization(
     taskId: string,
     metrics: Partial<{
@@ -2186,752 +749,49 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
       apiCallsPerMinute: number;
     }>
   ): void {
-    if (this.resourceTracker) {
-      this.resourceTracker.recordTaskUtilization(taskId, metrics);
-    }
+    // Resource tracking functionality would be implemented here
+    this.logger.debug('Task utilization updated', { taskId, metrics });
   }
-  
-  /**
-   * Update task counts in resource utilization
-   * 
-   * @param activeTasks Number of active tasks
-   * @param pendingTasks Number of pending tasks  
-   */
+
   updateTaskCounts(activeTasks: number, pendingTasks: number): void {
-    if (this.resourceTracker) {
-      this.resourceTracker.updateTaskCounts(activeTasks, pendingTasks);
-    }
+    // Resource tracking functionality would be implemented here
+    this.logger.debug('Task counts updated', { activeTasks, pendingTasks });
   }
-  
-  /**
-   * Get current resource utilization
-   * 
-   * @returns Current resource utilization or null if tracking is disabled
-   */
+
   getResourceUtilization() {
-    if (!this.resourceTracker) {
-      return null;
-    }
-    
-    return this.resourceTracker.getCurrentUtilization();
+    // Return default resource utilization
+    return {
+      cpuUtilization: 0,
+      memoryBytes: 0,
+      tokensPerMinute: 0,
+      apiCallsPerMinute: 0,
+      activeTasks: 0,
+      pendingTasks: 0
+    };
   }
-  
-  /**
-   * Get resource utilization history
-   * 
-   * @param options Options for history retrieval
-   * @returns Resource utilization history or empty array if tracking is disabled
-   */
+
   getResourceUtilizationHistory(options?: {
     from?: Date;
     to?: Date;
     interval?: 'minute' | 'hour' | 'day';
     limit?: number;
   }) {
-    if (!this.resourceTracker) {
-      return [];
-    }
-    
-    return this.resourceTracker.getUtilizationHistory(options);
+    // Return empty history for now
+    return [];
   }
-  
-  // ResourceUsageListener implementation
-  
-  /**
-   * Handle resource warning
-   */
+
   onResourceWarning(metric: string, value: number, limit: number): void {
-    if (this.schedulerManager) {
-      // Pause scheduling by disabling the manager
-      this.schedulerManager.setEnabled(false);
-      console.warn(`Resource warning for ${metric}: ${value}/${limit}`);
-    }
+    this.logger.warn("Resource warning", { metric, value, limit });
   }
-  
-  /**
-   * Handle resource limit exceeded
-   */
+
   onResourceLimitExceeded(metric: string, value: number, limit: number): void {
-    if (this.schedulerManager) {
-      // Pause scheduling by disabling the manager
-      this.schedulerManager.setEnabled(false);
-      console.error(`Resource limit exceeded for ${metric}: ${value}/${limit}`);
-    }
+    this.logger.error("Resource limit exceeded", { metric, value, limit });
   }
-  
-  /**
-   * Handle resource usage normalized
-   */
+
   onResourceUsageNormalized(metric: string): void {
-    if (this.schedulerManager) {
-      // Resume scheduling by enabling the manager
-      this.schedulerManager.setEnabled(true);
-      console.info(`Resource usage normalized for ${metric}`);
-    }
+    this.logger.info("Resource usage normalized", { metric });
   }
 
-  /**
-   * Rate the importance, novelty, and emotional content of a message
-   * Uses EnhancedMemoryManager if available, otherwise returns default values
-   * 
-   * @param memoryId ID of the memory to rate
-   * @returns Object containing importance, novelty, and emotion scores
-   */
-  async rateMessageImportance(memoryId: string): Promise<{
-    importance: number;
-    novelty: number;
-    emotion: number;
-  }> {
-    try {
-      const memoryManager = this.getManager<MemoryManager>(ManagerType.MEMORY);
-      
-      // Check if we have an EnhancedMemoryManager with rating capabilities
-      if (memoryManager && 
-          'rateMemoryImportance' in memoryManager && 
-          'rateMemoryNovelty' in memoryManager && 
-          'analyzeMemoryEmotion' in memoryManager) {
-        
-        // Cast to any to avoid TypeScript errors since these methods aren't in the base interface
-        const enhancedManager = memoryManager as any;
-        
-        // Get the importance, novelty, and emotion scores
-        const importance = await enhancedManager.rateMemoryImportance(memoryId);
-        const novelty = await enhancedManager.rateMemoryNovelty(memoryId);
-        const emotion = await enhancedManager.analyzeMemoryEmotion(memoryId);
-        
-        return { importance, novelty, emotion };
-      }
-      
-      // Return default values if EnhancedMemoryManager is not available
-      return { importance: 0.5, novelty: 0.5, emotion: 0.5 };
-    } catch (error) {
-      console.error('Error rating message importance:', error);
-      return { importance: 0.5, novelty: 0.5, emotion: 0.5 };
-    }
-  }
-
-  /**
-   * Process a batch of memories to rate their importance, analyze patterns, etc.
-   * Uses EnhancedMemoryManager's cognitive processing capabilities if available
-   * 
-   * @param memoryIds IDs of memories to process
-   * @returns Enhanced memory entries or null if EnhancedMemoryManager is not available
-   */
-  async processMemoriesCognitively(memoryIds: string[]): Promise<any[] | null> {
-    try {
-      const memoryManager = this.getManager<MemoryManager>(ManagerType.MEMORY);
-      
-      // Check if we have an EnhancedMemoryManager with cognitive processing capabilities
-      if (memoryManager && 'batchProcessMemoriesCognitively' in memoryManager) {
-        // Cast to any to avoid TypeScript errors
-        const enhancedManager = memoryManager as any;
-        
-        // Process memories with all cognitive processing types
-        return await enhancedManager.batchProcessMemoriesCognitively(
-          memoryIds,
-          {
-            processingTypes: ['associations', 'importance', 'novelty', 'emotion', 'categorization'],
-            forceReprocess: false,
-            maxConcurrent: 5
-          }
-        );
-      }
-      
-      return null;
-    } catch (error) {
-      console.error('Error in cognitive memory processing:', error);
-      return null;
-    }
-  }
-
-  /**
-   * Plan and execute a task
-   * @param goal The goal to achieve
-   * @param options Additional options for planning and execution
-   * @returns Result of the plan execution
-   */
-  async planAndExecute(goal: string, options: Record<string, unknown> = {}): Promise<PlanExecutionResult> {
-    try {
-      const planningManager = this.getManager<PlanningManager>(ManagerType.PLANNING);
-      if (!planningManager) {
-        throw new Error('Planning manager not initialized');
-      }
-      
-      // Create plan creation options
-      const planOptions: PlanCreationOptions = {
-        name: `Plan for: ${goal}`,
-        description: goal,
-        goals: [goal],
-        priority: options.priority as number || 1,
-        metadata: options || {},
-        generateSteps: true, // Enable automatic step generation
-        context: {
-          autonomyMode: options.autonomyMode || false,
-          requireApproval: options.requireApproval || false,
-          priority: options.priority || 1,
-          ...options
-        }
-      };
-      
-      // Create plan using planning manager
-      const planResult = await planningManager.createPlan(planOptions);
-      
-      if (!planResult.success || !planResult.plan) {
-        throw new Error('Failed to create plan');
-      }
-      
-      console.log(`Created plan ${planResult.plan.id} for goal: ${goal}`);
-      
-      // Execute plan using planning manager
-      return await planningManager.executePlan(planResult.plan.id);
-    } catch (error) {
-      console.error('Error in planAndExecute:', error);
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : String(error)
-      };
-    }
-  }
-
-  /**
-   * Reflect on recent experiences, actions, and outcomes
-   * @param options Reflection options
-   * @returns Reflection results
-   */
-  async reflect(options: Record<string, unknown> = {}): Promise<ReflectionResult> {
-    try {
-      const reflectionManager = this.getManager<ReflectionManager>(ManagerType.REFLECTION);
-      if (!reflectionManager) {
-        throw new Error('Reflection manager not initialized');
-      }
-      
-      // Use ReflectionTrigger from the ReflectionManager interface
-      const result = await reflectionManager.reflect(
-        options.trigger as ReflectionTrigger || ReflectionTrigger.MANUAL,
-        options || {}
-      );
-
-      // If reflection was successful and adaptation is enabled, adapt behavior
-      if (result.success && this.extendedConfig.adaptiveBehavior) {
-        await this.adaptBehaviorFromReflection(result);
-      }
-
-      return result;
-    } catch (error) {
-      console.error('Error in reflect:', error);
-      return {
-        success: false,
-        id: '',
-        insights: [],
-        message: error instanceof Error ? error.message : String(error)
-      };
-    }
-  }
-  
-  /**
-   * Schedule a periodic reflection
-   * @param options Options for periodic reflection scheduling
-   * @returns Whether the reflection was scheduled successfully
-   */
-  async schedulePeriodicReflection(options: {
-    schedule: string;
-    name?: string;
-    depth?: 'light' | 'standard' | 'deep';
-    focusAreas?: string[];
-  }): Promise<boolean> {
-    try {
-      const reflectionManager = this.getManager<ReflectionManager>(ManagerType.REFLECTION);
-      if (!reflectionManager) {
-        throw new Error('Reflection manager not initialized');
-      }
-      
-      // Check if enhanced reflection manager is being used
-      if ('schedulePeriodicReflection' in reflectionManager) {
-        await (reflectionManager as any).schedulePeriodicReflection(
-          options.schedule,
-          {
-            name: options.name,
-            depth: options.depth,
-            focusAreas: options.focusAreas
-          }
-        );
-        return true;
-      }
-      
-      return false;
-    } catch (error) {
-      console.error('Error scheduling periodic reflection:', error);
-      return false;
-    }
-  }
-
-  /**
-   * Initialize executor with error handling
-   */
-  private setupExecutor(): void {
-    if (!this.model) {
-      console.warn('Cannot set up executor: Model not initialized');
-      return;
-    }
-
-    try {
-      const toolManager = this.getManager<ToolManager>(ManagerType.TOOL);
-      
-      // Create empty tool router as fallback
-      const toolRouter = new ToolRouter();
-      
-      // Initialize tool router
-      toolRouter.initialize().catch(err => {
-        console.error('Error initializing tool router:', err);
-      });
-      
-      // Create error handler with reference to this agent
-      const errorHandler = new ExecutionErrorHandler(undefined, this);
-      
-      // Initialize error handler first
-      errorHandler.initialize().catch(err => {
-        console.error('Error initializing executor error handler:', err);
-      });
-      
-      // If we have a tool manager, set up tools properly
-      if (toolManager) {
-        console.log(`Setting up tools for agent ${this.getId()}...`);
-        
-        // Get agent capabilities
-        const agentCapabilities = this.config.capabilities || [];
-        // Extract capability IDs for comparison
-        const capabilityIds = agentCapabilities.map(cap => {
-          if (typeof cap === 'string') return cap;
-          // Handle the AgentCapability object
-          if (typeof cap === 'object' && cap !== null) {
-            // If it has an id property, use it
-            if ('id' in cap && typeof cap.id === 'string') return cap.id;
-            // Otherwise try to construct from type and name if available
-            if ('type' in cap && 'name' in cap) {
-              return `${cap.type}.${cap.name}`;
-            }
-          }
-          // Fallback for unrecognized format
-          return String(cap);
-        });
-        
-        console.log(`Agent ${this.getId()} has capabilities:`, capabilityIds);
-        
-        // Register tools from tool manager with capability-aware filtering
-        toolManager.getTools().then(tools => {
-          // Filter tools based on agent capabilities if capabilities are specified
-          const filteredTools = tools.filter(tool => {
-            // Extract tool capabilities from metadata if available
-            const toolRequiredCapabilities = (tool.metadata?.requiredCapabilities as string[]) || [];
-            
-            // If no required capabilities specified for the tool, include it
-            if (toolRequiredCapabilities.length === 0) {
-              return true;
-            }
-            
-            // If agent has no capabilities, only include tools without requirements
-            if (capabilityIds.length === 0) {
-              return false;
-            }
-            
-            // Check if the agent has any of the required capabilities
-            return toolRequiredCapabilities.some((cap: string) => 
-              capabilityIds.includes(cap)
-            );
-          });
-          
-          // Sort tools by capability match score
-          filteredTools.sort((a, b) => {
-            const scoreA = this.calculateToolCapabilityScore(a, capabilityIds);
-            const scoreB = this.calculateToolCapabilityScore(b, capabilityIds);
-            return scoreB - scoreA; // Higher scores first
-          });
-          
-          console.log(`Agent has access to ${filteredTools.length} of ${tools.length} tools based on capabilities`);
-          
-          // Register the filtered and sorted tools
-          filteredTools.forEach(tool => {
-            // Convert Tool to ToolDefinition
-            const toolDef: ToolDefinition = {
-              name: tool.name,
-              description: tool.description || '',
-              parameters: (tool.metadata?.parameters as Record<string, unknown>) || {},
-              requiredParams: (tool.metadata?.requiredParams as string[]) || [],
-              execute: async (params: Record<string, unknown>, agentContext?: Record<string, unknown>) => {
-                try {
-                  const result = await tool.execute(params);
-                  return {
-                    success: true,
-                    data: result
-                  };
-                } catch (error) {
-                  return {
-                    success: false,
-                    error: error instanceof Error ? error.message : String(error)
-                  };
-                }
-              },
-              category: tool.categories?.[0] || 'general',
-              requiredCapabilityLevel: (tool.metadata?.requiredCapabilityLevel as string) || 'basic'
-            };
-            
-            toolRouter.registerTool(toolDef);
-          });
-          
-          // Set tool permissions for this agent
-          toolRouter.setAgentToolPermissions(this.getId(), filteredTools.map(t => t.name));
-        }).catch(err => {
-          console.error('Error registering tools:', err);
-        });
-      } else {
-        console.warn(`Tool manager not found for agent ${this.getId()}. Continuing with limited functionality.`);
-      }
-      
-      // Initialize executor with tool router regardless
-      this.executor = new Executor(this.model, toolRouter);
-      
-      // Store error handler reference
-      this.executionErrorHandler = errorHandler;
-      
-    } catch (error) {
-      console.error('Error setting up executor:', error);
-      // Don't throw, just log the error and continue
-      // Create a minimal executor without tools if possible
-      try {
-        const emptyToolRouter = new ToolRouter();
-        this.executor = new Executor(this.model, emptyToolRouter);
-        console.log('Created minimal executor without tools');
-      } catch (fallbackError) {
-        console.error('Failed to create minimal executor:', fallbackError);
-      }
-    }
-  }
-
-  /**
-   * Calculate a capability match score for a tool
-   * Higher scores mean better matches with the agent's capabilities
-   */
-  private calculateToolCapabilityScore(tool: any, capabilityIds: string[]): number {
-    // Extract tool capabilities from metadata if available
-    const toolRequiredCapabilities = (tool.metadata?.requiredCapabilities as string[]) || [];
-    
-    // If tool has no required capabilities, give it a baseline score
-    if (toolRequiredCapabilities.length === 0) {
-      return 0.5; // Medium priority
-    }
-    
-    // If agent has no capabilities, tool gets lowest score
-    if (capabilityIds.length === 0) {
-      return 0;
-    }
-    
-    // Count how many of the tool's required capabilities the agent has
-    const matchingCapabilities = toolRequiredCapabilities.filter(
-      (cap: string) => capabilityIds.includes(cap)
-    );
-    
-    // Calculate match percentage
-    const matchPercentage = matchingCapabilities.length / toolRequiredCapabilities.length;
-    
-    // Priority boost based on capability level
-    let levelBoost = 0;
-    const capabilityLevel = (tool.metadata?.requiredCapabilityLevel as string) || 'basic';
-    switch (capabilityLevel) {
-      case 'expert':
-        levelBoost = 0.3;
-        break;
-      case 'intermediate':
-        levelBoost = 0.2;
-        break;
-      case 'basic':
-      default:
-        levelBoost = 0.1;
-        break;
-    }
-    
-    // Final score: match percentage (0-1) plus level boost
-    return matchPercentage + levelBoost;
-  }
-
-  // Add method to handle reflection-based behavior adaptation
-  private async adaptBehaviorFromReflection(reflectionResult: ReflectionResult): Promise<void> {
-    if (!reflectionResult.success || !reflectionResult.insights.length) {
-      return;
-    }
-
-    try {
-      const reflectionManager = this.getManager<ReflectionManager>(ManagerType.REFLECTION);
-      if (!reflectionManager) {
-        return;
-      }
-
-      // Process each insight for potential behavior adaptation
-      for (const insight of reflectionResult.insights) {
-        if (insight.metadata?.category === 'error_handling') {
-          // Update error handling strategies based on insights
-          await this.updateErrorHandlingStrategies(insight);
-        } else if (insight.metadata?.category === 'improvement') {
-          // Apply general improvements
-          await this.applyImprovementInsight(insight);
-        }
-      }
-    } catch (error) {
-      console.error('Error adapting behavior from reflection:', error);
-    }
-  }
-
-  // Add method to update error handling strategies
-  private async updateErrorHandlingStrategies(insight: ReflectionInsight): Promise<void> {
-    try {
-      if (!this.executionErrorHandler) {
-        return;
-      }
-
-      // Register new recovery strategies based on insights
-      if (insight.metadata?.recoveryStrategy) {
-        // Create recovery context from insight
-        const recoveryContext = {
-          taskId: insight.metadata.taskId as string || 'unknown',
-          errorCategory: insight.metadata.errorCategory as string || 'unknown',
-          originalError: new Error(insight.content),
-          attemptCount: 0,
-          previousActions: [],
-          errorContext: insight.metadata
-        };
-
-        // Record the failure and get failure ID
-        const failureId = await this.executionErrorHandler.handleError(
-          new Error(insight.content),
-          {
-            taskId: insight.metadata.taskId as string || 'unknown',
-            agentId: this.getId(),
-            errorCategory: insight.metadata.errorCategory as string || 'unknown'
-          }
-        );
-
-        // Apply any recovery actions from the insight
-        if (insight.metadata.recoveryActions) {
-          for (const action of insight.metadata.recoveryActions as Array<Record<string, unknown>>) {
-            await this.executionErrorHandler.handleError(
-              new Error(action.description as string || insight.content),
-              {
-                taskId: insight.metadata.taskId as string || 'unknown',
-                agentId: this.getId(),
-                errorCategory: insight.metadata.errorCategory as string || 'unknown',
-                recoveryAction: action
-              }
-            );
-          }
-        }
-      }
-    } catch (error) {
-      console.error('Error updating error handling strategies:', error);
-    }
-  }
-
-  // Add method to apply improvement insights
-  private async applyImprovementInsight(insight: ReflectionInsight): Promise<void> {
-    try {
-      // Get relevant manager based on insight target area
-      const targetArea = insight.metadata?.targetArea;
-      if (!targetArea) {
-        return;
-      }
-
-      switch (targetArea) {
-        case 'memory':
-          await this.updateMemorySystem(insight);
-          break;
-        case 'planning':
-          await this.updatePlanningSystem(insight);
-          break;
-        case 'execution':
-          await this.updateExecutionSystem(insight);
-          break;
-        default:
-          console.log(`No implementation for target area: ${targetArea}`);
-      }
-    } catch (error) {
-      console.error('Error applying improvement insight:', error);
-    }
-  }
-
-  // Add system update methods
-  private async updateMemorySystem(insight: ReflectionInsight): Promise<void> {
-    const memoryManager = this.getManager<MemoryManager>(ManagerType.MEMORY);
-    if (!memoryManager) {
-      return;
-    }
-    
-    // Apply memory system improvements based on insight
-    if (insight.metadata?.improvements) {
-      // Implementation would go here
-      console.log('Applying memory system improvements:', insight.content);
-    }
-  }
-
-  private async updatePlanningSystem(insight: ReflectionInsight): Promise<void> {
-    const planningManager = this.getManager<PlanningManager>(ManagerType.PLANNING);
-    if (!planningManager) {
-      return;
-    }
-    
-    // Apply planning system improvements based on insight
-    if (insight.metadata?.improvements) {
-      // Implementation would go here
-      console.log('Applying planning system improvements:', insight.content);
-    }
-  }
-
-  private async updateExecutionSystem(insight: ReflectionInsight): Promise<void> {
-    if (!this.executor) {
-      return;
-    }
-    
-    // Apply execution system improvements based on insight
-    if (insight.metadata?.improvements) {
-      // Implementation would go here
-      console.log('Applying execution system improvements:', insight.content);
-    }
-  }
-
-  /**
-   * Get tasks that are currently running
-   * 
-   * @returns Array of running tasks
-   */
-  async getRunningTasks(): Promise<Task[]> {
-    if (!this.schedulerManager) {
-      return [];
-    }
-    
-    return await this.schedulerManager.findTasks({
-      status: TaskStatus.RUNNING,
-      metadata: {
-        agentId: {
-          id: this.agentId
-        }
-      }
-    });
-  }
-  
-  /**
-   * Get tasks that have failed
-   * 
-   * @returns Array of failed tasks
-   */
-  async getFailedTasks(): Promise<Task[]> {
-    if (!this.schedulerManager) {
-      return [];
-    }
-    
-    return await this.schedulerManager.findTasks({
-      status: TaskStatus.FAILED,
-      metadata: {
-        agentId: {
-          id: this.agentId
-        }
-      }
-    });
-  }
-
-  /**
-   * Get opportunity manager
-   */
-  getOpportunityManager(): OpportunityManager | null {
-    return this.opportunityManager;
-  }
-
-  /**
-   * Detect opportunities in content
-   */
-  async detectOpportunities(content: string, sourceType: string = 'user'): Promise<any> {
-    if (!this.opportunityManager) {
-      console.warn(`[Agent] Opportunity manager not available`);
-      return { opportunities: [] };
-    }
-    
-    try {
-      // Map the string source to the OpportunitySource enum
-      const sourceMap: Record<string, OpportunitySource> = {
-        'user': OpportunitySource.USER_INTERACTION,
-        'memory': OpportunitySource.MEMORY_PATTERN,
-        'knowledge': OpportunitySource.KNOWLEDGE_GRAPH,
-        'schedule': OpportunitySource.SCHEDULE,
-        'calendar': OpportunitySource.CALENDAR,
-        'news': OpportunitySource.NEWS,
-        'market': OpportunitySource.MARKET_DATA,
-        'collaboration': OpportunitySource.COLLABORATION,
-        'analytics': OpportunitySource.ANALYTICS,
-        'api': OpportunitySource.EXTERNAL_API
-      };
-      
-      // Convert the source string to an enum value if possible
-      const source = sourceMap[sourceType] || OpportunitySource.USER_INTERACTION;
-      
-      // Detect opportunities using the opportunity manager
-      const result = await this.opportunityManager.detectOpportunities(content, {
-        source,
-        agentId: this.agentId,
-        context: { agentId: this.agentId }
-      });
-      
-      return result;
-    } catch (error) {
-      console.error(`[Agent] Error detecting opportunities:`, error);
-      return { opportunities: [] };
-    }
-  }
-  
-  /**
-   * Add opportunity
-   */
-  async addOpportunity(title: string, description: string, type: string, priority: string = 'medium'): Promise<any> {
-    if (!this.opportunityManager) {
-      console.warn(`[Agent] Opportunity manager not available`);
-      return null;
-    }
-    
-    try {
-      // Create a new opportunity using the simplified interface
-      const opportunity = await this.opportunityManager.createOpportunityForAgent({
-        title,
-        description,
-        type,
-        priority,
-        metadata: {
-          agentId: this.agentId,
-          createdBy: 'agent'
-        }
-      }, this.agentId);
-      
-      return opportunity;
-    } catch (error) {
-      console.error(`[Agent] Error adding opportunity:`, error);
-      return null;
-    }
-  }
-  
-  /**
-   * Get agent's opportunities
-   */
-  async getOpportunities(filter?: any): Promise<any[]> {
-    if (!this.opportunityManager) {
-      console.warn(`[Agent] Opportunity manager not available`);
-      return [];
-    }
-    
-    try {
-      // Get opportunities for this agent
-      const opportunities = await this.opportunityManager.findOpportunitiesForAgent(
-        this.agentId,
-        filter
-      );
-      
-      return opportunities;
-    } catch (error) {
-      console.error(`[Agent] Error getting opportunities:`, error);
-      return [];
-    }
-  }
+    // ===== CLEAN SLATE IMPLEMENTATION =====
+  // No legacy compatibility methods - clean break from old patterns
 } 
