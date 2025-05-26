@@ -177,7 +177,6 @@ export class DefaultApifyManager implements IApifyManager {
       queryParams.append('token', this.apiToken);
       queryParams.append('memory', '4096');
       queryParams.append('timeout', '300');
-      queryParams.append('build', 'latest');
       
       // Send the input directly as the request body (not wrapped)
       const runResponse = await fetch(`${this.baseApiUrl}/acts/${apiActorId}/runs?${queryParams.toString()}`, {
@@ -1144,7 +1143,7 @@ export class DefaultApifyManager implements IApifyManager {
       
       // Prepare headers - the public store API might not require authentication
       const headers: Record<string, string> = {
-        'Content-Type': 'application/json'
+          'Content-Type': 'application/json'
       };
       
       // Add authorization header only if API token is available

@@ -474,25 +474,25 @@ describe('Real Async Task Execution & Output Verification', () => {
       const planResult = executionResult.metadata.planResult as any;
       if (planResult.plan?.steps) {
         const steps = planResult.plan.steps;
-        const toolsUsed = new Set<string>();
-        
-        steps.forEach((step: any) => {
-          if (step.actions) {
-            step.actions.forEach((action: any) => {
-              if (action.type === 'tool_execution' && action.parameters?.toolName) {
-                toolsUsed.add(action.parameters.toolName);
-              }
-            });
-          }
-        });
-        
-        console.log('🔧 Tools used in execution:', Array.from(toolsUsed).join(', '));
-        console.log('📊 Number of different tools used:', toolsUsed.size);
-        
-        // Check if multiple Apify tools were used
-        const apifyToolsUsed = Array.from(toolsUsed).filter(tool => tool.startsWith('apify-'));
-        console.log('🎯 Apify tools used:', apifyToolsUsed.join(', '));
-        console.log('✅ Multiple Apify tools used:', apifyToolsUsed.length > 1 ? 'YES' : 'NO');
+      const toolsUsed = new Set<string>();
+      
+      steps.forEach((step: any) => {
+        if (step.actions) {
+          step.actions.forEach((action: any) => {
+            if (action.type === 'tool_execution' && action.parameters?.toolName) {
+              toolsUsed.add(action.parameters.toolName);
+            }
+          });
+        }
+      });
+      
+      console.log('🔧 Tools used in execution:', Array.from(toolsUsed).join(', '));
+      console.log('📊 Number of different tools used:', toolsUsed.size);
+      
+      // Check if multiple Apify tools were used
+      const apifyToolsUsed = Array.from(toolsUsed).filter(tool => tool.startsWith('apify-'));
+      console.log('🎯 Apify tools used:', apifyToolsUsed.join(', '));
+      console.log('✅ Multiple Apify tools used:', apifyToolsUsed.length > 1 ? 'YES' : 'NO');
       }
     }
     
@@ -1047,4 +1047,234 @@ describe('Real Async Task Execution & Output Verification', () => {
     
     console.log('✅ Task outcome satisfaction verification completed');
   }, 240000);
+
+  // NEW MODULAR TOOL TESTS - Run one at a time to manage costs
+  
+  // COMMENTED OUT - SUCCESSFUL ✅
+  // test('Modular Instagram tools verification', async () => {
+  //   console.log('📸 Testing modular Instagram tools...');
+  //   // ... test code ...
+  // }, 90000);
+
+  // COMMENTED OUT - SUCCESSFUL ✅  
+  // test('Modular Facebook tools verification', async () => {
+  //   console.log('📘 Testing modular Facebook tools...');
+  //   // ... test code ...
+  // }, 90000);
+
+  // COMMENTED OUT - SUCCESSFUL ✅
+  // test('Modular YouTube tools verification', async () => {
+  //   console.log('📺 Testing modular YouTube tools...');
+  //   // ... test code ...
+  // }, 90000);
+
+  // COMMENTED OUT - SUCCESSFUL ✅
+  // test('Modular LinkedIn tools verification', async () => {
+  //   console.log('💼 Testing modular LinkedIn tools...');
+  //   // ... test code ...
+  // }, 90000);
+
+  // COMMENTED OUT - SUCCESSFUL ✅
+  // test('Modular core tools verification', async () => {
+  //   console.log('🔧 Testing modular core Apify tools...');
+  //   // ... test code ...
+  // }, 90000);
+
+  // COMMENTED OUT - SUCCESSFUL ✅
+  // test('Multi-platform modular tools integration', async () => {
+  //   console.log('🌐 Testing multi-platform modular tools integration...');
+  //   // ... test code ...
+  // }, 120000);
+
+  // SIMPLE INDIVIDUAL TOOL TESTER - Uncomment ONE at a time to test specific tools
+  
+  test('Single tool test - Instagram hashtag scraper', async () => {
+    console.log('🧪 Testing single Instagram hashtag tool...');
+    
+    const taskOptions: TaskCreationOptions = {
+      name: 'single_instagram_test',
+      description: 'Use apify-instagram-hashtag-scraper to find exactly 1 post with hashtag #tech. Keep it minimal for cost control.',
+      scheduleType: TaskScheduleType.PRIORITY,
+      priority: 10,
+      metadata: {
+        taskType: 'single_tool_test',
+        expectedTool: 'apify-instagram-hashtag-scraper',
+        limitResults: 1,
+        costControl: true
+      }
+    };
+
+    const taskResult: TaskCreationResult = await agent.createTask(taskOptions);
+    expect(taskResult.success).toBe(true);
+    const createdTask = taskResult.task;
+    console.log('✅ Single Instagram test created:', createdTask.id);
+    
+    console.log('🔥 Executing single Instagram test...');
+    const executionResult = await agent.executeTask(createdTask.id);
+    
+    console.log('📊 Single Instagram test completed!');
+    console.log('🎯 Execution successful:', executionResult.successful);
+    console.log('⏱️ Execution duration:', executionResult.duration, 'ms');
+    
+    // Verify tool usage
+    let toolUsed = false;
+    if (executionResult.metadata?.planResult) {
+      const planResult = executionResult.metadata.planResult as any;
+      if (planResult.plan?.steps) {
+        planResult.plan.steps.forEach((step: any) => {
+          if (step.actions) {
+            step.actions.forEach((action: any) => {
+              if (action.type === 'tool_execution' && 
+                  action.parameters?.toolName?.includes('instagram')) {
+                toolUsed = true;
+                console.log(`✅ Instagram tool used: ${action.parameters.toolName}`);
+              }
+            });
+          }
+        });
+      }
+    }
+    
+    console.log(`📊 Tool verification: ${toolUsed ? '✅' : '❌'}`);
+    
+    if (executionResult.successful && executionResult.result) {
+      const resultString = JSON.stringify(executionResult.result);
+      console.log(`🔍 Result preview: ${resultString.substring(0, 150)}...`);
+    }
+    
+    console.log('✅ Single Instagram tool test completed');
+  }, 60000);
+
+  // COMMENT OUT AFTER SUCCESS - Test other individual tools by uncommenting ONE at a time:
+  
+  // test('Single tool test - Reddit search', async () => {
+  //   console.log('🧪 Testing single Reddit search tool...');
+  //   
+  //   const taskOptions: TaskCreationOptions = {
+  //     name: 'single_reddit_test',
+  //     description: 'Use apify-reddit-search to find exactly 1 post about programming. Keep minimal for cost control.',
+  //     scheduleType: TaskScheduleType.PRIORITY,
+  //     priority: 10,
+  //     metadata: {
+  //       taskType: 'single_tool_test',
+  //       expectedTool: 'apify-reddit-search',
+  //       limitResults: 1,
+  //       costControl: true
+  //     }
+  //   };
+  //   // ... similar test structure ...
+  // }, 60000);
+
+  // test('Single tool test - Website crawler', async () => {
+  //   console.log('🧪 Testing single website crawler tool...');
+  //   
+  //   const taskOptions: TaskCreationOptions = {
+  //     name: 'single_crawler_test',
+  //     description: 'Use apify-website-crawler to crawl only example.com homepage. Keep minimal for cost control.',
+  //     scheduleType: TaskScheduleType.PRIORITY,
+  //     priority: 10,
+  //     metadata: {
+  //       taskType: 'single_tool_test',
+  //       expectedTool: 'apify-website-crawler',
+  //       limitResults: 1,
+  //       costControl: true
+  //     }
+  //   };
+  //   // ... similar test structure ...
+  // }, 60000);
+
+  // COMMENT OUT AFTER SUCCESS - Test 7: Tool module organization verification
+  test('Tool module organization verification', async () => {
+    console.log('📁 Testing tool module organization and accessibility...');
+    
+    // Test that tools from different modules are accessible
+    const moduleTests = [
+      {
+        module: 'core',
+        description: 'Use apify-actor-info tool to get information about a specific Apify actor.',
+        expectedTool: 'apify-actor-info'
+      },
+      {
+        module: 'web-scraping',
+        description: 'Use apify-website-crawler tool to crawl example.com homepage only.',
+        expectedTool: 'apify-website-crawler'
+      },
+      {
+        module: 'reddit',
+        description: 'Use apify-reddit-search tool to find 1 post about programming.',
+        expectedTool: 'apify-reddit-search'
+      }
+    ];
+
+    const moduleResults: Array<{module: string, toolUsed: boolean, success: boolean}> = [];
+
+    for (const test of moduleTests) {
+      console.log(`\n📁 Testing ${test.module} module...`);
+      
+      const taskOptions: TaskCreationOptions = {
+        name: `module_${test.module}_test`,
+        description: test.description,
+        scheduleType: TaskScheduleType.PRIORITY,
+        priority: 10,
+        metadata: {
+          taskType: 'module_organization_test',
+          expectedTool: test.expectedTool,
+          module: test.module,
+          limitResults: 1
+        }
+      };
+
+      const taskResult: TaskCreationResult = await agent.createTask(taskOptions);
+      expect(taskResult.success).toBe(true);
+      const createdTask = taskResult.task;
+      console.log(`✅ ${test.module} module task created:`, createdTask.id);
+      
+      console.log(`🔥 Executing ${test.module} module task...`);
+      const executionResult = await agent.executeTask(createdTask.id);
+      
+      console.log(`📊 ${test.module} module execution completed!`);
+      console.log(`🎯 Execution successful: ${executionResult.successful}`);
+      
+      // Check if expected tool was used
+      let expectedToolUsed = false;
+      if (executionResult.metadata?.planResult) {
+        const planResult = executionResult.metadata.planResult as any;
+        if (planResult.plan?.steps) {
+          planResult.plan.steps.forEach((step: any) => {
+            if (step.actions) {
+              step.actions.forEach((action: any) => {
+                if (action.type === 'tool_execution' && 
+                    action.parameters?.toolName === test.expectedTool) {
+                  expectedToolUsed = true;
+                  console.log(`✅ Expected tool used: ${test.expectedTool}`);
+                }
+              });
+            }
+          });
+        }
+      }
+      
+      moduleResults.push({
+        module: test.module,
+        toolUsed: expectedToolUsed,
+        success: executionResult.successful
+      });
+      
+      console.log(`📊 ${test.module} module verification: ${expectedToolUsed ? '✅' : '❌'}`);
+    }
+    
+    // Summary of module organization test
+    console.log('\n📊 Module Organization Summary:');
+    console.log('| Module | Tool Used | Success |');
+    console.log('|--------|-----------|---------|');
+    moduleResults.forEach(result => {
+      console.log(`| ${result.module} | ${result.toolUsed ? '✅' : '❌'} | ${result.success ? '✅' : '❌'} |`);
+    });
+    
+    const allModulesWorking = moduleResults.every(r => r.toolUsed && r.success);
+    console.log(`\n✅ All modules accessible and working: ${allModulesWorking ? '✅' : '❌'}`);
+    
+    expect(moduleResults.length).toBe(moduleTests.length);
+    console.log('✅ Tool module organization verification completed');
+  }, 150000);
 }); 

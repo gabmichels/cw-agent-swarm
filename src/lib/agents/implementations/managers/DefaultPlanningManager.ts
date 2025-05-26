@@ -973,6 +973,52 @@ Complete the task comprehensively using the available data:`;
       steps.push('Use apify-reddit-search to find recent posts');
       steps.push('Extract and analyze post content');
       steps.push('Summarize findings with URLs and content');
+    } else if (descriptionLower.includes('instagram') && descriptionLower.includes('hashtag')) {
+      // Instagram hashtag analysis task
+      steps.push('Use instagram-hashtag-scraper to find posts by hashtag');
+      steps.push('Analyze engagement metrics and content trends');
+      steps.push('Summarize hashtag performance and top posts');
+    } else if (descriptionLower.includes('instagram') && descriptionLower.includes('profile')) {
+      // Instagram profile analysis task
+      steps.push('Use instagram-profile-scraper to analyze user profiles');
+      steps.push('Extract follower metrics and recent posts');
+      steps.push('Provide profile insights and engagement analysis');
+    } else if (descriptionLower.includes('facebook') && descriptionLower.includes('page')) {
+      // Facebook page analysis task
+      steps.push('Use facebook-pages-scraper to analyze business pages');
+      steps.push('Extract page metrics and review information');
+      steps.push('Summarize page performance and audience engagement');
+    } else if (descriptionLower.includes('youtube') && descriptionLower.includes('video')) {
+      // YouTube video analysis task
+      steps.push('Use youtube-video-scraper to analyze video metrics');
+      steps.push('Extract view counts and engagement data');
+      steps.push('Provide video performance insights and content analysis');
+    } else if (descriptionLower.includes('youtube') && descriptionLower.includes('channel')) {
+      // YouTube channel analysis task
+      steps.push('Use youtube-channel-scraper to analyze channel metrics');
+      steps.push('Extract subscriber counts and recent video performance');
+      steps.push('Provide channel growth insights and content analysis');
+    } else if (descriptionLower.includes('linkedin') && descriptionLower.includes('profile')) {
+      // LinkedIn profile research task
+      steps.push('Use linkedin-profile-scraper to research profiles');
+      steps.push('Extract profile information and experience data');
+      steps.push('Provide professional insights and networking analysis');
+    } else if (descriptionLower.includes('linkedin') && descriptionLower.includes('company')) {
+      // LinkedIn company research task
+      steps.push('Use linkedin-company-scraper to research company profiles');
+      steps.push('Extract company information and employee metrics');
+      steps.push('Provide business intelligence and market positioning analysis');
+    } else if (descriptionLower.includes('linkedin') && descriptionLower.includes('job')) {
+      // LinkedIn job market analysis task
+      steps.push('Use linkedin-jobs-scraper to analyze job market trends');
+      steps.push('Extract salary ranges and skill requirements');
+      steps.push('Provide job market insights and career recommendations');
+    } else if (descriptionLower.includes('social media') && descriptionLower.includes('analysis')) {
+      // Multi-platform social media analysis
+      steps.push('Use instagram-hashtag-scraper to analyze Instagram trends');
+      steps.push('Use youtube-channel-scraper to analyze YouTube content');
+      steps.push('Use linkedin-company-scraper to analyze professional presence');
+      steps.push('Create comprehensive social media analysis report');
     } else if (descriptionLower.includes('website') && descriptionLower.includes('crawl')) {
       // Website crawling task
       steps.push('Use apify-website-crawler to crawl the specified website');
@@ -1043,6 +1089,110 @@ Complete the task comprehensively using the available data:`;
             };
             console.log(`🔍 Selected Reddit tool: ${selectedTool}`);
           }
+        } else if (descriptionLower.includes('instagram') && descriptionLower.includes('hashtag')) {
+          const instagramHashtagTool = await toolManager.getTool('instagram-hashtag-scraper');
+          if (instagramHashtagTool) {
+            selectedTool = 'instagram-hashtag-scraper';
+            toolParams = {
+              hashtags: this.extractHashtags(stepDescription),
+              limit: 15
+            };
+            console.log(`🔍 Selected Instagram Hashtag tool: ${selectedTool}`);
+          }
+        } else if (descriptionLower.includes('instagram') && (descriptionLower.includes('profile') || descriptionLower.includes('user'))) {
+          const instagramProfileTool = await toolManager.getTool('instagram-profile-scraper');
+          if (instagramProfileTool) {
+            selectedTool = 'instagram-profile-scraper';
+            toolParams = {
+              usernames: this.extractInstagramUsernames(stepDescription),
+              includeRecentPosts: true,
+              limit: 10
+            };
+            console.log(`🔍 Selected Instagram Profile tool: ${selectedTool}`);
+          }
+        } else if (descriptionLower.includes('instagram') && descriptionLower.includes('post')) {
+          const instagramPostTool = await toolManager.getTool('instagram-post-scraper');
+          if (instagramPostTool) {
+            selectedTool = 'instagram-post-scraper';
+            toolParams = {
+              postUrls: this.extractInstagramUrls(stepDescription),
+              includeComments: false
+            };
+            console.log(`🔍 Selected Instagram Post tool: ${selectedTool}`);
+          }
+        } else if (descriptionLower.includes('facebook') && descriptionLower.includes('post')) {
+          const facebookPostsTool = await toolManager.getTool('facebook-posts-scraper');
+          if (facebookPostsTool) {
+            selectedTool = 'facebook-posts-scraper';
+            toolParams = {
+              pageUrls: this.extractFacebookUrls(stepDescription),
+              limit: 15
+            };
+            console.log(`🔍 Selected Facebook Posts tool: ${selectedTool}`);
+          }
+        } else if (descriptionLower.includes('facebook') && descriptionLower.includes('page')) {
+          const facebookPagesTool = await toolManager.getTool('facebook-pages-scraper');
+          if (facebookPagesTool) {
+            selectedTool = 'facebook-pages-scraper';
+            toolParams = {
+              pageUrls: this.extractFacebookUrls(stepDescription),
+              includeReviews: false
+            };
+            console.log(`🔍 Selected Facebook Pages tool: ${selectedTool}`);
+          }
+        } else if (descriptionLower.includes('youtube') && descriptionLower.includes('video')) {
+          const youtubeVideoTool = await toolManager.getTool('youtube-video-scraper');
+          if (youtubeVideoTool) {
+            selectedTool = 'youtube-video-scraper';
+            toolParams = {
+              videoUrls: this.extractYouTubeUrls(stepDescription),
+              includeComments: false,
+              commentLimit: 10
+            };
+            console.log(`🔍 Selected YouTube Video tool: ${selectedTool}`);
+          }
+        } else if (descriptionLower.includes('youtube') && descriptionLower.includes('channel')) {
+          const youtubeChannelTool = await toolManager.getTool('youtube-channel-scraper');
+          if (youtubeChannelTool) {
+            selectedTool = 'youtube-channel-scraper';
+            toolParams = {
+              channelUrls: this.extractYouTubeUrls(stepDescription),
+              includeVideos: true,
+              videoLimit: 10
+            };
+            console.log(`🔍 Selected YouTube Channel tool: ${selectedTool}`);
+          }
+        } else if (descriptionLower.includes('linkedin') && descriptionLower.includes('company')) {
+          const linkedinCompanyTool = await toolManager.getTool('linkedin-company-scraper');
+          if (linkedinCompanyTool) {
+            selectedTool = 'linkedin-company-scraper';
+            toolParams = {
+              companyUrls: this.extractLinkedInUrls(stepDescription),
+              includeEmployees: false
+            };
+            console.log(`🔍 Selected LinkedIn Company tool: ${selectedTool}`);
+          }
+        } else if (descriptionLower.includes('linkedin') && descriptionLower.includes('profile')) {
+          const linkedinProfileTool = await toolManager.getTool('linkedin-profile-scraper');
+          if (linkedinProfileTool) {
+            selectedTool = 'linkedin-profile-scraper';
+            toolParams = {
+              profileUrls: this.extractLinkedInUrls(stepDescription),
+              includeExperience: true
+            };
+            console.log(`🔍 Selected LinkedIn Profile tool: ${selectedTool}`);
+          }
+        } else if (descriptionLower.includes('linkedin') && descriptionLower.includes('job')) {
+          const linkedinJobsTool = await toolManager.getTool('linkedin-jobs-scraper');
+          if (linkedinJobsTool) {
+            selectedTool = 'linkedin-jobs-scraper';
+            toolParams = {
+              keywords: this.extractJobKeywords(stepDescription),
+              location: this.extractLocation(stepDescription),
+              limit: 20
+            };
+            console.log(`🔍 Selected LinkedIn Jobs tool: ${selectedTool}`);
+          }
         } else if (descriptionLower.includes('apify-website-crawler') || 
                    (descriptionLower.includes('crawl') && descriptionLower.includes('website'))) {
           const crawlerTool = await toolManager.getTool('apify-website-crawler');
@@ -1067,24 +1217,32 @@ Complete the task comprehensively using the available data:`;
           }
         }
         
-        // If no specific Apify tool was selected, fall back to web_search for search-related tasks
-        if (!selectedTool && (descriptionLower.includes('search') || descriptionLower.includes('find'))) {
-          const webSearchTool = await toolManager.getTool('web_search');
-          if (webSearchTool) {
-            selectedTool = 'web_search';
-            toolParams = {
-              query: this.extractSearchQuery(stepDescription)
-            };
-            console.log(`🔍 Selected fallback Web Search tool: ${selectedTool}`);
-          }
-        }
-        
         if (selectedTool) {
           console.log(`🔍 Tool selected: ${selectedTool} with params:`, toolParams);
         }
       } catch (error) {
         console.log('Error checking for tools:', error);
       }
+    }
+    
+    // Create tool_execution action if a tool was selected, regardless of keywords
+    if (selectedTool) {
+      actions.push({
+        id: `${stepId}-action-tool`,
+        name: `${selectedTool} Execution`,
+        description: stepDescription,
+        type: 'tool_execution',
+        parameters: {
+          toolName: selectedTool,
+          toolParams: toolParams
+        },
+        status: 'pending',
+        createdAt: now,
+        updatedAt: now
+      });
+      
+      // Return early since we have a tool action - no need for keyword-based fallbacks
+      return actions;
     }
     
     if (descriptionLower.includes('search') || descriptionLower.includes('find') || descriptionLower.includes('discover')) {
@@ -1236,19 +1394,147 @@ Complete the task comprehensively using the available data:`;
    * Extract search query from step description
    */
   private extractSearchQuery(stepDescription: string): string {
-    // Simple extraction - in real implementation would use more sophisticated parsing
-    if (stepDescription.toLowerCase().includes('bitcoin')) {
-      return 'current Bitcoin price USD';
-    } else if (stepDescription.toLowerCase().includes('twitter')) {
-      return 'Bitcoin Twitter posts recent';
-    } else {
-      // Extract key terms from the description
-      const words = stepDescription.split(' ').filter(word => 
-        word.length > 3 && 
-        !['search', 'find', 'for', 'the', 'and', 'with', 'using'].includes(word.toLowerCase())
-      );
-      return words.slice(0, 3).join(' ');
+    // Remove common words and extract meaningful terms
+    const words = stepDescription.split(' ').filter(word => 
+      word.length > 2 && 
+      !['the', 'and', 'for', 'with', 'search', 'find', 'about', 'using'].includes(word.toLowerCase())
+    );
+    return words.slice(0, 5).join(' ');
+  }
+
+  /**
+   * Extract Instagram URLs from step description
+   */
+  private extractInstagramUrls(stepDescription: string): string[] {
+    const instagramUrlRegex = /https?:\/\/(?:www\.)?instagram\.com\/p\/[^\s]+/gi;
+    const matches = stepDescription.match(instagramUrlRegex);
+    return matches || ['https://www.instagram.com/p/example/'];
+  }
+
+  /**
+   * Extract hashtags from step description
+   */
+  private extractHashtags(stepDescription: string): string[] {
+    // First, try to find explicit hashtags with # symbol
+    const hashtagRegex = /#(\w+)/g;
+    const matches = stepDescription.match(hashtagRegex);
+    if (matches && matches.length > 0) {
+      return matches.map(tag => tag.replace('#', ''));
     }
+    
+    // Fallback: extract simple keywords that could be hashtags
+    // Exclude tool names and technical terms
+    const excludeWords = [
+      'instagram', 'hashtag', 'search', 'find', 'posts', 'about', 'with', 'from',
+      'apify', 'scraper', 'tool', 'exactly', 'limit', 'result', 'only', 'minimize', 'costs',
+      'use', 'get', 'data', 'info', 'basic', 'minimal'
+    ];
+    
+    const words = stepDescription.toLowerCase()
+      .split(/[\s\-_]+/) // Split on spaces, hyphens, underscores
+      .filter(word => 
+        word.length >= 3 && 
+        word.length <= 20 && // Reasonable hashtag length
+        /^[a-zA-Z0-9]+$/.test(word) && // Only alphanumeric characters
+        !excludeWords.includes(word.toLowerCase())
+      );
+    
+    // If we found good keywords, use them
+    if (words.length > 0) {
+      return words.slice(0, 3);
+    }
+    
+    // Final fallback: use safe, generic hashtags
+    return ['tech'];
+  }
+
+  /**
+   * Extract Instagram usernames from step description
+   */
+  private extractInstagramUsernames(stepDescription: string): string[] {
+    const usernameRegex = /@(\w+)/g;
+    const matches = stepDescription.match(usernameRegex);
+    if (matches) {
+      return matches.map(username => username.replace('@', ''));
+    }
+    
+    // Fallback: look for profile URLs
+    const profileUrlRegex = /instagram\.com\/([^\/\s]+)/gi;
+    const urlMatches = stepDescription.match(profileUrlRegex);
+    if (urlMatches) {
+      return urlMatches.map(match => match.split('/').pop() || 'example');
+    }
+    
+    return ['example_user'];
+  }
+
+  /**
+   * Extract Facebook URLs from step description
+   */
+  private extractFacebookUrls(stepDescription: string): string[] {
+    const facebookUrlRegex = /https?:\/\/(?:www\.)?facebook\.com\/[^\s]+/gi;
+    const matches = stepDescription.match(facebookUrlRegex);
+    return matches || ['https://www.facebook.com/example'];
+  }
+
+  /**
+   * Extract YouTube URLs from step description
+   */
+  private extractYouTubeUrls(stepDescription: string): string[] {
+    const youtubeUrlRegex = /https?:\/\/(?:www\.)?(?:youtube\.com|youtu\.be)\/[^\s]+/gi;
+    const matches = stepDescription.match(youtubeUrlRegex);
+    return matches || ['https://www.youtube.com/channel/example'];
+  }
+
+  /**
+   * Extract LinkedIn URLs from step description
+   */
+  private extractLinkedInUrls(stepDescription: string): string[] {
+    const linkedinUrlRegex = /https?:\/\/(?:www\.)?linkedin\.com\/[^\s]+/gi;
+    const matches = stepDescription.match(linkedinUrlRegex);
+    return matches || ['https://www.linkedin.com/company/example'];
+  }
+
+  /**
+   * Extract job keywords from step description
+   */
+  private extractJobKeywords(stepDescription: string): string {
+    // Look for job-related terms
+    const jobTerms = ['developer', 'engineer', 'manager', 'analyst', 'designer', 'consultant', 'specialist', 'coordinator', 'director', 'executive'];
+    const words = stepDescription.toLowerCase().split(' ');
+    
+    const foundJobTerms = words.filter(word => jobTerms.some(term => word.includes(term)));
+    if (foundJobTerms.length > 0) {
+      return foundJobTerms.join(' ');
+    }
+    
+    // Fallback: extract meaningful keywords
+    const meaningfulWords = stepDescription.split(' ').filter(word => 
+      word.length > 3 && 
+      !['linkedin', 'jobs', 'search', 'find', 'for', 'the', 'and', 'with', 'about'].includes(word.toLowerCase())
+    );
+    return meaningfulWords.slice(0, 3).join(' ');
+  }
+
+  /**
+   * Extract location from step description
+   */
+  private extractLocation(stepDescription: string): string | undefined {
+    // Look for common location patterns
+    const locationRegex = /(?:in|at|from|near)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)/g;
+    const matches = stepDescription.match(locationRegex);
+    if (matches) {
+      return matches[0].replace(/^(?:in|at|from|near)\s+/, '');
+    }
+    
+    // Look for city, state patterns
+    const cityStateRegex = /([A-Z][a-z]+),\s*([A-Z]{2})/g;
+    const cityStateMatches = stepDescription.match(cityStateRegex);
+    if (cityStateMatches) {
+      return cityStateMatches[0];
+    }
+    
+    return undefined;
   }
 
   /**

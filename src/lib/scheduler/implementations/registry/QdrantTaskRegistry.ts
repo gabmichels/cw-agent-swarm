@@ -384,58 +384,55 @@ export class QdrantTaskRegistry implements TaskRegistry {
    * Check if a payload is a valid Task
    */
   private isValidTaskPayload(payload: Record<string, unknown>): boolean {
-    // Move verbose validation to debug only - no regular logging
+    // More lenient validation - just check for essential fields
     
-    // More flexible validation based on actual data structure
-    // Basic requirements: id, type=task, and either text or metadata with basic info
-    const hasBasicRequirements = (
-      typeof payload.id === 'string' &&
-      typeof payload.type === 'string' &&
-      payload.type === 'task'
-    );
+    // Basic requirements: id and some form of task identification
+    const hasId = typeof payload.id === 'string' && payload.id.length > 0;
     
-    if (!hasBasicRequirements) {
+    if (!hasId) {
       return false;
     }
     
-    // Check for content (either text or metadata with title)
-    const hasContent = (
+    // Check for task type (can be in type field or metadata)
+    const hasTaskType = (
+      payload.type === 'task' ||
+      (payload.metadata && 
+       typeof payload.metadata === 'object' && 
+       (payload.metadata as any).taskType)
+    );
+    
+    if (!hasTaskType) {
+      return false;
+    }
+    
+    // Check for some form of status tracking
+    const hasStatus = (
+      typeof payload.status === 'string' ||
+      (payload.metadata && 
+       typeof payload.metadata === 'object' && 
+       typeof (payload.metadata as any).status === 'string')
+    );
+    
+    if (!hasStatus) {
+      return false;
+    }
+    
+    // Check for basic task info (name, description, or title)
+    const hasTaskInfo = (
+      typeof payload.name === 'string' ||
+      typeof payload.description === 'string' ||
       typeof payload.text === 'string' ||
       (payload.metadata && 
        typeof payload.metadata === 'object' && 
-       (payload.metadata as any).title)
+       (typeof (payload.metadata as any).title === 'string' ||
+        typeof (payload.metadata as any).name === 'string'))
     );
     
-    if (!hasContent) {
+    if (!hasTaskInfo) {
       return false;
     }
     
-    // Check for metadata with status
-    const hasValidMetadata = (
-      payload.metadata !== null &&
-      typeof payload.metadata === 'object' &&
-      typeof (payload.metadata as any).status === 'string'
-    );
-    
-    if (!hasValidMetadata) {
-      return false;
-    }
-    
-    // Check for agentId (can be flexible about the structure)
-    const hasAgentId = (
-      payload.metadata &&
-      (payload.metadata as any).agentId &&
-      (
-        typeof (payload.metadata as any).agentId === 'string' ||
-        (typeof (payload.metadata as any).agentId === 'object' &&
-         (payload.metadata as any).agentId.id)
-      )
-    );
-    
-    if (!hasAgentId) {
-      return false;
-    }
-    
+    // All essential checks passed
     return true;
   }
 
