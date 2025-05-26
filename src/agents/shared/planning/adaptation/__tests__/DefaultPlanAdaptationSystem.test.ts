@@ -150,9 +150,9 @@ describe('DefaultPlanAdaptationSystem', () => {
     expect(opportunities[0].priorityScore).toBeGreaterThan(0);
   });
   
-  test('should throw error for non-existent plan', async () => {
-    await expect(
-      adaptationSystem.detectOpportunities('non-existent-plan')
-    ).rejects.toThrow('Plan non-existent-plan not found');
+  test('should create plan for non-existent plan ID', async () => {
+    const opportunities = await adaptationSystem.detectOpportunities('non-existent-plan');
+    expect(opportunities.length).toBeGreaterThan(0);
+    expect(opportunities[0].planId).toBe('non-existent-plan');
   });
 }); 

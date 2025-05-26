@@ -891,9 +891,315 @@ Complete the task comprehensively using the available data:`;
    * Create adapted steps for a plan
    */
   private async createAdaptedSteps(plan: Plan, reason: string): Promise<PlanStep[]> {
-    // TODO: Implement step adaptation logic
-    // This would typically involve analyzing the reason and creating new steps
-    return plan.steps;
+    const reasonLower = reason.toLowerCase();
+    const originalSteps = plan.steps;
+    const adaptedSteps: PlanStep[] = [];
+    
+    // Analyze the reason for adaptation and create appropriate modifications
+    if (reasonLower.includes('failed') || reasonLower.includes('error')) {
+      // Handle failure scenarios - add error recovery and retry logic
+      for (const step of originalSteps) {
+        // Add the original step
+        adaptedSteps.push(step);
+        
+        // If this step has failed actions, add recovery steps
+        const failedActions = step.actions.filter(action => action.status === 'failed');
+        if (failedActions.length > 0) {
+          // Add error analysis step
+          const errorAnalysisStep: PlanStep = {
+            id: `${step.id}_error_analysis`,
+            name: 'Error Analysis',
+            description: `Analyze errors from step: ${step.description}`,
+            status: 'pending',
+            priority: 0.8,
+            actions: [{
+              id: `${step.id}_error_action`,
+              name: 'Analyze Errors',
+              type: 'analysis',
+              description: `Analyze why step "${step.description}" failed and determine recovery strategy`,
+              parameters: { originalStepId: step.id, failureReason: reason },
+              status: 'pending',
+              createdAt: new Date(),
+              updatedAt: new Date()
+            }],
+            dependencies: [step.id],
+            createdAt: new Date(),
+            updatedAt: new Date()
+          };
+          adaptedSteps.push(errorAnalysisStep);
+          
+          // Add retry step with modified approach
+          const retryStep: PlanStep = {
+            id: `${step.id}_retry`,
+            name: 'Retry Step',
+            description: `Retry step with alternative approach: ${step.description}`,
+            status: 'pending',
+            priority: 0.7,
+            actions: step.actions.map(action => ({
+              ...action,
+              id: `${action.id}_retry`,
+              name: `Retry ${action.name}`,
+              description: `Retry: ${action.description}`,
+              parameters: { ...action.parameters, isRetry: true },
+              status: 'pending',
+              createdAt: new Date(),
+              updatedAt: new Date()
+            })),
+            dependencies: [errorAnalysisStep.id],
+            createdAt: new Date(),
+            updatedAt: new Date()
+          };
+          adaptedSteps.push(retryStep);
+        }
+      }
+    } else if (reasonLower.includes('timeout') || reasonLower.includes('slow')) {
+      // Handle performance issues - optimize for speed
+      for (const step of originalSteps) {
+        const optimizedStep: PlanStep = {
+          ...step,
+          id: `${step.id}_optimized`,
+          name: `Optimized ${step.name}`,
+          description: `Optimized: ${step.description}`,
+          actions: step.actions.map(action => ({
+            ...action,
+            id: `${action.id}_optimized`,
+            name: `Fast ${action.name}`,
+            description: `Fast execution: ${action.description}`,
+            parameters: { ...action.parameters, optimizeForSpeed: true },
+            createdAt: new Date(),
+            updatedAt: new Date()
+          })),
+          createdAt: new Date(),
+          updatedAt: new Date()
+        };
+        adaptedSteps.push(optimizedStep);
+      }
+      
+      // Add performance monitoring step
+      const monitoringStep: PlanStep = {
+        id: 'performance_monitoring',
+        name: 'Performance Monitoring',
+        description: 'Monitor execution performance and adjust if needed',
+        status: 'pending',
+        priority: 0.3,
+        actions: [{
+          id: 'monitor_performance',
+          name: 'Monitor Performance',
+          type: 'monitoring',
+          description: 'Track execution time and resource usage',
+          parameters: { monitorType: 'performance', thresholds: { maxTime: 30000 } },
+          status: 'pending',
+          createdAt: new Date(),
+          updatedAt: new Date()
+        }],
+        dependencies: [],
+        createdAt: new Date(),
+        updatedAt: new Date()
+      };
+      adaptedSteps.push(monitoringStep);
+    } else if (reasonLower.includes('resource') || reasonLower.includes('limit')) {
+      // Handle resource constraints - break down into smaller steps
+      for (const step of originalSteps) {
+        // Split large steps into smaller chunks
+        if (step.actions.length > 3) {
+          const chunks = this.chunkActions(step.actions, 2);
+          chunks.forEach((chunk, index) => {
+            const chunkStep: PlanStep = {
+              id: `${step.id}_chunk_${index}`,
+              name: `${step.name} Part ${index + 1}`,
+              description: `Part ${index + 1} of ${step.description}`,
+              status: 'pending',
+              priority: step.priority,
+              actions: chunk.map(action => ({
+                ...action,
+                id: `${action.id}_chunk_${index}`,
+                name: `${action.name} Chunk ${index + 1}`,
+                parameters: { ...action.parameters, chunkIndex: index },
+                createdAt: new Date(),
+                updatedAt: new Date()
+              })),
+              dependencies: index === 0 ? step.dependencies : [`${step.id}_chunk_${index - 1}`],
+              createdAt: new Date(),
+              updatedAt: new Date()
+            };
+            adaptedSteps.push(chunkStep);
+          });
+        } else {
+          adaptedSteps.push(step);
+        }
+      }
+    } else if (reasonLower.includes('dependency') || reasonLower.includes('prerequisite')) {
+      // Handle dependency issues - reorder and add missing prerequisites
+      const dependencyMap = new Map<string, string[]>();
+      
+      // Build dependency map
+      for (const step of originalSteps) {
+        dependencyMap.set(step.id, step.dependencies || []);
+      }
+      
+      // Add missing prerequisite steps
+      const prerequisiteStep: PlanStep = {
+        id: 'dependency_check',
+        name: 'Dependency Check',
+        description: 'Verify and establish required dependencies',
+        status: 'pending',
+        priority: 0.9,
+        actions: [{
+          id: 'check_dependencies',
+          name: 'Check Dependencies',
+          type: 'analysis',
+          description: 'Check all required dependencies and prerequisites',
+          parameters: { checkType: 'dependencies', originalSteps: originalSteps.map(s => s.id) },
+          status: 'pending',
+          createdAt: new Date(),
+          updatedAt: new Date()
+        }],
+        dependencies: [],
+        createdAt: new Date(),
+        updatedAt: new Date()
+      };
+      adaptedSteps.push(prerequisiteStep);
+      
+      // Add original steps with updated dependencies
+      for (const step of originalSteps) {
+        const adaptedStep: PlanStep = {
+          ...step,
+          dependencies: [prerequisiteStep.id, ...(step.dependencies || [])],
+          updatedAt: new Date()
+        };
+        adaptedSteps.push(adaptedStep);
+      }
+    } else if (reasonLower.includes('quality') || reasonLower.includes('accuracy')) {
+      // Handle quality issues - add validation and verification steps
+      for (const step of originalSteps) {
+        adaptedSteps.push(step);
+        
+        // Add validation step after each major step
+        const validationStep: PlanStep = {
+          id: `${step.id}_validation`,
+          name: 'Validation',
+          description: `Validate results from: ${step.description}`,
+          status: 'pending',
+          priority: 0.6,
+          actions: [{
+            id: `${step.id}_validate`,
+            name: 'Validate Results',
+            type: 'analysis',
+            description: `Verify quality and accuracy of results from "${step.description}"`,
+            parameters: { validationType: 'quality', originalStepId: step.id },
+            status: 'pending',
+            createdAt: new Date(),
+            updatedAt: new Date()
+          }],
+          dependencies: [step.id],
+          createdAt: new Date(),
+          updatedAt: new Date()
+        };
+        adaptedSteps.push(validationStep);
+      }
+    } else if (reasonLower.includes('scope') || reasonLower.includes('requirement')) {
+      // Handle scope changes - add new steps or modify existing ones
+      const scopeAnalysisStep: PlanStep = {
+        id: 'scope_analysis',
+        name: 'Scope Analysis',
+        description: 'Analyze updated requirements and scope changes',
+        status: 'pending',
+        priority: 0.9,
+        actions: [{
+          id: 'analyze_scope',
+          name: 'Analyze Scope',
+          type: 'analysis',
+          description: 'Review and analyze the updated requirements and scope',
+          parameters: { analysisType: 'scope', reason: reason },
+          status: 'pending',
+          createdAt: new Date(),
+          updatedAt: new Date()
+        }],
+        dependencies: [],
+        createdAt: new Date(),
+        updatedAt: new Date()
+      };
+      adaptedSteps.push(scopeAnalysisStep);
+      
+      // Add original steps with scope dependency
+      for (const step of originalSteps) {
+        const adaptedStep: PlanStep = {
+          ...step,
+          dependencies: [scopeAnalysisStep.id, ...(step.dependencies || [])],
+          updatedAt: new Date()
+        };
+        adaptedSteps.push(adaptedStep);
+      }
+      
+      // Add scope verification step at the end
+      const scopeVerificationStep: PlanStep = {
+        id: 'scope_verification',
+        name: 'Scope Verification',
+        description: 'Verify all requirements have been addressed',
+        status: 'pending',
+        priority: 0.8,
+        actions: [{
+          id: 'verify_scope',
+          name: 'Verify Scope',
+          type: 'analysis',
+          description: 'Verify that all updated requirements have been properly addressed',
+          parameters: { verificationType: 'scope', originalSteps: originalSteps.map(s => s.id) },
+          status: 'pending',
+          createdAt: new Date(),
+          updatedAt: new Date()
+        }],
+        dependencies: originalSteps.map(step => step.id),
+        createdAt: new Date(),
+        updatedAt: new Date()
+      };
+      adaptedSteps.push(scopeVerificationStep);
+    } else {
+      // Generic adaptation - add monitoring and fallback steps
+      const monitoringStep: PlanStep = {
+        id: 'adaptation_monitoring',
+        name: 'Adaptation Monitoring',
+        description: 'Monitor plan execution and adapt as needed',
+        status: 'pending',
+        priority: 0.4,
+        actions: [{
+          id: 'monitor_execution',
+          name: 'Monitor Execution',
+          type: 'monitoring',
+          description: 'Monitor plan execution progress and identify adaptation needs',
+          parameters: { monitorType: 'execution', adaptationReason: reason },
+          status: 'pending',
+          createdAt: new Date(),
+          updatedAt: new Date()
+        }],
+        dependencies: [],
+        createdAt: new Date(),
+        updatedAt: new Date()
+      };
+      adaptedSteps.push(monitoringStep);
+      
+      // Add original steps with monitoring dependency
+      for (const step of originalSteps) {
+        const adaptedStep: PlanStep = {
+          ...step,
+          dependencies: [monitoringStep.id, ...(step.dependencies || [])],
+          updatedAt: new Date()
+        };
+        adaptedSteps.push(adaptedStep);
+      }
+    }
+    
+    return adaptedSteps;
+  }
+  
+  /**
+   * Chunk actions into smaller groups
+   */
+  private chunkActions(actions: PlanAction[], chunkSize: number): PlanAction[][] {
+    const chunks: PlanAction[][] = [];
+    for (let i = 0; i < actions.length; i += chunkSize) {
+      chunks.push(actions.slice(i, i + chunkSize));
+    }
+    return chunks;
   }
 
   /**

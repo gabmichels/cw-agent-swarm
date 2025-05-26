@@ -209,25 +209,125 @@ export abstract class BaseMemoryRepository<T extends BaseMemoryEntity> implement
    * Filter entities by conditions
    */
   async filter(conditions: FilterConditions<T>, options?: FilterOptions): Promise<T[]> {
-    // TODO: Implement filter using Qdrant filter builder
-    // This will be implemented when the filter builder is ready
-    throw new Error('Not implemented');
+    try {
+      // Import the filter builder
+      const { QdrantFilterBuilder } = await import('../filters/filter-builder');
+      
+      // Create filter builder instance
+      const filterBuilder = new QdrantFilterBuilder();
+      
+      // Build Qdrant filter from conditions
+      const qdrantFilter = filterBuilder.build(conditions);
+      
+      // Use searchPoints with a zero vector to perform filter-only search
+      // This is a common pattern when you want to filter without vector similarity
+      const zeroVector = new Array(1536).fill(0); // Default OpenAI embedding dimension
+      
+      // Prepare search options with filter
+      const searchOptions: FilterOptions = {
+        ...options,
+        limit: options?.limit || 1000, // Default reasonable limit
+        scoreThreshold: 0, // Accept all scores since we're filtering, not doing similarity search
+      };
+      
+      // Search using the database client with filter
+      const records = await this.databaseClient.search(
+        this.collectionName,
+        zeroVector,
+        searchOptions.limit || 1000,
+        qdrantFilter as Record<string, unknown>,
+        searchOptions.scoreThreshold
+      );
+      
+      // Extract database records from search results
+      const dbRecords = records.matches.map(match => ({
+        id: match.id,
+        vector: [], // Vector not needed for mapping
+        payload: match.payload
+      }));
+      
+      // Map to entities
+      return Promise.all(dbRecords.map(record => this.mapToEntity(record)));
+    } catch (error) {
+      throw new AppError(
+        `Failed to filter entities: ${error instanceof Error ? error.message : String(error)}`,
+        'FILTER_ERROR',
+        { 
+          conditions: JSON.stringify(conditions),
+          collectionName: this.collectionName,
+          options
+        }
+      );
+    }
   }
 
   /**
    * Get all entities
    */
   async getAll(options?: FilterOptions): Promise<T[]> {
-    // TODO: Implement using scroll/scan API
-    throw new Error('Not implemented');
+    try {
+      // Use filter method with empty conditions to get all entities
+      // This leverages the existing filter implementation
+      const allEntities = await this.filter({}, {
+        ...options,
+        limit: options?.limit || 10000, // Large default limit for "get all"
+      });
+      
+      return allEntities;
+    } catch (error) {
+      throw new AppError(
+        `Failed to get all entities: ${error instanceof Error ? error.message : String(error)}`,
+        'GET_ALL_ERROR',
+        { 
+          collectionName: this.collectionName,
+          options
+        }
+      );
+    }
   }
 
   /**
    * Count entities matching conditions
    */
   async count(conditions?: FilterConditions<T>): Promise<number> {
-    // TODO: Implement count
-    throw new Error('Not implemented');
+    try {
+      // If no conditions provided, count all entities
+      const filterConditions = conditions || {};
+      
+      // Import the filter builder
+      const { QdrantFilterBuilder } = await import('../filters/filter-builder');
+      
+      // Create filter builder instance
+      const filterBuilder = new QdrantFilterBuilder();
+      
+      // Build Qdrant filter from conditions
+      const qdrantFilter = filterBuilder.build(filterConditions);
+      
+      // Use searchPoints with a zero vector and limit 0 to get count
+      // This is efficient as it doesn't return actual data, just count
+      const zeroVector = new Array(1536).fill(0); // Default OpenAI embedding dimension
+      
+      // Search using the database client with filter and limit 0 for count
+      const records = await this.databaseClient.search(
+        this.collectionName,
+        zeroVector,
+        0, // Limit 0 to get count only
+        qdrantFilter as Record<string, unknown>,
+        0 // Accept all scores
+      );
+      
+      // Return the total count
+      return records.totalCount || 0;
+    } catch (error) {
+      throw new AppError(
+        `Failed to count entities: ${error instanceof Error ? error.message : String(error)}`,
+        'COUNT_ERROR',
+        { 
+          conditions: conditions ? JSON.stringify(conditions) : 'none',
+          collectionName: this.collectionName
+        }
+      );
+    }
   }
 
   /**

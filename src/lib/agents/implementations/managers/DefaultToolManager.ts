@@ -589,11 +589,233 @@ export class DefaultToolManager extends AbstractBaseManager implements ToolManag
       return acc;
     }, {} as Record<string, number>);
 
+    // Calculate average tool health based on metrics
+    const avgToolHealth = await this.calculateAverageToolHealth();
+
     return {
       totalTools: tools.length,
       toolsByType,
-      avgToolHealth: 1.0, // TODO: Implement tool health tracking
+      avgToolHealth,
       lastHealthCheck: new Date()
+    };
+  }
+
+  /**
+   * Calculate average tool health based on metrics and availability
+   */
+  private async calculateAverageToolHealth(): Promise<number> {
+    const tools = Array.from(this.tools.values());
+    
+    if (tools.length === 0) {
+      return 1.0; // Perfect health when no tools (no failures possible)
+    }
+    
+    let totalHealthScore = 0;
+    let toolsWithMetrics = 0;
+    
+    for (const tool of tools) {
+      const healthScore = await this.calculateToolHealth(tool);
+      totalHealthScore += healthScore;
+      toolsWithMetrics++;
+    }
+    
+    return toolsWithMetrics > 0 ? totalHealthScore / toolsWithMetrics : 1.0;
+  }
+
+  /**
+   * Calculate health score for a specific tool
+   */
+  private async calculateToolHealth(tool: Tool): Promise<number> {
+    const metrics = this.metrics.get(tool.id);
+    
+    // Base health factors
+    let healthScore = 1.0;
+    
+    // Factor 1: Tool availability (enabled/disabled)
+    if (!tool.enabled) {
+      healthScore *= 0.5; // Disabled tools have reduced health
+    }
+    
+    // Factor 2: Success rate (if we have execution data)
+    if (metrics && metrics.totalExecutions > 0) {
+      const successRate = metrics.successRate;
+      
+      // Success rate contributes 40% to health score
+      const successFactor = successRate * 0.4;
+      
+      // Performance factor based on average duration (20% contribution)
+      // Assume tools should complete within 5 seconds for optimal health
+      const optimalDurationMs = 5000;
+      const performanceFactor = Math.min(1.0, optimalDurationMs / Math.max(metrics.avgDurationMs, 1)) * 0.2;
+      
+      // Reliability factor based on recent usage trend (20% contribution)
+      const reliabilityFactor = this.calculateReliabilityFactor(metrics) * 0.2;
+      
+      // Base factor for having metrics (20% contribution)
+      const metricsFactor = 0.2;
+      
+      healthScore = successFactor + performanceFactor + reliabilityFactor + metricsFactor;
+    } else {
+      // No execution data - assume moderate health
+      healthScore = 0.7;
+    }
+    
+    // Factor 3: Tool configuration health
+    const configHealth = this.assessToolConfiguration(tool);
+    healthScore *= configHealth;
+    
+    // Ensure health score is between 0 and 1
+    return Math.max(0, Math.min(1, healthScore));
+  }
+
+  /**
+   * Calculate reliability factor based on usage trends
+   */
+  private calculateReliabilityFactor(metrics: ToolUsageMetrics): number {
+    if (!metrics.usageTrend || metrics.usageTrend.length === 0) {
+      return 0.5; // Moderate reliability when no trend data
+    }
+    
+    // Check for consistent usage (reliability indicator)
+    const recentTrend = metrics.usageTrend.slice(-6); // Last 6 data points
+    
+    if (recentTrend.length < 2) {
+      return 0.5;
+    }
+    
+    // Calculate variance in usage (lower variance = more reliable)
+    const usageCounts = recentTrend.map(entry => entry.count);
+    const avgUsage = usageCounts.reduce((sum, count) => sum + count, 0) / usageCounts.length;
+    
+    if (avgUsage === 0) {
+      return 0.3; // Low reliability if not being used
+    }
+    
+    const variance = usageCounts.reduce((sum, count) => sum + Math.pow(count - avgUsage, 2), 0) / usageCounts.length;
+    const standardDeviation = Math.sqrt(variance);
+    
+    // Lower standard deviation relative to mean indicates more consistent usage
+    const coefficientOfVariation = avgUsage > 0 ? standardDeviation / avgUsage : 1;
+    
+    // Convert to reliability score (lower variation = higher reliability)
+    return Math.max(0.1, Math.min(1.0, 1 - (coefficientOfVariation * 0.5)));
+  }
+
+  /**
+   * Assess tool configuration health
+   */
+  private assessToolConfiguration(tool: Tool): number {
+    let configScore = 1.0;
+    
+    // Check if tool has required properties
+    if (!tool.name || tool.name.trim().length === 0) {
+      configScore *= 0.8; // Missing or empty name
+    }
+    
+    if (!tool.description || tool.description.trim().length === 0) {
+      configScore *= 0.9; // Missing or empty description
+    }
+    
+    if (!tool.execute || typeof tool.execute !== 'function') {
+      configScore *= 0.5; // Missing or invalid execute function
+    }
+    
+    // Check for schema validation if available (using any to access potential schema property)
+    const toolWithSchema = tool as any;
+    if (toolWithSchema.schema) {
+      try {
+        // Basic schema validation - check if it's a valid object
+        if (typeof toolWithSchema.schema !== 'object' || toolWithSchema.schema === null) {
+          configScore *= 0.9;
+        }
+      } catch (error) {
+        configScore *= 0.8; // Schema validation issues
+      }
+    }
+    
+    // Check for reasonable timeout configuration
+    if (tool.timeoutMs !== undefined) {
+      if (typeof tool.timeoutMs !== 'number' || tool.timeoutMs <= 0) {
+        configScore *= 0.9; // Invalid timeout configuration
+      } else if (tool.timeoutMs > 300000) { // More than 5 minutes
+        configScore *= 0.95; // Very long timeout might indicate issues
+      }
+    }
+    
+    return configScore;
+  }
+
+  /**
+   * Get detailed health information for a specific tool
+   */
+  async getToolHealth(toolId: string): Promise<{
+    toolId: string;
+    healthScore: number;
+    factors: {
+      availability: number;
+      successRate: number;
+      performance: number;
+      reliability: number;
+      configuration: number;
+    };
+    recommendations: string[];
+  } | null> {
+    const tool = this.tools.get(toolId);
+    if (!tool) {
+      return null;
+    }
+    
+    const metrics = this.metrics.get(toolId);
+    const recommendations: string[] = [];
+    
+    // Calculate individual factors
+    const availability = tool.enabled ? 1.0 : 0.5;
+    if (!tool.enabled) {
+      recommendations.push('Enable the tool to improve availability');
+    }
+    
+    let successRate = 0.7; // Default for tools without metrics
+    let performance = 0.8; // Default performance score
+    let reliability = 0.5; // Default reliability
+    
+    if (metrics && metrics.totalExecutions > 0) {
+      successRate = metrics.successRate;
+      if (successRate < 0.8) {
+        recommendations.push('Investigate and fix frequent failures');
+      }
+      
+      const optimalDurationMs = 5000;
+      performance = Math.min(1.0, optimalDurationMs / Math.max(metrics.avgDurationMs, 1));
+      if (performance < 0.6) {
+        recommendations.push('Optimize tool performance to reduce execution time');
+      }
+      
+      reliability = this.calculateReliabilityFactor(metrics);
+      if (reliability < 0.6) {
+        recommendations.push('Improve tool reliability and consistency');
+      }
+    } else {
+      recommendations.push('Execute the tool to gather performance metrics');
+    }
+    
+    const configuration = this.assessToolConfiguration(tool);
+    if (configuration < 0.9) {
+      recommendations.push('Review and improve tool configuration');
+    }
+    
+    const healthScore = await this.calculateToolHealth(tool);
+    
+    return {
+      toolId,
+      healthScore,
+      factors: {
+        availability,
+        successRate,
+        performance,
+        reliability,
+        configuration
+      },
+      recommendations
     };
   }
 

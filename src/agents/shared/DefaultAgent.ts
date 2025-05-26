@@ -56,6 +56,11 @@ import {
 import { DefaultLoggerManager } from './logger/DefaultLoggerManager';
 import { LogLevel } from './logger/DefaultLoggerManager';
 import { createLogger } from '@/lib/logging/winston-logger';
+// Import Input/Output Processors
+import { DefaultInputProcessor } from './input/managers/DefaultInputProcessor';
+import { DefaultOutputProcessor } from './output/managers/DefaultOutputProcessor';
+import { InputProcessor, InputProcessorConfig } from './base/managers/InputProcessor.interface';
+import { OutputProcessor, OutputProcessorConfig } from './base/managers/OutputProcessor.interface';
 
 // Define the necessary types that we need
 const AGENT_STATUS = {
@@ -92,10 +97,7 @@ function createAgentId(): string {
 
 // Since we can't import the specific input/output processors directly due to type issues,
 // we'll use more generic types to avoid linter errors
-type InputProcessorConfig = ManagerConfig;
-type OutputProcessorConfig = ManagerConfig;
-type InputProcessor = BaseManager;
-type OutputProcessor = BaseManager;
+// Note: Now using proper imported interfaces instead of local type declarations
 
 // Extended agent config with manager enablement and configuration
 interface ExtendedAgentConfig {
@@ -676,21 +678,17 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
       if (this.extendedConfig.enableInputProcessor) {
         console.log(`[Agent] Initializing Input Processor`);
         
-        /* Input processor not implemented yet
         const inputConfig = this.extendedConfig.managersConfig?.inputProcessor || {};
         const inputProcessor = new DefaultInputProcessor(this, inputConfig);
         this.setManager(inputProcessor);
-        */
       }
       
       if (this.extendedConfig.enableOutputProcessor) {
         console.log(`[Agent] Initializing Output Processor`);
         
-        /* Output processor not implemented yet
         const outputConfig = this.extendedConfig.managersConfig?.outputProcessor || {};
         const outputProcessor = new DefaultOutputProcessor(this, outputConfig);
         this.setManager(outputProcessor);
-        */
       }
       
       // Initialize resource tracking if enabled

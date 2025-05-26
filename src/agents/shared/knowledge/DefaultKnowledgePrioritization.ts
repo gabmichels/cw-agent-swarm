@@ -288,20 +288,14 @@ export class DefaultKnowledgePrioritization implements KnowledgePrioritization {
       scoringModel = defaultModel;
     }
     
-    // TODO: Implement actual priority calculation
-    // In a full implementation, this would calculate priorities based on various factors
-    // For now, we'll use a placeholder implementation
-    
     // Update or create priorities for each item
     const priorities: KnowledgePriorityInfo[] = [];
     
-    // For simplicity in this skeleton implementation, just create a random priority
-    // for each item or for a mock item if none specified
     if (knowledgeItemIds.length === 0) {
-      // For testing purposes, create a mock item
+      // If no specific items provided, we'll work with a mock item since the KnowledgeGraph interface
+      // doesn't provide a method to get all nodes
       const mockItemId = uuidv4();
-      const priority = this.createMockPriority(mockItemId, scoringModel);
-      
+      const priority = await this.calculateRealPriority(mockItemId, scoringModel, options);
       this.knowledgePriorities.set(mockItemId, priority);
       priorities.push(priority);
       changedCount++;
@@ -312,8 +306,7 @@ export class DefaultKnowledgePrioritization implements KnowledgePrioritization {
         if (existing && !options.options?.forceRecalculation) {
           priorities.push(existing);
         } else {
-          const priority = this.createMockPriority(itemId, scoringModel);
-          
+          const priority = await this.calculateRealPriority(itemId, scoringModel, options);
           this.knowledgePriorities.set(itemId, priority);
           priorities.push(priority);
           changedCount++;
@@ -359,44 +352,373 @@ export class DefaultKnowledgePrioritization implements KnowledgePrioritization {
   }
   
   /**
-   * Helper to create a mock priority
+   * Calculate real priority for a knowledge item based on multiple factors
    */
-  private createMockPriority(knowledgeItemId: string, model: PriorityScoringModel): KnowledgePriorityInfo {
-    // In a real implementation, this would calculate a meaningful score
-    // For now, we're using random values for demonstration
-    const score = Math.random() * 100;
-    let level: KnowledgePriorityLevel;
+  private async calculateRealPriority(
+    knowledgeItemId: string, 
+    model: PriorityScoringModel, 
+    options: PrioritizationOptions
+  ): Promise<KnowledgePriorityInfo> {
+    const now = new Date();
     
-    if (score >= 80) {
-      level = KnowledgePriorityLevel.CRITICAL;
-    } else if (score >= 60) {
-      level = KnowledgePriorityLevel.HIGH;
-    } else if (score >= 40) {
-      level = KnowledgePriorityLevel.MEDIUM;
-    } else if (score >= 20) {
-      level = KnowledgePriorityLevel.LOW;
-    } else {
-      level = KnowledgePriorityLevel.BACKGROUND;
+    // Initialize factor scores with all required factors
+    const factorScores: Partial<Record<PriorityFactor, number>> = {
+      [PriorityFactor.RECENCY]: 0,
+      [PriorityFactor.FREQUENCY]: 0,
+      [PriorityFactor.DOMAIN_RELEVANCE]: 0,
+      [PriorityFactor.TASK_RELEVANCE]: 0,
+      [PriorityFactor.GAP_FILLING]: 0,
+      [PriorityFactor.USER_INTEREST]: 0,
+      [PriorityFactor.CONFIDENCE]: 0,
+      [PriorityFactor.IMPORTANCE]: 0
+    };
+    
+    // Calculate individual factor scores
+    factorScores[PriorityFactor.RECENCY] = await this.calculateRecencyScore(knowledgeItemId);
+    factorScores[PriorityFactor.DOMAIN_RELEVANCE] = await this.calculateDomainRelevanceScore(
+      knowledgeItemId, 
+      options.context
+    );
+    factorScores[PriorityFactor.IMPORTANCE] = await this.calculateImportanceScore(knowledgeItemId);
+    
+    // Calculate other factors with default values for now
+    factorScores[PriorityFactor.FREQUENCY] = 0.5; // Default moderate score
+    factorScores[PriorityFactor.TASK_RELEVANCE] = 0.5; // Default moderate score
+    factorScores[PriorityFactor.GAP_FILLING] = 0.5; // Default moderate score
+    factorScores[PriorityFactor.USER_INTEREST] = 0.5; // Default moderate score
+    factorScores[PriorityFactor.CONFIDENCE] = 0.7; // Default high confidence
+    
+    // Calculate weighted priority score using the scoring model
+    let priorityScore = 0;
+    let totalWeight = 0;
+    
+    for (const [factor, weight] of Object.entries(model.factorWeights)) {
+      const score = factorScores[factor as PriorityFactor] || 0;
+      priorityScore += score * (weight || 0);
+      totalWeight += (weight || 0);
     }
     
-    const now = new Date();
+    // Normalize to 0-100 scale
+    if (totalWeight > 0) {
+      priorityScore = (priorityScore / totalWeight) * 100;
+    }
+    
+    // Apply category adjustments if available
+    const relevanceCategory = this.determineRelevanceCategory(priorityScore, options.context);
+    const categoryAdjustment = model.categoryAdjustments[relevanceCategory] || 0;
+    priorityScore += categoryAdjustment * 100; // Convert to 0-100 scale
+    
+    // Ensure score is within bounds
+    priorityScore = Math.max(0, Math.min(100, priorityScore));
+    
+    // Determine priority level based on score
+    const priorityLevel = this.determinePriorityLevel(priorityScore);
+    
+    // Generate explanation
+    const explanation = this.generatePriorityExplanation(factorScores as Record<PriorityFactor, number>, priorityScore, model);
     
     return {
       id: uuidv4(),
       knowledgeItemId,
-      priorityScore: score,
-      priorityLevel: level,
-      relevanceCategory: KnowledgeRelevanceCategory.SUPPORTING,
-      factorScores: {
-        [PriorityFactor.RECENCY]: Math.random(),
-        [PriorityFactor.DOMAIN_RELEVANCE]: Math.random(),
-        [PriorityFactor.IMPORTANCE]: Math.random()
-      },
-      explanation: 'Priority calculated based on scoring model',
+      priorityScore,
+      priorityLevel,
+      relevanceCategory,
+      factorScores,
+      explanation,
       lastCalculated: now,
       updatedAt: now,
-      nextRecalculation: new Date(now.getTime() + 24 * 60 * 60 * 1000) // 1 day in future
+      nextRecalculation: new Date(now.getTime() + 24 * 60 * 60 * 1000), // Default 1 day
+      metadata: {
+        modelName: model.name,
+        modelVersion: model.version || '1.0',
+        calculationContext: options.context || {}
+      }
     };
+  }
+  
+  /**
+   * Calculate recency score based on when the knowledge item was last accessed or updated
+   */
+  private async calculateRecencyScore(knowledgeItemId: string): Promise<number> {
+    if (!this.knowledgeGraph) {
+      // Without knowledge graph, use a default moderate score
+      return 0.5;
+    }
+    
+    try {
+      const node = await this.knowledgeGraph.getNode(knowledgeItemId);
+      if (!node) {
+        return 0.3; // Low score for non-existent items
+      }
+      
+      const now = Date.now();
+      const lastAccessed = node.metadata?.lastAccessed ? 
+        new Date(node.metadata.lastAccessed as string).getTime() : 
+        (node.createdAt ? node.createdAt.getTime() : now);
+      
+      // Calculate days since last access
+      const daysSinceAccess = (now - lastAccessed) / (1000 * 60 * 60 * 24);
+      
+      // Recency score decreases exponentially with time
+      // Recent items (< 1 day) get high scores, older items get lower scores
+      if (daysSinceAccess < 1) return 1.0;
+      if (daysSinceAccess < 7) return 0.8;
+      if (daysSinceAccess < 30) return 0.6;
+      if (daysSinceAccess < 90) return 0.4;
+      return 0.2;
+    } catch (error) {
+      console.warn(`Error calculating recency score for ${knowledgeItemId}:`, error);
+      return 0.5; // Default moderate score on error
+    }
+  }
+  
+  /**
+   * Calculate domain relevance score based on context and knowledge graph connections
+   */
+  private async calculateDomainRelevanceScore(
+    knowledgeItemId: string, 
+    context?: Record<string, unknown>
+  ): Promise<number> {
+    if (!this.knowledgeGraph) {
+      return 0.5; // Default moderate score without knowledge graph
+    }
+    
+    try {
+      const node = await this.knowledgeGraph.getNode(knowledgeItemId);
+      if (!node) {
+        return 0.2; // Low score for non-existent items
+      }
+      
+      let relevanceScore = 0.5; // Base score
+      
+      // Check context relevance
+      if (context) {
+        const contextKeywords = this.extractContextKeywords(context);
+        const nodeContent = `${node.label} ${node.description || ''} ${JSON.stringify(node.metadata || {})}`.toLowerCase();
+        
+        let matchCount = 0;
+        for (const keyword of contextKeywords) {
+          if (nodeContent.includes(keyword.toLowerCase())) {
+            matchCount++;
+          }
+        }
+        
+        if (contextKeywords.length > 0) {
+          const contextRelevance = matchCount / contextKeywords.length;
+          relevanceScore += contextRelevance * 0.3; // Up to 30% boost for context relevance
+        }
+      }
+      
+      // Since getConnectedNodes doesn't exist, we'll use a simplified approach
+      // In a real implementation, this would check knowledge graph connections
+      relevanceScore += 0.1; // Default small boost for existing nodes
+      
+      return Math.min(1.0, relevanceScore);
+    } catch (error) {
+      console.warn(`Error calculating domain relevance score for ${knowledgeItemId}:`, error);
+      return 0.5; // Default moderate score on error
+    }
+  }
+  
+  /**
+   * Calculate importance score based on usage patterns and explicit importance markers
+   */
+  private async calculateImportanceScore(knowledgeItemId: string): Promise<number> {
+    if (!this.knowledgeGraph) {
+      return 0.5; // Default moderate score without knowledge graph
+    }
+    
+    try {
+      const node = await this.knowledgeGraph.getNode(knowledgeItemId);
+      if (!node) {
+        return 0.2; // Low score for non-existent items
+      }
+      
+      let importanceScore = 0.5; // Base score
+      
+      // Check explicit importance markers in metadata
+      if (node.metadata?.importance) {
+        const importance = node.metadata.importance;
+        if (typeof importance === 'string') {
+          switch (importance.toLowerCase()) {
+            case 'critical': importanceScore = 1.0; break;
+            case 'high': importanceScore = 0.8; break;
+            case 'medium': importanceScore = 0.6; break;
+            case 'low': importanceScore = 0.4; break;
+            default: importanceScore = 0.5; break;
+          }
+        } else if (typeof importance === 'number') {
+          importanceScore = Math.max(0, Math.min(1, importance));
+        }
+      }
+      
+      // Check usage frequency
+      const accessCount = typeof node.metadata?.accessCount === 'number' ? node.metadata.accessCount : 0;
+      if (accessCount > 50) importanceScore += 0.2;
+      else if (accessCount > 20) importanceScore += 0.15;
+      else if (accessCount > 10) importanceScore += 0.1;
+      else if (accessCount > 5) importanceScore += 0.05;
+      
+      // Since getIncomingEdges doesn't exist, we'll use a simplified approach
+      // In a real implementation, this would check references from other important nodes
+      importanceScore += 0.05; // Default small boost for existing nodes
+      
+      return Math.min(1.0, importanceScore);
+    } catch (error) {
+      console.warn(`Error calculating importance score for ${knowledgeItemId}:`, error);
+      return 0.5; // Default moderate score on error
+    }
+  }
+  
+  /**
+   * Extract keywords from context for relevance calculation
+   */
+  private extractContextKeywords(context: Record<string, unknown>): string[] {
+    const keywords: string[] = [];
+    
+    for (const [key, value] of Object.entries(context)) {
+      if (typeof value === 'string') {
+        // Extract meaningful words (longer than 2 characters)
+        const words = value.toLowerCase().match(/\b\w{3,}\b/g) || [];
+        keywords.push(...words);
+      } else if (Array.isArray(value)) {
+        value.forEach(item => {
+          if (typeof item === 'string') {
+            const words = item.toLowerCase().match(/\b\w{3,}\b/g) || [];
+            keywords.push(...words);
+          }
+        });
+      }
+      
+      // Also include the key itself if it's meaningful
+      if (key.length > 2) {
+        keywords.push(key.toLowerCase());
+      }
+    }
+    
+    // Remove duplicates and common stop words
+    const stopWords = new Set(['the', 'and', 'for', 'are', 'but', 'not', 'you', 'all', 'can', 'had', 'her', 'was', 'one', 'our', 'out', 'day', 'get', 'has', 'him', 'his', 'how', 'its', 'may', 'new', 'now', 'old', 'see', 'two', 'who', 'boy', 'did', 'she', 'use', 'way', 'will']);
+    
+    return Array.from(new Set(keywords)).filter(word => !stopWords.has(word));
+  }
+  
+  /**
+   * Apply scoring model adjustments
+   */
+  private applyAdjustment(score: number, adjustment: any): number {
+    if (!adjustment || typeof adjustment !== 'object') {
+      return score;
+    }
+    
+    // Apply different types of adjustments
+    if (adjustment.type === 'multiply' && typeof adjustment.value === 'number') {
+      return score * adjustment.value;
+    } else if (adjustment.type === 'add' && typeof adjustment.value === 'number') {
+      return score + adjustment.value;
+    } else if (adjustment.type === 'threshold') {
+      if (score >= adjustment.threshold) {
+        return adjustment.aboveValue || score;
+      } else {
+        return adjustment.belowValue || score;
+      }
+    }
+    
+    return score;
+  }
+  
+  /**
+   * Determine priority level based on score
+   */
+  private determinePriorityLevel(score: number): KnowledgePriorityLevel {
+    if (score >= 85) return KnowledgePriorityLevel.CRITICAL;
+    if (score >= 70) return KnowledgePriorityLevel.HIGH;
+    if (score >= 50) return KnowledgePriorityLevel.MEDIUM;
+    if (score >= 30) return KnowledgePriorityLevel.LOW;
+    return KnowledgePriorityLevel.BACKGROUND;
+  }
+  
+  /**
+   * Determine relevance category based on score and context
+   */
+  private determineRelevanceCategory(
+    score: number, 
+    context?: Record<string, unknown>
+  ): KnowledgeRelevanceCategory {
+    // High scores with context suggest core relevance
+    if (score >= 80 && context && Object.keys(context).length > 0) {
+      return KnowledgeRelevanceCategory.CORE;
+    }
+    
+    // Medium-high scores suggest supporting relevance
+    if (score >= 60) {
+      return KnowledgeRelevanceCategory.SUPPORTING;
+    }
+    
+    // Medium scores suggest contextual relevance
+    if (score >= 40) {
+      return KnowledgeRelevanceCategory.CONTEXTUAL;
+    }
+    
+    // Low scores suggest peripheral relevance
+    if (score >= 20) {
+      return KnowledgeRelevanceCategory.PERIPHERAL;
+    }
+    
+    // Very low scores suggest tangential relevance
+    return KnowledgeRelevanceCategory.TANGENTIAL;
+  }
+  
+  /**
+   * Generate human-readable explanation for the priority calculation
+   */
+  private generatePriorityExplanation(
+    factorScores: Record<PriorityFactor, number>,
+    finalScore: number,
+    model: PriorityScoringModel
+  ): string {
+    const explanations: string[] = [];
+    
+    // Explain each factor's contribution
+    for (const [factor, weight] of Object.entries(model.factorWeights)) {
+      const score = factorScores[factor as PriorityFactor];
+      if (score !== undefined && weight !== undefined) {
+        const contribution = (score * weight * 100).toFixed(1);
+        
+        let factorName: string;
+        switch (factor as PriorityFactor) {
+          case PriorityFactor.RECENCY:
+            factorName = 'recency';
+            break;
+          case PriorityFactor.DOMAIN_RELEVANCE:
+            factorName = 'domain relevance';
+            break;
+          case PriorityFactor.IMPORTANCE:
+            factorName = 'importance';
+            break;
+          case PriorityFactor.FREQUENCY:
+            factorName = 'frequency';
+            break;
+          case PriorityFactor.TASK_RELEVANCE:
+            factorName = 'task relevance';
+            break;
+          case PriorityFactor.GAP_FILLING:
+            factorName = 'gap filling';
+            break;
+          case PriorityFactor.USER_INTEREST:
+            factorName = 'user interest';
+            break;
+          case PriorityFactor.CONFIDENCE:
+            factorName = 'confidence';
+            break;
+          default:
+            factorName = factor.toLowerCase();
+        }
+        
+        explanations.push(`${factorName}: ${(score * 100).toFixed(1)}% (weight: ${weight}, contribution: ${contribution}%)`);
+      }
+    }
+    
+    return `Priority score ${finalScore.toFixed(1)} calculated from: ${explanations.join(', ')}. Model: ${model.name}`;
   }
   
   /**
@@ -483,7 +805,9 @@ export class DefaultKnowledgePrioritization implements KnowledgePrioritization {
         throw new Error('Default scoring model not found');
       }
       
-      priority = this.createMockPriority(knowledgeItemId, defaultModel);
+      priority = await this.calculateRealPriority(knowledgeItemId, defaultModel, {
+        context: {}
+      });
     }
     
     // Apply the adjustment

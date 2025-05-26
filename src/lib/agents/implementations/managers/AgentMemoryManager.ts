@@ -49,6 +49,11 @@ export interface MemoryManagerConfig extends ManagerConfig {
 export class AgentMemoryManager extends AbstractBaseManager implements MemoryManager {
   protected config: MemoryManagerConfig;
   private memory: DefaultAgentMemory | null = null;
+  protected _initialized: boolean = false;
+  private consolidationCount: number = 0;
+  private prunedCount: number = 0;
+  private lastConsolidationDate: Date | null = null;
+  private lastPruningDate: Date | null = null;
 
   /**
    * Create a new AgentMemoryManager instance
@@ -178,11 +183,26 @@ export class AgentMemoryManager extends AbstractBaseManager implements MemoryMan
     if (!this.memory) {
       throw new MemoryError('Memory system not initialized', 'NOT_INITIALIZED');
     }
+    
+    // Get count before consolidation
+    const beforeStats = await this.memory.getStats();
+    const beforeCount = beforeStats.totalMemories;
+    
     await this.memory.consolidateMemories();
+    
+    // Get count after consolidation to calculate how many were consolidated
+    const afterStats = await this.memory.getStats();
+    const afterCount = afterStats.totalMemories;
+    const consolidatedThisRun = beforeCount - afterCount;
+    
+    // Update tracking
+    this.consolidationCount += consolidatedThisRun;
+    this.lastConsolidationDate = new Date();
+    
     return {
       success: true,
-      consolidatedCount: 0, // TODO: Implement actual count
-      message: 'Memories consolidated successfully'
+      consolidatedCount: consolidatedThisRun,
+      message: `Successfully consolidated ${consolidatedThisRun} memories`
     };
   }
 
@@ -193,12 +213,55 @@ export class AgentMemoryManager extends AbstractBaseManager implements MemoryMan
     if (!this.memory) {
       throw new MemoryError('Memory system not initialized', 'NOT_INITIALIZED');
     }
+    
+    // Get count before pruning
+    const beforeStats = await this.memory.getStats();
+    const beforeCount = beforeStats.totalMemories;
+    
     await this.memory.pruneMemories();
+    
+    // Get count after pruning to calculate how many were pruned
+    const afterStats = await this.memory.getStats();
+    const afterCount = afterStats.totalMemories;
+    const prunedThisRun = beforeCount - afterCount;
+    
+    // Update tracking
+    this.prunedCount += prunedThisRun;
+    this.lastPruningDate = new Date();
+    
     return {
       success: true,
-      prunedCount: 0, // TODO: Implement actual count
-      message: 'Memories pruned successfully'
+      prunedCount: prunedThisRun,
+      message: `Successfully pruned ${prunedThisRun} memories`
     };
+  }
+
+  /**
+   * Get total consolidation count
+   */
+  getTotalConsolidationCount(): number {
+    return this.consolidationCount;
+  }
+
+  /**
+   * Get total pruned count
+   */
+  getTotalPrunedCount(): number {
+    return this.prunedCount;
+  }
+
+  /**
+   * Get last consolidation date
+   */
+  getLastConsolidationDate(): Date | null {
+    return this.lastConsolidationDate;
+  }
+
+  /**
+   * Get last pruning date
+   */
+  getLastPruningDate(): Date | null {
+    return this.lastPruningDate;
   }
 
   /**

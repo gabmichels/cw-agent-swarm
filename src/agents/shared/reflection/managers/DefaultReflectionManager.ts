@@ -100,6 +100,12 @@ export class DefaultReflectionManager extends AbstractBaseManager implements Ref
     recoverySuccessful: boolean
   }[]> = new Map();
 
+  // Storage for improvement actions
+  private improvementActions: Map<string, ImprovementAction> = new Map();
+
+  // Storage for reflection strategies
+  private reflectionStrategies: Map<string, ReflectionStrategy> = new Map();
+
   /**
    * Create a new DefaultReflectionManager instance
    * 
@@ -1397,22 +1403,73 @@ export class DefaultReflectionManager extends AbstractBaseManager implements Ref
     return reflections;
   }
   
-  // Implement the remaining required methods with stub implementations
-  
   /**
    * Create an improvement action
    */
   async createImprovementAction(
     action: Omit<ImprovementAction, 'id' | 'createdAt' | 'updatedAt'>
   ): Promise<ImprovementAction> {
-    throw new ReflectionError('Method not implemented', 'NOT_IMPLEMENTED');
+    // Validate required fields
+    if (!action.title?.trim()) {
+      throw new ReflectionError('Action title is required', 'INVALID_INPUT');
+    }
+    
+    if (!action.description?.trim()) {
+      throw new ReflectionError('Action description is required', 'INVALID_INPUT');
+    }
+    
+    if (!action.targetArea) {
+      throw new ReflectionError('Target area is required', 'INVALID_INPUT');
+    }
+    
+    if (!action.priority) {
+      throw new ReflectionError('Priority is required', 'INVALID_INPUT');
+    }
+    
+    // Validate numeric fields
+    if (typeof action.expectedImpact !== 'number' || action.expectedImpact < 0 || action.expectedImpact > 1) {
+      throw new ReflectionError('Expected impact must be a number between 0 and 1', 'INVALID_INPUT');
+    }
+    
+    if (typeof action.difficulty !== 'number' || action.difficulty < 0 || action.difficulty > 1) {
+      throw new ReflectionError('Difficulty must be a number between 0 and 1', 'INVALID_INPUT');
+    }
+    
+    // Create the improvement action
+    const now = new Date();
+    const improvementAction: ImprovementAction = {
+      id: uuidv4(),
+      title: action.title.trim(),
+      description: action.description.trim(),
+      createdAt: now,
+      updatedAt: now,
+      sourceInsightId: action.sourceInsightId || '',
+      status: action.status || 'suggested',
+      priority: action.priority,
+      targetArea: action.targetArea,
+      expectedImpact: action.expectedImpact,
+      difficulty: action.difficulty,
+      implementationSteps: action.implementationSteps || []
+    };
+    
+    // Store the action
+    this.improvementActions.set(improvementAction.id, improvementAction);
+    
+    console.log(`[${this.managerId}] Created improvement action: ${improvementAction.title} (${improvementAction.id})`);
+    
+    return improvementAction;
   }
   
   /**
    * Get an improvement action by ID
    */
   async getImprovementAction(actionId: string): Promise<ImprovementAction | null> {
-    throw new ReflectionError('Method not implemented', 'NOT_IMPLEMENTED');
+    if (!actionId?.trim()) {
+      throw new ReflectionError('Action ID is required', 'INVALID_INPUT');
+    }
+    
+    const action = this.improvementActions.get(actionId.trim());
+    return action || null;
   }
   
   /**
@@ -1422,7 +1479,52 @@ export class DefaultReflectionManager extends AbstractBaseManager implements Ref
     actionId: string,
     updates: Partial<Omit<ImprovementAction, 'id' | 'createdAt' | 'updatedAt'>>
   ): Promise<ImprovementAction> {
-    throw new ReflectionError('Method not implemented', 'NOT_IMPLEMENTED');
+    if (!actionId?.trim()) {
+      throw new ReflectionError('Action ID is required', 'INVALID_INPUT');
+    }
+    
+    const existingAction = this.improvementActions.get(actionId.trim());
+    if (!existingAction) {
+      throw new ReflectionError(`Improvement action not found: ${actionId}`, 'NOT_FOUND');
+    }
+    
+    // Validate updates
+    if (updates.title !== undefined && !updates.title?.trim()) {
+      throw new ReflectionError('Action title cannot be empty', 'INVALID_INPUT');
+    }
+    
+    if (updates.description !== undefined && !updates.description?.trim()) {
+      throw new ReflectionError('Action description cannot be empty', 'INVALID_INPUT');
+    }
+    
+    if (updates.expectedImpact !== undefined && 
+        (typeof updates.expectedImpact !== 'number' || updates.expectedImpact < 0 || updates.expectedImpact > 1)) {
+      throw new ReflectionError('Expected impact must be a number between 0 and 1', 'INVALID_INPUT');
+    }
+    
+    if (updates.difficulty !== undefined && 
+        (typeof updates.difficulty !== 'number' || updates.difficulty < 0 || updates.difficulty > 1)) {
+      throw new ReflectionError('Difficulty must be a number between 0 and 1', 'INVALID_INPUT');
+    }
+    
+    // Apply updates
+    const updatedAction: ImprovementAction = {
+      ...existingAction,
+      ...updates,
+      id: existingAction.id, // Ensure ID cannot be changed
+      createdAt: existingAction.createdAt, // Ensure createdAt cannot be changed
+      updatedAt: new Date(),
+      // Trim string fields if they're being updated
+      title: updates.title?.trim() || existingAction.title,
+      description: updates.description?.trim() || existingAction.description
+    };
+    
+    // Store the updated action
+    this.improvementActions.set(actionId.trim(), updatedAction);
+    
+    console.log(`[${this.managerId}] Updated improvement action: ${updatedAction.title} (${updatedAction.id})`);
+    
+    return updatedAction;
   }
   
   /**
@@ -1438,7 +1540,77 @@ export class DefaultReflectionManager extends AbstractBaseManager implements Ref
     sortBy?: 'createdAt' | 'priority' | 'expectedImpact' | 'difficulty';
     sortDirection?: 'asc' | 'desc';
   }): Promise<ImprovementAction[]> {
-    return [];
+    let actions = Array.from(this.improvementActions.values());
+    
+    // Apply filters
+    if (options?.status && options.status.length > 0) {
+      actions = actions.filter(action => options.status!.includes(action.status));
+    }
+    
+    if (options?.targetArea && options.targetArea.length > 0) {
+      actions = actions.filter(action => options.targetArea!.includes(action.targetArea));
+    }
+    
+    if (options?.priority && options.priority.length > 0) {
+      actions = actions.filter(action => options.priority!.includes(action.priority));
+    }
+    
+    if (options?.minExpectedImpact !== undefined) {
+      actions = actions.filter(action => action.expectedImpact >= options.minExpectedImpact!);
+    }
+    
+    // Apply sorting
+    const sortBy = options?.sortBy || 'createdAt';
+    const sortDirection = options?.sortDirection || 'desc';
+    
+    actions.sort((a, b) => {
+      let aValue: number | Date;
+      let bValue: number | Date;
+      
+      switch (sortBy) {
+        case 'createdAt':
+          aValue = a.createdAt;
+          bValue = b.createdAt;
+          break;
+        case 'priority':
+          // Convert priority to numeric for sorting
+          const priorityOrder = { 'low': 1, 'medium': 2, 'high': 3, 'critical': 4 };
+          aValue = priorityOrder[a.priority];
+          bValue = priorityOrder[b.priority];
+          break;
+        case 'expectedImpact':
+          aValue = a.expectedImpact;
+          bValue = b.expectedImpact;
+          break;
+        case 'difficulty':
+          aValue = a.difficulty;
+          bValue = b.difficulty;
+          break;
+        default:
+          aValue = a.createdAt;
+          bValue = b.createdAt;
+      }
+      
+      if (aValue < bValue) {
+        return sortDirection === 'asc' ? -1 : 1;
+      }
+      if (aValue > bValue) {
+        return sortDirection === 'asc' ? 1 : -1;
+      }
+      return 0;
+    });
+    
+    // Apply pagination
+    const offset = options?.offset || 0;
+    const limit = options?.limit;
+    
+    if (limit !== undefined) {
+      actions = actions.slice(offset, offset + limit);
+    } else if (offset > 0) {
+      actions = actions.slice(offset);
+    }
+    
+    return actions;
   }
   
   /**
@@ -1447,14 +1619,66 @@ export class DefaultReflectionManager extends AbstractBaseManager implements Ref
   async registerReflectionStrategy(
     strategy: Omit<ReflectionStrategy, 'id'>
   ): Promise<ReflectionStrategy> {
-    throw new ReflectionError('Method not implemented', 'NOT_IMPLEMENTED');
+    // Validate required fields
+    if (!strategy.name?.trim()) {
+      throw new ReflectionError('Strategy name is required', 'INVALID_INPUT');
+    }
+    
+    if (!strategy.description?.trim()) {
+      throw new ReflectionError('Strategy description is required', 'INVALID_INPUT');
+    }
+    
+    if (!strategy.triggers || strategy.triggers.length === 0) {
+      throw new ReflectionError('At least one trigger is required', 'INVALID_INPUT');
+    }
+    
+    if (typeof strategy.priority !== 'number' || strategy.priority < 0 || strategy.priority > 1) {
+      throw new ReflectionError('Priority must be a number between 0 and 1', 'INVALID_INPUT');
+    }
+    
+    if (!strategy.queryTemplate?.trim()) {
+      throw new ReflectionError('Query template is required', 'INVALID_INPUT');
+    }
+    
+    // Check for duplicate names
+    const existingStrategy = Array.from(this.reflectionStrategies.values())
+      .find(s => s.name.toLowerCase() === strategy.name.trim().toLowerCase());
+    
+    if (existingStrategy) {
+      throw new ReflectionError(`Strategy with name '${strategy.name}' already exists`, 'DUPLICATE_NAME');
+    }
+    
+    // Create the reflection strategy
+    const reflectionStrategy: ReflectionStrategy = {
+      id: uuidv4(),
+      name: strategy.name.trim(),
+      description: strategy.description.trim(),
+      triggers: strategy.triggers,
+      enabled: strategy.enabled !== undefined ? strategy.enabled : true,
+      priority: strategy.priority,
+      queryTemplate: strategy.queryTemplate.trim(),
+      requiredContext: strategy.requiredContext || [],
+      focusAreas: strategy.focusAreas || []
+    };
+    
+    // Store the strategy
+    this.reflectionStrategies.set(reflectionStrategy.id, reflectionStrategy);
+    
+    console.log(`[${this.managerId}] Registered reflection strategy: ${reflectionStrategy.name} (${reflectionStrategy.id})`);
+    
+    return reflectionStrategy;
   }
   
   /**
    * Get a reflection strategy by ID
    */
   async getReflectionStrategy(strategyId: string): Promise<ReflectionStrategy | null> {
-    throw new ReflectionError('Method not implemented', 'NOT_IMPLEMENTED');
+    if (!strategyId?.trim()) {
+      throw new ReflectionError('Strategy ID is required', 'INVALID_INPUT');
+    }
+    
+    const strategy = this.reflectionStrategies.get(strategyId.trim());
+    return strategy || null;
   }
   
   /**
@@ -1464,7 +1688,64 @@ export class DefaultReflectionManager extends AbstractBaseManager implements Ref
     strategyId: string,
     updates: Partial<Omit<ReflectionStrategy, 'id'>>
   ): Promise<ReflectionStrategy> {
-    throw new ReflectionError('Method not implemented', 'NOT_IMPLEMENTED');
+    if (!strategyId?.trim()) {
+      throw new ReflectionError('Strategy ID is required', 'INVALID_INPUT');
+    }
+    
+    const existingStrategy = this.reflectionStrategies.get(strategyId.trim());
+    if (!existingStrategy) {
+      throw new ReflectionError(`Reflection strategy not found: ${strategyId}`, 'NOT_FOUND');
+    }
+    
+    // Validate updates
+    if (updates.name !== undefined && !updates.name?.trim()) {
+      throw new ReflectionError('Strategy name cannot be empty', 'INVALID_INPUT');
+    }
+    
+    if (updates.description !== undefined && !updates.description?.trim()) {
+      throw new ReflectionError('Strategy description cannot be empty', 'INVALID_INPUT');
+    }
+    
+    if (updates.queryTemplate !== undefined && !updates.queryTemplate?.trim()) {
+      throw new ReflectionError('Query template cannot be empty', 'INVALID_INPUT');
+    }
+    
+    if (updates.triggers !== undefined && (!updates.triggers || updates.triggers.length === 0)) {
+      throw new ReflectionError('At least one trigger is required', 'INVALID_INPUT');
+    }
+    
+    if (updates.priority !== undefined && 
+        (typeof updates.priority !== 'number' || updates.priority < 0 || updates.priority > 1)) {
+      throw new ReflectionError('Priority must be a number between 0 and 1', 'INVALID_INPUT');
+    }
+    
+    // Check for duplicate names (if name is being updated)
+    if (updates.name && updates.name.trim().toLowerCase() !== existingStrategy.name.toLowerCase()) {
+      const duplicateStrategy = Array.from(this.reflectionStrategies.values())
+        .find(s => s.id !== strategyId && s.name.toLowerCase() === updates.name!.trim().toLowerCase());
+      
+      if (duplicateStrategy) {
+        throw new ReflectionError(`Strategy with name '${updates.name}' already exists`, 'DUPLICATE_NAME');
+      }
+    }
+    
+    // Apply updates
+    const updatedStrategy: ReflectionStrategy = {
+      ...existingStrategy,
+      ...updates,
+      id: existingStrategy.id, // Ensure ID cannot be changed
+      // Trim string fields if they're being updated
+      name: updates.name?.trim() || existingStrategy.name,
+      description: updates.description?.trim() || existingStrategy.description,
+      queryTemplate: updates.queryTemplate?.trim() || existingStrategy.queryTemplate
+    };
+    
+    // Store the updated strategy
+    this.reflectionStrategies.set(strategyId.trim(), updatedStrategy);
+    
+    console.log(`[${this.managerId}] Updated reflection strategy: ${updatedStrategy.name} (${updatedStrategy.id})`);
+    
+    return updatedStrategy;
   }
   
   /**
@@ -1476,7 +1757,51 @@ export class DefaultReflectionManager extends AbstractBaseManager implements Ref
     sortBy?: 'priority' | 'name';
     sortDirection?: 'asc' | 'desc';
   }): Promise<ReflectionStrategy[]> {
-    return [];
+    let strategies = Array.from(this.reflectionStrategies.values());
+    
+    // Apply filters
+    if (options?.trigger && options.trigger.length > 0) {
+      strategies = strategies.filter(strategy => 
+        strategy.triggers.some(trigger => options.trigger!.includes(trigger))
+      );
+    }
+    
+    if (options?.enabled !== undefined) {
+      strategies = strategies.filter(strategy => strategy.enabled === options.enabled);
+    }
+    
+    // Apply sorting
+    const sortBy = options?.sortBy || 'priority';
+    const sortDirection = options?.sortDirection || 'desc';
+    
+    strategies.sort((a, b) => {
+      let aValue: number | string;
+      let bValue: number | string;
+      
+      switch (sortBy) {
+        case 'priority':
+          aValue = a.priority;
+          bValue = b.priority;
+          break;
+        case 'name':
+          aValue = a.name.toLowerCase();
+          bValue = b.name.toLowerCase();
+          break;
+        default:
+          aValue = a.priority;
+          bValue = b.priority;
+      }
+      
+      if (aValue < bValue) {
+        return sortDirection === 'asc' ? -1 : 1;
+      }
+      if (aValue > bValue) {
+        return sortDirection === 'asc' ? 1 : -1;
+      }
+      return 0;
+    });
+    
+    return strategies;
   }
   
   /**
@@ -1486,7 +1811,27 @@ export class DefaultReflectionManager extends AbstractBaseManager implements Ref
     strategyId: string,
     enabled: boolean
   ): Promise<ReflectionStrategy> {
-    throw new ReflectionError('Method not implemented', 'NOT_IMPLEMENTED');
+    if (!strategyId?.trim()) {
+      throw new ReflectionError('Strategy ID is required', 'INVALID_INPUT');
+    }
+    
+    const existingStrategy = this.reflectionStrategies.get(strategyId.trim());
+    if (!existingStrategy) {
+      throw new ReflectionError(`Reflection strategy not found: ${strategyId}`, 'NOT_FOUND');
+    }
+    
+    // Update the enabled status
+    const updatedStrategy: ReflectionStrategy = {
+      ...existingStrategy,
+      enabled
+    };
+    
+    // Store the updated strategy
+    this.reflectionStrategies.set(strategyId.trim(), updatedStrategy);
+    
+    console.log(`[${this.managerId}] ${enabled ? 'Enabled' : 'Disabled'} reflection strategy: ${updatedStrategy.name} (${updatedStrategy.id})`);
+    
+    return updatedStrategy;
   }
   
   /**
