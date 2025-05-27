@@ -601,46 +601,206 @@ export class DefaultPlanningManager extends AbstractBaseManager implements Plann
   }
 
   /**
-   * Optimize a plan using the PlanOptimizer component
+   * Optimize a plan
    */
   async optimizePlan(planId: string): Promise<Plan | null> {
+    if (!this._initialized) {
+      throw new PlanningError(
+        'Planning manager not initialized',
+        'NOT_INITIALIZED'
+      );
+    }
+
     const plan = this.plans.get(planId);
     if (!plan) {
+      this.logger.warn('Plan not found for optimization', { planId });
       return null;
     }
 
     try {
       this.logger.info('Optimizing plan', { planId });
 
-      const optimizationResult = await this.planOptimizer.optimizePlan(
-        plan,
-        {},
-        {
-          optimizationType: 'comprehensive',
-          strategy: 'balanced'
+      // Use PlanOptimizer to optimize the plan
+      const optimizationResult = await this.planOptimizer.optimizePlan(plan, {
+        // OptimizationContext - using available resources and constraints
+        availableResources: {
+          timeLimit: this.config.planExecutionTimeoutMs || 300000
+        },
+        constraints: {
+          preserveStepOrder: false,
+          maintainDependencies: true,
+          maxParallelSteps: this.config.maxConcurrentExecutions || 3
         }
-      );
+      }, {
+        // PlanOptimizationOptions - specify what type of optimization to apply
+        optimizationType: 'comprehensive',
+        strategy: 'balanced'
+      });
 
-      if (optimizationResult.success && optimizationResult.optimizedPlan) {
-        this.plans.set(planId, optimizationResult.optimizedPlan);
+      if (optimizationResult && optimizationResult.optimizedPlan) {
+        const optimizedPlan = optimizationResult.optimizedPlan;
         
-        this.logger.info('Plan optimized successfully', {
+        // Update the plan in storage
+        optimizedPlan.status = 'optimized';
+        optimizedPlan.updatedAt = new Date();
+        this.plans.set(planId, optimizedPlan);
+
+        this.logger.info('Plan optimized successfully', { 
           planId,
-          confidence: optimizationResult.confidence
+          originalSteps: plan.steps.length,
+          optimizedSteps: optimizedPlan.steps.length
         });
 
-        return optimizationResult.optimizedPlan;
+        return optimizedPlan;
+      } else {
+        this.logger.warn('Plan optimization returned null or no optimized plan', { planId });
+        return null;
       }
 
-      return plan;
-
     } catch (error) {
-      this.logger.error('Plan optimization failed', {
+      this.logger.error('Failed to optimize plan', {
         planId,
         error: error instanceof Error ? error.message : String(error)
       });
+      throw new PlanningError(
+        `Failed to optimize plan: ${error instanceof Error ? error.message : String(error)}`,
+        'OPTIMIZATION_FAILED',
+        planId,
+        { error: error instanceof Error ? error.message : String(error) }
+      );
+    }
+  }
+
+  /**
+   * Plan and execute a goal - compatibility method for tests and DefaultAgent
+   */
+  async planAndExecute(goal: string, options: Record<string, unknown> = {}): Promise<{
+    success: boolean;
+    message: string;
+    plan?: Plan;
+    error?: string;
+  }> {
+    if (!this._initialized) {
+      throw new PlanningError(
+        'Planning manager not initialized',
+        'NOT_INITIALIZED'
+      );
+    }
+
+    try {
+      this.logger.info('Planning and executing goal', { goal, options });
+
+      // Create a plan from the goal
+      const planCreationResult = await this.createPlan({
+        name: `Goal: ${goal}`,
+        description: goal,
+        goals: [goal],
+        priority: 0.8,
+        generateSteps: true,
+        context: options,
+        metadata: { 
+          source: 'planAndExecute',
+          originalGoal: goal,
+          options 
+        }
+      });
+
+      if (!planCreationResult.success || !planCreationResult.plan) {
+        return {
+          success: false,
+          message: planCreationResult.error || 'Failed to create plan',
+          error: planCreationResult.error
+        };
+      }
+
+      const plan = planCreationResult.plan;
+
+      // Execute the plan
+      const executionResult = await this.executePlan(plan.id);
+
+      if (executionResult.success) {
+        return {
+          success: true,
+          message: 'Goal planned and executed successfully',
+          plan: executionResult.plan || plan
+        };
+      } else {
+        return {
+          success: false,
+          message: executionResult.error || 'Plan execution failed',
+          plan: executionResult.plan || plan,
+          error: executionResult.error
+        };
+      }
+
+    } catch (error) {
+      this.logger.error('Failed to plan and execute goal', {
+        goal,
+        error: error instanceof Error ? error.message : String(error)
+      });
       
+      return {
+        success: false,
+        message: `Failed to plan and execute goal: ${error instanceof Error ? error.message : String(error)}`,
+        error: error instanceof Error ? error.message : String(error)
+      };
+    }
+  }
+
+  /**
+   * Get plan progress - compatibility method for tests
+   */
+  async getPlanProgress(planId: string): Promise<{
+    planId: string;
+    status: string;
+    completedSteps: number;
+    totalSteps: number;
+    percentage: number;
+    currentStep?: string;
+  } | null> {
+    if (!this._initialized) {
+      throw new PlanningError(
+        'Planning manager not initialized',
+        'NOT_INITIALIZED'
+      );
+    }
+
+    const plan = this.plans.get(planId);
+    if (!plan) {
+      this.logger.warn('Plan not found for progress check', { planId });
       return null;
+    }
+
+    try {
+      const totalSteps = plan.steps.length;
+      const completedSteps = plan.steps.filter(step => step.status === 'completed').length;
+      const percentage = totalSteps > 0 ? Math.round((completedSteps / totalSteps) * 100) : 0;
+      
+      // Find current step (first in_progress or pending step)
+      const currentStep = plan.steps.find(step => 
+        step.status === 'in_progress' || step.status === 'pending'
+      );
+
+      return {
+        planId,
+        status: plan.status,
+        completedSteps,
+        totalSteps,
+        percentage,
+        currentStep: currentStep?.name || currentStep?.description
+      };
+
+    } catch (error) {
+      this.logger.error('Failed to get plan progress', {
+        planId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      throw new PlanningError(
+        `Failed to get plan progress: ${error instanceof Error ? error.message : String(error)}`,
+        'PROGRESS_CHECK_FAILED',
+        planId,
+        { error: error instanceof Error ? error.message : String(error) }
+      );
     }
   }
 

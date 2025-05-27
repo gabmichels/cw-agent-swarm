@@ -621,7 +621,10 @@ export class QdrantTaskRegistry implements TaskRegistry {
           
           const task: Task = {
             id: payload.id as string, // Use the original ULID from payload
-            name: (metadata.title as string) || (payload.text as string).slice(0, 50) + '...',
+            name: (metadata.title as string) || 
+                  (payload.text ? (payload.text as string).slice(0, 50) + '...' : '') ||
+                  (payload.name as string) ||
+                  `Task ${payload.id}`,
             status: metadata.status as TaskStatus,
             priority: this.convertPriority(metadata.priority as string) || 5, // Default medium priority
             scheduleType: TaskScheduleType.PRIORITY, // Default for converted tasks

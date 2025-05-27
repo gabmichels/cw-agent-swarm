@@ -42,7 +42,7 @@ import { ThinkingResult } from '../../services/thinking/types';
 import { TaskCreationOptions, TaskCreationResult, TaskExecutionResult } from './base/managers/SchedulerManager.interface';
 import { Task, TaskStatus } from '../../lib/scheduler/models/Task.model';
 import { ModularSchedulerManager } from '../../lib/scheduler/implementations/ModularSchedulerManager';
-import { PlanCreationOptions, PlanCreationResult, PlanExecutionResult } from './base/managers/PlanningManager.interface';
+import { PlanCreationOptions, PlanCreationResult, PlanExecutionResult, PlanningManager } from './base/managers/PlanningManager.interface';
 import { ReflectionResult } from './base/managers/ReflectionManager.interface';
 
 // Import types for configuration
@@ -565,15 +565,194 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
   }
 
   /**
-   * Process user input - delegates to CommunicationHandler
+   * Process user input - delegates to CommunicationHandler and handles task creation
    */
   async processUserInput(message: string, options?: MessageProcessingOptions): Promise<AgentResponse> {
     if (!this.communicationHandler) {
       throw new Error('Communication handler not initialized');
     }
     
-    // Use the communication handler's processMessage method
-    return this.communicationHandler.processMessage(message, options);
+    try {
+      // Step 1: Process the message through communication handler
+      const response = await this.communicationHandler.processMessage(message, options);
+      
+      // Step 2: Check if we should create a task from this input (for autonomy)
+      const planningManager = this.getManager<PlanningManager>(ManagerType.PLANNING);
+      const schedulerManager = this.getManager(ManagerType.SCHEDULER);
+      
+      if (planningManager && schedulerManager && this.shouldCreateTaskFromInput(message)) {
+        try {
+          this.logger.info('Attempting to create task from user input', {
+            message: message.substring(0, 100),
+            planningManagerExists: !!planningManager,
+            schedulerManagerExists: !!schedulerManager,
+            planningManagerType: planningManager.constructor.name
+          });
+          
+          // Create a task directly in the scheduler instead of using planning manager
+          const taskResult = await (schedulerManager as any).createTask({
+            name: `Task: ${message.substring(0, 50)}${message.length > 50 ? '...' : ''}`,
+            description: `Task created from user input: ${message.substring(0, 100)}`,
+            priority: this.determinePriorityFromInput(message),
+            metadata: {
+              source: 'user_input',
+              originalMessage: message,
+              createdBy: 'DefaultAgent',
+              ...(options || {})
+            }
+          });
+          
+          this.logger.info('Task creation result', {
+            success: taskResult?.success || !!taskResult,
+            taskId: taskResult?.task?.id || taskResult?.id,
+            taskResult: taskResult
+          });
+          
+          // Verify the task was actually stored by trying to retrieve it
+          if (taskResult && (taskResult.success || taskResult.id)) {
+            const task = taskResult.task || taskResult;
+            
+            // Try to retrieve the task to verify it was stored
+            try {
+              const retrievedTask = await (schedulerManager as any).getTask(task.id);
+              this.logger.info('Task retrieval verification', {
+                taskId: task.id,
+                retrieved: !!retrievedTask,
+                retrievedTask: retrievedTask
+              });
+            } catch (error) {
+              this.logger.error('Failed to retrieve created task', {
+                taskId: task.id,
+                error: error instanceof Error ? error.message : String(error)
+              });
+            }
+            
+            return {
+              content: response.content,
+              metadata: {
+                ...response.metadata,
+                taskCreated: true,
+                taskId: task.id,
+                taskCreationResult: taskResult
+              }
+            };
+          } else {
+            this.logger.warn('Task creation was not successful', {
+              taskResult: taskResult
+            });
+          }
+        } catch (error) {
+          this.logger.error('Task creation failed during user input processing', { 
+            error: error instanceof Error ? error.message : String(error),
+            errorStack: error instanceof Error ? error.stack : undefined,
+            message: message.substring(0, 100)
+          });
+        }
+      } else {
+        this.logger.info('Task creation skipped', {
+          planningManagerExists: !!planningManager,
+          schedulerManagerExists: !!schedulerManager,
+          shouldCreateTask: this.shouldCreateTaskFromInput(message),
+          message: message.substring(0, 100)
+        });
+      }
+      
+      return response;
+    } catch (error) {
+      this.logger.error('Error processing user input', { error });
+      throw error;
+    }
+  }
+
+  /**
+   * Determine if user input should trigger automatic task creation
+   */
+  private shouldCreateTaskFromInput(input: string): boolean {
+    const lowerInput = input.toLowerCase();
+    
+    // Check for task creation indicators
+    const taskIndicators = [
+      // Urgency indicators
+      'urgent', 'emergency', 'asap', 'immediately', 'right now', 'critical',
+      'priority 1', 'high priority', 'needs immediate', 'fix this',
+      
+      // Action indicators
+      'please', 'can you', 'help me', 'i need', 'analyze', 'review',
+      'process', 'create', 'update', 'organize', 'investigate',
+      
+      // Time indicators
+      'by end of day', 'today', 'tomorrow', 'this week', 'when convenient',
+      'when you have time', 'sometime', 'schedule'
+    ];
+    
+    // Check if input contains task indicators
+    const hasTaskIndicators = taskIndicators.some(indicator => 
+      lowerInput.includes(indicator)
+    );
+    
+    // Check if input is a question or request
+    const isQuestion = lowerInput.includes('?') || lowerInput.startsWith('can ') || 
+                      lowerInput.startsWith('could ') || lowerInput.startsWith('would ');
+    
+    // Check if input is a command or request
+    const isCommand = lowerInput.startsWith('please ') || lowerInput.includes(' please ') ||
+                     lowerInput.includes('help me') || lowerInput.includes('i need');
+    
+    const shouldCreate = hasTaskIndicators || isQuestion || isCommand;
+    
+    // Debug logging
+    this.logger.info('Task creation decision', {
+      input: input.substring(0, 100),
+      hasTaskIndicators,
+      isQuestion,
+      isCommand,
+      shouldCreate,
+      matchedIndicators: taskIndicators.filter(indicator => lowerInput.includes(indicator))
+    });
+    
+    return shouldCreate;
+  }
+
+  /**
+   * Determine task priority based on input content
+   */
+  private determinePriorityFromInput(input: string): number {
+    const lowerInput = input.toLowerCase();
+    
+    // Emergency/Critical - Priority 10
+    if (lowerInput.includes('emergency') || lowerInput.includes('critical') || 
+        lowerInput.includes('urgent') || lowerInput.includes('asap') ||
+        lowerInput.includes('immediately') || lowerInput.includes('right now')) {
+      return 10;
+    }
+    
+    // High priority - Priority 8-9
+    if (lowerInput.includes('priority 1') || lowerInput.includes('high priority') ||
+        lowerInput.includes('needs immediate') || lowerInput.includes('fix this')) {
+      return 9;
+    }
+    
+    // Medium-high priority - Priority 6-7
+    if (lowerInput.includes('by end of day') || lowerInput.includes('today') ||
+        lowerInput.includes('i need this done')) {
+      return 7;
+    }
+    
+    // Medium priority - Priority 4-5
+    if (lowerInput.includes('can you') || lowerInput.includes('help me') ||
+        lowerInput.includes('sometime today') || lowerInput.includes('analyze') ||
+        lowerInput.includes('review') || lowerInput.includes('process')) {
+      return 5;
+    }
+    
+    // Low priority - Priority 1-3
+    if (lowerInput.includes('when you have time') || lowerInput.includes('when convenient') ||
+        lowerInput.includes('sometime') || lowerInput.includes('at your convenience')) {
+      return 2;
+    }
+    
+    // Default priority
+    return 5;
   }
 
   /**

@@ -125,8 +125,24 @@ describe('Priority and Urgency Tests', () => {
       // Wait for task to be stored in Qdrant
       await new Promise(resolve => setTimeout(resolve, 1500));
       
-      // Find the created task
+      // Try to find the task using the same method the agent uses
+      let foundTask = null;
+      if (response.metadata?.taskCreated && response.metadata?.taskId) {
+        try {
+          foundTask = await scheduler.getTask(response.metadata.taskId as string);
+          console.log(`🔍 Direct task retrieval: ${foundTask ? 'SUCCESS' : 'FAILED'} for task ${response.metadata.taskId}`);
+        } catch (error) {
+          console.log(`🔍 Direct task retrieval ERROR: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+      
+      // Find the created task using findTasks as backup
       const allTasks = await scheduler.findTasks({ limit: 20 });
+      console.log(`🔍 Debug: Found ${allTasks.length} total tasks in scheduler`);
+      allTasks.forEach((task, index) => {
+        console.log(`   ${index + 1}. ${task.name} (Priority: ${task.priority}, Created: ${task.createdAt})`);
+      });
+      
       const newTasks = allTasks.filter(task => 
         new Date(task.createdAt).getTime() >= startTime.getTime() - 2000 &&
         (task.name.toLowerCase().includes('urgent') ||
@@ -140,8 +156,15 @@ describe('Priority and Urgency Tests', () => {
          )))
       );
       
-      if (newTasks.length > 0) {
-        const urgentTask = newTasks[0];
+      console.log(`🔍 Debug: Filtered to ${newTasks.length} new urgent tasks`);
+      newTasks.forEach((task, index) => {
+        console.log(`   ${index + 1}. ${task.name} (Priority: ${task.priority})`);
+      });
+      
+      // Use the directly retrieved task if available, otherwise use findTasks result
+      const urgentTask = foundTask || (newTasks.length > 0 ? newTasks[0] : null);
+      
+      if (urgentTask) {
         createdTasks.push(urgentTask);
         testTaskIds.push(urgentTask.id);
         
@@ -159,7 +182,6 @@ describe('Priority and Urgency Tests', () => {
         console.log(`   Priority: ${urgentTask.priority}/10 ✅`);
         console.log(`   Scheduled for: ${scheduledTime.toISOString()}`);
         console.log(`   Time difference: ${Math.round(timeDiff/1000)}s from now`);
-        
       } else {
         console.warn(`⚠️ No urgent task found for input: "${input.substring(0, 30)}..."`);
         // Don't fail immediately, continue with other tests

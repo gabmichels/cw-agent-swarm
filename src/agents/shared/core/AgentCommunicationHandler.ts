@@ -185,20 +185,23 @@ export class AgentCommunicationHandler {
       // Create processed message
       const processedMessage = await this.createProcessedMessage(content, options);
       
-      // Circuit breaker: Check if we're already processing this exact message concurrently
-      // Use content + session context + timestamp window to detect true circular processing
+      // Circuit breaker: Only block if we detect a true infinite loop
+      // Use message ID to detect actual circular processing, not just similar content
+      const now = Date.now();
       const sessionId = processedMessage.context?.sessionId || processedMessage.context?.userId || 'default';
-      const contentHash = processedMessage.content.trim().substring(0, 200); // Limit content length for key
-      messageKey = `${sessionId}-${contentHash}`;
       
-      // Only block if the same message is being processed concurrently (within 100ms)
+      // Use message ID for precise duplicate detection - only block exact same message
+      messageKey = `${sessionId}-${processedMessage.id}`;
+      
+      // Only block if we're processing the exact same message ID
       if (this.processingMessages.has(messageKey)) {
-        this.logger.warn('Concurrent message processing detected, breaking loop', {
+        this.logger.warn('True circular processing detected - same message ID processed twice', {
           messageKey: messageKey.substring(0, 100) + '...',
+          messageId: processedMessage.id,
           content: processedMessage.content.substring(0, 100) + '...'
         });
         return {
-          content: 'Concurrent message processing detected and prevented',
+          content: 'Circular message processing detected and prevented',
           metadata: {
             messageId: processedMessage.id,
             loopPrevented: true,
@@ -537,9 +540,10 @@ export class AgentCommunicationHandler {
       }
     }
     
-    // Process through agent's LLM response method (avoid circular call to processUserInput)
-    const response = await this.agent.getLLMResponse(processedContent, {
-      ...options,
+    // Return processed message without triggering LLM call
+    // The communication handler should only process and route messages
+    return {
+      content: processedContent,
       metadata: Object.assign(
         {},
         options.metadata || {},
@@ -547,12 +551,12 @@ export class AgentCommunicationHandler {
         {
           messageId: message.id,
           messageType: message.type,
-          priority: message.priority
+          priority: message.priority,
+          processed: true,
+          timestamp: new Date().toISOString()
         }
       )
-    });
-    
-    return response;
+    };
   }
 
   /**
