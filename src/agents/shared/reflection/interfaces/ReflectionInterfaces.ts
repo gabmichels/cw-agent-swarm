@@ -5,11 +5,27 @@
  * that will be used to break down the monolithic DefaultReflectionManager.
  */
 
-import { ReflectionTrigger, Reflection, KnowledgeGap, PerformanceMetrics, ReflectionStrategy } from '../../base/managers/ReflectionManager.interface';
+import { ReflectionTrigger as BaseReflectionTrigger, Reflection, KnowledgeGap, PerformanceMetrics, ReflectionStrategy as BaseReflectionStrategy } from '../../base/managers/ReflectionManager.interface';
 
 // ============================================================================
 // Core Data Types
 // ============================================================================
+
+// Re-export and extend base types
+export type ReflectionTrigger = 'error' | 'task_completion' | 'learning_opportunity' | 'performance_issue' | 'user_feedback';
+
+// Extended ReflectionStrategy interface for strategy management
+export interface ReflectionStrategy {
+  id: string;
+  name: string;
+  description: string;
+  trigger: ReflectionTrigger;
+  priority?: number;
+  enabled?: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+  implementation: (context: ExecutionContext) => Promise<ExecutionResult>;
+}
 
 export interface ReflectionInsightMetadata extends Record<string, unknown> {
   source: string;
@@ -118,12 +134,23 @@ export interface StrategyListOptions {
 }
 
 export interface StrategyRegistry {
-  register(strategy: ReflectionStrategy): Promise<void>;
-  unregister(strategyId: string): Promise<boolean>;
-  get(strategyId: string): Promise<ReflectionStrategy | null>;
-  list(filter?: StrategyFilter): Promise<ReflectionStrategy[]>;
-  discover(): Promise<ReflectionStrategy[]>;
-  getMetadata(strategyId: string): Promise<StrategyMetadata | null>;
+  registerStrategy(strategy: ReflectionStrategy, tags?: string[]): Promise<void>;
+  unregisterStrategy(strategyId: string): Promise<boolean>;
+  getStrategy(strategyId: string): Promise<ReflectionStrategy | null>;
+  searchStrategies(options?: StrategySearchOptions): Promise<ReflectionStrategy[]>;
+  registerTemplate(template: StrategyTemplate): Promise<void>;
+  getTemplate(templateId: string): Promise<StrategyTemplate | null>;
+  listTemplates(): Promise<StrategyTemplate[]>;
+  createFromTemplate(templateId: string, overrides?: Partial<ReflectionStrategy>): Promise<ReflectionStrategy>;
+  registerCategory(category: StrategyCategory): Promise<void>;
+  getCategory(categoryId: string): Promise<StrategyCategory | null>;
+  listCategories(): Promise<StrategyCategory[]>;
+  setStrategyTags(strategyId: string, tags: string[]): Promise<void>;
+  getStrategyTags(strategyId: string): Promise<string[]>;
+  getAllTags(): Promise<string[]>;
+  getStrategiesByTag(tag: string): Promise<ReflectionStrategy[]>;
+  getStats(): StrategyRegistryStats;
+  clear(): Promise<void>;
 }
 
 export interface StrategyExecutor {
@@ -710,4 +737,57 @@ export interface PredictionPoint {
   timestamp: Date;
   value: number;
   confidence: number;
+}
+
+// ============================================================================
+// Strategy Registry Interfaces
+// ============================================================================
+
+export interface StrategyTemplate {
+  id: string;
+  name: string;
+  description: string;
+  trigger: ReflectionTrigger;
+  priority?: number;
+  implementation: (context: ExecutionContext) => Promise<ExecutionResult>;
+}
+
+export interface StrategyCategory {
+  id: string;
+  name: string;
+  description: string;
+  tags: string[];
+}
+
+export interface StrategySearchOptions {
+  trigger?: ReflectionTrigger;
+  enabled?: boolean;
+  tags?: string[];
+  category?: string;
+  minPriority?: number;
+  maxPriority?: number;
+  searchText?: string;
+  sortBy?: 'priority' | 'name' | 'createdAt';
+  sortDirection?: 'asc' | 'desc';
+  limit?: number;
+}
+
+export interface StrategyRegistryStats {
+  totalStrategies: number;
+  totalTemplates: number;
+  totalCategories: number;
+  totalTags: number;
+  enabledStrategies: number;
+  tagDistribution: Record<string, number>;
+  categoryDistribution: Record<string, number>;
+  cacheSize: number;
+  config: StrategyRegistryConfig;
+}
+
+export interface StrategyRegistryConfig {
+  maxStrategies: number;
+  enableCaching: boolean;
+  cacheSize: number;
+  enableVersioning: boolean;
+  enableMetrics: boolean;
 } 
