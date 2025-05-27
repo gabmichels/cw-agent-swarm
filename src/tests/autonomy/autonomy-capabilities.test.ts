@@ -124,11 +124,13 @@ describe('DefaultAgent Autonomy Capabilities', () => {
     // Create agent with all capabilities enabled
     agent = new DefaultAgent({
       name: "AutonomyCapabilityTester",
-      enableMemoryManager: true,
-      enableToolManager: true,
-      enablePlanningManager: true,
-      enableSchedulerManager: true,
-      enableReflectionManager: true
+      componentsConfig: {
+        memoryManager: { enabled: true },
+        toolManager: { enabled: true },
+        planningManager: { enabled: true },
+        schedulerManager: { enabled: true },
+        reflectionManager: { enabled: true }
+      }
     });
     
     // Override getName to ensure the test name is used

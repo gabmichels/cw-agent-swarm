@@ -28,6 +28,8 @@ import { InputProcessingCoordinator } from './processors/InputProcessingCoordina
 import { OutputProcessingCoordinator } from './processors/OutputProcessingCoordinator';
 import { ThinkingProcessor } from './processors/ThinkingProcessor';
 import { AgentConfigValidator } from './utils/AgentConfigValidator';
+import { InputProcessorConfig } from './base/managers/InputProcessor.interface';
+import { OutputProcessorConfig } from './base/managers/OutputProcessor.interface';
 
 // Import interfaces
 import { 
@@ -106,6 +108,7 @@ interface DefaultAgentConfig {
   
   // Component configurations
   componentsConfig?: {
+    // Core component configurations
     initializer?: Record<string, unknown>;
     lifecycleManager?: Record<string, unknown>;
     communicationHandler?: Record<string, unknown>;
@@ -115,6 +118,15 @@ interface DefaultAgentConfig {
     thinkingProcessor?: Record<string, unknown>;
     configValidator?: Record<string, unknown>;
     resourceTracker?: Partial<ResourceUtilizationTrackerOptions>;
+    
+    // Manager configurations
+    memoryManager?: { enabled: boolean; [key: string]: unknown };
+    planningManager?: { enabled: boolean; [key: string]: unknown };
+    toolManager?: { enabled: boolean; [key: string]: unknown };
+    knowledgeManager?: { enabled: boolean; [key: string]: unknown };
+    schedulerManager?: { enabled: boolean; [key: string]: unknown };
+    reflectionManager?: { enabled: boolean; [key: string]: unknown };
+    
     [key: string]: Record<string, unknown> | undefined;
   };
 
@@ -409,7 +421,33 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
       
       // Step 2: Initialize components using AgentInitializer
       this.initializer = new AgentInitializer();
-      const initResult = await this.initializer.initializeAgent(this, this.agentConfig as AgentInitializationConfig);
+      
+      // Map componentsConfig to the format AgentInitializer expects
+      const initConfig: AgentInitializationConfig = {
+        ...this.agentConfig,
+        // Map componentsConfig manager settings to enable flags
+        enableMemoryManager: this.agentConfig.enableMemoryManager || this.agentConfig.componentsConfig?.memoryManager?.enabled || false,
+        enablePlanningManager: this.agentConfig.enablePlanningManager || this.agentConfig.componentsConfig?.planningManager?.enabled || false,
+        enableToolManager: this.agentConfig.enableToolManager || this.agentConfig.componentsConfig?.toolManager?.enabled || false,
+        enableKnowledgeManager: this.agentConfig.enableKnowledgeManager || this.agentConfig.componentsConfig?.knowledgeManager?.enabled || false,
+        enableSchedulerManager: this.agentConfig.enableSchedulerManager || this.agentConfig.componentsConfig?.schedulerManager?.enabled || false,
+        enableReflectionManager: this.agentConfig.enableReflectionManager || this.agentConfig.componentsConfig?.reflectionManager?.enabled || false,
+        
+        // Map componentsConfig to managersConfig for AgentInitializer
+        managersConfig: {
+          memoryManager: this.agentConfig.componentsConfig?.memoryManager || { enabled: this.agentConfig.enableMemoryManager || false },
+          planningManager: this.agentConfig.componentsConfig?.planningManager || { enabled: this.agentConfig.enablePlanningManager || false },
+          toolManager: this.agentConfig.componentsConfig?.toolManager || { enabled: this.agentConfig.enableToolManager || false },
+          knowledgeManager: this.agentConfig.componentsConfig?.knowledgeManager || { enabled: this.agentConfig.enableKnowledgeManager || false },
+          schedulerManager: this.agentConfig.componentsConfig?.schedulerManager || { enabled: this.agentConfig.enableSchedulerManager || false },
+          reflectionManager: this.agentConfig.componentsConfig?.reflectionManager || { enabled: this.agentConfig.enableReflectionManager || false },
+          inputProcessor: this.agentConfig.componentsConfig?.inputProcessor as InputProcessorConfig || { enabled: this.agentConfig.enableInputProcessor || false },
+          outputProcessor: this.agentConfig.componentsConfig?.outputProcessor as OutputProcessorConfig || { enabled: this.agentConfig.enableOutputProcessor || false },
+          resourceTracker: this.agentConfig.componentsConfig?.resourceTracker || {}
+        }
+      };
+      
+      const initResult = await this.initializer.initializeAgent(this, initConfig);
       if (!initResult.success) {
         this.logger.error("Component initialization failed", { errors: initResult.errors });
         return false;
@@ -513,11 +551,11 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
       }
       
       // Stop resource tracking
-      if (this.resourceTracker) {
+    if (this.resourceTracker) {
         this.resourceTracker.stop();
-        this.resourceTracker = null;
-      }
-      
+      this.resourceTracker = null;
+    }
+    
       // Shutdown all managers
       for (const manager of Array.from(this.managers.values())) {
         if (typeof manager.shutdown === 'function') {
@@ -527,7 +565,7 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
       
       this.initialized = false;
       this.logger.system("Agent shutdown completed", { agentId: this.agentId });
-    } catch (error) {
+      } catch (error) {
       this.logger.error('Error during agent shutdown', { error });
       throw error;
     }
@@ -602,10 +640,35 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
       throw new Error('Scheduler manager not available');
     }
     
-    // Use the scheduler manager's createTask method
-    return (schedulerManager as any).createTask(options);
+    try {
+      // Use the scheduler manager's createTask method
+      const result = await (schedulerManager as any).createTask(options);
+      
+      // Transform the result to match TaskCreationResult interface
+      if (result && result.id) {
+        // If the scheduler manager returned a Task object directly
+        return {
+          success: true,
+          task: result
+        };
+      } else if (result && result.success !== undefined) {
+        // If the scheduler manager already returned TaskCreationResult format
+        return result;
+      } else {
+        // Fallback: assume success if we got any result
+      return {
+          success: !!result,
+          task: result
+        };
+      }
+    } catch (error) {
+      this.logger.error('Error creating task:', { error: error instanceof Error ? error.message : String(error) });
+      
+      // Return proper error format - throw the error since TaskCreationResult doesn't support error field
+        throw error;
+    }
   }
-
+  
   /**
    * Execute a task - delegates to ExecutionEngine
    */
@@ -635,7 +698,7 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
         retryCount: 0,
         metadata: result.metadata || {}
       };
-    } catch (error) {
+        } catch (error) {
       const endTime = new Date();
       return {
         taskId,
@@ -655,7 +718,7 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
       };
     }
   }
-
+  
   /**
    * Plan and execute - delegates to PlanningManager
    */
@@ -738,6 +801,28 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
     return [];
   }
 
+  /**
+   * Get a specific task by ID
+   */
+  async getTask(taskId: string): Promise<Task | null> {
+    const schedulerManager = this.getManager(ManagerType.SCHEDULER);
+    if (schedulerManager && 'getTask' in schedulerManager) {
+      return (schedulerManager as any).getTask(taskId);
+    }
+    return null;
+  }
+
+  /**
+   * Get pending tasks
+   */
+  async getPendingTasks(): Promise<Task[]> {
+    const schedulerManager = this.getManager(ManagerType.SCHEDULER);
+    if (schedulerManager && 'getPendingTasks' in schedulerManager) {
+      return (schedulerManager as any).getPendingTasks();
+    }
+      return [];
+    }
+    
   // ===== RESOURCE USAGE LISTENER METHODS =====
 
   updateTaskUtilization(
@@ -757,7 +842,7 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
     // Resource tracking functionality would be implemented here
     this.logger.debug('Task counts updated', { activeTasks, pendingTasks });
   }
-
+  
   getResourceUtilization() {
     // Return default resource utilization
     return {
@@ -777,9 +862,9 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
     limit?: number;
   }) {
     // Return empty history for now
-    return [];
-  }
-
+      return [];
+    }
+    
   onResourceWarning(metric: string, value: number, limit: number): void {
     this.logger.warn("Resource warning", { metric, value, limit });
   }

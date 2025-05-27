@@ -190,11 +190,13 @@ describe('DefaultAgent Self-Initiation Capabilities', () => {
     // Create agent with all managers enabled for full autonomy
     agent = new DefaultAgent({
       name: "AutonomyTester",
-      enableMemoryManager: true,
-      enableToolManager: true,
-      enablePlanningManager: true,
-      enableSchedulerManager: true,
-      enableReflectionManager: true
+            componentsConfig: {
+        memoryManager: { enabled: true },
+        toolManager: { enabled: true },
+        planningManager: { enabled: true },
+        schedulerManager: { enabled: true },
+        reflectionManager: { enabled: true }
+      }
     });
     
     // Mock methods

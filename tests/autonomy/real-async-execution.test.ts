@@ -15,10 +15,12 @@ describe('Real Async Task Execution & Output Verification', () => {
     agent = new DefaultAgent({
       id: 'real-async-agent',
       name: 'Real Async Test Agent',
-      enableMemoryManager: true,
-      enablePlanningManager: true,
-      enableToolManager: true,
-      enableSchedulerManager: true
+      componentsConfig: {
+        memoryManager: { enabled: true },
+        planningManager: { enabled: true },
+        toolManager: { enabled: true },
+        schedulerManager: { enabled: true }
+      }
     });
 
     await agent.initialize();

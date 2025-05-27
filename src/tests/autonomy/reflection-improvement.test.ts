@@ -54,11 +54,13 @@ const createTestAgent = (options: {
 } = {}) => {
   const agent = new DefaultAgent({
     name: "ReflectionTester",
-    enableMemoryManager: options.enableMemoryManager ?? true,
-    enableToolManager: options.enableToolManager ?? true,
-    enablePlanningManager: options.enablePlanningManager ?? false,
-    enableSchedulerManager: options.enableSchedulerManager ?? false,
-    enableReflectionManager: options.enableReflectionManager ?? true,
+    componentsConfig: {
+      memoryManager: { enabled: options.enableMemoryManager ?? true },
+      toolManager: { enabled: options.enableToolManager ?? true },
+      planningManager: { enabled: options.enablePlanningManager ?? false },
+      schedulerManager: { enabled: options.enableSchedulerManager ?? false },
+      reflectionManager: { enabled: options.enableReflectionManager ?? true }
+    }
   });
   
   return agent;

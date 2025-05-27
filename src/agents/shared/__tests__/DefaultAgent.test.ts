@@ -40,8 +40,8 @@ vi.mock('../core/AgentInitializer', () => ({
       success: true,
       managers: new Map(),
       errors: []
-    })
-  }))
+      })
+    }))
 }));
 
 vi.mock('../core/AgentLifecycleManager', () => ({
@@ -149,10 +149,13 @@ describe('DefaultAgent', () => {
       modelName: 'gpt-4',
       temperature: 0.7,
       maxTokens: 1000,
-      enableMemoryManager: true,
-      enablePlanningManager: true,
-      enableToolManager: true,
-      enableResourceTracking: true
+                      componentsConfig: {
+          memoryManager: { enabled: true },
+          toolManager: { enabled: true },
+          planningManager: { enabled: true },
+          schedulerManager: { enabled: true },
+          reflectionManager: { enabled: true }
+        }
     };
     
     agent = new DefaultAgent(config);
@@ -278,7 +281,7 @@ describe('DefaultAgent', () => {
       expect(tasks).toHaveLength(0);
     });
   });
-
+  
   describe('Resource Usage Listener', () => {
     it('should implement resource usage listener methods', () => {
       expect(typeof agent.updateTaskUtilization).toBe('function');
@@ -325,7 +328,7 @@ describe('DefaultAgent', () => {
       expect(typeof agent.shutdown).toBe('function');
     });
   });
-
+  
   describe('Agent Reset and Shutdown', () => {
     it('should reset agent state', async () => {
       await agent.initialize();

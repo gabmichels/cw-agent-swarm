@@ -116,8 +116,8 @@ describe('InputProcessingCoordinator', () => {
       expect(result.metadata).toBeDefined();
       // Check if processing succeeded or failed gracefully
       if (result.success) {
-        expect(result.metadata).toHaveProperty('options');
-        expect(result.metadata.options).toEqual(options);
+       expect(result.metadata).toHaveProperty('options');
+       expect(result.metadata.options).toEqual(options);
       } else {
         // In error case, metadata should still contain some information
         expect(result.metadata).toHaveProperty('errorMessage');
@@ -136,8 +136,8 @@ describe('InputProcessingCoordinator', () => {
       expect(textResult).toHaveProperty('success');
       expect(jsonResult).toHaveProperty('success');
       expect(xmlResult).toHaveProperty('success');
-    });
-  });
+     });
+   });
 
   describe('Configuration Management', () => {
     it('should use provided configuration', () => {

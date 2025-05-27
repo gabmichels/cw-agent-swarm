@@ -24,11 +24,13 @@ describe('Async Tool-Based Task Execution', () => {
     agent = new DefaultAgent({
       id: 'async-test-agent',
       name: 'Async Test Agent',
-      enableMemoryManager: true,
-      enableToolManager: true,
-      enableSchedulerManager: true,
-      enablePlanningManager: false,
-      enableKnowledgeManager: false
+      componentsConfig: {
+        memoryManager: { enabled: true },
+        toolManager: { enabled: true },
+        schedulerManager: { enabled: true },
+        planningManager: { enabled: false },
+        knowledgeManager: { enabled: false }
+      }
     });
 
     await agent.initialize();

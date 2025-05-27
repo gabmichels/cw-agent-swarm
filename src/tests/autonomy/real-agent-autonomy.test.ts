@@ -89,11 +89,13 @@ describe('DefaultAgent Real Autonomy Test', () => {
     // Create agent with all managers enabled for full autonomy
     agent = new DefaultAgent({
       name: "RealAutonomyTester",
-      enableMemoryManager: true,
-      enableToolManager: true,
-      enablePlanningManager: true,
-      enableSchedulerManager: true, // Crucial for autonomy
-      enableReflectionManager: true // Crucial for autonomy
+      componentsConfig: {
+        memoryManager: { enabled: true },
+        toolManager: { enabled: true },
+        planningManager: { enabled: true },
+        schedulerManager: { enabled: true }, // Crucial for autonomy
+        reflectionManager: { enabled: true } // Crucial for autonomy
+      }
     });
     
     // Initialize the agent

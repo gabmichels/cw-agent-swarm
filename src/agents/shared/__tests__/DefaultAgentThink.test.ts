@@ -130,11 +130,16 @@ describe('DefaultAgent.think', () => {
     mockProcessRequest.mockResolvedValue(mockThinkingResult);
     
     // Create the agent
-    agent = new DefaultAgent({
-      modelName: 'test-model',
-      enableMemoryManager: true,
-      enableToolManager: true
-    });
+          agent = new DefaultAgent({
+        modelName: 'test-model',
+        componentsConfig: {
+          memoryManager: { enabled: true },
+          toolManager: { enabled: true },
+          planningManager: { enabled: true },
+          schedulerManager: { enabled: true },
+          reflectionManager: { enabled: true }
+        }
+      });
     
     // Create mock managers
     mockMemoryManager = createMockMemoryManager();

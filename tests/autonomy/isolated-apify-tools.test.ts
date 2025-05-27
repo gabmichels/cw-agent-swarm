@@ -12,10 +12,12 @@ describe('Isolated Apify Tools Verification', () => {
     agent = new DefaultAgent({
       id: 'isolated-apify-test-agent',
       name: 'Isolated Apify Test Agent',
-      enableMemoryManager: true,
-      enablePlanningManager: true,
-      enableToolManager: true,
-      enableSchedulerManager: true
+          componentsConfig: {
+      memoryManager: { enabled: true },
+      planningManager: { enabled: true },
+      toolManager: { enabled: true },
+      schedulerManager: { enabled: true }
+    }
     });
 
     await agent.initialize();

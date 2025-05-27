@@ -123,18 +123,14 @@ const createTestAgent = (): DefaultAgent => {
     modelName: process.env.OPENAI_MODEL_NAME || 'gpt-4-turbo',
     temperature: 0.7,
     maxTokens: 4000,
-    enableMemoryManager: true,
-    enableToolManager: true,
-    enablePlanningManager: true,
-    enableSchedulerManager: true,
-    enableReflectionManager: false,
     adaptiveBehavior: false,
     debug: true,
-    managersConfig: {
-      toolManager: {
-        enabled: true,
-        loadDefaultTools: true
-      }
+    componentsConfig: {
+      memoryManager: { enabled: true },
+      toolManager: { enabled: true, loadDefaultTools: true },
+      planningManager: { enabled: true },
+      schedulerManager: { enabled: true },
+      reflectionManager: { enabled: false }
     }
   };
 

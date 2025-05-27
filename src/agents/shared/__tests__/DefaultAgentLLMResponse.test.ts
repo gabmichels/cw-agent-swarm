@@ -108,7 +108,13 @@ describe('DefaultAgent.getLLMResponse', () => {
     // Create the agent with custom config
     agent = new DefaultAgent({
       modelName: 'test-model',
-      enableMemoryManager: true
+      componentsConfig: {
+      memoryManager: { enabled: true },
+      toolManager: { enabled: true },
+      planningManager: { enabled: true },
+      schedulerManager: { enabled: true },
+      reflectionManager: { enabled: true }
+    }
     });
     
     // Create mock managers

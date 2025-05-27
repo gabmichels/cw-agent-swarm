@@ -100,7 +100,7 @@ describe('AgentLifecycleManager', () => {
   describe('Lifecycle Operations - Start', () => {
     it('should start agent successfully', async () => {
       const result = await lifecycleManager.start();
-
+      
       expect(result.success).toBe(true);
       expect(result.message).toContain('started successfully');
       expect(result.previousStatus).toBe(AgentStatus.OFFLINE);
@@ -142,7 +142,7 @@ describe('AgentLifecycleManager', () => {
     it('should stop agent successfully', async () => {
       await lifecycleManager.start();
       const result = await lifecycleManager.stop();
-
+      
       expect(result.success).toBe(true);
       expect(result.message).toContain('stopped successfully');
       expect(result.previousStatus).toBe(AgentStatus.AVAILABLE);
@@ -216,7 +216,7 @@ describe('AgentLifecycleManager', () => {
       expect(result.message).toContain('Cannot pause agent from status');
       expect(lifecycleManager.getStatus()).toBe(AgentStatus.OFFLINE);
     });
-
+      
     it('should prevent resuming from non-paused state', async () => {
       await lifecycleManager.start();
       const result = await lifecycleManager.resume();
@@ -300,14 +300,14 @@ describe('AgentLifecycleManager', () => {
        
        const afterAvailable = lifecycleManager.getLastActivity();
        expect(afterAvailable.getTime()).toBeGreaterThan(beforeAvailable.getTime());
-     });
+    });
   });
 
   describe('Health Monitoring', () => {
     it('should get health information', async () => {
       await lifecycleManager.start();
       const health = await lifecycleManager.getHealth();
-
+      
       expect(health).toHaveProperty('status');
       expect(health).toHaveProperty('uptime');
       expect(health).toHaveProperty('lastActivity');
@@ -373,7 +373,7 @@ describe('AgentLifecycleManager', () => {
          status: 'unhealthy',
          details: { issues: [] }
        });
-
+      
       const isHealthy = await lifecycleManager.isHealthy();
 
       expect(isHealthy).toBe(false);
@@ -468,9 +468,9 @@ describe('AgentLifecycleManager', () => {
      });
 
          it('should handle resume errors gracefully', async () => {
-       await lifecycleManager.start();
+      await lifecycleManager.start();
        await lifecycleManager.pause();
-       
+      
        // Mock manager resume to throw error
        mockManager.resume.mockRejectedValue(new Error('Resume error'));
 
@@ -576,12 +576,12 @@ describe('AgentLifecycleManager', () => {
        (mockAgent.getManagers as any).mockReturnValue(new Map([['tools', managerWithoutHealth]]));
 
        const health = await lifecycleManager.getHealth();
-
+      
        expect(health.managerHealth.length).toBeGreaterThan(0);
        const managerHealth = health.managerHealth[0];
        expect(managerHealth.status).toBe('healthy');
        expect(managerHealth.type).toBe(ManagerType.TOOL);
-     });
+    });
 
      it('should handle uninitialized managers', async () => {
        const uninitializedManager = {
@@ -601,7 +601,7 @@ describe('AgentLifecycleManager', () => {
     it('should handle concurrent lifecycle operations', async () => {
       const startPromise1 = lifecycleManager.start();
       const startPromise2 = lifecycleManager.start();
-
+      
       const [result1, result2] = await Promise.all([startPromise1, startPromise2]);
 
       expect(result1.success).toBe(true);
@@ -631,6 +631,6 @@ describe('AgentLifecycleManager', () => {
        await lifecycleManager.stop();
 
        expect(mockOpportunityManager.shutdown).toHaveBeenCalled();
-     });
+    });
   });
 }); 

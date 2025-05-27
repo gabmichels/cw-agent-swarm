@@ -183,10 +183,14 @@ describe('DefaultAgent Basic Autonomy Tests', () => {
     
     agent = new DefaultAgent({
       name: "AutonomyTester",
-      enableMemoryManager: true,
-      enableToolManager: true,
-      enablePlanningManager: true,
-      enableSchedulerManager: true
+      componentsConfig: {
+      memoryManager: { enabled: true },
+      toolManager: { enabled: true },
+      planningManager: { enabled: true },
+      schedulerManager: { enabled: true },
+      reflectionManager: { enabled: true },
+      toolManager: { enabled: true },
+      planningManager: { enabled: true }
     });
     
     // Mock essential agent methods

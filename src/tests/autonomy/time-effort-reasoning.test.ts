@@ -46,19 +46,21 @@ const EXTENDED_TEST_TIMEOUT = 240000; // 4 minutes
 
 // Helper function to create a test agent with specific configurations
 const createTestAgent = (options: {
-  enableMemoryManager?: boolean;
-  enableToolManager?: boolean;
-  enableSchedulerManager?: boolean;
-  enableReflectionManager?: boolean;
-  enablePlanningManager?: boolean;
+  memoryManager?: boolean;
+  toolManager?: boolean;
+  schedulerManager?: boolean;
+  reflectionManager?: boolean;
+  planningManager?: boolean;
 } = {}) => {
   const agent = new DefaultAgent({
     name: "TimeEffortTester",
-    enableMemoryManager: options.enableMemoryManager ?? true,
-    enableToolManager: options.enableToolManager ?? true,
-    enablePlanningManager: options.enablePlanningManager ?? false,
-    enableSchedulerManager: options.enableSchedulerManager ?? true,
-    enableReflectionManager: options.enableReflectionManager ?? true,
+    componentsConfig: {
+      memoryManager: { enabled: options.memoryManager ?? true },
+      toolManager: { enabled: options.toolManager ?? true },
+      planningManager: { enabled: options.planningManager ?? false },
+      schedulerManager: { enabled: options.schedulerManager ?? true },
+      reflectionManager: { enabled: options.reflectionManager ?? true }
+    }
   });
   
   return agent;
@@ -76,10 +78,10 @@ describe('Time & Effort Reasoning Tests', () => {
     
     // Create a fresh agent for each test
     agent = createTestAgent({
-      enableMemoryManager: true,
-      enableReflectionManager: true,
-      enableToolManager: true,
-      enableSchedulerManager: true
+      memoryManager: true,
+      reflectionManager: true,
+      toolManager: true,
+      schedulerManager: true
     });
     
     await agent.initialize();

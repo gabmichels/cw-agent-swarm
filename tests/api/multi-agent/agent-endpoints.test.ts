@@ -295,10 +295,10 @@ describe('Agent API Endpoints', () => {
       temperature: 0.7,
       maxTokens: 2000,
       tools: [],
-      managersConfig: {
+      componentsConfig: {
         memoryManager: { enabled: true },
         planningManager: { enabled: true }
-      } as AgentManagersConfig
+      }
     } as AgentParameters,
     metadata: {
       tags: ['test', 'agent'],
@@ -331,7 +331,7 @@ describe('Agent API Endpoints', () => {
       temperature: 0.7,
       maxTokens: 2000,
       tools: [],
-      managersConfig: {
+      componentsConfig: {
         memoryManager: { enabled: true },
         planningManager: { enabled: true }
       }

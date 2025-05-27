@@ -440,6 +440,11 @@ export class AgentInitializer {
           enabled: true,
           ...schedulerConfig
         });
+        
+        // Register the scheduler manager with the managers map so it can be found by getManager()
+        if (this.schedulerManager) {
+          this.managers.set(ManagerType.SCHEDULER, this.schedulerManager as any);
+        }
       } catch (importError) {
         this.logger.warn('Failed to create scheduler manager, skipping scheduler initialization');
         errors.push({ managerType: 'scheduler', error: new Error('Failed to create scheduler manager') });

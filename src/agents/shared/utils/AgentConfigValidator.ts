@@ -855,6 +855,12 @@ export class AgentConfigValidator {
           default: false,
           description: 'Enable adaptive behavior'
         },
+        debug: {
+          type: 'boolean',
+          required: false,
+          default: false,
+          description: 'Enable debug mode'
+        },
         systemPrompt: {
           type: 'string',
           required: false,

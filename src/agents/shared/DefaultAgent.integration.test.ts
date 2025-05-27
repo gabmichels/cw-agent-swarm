@@ -49,12 +49,8 @@ describe('DefaultAgent Integration Tests', () => {
       agent = new DefaultAgent({
         name: 'Test Agent',
         description: 'Integration test agent',
-        enableMemoryManager: true,
-        enableInputProcessor: true,
-        enableOutputProcessor: true,
-        enablePlanningManager: true,
-        enableToolManager: true,
         componentsConfig: {
+          memoryManager: { enabled: true },
           inputProcessor: {
             enabled: true,
             processingSteps: ['validate', 'sanitize']
@@ -62,7 +58,9 @@ describe('DefaultAgent Integration Tests', () => {
           outputProcessor: {
             enabled: true,
             processingSteps: ['format', 'validate']
-          }
+          },
+          planningManager: { enabled: true },
+          toolManager: { enabled: true }
         }
       });
 
@@ -87,10 +85,12 @@ describe('DefaultAgent Integration Tests', () => {
       agent = new DefaultAgent({
         name: 'Test Agent',
         description: 'Backward compatibility test agent',
-        enableMemoryManager: true,
-        enableInputProcessor: false,
-        enableOutputProcessor: false,
-        enablePlanningManager: true
+        componentsConfig: {
+          memoryManager: { enabled: true },
+          inputProcessor: { enabled: false },
+          outputProcessor: { enabled: false },
+          planningManager: { enabled: true }
+        }
       });
 
       // Initialize the agent
@@ -112,7 +112,9 @@ describe('DefaultAgent Integration Tests', () => {
       // Create agent with memory manager
       agent = new DefaultAgent({
         name: 'Memory Test Agent',
-        enableMemoryManager: true
+        componentsConfig: {
+          memoryManager: { enabled: true }
+        }
       });
 
       await agent.initialize();
@@ -145,9 +147,8 @@ describe('DefaultAgent Integration Tests', () => {
       // Create agent with input processor enabled
       agent = new DefaultAgent({
         name: 'Input Test Agent',
-        enableInputProcessor: true,
-        enableMemoryManager: true,
         componentsConfig: {
+          memoryManager: { enabled: true },
           inputProcessor: {
             enabled: true,
             processingSteps: ['validate', 'sanitize']
@@ -185,7 +186,6 @@ describe('DefaultAgent Integration Tests', () => {
       // Create agent with output processor enabled
       agent = new DefaultAgent({
         name: 'Output Test Agent',
-        enableOutputProcessor: true,
         componentsConfig: {
           outputProcessor: {
             enabled: true,
@@ -224,9 +224,11 @@ describe('DefaultAgent Integration Tests', () => {
       // Create agent with core functionality
       agent = new DefaultAgent({
         name: 'Workflow Test Agent',
-        enableMemoryManager: true,
-        enablePlanningManager: true,
-        systemPrompt: 'You are a helpful test assistant.'
+        systemPrompt: 'You are a helpful test assistant.',
+        componentsConfig: {
+          memoryManager: { enabled: true },
+          planningManager: { enabled: true }
+        }
       });
 
       await agent.initialize();

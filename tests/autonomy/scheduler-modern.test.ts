@@ -35,11 +35,13 @@ describe('ModularSchedulerManager with Agent Integration', () => {
     // Create agent with default scheduler disabled (we'll inject our own)
     agent = new DefaultAgent({
       name: "ModernSchedulerTester",
-      enableMemoryManager: true,
-      enableToolManager: true,
-      enablePlanningManager: true,
-      enableSchedulerManager: false, // Disable default scheduler
-      enableReflectionManager: true
+      componentsConfig: {
+        memoryManager: { enabled: true },
+        toolManager: { enabled: true },
+        planningManager: { enabled: true },
+        schedulerManager: { enabled: false }, // Disable default scheduler
+        reflectionManager: { enabled: true }
+      }
     });
     
     // Initialize the agent

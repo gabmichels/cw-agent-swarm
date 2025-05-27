@@ -13,11 +13,13 @@ describe('True Async Task Scheduling Tests', () => {
     agent = new DefaultAgent({
       id: 'scheduler-test-agent',
       name: 'Scheduler Test Agent',
-      enableMemoryManager: true,
-      enableToolManager: true,
-      enableSchedulerManager: true,
-      enablePlanningManager: false,
-      enableKnowledgeManager: false
+      componentsConfig: {
+        memoryManager: { enabled: true },
+        toolManager: { enabled: true },
+        schedulerManager: { enabled: true },
+        planningManager: { enabled: false },
+        knowledgeManager: { enabled: false }
+      }
     });
 
     await agent.initialize();

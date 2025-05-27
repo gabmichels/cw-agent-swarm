@@ -50,11 +50,13 @@ const createTestAgent = (options: {
 } = {}) => {
   const agent = new DefaultAgent({
     name: "KnowledgeGraphTester",
-    enableMemoryManager: options.enableMemoryManager ?? true,
-    enableToolManager: options.enableToolManager ?? true,
-    enablePlanningManager: options.enablePlanningManager ?? false,
-    enableSchedulerManager: options.enableSchedulerManager ?? false,
-    enableReflectionManager: options.enableReflectionManager ?? false,
+    componentsConfig: {
+      memoryManager: { enabled: options.enableMemoryManager ?? true },
+      toolManager: { enabled: options.enableToolManager ?? true },
+      planningManager: { enabled: options.enablePlanningManager ?? false },
+      schedulerManager: { enabled: options.enableSchedulerManager ?? false },
+      reflectionManager: { enabled: options.enableReflectionManager ?? false }
+    }
   });
   
   return agent;

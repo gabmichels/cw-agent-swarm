@@ -69,13 +69,11 @@ describe('ModularSchedulerManager Tests', () => {
     agent = new DefaultAgent({
       name: 'Scheduler Test Agent',
       systemPrompt: 'You are a test agent for scheduler functionality',
-      enableSchedulerManager: true,
-      enableMemoryManager: false,
-      enablePlanningManager: false,
-      enableToolManager: false,
-      enableKnowledgeManager: false,
-      enableReflectionManager: false,
-      managersConfig: {
+      componentsConfig: {
+        memoryManager: { enabled: false },
+        planningManager: { enabled: false },
+        toolManager: { enabled: false },
+        reflectionManager: { enabled: false },
         schedulerManager: {
           enabled: true,
           enableAutoScheduling: true,

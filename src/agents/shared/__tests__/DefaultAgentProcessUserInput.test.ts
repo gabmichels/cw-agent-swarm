@@ -21,7 +21,13 @@ interface ThinkingAnalysis {
 const createTestAgent = () => {
   const agent = new DefaultAgent({
     modelName: 'test-model',
-    enableMemoryManager: true
+    componentsConfig: {
+      memoryManager: { enabled: true },
+      toolManager: { enabled: true },
+      planningManager: { enabled: true },
+      schedulerManager: { enabled: true },
+      reflectionManager: { enabled: true }
+    }
   });
   
   // Mock the think method

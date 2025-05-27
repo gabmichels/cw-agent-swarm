@@ -197,11 +197,13 @@ describe('DefaultAgent Task Decomposition', () => {
     // Create agent with planning capabilities enabled
     agent = new DefaultAgent({
       name: "TaskDecompositionTester",
-      enableMemoryManager: true,
-      enableToolManager: true,
-      enablePlanningManager: true,
-      enableSchedulerManager: true,
-      enableReflectionManager: false
+      componentsConfig: {
+        memoryManager: { enabled: true },
+        toolManager: { enabled: true },
+        planningManager: { enabled: true },
+        schedulerManager: { enabled: true },
+        reflectionManager: { enabled: false }
+      }
     });
     
     // Mock methods

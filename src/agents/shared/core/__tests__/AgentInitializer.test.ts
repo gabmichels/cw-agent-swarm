@@ -45,17 +45,6 @@ const createMockConfig = (overrides: Partial<AgentInitializationConfig> = {}): A
   modelName: 'gpt-4',
   temperature: 0.7,
   maxTokens: 2000,
-  enableMemoryManager: true,
-  enablePlanningManager: true,
-  enableToolManager: true,
-  enableKnowledgeManager: true,
-  enableSchedulerManager: true,
-  enableInputProcessor: true,
-  enableOutputProcessor: true,
-  enableResourceTracking: true,
-  enableReflectionManager: true,
-  useEnhancedMemory: false,
-  useEnhancedReflection: false,
   adaptiveBehavior: true,
   systemPrompt: 'You are a helpful assistant.',
   persona: {
@@ -70,7 +59,7 @@ const createMockConfig = (overrides: Partial<AgentInitializationConfig> = {}): A
     interval: 60000,
     maxCriticalMemories: 10
   },
-  managersConfig: {
+  componentsConfig: {
     memoryManager: { enabled: true },
     planningManager: { enabled: true },
     toolManager: { enabled: true },

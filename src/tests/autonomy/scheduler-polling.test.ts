@@ -111,7 +111,9 @@ describe('SchedulerManager Polling Functionality', () => {
     // Create agent with just the scheduler manager enabled for focused testing
     agent = new DefaultAgent({
       name: "SchedulerTester",
-      enableSchedulerManager: true
+      componentsConfig: {
+        schedulerManager: { enabled: true }
+      }
     });
     
     // Initialize the agent

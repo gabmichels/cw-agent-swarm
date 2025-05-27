@@ -145,11 +145,13 @@ describe('DefaultAgent Real Autonomy Tests', () => {
     // Create a real DefaultAgent with mock dependencies properly injected
     agent = new DefaultAgent({
       name: `AutonomyTester-${testEnv.testId}`,
-      enableMemoryManager: true,
-      enableToolManager: true,
-      enablePlanningManager: true,
-      enableSchedulerManager: true,
-      enableReflectionManager: true,
+      componentsConfig: {
+        memoryManager: { enabled: true },
+        toolManager: { enabled: true },
+        planningManager: { enabled: true },
+        schedulerManager: { enabled: true },
+        reflectionManager: { enabled: true }
+      }
       // Custom options can be added to the config type but we'll avoid them for now
     });
     
@@ -276,11 +278,13 @@ describe('DefaultAgent Real Autonomy Tests', () => {
     // Create a new agent with custom config
     const customAgent = new DefaultAgent({
       name: "CustomAgent",
-      enableMemoryManager: true,
-      enableToolManager: false,  // Disable tool manager
-      enablePlanningManager: false, // Disable planning manager
-      enableSchedulerManager: false, // Disable scheduler
-      enableReflectionManager: false // Disable reflection
+      componentsConfig: {
+        memoryManager: { enabled: true },
+        toolManager: { enabled: false },  // Disable tool manager
+        planningManager: { enabled: false }, // Disable planning manager
+        schedulerManager: { enabled: false }, // Disable scheduler
+        reflectionManager: { enabled: false } // Disable reflection
+      }
     });
     
     // Mock the getName method

@@ -130,6 +130,7 @@ export class AgentCommunicationHandler {
     totalMessages: 0,
     processingTimes: [] as number[]
   };
+  private processingMessages: Set<string> = new Set(); // Circuit breaker for infinite loops
 
   constructor(agent: AgentBase, config: Partial<CommunicationConfig> = {}) {
     this.agent = agent;
@@ -182,6 +183,23 @@ export class AgentCommunicationHandler {
       // Create processed message
       const processedMessage = await this.createProcessedMessage(content, options);
       
+      // Circuit breaker: Check if we're already processing this exact message
+      const messageKey = `${processedMessage.content}-${processedMessage.timestamp.getTime()}`;
+      if (this.processingMessages.has(messageKey)) {
+        this.logger.warn('Circular message processing detected, breaking loop');
+        return {
+          content: 'Message processing loop detected and prevented',
+          metadata: {
+            messageId: processedMessage.id,
+            loopPrevented: true,
+            timestamp: new Date().toISOString()
+          }
+        };
+      }
+      
+      // Add to processing set
+      this.processingMessages.add(messageKey);
+      
       // Validate message
       const validationResult = await this.validateMessage(processedMessage);
       if (!validationResult.isValid) {
@@ -196,6 +214,7 @@ export class AgentCommunicationHandler {
       if (this.config.rateLimiting.enabled) {
         const rateLimitCheck = this.checkRateLimit(processedMessage);
         if (!rateLimitCheck.allowed) {
+          this.logger.error('Rate limit exceeded');
           throw new CommunicationError(
             'Rate limit exceeded',
             'RATE_LIMIT_EXCEEDED',
@@ -230,6 +249,10 @@ export class AgentCommunicationHandler {
           timestamp: new Date().toISOString()
         }
       };
+    } finally {
+      // Clean up processing set
+      const messageKey = `${content}-${Date.now()}`;
+      this.processingMessages.delete(messageKey);
     }
   }
 

@@ -133,11 +133,13 @@ describe('DefaultAgent Basic Feature Tests', () => {
     // Create an agent with minimal configuration
     agent = new DefaultAgent({
       name: "BasicFeatureTester",
-      enableMemoryManager: true,
-      enableToolManager: false,
-      enablePlanningManager: false,
-      enableSchedulerManager: false,
-      enableReflectionManager: false
+      componentsConfig: {
+        memoryManager: { enabled: true },
+        toolManager: { enabled: false },
+        planningManager: { enabled: false },
+        schedulerManager: { enabled: false },
+        reflectionManager: { enabled: false }
+      }
     });
     
     // Mock getName to avoid overrides

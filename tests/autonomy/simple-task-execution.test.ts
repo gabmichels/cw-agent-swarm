@@ -27,11 +27,13 @@ describe('Simple Task Execution Tests', () => {
     // Create agent
     agent = new DefaultAgent({
       name: "SimpleTaskTester",
-      enableMemoryManager: true,
-      enableToolManager: true,
-      enablePlanningManager: true,
-      enableSchedulerManager: false,
-      enableReflectionManager: true
+      componentsConfig: {
+        memoryManager: { enabled: true },
+        toolManager: { enabled: true },
+        planningManager: { enabled: true },
+        schedulerManager: { enabled: false },
+        reflectionManager: { enabled: true }
+      }
     });
     
     await agent.initialize();
@@ -49,12 +51,20 @@ describe('Simple Task Execution Tests', () => {
     
     await scheduler.initialize();
     
-    // Mock to track executions
-    const originalProcessUserInput = agent.processUserInput.bind(agent);
+    // Mock to track executions without creating infinite loops
     vi.spyOn(agent, 'processUserInput').mockImplementation(async (message: string) => {
       console.log(`[EXECUTION] ${message}`);
       executedTasks.push(message);
-      return await originalProcessUserInput(message);
+      
+      // Return a simple mock response instead of calling the original method
+      return {
+        content: `Processed: ${message}`,
+        metadata: {
+          messageId: `mock-${Date.now()}`,
+          timestamp: new Date().toISOString(),
+          mock: true
+        }
+      };
     });
   });
   
@@ -101,10 +111,10 @@ describe('Simple Task Execution Tests', () => {
       name: 'Test Scheduler Task',
       description: 'Task to test scheduler execution',
       priority: 8,
-      scheduledTime: new Date(Date.now() + 1000), // 1 second from now
+      scheduledTime: new Date(Date.now() - 1000), // 1 second in the past (immediately due)
       handler: async () => {
         console.log('Task handler executed');
-        await agent.processUserInput('Executing scheduled task');
+        executedTasks.push('Executing scheduled task');
         return { success: true };
       }
     };
@@ -112,6 +122,19 @@ describe('Simple Task Execution Tests', () => {
     // Create the task
     const createdTask = await scheduler.createTask(task as Task);
     console.log(`Created task: ${createdTask.id}`);
+    console.log(`Task scheduled for: ${createdTask.scheduledTime}`);
+    console.log(`Current time: ${new Date()}`);
+    
+    // Verify task was created
+    const allTasks = await scheduler.findTasks({});
+    console.log(`Total tasks in scheduler: ${allTasks.length}`);
+    
+    if (allTasks.length === 0) {
+      console.log('❌ No tasks found after creation - this indicates a storage issue');
+      // Skip the rest of the test if task creation failed
+      expect(allTasks.length).toBeGreaterThan(0);
+      return;
+    }
     
     // Start the scheduler
     console.log('Starting scheduler...');

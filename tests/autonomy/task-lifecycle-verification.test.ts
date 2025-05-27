@@ -38,11 +38,13 @@ describe('Task Lifecycle Verification Tests', () => {
     // Create agent
     agent = new DefaultAgent({
       name: "LifecycleVerifier",
-      enableMemoryManager: true,
-      enableToolManager: true,
-      enablePlanningManager: true,
-      enableSchedulerManager: false,
-      enableReflectionManager: true
+      componentsConfig: {
+        memoryManager: { enabled: true },
+        toolManager: { enabled: true },
+        planningManager: { enabled: true },
+        schedulerManager: { enabled: false },
+        reflectionManager: { enabled: true }
+      }
     });
     
     await agent.initialize();

@@ -132,11 +132,13 @@ describe('Simple DefaultAgent Test', () => {
       // Create a minimal agent for testing
       agent = new DefaultAgent({
         name: "SimpleTestAgent",
-        enableMemoryManager: true,
-        enableToolManager: false,
-        enablePlanningManager: false,
-        enableSchedulerManager: false,
-        enableReflectionManager: false
+        componentsConfig: {
+          memoryManager: { enabled: true },
+          toolManager: { enabled: false },
+          planningManager: { enabled: false },
+          schedulerManager: { enabled: false },
+          reflectionManager: { enabled: false }
+        }
       });
       
       // Override getName to ensure the test name is used

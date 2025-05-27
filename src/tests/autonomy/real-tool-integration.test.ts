@@ -82,18 +82,14 @@ const createTestAgent = (customConfig = {}): DefaultAgent => {
     modelName: process.env.OPENAI_MODEL_NAME || 'gpt-4o',
     temperature: 0.7,
     maxTokens: 4000,
-    enableMemoryManager: true,
-    enableToolManager: true,
-    enablePlanningManager: true,
-    enableSchedulerManager: true,
-    enableReflectionManager: false,
     adaptiveBehavior: true,
     debug: true,
-    managersConfig: {
-      toolManager: {
-        enabled: true,
-        loadDefaultTools: true
-      }
+    componentsConfig: {
+      memoryManager: { enabled: true },
+      toolManager: { enabled: true, loadDefaultTools: true },
+      planningManager: { enabled: true },
+      schedulerManager: { enabled: true },
+      reflectionManager: { enabled: false }
     },
     ...customConfig
   };
@@ -603,7 +599,7 @@ describe('DefaultAgent Real Tool Integration Tests', () => {
     
     // Create a special agent with fallback strategy set to SIMILARITY
     const specialAgent = createTestAgent({
-      managersConfig: {
+      componentsConfig: {
         toolManager: {
           enabled: true,
           loadDefaultTools: true,
@@ -711,10 +707,7 @@ describe('DefaultAgent Real Tool Integration Tests', () => {
     console.log('Testing tool and scheduler integration...');
     
     // Create an agent with both tool and scheduler managers enabled
-    const agent = createTestAgent({
-      enableToolManager: true,
-      enableSchedulerManager: true,
-    });
+    const agent = createTestAgent();
     
     await agent.initialize();
     

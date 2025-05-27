@@ -11,11 +11,13 @@ describe('Force Task Creation and Execution Tests', () => {
     agent = new DefaultAgent({
       id: 'force-test-agent',
       name: 'Force Test Agent',
-      enableMemoryManager: true,
-      enableToolManager: true,
-      enableSchedulerManager: true,
-      enablePlanningManager: false,
-      enableKnowledgeManager: false
+      componentsConfig: {
+        memoryManager: { enabled: true },
+        toolManager: { enabled: true },
+        schedulerManager: { enabled: true },
+        planningManager: { enabled: false },
+        knowledgeManager: { enabled: false }
+      }
     });
 
     await agent.initialize();

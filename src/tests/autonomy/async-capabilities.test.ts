@@ -196,11 +196,13 @@ describe('DefaultAgent Asynchronous Capabilities', () => {
     // Create agent with scheduler capabilities enabled
     agent = new DefaultAgent({
       name: "AsyncCapabilityTester",
-      enableMemoryManager: true,
-      enableToolManager: true,
-      enablePlanningManager: true,
-      enableSchedulerManager: true,
-      enableReflectionManager: true
+      componentsConfig: {
+        memoryManager: { enabled: true },
+        toolManager: { enabled: true },
+        planningManager: { enabled: true },
+        schedulerManager: { enabled: true },
+        reflectionManager: { enabled: true }
+      }
     });
     
     // Mock methods
@@ -434,11 +436,13 @@ describe('DefaultAgent Asynchronous Capabilities', () => {
       // Create first agent
       const agent1 = new DefaultAgent({
         name: "PersistenceTest1",
-        enableMemoryManager: true,
-        enableToolManager: false,
-        enablePlanningManager: false,
-        enableSchedulerManager: true,
-        enableReflectionManager: false
+        componentsConfig: {
+          memoryManager: { enabled: true },
+          toolManager: { enabled: false },
+          planningManager: { enabled: false },
+          schedulerManager: { enabled: true },
+          reflectionManager: { enabled: false }
+        }
       });
       
       // Override createTask to store in our mock storage
@@ -486,11 +490,13 @@ describe('DefaultAgent Asynchronous Capabilities', () => {
       // Create second agent to simulate restart
       const agent2 = new DefaultAgent({
         name: "PersistenceTest2",
-        enableMemoryManager: true,
-        enableToolManager: false,
-        enablePlanningManager: false,
-        enableSchedulerManager: true,
-        enableReflectionManager: false
+        componentsConfig: {
+          memoryManager: { enabled: true },
+          toolManager: { enabled: false },
+          planningManager: { enabled: false },
+          schedulerManager: { enabled: true },
+          reflectionManager: { enabled: false }
+        }
       });
       
       // Override getTask to retrieve from our mock storage
