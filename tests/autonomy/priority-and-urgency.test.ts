@@ -9,6 +9,30 @@ import { DefaultAgent } from '../../src/agents/shared/DefaultAgent';
 import { createSchedulerManager, RegistryType } from '../../src/lib/scheduler/factories/SchedulerFactory';
 import { ModularSchedulerManager } from '../../src/lib/scheduler/implementations/ModularSchedulerManager';
 import { Task, TaskStatus } from '../../src/lib/scheduler/models/Task.model';
+import * as dotenv from 'dotenv';
+import fs from 'fs';
+import path from 'path';
+
+// Load environment variables from .env file
+dotenv.config();
+
+// Also try to load from test.env if it exists
+try {
+  const testEnvPath = path.resolve(process.cwd(), 'test.env');
+  if (fs.existsSync(testEnvPath)) {
+    console.log('Loading test environment variables from test.env');
+    const testEnvConfig = dotenv.parse(fs.readFileSync(testEnvPath));
+    
+    // Only set the variables that aren't already set in process.env
+    for (const key in testEnvConfig) {
+      if (!process.env[key]) {
+        process.env[key] = testEnvConfig[key];
+      }
+    }
+  }
+} catch (error) {
+  console.warn('Error loading test.env:', error);
+}
 
 const TEST_TIMEOUT = 120000; // 2 minutes for real API calls
 vi.setConfig({ testTimeout: TEST_TIMEOUT });
@@ -32,24 +56,24 @@ describe('Priority and Urgency Tests', () => {
         memoryManager: { enabled: true },
         toolManager: { enabled: true },
         planningManager: { enabled: true },
-        schedulerManager: { enabled: false },
+        schedulerManager: { 
+          enabled: true,
+          registryType: 'qdrant',
+          qdrantUrl: process.env.QDRANT_URL || 'http://localhost:6333',
+          qdrantCollectionName: 'priority_test_tasks'
+        },
         reflectionManager: { enabled: true }
       }
     });
     
     await agent.initialize();
     
-    scheduler = await createSchedulerManager({
-      enabled: true,
-      enableAutoScheduling: true,
-      schedulingIntervalMs: 2000, // Check every 2 seconds
-      maxConcurrentTasks: 3,
-      registryType: RegistryType.QDRANT,
-      qdrantUrl: process.env.QDRANT_URL || 'http://localhost:6333',
-      qdrantCollectionName: 'priority_test_tasks'
-    });
+    // Use the agent's internal scheduler instead of creating a separate one
+    scheduler = agent.getSchedulerManager()!;
     
-    await scheduler.initialize();
+    if (!scheduler) {
+      throw new Error('Agent scheduler manager not available');
+    }
     console.log('✅ Setup completed');
   });
   

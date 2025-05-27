@@ -174,6 +174,8 @@ export class AgentCommunicationHandler {
     options: MessageProcessingOptions = {}
   ): Promise<AgentResponse> {
     const startTime = Date.now();
+    let messageKey: string | null = null;
+    
     try {
       this.logger.info('Processing incoming message');
       
@@ -183,12 +185,20 @@ export class AgentCommunicationHandler {
       // Create processed message
       const processedMessage = await this.createProcessedMessage(content, options);
       
-      // Circuit breaker: Check if we're already processing this exact message
-      const messageKey = `${processedMessage.content}-${processedMessage.timestamp.getTime()}`;
+      // Circuit breaker: Check if we're already processing this exact message concurrently
+      // Use content + session context + timestamp window to detect true circular processing
+      const sessionId = processedMessage.context?.sessionId || processedMessage.context?.userId || 'default';
+      const contentHash = processedMessage.content.trim().substring(0, 200); // Limit content length for key
+      messageKey = `${sessionId}-${contentHash}`;
+      
+      // Only block if the same message is being processed concurrently (within 100ms)
       if (this.processingMessages.has(messageKey)) {
-        this.logger.warn('Circular message processing detected, breaking loop');
+        this.logger.warn('Concurrent message processing detected, breaking loop', {
+          messageKey: messageKey.substring(0, 100) + '...',
+          content: processedMessage.content.substring(0, 100) + '...'
+        });
         return {
-          content: 'Message processing loop detected and prevented',
+          content: 'Concurrent message processing detected and prevented',
           metadata: {
             messageId: processedMessage.id,
             loopPrevented: true,
@@ -251,8 +261,9 @@ export class AgentCommunicationHandler {
       };
     } finally {
       // Clean up processing set
-      const messageKey = `${content}-${Date.now()}`;
-      this.processingMessages.delete(messageKey);
+      if (messageKey) {
+        this.processingMessages.delete(messageKey);
+      }
     }
   }
 
@@ -526,8 +537,8 @@ export class AgentCommunicationHandler {
       }
     }
     
-    // Process through agent's main processing method
-    const response = await this.agent.processUserInput(processedContent, {
+    // Process through agent's LLM response method (avoid circular call to processUserInput)
+    const response = await this.agent.getLLMResponse(processedContent, {
       ...options,
       metadata: Object.assign(
         {},

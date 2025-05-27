@@ -250,19 +250,8 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
     });
   }
 
-  /**
-   * Get the agent's unique identifier
-   */
-  getId(): string {
-    return this.agentId;
-  }
-
-  /**
-   * Get the agent's unique identifier (alias for getId for backward compatibility)
-   */
-  getAgentId(): string {
-    return this.agentId;
-  }
+  // getId() and getAgentId() inherited from AbstractAgentBase
+  // (using this.agentId internally for consistency with existing code)
 
   /**
    * Get the agent's type
@@ -271,19 +260,8 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
     return this.agentType;
   }
 
-  /**
-   * Get the agent's description
-   */
-  getDescription(): string {
-    return 'A refactored general-purpose agent';
-  }
-
-  /**
-   * Get the agent's version
-   */
-  getVersion(): string {
-    return this.version;
-  }
+  // getDescription() and getVersion() inherited from AbstractAgentBase
+  // (DefaultAgent uses custom values set in constructor)
 
   /**
    * Get the agent's capabilities

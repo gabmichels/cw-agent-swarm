@@ -1,6 +1,27 @@
 import dotenv from 'dotenv';
+import fs from 'fs';
+import path from 'path';
+
 // Load environment variables from .env file
 dotenv.config();
+
+// Also try to load from test.env if it exists
+try {
+  const testEnvPath = path.resolve(process.cwd(), 'test.env');
+  if (fs.existsSync(testEnvPath)) {
+    console.log('Loading test environment variables from test.env');
+    const testEnvConfig = dotenv.parse(fs.readFileSync(testEnvPath));
+    
+    // Only set the variables that aren't already set in process.env
+    for (const key in testEnvConfig) {
+      if (!process.env[key]) {
+        process.env[key] = testEnvConfig[key];
+      }
+    }
+  }
+} catch (error) {
+  console.warn('Error loading test.env:', error);
+}
 
 import { DefaultAgent } from '../../src/agents/shared/DefaultAgent';
 import { StrategyBasedTaskScheduler } from '../../src/lib/scheduler/implementations/scheduler/StrategyBasedTaskScheduler';
