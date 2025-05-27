@@ -148,6 +148,9 @@ export interface ValidationResult {
   
   /** Suggestions for improvement */
   suggestions?: string[];
+  
+  /** Additional validation metadata */
+  metadata?: Record<string, unknown>;
 }
 
 /**
@@ -165,6 +168,7 @@ export interface ValidationIssue {
     stepId?: string;
     actionId?: string;
     field?: string;
+    index?: number;
   };
   
   /** Suggested fix */
