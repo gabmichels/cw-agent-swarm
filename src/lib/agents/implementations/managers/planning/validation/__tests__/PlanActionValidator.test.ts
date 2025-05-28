@@ -9,7 +9,7 @@ import {
   ActionValidatorConfig,
   ActionValidationOptions,
   SafetyConstraint
-} from '../ActionValidator';
+} from '../PlanActionValidator';
 import { PlanAction } from '../../../../../../../agents/shared/base/managers/PlanningManager.interface';
 
 // Mock the logger

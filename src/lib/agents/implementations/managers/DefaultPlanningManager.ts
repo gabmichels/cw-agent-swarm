@@ -75,6 +75,8 @@ export class DefaultPlanningManager extends AbstractBaseManager implements Plann
   private resourceValidator = new DefaultResourceValidator();
   private planValidator = new DefaultPlanValidator();
   private configFactory = createConfigFactory(PlanningManagerConfigSchema);
+  private logger: ReturnType<typeof createLogger>;
+  private currentPlanContext: Record<string, any> | null = null;
 
   /**
    * Create a new DefaultPlanningManager instance
@@ -127,6 +129,12 @@ export class DefaultPlanningManager extends AbstractBaseManager implements Plann
         ...config
       }
     );
+    
+    // Initialize logger
+    this.logger = createLogger({
+      moduleId: `planning-manager-${managerId}`,
+      agentId: agent.getId()
+    });
     
     // DIAGNOSTIC: Post-super initialization logging
     console.log("DIAGNOSTIC 7: DefaultPlanningManager constructor AFTER super() - console.log");
@@ -653,6 +661,107 @@ export class DefaultPlanningManager extends AbstractBaseManager implements Plann
       this.planningTimer = null;
     }
     await super.shutdown();
+  }
+
+  /**
+   * Plan and execute a goal in one operation
+   * 
+   * @param goal - The goal to plan and execute
+   * @param options - Additional options for planning and execution
+   * @returns Promise<PlanExecutionResult> - The result of plan execution
+   */
+  async planAndExecute(goal: string, options: Record<string, unknown> = {}): Promise<PlanExecutionResult> {
+    this.logger.info('planAndExecute called', {
+      goal: goal.substring(0, 100),
+      options,
+      initialized: this._initialized,
+      enabled: this.isEnabled()
+    });
+
+    if (!this._initialized) {
+      throw new PlanningError(
+        'Planning manager not initialized',
+        'NOT_INITIALIZED'
+      );
+    }
+
+    if (!this.isEnabled()) {
+      throw new PlanningError(
+        'Planning manager is disabled',
+        'MANAGER_DISABLED'
+      );
+    }
+
+    try {
+      // Step 1: Create a plan for the goal
+      this.currentPlanContext = options; // Store context for action creation
+      
+      const planCreationOptions: PlanCreationOptions = {
+        name: `Plan: ${goal.substring(0, 50)}${goal.length > 50 ? '...' : ''}`,
+        description: goal,
+        goals: [goal],
+        context: options,
+        priority: (options.priority as number) || 5,
+        generateSteps: true, // Enable step generation
+        metadata: {
+          source: 'planAndExecute',
+          createdAt: new Date(),
+          ...options
+        }
+      };
+
+      this.logger.info('Creating plan for goal', {
+        goal: goal.substring(0, 100),
+        planCreationOptions
+      });
+
+      const planResult = await this.createPlan(planCreationOptions);
+      
+      if (!planResult.success || !planResult.plan) {
+        this.logger.error('Plan creation failed', {
+          goal: goal.substring(0, 100),
+          planResult
+        });
+        
+        return {
+          success: false,
+          plan: undefined,
+          error: planResult.error || 'Failed to create plan'
+        };
+      }
+
+      // Step 2: Execute the created plan
+      this.logger.info('Executing created plan', {
+        planId: planResult.plan.id,
+        goal: goal.substring(0, 100)
+      });
+
+      const executionResult = await this.executePlan(planResult.plan.id);
+      
+      // Step 3: Return the execution result
+      this.logger.info('Plan execution completed', {
+        planId: planResult.plan?.id,
+        success: executionResult.success
+      });
+      
+      // Clear the plan context
+      this.currentPlanContext = null;
+      
+      return executionResult;
+      
+    } catch (error) {
+      this.logger.error('Error in planAndExecute', {
+        goal: goal.substring(0, 100),
+        error: error instanceof Error ? error.message : String(error),
+        errorStack: error instanceof Error ? error.stack : undefined
+      });
+
+      return {
+        success: false,
+        plan: undefined,
+        error: error instanceof Error ? error.message : 'Unknown error in planAndExecute'
+      };
+    }
   }
 
   // Private helper methods
@@ -1355,6 +1464,9 @@ Complete the task comprehensively using the available data:`;
     const actions: PlanAction[] = [];
     const now = new Date();
     
+    // Check if this is a dry run from the plan context
+    const isDryRun = this.currentPlanContext?.dryRun || this.currentPlanContext?.metadata?.dryRun || false;
+    
     // Analyze step description to determine appropriate actions
     const descriptionLower = stepDescription.toLowerCase();
     
@@ -1363,6 +1475,7 @@ Complete the task comprehensively using the available data:`;
     
     console.log(`🔍 Checking for tool manager and available tools...`);
     console.log(`🔍 Tool manager exists: ${!!toolManager}`);
+    console.log(`🔍 Dry run mode: ${isDryRun}`);
     
     // Intelligent tool selection based on task description
     let selectedTool: string | null = null;
@@ -1401,9 +1514,10 @@ Complete the task comprehensively using the available data:`;
             selectedTool = 'instagram-hashtag-scraper';
             toolParams = {
               hashtags: this.extractHashtags(stepDescription),
-              limit: 10 // Reduced for cost control
+              limit: 10, // Reduced for cost control
+              dryRun: isDryRun // Pass dry run mode to the tool
             };
-            console.log(`🔍 Selected Instagram Hashtag tool: ${selectedTool}`);
+            console.log(`🔍 Selected Instagram Hashtag tool: ${selectedTool} with params:`, toolParams);
           }
         } else if (descriptionLower.includes('instagram') && (descriptionLower.includes('profile') || descriptionLower.includes('user'))) {
           const instagramProfileTool = await toolManager.getTool('instagram-profile-scraper');

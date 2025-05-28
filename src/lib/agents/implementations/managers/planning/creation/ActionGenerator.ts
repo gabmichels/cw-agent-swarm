@@ -167,14 +167,21 @@ export class ActionGenerator implements IActionGenerator {
         );
       }
 
-      // Find matching template or generate generic actions
-      const template = this.findMatchingTemplate(step);
+      // Check for Apify tool first
+      const apifyTool = this.detectApifyTool(step);
       let actions: PlanAction[];
       
-      if (template) {
-        actions = this.generateActionsFromTemplate(step, template, options);
+      if (apifyTool) {
+        actions = this.createActionsForApifyTool(step, apifyTool, options);
       } else {
-        actions = this.generateGenericActions(step, options);
+        // Find matching template or generate generic actions
+        const template = this.findMatchingTemplate(step);
+        
+        if (template) {
+          actions = this.generateActionsFromTemplate(step, template, options);
+        } else {
+          actions = this.generateGenericActions(step, options);
+        }
       }
 
       // Optimize tool selection if enabled
@@ -183,7 +190,7 @@ export class ActionGenerator implements IActionGenerator {
       }
 
       // Generate action dependencies
-      const dependencies = this.generateActionDependencies(actions, template || undefined);
+      const dependencies = this.generateActionDependencies(actions, undefined);
 
       // Optimize action sequence if enabled
       if (this.config.enableOptimization) {
@@ -1016,5 +1023,195 @@ export class ActionGenerator implements IActionGenerator {
       templateCount: this.actionTemplates.length,
       toolCount: this.toolCapabilities.length
     };
+  }
+
+  /**
+   * Detect if step requires an Apify tool
+   */
+  private detectApifyTool(step: PlanStep): string | null {
+    const stepText = `${step.name} ${step.description}`.toLowerCase();
+    
+    // Instagram hashtag scraper
+    if (stepText.includes('instagram') && (stepText.includes('hashtag') || stepText.includes('#'))) {
+      return 'instagram-hashtag-scraper';
+    }
+    
+    // Actor discovery
+    if (stepText.includes('actor') && (stepText.includes('discover') || stepText.includes('find') || stepText.includes('search'))) {
+      return 'actor-discovery';
+    }
+    
+    // Web scraper
+    if (stepText.includes('scrape') || stepText.includes('extract') || stepText.includes('crawl')) {
+      return 'web-scraper';
+    }
+    
+    // Google search
+    if (stepText.includes('google') && stepText.includes('search')) {
+      return 'google-search-results-scraper';
+    }
+    
+    // YouTube scraper
+    if (stepText.includes('youtube') || stepText.includes('video')) {
+      return 'youtube-scraper';
+    }
+    
+    // LinkedIn scraper
+    if (stepText.includes('linkedin')) {
+      return 'linkedin-company-scraper';
+    }
+    
+    // Twitter scraper
+    if (stepText.includes('twitter') || stepText.includes('tweet')) {
+      return 'twitter-scraper';
+    }
+    
+    // Amazon scraper
+    if (stepText.includes('amazon') || stepText.includes('product')) {
+      return 'amazon-product-scraper';
+    }
+    
+    // Facebook scraper
+    if (stepText.includes('facebook')) {
+      return 'facebook-page-scraper';
+    }
+    
+    // TikTok scraper
+    if (stepText.includes('tiktok')) {
+      return 'tiktok-scraper';
+    }
+    
+    return null;
+  }
+
+  /**
+   * Create actions for Apify tool
+   */
+  private createActionsForApifyTool(
+    step: PlanStep,
+    toolName: string,
+    options: ActionGenerationOptions
+  ): PlanAction[] {
+    const action: PlanAction = {
+      id: ulid(),
+      name: `Execute ${toolName}`,
+      description: `Execute ${toolName} for: ${step.description}`,
+      type: 'tool_execution',
+      parameters: {
+        toolName,
+        toolParams: this.generateApifyToolParameters(toolName, step),
+        stepId: step.id,
+        stepName: step.name,
+        timeout: this.config.defaultActionTimeoutMs,
+        estimatedTimeMinutes: 10
+      },
+      status: 'pending',
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+
+    return [action];
+  }
+
+  /**
+   * Generate parameters for Apify tools
+   */
+  private generateApifyToolParameters(toolName: string, step: PlanStep): Record<string, unknown> {
+    const stepText = `${step.name} ${step.description}`;
+    const params: Record<string, unknown> = {};
+
+    switch (toolName) {
+      case 'instagram-hashtag-scraper':
+        params.hashtags = this.extractHashtags(stepText);
+        params.resultsLimit = 50;
+        break;
+        
+      case 'actor-discovery':
+        params.searchTerm = this.extractSearchQuery(step);
+        params.limit = 20;
+        break;
+        
+      case 'web-scraper':
+        params.startUrls = this.extractUrls(stepText);
+        params.maxRequestsPerCrawl = 100;
+        break;
+        
+      case 'google-search-results-scraper':
+        params.queries = [this.extractSearchQuery(step)];
+        params.maxPagesPerQuery = 1;
+        break;
+        
+      case 'youtube-scraper':
+        params.searchKeywords = [this.extractSearchQuery(step)];
+        params.maxResults = 50;
+        break;
+        
+      case 'linkedin-company-scraper':
+        params.companyUrls = this.extractUrls(stepText);
+        break;
+        
+      case 'twitter-scraper':
+        params.searchTerms = [this.extractSearchQuery(step)];
+        params.maxTweets = 100;
+        break;
+        
+      case 'amazon-product-scraper':
+        params.searchKeywords = [this.extractSearchQuery(step)];
+        params.maxResults = 50;
+        break;
+        
+      case 'facebook-page-scraper':
+        params.pageUrls = this.extractUrls(stepText);
+        break;
+        
+      case 'tiktok-scraper':
+        params.hashtags = this.extractHashtags(stepText);
+        params.maxResults = 50;
+        break;
+        
+      default:
+        params.input = stepText;
+        break;
+    }
+
+    return params;
+  }
+
+  /**
+   * Extract hashtags from text
+   */
+  private extractHashtags(text: string): string[] {
+    const hashtagRegex = /#[\w]+/g;
+    const matches = text.match(hashtagRegex) || [];
+    
+    if (matches.length === 0) {
+      // If no hashtags found, extract keywords and convert to hashtags
+      const keywords = this.extractKeywords(text);
+      return keywords.slice(0, 3).map(keyword => `#${keyword}`);
+    }
+    
+    return matches.slice(0, 5);
+  }
+
+  /**
+   * Extract URLs from text
+   */
+  private extractUrls(text: string): string[] {
+    const urlRegex = /https?:\/\/[^\s]+/g;
+    const matches = text.match(urlRegex) || [];
+    return matches.slice(0, 10);
+  }
+
+  /**
+   * Extract keywords from text
+   */
+  private extractKeywords(text: string): string[] {
+    const stopWords = ['the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'from', 'up', 'about', 'into', 'over', 'after'];
+    const words = text.toLowerCase()
+      .replace(/[^\w\s]/g, ' ')
+      .split(/\s+/)
+      .filter(word => word.length > 2 && !stopWords.includes(word));
+    
+    return [...new Set(words)].slice(0, 5);
   }
 } 

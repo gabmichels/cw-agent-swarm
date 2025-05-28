@@ -434,6 +434,12 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
       // Register all managers with the base class
       for (const [managerType, manager] of initResult.managers) {
         this.setManager(manager);
+        this.logger.info('Registered manager', {
+          managerType: managerType.toString(),
+          managerName: manager.constructor.name,
+          hasInitialize: typeof (manager as any).initialize === 'function',
+          hasPlanAndExecute: 'planAndExecute' in manager
+        });
       }
       
       // Store scheduler manager reference
@@ -446,7 +452,11 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
         this.opportunityManager = initResult.opportunityManager;
       }
       
-      this.logger.system("Component initialization passed");
+      this.logger.system("Component initialization passed", {
+        managersRegistered: initResult.managers.size,
+        finalManagersCount: this.managers.size,
+        finalManagers: Array.from(this.managers.keys()).map(key => key.toString())
+      });
       
       // Step 3: Initialize lifecycle manager
       this.lifecycleManager = new AgentLifecycleManager(this);
@@ -827,12 +837,22 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
   }
   
   /**
-   * Execute a task - delegates to ExecutionEngine
+   * Execute a task - delegates to SchedulerManager
    */
   async executeTask(taskId: string): Promise<TaskExecutionResult> {
-    if (!this.executionEngine) {
-      throw new Error('Execution engine not initialized');
+    // First try to use the scheduler manager for proper task execution
+    const schedulerManager = this.getManager(ManagerType.SCHEDULER);
+    if (schedulerManager && 'executeTaskNow' in schedulerManager) {
+      this.logger.info("Executing task via scheduler manager", { taskId });
+      return (schedulerManager as any).executeTaskNow(taskId);
     }
+    
+    // Fallback to execution engine if no scheduler manager
+    if (!this.executionEngine) {
+      throw new Error('Neither scheduler manager nor execution engine available');
+    }
+    
+    this.logger.warn("No scheduler manager available, falling back to execution engine", { taskId });
     
     const startTime = new Date();
     
@@ -855,7 +875,7 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
         retryCount: 0,
         metadata: result.metadata || {}
       };
-        } catch (error) {
+    } catch (error) {
       const endTime = new Date();
       return {
         taskId,
@@ -880,13 +900,55 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
    * Plan and execute - delegates to PlanningManager
    */
   async planAndExecute(goal: string, options: Record<string, unknown> = {}): Promise<PlanExecutionResult> {
+    this.logger.info('planAndExecute called', { 
+      goal: typeof goal === 'string' ? goal.substring(0, 100) : `[${typeof goal}] ${JSON.stringify(goal).substring(0, 100)}`,
+      options,
+      managersCount: this.managers.size,
+      availableManagers: Array.from(this.managers.keys()).map(key => key.toString())
+    });
+    
     const planningManager = this.getManager(ManagerType.PLANNING);
-    if (!planningManager || !('planAndExecute' in planningManager)) {
+    
+    // Check if planning manager exists and has planAndExecute method (including prototype chain)
+    const hasPlanAndExecuteMethod = planningManager && 
+      (typeof (planningManager as any).planAndExecute === 'function');
+    
+    this.logger.info('Planning manager lookup result', {
+      planningManagerExists: !!planningManager,
+      planningManagerType: planningManager?.constructor.name,
+      hasPlanAndExecute: hasPlanAndExecuteMethod,
+      managerTypeValue: ManagerType.PLANNING,
+      goalType: typeof goal,
+      goalIsString: typeof goal === 'string'
+    });
+    
+    if (!planningManager || !hasPlanAndExecuteMethod) {
+      this.logger.error('Planning manager not available', {
+        planningManagerExists: !!planningManager,
+        hasPlanAndExecuteMethod: hasPlanAndExecuteMethod,
+        allManagers: Array.from(this.managers.entries()).map(([type, manager]) => ({
+          type: type.toString(),
+          managerName: manager.constructor.name,
+          methods: Object.getOwnPropertyNames(Object.getPrototypeOf(manager))
+        }))
+      });
       throw new Error('Planning manager not available');
     }
     
+    // Ensure goal is a string
+    const goalString = typeof goal === 'string' ? goal : 
+      (typeof goal === 'object' && goal && 'goalPrompt' in goal) ? 
+        (goal as any).goalPrompt : 
+        JSON.stringify(goal);
+    
+    this.logger.info('Calling planning manager planAndExecute', {
+      goalString: goalString.substring(0, 100),
+      options,
+      planningManagerType: planningManager.constructor.name
+    });
+
     // Use the planning manager's planAndExecute method
-    return (planningManager as any).planAndExecute(goal, options);
+    return (planningManager as any).planAndExecute(goalString, options);
   }
 
   /**

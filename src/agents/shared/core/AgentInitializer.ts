@@ -434,12 +434,12 @@ export class AgentInitializer {
       this.logger.info('Initializing Scheduler Manager...');
       
       const schedulerConfig = config.managersConfig?.schedulerManager || {};
-      // Use factory function to create scheduler manager
+      // Use factory function to create scheduler manager with agent instance
       try {
         this.schedulerManager = await createSchedulerManager({
           enabled: true,
           ...schedulerConfig
-        });
+        }, agent); // Pass the agent instance to enable AgentAwareTaskExecutor
         
         // Register the scheduler manager with the managers map so it can be found by getManager()
         if (this.schedulerManager) {

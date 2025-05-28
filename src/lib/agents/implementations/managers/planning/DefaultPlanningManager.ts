@@ -35,7 +35,7 @@ import { ActionGenerator } from './creation/ActionGenerator';
 import { StepAdapter } from './adaptation/StepAdapter';
 import { PlanOptimizer } from './adaptation/PlanOptimizer';
 import { PlanValidator } from './validation/PlanValidator';
-import { ActionValidator } from './validation/ActionValidator';
+import { ActionValidator } from './validation/PlanActionValidator';
 
 // Import interfaces
 import { 
@@ -162,12 +162,12 @@ export class DefaultPlanningManager extends AbstractBaseManager implements Plann
       // Execution components
       this.actionExecutor = new ActionExecutor({
         defaultMaxRetries: 3
-      });
+      }, this.agent);
 
       this.planExecutor = new PlanExecutor({
         enableLogging: true,
         maxExecutionTimeMs: this.config.planExecutionTimeoutMs || 300000
-      }, this.actionExecutor);
+      }, this.actionExecutor, this.agent);
 
       this.executionResultProcessor = new ExecutionResultProcessor({
         enableLogging: true,

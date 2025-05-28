@@ -34,25 +34,37 @@
         "name": "next"
       }
     ],
-    "types": ["node", "react", "jest"],
-    "declaration": false,
-    "declarationMap": false,
-    "sourceMap": false
+    "types": [
+      "node"
+    ]
   },
   "include": [
     "next-env.d.ts",
     "**/*.ts",
     "**/*.tsx",
-    ".next/types/**/*.ts",
-    "src/types/**/*.d.ts"
+    ".next/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",
     ".next",
+    "out",
+    "dist",
+    "build",
+    "coverage",
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "**/*.spec.ts",
+    "**/*.spec.tsx",
     "src/agents/chloe",
-    "docs/testing",
-    "scripts",
-    "backup-api-routes",
-    "tests/api/multi-agent"
+    "src/agents/chloe/**",
+    "src/agents/chloe/**/*",
+    "src/agents/chloe/**/*.ts",
+    "src/agents/chloe/**/*.tsx",
+    "docs/testing/**/*",
+    "docs/vitest-sample.ts",
+    "src/log-test.ts",
+    "src/test-logs.ts",
+    "src/traced-scheduler-test-ts.ts",
+    "src/scripts/test-migration.ts"
   ]
 }

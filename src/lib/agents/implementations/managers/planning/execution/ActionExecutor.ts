@@ -19,6 +19,7 @@ import {
 import { PlanAction } from '../../../../../../agents/shared/base/managers/PlanningManager.interface';
 import { ToolManager } from '../../../../../../agents/shared/base/managers/ToolManager.interface';
 import { ManagerType } from '../../../../../../agents/shared/base/managers/ManagerType';
+import { AgentBase } from '../../../../../../agents/shared/base/AgentBase.interface';
 import { createLogger } from '@/lib/logging/winston-logger';
 
 /**
@@ -83,9 +84,11 @@ export class ActionExecutor implements IActionExecutor {
   private readonly logger = createLogger({ moduleId: 'action-executor' });
   private readonly config: ActionExecutorConfig;
   private readonly activeExecutions = new Map<string, AbortController>();
+  private readonly agent?: AgentBase;
 
-  constructor(config: Partial<ActionExecutorConfig> = {}) {
+  constructor(config: Partial<ActionExecutorConfig> = {}, agent?: AgentBase) {
     this.config = { ...DEFAULT_CONFIG, ...config };
+    this.agent = agent;
     
     if (this.config.enableLogging) {
       this.logger.info('ActionExecutor initialized', { config: this.config });
@@ -355,26 +358,26 @@ export class ActionExecutor implements IActionExecutor {
       const toolResult = await toolManager.executeTool(toolName, toolParams);
       const executionTime = Date.now() - startTime;
 
-             const toolExecutionResult: ToolExecutionResult = {
-         toolName,
-         success: toolResult.success,
-         output: (toolResult as any).data,
-         error: toolResult.error ? {
-           message: toolResult.error.message || String(toolResult.error),
-           code: 'TOOL_EXECUTION_ERROR',
-           recoverable: true
-         } : undefined,
-         executionTime,
-         resourceUsage: {
-           apiCalls: 1,
-           tokensUsed: 0 // TODO: Extract from tool result if available
-         }
-       };
+      const toolExecutionResult: ToolExecutionResult = {
+        toolName,
+        success: toolResult.success,
+        output: (toolResult as any).data,
+        error: toolResult.error ? {
+          message: toolResult.error.message || String(toolResult.error),
+          code: 'TOOL_EXECUTION_ERROR',
+          recoverable: true
+        } : undefined,
+        executionTime,
+        resourceUsage: {
+          apiCalls: 1,
+          tokensUsed: 0 // TODO: Extract from tool result if available
+        }
+      };
 
-       return {
-         actionId: action.id,
-         success: toolResult.success,
-         output: (toolResult as any).data,
+      return {
+        actionId: action.id,
+        success: toolResult.success,
+        output: (toolResult as any).data,
         metrics: {
           executionTime,
           queueTime: 0,
@@ -591,11 +594,16 @@ Create a thorough research report with findings, analysis, and conclusions.`;
   /**
    * Get tool manager from context
    */
-     private getToolManager(context: ExecutionContext): ToolManager | null {
-     // Access tool manager through the plan's agent reference
-     const agent = this.getAgent(context);
-     return agent?.getManager(ManagerType.TOOL) || null;
-   }
+  private getToolManager(context: ExecutionContext): ToolManager | null {
+    // First try to get from agent reference
+    if (this.agent) {
+      return this.agent.getManager(ManagerType.TOOL) as ToolManager;
+    }
+    
+    // Fallback to context agent
+    const agent = this.getAgent(context);
+    return agent?.getManager(ManagerType.TOOL) || null;
+  }
 
   /**
    * Get agent from context

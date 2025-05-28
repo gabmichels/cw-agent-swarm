@@ -334,17 +334,44 @@ export class DefaultToolManager extends AbstractBaseManager implements ToolManag
       );
     }
 
+    const startedAt = new Date();
+    const startTime = Date.now();
+
     try {
       // Execute the tool with timeout
       const timeoutMs = options?.timeoutMs || this.getConfig<ToolManagerConfig>().defaultToolTimeoutMs || 30000;
       
-      const result = await this.executeWithTimeout(
+      const toolResult = await this.executeWithTimeout(
         () => tool.execute(params, options?.context),
         timeoutMs
-      ) as ToolExecutionResult;
+      );
       
-      return result;
+      const endTime = Date.now();
+      const durationMs = endTime - startTime;
+      
+      // Wrap the tool result into a proper ToolExecutionResult
+      const executionResult: ToolExecutionResult = {
+        toolId,
+        success: true,
+        result: toolResult,
+        durationMs,
+        startedAt,
+        metrics: {
+          inputSize: JSON.stringify(params).length,
+          outputSize: typeof toolResult === 'string' ? toolResult.length : JSON.stringify(toolResult).length,
+        }
+      };
+      
+      // Update tool metrics
+      const config = this.getConfig<ToolManagerConfig>();
+      if (config.trackToolPerformance) {
+        this.updateToolMetrics(toolId, executionResult);
+      }
+      
+      return executionResult;
     } catch (error) {
+      const endTime = Date.now();
+      const durationMs = endTime - startTime;
       const isTimeout = error instanceof Error && error.name === 'TimeoutError';
       const errorMessage = error instanceof Error ? error.message : String(error);
       const errorCode = (error as any).code || (isTimeout ? 'TIMEOUT' : 'EXECUTION_ERROR');
@@ -357,8 +384,8 @@ export class DefaultToolManager extends AbstractBaseManager implements ToolManag
           message: errorMessage,
           code: errorCode
         },
-        durationMs: 0,
-        startedAt: new Date(),
+        durationMs,
+        startedAt,
         metrics: {
           inputSize: JSON.stringify(params).length,
           outputSize: 0,

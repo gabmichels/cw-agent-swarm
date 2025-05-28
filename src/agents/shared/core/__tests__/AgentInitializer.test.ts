@@ -59,7 +59,7 @@ const createMockConfig = (overrides: Partial<AgentInitializationConfig> = {}): A
     interval: 60000,
     maxCriticalMemories: 10
   },
-  componentsConfig: {
+  managersConfig: {
     memoryManager: { enabled: true },
     planningManager: { enabled: true },
     toolManager: { enabled: true },

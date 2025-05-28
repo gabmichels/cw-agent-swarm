@@ -21,6 +21,7 @@ import {
   PlanExecutionResult 
 } from '../../../../../../agents/shared/base/managers/PlanningManager.interface';
 import { ActionExecutor } from './ActionExecutor';
+import { AgentBase } from '../../../../../../agents/shared/base/AgentBase.interface';
 import { createLogger } from '@/lib/logging/winston-logger';
 
 /**
@@ -90,15 +91,18 @@ export class PlanExecutor implements IPlanExecutor {
   private readonly logger = createLogger({ moduleId: 'plan-executor' });
   private readonly config: PlanExecutorConfig;
   private readonly actionExecutor: ActionExecutor;
+  private readonly agent?: AgentBase;
   private readonly activeExecutions = new Map<string, ExecutionContext>();
   private readonly progressTimers = new Map<string, NodeJS.Timeout>();
 
   constructor(
     config: Partial<PlanExecutorConfig> = {},
-    actionExecutor?: ActionExecutor
+    actionExecutor?: ActionExecutor,
+    agent?: AgentBase
   ) {
     this.config = { ...DEFAULT_CONFIG, ...config };
-    this.actionExecutor = actionExecutor || new ActionExecutor();
+    this.agent = agent;
+    this.actionExecutor = actionExecutor || new ActionExecutor({}, agent);
     
     if (this.config.enableLogging) {
       this.logger.info('PlanExecutor initialized', { config: this.config });
@@ -462,9 +466,11 @@ export class PlanExecutor implements IPlanExecutor {
   ): Promise<any[]> {
     const { config } = context;
     
+    let actionResults: any[];
+    
     if (config.maxConcurrentActions > 1) {
       // Execute actions concurrently
-      return await this.actionExecutor.executeActionsConcurrently(
+      actionResults = await this.actionExecutor.executeActionsConcurrently(
         step.actions,
         context,
         {
@@ -475,7 +481,7 @@ export class PlanExecutor implements IPlanExecutor {
       );
     } else {
       // Execute actions sequentially
-      return await this.actionExecutor.executeActionsSequentially(
+      actionResults = await this.actionExecutor.executeActionsSequentially(
         step.actions,
         context,
         {
@@ -485,6 +491,38 @@ export class PlanExecutor implements IPlanExecutor {
         }
       );
     }
+
+    // Store action results back in the original PlanAction objects
+    if (this.config.enableLogging) {
+      this.logger.debug('Processing action results', {
+        stepId: step.id,
+        actionCount: step.actions.length,
+        resultCount: actionResults.length
+      });
+    }
+
+    for (let i = 0; i < Math.min(step.actions.length, actionResults.length); i++) {
+      const action = step.actions[i];
+      const result = actionResults[i];
+      
+      if (this.config.enableLogging) {
+        this.logger.debug('Storing action result', {
+          actionId: action.id,
+          actionName: action.name,
+          resultSuccess: result.success,
+          resultOutput: result.output ? 'present' : 'missing'
+        });
+      }
+
+      // Store the execution result in the action
+      (action as any).executionResult = result;
+      
+      // Update action status based on result
+      action.status = result.success ? 'completed' : 'failed';
+      action.updatedAt = new Date();
+    }
+
+    return actionResults;
   }
 
   /**

@@ -85,11 +85,16 @@ export function createInstagramTools(apifyManager: IApifyManager): Record<string
             dryRun: args.dryRun || false
           });
 
-          if (!result.success || !result.output) {
+          // Handle dry run mode
+          if (args.dryRun && result.success) {
+            return `[DRY RUN] Successfully simulated Instagram hashtag scraping for: ${hashtags.map(h => `#${h}`).join(', ')}\n\nThis was a dry run - no actual API call was made. In a real execution, this would return posts from the specified hashtags.`;
+          }
+
+          if (!result.success || (result.output && result.output.length === 0 && !args.dryRun)) {
             return `Failed to scrape Instagram hashtags: ${result.error || 'Unknown error'}`;
           }
 
-          const posts = result.output;
+          const posts = result.output || [];
           let summary = `Successfully scraped ${posts.length} posts from hashtags: ${hashtags.map(h => `#${h.replace('#', '')}`).join(', ')}\n\n`;
 
           // Group by hashtag if possible
