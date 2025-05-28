@@ -406,10 +406,15 @@ export interface GapIdentificationOptions {
 
 export interface GapImpactAssessment {
   gapId: string;
+  assessedAt: Date;
   impactLevel: number;
   affectedAreas: string[];
   urgency: 'low' | 'medium' | 'high' | 'critical';
   estimatedCost: number;
+  riskFactors: string[];
+  dependencies: string[];
+  confidence: number;
+  methodology: string;
 }
 
 export interface GapClosureProgress {
@@ -417,7 +422,10 @@ export interface GapClosureProgress {
   progress: number;
   milestones: Milestone[];
   estimatedCompletion: Date;
-  blockers: string[];
+  blockers: any[];
+  resources: any[];
+  lastUpdated: Date;
+  confidence: number;
 }
 
 export interface Milestone {
@@ -465,10 +473,14 @@ export interface Assessment {
 }
 
 export interface GapPatternAnalysis {
-  commonGaps: string[];
+  analysisDate: Date;
+  timeRange: TimeRange;
+  commonGaps: any[];
   gapCategories: Record<string, number>;
-  trends: TrendAnalysis[];
+  trends: any[];
+  correlations: any[];
   recommendations: string[];
+  confidence: number;
 }
 
 export interface QualityAssessment {
