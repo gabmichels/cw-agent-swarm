@@ -1,7 +1,8 @@
 import { getMemoryServices } from '../../../server/memory/services';
-import { WorkingMemoryItem, FileReference } from '../types';
+import { WorkingMemoryItem } from '../types';
 import { ImportanceLevel } from '../../../constants/memory';
 import { IdGenerator } from '../../../utils/ulid';
+import { MemoryType } from '../../../server/memory/config/types';
 import { SearchResult } from '../../../server/memory/services/search/types';
 import { BaseMemorySchema } from '../../../server/memory/models';
 import { extractQueryTags } from '../../../utils/queryTagExtractor';
@@ -176,7 +177,9 @@ export class MemoryRetriever {
         // Add boost for tag matches if tags are provided
         boostParams: queryTags.length > 0 ? {
           fields: [{ key: "metadata.tags", value: queryTags, factor: 1.5 }]
-        } : undefined
+        } : undefined,
+        // CRITICAL FIX: Explicitly specify memory types to exclude tasks collection
+        types: [MemoryType.MESSAGE, MemoryType.THOUGHT, MemoryType.REFLECTION, MemoryType.INSIGHT, MemoryType.DOCUMENT]
       };
       
       // Perform search

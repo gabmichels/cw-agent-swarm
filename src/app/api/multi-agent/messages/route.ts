@@ -5,6 +5,12 @@ import { createAgentMemoryService } from '@/server/memory/services/multi-agent';
 import { getMemoryServices } from '@/server/memory/services';
 import { AgentMemoryService } from '@/server/memory/services/multi-agent/agent-service';
 import { MessageProcessingOptions } from '@/agents/shared/base/AgentBase.interface';
+import { MemoryType } from '@/server/memory/config/types';
+
+/**
+ * Collection name for messages
+ */
+const MESSAGES_COLLECTION = 'messages';
 
 /**
  * POST /api/multi-agent/messages
@@ -73,8 +79,41 @@ export async function POST(request: Request) {
       updatedAt: timestamp
     };
     
-    // TODO: Store the message in the database
-    // This will be implemented when the database infrastructure is ready
+    // Store the message in the Qdrant database
+    try {
+      const { memoryService } = await getMemoryServices();
+      
+      // Create content for embedding
+      const content = requestData.content || 'Message with attachments';
+      
+      // Store message in memory system
+      const result = await memoryService.addMemory({
+        type: 'message' as MemoryType,
+        content: content,
+        metadata: {
+          ...message,
+          // Convert dates to strings for JSON serialization
+          createdAt: timestamp.toISOString(),
+          updatedAt: timestamp.toISOString()
+        }
+      });
+      
+      if (!result.success) {
+        console.error('Failed to store message:', result.error);
+        return NextResponse.json(
+          { success: false, error: 'Failed to store message' },
+          { status: 500 }
+        );
+      }
+      
+      console.log(`Message ${messageId} stored successfully in chat ${requestData.chatId}`);
+    } catch (error) {
+      console.error('Error storing message:', error);
+      return NextResponse.json(
+        { success: false, error: 'Failed to store message' },
+        { status: 500 }
+      );
+    }
     
     // If the sender is a user, trigger agent response
     if (role === MessageRole.USER && requestData.recipientId) {
@@ -179,16 +218,79 @@ export async function GET(request: Request) {
       );
     }
     
-    // TODO: Fetch messages from the database based on the search parameters
-    // This will be implemented when the database infrastructure is ready
-    
-    // For now, return an empty array
-    return NextResponse.json({
-      success: true,
-      messages: [],
-      total: 0,
-      hasMore: false
-    });
+    // Fetch messages from the Qdrant database
+    try {
+      const { memoryService } = await getMemoryServices();
+      
+      // Search for messages in this chat
+      const searchQuery = `chatId:${chatId}`;
+      
+      const results = await memoryService.searchMemories({
+        type: 'message' as MemoryType,
+        query: searchQuery,
+        limit,
+        offset
+      });
+      
+      // Convert search results back to message format
+      const messages = results.map(point => {
+        const metadata = point.payload.metadata as any;
+        return {
+          id: metadata.id,
+          chatId: metadata.chatId,
+          senderId: metadata.senderId,
+          senderType: metadata.senderType,
+          content: metadata.content,
+          type: metadata.type,
+          role: metadata.role,
+          status: metadata.status,
+          attachments: metadata.attachments || [],
+          replyToId: metadata.replyToId,
+          metadata: metadata.metadata || {},
+          createdAt: metadata.createdAt,
+          updatedAt: metadata.updatedAt
+        };
+      });
+      
+      // Filter by additional criteria if provided
+      let filteredMessages = messages;
+      
+      if (senderId) {
+        filteredMessages = filteredMessages.filter(msg => msg.senderId === senderId);
+      }
+      
+      if (senderType) {
+        filteredMessages = filteredMessages.filter(msg => msg.senderType === senderType);
+      }
+      
+      if (fromDate) {
+        const from = new Date(fromDate);
+        filteredMessages = filteredMessages.filter(msg => new Date(msg.createdAt) >= from);
+      }
+      
+      if (toDate) {
+        const to = new Date(toDate);
+        filteredMessages = filteredMessages.filter(msg => new Date(msg.createdAt) <= to);
+      }
+      
+      // Sort by creation date (newest first)
+      filteredMessages.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      
+      console.log(`Found ${filteredMessages.length} messages for chat ${chatId}`);
+      
+      return NextResponse.json({
+        success: true,
+        messages: filteredMessages,
+        total: filteredMessages.length,
+        hasMore: filteredMessages.length === limit
+      });
+    } catch (error) {
+      console.error('Error fetching messages:', error);
+      return NextResponse.json(
+        { success: false, error: 'Failed to fetch messages' },
+        { status: 500 }
+      );
+    }
   } catch (error) {
     console.error('Error fetching messages:', error);
     

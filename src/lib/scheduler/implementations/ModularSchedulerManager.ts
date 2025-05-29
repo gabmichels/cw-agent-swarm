@@ -75,17 +75,6 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
     config?: Partial<SchedulerConfig>,
     agent?: AgentBase
   ) {
-    // Unique version identifier to verify latest code is loading
-    const timestamp = new Date().toISOString();
-    const versionId = "LATEST-VERSION-" + Date.now();
-    
-    console.log("=".repeat(80));
-    console.log("🔥🔥🔥🔥 ModularSchedulerManager constructor called 🔥🔥🔥🔥");
-    console.log(`🕒 Timestamp: ${timestamp}`);
-    console.log(`🆔 Version ID: ${versionId}`);
-    console.log("=".repeat(80));
-    
-    // Normal initialization
     this.id = `scheduler-manager-${ulid()}`;
     this.managerId = this.id;
     this.managerType = ManagerType.SCHEDULER;
@@ -104,18 +93,12 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
       agentId: agent?.getId() ?? ''
     });
     
-    console.log("🔥 🔥 🔥 🔥 ModularSchedulerManager constructor called");
-    
-    this.logger.info("🔥🔥 ModularSchedulerManager constructor called", {
+    this.logger.info("ModularSchedulerManager constructor called", {
       managerId: this.id,
       agentId: agent?.getId(),
       config: this.config,
-      enableAutoScheduling: this.config.enableAutoScheduling,
-      versionId: versionId
+      enableAutoScheduling: this.config.enableAutoScheduling
     });
-    
-    console.log("✅ ModularSchedulerManager constructor completed successfully");
-    console.log("=".repeat(80));
   }
 
   /**
@@ -126,18 +109,8 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
    * @throws {SchedulerError} If there's an error during initialization
    */
   async initialize(configOrAgent?: Partial<SchedulerConfig> | AgentBase): Promise<boolean> {
-    const initTimestamp = new Date().toISOString();
-    const initVersionId = "INIT-LATEST-" + Date.now();
-    
-    console.log("*".repeat(80));
-    console.log(`🔥🔥🔥🔥 ModularSchedulerManager.initialize() called - START 🔥🔥🔥🔥`);
-    console.log(`🕒 Init Timestamp: ${initTimestamp}`);
-    console.log(`🆔 Init Version ID: ${initVersionId}`);
-    console.log("*".repeat(80));
-    
     this.logger.info("Initializing scheduler manager", { 
-      managerId: this.id,
-      initVersionId: initVersionId
+      managerId: this.id
     });
     
     try {
@@ -168,18 +141,8 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
         autoScheduling: this.config.enableAutoScheduling
       });
 
-      console.log("*".repeat(80));
-      console.log(`✅ ✅ ✅ ✅ ModularSchedulerManager.initialize() completed - SUCCESS ✅ ✅ ✅ ✅`);
-      console.log(`🕒 Completion Timestamp: ${new Date().toISOString()}`);
-      console.log(`🆔 Init Version ID: ${initVersionId}`);
-      console.log("*".repeat(80));
       return true;
     } catch (error) {
-      console.log("*".repeat(80));
-      console.log(`❌ ❌ ❌ ❌ ModularSchedulerManager.initialize() failed - ERROR: ❌ ❌ ❌ ❌`);
-      console.log(`🆔 Init Version ID: ${initVersionId}`);
-      console.log(`Error:`, error);
-      console.log("*".repeat(80));
       this.logger.error("Failed to initialize scheduler manager", {
         error: error instanceof Error ? error.message : String(error),
         stack: error instanceof Error ? error.stack : undefined
@@ -227,7 +190,9 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
       
       // No agent, create task normally
       console.log(`🌐 createTask: No agent set, creating task without agent scope`);
-      return await this.processTaskForCreation(task);
+      const result = await this.processTaskForCreation(task);
+      console.log(`✅ createTask completed successfully, task ID: ${result.id}`);
+      return result;
       
     } catch (error) {
       this.logger.error("Failed to create task", {
@@ -885,6 +850,48 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
         failedTasks: results.filter(r => !r.successful).length
       });
 
+      // Prepare tasks for update with execution results
+      const tasksToUpdate = runningTasks.map((task, i) => {
+        const result = results[i];
+        return {
+          ...task,
+          status: result.status,
+          lastExecutedAt: result.endTime,
+          updatedAt: new Date(),
+          metadata: {
+            ...task.metadata,
+            executionTime: result.duration,
+            retryCount: (task.metadata?.retryCount || 0) + (result.wasRetry ? 1 : 0),
+            ...(result.successful ? {} : {
+              errorInfo: result.error
+            })
+          },
+          // Increment execution count for interval tasks
+          interval: task.interval ? {
+            ...task.interval,
+            executionCount: task.interval.executionCount + 1
+          } : undefined
+        };
+      });
+
+      this.logger.info("Updating task statuses after execution", {
+        agentId,
+        tasksToUpdateCount: tasksToUpdate.length
+      });
+
+      // Check if registry supports batch updates
+      if ('updateTasks' in this.registry && typeof this.registry.updateTasks === 'function') {
+        // Use batch update for better performance
+        this.logger.info("Using batch update for task statuses");
+        await (this.registry as any).updateTasks(tasksToUpdate);
+      } else {
+        // Fall back to individual updates
+        this.logger.info("Using individual updates for task statuses");
+        for (const task of tasksToUpdate) {
+          await this.registry.updateTask(task);
+        }
+      }
+
       return results;
     } catch (error) {
       this.logger.error("Error executing due tasks for agent", {
@@ -985,7 +992,6 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
    * @throws {SchedulerError} If the scheduler cannot be started
    */
   async startScheduler(): Promise<boolean> {
-    console.log(`🚀 🚀 🚀 ModularSchedulerManager.startScheduler() called`);
     this.logger.info("Starting scheduler", {
       schedulingIntervalMs: this.config.schedulingIntervalMs,
       maxConcurrentTasks: this.config.maxConcurrentTasks
@@ -993,41 +999,31 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
     
     try {
       if (this.running) {
-        console.log(`⚠️ Scheduler is already running, returning false`);
         this.logger.warn("Scheduler is already running");
         return false; // Already running
       }
 
       this.running = true;
       this.startTime = new Date();
-      console.log(`✅ Set scheduler running state to true, startTime: ${this.startTime}`);
 
       // Execute the scheduling loop
       const scheduleLoop = async () => {
-        console.log(`🔄 🔄 🔄 scheduleLoop function called, running=${this.running}`);
         if (!this.running) {
-          console.log(`❌ scheduleLoop exiting - scheduler not running`);
           this.logger.info("Scheduler loop exiting - not running");
           return;
         }
 
         try {
-          console.log(`🔍 🔍 🔍 About to execute scheduling loop`);
-          this.logger.info("Executing scheduling loop");
+          this.logger.debug("Executing scheduling loop");
           
           // Execute tasks for the specific agent if we have one, otherwise execute all tasks
           if (this.agent) {
             const agentId = this.agent.getId();
-            console.log(`🎯 Executing due tasks for agent: ${agentId}`);
             await this.executeDueTasksForAgent(agentId);
           } else {
-            console.log(`🌐 No specific agent set, executing all due tasks`);
-          await this.executeDueTasks();
+            await this.executeDueTasks();
           }
-          
-          console.log(`✅ executeDueTasks completed`);
         } catch (error) {
-          console.log(`❌ Error in scheduling loop:`, error);
           this.logger.error("Error in scheduling loop", {
             error: error instanceof Error ? error.message : String(error),
             stack: error instanceof Error ? error.stack : undefined
@@ -1035,13 +1031,11 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
         }
       };
 
-      console.log(`⏰ Setting up interval timer with ${this.config.schedulingIntervalMs}ms`);
       // Set up the scheduling timer
       this.schedulingTimer = setInterval(
         scheduleLoop,
         this.config.schedulingIntervalMs
       );
-      console.log(`✅ Interval timer set up successfully, timer ID: ${this.schedulingTimer}`);
 
       this.logger.success("Scheduler started successfully", {
         startTime: this.startTime,
@@ -1049,15 +1043,12 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
       });
 
       // Execute immediately on start
-      console.log(`🏃‍♂️ 🏃‍♂️ 🏃‍♂️ Executing initial scheduling loop immediately`);
       this.logger.info("Executing initial scheduling loop");
       scheduleLoop();
-      console.log(`✅ Initial scheduling loop call completed`);
 
       return true;
     } catch (error) {
       this.running = false;
-      console.log(`❌ Failed to start scheduler:`, error);
       this.logger.error("Failed to start scheduler", {
         error: error instanceof Error ? error.message : String(error),
         stack: error instanceof Error ? error.stack : undefined

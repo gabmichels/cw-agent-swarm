@@ -7,7 +7,8 @@ import { vi, describe, test, expect, beforeEach, afterEach } from 'vitest';
 import { DefaultAgent } from '../../src/agents/shared/DefaultAgent';
 import { createSchedulerManager, RegistryType } from '../../src/lib/scheduler/factories/SchedulerFactory';
 import { ModularSchedulerManager } from '../../src/lib/scheduler/implementations/ModularSchedulerManager';
-import { Task, TaskStatus } from '../../src/lib/scheduler/models/Task.model';
+import { Task, TaskStatus, TaskScheduleType } from '../../src/lib/scheduler/models/Task.model';
+import { ulid } from 'ulid';
 
 const TEST_TIMEOUT = 30000; // 30 seconds
 vi.setConfig({ testTimeout: TEST_TIMEOUT });
@@ -80,6 +81,11 @@ describe('Simple Task Execution Tests', () => {
   test('Simple urgent task gets picked up by scheduler', async () => {
     console.log('Starting urgent task test...');
     
+    // Stop auto-scheduling temporarily to check task creation without execution
+    if (scheduler?.isSchedulerRunning()) {
+      await scheduler.stopScheduler();
+    }
+    
     // Send urgent input
     const userInput = "URGENT: Please help me with this critical issue";
     const response = await agent.processUserInput(userInput);
@@ -93,7 +99,7 @@ describe('Simple Task Execution Tests', () => {
     
     if (tasks.length > 0) {
       const task = tasks[0];
-      console.log(`Task created: ${task.name} with priority ${task.priority}`);
+      console.log(`Task created: ${task.name} with priority ${task.priority} status: ${task.status}`);
       
       // Verify task properties
       expect(task.priority).toBeGreaterThanOrEqual(5);
@@ -104,14 +110,26 @@ describe('Simple Task Execution Tests', () => {
   });
 
   test('Scheduler picks up and executes scheduled task', async () => {
+    console.log('🚨🚨🚨 FAILING TEST STARTED 🚨🚨🚨');
     console.log('Starting scheduler execution test...');
     
-    // Create a task scheduled for immediate execution
-    const task: Partial<Task> = {
+    // Stop auto-scheduling temporarily to create task without immediate execution
+    if (scheduler?.isSchedulerRunning()) {
+      await scheduler.stopScheduler();
+    }
+    
+    console.log('📝 About to create task object...');
+    // Create a task scheduled for immediate execution with ALL required fields
+    const task: Task = {
+      id: ulid(), // Generate unique ID
       name: 'Test Scheduler Task',
       description: 'Task to test scheduler execution',
+      scheduleType: TaskScheduleType.EXPLICIT, // Required field
       priority: 8,
+      status: TaskStatus.PENDING, // Required field
       scheduledTime: new Date(Date.now() - 1000), // 1 second in the past (immediately due)
+      createdAt: new Date(), // Required field
+      updatedAt: new Date(), // Required field
       handler: async () => {
         console.log('Task handler executed');
         executedTasks.push('Executing scheduled task');
@@ -119,17 +137,34 @@ describe('Simple Task Execution Tests', () => {
       }
     };
     
-    // Create the task
-    const createdTask = await scheduler.createTask(task as Task);
-    console.log(`Created task: ${createdTask.id}`);
-    console.log(`Task scheduled for: ${createdTask.scheduledTime}`);
-    console.log(`Current time: ${new Date()}`);
+    console.log('📋 Task object created:', {
+      id: task.id,
+      name: task.name,
+      scheduleType: task.scheduleType,
+      status: task.status,
+      priority: task.priority,
+      scheduledTime: task.scheduledTime?.toISOString(),
+      hasHandler: !!task.handler
+    });
     
-    // Verify task was created
+    console.log('🔥🔥🔥 ABOUT TO CALL scheduler.createTask() 🔥🔥🔥');
+    // Create the task
+    const createdTask = await scheduler.createTask(task);
+    console.log(`✅✅✅ scheduler.createTask() COMPLETED! Task ID: ${createdTask.id} ✅✅✅`);
+    
+    // Verify task was created with detailed logging
+    console.log('🔍 Calling scheduler.findTasks({})...');
     const allTasks = await scheduler.findTasks({});
-    console.log(`Total tasks in scheduler: ${allTasks.length}`);
+    console.log(`📊 Total tasks in scheduler: ${allTasks.length}`);
     
     if (allTasks.length === 0) {
+      console.log('🔍 Trying findTasks with different filters...');
+      const pendingTasks = await scheduler.findTasks({ status: TaskStatus.PENDING });
+      console.log(`📊 Pending tasks: ${pendingTasks.length}`);
+      
+      const allTasksNoFilter = await scheduler.findTasks({});
+      console.log(`📊 All tasks (no filter): ${allTasksNoFilter.length}`);
+      
       console.log('❌ No tasks found after creation - this indicates a storage issue');
       // Skip the rest of the test if task creation failed
       expect(allTasks.length).toBeGreaterThan(0);
@@ -207,4 +242,4 @@ describe('Simple Task Execution Tests', () => {
     
     console.log('Concurrent tasks test completed');
   });
-}); 
+});

@@ -8,6 +8,7 @@ import { MemoryService } from '../../services/memory/memory-service';
 import { MemoryResult } from '../../services/memory/types';
 import { CapabilityMemoryEntity, capabilitySchema } from '../../schema/capability';
 import { MemoryType } from '../../config/types';
+import { getMemoryServices } from '../index';
 
 /**
  * Collection name for capabilities
@@ -18,10 +19,39 @@ const CAPABILITIES_COLLECTION = 'capabilities';
  * Default capability memory service
  */
 export class DefaultCapabilityMemoryService {
-  private memoryService: MemoryService;
+  private memoryService: MemoryService | null = null;
+  private initializationPromise: Promise<void> | null = null;
   
-  constructor(memoryClient: any) {
-    this.memoryService = new MemoryService(memoryClient, memoryClient.getEmbeddingService());
+  constructor(memoryClient?: any) {
+    // Start initialization immediately
+    this.initializationPromise = this.initializeMemoryService();
+  }
+  
+  /**
+   * Initialize the memory service with proper dependencies
+   */
+  private async initializeMemoryService(): Promise<void> {
+    try {
+      const { memoryService } = await getMemoryServices();
+      this.memoryService = memoryService;
+    } catch (error) {
+      console.error('Failed to initialize memory service:', error);
+      throw error;
+    }
+  }
+  
+  /**
+   * Ensure memory service is initialized
+   */
+  private async ensureInitialized(): Promise<void> {
+    if (this.initializationPromise) {
+      await this.initializationPromise;
+      this.initializationPromise = null;
+    }
+    
+    if (!this.memoryService) {
+      throw new Error('Memory service failed to initialize');
+    }
   }
   
   /**
@@ -32,11 +62,13 @@ export class DefaultCapabilityMemoryService {
    */
   async createCapability(capability: CapabilityMemoryEntity): Promise<MemoryResult> {
     try {
+      await this.ensureInitialized();
+      
       // Create content for embedding
       const content = `${capability.name} - ${capability.description} - ${capability.type}`;
       
       // Add capability to memory
-      return await this.memoryService.addMemory({
+      return await this.memoryService!.addMemory({
         type: 'capability' as MemoryType,
         content: content,
         metadata: capability
@@ -62,7 +94,9 @@ export class DefaultCapabilityMemoryService {
    */
   async getCapability(id: string): Promise<CapabilityMemoryEntity | null> {
     try {
-      const result = await this.memoryService.getMemory({
+      await this.ensureInitialized();
+      
+      const result = await this.memoryService!.getMemory({
         type: 'capability' as MemoryType,
         id
       });
@@ -86,11 +120,13 @@ export class DefaultCapabilityMemoryService {
    */
   async updateCapability(capability: CapabilityMemoryEntity): Promise<boolean> {
     try {
+      await this.ensureInitialized();
+      
       // Create content for embedding
       const content = `${capability.name} - ${capability.description} - ${capability.type}`;
       
       // Update capability in memory
-      return await this.memoryService.updateMemory({
+      return await this.memoryService!.updateMemory({
         type: 'capability' as MemoryType,
         id: capability.id,
         content,
@@ -110,7 +146,9 @@ export class DefaultCapabilityMemoryService {
    */
   async deleteCapability(id: string): Promise<boolean> {
     try {
-      return await this.memoryService.deleteMemory({
+      await this.ensureInitialized();
+      
+      return await this.memoryService!.deleteMemory({
         type: 'capability' as MemoryType,
         id
       });
@@ -132,7 +170,9 @@ export class DefaultCapabilityMemoryService {
     limit: number = 50
   ): Promise<CapabilityMemoryEntity[]> {
     try {
-      const result = await this.memoryService.searchMemories({
+      await this.ensureInitialized();
+      
+      const result = await this.memoryService!.searchMemories({
         type: 'capability' as MemoryType,
         query: `type:${type}`,
         limit
@@ -157,7 +197,9 @@ export class DefaultCapabilityMemoryService {
     limit: number = 50
   ): Promise<CapabilityMemoryEntity[]> {
     try {
-      const result = await this.memoryService.searchMemories({
+      await this.ensureInitialized();
+      
+      const result = await this.memoryService!.searchMemories({
         type: 'capability' as MemoryType,
         query: searchText,
         limit

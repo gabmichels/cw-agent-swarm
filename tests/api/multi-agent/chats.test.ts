@@ -1,19 +1,18 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { NextRequest } from 'next/server';
-import { POST as createChat } from '../../../src/app/api/multi-agent/chats/route';
-import { POST as addParticipants } from '../../../src/app/api/multi-agent/chats/[chatId]/participants/route';
 import { ChatCreationRequest, ChatVisibility } from '../../../src/lib/multi-agent/types/chat';
 
-// Mock fetch globally
-vi.stubGlobal('fetch', vi.fn());
+// Import the actual route handlers - no mocks needed for real Qdrant testing
+import { POST as createChat } from '../../../src/app/api/multi-agent/chats/route';
+import { POST as addParticipants } from '../../../src/app/api/multi-agent/chats/[chatId]/participants/route';
 
 describe('Chat API Endpoints', () => {
-  beforeEach(() => {
-    vi.resetAllMocks();
+  beforeEach(async () => {
+    // Clean setup before each test - let services initialize naturally
   });
 
   afterEach(() => {
-    vi.clearAllMocks();
+    // Cleanup after each test
   });
 
   describe('POST /api/multi-agent/chats', () => {

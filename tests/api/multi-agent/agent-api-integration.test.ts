@@ -1,3 +1,4 @@
+import { describe, test, expect, vi, beforeEach } from 'vitest';
 import crypto from 'crypto';
 import https from 'https';
 import http from 'http';
@@ -43,9 +44,59 @@ async function makeRequest(url: string, options: http.RequestOptions, data: stri
   });
 }
 
-// This is meant to be run manually as an integration test
-// Usage: npx ts-node tests/api/multi-agent/agent-api-integration.test.ts
-async function testAgentCreation(): Promise<void> {
+describe('Agent API Integration Tests', () => {
+  beforeEach(() => {
+    // Reset any mocks before each test
+    vi.clearAllMocks();
+  });
+
+  test.skip('should create and retrieve agent via API', async () => {
+    // Skip this test because it requires a running server
+    // This is an integration test that should be run manually
+    console.log('Skipped: Integration test requires running server');
+    expect(true).toBe(true);
+  });
+
+  test('should generate correct UUID for agent ID', () => {
+    const testAgentId = 'test_agent_123';
+    const expectedUuid = getUuidForAgentId(testAgentId);
+    
+    // Verify it's a valid UUID format
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+    expect(expectedUuid).toMatch(uuidRegex);
+    
+    // Verify it's deterministic
+    const secondUuid = getUuidForAgentId(testAgentId);
+    expect(expectedUuid).toBe(secondUuid);
+  });
+
+  test('should create valid agent request payload', () => {
+    const testAgent = {
+      name: 'API_Test_Agent_' + Date.now(),
+      description: 'Test agent created via API',
+      status: 'active',
+      capabilities: [
+        { name: 'basic_conversation', description: 'Can have a basic conversation' }
+      ],
+      parameters: {
+        model: 'gpt-4'
+      },
+      metadata: {
+        test: true
+      }
+    };
+
+    expect(testAgent.name).toBeTruthy();
+    expect(testAgent.description).toBeTruthy();
+    expect(testAgent.status).toBe('active');
+    expect(testAgent.capabilities).toHaveLength(1);
+    expect(testAgent.capabilities[0].name).toBe('basic_conversation');
+    expect(testAgent.metadata.test).toBe(true);
+  });
+});
+
+// Export the test function for manual integration testing
+export async function testAgentCreation(): Promise<void> {
   console.log('Testing agent API endpoint...');
   
   const testAgent = {
@@ -133,7 +184,9 @@ async function testAgentCreation(): Promise<void> {
   }
 }
 
-// Self-executing function to run the test
-(async () => {
-  await testAgentCreation();
-})(); 
+// Only run the integration test if called directly (not during vitest run)
+if (typeof process !== 'undefined' && process.argv[1]?.includes('agent-api-integration')) {
+  (async () => {
+    await testAgentCreation();
+  })();
+} 

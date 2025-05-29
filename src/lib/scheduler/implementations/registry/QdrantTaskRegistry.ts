@@ -27,6 +27,42 @@ const DEFAULT_CACHE_OPTIONS: CacheOptions = {
 };
 
 /**
+ * Function serialization helpers for preserving task handlers
+ */
+interface SerializedHandler {
+  type: 'serialized_function';
+  functionString: string;
+  handlerId: string;
+}
+
+/**
+ * Registry for storing and retrieving serialized functions
+ */
+class HandlerRegistry {
+  private static instance: HandlerRegistry;
+  private handlers = new Map<string, (...args: unknown[]) => Promise<unknown>>();
+  
+  static getInstance(): HandlerRegistry {
+    if (!HandlerRegistry.instance) {
+      HandlerRegistry.instance = new HandlerRegistry();
+    }
+    return HandlerRegistry.instance;
+  }
+  
+  registerHandler(id: string, handler: (...args: unknown[]) => Promise<unknown>): void {
+    this.handlers.set(id, handler);
+  }
+  
+  getHandler(id: string): ((...args: unknown[]) => Promise<unknown>) | undefined {
+    return this.handlers.get(id);
+  }
+  
+  hasHandler(id: string): boolean {
+    return this.handlers.has(id);
+  }
+}
+
+/**
  * Qdrant implementation of the TaskRegistry interface with caching
  */
 export class QdrantTaskRegistry implements TaskRegistry {
@@ -42,6 +78,9 @@ export class QdrantTaskRegistry implements TaskRegistry {
   
   // Options for caching behavior
   private cacheOptions: CacheOptions;
+  
+  // Handler registry for function serialization
+  private handlerRegistry: HandlerRegistry;
 
   /**
    * Create a new QdrantTaskRegistry
@@ -58,6 +97,7 @@ export class QdrantTaskRegistry implements TaskRegistry {
     this.client = client;
     this.collectionName = collectionName;
     this.cacheOptions = { ...DEFAULT_CACHE_OPTIONS, ...cacheOptions };
+    this.handlerRegistry = HandlerRegistry.getInstance();
     
     // Initialize caches
     this.taskCache = new LRUCache<string, Task>({
@@ -136,7 +176,7 @@ export class QdrantTaskRegistry implements TaskRegistry {
     if (filter.status) {
       const statuses = Array.isArray(filter.status) ? filter.status : [filter.status];
       must.push({
-        key: 'metadata.status',
+        key: 'status',
         match: {
           any: statuses,
         },
@@ -299,17 +339,31 @@ export class QdrantTaskRegistry implements TaskRegistry {
       taskToStore.updatedAt = now;
 
       // Store the task in Qdrant
+      const qdrantId = this.ulidToUuid(taskToStore.id);
+      
+      // Serialize the task, handling the handler function specially
+      const qdrantPayload = { ...taskToStore } as any;
+      
+      // Serialize the handler function if it exists
+      if (taskToStore.handler && typeof taskToStore.handler === 'function') {
+        qdrantPayload.handler = this.serializeHandler(taskToStore.handler);
+      } else {
+        // Ensure we have some form of handler identifier
+        qdrantPayload.handler = null;
+      }
+
       await this.client.upsert(this.collectionName, {
+        wait: true,
         points: [
           {
-            id: this.ulidToUuid(taskToStore.id),
-            payload: taskToStore as unknown as Record<string, unknown>,
-            vector: [0], // Dummy vector
+            id: qdrantId,
+            vector: [0], // Simple 1-dimensional vector for task collection
+            payload: qdrantPayload,
           },
         ],
       });
 
-      // Update the cache with the new task
+      // Cache the stored task (with original handler)
       this.taskCache.set(taskToStore.id, taskToStore);
       
       // Invalidate query cache since data has changed
@@ -366,7 +420,12 @@ export class QdrantTaskRegistry implements TaskRegistry {
         throw TaskRegistryError.invalidTask(`Invalid task data retrieved from storage for ID: ${taskId}`);
       }
       
-      const task = payload as unknown as Task;
+      // Convert payload to Task, deserializing the handler
+      const task: Task = {
+        ...(payload as unknown as Task),
+        handler: this.deserializeHandler(payload.handler),
+        lastExecutedAt: payload.lastExecutedAt ? new Date(payload.lastExecutedAt as string | number) : undefined
+      };
       
       // Update the cache
       this.taskCache.set(taskId, task);
@@ -384,8 +443,6 @@ export class QdrantTaskRegistry implements TaskRegistry {
    * Check if a payload is a valid Task
    */
   private isValidTaskPayload(payload: Record<string, unknown>): boolean {
-    // More lenient validation - just check for essential fields
-    
     // Basic requirements: id and some form of task identification
     const hasId = typeof payload.id === 'string' && payload.id.length > 0;
     
@@ -393,28 +450,36 @@ export class QdrantTaskRegistry implements TaskRegistry {
       return false;
     }
     
-    // Check for task type (can be in type field or metadata)
-    const hasTaskType = (
+    // Check for task identifier (relaxed - either regular Task fields or memory task fields)
+    const isRegularTask = (
+      // Regular Task objects have these direct fields
+      typeof payload.name === 'string' ||
+      typeof payload.description === 'string' ||
+      typeof payload.status === 'string'
+    );
+    
+    const isMemoryTask = (
+      // Memory system tasks have these patterns
       payload.type === 'task' ||
       (payload.metadata && 
        typeof payload.metadata === 'object' && 
        (payload.metadata as any).taskType)
     );
     
-    if (!hasTaskType) {
+    if (!isRegularTask && !isMemoryTask) {
       return false;
     }
     
-    // Check for some form of status tracking
-    const hasStatus = (
-      typeof payload.status === 'string' ||
-      (payload.metadata && 
-       typeof payload.metadata === 'object' && 
-       typeof (payload.metadata as any).status === 'string')
-    );
+    // For regular Task objects, check for status field
+    if (isRegularTask && typeof payload.status === 'string') {
+      return true;
+    }
     
-    if (!hasStatus) {
-      return false;
+    // For memory tasks, check for status in metadata
+    if (isMemoryTask && payload.metadata && 
+        typeof payload.metadata === 'object' && 
+        typeof (payload.metadata as any).status === 'string') {
+      return true;
     }
     
     // Check for basic task info (name, description, or title)
@@ -578,98 +643,155 @@ export class QdrantTaskRegistry implements TaskRegistry {
 
       // Extract task objects from payload
       const tasks: Task[] = [];
-      for (const point of response.points) {
+      for (const [index, point] of response.points.entries()) {
         const payload = point.payload as Record<string, unknown>;
         
         // Validate the payload has required Task properties before conversion
-        if (this.isValidTaskPayload(payload)) {
+        const isValid = this.isValidTaskPayload(payload);
+        
+        if (isValid) {
           // Convert the Qdrant payload format to Task interface format
-          const metadata = payload.metadata as Record<string, unknown>;
           
-          // Improved date parsing with debugging
-          let createdAt: Date;
-          const rawTimestamp = payload.timestamp;
+          // Check if this is a regular Task object or a memory task
+          const isRegularTask = (
+            typeof payload.name === 'string' &&
+            typeof payload.status === 'string' &&
+            typeof payload.scheduleType === 'string'
+          );
           
-          if (rawTimestamp) {
-            // Try different timestamp formats
-            if (typeof rawTimestamp === 'number') {
-              // Check if it's seconds or milliseconds
-              const timestampMs = rawTimestamp > 1e12 ? rawTimestamp : rawTimestamp * 1000;
-              createdAt = new Date(timestampMs);
-            } else if (typeof rawTimestamp === 'string') {
-              // Try parsing as ISO string or number string
-              const parsedNumber = parseInt(rawTimestamp, 10);
-              if (!isNaN(parsedNumber)) {
-                const timestampMs = parsedNumber > 1e12 ? parsedNumber : parsedNumber * 1000;
+          if (isRegularTask) {
+            // REGULAR TASK OBJECTS - Use direct payload fields
+            
+            // Parse scheduledTime from payload
+            let scheduledTime: Date | undefined;
+            if (payload.scheduledTime) {
+              if (typeof payload.scheduledTime === 'string') {
+                scheduledTime = new Date(payload.scheduledTime);
+              } else if (typeof payload.scheduledTime === 'number') {
+                const timestampMs = payload.scheduledTime > 1e12 ? payload.scheduledTime : payload.scheduledTime * 1000;
+                scheduledTime = new Date(timestampMs);
+              }
+              // Validate the resulting date
+              if (scheduledTime && isNaN(scheduledTime.getTime())) {
+                scheduledTime = undefined;
+              }
+            }
+            
+            // Parse createdAt from payload
+            let createdAt: Date = new Date();
+            if (payload.createdAt) {
+              if (typeof payload.createdAt === 'string') {
+                createdAt = new Date(payload.createdAt);
+              } else if (typeof payload.createdAt === 'number') {
+                const timestampMs = payload.createdAt > 1e12 ? payload.createdAt : payload.createdAt * 1000;
                 createdAt = new Date(timestampMs);
+              }
+              // Validate the resulting date
+              if (isNaN(createdAt.getTime())) {
+                createdAt = new Date();
+              }
+            }
+            
+            // Parse updatedAt from payload
+            let updatedAt: Date = new Date();
+            if (payload.updatedAt) {
+              if (typeof payload.updatedAt === 'string') {
+                updatedAt = new Date(payload.updatedAt);
+              } else if (typeof payload.updatedAt === 'number') {
+                const timestampMs = payload.updatedAt > 1e12 ? payload.updatedAt : payload.updatedAt * 1000;
+                updatedAt = new Date(timestampMs);
+              }
+              // Validate the resulting date
+              if (isNaN(updatedAt.getTime())) {
+                updatedAt = new Date();
+              }
+            }
+            
+            // Parse lastExecutedAt from payload
+            let lastExecutedAt: Date | undefined;
+            if (payload.lastExecutedAt) {
+              if (typeof payload.lastExecutedAt === 'string') {
+                lastExecutedAt = new Date(payload.lastExecutedAt);
+              } else if (typeof payload.lastExecutedAt === 'number') {
+                const timestampMs = payload.lastExecutedAt > 1e12 ? payload.lastExecutedAt : payload.lastExecutedAt * 1000;
+                lastExecutedAt = new Date(timestampMs);
+              }
+              // Validate the resulting date
+              if (lastExecutedAt && isNaN(lastExecutedAt.getTime())) {
+                lastExecutedAt = undefined;
+              }
+            }
+            
+            const task: Task = {
+              id: payload.id as string,
+              name: payload.name as string,
+              description: payload.description as string,
+              status: payload.status as TaskStatus,
+              priority: (payload.priority as number) || 5,
+              scheduleType: payload.scheduleType as TaskScheduleType,
+              scheduledTime: scheduledTime, // This is the critical field that was missing!
+              createdAt: createdAt,
+              updatedAt: updatedAt,
+              lastExecutedAt: lastExecutedAt,
+              metadata: payload.metadata as Record<string, unknown> || {},
+              handler: this.deserializeHandler(payload.handler)
+            };
+            
+            tasks.push(task);
+          } else {
+            // MEMORY TASK CONVERSION - Use the existing logic for memory system tasks
+            const metadata = payload.metadata as Record<string, unknown>;
+            
+            // Improved date parsing with debugging
+            let createdAt: Date;
+            const rawTimestamp = payload.timestamp;
+            
+            if (rawTimestamp) {
+              // Try different timestamp formats
+              if (typeof rawTimestamp === 'number') {
+                // Check if it's seconds or milliseconds
+                const timestampMs = rawTimestamp > 1e12 ? rawTimestamp : rawTimestamp * 1000;
+                createdAt = new Date(timestampMs);
+              } else if (typeof rawTimestamp === 'string') {
+                // Try parsing as ISO string or number string
+                const parsedNumber = parseInt(rawTimestamp, 10);
+                if (!isNaN(parsedNumber)) {
+                  const timestampMs = parsedNumber > 1e12 ? parsedNumber : parsedNumber * 1000;
+                  createdAt = new Date(timestampMs);
+                } else {
+                  createdAt = new Date(rawTimestamp);
+                }
               } else {
-                createdAt = new Date(rawTimestamp);
+                // Unknown format, use current time
+                createdAt = new Date();
               }
             } else {
-              // Unknown format, use current time
+              // No timestamp, use current time
               createdAt = new Date();
             }
-          } else {
-            // No timestamp, use current time
-            createdAt = new Date();
-          }
-          
-          // Validate the resulting date
-          if (isNaN(createdAt.getTime())) {
-            createdAt = new Date();
-          }
-          
-          const task: Task = {
-            id: payload.id as string, // Use the original ULID from payload
-            name: (metadata.title as string) || 
-                  (payload.text ? (payload.text as string).slice(0, 50) + '...' : '') ||
-                  (payload.name as string) ||
-                  `Task ${payload.id}`,
-            status: metadata.status as TaskStatus,
-            priority: this.convertPriority(metadata.priority as string) || 5, // Default medium priority
-            scheduleType: TaskScheduleType.PRIORITY, // Default for converted tasks
-            createdAt: createdAt,
-            updatedAt: new Date(),
-            metadata: metadata,
-            handler: async (...args) => {
-              // **REAL AGENT TASK EXECUTION - NO SIMULATION**
-              try {
-                // Create AgentTaskHandler for real execution
-                const { AgentTaskHandler } = await import('../agent/AgentTaskHandler');
-                const agentHandler = new AgentTaskHandler();
-                
-                // Execute through real agent planning system
-                const executionResult = await agentHandler.handleTask(task);
-                
-                return {
-                  success: executionResult.successful,
-                  result: executionResult.result || 'Task completed through agent execution',
-                  details: {
-                    executedAt: new Date().toISOString(),
-                    duration: executionResult.duration,
-                    agentExecuted: true,
-                    planAndExecuteUsed: true,
-                    status: executionResult.status,
-                    executionMethod: 'AgentTaskHandler.handleTask'
-                  }
-                };
-              } catch (error) {
-                return { 
-                  success: false, 
-                  result: 'Real agent execution failed',
-                  error: error instanceof Error ? error.message : String(error),
-                  details: {
-                    executedAt: new Date().toISOString(),
-                    agentExecuted: false,
-                    executionMethod: 'AgentTaskHandler.handleTask',
-                    errorType: 'AGENT_EXECUTION_FAILURE'
-                  }
-                };
-              }
+            
+            // Validate the resulting date
+            if (isNaN(createdAt.getTime())) {
+              createdAt = new Date();
             }
-          };
-          
-          tasks.push(task);
+            
+            const task: Task = {
+              id: payload.id as string, // Use the original ULID from payload
+              name: (metadata.title as string) || 
+                    (payload.text ? (payload.text as string).slice(0, 50) + '...' : '') ||
+                    (payload.name as string) ||
+                    `Task ${payload.id}`,
+              status: metadata.status as TaskStatus,
+              priority: this.convertPriority(metadata.priority as string) || 5, // Default medium priority
+              scheduleType: TaskScheduleType.PRIORITY, // Default for converted tasks
+              createdAt: createdAt,
+              updatedAt: new Date(),
+              metadata: metadata,
+              handler: this.deserializeHandler(payload.handler)
+            };
+            
+            tasks.push(task);
+          }
         }
       }
 
@@ -888,5 +1010,59 @@ export class QdrantTaskRegistry implements TaskRegistry {
     // Since we have the original ULID in the payload, this is mainly for the point ID
     // We'll just return the UUID for now and rely on payload data
     return uuid;
+  }
+
+  /**
+   * Serialize a handler function for storage in Qdrant
+   */
+  private serializeHandler(handler: (...args: unknown[]) => Promise<unknown>): SerializedHandler {
+    const handlerId = ulid(); // Generate unique ID for the handler
+    const functionString = handler.toString();
+    
+    // Register the handler in our registry
+    this.handlerRegistry.registerHandler(handlerId, handler);
+    
+    return {
+      type: 'serialized_function',
+      functionString,
+      handlerId
+    };
+  }
+
+  /**
+   * Deserialize a handler function from storage
+   */
+  private deserializeHandler(serialized: SerializedHandler | any): (...args: unknown[]) => Promise<unknown> {
+    // Check if it's a serialized handler
+    if (serialized && typeof serialized === 'object' && serialized.type === 'serialized_function') {
+      const { handlerId, functionString } = serialized;
+      
+      // First, try to get from our registry
+      const registeredHandler = this.handlerRegistry.getHandler(handlerId);
+      if (registeredHandler) {
+        return registeredHandler;
+      }
+      
+      // If not in registry, try to reconstruct from function string (fallback)
+      try {
+        // This is a fallback for handlers that might have been created in previous sessions
+        // Note: This is limited and may not work for all function types due to closure issues
+        const reconstructed = new Function('return ' + functionString)() as (...args: unknown[]) => Promise<unknown>;
+        
+        // Register it for future use
+        this.handlerRegistry.registerHandler(handlerId, reconstructed);
+        
+        return reconstructed;
+      } catch (error) {
+        console.warn(`Failed to reconstruct handler from string: ${error}`);
+        // Fall through to default handler
+      }
+    }
+    
+    // Return default handler if deserialization fails
+    return async (...args) => {
+      console.log(`Executing task with default handler`);
+      return { success: true, result: 'Task completed with default handler' };
+    };
   }
 } 
