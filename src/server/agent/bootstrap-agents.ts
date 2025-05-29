@@ -86,17 +86,6 @@ async function createAgentInstance(dbAgent: AgentMemoryEntity): Promise<AgentBas
     name: dbAgent.name || 'Unnamed Agent',
     description: dbAgent.description || '',
     
-    // Enable all managers
-    enableMemoryManager: true,
-    enablePlanningManager: true,
-    enableToolManager: true,
-    enableKnowledgeManager: true,
-    enableSchedulerManager: true,
-    enableInputProcessor: true,
-    enableOutputProcessor: true,
-    enableResourceTracking: true,
-    enableReflectionManager: true,
-    
     // Use enhanced managers
     useEnhancedMemory: true,
     useEnhancedReflection: true,
@@ -120,6 +109,15 @@ async function createAgentInstance(dbAgent: AgentMemoryEntity): Promise<AgentBas
     
     // Clean slate component configurations
     componentsConfig: {
+      // Manager configurations
+      memoryManager: { enabled: true },
+      planningManager: { enabled: true },
+      toolManager: { enabled: true },
+      knowledgeManager: { enabled: true },
+      schedulerManager: { enabled: true },
+      reflectionManager: { enabled: true },
+      
+      // Component configurations
       initializer: {
         enabled: true,
         timeoutMs: 60000

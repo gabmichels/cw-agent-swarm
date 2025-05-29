@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
-import { DefaultAgent } from './DefaultAgent';
+import { DefaultAgent } from '@/agents/shared/DefaultAgent';
 import { AgentCapability as ApiAgentCapability, AgentProfile } from '@/lib/multi-agent/types/agent';
 import { AgentMemoryEntity, AgentCapability as DbAgentCapability, AgentTool, AgentStatus } from '@/server/memory/schema/agent';
 import { IdGenerator } from '@/utils/ulid';
@@ -199,27 +199,12 @@ export class AgentFactory {
       agentId: agentId.toString(), // Try both ways
       _id: agentId.toString(), // Try all possible property names
       ...agentData as any,
-      enableMemoryManager: true,
-      enablePlanningManager: true,
-      enableKnowledgeManager: true,
-      enableToolManager: true,
-      enableSchedulerManager: true,
-      managersConfig: {
-        memoryManager: {
-          enabled: true
-        },
-        planningManager: {
-          enabled: true
-        },
-        knowledgeManager: {
-          enabled: true
-        },
-        toolManager: {
-          enabled: true
-        },
-        schedulerManager: {
-          enabled: true
-        }
+      componentsConfig: {
+        memoryManager: { enabled: true },
+        planningManager: { enabled: true },
+        knowledgeManager: { enabled: true },
+        toolManager: { enabled: true },
+        schedulerManager: { enabled: true }
       }
     });
     
@@ -242,27 +227,12 @@ export class AgentFactory {
     // Create the DefaultAgent with the entity data
     const agent = new DefaultAgent({
       ...entity as any,
-      enableMemoryManager: true,
-      enablePlanningManager: true,
-      enableKnowledgeManager: true,
-      enableToolManager: true,
-      enableSchedulerManager: true,
-      managersConfig: {
-        memoryManager: {
-          enabled: true
-        },
-        planningManager: {
-          enabled: true
-        },
-        knowledgeManager: {
-          enabled: true
-        },
-        toolManager: {
-          enabled: true
-        },
-        schedulerManager: {
-          enabled: true
-        }
+      componentsConfig: {
+        memoryManager: { enabled: true },
+        planningManager: { enabled: true },
+        knowledgeManager: { enabled: true },
+        toolManager: { enabled: true },
+        schedulerManager: { enabled: true }
       }
     });
     

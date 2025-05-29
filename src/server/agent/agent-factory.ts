@@ -29,32 +29,30 @@ export class CustomAgentFactory {
     logger.debug(`Creating agent from database entity with ID: ${agentId}`);
     
     // Create the agent from the entity
-    const agent = new DefaultAgent({
-      ...entityCopy as any,
+    const config = {
       id: agentId,
-      enableMemoryManager: true,
-      enablePlanningManager: true,
-      enableKnowledgeManager: true,
-      enableToolManager: true,
-      enableSchedulerManager: true,
-      managersConfig: {
-        memoryManager: {
-          enabled: true
-        },
-        planningManager: {
-          enabled: true
-        },
-        knowledgeManager: {
-          enabled: true
-        },
-        toolManager: {
-          enabled: true
-        },
-        schedulerManager: {
-          enabled: true
-        }
-      }
-    });
+      name: entityCopy.name,
+      description: entityCopy.description,
+      type: entityCopy.type || 'default',
+      
+      // Manager configurations using new pattern
+      componentsConfig: {
+        memoryManager: { enabled: true },
+        planningManager: { enabled: true },
+        toolManager: { enabled: true },
+        schedulerManager: { enabled: true },
+        reflectionManager: { enabled: true },
+        knowledgeManager: { enabled: true }
+      },
+      
+      // Use enhanced managers
+      useEnhancedMemory: true,
+      useEnhancedReflection: true,
+      
+      ...entityCopy.parameters
+    };
+    
+    const agent = new DefaultAgent(config);
     
     // Verify ID is set correctly
     if (agent.getAgentId() !== agentId) {

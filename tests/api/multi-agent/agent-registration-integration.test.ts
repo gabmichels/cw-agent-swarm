@@ -300,9 +300,65 @@ vi.mock('@/server/memory/services', () => {
     })
   };
 
+  // Create a mock memory service that the capability service expects
+  const mockMemoryService = {
+    addMemory: vi.fn().mockResolvedValue({ success: true, id: 'test-memory-id' }),
+    getMemory: vi.fn().mockImplementation((params: { id: string }) => {
+      // Match capability id to return the correct capability
+      const capabilityId = params.id;
+      if (capabilityId && testCapabilities[capabilityId]) {
+        return Promise.resolve({ 
+          id: capabilityId,
+          payload: { 
+            metadata: { 
+              ...testCapabilities[capabilityId],
+              createdAt: new Date(),
+              updatedAt: new Date(),
+              schemaVersion: '1.0',
+              metadata: {},
+              content: '',
+              tags: [],
+              domains: []
+            } 
+          }
+        });
+      }
+      
+      // Default response
+      return Promise.resolve({ 
+        id: 'test-memory-id',
+        payload: { 
+          metadata: { 
+            id: 'test-capability-id',
+            name: 'Test Capability',
+            description: 'Test capability description',
+            type: 'skill',
+            version: '1.0.0'
+          } 
+        }
+      });
+    }),
+    updateMemory: vi.fn().mockResolvedValue(true),
+    deleteMemory: vi.fn().mockResolvedValue(true),
+    searchMemories: vi.fn().mockResolvedValue([
+      {
+        id: 'test-memory-id',
+        payload: { 
+          metadata: { 
+            id: 'test-capability-id',
+            name: 'Test Capability',
+            description: 'Test capability description',
+            type: 'skill'
+          } 
+        }
+      }
+    ])
+  };
+
   return {
     getMemoryServices: vi.fn().mockResolvedValue({
-      client: mockMemoryClient
+      client: mockMemoryClient,
+      memoryService: mockMemoryService
     })
   };
 });

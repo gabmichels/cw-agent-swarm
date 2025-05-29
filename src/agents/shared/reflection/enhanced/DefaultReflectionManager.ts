@@ -363,7 +363,12 @@ export class DefaultReflectionManager {
 
   async applyOutcomeToBehavior(outcomeId: string, confidence: number): Promise<LearningOutcome> {
     return this.executeOperation('applyOutcome', async () => {
+      // First update the confidence
+      await this.outcomeManager.updateOutcome(outcomeId, { confidence });
+      
+      // Then apply to behavior
       await this.outcomeManager.applyOutcomesToBehavior([outcomeId]);
+      
       const outcome = await this.outcomeManager.getOutcome(outcomeId);
       if (!outcome) {
         throw new LearningActivityError('Outcome not found after applying to behavior', 'OUTCOME_NOT_FOUND', { outcomeId });

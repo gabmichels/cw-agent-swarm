@@ -41,21 +41,16 @@ const TEST_TIMEOUT = 60000; // 60 seconds
 const EXTENDED_TEST_TIMEOUT = 180000; // 3 minutes
 
 // Helper function to create a test agent with specific configurations
-const createTestAgent = (options: {
-  enableMemoryManager?: boolean;
-  enableToolManager?: boolean;
-  enableSchedulerManager?: boolean;
-  enablePlanningManager?: boolean;
-  enableReflectionManager?: boolean;
-} = {}) => {
+const createTestAgent = (componentsConfig: Record<string, any> = {}) => {
   const agent = new DefaultAgent({
     name: "KnowledgeGraphTester",
     componentsConfig: {
-      memoryManager: { enabled: options.enableMemoryManager ?? true },
-      toolManager: { enabled: options.enableToolManager ?? true },
-      planningManager: { enabled: options.enablePlanningManager ?? false },
-      schedulerManager: { enabled: options.enableSchedulerManager ?? false },
-      reflectionManager: { enabled: options.enableReflectionManager ?? false }
+      memoryManager: { enabled: true },
+      toolManager: { enabled: true },
+      planningManager: { enabled: false },
+      schedulerManager: { enabled: false },
+      reflectionManager: { enabled: false },
+      ...componentsConfig
     }
   });
   
@@ -90,8 +85,8 @@ describe('Knowledge Graph Usage Tests', () => {
     
     // Create a fresh agent for each test
     agent = createTestAgent({
-      enableMemoryManager: true,
-      enableToolManager: true
+      memoryManager: { enabled: true },
+      toolManager: { enabled: true }
     });
     
     await agent.initialize();

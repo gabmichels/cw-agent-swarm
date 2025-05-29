@@ -164,7 +164,10 @@ describe('DefaultReflectionManager', () => {
       };
 
       const plan = await manager.createImprovementPlan(planData);
-      
+
+      // Add a small delay to ensure timestamp difference
+      await new Promise(resolve => setTimeout(resolve, 2));
+
       const updates = {
         name: 'Updated Plan',
         description: 'Updated description',
@@ -173,7 +176,7 @@ describe('DefaultReflectionManager', () => {
       };
 
       const updatedPlan = await manager.updateImprovementPlan(plan.id, updates);
-      
+
       expect(updatedPlan.name).toBe(updates.name);
       expect(updatedPlan.description).toBe(updates.description);
       expect(updatedPlan.priority).toBe(updates.priority);
@@ -664,13 +667,14 @@ describe('DefaultReflectionManager', () => {
         interval: 604800000, // 1 week
         enabled: true,
         reflectionType: 'progress_review',
-        triggerConditions: [`plan:${testPlan.id}`],
+        triggerConditions: [`plan:${testPlan.id}`, 'weekly_progress'],
         analysisDepth: 'detailed' as const
       };
 
       const schedule = await manager.schedulePeriodicReflection('weekly', { 
         name: scheduleConfig.name,
-        depth: 'standard' as const
+        depth: 'detailed' as const,
+        triggerConditions: scheduleConfig.triggerConditions
       });
       
       expect(schedule).toBeDefined();
@@ -679,76 +683,78 @@ describe('DefaultReflectionManager', () => {
 
     it('should retrieve reflection schedule', async () => {
       const scheduleConfig = {
-        name: `Daily Reflection for ${testPlan.id}`,
-        description: 'Daily reflection schedule',
-        frequency: ScheduleFrequency.DAILY,
-        interval: 86400000, // 1 day
+        name: 'daily',
+        description: 'Daily Reflection for ' + testPlan.id,
+        frequency: ScheduleFrequency.WEEKLY,
+        interval: 604800000,
         enabled: true,
-        reflectionType: 'daily_review',
-        triggerConditions: [`plan:${testPlan.id}`],
+        reflectionType: 'standard',
+        triggerConditions: [`plan:${testPlan.id}`, 'daily_check'],
         analysisDepth: 'basic' as const
       };
 
-      const createdSchedule = await manager.schedulePeriodicReflection('daily', {
+      const created = await manager.schedulePeriodicReflection('daily', {
         name: scheduleConfig.name,
-        depth: 'light' as const
+        depth: 'basic' as const,
+        triggerConditions: scheduleConfig.triggerConditions
       });
-      const retrievedSchedule = await manager.getReflectionSchedule(createdSchedule.id);
       
-      expect(retrievedSchedule).toBeDefined();
-      expect(retrievedSchedule!.id).toBe(createdSchedule.id);
+      const retrieved = await manager.getReflectionSchedule(created.id);
+      
+      expect(retrieved).toBeDefined();
+      expect(retrieved!.id).toBe(created.id);
     });
 
     it('should update reflection schedule', async () => {
       const schedule = await manager.schedulePeriodicReflection('weekly', {
         name: 'Test Schedule',
-        depth: 'standard' as const
+        depth: 'detailed' as const,
+        triggerConditions: [`plan:${testPlan.id}`, 'test_trigger']
       });
       
-      const updates = {
-        frequency: ScheduleFrequency.DAILY,
-        interval: 86400000,
-        enabled: false
-      };
-
-      const updatedSchedule = await manager.updateReflectionSchedule(schedule.id, updates);
+      const updated = await manager.updateReflectionSchedule(schedule.id, {
+        description: 'Updated description',
+        triggerConditions: [`plan:${testPlan.id}`, 'updated_trigger'],
+        analysisDepth: 'comprehensive' as const
+      });
       
-      expect(updatedSchedule.frequency).toBe(updates.frequency);
-      expect(updatedSchedule.enabled).toBe(updates.enabled);
+      expect(updated.description).toBe('Updated description');
+      expect(updated.analysisDepth).toBe('comprehensive');
     });
 
     it('should cancel reflection schedule', async () => {
       const schedule = await manager.schedulePeriodicReflection('weekly', {
         name: 'Schedule to Cancel',
-        depth: 'standard' as const
+        depth: 'detailed' as const,
+        triggerConditions: [`plan:${testPlan.id}`, 'cancel_test']
       });
       
       const cancelled = await manager.cancelReflectionSchedule(schedule.id);
+      
       expect(cancelled).toBe(true);
       
-      const retrievedSchedule = await manager.getReflectionSchedule(schedule.id);
-      expect(retrievedSchedule).toBeNull();
+      const retrieved = await manager.getReflectionSchedule(schedule.id);
+      expect(retrieved).toBeNull();
     });
 
     it('should list reflection schedules', async () => {
-      await manager.schedulePeriodicReflection('daily', {
+      await manager.schedulePeriodicReflection('Daily Schedule', {
         name: 'Daily Schedule',
-        depth: 'light' as const
+        depth: 'basic' as const,
+        triggerConditions: [`plan:${testPlan.id}`, 'daily_list']
       });
-
-      await manager.schedulePeriodicReflection('weekly', {
+      
+      await manager.schedulePeriodicReflection('Weekly Schedule', {
         name: 'Weekly Schedule',
-        depth: 'standard' as const
+        depth: 'detailed' as const,
+        triggerConditions: [`plan:${testPlan.id}`, 'weekly_list']
       });
       
-      const allSchedules = await manager.listReflectionSchedules();
-      expect(allSchedules.length).toBeGreaterThanOrEqual(2);
+      const schedules = await manager.listReflectionSchedules();
       
-      const activeSchedules = await manager.listReflectionSchedules({ active: true });
-      expect(Array.isArray(activeSchedules)).toBe(true);
-      
-      const dailySchedules = await manager.listReflectionSchedules({ frequency: 'daily' });
-      expect(Array.isArray(dailySchedules)).toBe(true);
+      expect(schedules.length).toBeGreaterThanOrEqual(2);
+      expect(schedules.some(s => s.name === 'Daily Schedule')).toBe(true);
+      expect(schedules.some(s => s.name === 'Weekly Schedule')).toBe(true);
     });
 
     it('should get due reflections', async () => {

@@ -45,21 +45,16 @@ const TEST_TIMEOUT = 60000; // 60 seconds
 const EXTENDED_TEST_TIMEOUT = 240000; // 4 minutes
 
 // Helper function to create a test agent with specific configurations
-const createTestAgent = (options: {
-  enableMemoryManager?: boolean;
-  enableToolManager?: boolean;
-  enableSchedulerManager?: boolean;
-  enableReflectionManager?: boolean;
-  enablePlanningManager?: boolean;
-} = {}) => {
+const createTestAgent = (componentsConfig: Record<string, any> = {}) => {
   const agent = new DefaultAgent({
     name: "ReflectionTester",
     componentsConfig: {
-      memoryManager: { enabled: options.enableMemoryManager ?? true },
-      toolManager: { enabled: options.enableToolManager ?? true },
-      planningManager: { enabled: options.enablePlanningManager ?? true },
-      schedulerManager: { enabled: options.enableSchedulerManager ?? false },
-      reflectionManager: { enabled: options.enableReflectionManager ?? true }
+      memoryManager: { enabled: true },
+      toolManager: { enabled: true },
+      planningManager: { enabled: true },
+      schedulerManager: { enabled: false },
+      reflectionManager: { enabled: true },
+      ...componentsConfig
     }
   });
   
@@ -78,10 +73,10 @@ describe('Reflection-Driven Improvement Tests', () => {
     
     // Create a fresh agent for each test
     agent = createTestAgent({
-      enableMemoryManager: true,
-      enableReflectionManager: true,
-      enableToolManager: true,
-      enablePlanningManager: true
+      memoryManager: { enabled: true },
+      reflectionManager: { enabled: true },
+      toolManager: { enabled: true },
+      planningManager: { enabled: true }
     });
     
     await agent.initialize();

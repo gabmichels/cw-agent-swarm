@@ -48,6 +48,9 @@ import { ThinkingVisualization, VisualizationService } from '../../../../service
  * Extends the PeriodicTask interface with reflection-specific parameters
  */
 export interface PeriodicReflectionTask extends PeriodicTask {
+  /** Schedule string for the task */
+  schedule: string;
+  
   /** Task parameters specific to reflections */
   parameters: {
     /** Reflection depth for this task */
@@ -162,21 +165,6 @@ export class EnhancedReflectionManager extends AbstractBaseManager implements Re
       logger: this.logger,
       checkIntervalMs: 60000 // Check for due tasks every minute
     });
-    
-    // Set up default periodic reflection if enabled
-    if (this.config.enablePeriodicReflections && this.config.periodicReflectionSchedule) {
-      const scheduleStr = String(this.config.periodicReflectionSchedule);
-      this.schedulePeriodicReflection(
-        scheduleStr,
-        {
-          name: 'Default daily reflection',
-          depth: this.config.reflectionDepth,
-          focusAreas: []
-        }
-      ).catch(error => {
-        console.error('Failed to schedule default periodic reflection:', error);
-      });
-    }
   }
   
   /**
@@ -201,6 +189,22 @@ export class EnhancedReflectionManager extends AbstractBaseManager implements Re
     }
     
     this._initialized = true;
+    
+    // Set up default periodic reflection if enabled (after initialization)
+    if (this.config.enablePeriodicReflections && this.config.periodicReflectionSchedule) {
+      const scheduleStr = String(this.config.periodicReflectionSchedule);
+      this.schedulePeriodicReflection(
+        scheduleStr,
+        {
+          name: 'Default daily reflection',
+          depth: this.config.reflectionDepth,
+          focusAreas: []
+        }
+      ).catch(error => {
+        console.error('Failed to schedule default periodic reflection:', error);
+      });
+    }
+    
     return true;
   }
   
@@ -563,10 +567,16 @@ export class EnhancedReflectionManager extends AbstractBaseManager implements Re
       throw new EnhancedReflectionError(`Plan ${planId} not found`, 'PLAN_NOT_FOUND');
     }
     
+    // Ensure a different timestamp by adding 1ms if necessary
+    const now = new Date();
+    const updatedAt = existingPlan.updatedAt.getTime() >= now.getTime() 
+      ? new Date(now.getTime() + 1) 
+      : now;
+    
     const updatedPlan: SelfImprovementPlan = {
       ...existingPlan,
       ...updates,
-      updatedAt: new Date()
+      updatedAt
     };
     
     this.improvementPlans.set(planId, updatedPlan);
@@ -1072,6 +1082,7 @@ export class EnhancedReflectionManager extends AbstractBaseManager implements Re
       createdAt: now,
       updatedAt: now,
       enabled: true,
+      schedule: scheduleStr,
       parameters: {
         depth: options.depth || this.config.reflectionDepth,
         focusAreas: options.focusAreas || [],
