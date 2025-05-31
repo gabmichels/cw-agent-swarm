@@ -28,7 +28,7 @@ describe('DefaultAgent Integration Tests', () => {
     process.env = {
       ...originalEnv,
       OPENAI_API_KEY: 'test-key',
-      OPENAI_MODEL_NAME: 'gpt-4',
+      OPENAI_MODEL_NAME: 'gpt-4.1-2025-04-14',
       OPENAI_MAX_TOKENS: '1000'
     };
   });

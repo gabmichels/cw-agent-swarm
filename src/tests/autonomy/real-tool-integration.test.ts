@@ -94,7 +94,7 @@ if (availableOptionalKeys.length > 0) {
 const createTestAgent = (customConfig = {}): DefaultAgent => {
   // Create a standard configuration for testing
   const config = {
-    modelName: process.env.OPENAI_MODEL_NAME || 'gpt-4o',
+    modelName: process.env.OPENAI_MODEL_NAME || 'gpt-4.1-2025-04-14',
     temperature: 0.7,
     maxTokens: 4000,
     adaptiveBehavior: true,
@@ -287,7 +287,7 @@ describe('DefaultAgent Real Tool Integration Tests', () => {
       response.content.includes('OpenAI') ||
       response.content.includes('GPT') ||
       response.content.includes('model') ||
-      response.content.toLowerCase().includes('gpt-4') ||
+      response.content.toLowerCase().includes('gpt-4.1-2025-04-14') ||
       response.content.toLowerCase().includes('gpt-3');
     
     expect(hasSearchResults).toBe(true);
