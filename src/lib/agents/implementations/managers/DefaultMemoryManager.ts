@@ -3,12 +3,16 @@
  * 
  * This file provides the base memory manager implementation with support for:
  * - Basic memory operations (CRUD)
- * - Memory isolation between agents
  * - Memory versioning
  * - Memory pruning and consolidation
+ * 
+ * Following @IMPLEMENTATION_GUIDELINES.md:
+ * - Clean break from legacy patterns
+ * - No placeholder implementations
+ * - Industry best practices with ULID IDs
  */
 
-import { v4 as uuidv4 } from 'uuid';
+import { ulid } from 'ulid';
 import { 
   MemoryManager, 
   MemoryManagerConfig,
@@ -17,23 +21,14 @@ import {
   MemoryConsolidationResult,
   MemoryPruningResult
 } from '../../../../agents/shared/base/managers/MemoryManager.interface';
-import { AgentBase } from '../../../../agents/shared/base/AgentBase.interface';
-import { AbstractBaseManager } from '../../../../agents/shared/base/managers/BaseManager';
+import { AgentBase } from '../../../../agents/shared/base/AgentBase';
 import { ManagerType } from '../../../../agents/shared/base/managers/ManagerType';
 import { ManagerHealth } from '../../../../agents/shared/base/managers/ManagerHealth';
-import { 
-  MemoryIsolationManager,
-  DEFAULT_MEMORY_ISOLATION_CONFIG,
-  MemoryIsolationConfig 
-} from '../../../../agents/shared/memory/MemoryIsolationManager';
-import {
-  MemoryScope,
-  MemoryAccessLevel,
-  MemoryPermission
-} from '../../../../agents/shared/memory/MemoryScope';
+import { ManagerConfig } from '../../../../agents/shared/base/managers/BaseManager';
 
 // Import memory services
 import { getMemoryServices } from '../../../../server/memory/services';
+import { ImportanceLevel } from '../../../../constants/memory';
 
 /**
  * Memory service interface for external connections
@@ -64,24 +59,24 @@ export interface MemoryService {
  */
 export interface DefaultMemoryManagerConfig extends MemoryManagerConfig {
   /**
-   * Isolation-specific configuration
+   * Whether this manager is enabled (required by BaseManager)
    */
-  isolation?: Partial<MemoryIsolationConfig>;
+  enabled: boolean;
   
   /**
-   * Whether to create a private scope for the agent
+   * Auto-pruning configuration
    */
-  createPrivateScope?: boolean;
+  enableAutoPruning?: boolean;
+  pruningIntervalMs?: number;
+  relevanceThreshold?: number;
   
   /**
-   * Default scope name for the agent
+   * Auto-consolidation configuration
    */
-  defaultScopeName?: string;
-  
-  /**
-   * Memory types allowed in the agent's scopes
-   */
-  allowedMemoryTypes?: string[];
+  enableAutoConsolidation?: boolean;
+  consolidationIntervalMs?: number;
+  minMemoriesForConsolidation?: number;
+  forgetSourceMemoriesAfterConsolidation?: boolean;
 }
 
 /**
@@ -91,14 +86,11 @@ export const DEFAULT_MEMORY_MANAGER_CONFIG: DefaultMemoryManagerConfig = {
   enabled: true,
   enableAutoPruning: true,
   pruningIntervalMs: 300000, // 5 minutes
-  maxShortTermEntries: 100,
   relevanceThreshold: 0.2,
   enableAutoConsolidation: true,
   consolidationIntervalMs: 600000, // 10 minutes
   minMemoriesForConsolidation: 5,
-  forgetSourceMemoriesAfterConsolidation: false,
-  createPrivateScope: true,
-  defaultScopeName: 'private'
+  forgetSourceMemoriesAfterConsolidation: false
 };
 
 /**
@@ -118,26 +110,15 @@ export class MemoryError extends Error {
 /**
  * Default implementation of the MemoryManager interface
  */
-export class DefaultMemoryManager extends AbstractBaseManager implements MemoryManager {
+export class DefaultMemoryManager implements MemoryManager {
+  public readonly managerId: string;
+  public readonly managerType: ManagerType = ManagerType.MEMORY;
+  
   protected memories: Map<string, MemoryEntry> = new Map();
   protected pruningTimer: NodeJS.Timeout | null = null;
   protected consolidationTimer: NodeJS.Timeout | null = null;
   protected _config: DefaultMemoryManagerConfig;
-  
-  /**
-   * Memory isolation manager
-   */
-  protected isolationManager: MemoryIsolationManager;
-  
-  /**
-   * Agent-specific private scope
-   */
-  protected privateScope?: MemoryScope;
-  
-  /**
-   * Default shared scope for cross-agent communication
-   */
-  protected sharedScope?: MemoryScope;
+  protected _initialized: boolean = false;
   
   /**
    * Create a new DefaultMemoryManager instance
@@ -145,29 +126,60 @@ export class DefaultMemoryManager extends AbstractBaseManager implements MemoryM
    * @param agent - The agent this manager belongs to
    * @param config - Configuration options
    */
-  constructor(agent: AgentBase, config: Partial<DefaultMemoryManagerConfig> = {}) {
-    super(
-      `memory-manager-${uuidv4()}`,
-      ManagerType.MEMORY,
-      agent,
-      { enabled: true }
-    );
+  constructor(
+    protected agent: AgentBase,
+    config: Partial<DefaultMemoryManagerConfig> = {}
+  ) {
+    this.managerId = `memory-manager-${ulid()}`;
     
-    // Merge defaults with provided config
     this._config = {
       ...DEFAULT_MEMORY_MANAGER_CONFIG,
       ...config
-    } as DefaultMemoryManagerConfig;
-    
-    // Create isolation manager
-    this.isolationManager = new MemoryIsolationManager(
-      this._config.isolation || DEFAULT_MEMORY_ISOLATION_CONFIG
-    );
+    };
+  }
+
+  /**
+   * Get the agent this manager belongs to
+   */
+  getAgent(): AgentBase {
+    return this.agent;
+  }
+
+  /**
+   * Get the current configuration
+   */
+  getConfig<T extends ManagerConfig>(): T {
+    return { ...this._config } as T;
+  }
+
+  /**
+   * Update the configuration
+   */
+  updateConfig<T extends ManagerConfig>(config: Partial<T>): T {
+    this._config = {
+      ...this._config,
+      ...config
+    };
+    return this._config as T;
+  }
+
+  /**
+   * Check if the manager is enabled
+   */
+  isEnabled(): boolean {
+    return this._config.enabled;
+  }
+
+  /**
+   * Enable or disable the manager
+   */
+  setEnabled(enabled: boolean): boolean {
+    this._config.enabled = enabled;
+    return enabled;
   }
 
   /**
    * Get memory service for external interactions
-   * This provides access to the server memory services for other managers
    */
   async getMemoryService(): Promise<MemoryService> {
     try {
@@ -258,21 +270,11 @@ export class DefaultMemoryManager extends AbstractBaseManager implements MemoryM
       throw new MemoryError('Memory manager not initialized', 'NOT_INITIALIZED');
     }
 
-    // Get memories from accessible scopes
-    const accessibleScopes = this.isolationManager.getScopesForAgent(
-      this.getAgent().getAgentId()
-    );
-
-    // Get memories from accessible scopes
-    const accessibleMemories = Array.from(this.memories.values()).filter(memory => {
-      const memoryScope = accessibleScopes.find(
-        scope => scope.scopeId.id === memory.metadata.scopeId
-      );
-      return memoryScope !== undefined;
-    });
+    // Get all memories and sort by creation date
+    const allMemories = Array.from(this.memories.values());
 
     // Sort by creation date
-    return accessibleMemories
+    return allMemories
       .sort((a, b) => {
         const aDate = new Date(a.metadata.createdAt as string);
         const bDate = new Date(b.metadata.createdAt as string);
@@ -291,29 +293,6 @@ export class DefaultMemoryManager extends AbstractBaseManager implements MemoryM
 
     try {
       console.log(`[${this.managerId}] Initializing ${this.managerType} manager`);
-      
-      // Create private scope for the agent if enabled
-      if (this._config.createPrivateScope) {
-        this.privateScope = this.isolationManager.createScope({
-          name: this._config.defaultScopeName || 'private',
-          description: `Private memory space for agent ${this.getAgent().getAgentId()}`,
-          accessLevel: MemoryAccessLevel.PRIVATE,
-          ownerAgentId: this.getAgent().getAgentId(),
-          allowedMemoryTypes: this._config.allowedMemoryTypes
-        });
-        
-        console.log(`Created private scope for agent ${this.getAgent().getAgentId()}: ${this.privateScope.scopeId.id}`);
-      }
-      
-      // Locate shared scope
-      const scopes = this.isolationManager.getScopesForAgent(this.getAgent().getAgentId());
-      this.sharedScope = scopes.find(s => s.accessPolicy.accessLevel === MemoryAccessLevel.PUBLIC);
-      
-      if (this.sharedScope) {
-        console.log(`Found shared scope: ${this.sharedScope.scopeId.id}`);
-      } else {
-        console.warn('No shared scope available');
-      }
       
       // Setup auto-pruning if enabled
       if (this._config.enableAutoPruning) {
@@ -373,15 +352,7 @@ export class DefaultMemoryManager extends AbstractBaseManager implements MemoryM
         lastCheck: new Date(),
         issues: [],
         metrics: {
-          totalMemories: this.memories.size,
-          privateMemories: this.privateScope ? 
-            Array.from(this.memories.values()).filter(
-              m => m.metadata.scopeId === this.privateScope!.scopeId.id
-            ).length : 0,
-          sharedMemories: this.sharedScope ?
-            Array.from(this.memories.values()).filter(
-              m => m.metadata.scopeId === this.sharedScope!.scopeId.id
-            ).length : 0
+          totalMemories: this.memories.size
         }
       }
     };
@@ -394,8 +365,7 @@ export class DefaultMemoryManager extends AbstractBaseManager implements MemoryM
    */
   async storeMemory(
     content: string,
-    metadata: Record<string, unknown> = {},
-    scope: MemoryScope = this.privateScope!
+    metadata: Record<string, unknown> = {}
   ): Promise<MemoryEntry> {
     if (!this._initialized) {
       throw new MemoryError('Memory manager not initialized', 'NOT_INITIALIZED');
@@ -403,13 +373,12 @@ export class DefaultMemoryManager extends AbstractBaseManager implements MemoryM
 
     const now = new Date();
     const memory: MemoryEntry = {
-      id: uuidv4(),
+      id: ulid(), // Use ULID instead of UUID
       content,
       metadata: {
         ...metadata,
         createdAt: now.toISOString(),
-        createdBy: this.getAgent().getAgentId(),
-        scopeId: scope.scopeId.id
+        createdBy: this.agent.getAgentId()
       },
       createdAt: now,
       lastAccessedAt: now,
@@ -418,20 +387,6 @@ export class DefaultMemoryManager extends AbstractBaseManager implements MemoryM
 
     // Store in memory map
     this.memories.set(memory.id, memory);
-
-    // Store in isolation scope
-    const accessResult = this.isolationManager.checkAccess(
-      this.getAgent().getAgentId(),
-      scope.scopeId.id,
-      MemoryPermission.WRITE
-    );
-
-    if (!accessResult.granted) {
-      throw new MemoryError(
-        `Agent ${this.getAgent().getAgentId()} does not have write access to scope ${scope.scopeId.id}`,
-        'PERMISSION_DENIED'
-      );
-    }
 
     return memory;
   }
@@ -461,26 +416,16 @@ export class DefaultMemoryManager extends AbstractBaseManager implements MemoryM
     // Validate query - normalize empty or undefined queries
     const normalizedQuery = query?.trim() || '';
     
-    // Get accessible scopes for the agent
-    const accessibleScopes = this.isolationManager.getScopesForAgent(
-      this.getAgent().getAgentId()
-    );
-
-    // Get memories from accessible scopes
-    const accessibleMemories = Array.from(this.memories.values()).filter(memory => {
-      const memoryScope = accessibleScopes.find(
-        scope => scope.scopeId.id === memory.metadata.scopeId
-      );
-      return memoryScope !== undefined;
-    });
+    // Get all memories
+    const allMemories = Array.from(this.memories.values());
 
     // Apply search criteria based on query presence
-    let results = accessibleMemories;
+    let results = allMemories;
     
     // Only apply semantic search if we have a non-empty query
     if (normalizedQuery.length > 0) {
       // Apply search criteria (simple implementation - would use embeddings in production)
-      results = accessibleMemories.filter(memory => {
+      results = allMemories.filter(memory => {
         const content = memory.content.toLowerCase();
         const searchTerms = normalizedQuery.toLowerCase().split(' ');
         return searchTerms.every(term => content.includes(term));
@@ -528,7 +473,7 @@ export class DefaultMemoryManager extends AbstractBaseManager implements MemoryM
       query: normalizedQuery,
       options,
       resultCount: results.length,
-      agentId: this.getAgent().getAgentId(),
+      agentId: this.agent.getAgentId(),
       isEmpty: normalizedQuery.length === 0
     };
     
@@ -556,25 +501,6 @@ export class DefaultMemoryManager extends AbstractBaseManager implements MemoryM
       throw new MemoryError(`Memory ${id} not found`, 'MEMORY_NOT_FOUND');
     }
 
-    // Check access permissions
-    const memoryScope = this.isolationManager.getScope(memory.metadata.scopeId as string);
-    if (!memoryScope) {
-      throw new MemoryError(`Scope not found for memory ${id}`, 'SCOPE_NOT_FOUND');
-    }
-
-    const accessResult = this.isolationManager.checkAccess(
-      this.getAgent().getAgentId(),
-      memoryScope.scopeId.id,
-      MemoryPermission.WRITE
-    );
-
-    if (!accessResult.granted) {
-      throw new MemoryError(
-        `Agent ${this.getAgent().getAgentId()} does not have write access to memory ${id}`,
-        'PERMISSION_DENIED'
-      );
-    }
-
     // Update memory
     const updatedMemory = {
       ...memory,
@@ -583,7 +509,7 @@ export class DefaultMemoryManager extends AbstractBaseManager implements MemoryM
         ...memory.metadata,
         ...updates.metadata,
         updatedAt: new Date().toISOString(),
-        updatedBy: this.getAgent().getAgentId()
+        updatedBy: this.agent.getAgentId()
       }
     };
 
@@ -603,25 +529,6 @@ export class DefaultMemoryManager extends AbstractBaseManager implements MemoryM
     const memory = await this.getMemory(id);
     if (!memory) {
       return false;
-    }
-
-    // Check access permissions
-    const memoryScope = this.isolationManager.getScope(memory.metadata.scopeId as string);
-    if (!memoryScope) {
-      throw new MemoryError(`Scope not found for memory ${id}`, 'SCOPE_NOT_FOUND');
-    }
-
-    const accessResult = this.isolationManager.checkAccess(
-      this.getAgent().getAgentId(),
-      memoryScope.scopeId.id,
-      MemoryPermission.WRITE
-    );
-
-    if (!accessResult.granted) {
-      throw new MemoryError(
-        `Agent ${this.getAgent().getAgentId()} does not have write access to memory ${id}`,
-        'PERMISSION_DENIED'
-      );
     }
 
     // Remove from memory map
@@ -691,26 +598,21 @@ export class DefaultMemoryManager extends AbstractBaseManager implements MemoryM
     let prunedCount = 0;
 
     try {
-      // Get memories from private scope
-      if (this.privateScope) {
-        const privateMemories = Array.from(this.memories.values()).filter(
-          memory => memory.metadata.scopeId === this.privateScope!.scopeId.id
-        );
+      const allMemories = Array.from(this.memories.values());
 
-        // Prune based on age and relevance
-        for (const memory of privateMemories) {
-          try {
-            const age = Date.now() - memory.createdAt.getTime();
-            const relevance = memory.metadata.relevance as number || 0.5;
+      // Prune based on age and relevance
+      for (const memory of allMemories) {
+        try {
+          const age = Date.now() - memory.createdAt.getTime();
+          const relevance = memory.metadata.relevance as number || 0.5;
 
-            // Prune if old and low relevance
-            if (age > 24 * 60 * 60 * 1000 && relevance < this._config.relevanceThreshold!) {
-              await this.deleteMemory(memory.id);
-              prunedCount++;
-            }
-          } catch (error) {
-            console.error(`Error pruning memory ${memory.id}:`, error);
+          // Prune if old and low relevance
+          if (age > 24 * 60 * 60 * 1000 && relevance < this._config.relevanceThreshold!) {
+            await this.deleteMemory(memory.id);
+            prunedCount++;
           }
+        } catch (error) {
+          console.error(`Error pruning memory ${memory.id}:`, error);
         }
       }
 
@@ -745,7 +647,7 @@ export class DefaultMemoryManager extends AbstractBaseManager implements MemoryM
     }
 
     // Generate a new request ID for memory consolidation process
-    const requestId = require('../../../../utils/request-utils').generateRequestId();
+    const requestId = this.generateRequestId();
     
     // Create visualization node if visualization is enabled
     let consolidationNodeId: string | undefined;
@@ -760,7 +662,7 @@ export class DefaultMemoryManager extends AbstractBaseManager implements MemoryM
           'memory_consolidation',
           'Memory Consolidation Process',
           {
-            agentId: this.getAgent().getAgentId(),
+            agentId: this.agent.getAgentId(),
             minMemoriesForConsolidation: this._config.minMemoriesForConsolidation,
             forgetSourceMemories: this._config.forgetSourceMemoriesAfterConsolidation,
             timestamp: Date.now(),
@@ -791,204 +693,199 @@ export class DefaultMemoryManager extends AbstractBaseManager implements MemoryM
     }> = [];
 
     try {
-      // Get memories from private scope
-      if (this.privateScope) {
-        const privateMemories = Array.from(this.memories.values()).filter(
-          memory => memory.metadata.scopeId === this.privateScope!.scopeId.id
-        );
+      const allMemories = Array.from(this.memories.values());
 
-        // Update visualization with scanning info if available
-        if (visualizationContext && consolidationNodeId) {
-          try {
-            visualizationContext.visualizer.updateNode(
-              visualizationContext.visualization,
-              consolidationNodeId,
-              {
-                data: {
-                  status: 'scanning',
-                  totalMemories: privateMemories.length,
-                  timestamp: Date.now()
-                }
-              }
-            );
-          } catch (error) {
-            console.error('Error updating memory consolidation visualization:', error);
-          }
-        }
-
-        // Group related memories (simple implementation - would use embeddings in production)
-        const groups = new Map<string, MemoryEntry[]>();
-        
-        privateMemories.forEach(memory => {
-          const category = memory.metadata.category as string || 'general';
-          const group = groups.get(category) || [];
-          group.push(memory);
-          groups.set(category, group);
-        });
-
-        // Update visualization with grouping info if available
-        if (visualizationContext && consolidationNodeId) {
-          try {
-            visualizationContext.visualizer.updateNode(
-              visualizationContext.visualization,
-              consolidationNodeId,
-              {
-                data: {
-                  status: 'grouping',
-                  groupCount: groups.size,
-                  groups: Array.from(groups.keys()),
-                  timestamp: Date.now()
-                }
-              }
-            );
-          } catch (error) {
-            console.error('Error updating memory consolidation visualization:', error);
-          }
-        }
-
-        // Consolidate groups that meet the threshold
-        for (const [category, memories] of Array.from(groups.entries())) {
-          if (memories.length >= this._config.minMemoriesForConsolidation!) {
-            // Create category-specific visualization node if enabled
-            let categoryNodeId: string | undefined;
-            
-            if (visualizationContext && 
-                visualizationContext.visualization && 
-                visualizationContext.visualizer && 
-                consolidationNodeId) {
-              try {
-                // Create category consolidation node
-                categoryNodeId = visualizationContext.visualizer.addNode(
-                  visualizationContext.visualization,
-                  'memory_group_consolidation',
-                  `Consolidating ${category} Memories`,
-                  {
-                    category,
-                    memoryCount: memories.length,
-                    timestamp: Date.now()
-                  },
-                  'in_progress'
-                );
-                
-                // Connect to consolidation parent node
-                if (categoryNodeId) {
-                  visualizationContext.visualizer.addEdge(
-                    visualizationContext.visualization,
-                    consolidationNodeId,
-                    categoryNodeId,
-                    'consolidates_category'
-                  );
-                }
-              } catch (error) {
-                console.error(`Error creating category consolidation visualization for ${category}:`, error);
+      // Update visualization with scanning info if available
+      if (visualizationContext && consolidationNodeId) {
+        try {
+          visualizationContext.visualizer.updateNode(
+            visualizationContext.visualization,
+            consolidationNodeId,
+            {
+              data: {
+                status: 'scanning',
+                totalMemories: allMemories.length,
+                timestamp: Date.now()
               }
             }
-            
-            try {
-              // Create consolidated memory
-              const consolidatedContent = memories
-                .map(memory => memory.content)
-                .join('\n\n');
+          );
+        } catch (error) {
+          console.error('Error updating memory consolidation visualization:', error);
+        }
+      }
 
-              const consolidatedMemory = await this.storeMemory(
-                consolidatedContent,
+      // Group related memories (simple implementation - would use embeddings in production)
+      const groups = new Map<string, MemoryEntry[]>();
+      
+      allMemories.forEach(memory => {
+        const category = memory.metadata.category as string || 'general';
+        const group = groups.get(category) || [];
+        group.push(memory);
+        groups.set(category, group);
+      });
+
+      // Update visualization with grouping info if available
+      if (visualizationContext && consolidationNodeId) {
+        try {
+          visualizationContext.visualizer.updateNode(
+            visualizationContext.visualization,
+            consolidationNodeId,
+            {
+              data: {
+                status: 'grouping',
+                groupCount: groups.size,
+                groups: Array.from(groups.keys()),
+                timestamp: Date.now()
+              }
+            }
+          );
+        } catch (error) {
+          console.error('Error updating memory consolidation visualization:', error);
+        }
+      }
+
+      // Consolidate groups that meet the threshold
+      for (const [category, memories] of Array.from(groups.entries())) {
+        if (memories.length >= this._config.minMemoriesForConsolidation!) {
+          // Create category-specific visualization node if enabled
+          let categoryNodeId: string | undefined;
+          
+          if (visualizationContext && 
+              visualizationContext.visualization && 
+              visualizationContext.visualizer && 
+              consolidationNodeId) {
+            try {
+              // Create category consolidation node
+              categoryNodeId = visualizationContext.visualizer.addNode(
+                visualizationContext.visualization,
+                'memory_group_consolidation',
+                `Consolidating ${category} Memories`,
                 {
                   category,
-                  type: 'consolidated',
-                  sourceMemories: memories.map(memory => memory.id),
-                  consolidatedAt: new Date().toISOString()
-                }
+                  memoryCount: memories.length,
+                  timestamp: Date.now()
+                },
+                'in_progress'
               );
-
-              consolidatedCount++;
               
-              // Add to group tracking for visualization
-              consolidatedGroups.push({
-                category,
-                count: memories.length,
-                contentPreview: consolidatedContent.substring(0, 100) + '...'
-              });
-
-              // Update category visualization if available
-              if (visualizationContext && categoryNodeId) {
-                try {
-                  visualizationContext.visualizer.updateNode(
-                    visualizationContext.visualization,
-                    categoryNodeId,
-                    {
-                      status: 'completed',
-                      data: {
-                        category,
-                        memoryCount: memories.length,
-                        newMemoryId: consolidatedMemory.id,
-                        contentPreview: consolidatedContent.substring(0, 100) + '...',
-                        timestamp: Date.now()
-                      }
-                    }
-                  );
-                } catch (error) {
-                  console.error(`Error updating category consolidation visualization for ${category}:`, error);
-                }
-              }
-
-              // Optionally delete source memories
-              if (this._config.forgetSourceMemoriesAfterConsolidation) {
-                await Promise.all(
-                  memories.map(memory => this.deleteMemory(memory.id))
+              // Connect to consolidation parent node
+              if (categoryNodeId) {
+                visualizationContext.visualizer.addEdge(
+                  visualizationContext.visualization,
+                  consolidationNodeId,
+                  categoryNodeId,
+                  'consolidates_category'
                 );
-                
-                // Create forget visualization node if enabled
-                if (visualizationContext && 
-                    visualizationContext.visualization && 
-                    visualizationContext.visualizer && 
-                    categoryNodeId) {
-                  try {
-                    const forgetNodeId = visualizationContext.visualizer.addNode(
-                      visualizationContext.visualization,
-                      'memory_forget',
-                      `Forgetting Source ${category} Memories`,
-                      {
-                        category,
-                        memoriesRemoved: memories.length,
-                        timestamp: Date.now()
-                      },
-                      'completed'
-                    );
-                    
-                    // Connect to category node
-                    if (forgetNodeId) {
-                      visualizationContext.visualizer.addEdge(
-                        visualizationContext.visualization,
-                        categoryNodeId,
-                        forgetNodeId,
-                        'forgets_sources'
-                      );
-                    }
-                  } catch (error) {
-                    console.error(`Error creating forget visualization for ${category}:`, error);
-                  }
-                }
               }
             } catch (error) {
-              console.error(`Error consolidating memories in category ${category}:`, error);
-              
-              // Update category visualization with error if available
-              if (visualizationContext && categoryNodeId) {
-                try {
-                  visualizationContext.visualizer.updateNode(
-                    visualizationContext.visualization,
-                    categoryNodeId,
-                    {
-                      status: 'error',
-                      data: {
-                        error: error instanceof Error ? error.message : String(error),
-                        timestamp: Date.now()
-                      }
+              console.error(`Error creating category consolidation visualization for ${category}:`, error);
+            }
+          }
+          
+          try {
+            // Create consolidated memory
+            const consolidatedContent = memories
+              .map(memory => memory.content)
+              .join('\n\n');
+
+            const consolidatedMemory = await this.storeMemory(
+              consolidatedContent,
+              {
+                category,
+                type: 'consolidated',
+                sourceMemories: memories.map(memory => memory.id),
+                consolidatedAt: new Date().toISOString()
+              }
+            );
+
+            consolidatedCount++;
+            
+            // Add to group tracking for visualization
+            consolidatedGroups.push({
+              category,
+              count: memories.length,
+              contentPreview: consolidatedContent.substring(0, 100) + '...'
+            });
+
+            // Update category visualization if available
+            if (visualizationContext && categoryNodeId) {
+              try {
+                visualizationContext.visualizer.updateNode(
+                  visualizationContext.visualization,
+                  categoryNodeId,
+                  {
+                    status: 'completed',
+                    data: {
+                      category,
+                      memoryCount: memories.length,
+                      newMemoryId: consolidatedMemory.id,
+                      contentPreview: consolidatedContent.substring(0, 100) + '...',
+                      timestamp: Date.now()
                     }
+                  }
+                );
+              } catch (error) {
+                console.error(`Error updating category consolidation visualization for ${category}:`, error);
+              }
+            }
+
+            // Optionally delete source memories
+            if (this._config.forgetSourceMemoriesAfterConsolidation) {
+              await Promise.all(
+                memories.map(memory => this.deleteMemory(memory.id))
+              );
+              
+              // Create forget visualization node if enabled
+              if (visualizationContext && 
+                  visualizationContext.visualization && 
+                  visualizationContext.visualizer && 
+                  categoryNodeId) {
+                try {
+                  const forgetNodeId = visualizationContext.visualizer.addNode(
+                    visualizationContext.visualization,
+                    'memory_forget',
+                    `Forgetting Source ${category} Memories`,
+                    {
+                      category,
+                      memoriesRemoved: memories.length,
+                      timestamp: Date.now()
+                    },
+                    'completed'
                   );
-                } catch (vizError) {
-                  console.error(`Error updating category visualization with error for ${category}:`, vizError);
+                  
+                  // Connect to category node
+                  if (forgetNodeId) {
+                    visualizationContext.visualizer.addEdge(
+                      visualizationContext.visualization,
+                      categoryNodeId,
+                      forgetNodeId,
+                      'forgets_sources'
+                    );
+                  }
+                } catch (error) {
+                  console.error(`Error creating forget visualization for ${category}:`, error);
                 }
+              }
+            }
+          } catch (error) {
+            console.error(`Error consolidating memories in category ${category}:`, error);
+            
+            // Update category visualization with error if available
+            if (visualizationContext && categoryNodeId) {
+              try {
+                visualizationContext.visualizer.updateNode(
+                  visualizationContext.visualization,
+                  categoryNodeId,
+                  {
+                    status: 'error',
+                    data: {
+                      error: error instanceof Error ? error.message : String(error),
+                      timestamp: Date.now()
+                    }
+                  }
+                );
+              } catch (vizError) {
+                console.error(`Error updating category visualization with error for ${category}:`, vizError);
               }
             }
           }
@@ -1077,9 +974,9 @@ export class DefaultMemoryManager extends AbstractBaseManager implements MemoryM
   // #endregion Memory Maintenance
 
   /**
-   * Retrieve memories relevant to a query
+   * Retrieve memories relevant to a query with visualization support
    * @param query The query to search for
-   * @param options Options for memory retrieval
+   * @param options Options for memory retrieval including visualization context
    * @returns Array of relevant memories
    */
   async retrieveRelevantMemories(
@@ -1206,8 +1103,14 @@ export class DefaultMemoryManager extends AbstractBaseManager implements MemoryM
   }
 
   /**
+   * Generate a request ID for tracking operations
+   */
+  private generateRequestId(): string {
+    return ulid();
+  }
+
+  /**
    * Get direct access to the memory client for specialized operations
-   * This allows other managers to use optimized client methods
    */
   async getMemoryClient(): Promise<any> {
     if (!this._initialized) {
@@ -1222,21 +1125,6 @@ export class DefaultMemoryManager extends AbstractBaseManager implements MemoryM
         return null;
       }
       
-      // Direct access method - attempt to get client in different ways
-      
-      // Option 1: Through getClient method
-      if (typeof (memoryService as any).getClient === 'function') {
-        return await (memoryService as any).getClient();
-      }
-      
-      // Option 2: Direct access to client property
-      if ((memoryService as any).client) {
-        return (memoryService as any).client;
-      }
-      
-      // Option 3: Direct access via raw service (for debugging)
-      console.warn('No standard client access method found, trying raw methods');
-      
       // Return the service itself as it might have the methods needed
       return memoryService;
     } catch (error) {
@@ -1247,9 +1135,6 @@ export class DefaultMemoryManager extends AbstractBaseManager implements MemoryM
 
   /**
    * Get tasks by status directly from memory
-   * 
-   * This specialized method is used by the scheduler manager to efficiently
-   * retrieve tasks by their status.
    */
   async getTasksByStatus(
     statuses: string[] = ['pending', 'scheduled', 'in_progress']
@@ -1262,35 +1147,14 @@ export class DefaultMemoryManager extends AbstractBaseManager implements MemoryM
         return [];
       }
       
-      // If the service has a getTasksByStatus method, use it
-      if (typeof (memoryService as any).getTasksByStatus === 'function') {
-        return await (memoryService as any).getTasksByStatus(statuses);
-      }
-      
-      // Try to get memory client for direct access
-      const memoryClient = await this.getMemoryClient();
-      if (memoryClient && typeof (memoryClient as any).getTasksByStatus === 'function') {
-        // First try with the specific task collection
-        const taskCollection = (memoryClient as any).getCollectionNameForType 
-          ? (memoryClient as any).getCollectionNameForType('task')
-          : 'tasks';
-        
-        return await (memoryClient as any).getTasksByStatus(taskCollection, statuses);
-      }
-      
-      // Log if we didn't find any standard client access method
-      console.log('No standard client access method found, trying raw methods');
-      
-      // Fallback to searchMemories method - NOT search
+      // Use searchMemories method
       const filter = {
         type: 'task',
         status: { $in: statuses }
       };
       
-      // The service has searchMemories method, not search
       if (typeof memoryService.searchMemories === 'function') {
         try {
-          // searchMemories takes one argument - a query object
           const searchResult = await memoryService.searchMemories({
             type: 'task',
             filter: filter,
