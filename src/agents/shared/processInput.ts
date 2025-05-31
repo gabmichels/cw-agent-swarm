@@ -11,17 +11,22 @@ import { MemoryEntry } from './base/managers/MemoryManager.interface';
  * @param model The LangChain model to use
  * @param input The input to process
  * @param conversationHistory Conversation history from memory
+ * @param customSystemPrompt Custom system prompt to use (optional, falls back to default)
  * @returns The model response content
  */
 export async function processInputWithLangChain(
   model: ChatOpenAI,
   input: string,
-  conversationHistory: MemoryEntry[] = []
+  conversationHistory: MemoryEntry[] = [],
+  customSystemPrompt?: string
 ): Promise<string> {
   try {
+    // Use custom system prompt if provided, otherwise fall back to default
+    const systemPrompt = customSystemPrompt || 'You are a helpful assistant. Provide concise, accurate, and helpful responses.';
+    
     // Create LangChain message objects
     const messages: BaseMessage[] = [
-      new SystemMessage('You are a helpful assistant. Provide concise, accurate, and helpful responses.')
+      new SystemMessage(systemPrompt)
     ];
     
     // Add conversation history

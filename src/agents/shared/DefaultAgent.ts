@@ -47,7 +47,7 @@ import { ReflectionResult } from './base/managers/ReflectionManager.interface';
 import { MemoryManager, MemoryEntry } from './base/managers/MemoryManager.interface';
 
 // Import types for configuration
-import { PromptFormatter, PersonaInfo } from '../../agents/shared/messaging/PromptFormatter';
+import { PromptFormatter, PersonaInfo } from './messaging/PromptFormatter';
 import { ResourceUtilizationTracker, ResourceUtilizationTrackerOptions, ResourceUsageListener } from './scheduler/ResourceUtilization';
 import { OpportunityManager } from '../../lib/opportunity';
 
@@ -652,12 +652,16 @@ Please provide a helpful, contextual response based on this analysis.`;
         // Get conversation history - ensure it's a proper array
         const conversationHistory: MemoryEntry[] = Array.isArray(options?.conversationHistory) ? options.conversationHistory : [];
 
+        // Generate formatted system prompt with agent configuration and persona
+        const systemPrompt = await this.generateSystemPrompt();
+
         try {
-          // Call LLM using the helper function
+          // Call LLM using the helper function with custom system prompt
           llmContent = await processInputWithLangChain(
             model,
             enhancedInput,
-            conversationHistory
+            conversationHistory,
+            systemPrompt
           );
         } catch (llmError) {
           // For real LLM errors, throw LLMResponseError to match expected behavior
@@ -1486,4 +1490,45 @@ Please provide a helpful, contextual response based on this analysis.`;
 
     // ===== CLEAN SLATE IMPLEMENTATION =====
   // No legacy compatibility methods - clean break from old patterns
+
+  /**
+   * Generate formatted system prompt using agent configuration and persona
+   * @returns Formatted system prompt that includes agent's custom instructions and persona
+   */
+  private async generateSystemPrompt(): Promise<string> {
+    try {
+      // Import PromptFormatter dynamically
+      const { PromptFormatter } = await import('./messaging/PromptFormatter');
+      
+      // Extract system prompt from agent configuration
+      const baseSystemPrompt = this.agentConfig.systemPrompt || 
+                               'You are a helpful assistant. Provide concise, accurate, and helpful responses.';
+      
+      // Extract persona from agent configuration
+      const persona = this.agentConfig.persona;
+      
+      // Format the system prompt with persona information
+      const formattedPrompt = PromptFormatter.formatSystemPrompt({
+        basePrompt: baseSystemPrompt,
+        persona: persona,
+        includeCapabilities: true
+      });
+      
+      this.logger.info('Generated formatted system prompt', {
+        hasPersona: !!persona,
+        basePromptLength: baseSystemPrompt.length,
+        formattedPromptLength: formattedPrompt.length
+      });
+      
+      return formattedPrompt;
+    } catch (error) {
+      this.logger.warn('Failed to generate formatted system prompt, using base prompt', {
+        error: error instanceof Error ? error.message : String(error)
+      });
+      
+      // Fallback to base system prompt or default
+      return this.agentConfig.systemPrompt || 
+             'You are a helpful assistant. Provide concise, accurate, and helpful responses.';
+    }
+  }
 } 

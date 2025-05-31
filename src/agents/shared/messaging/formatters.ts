@@ -9,16 +9,21 @@ import { MemoryEntry } from '../base/managers/MemoryManager.interface';
  * 
  * @param memories Array of memory entries representing conversation history
  * @param currentInput Current user input (optional)
+ * @param customSystemPrompt Custom system prompt to use (optional, falls back to default)
  * @returns Array of formatted messages for LLM
  */
 export function formatConversationToMessages(
   memories: MemoryEntry[],
-  currentInput?: string
+  currentInput?: string,
+  customSystemPrompt?: string
 ): Array<{ role: string; content: string }> {
+  // Use custom system prompt if provided, otherwise fall back to default
+  const systemPrompt = customSystemPrompt || 'You are a helpful assistant. Provide concise, accurate, and helpful responses.';
+  
   const messages: Array<{ role: string; content: string }> = [
     { 
       role: 'system', 
-      content: 'You are a helpful assistant. Provide concise, accurate, and helpful responses.' 
+      content: systemPrompt
     }
   ];
   
