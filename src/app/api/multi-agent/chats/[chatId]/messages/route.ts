@@ -401,27 +401,20 @@ export async function POST(
       console.log(`Saved user message to memory with ID: ${lastUserMessageId}`);
     }
 
-    // Get the agent instance
-    const agentProfile = await AgentService.getAgent(agentId);
-    if (!agentProfile) {
-      throw new Error(`Agent ${agentId} not found`);
-    }
-    
-    // Import AgentFactory to create a proper agent instance with processUserInput method
-    const { AgentFactory } = await import('@/agents/shared/AgentFactory');
-    const agent = await new AgentFactory().createAgent(agentProfile);
+    // Get the agent instance from the runtime registry (already bootstrapped and running)
+    const { getAgentById } = await import('@/server/agent/agent-service');
+    const agent = getAgentById(agentId);
     
     if (!agent) {
-      throw new Error(`Failed to create agent instance for ${agentId}`);
+      throw new Error(`Agent ${agentId} not found in runtime registry. Make sure agents are bootstrapped on server startup.`);
     }
     
-    // Initialize the agent before using it
-    console.log(`Initializing agent instance for ${agentId}`);
-    const initSuccess = await agent.initialize();
-    if (!initSuccess) {
-      throw new Error(`Failed to initialize agent ${agentId}`);
+    console.log(`Using already running agent ${agentId} from runtime registry`);
+    
+    // Check if agent has the required processUserInput method
+    if (typeof (agent as any).processUserInput !== 'function') {
+      throw new Error(`Agent ${agentId} does not have processUserInput method. This agent may not be compatible with the current system.`);
     }
-    console.log(`Agent initialization successful for ${agentId}`);
 
     // Process message with agent
     let agentResponse: AgentResponse | undefined;
@@ -463,7 +456,7 @@ export async function POST(
       try {
         // Wait for either response or timeout
         agentResponse = await Promise.race([
-          agent.processUserInput(content, processingOptions), 
+          (agent as any).processUserInput(content, processingOptions), 
           timeoutPromise
         ]);
         console.log('Agent processUserInput completed successfully');
@@ -570,7 +563,7 @@ export async function POST(
         timestamp: new Date().toISOString(),
         metadata: {
           agentId,
-          agentName: agentProfile.name || 'Assistant',
+          agentName: agent.getName() || 'Assistant',
           userId,
           threadId: assistantThreadInfo.id,
           parentMessageId: lastUserMessageId,
