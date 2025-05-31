@@ -136,9 +136,10 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
   // Use nextjs navigation hook for route params
   const routeParams = useParams();
   // Convert route params to expected type and provide default
-  const agentId = (routeParams && typeof routeParams.id === 'string' ? routeParams.id : params?.id) || 'default';
+  const routeId = (routeParams && typeof routeParams.id === 'string' ? routeParams.id : params?.id) || 'default';
   
   const [chat, setChat] = useState<Chat | null>(null);
+  const [agentId, setAgentId] = useState<string>('');
   const [messages, setMessages] = useState<MessageWithId[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -247,82 +248,34 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
       setIsLoading(true);
       setError(null);
       try {
-        // 1. Try to get chat between user and agent
-        let chatRes = await fetch(`/api/multi-agent/chats?userId=${userId}&agentId=${agentId}`);
-        let chatData = await chatRes.json();
-        let chatObj: Chat | null = null;
-        if (chatRes.ok && chatData.chats && chatData.chats.length > 0) {
-          chatObj = chatData.chats[0];
-        } else {
-          // 2. If not found, fetch agent profile for chat creation fields
-          let agentProfile: {
-            name?: string;
-            description?: string;
-            metadata?: {
-              tags?: string[];
-              domain?: string[];
-            }
-          } | null = null;
-          try {
-            const agentRes = await fetch(`/api/multi-agent/agents/${agentId}`);
-            const agentJson = await agentRes.json();
-            if (!agentRes.ok || !agentJson.success || !agentJson.agent) {
-              setError('Agent not found. Please select a valid agent.');
-              setIsLoading(false);
-              return;
-            }
-            agentProfile = agentJson.agent;
-          } catch {
-            setError('Agent not found. Please select a valid agent.');
-            setIsLoading(false);
-            return;
-          }
-          // Fallbacks if agentProfile is missing
-          const chatName = agentProfile?.name ? `Chat with ${agentProfile.name}` : `Chat with ${agentId}`;
-          const chatDescription = agentProfile?.description || 'Direct chat';
-          const chatSettings = {
-            visibility: 'private',
-            allowAnonymousMessages: false,
-            enableBranching: false,
-            recordTranscript: true
-          };
-          
-          // 3. Create chat between user and agent
-          const createChatRes = await fetch('/api/multi-agent/chats', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              name: chatName,
-              description: chatDescription,
-              userId,
-              agentId,
-              settings: chatSettings,
-              metadata: {
-                userInitiated: true,
-                agentName: agentProfile?.name,
-                agentTags: agentProfile?.metadata?.tags || [],
-                domain: agentProfile?.metadata?.domain || []
-              }
-            })
-          });
-          
-          const createChatData = await createChatRes.json();
-          
-          if (!createChatRes.ok || !createChatData.success || !createChatData.chat) {
-            setError('Failed to create chat. Please try again later.');
-            setIsLoading(false);
-            return;
-          }
-          
-          chatObj = createChatData.chat;
+        // Interpret routeId as a chatId only
+        const chatRes = await fetch(`/api/multi-agent/chats?id=${routeId}`);
+        const chatData = await chatRes.json();
+        
+        if (!chatRes.ok || !chatData.success || !chatData.chats || chatData.chats.length === 0) {
+          setError('Chat not found. Please select a valid chat from the sidebar.');
+          setIsLoading(false);
+          return;
         }
         
-        // Set the chat object
+        // Found chat by ID - extract agentId from chat object
+        const chatObj = chatData.chats[0];
+        console.log('Chat object from API:', chatObj);
+        console.log('Chat object agentId:', chatObj?.metadata?.agentId);
+        console.log('Chat object keys:', Object.keys(chatObj || {}));
+        
         setChat(chatObj);
         
-        // 3. Load messages for this chat
+        if (chatObj && chatObj.metadata && chatObj.metadata.agentId) {
+          console.log(`Setting agentId to: ${chatObj.metadata.agentId}`);
+          setAgentId(chatObj.metadata.agentId);
+        } else {
+          console.log('No agentId found in chat object metadata or chat object is null');
+          console.log('Chat object:', chatObj);
+          console.log('Chat metadata:', chatObj?.metadata);
+        }
+        
+        // Load messages for this chat
         if (chatObj) {
           await fetchMessages(chatObj.id);
         }
@@ -331,13 +284,13 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
         setIsLoading(false);
       } catch (error) {
         console.error('Error setting up chat:', error);
-        setError('Failed to set up chat');
+        setError('Failed to load chat');
         setIsLoading(false);
       }
     };
 
     fetchOrCreateChat();
-  }, [agentId, userId]);
+  }, [routeId, userId]);
 
   // Add polling for message updates instead of using WebSockets
   useEffect(() => {
@@ -445,12 +398,13 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
           chatId: chat.id
         });
 
+        // Send to file upload endpoint
         response = await fetch(`/api/multi-agent/chats/${chat.id}/files`, {
           method: 'POST',
           body: formData
         });
       } else {
-        // Normal message without attachments
+        // Send text-only message
         response = await fetch(`/api/multi-agent/chats/${chat.id}/messages`, {
           method: 'POST',
           headers: {
@@ -458,9 +412,6 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
           },
           body: JSON.stringify({
             content: currentMessage,
-            senderId: userId,
-            senderType: ParticipantType.USER,
-            type: MessageType.TEXT,
             metadata: {
               userId,
               agentId,
@@ -590,17 +541,42 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
     try {
       console.log(`Fetching messages for chat: ${chatId}`);
       const msgRes = await fetch(`/api/multi-agent/chats/${chatId}/messages`);
-      const msgData = await msgRes.json();
       
-      if (msgRes.ok && msgData.messages && msgData.messages.length > 0) {
+      if (!msgRes.ok) {
+        const errorText = await msgRes.text();
+        console.error(`Failed to fetch messages: ${msgRes.status} ${msgRes.statusText}`, errorText);
+        setError(`Failed to load messages: ${msgRes.status}`);
+        setIsLoading(false);
+        return;
+      }
+      
+      const msgData = await msgRes.json();
+      console.log('Raw API response:', msgData);
+      
+      if (msgData.error) {
+        console.error('API returned error:', msgData.error);
+        setError(msgData.error);
+        setIsLoading(false);
+        return;
+      }
+      
+      // Check if we have messages (even if empty array)
+      if (msgData.messages && Array.isArray(msgData.messages)) {
         console.log(`Found ${msgData.messages.length} messages to display`);
+        
+        if (msgData.messages.length === 0) {
+          console.log('No messages found for this chat');
+          setMessages([]);
+          setIsLoading(false);
+          return;
+        }
         
         // Format messages to match expected structure
         const formattedMessages: MessageWithId[] = msgData.messages.map((msg: {
           id: string;
           content: string;
           sender: MessageSender;
-          timestamp: string;
+          timestamp: string | number;
           attachments?: any[]; // Use any[] to accommodate different attachment formats
           tags?: string[];
           metadata?: MessageMetadata;
@@ -637,11 +613,37 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
             });
           }
           
+          // Handle timestamp parsing more robustly
+          let parsedTimestamp: Date;
+          try {
+            if (typeof msg.timestamp === 'number') {
+              parsedTimestamp = new Date(msg.timestamp);
+            } else if (typeof msg.timestamp === 'string') {
+              // Handle both ISO strings and numeric strings
+              if (/^\d+$/.test(msg.timestamp)) {
+                parsedTimestamp = new Date(parseInt(msg.timestamp, 10));
+              } else {
+                parsedTimestamp = new Date(msg.timestamp);
+              }
+            } else {
+              parsedTimestamp = new Date(); // Fallback to current time
+            }
+            
+            // Validate the parsed date
+            if (isNaN(parsedTimestamp.getTime())) {
+              console.warn(`Invalid timestamp for message ${msg.id}:`, msg.timestamp);
+              parsedTimestamp = new Date(); // Fallback to current time
+            }
+          } catch (timestampError) {
+            console.error(`Error parsing timestamp for message ${msg.id}:`, timestampError);
+            parsedTimestamp = new Date(); // Fallback to current time
+          }
+          
           return {
             id: msg.id,
             content: msg.content,
             sender: msg.sender,
-            timestamp: new Date(msg.timestamp),
+            timestamp: parsedTimestamp,
             attachments: processedAttachments,
             tags: msg.tags || [],
             metadata: msg.metadata || {}
@@ -651,23 +653,23 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
         console.log('Formatted messages with processed attachments:', 
           formattedMessages.map(m => ({
             id: m.id, 
-            attachmentsCount: m.attachments?.length || 0
+            attachmentsCount: m.attachments?.length || 0,
+            timestamp: m.timestamp.toISOString()
           }))
         );
         
-        console.log(`Page.tsx: Received ${formattedMessages.length} messages from API`);
+        console.log(`Page.tsx: Successfully processed ${formattedMessages.length} messages`);
         
         setMessages(formattedMessages);
-        // Reset loading state after messages are fetched
         setIsLoading(false);
       } else {
-        // Reset loading state even if no messages were found
+        console.warn('API response missing messages array:', msgData);
+        setMessages([]);
         setIsLoading(false);
       }
     } catch (error) {
       console.error('Error fetching messages:', error);
       setError('Failed to load messages');
-      // Reset loading state in case of error
       setIsLoading(false);
     }
   };
@@ -696,11 +698,9 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
         const data = await res.json();
         if (data && data.tasks) {
           setTasks(data.tasks);
-        } else {
-          setTasks([]);
         }
       } catch (error) {
-        setTasks([]);
+        console.error('Failed to fetch tasks:', error);
       } finally {
         setIsLoadingTasks(false);
       }
@@ -710,8 +710,7 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
 
   // --- Task actions ---
   const runTaskNow = async (taskId: string) => {
-    // Implement running a task immediately for the agent
-    await fetch(`/api/tasks/run`, {
+    await fetch('/api/tasks/run', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ agentId, taskId })
@@ -723,8 +722,9 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
     setTasks(data.tasks || []);
     setIsLoadingTasks(false);
   };
+
   const toggleTaskEnabled = async (taskId: string, enabled: boolean) => {
-    await fetch(`/api/tasks/toggle`, {
+    await fetch('/api/tasks/toggle', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ agentId, taskId, enabled })
@@ -735,12 +735,21 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
     setTasks(data.tasks || []);
     setIsLoadingTasks(false);
   };
+
   const formatCronExpression = (cronExp: string) => cronExp; // TODO: implement pretty formatting
 
   // Implement tabs content based on selected tab
   const renderTabContent = () => {
     switch (selectedTab) {
       case 'chat':
+        console.log('Render condition check:', {
+          agentId,
+          agentIdIncludesSoon: agentId?.includes('Soon'),
+          messagesLength: messages.length,
+          shouldShowWelcome: (!agentId || agentId.includes('Soon') || messages.length === 0),
+          messagesPreview: messages.slice(0, 2).map(m => ({ id: m.id, content: m.content.substring(0, 50) }))
+        });
+        
         return (
           <div className="flex flex-col h-full">
             {(!agentId || agentId.includes('Soon') || messages.length === 0) ? (
@@ -777,7 +786,7 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
                     tags: msg.tags || [], // Ensure tags are included
                     attachments: formattedAttachments as any[] // Use type assertion to bypass type checking
                   };
-                })} 
+                })}
                 isLoading={isLoading}
                 onImageClick={handleFilePreviewClick}
                 showInternalMessages={showInternalMessages}

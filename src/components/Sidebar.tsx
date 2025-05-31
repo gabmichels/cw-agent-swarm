@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { AgentProfile } from '@/lib/multi-agent/types/agent';
 import { ChatProfile } from '@/lib/multi-agent/types/chat';
+import { getCurrentUser } from '@/lib/user';
 
 // Helper function to construct proper API URLs
 function getApiUrl(path: string): string {
@@ -144,12 +145,73 @@ const Sidebar: React.FC<SidebarProps> = ({
   };
   
   // Handle agent selection in the main interface
-  const handleAgentClick = (agentId: string) => {
-    // Set the selected agent in the main interface
-    setSelectedAgent(agentId);
-    
-    // Navigate to the chat page for the selected agent
-    router.push(`/chat/${agentId}`);
+  const handleAgentClick = async (agentId: string) => {
+    try {
+      // First, find or create a chat between the current user and the selected agent
+      const currentUser = getCurrentUser(); // You'll need to import this or get user ID another way
+      const userId = currentUser.id;
+      
+      // Try to find existing chat between user and agent
+      let chatResponse = await fetch(getApiUrl(`/api/multi-agent/chats?userId=${userId}&agentId=${agentId}`));
+      let chatData = await chatResponse.json();
+      
+      let chatId: string;
+      
+      if (chatResponse.ok && chatData.success && chatData.chats && chatData.chats.length > 0) {
+        // Use existing chat
+        chatId = chatData.chats[0].id;
+      } else {
+        // Create new chat between user and agent
+        // First get agent profile for chat naming
+        const agentResponse = await fetch(getApiUrl(`/api/multi-agent/agents/${agentId}`));
+        const agentJson = await agentResponse.json();
+        
+        let agentName = agentId;
+        if (agentResponse.ok && agentJson.success && agentJson.agent) {
+          agentName = agentJson.agent.name || agentId;
+        }
+        
+        const createChatResponse = await fetch(getApiUrl('/api/multi-agent/chats'), {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            name: `Chat with ${agentName}`,
+            description: `Direct chat with ${agentName}`,
+            settings: {
+              visibility: 'private',
+              allowAnonymousMessages: false,
+              enableBranching: false,
+              recordTranscript: true
+            },
+            metadata: {
+              userInitiated: true,
+              userId: userId,
+              agentId: agentId,
+              agentName: agentName
+            }
+          })
+        });
+        
+        const createChatData = await createChatResponse.json();
+        
+        if (!createChatResponse.ok || !createChatData.success || !createChatData.chat) {
+          console.error('Failed to create chat:', createChatData.error);
+          return; // Exit if chat creation failed
+        }
+        
+        chatId = createChatData.chat.id;
+      }
+      
+      // Set the selected agent in the main interface  
+      setSelectedAgent(agentId);
+      
+      // Navigate to the chat page using the chatId
+      router.push(`/chat/${chatId}`);
+    } catch (error) {
+      console.error('Error handling agent click:', error);
+    }
   };
 
   return (

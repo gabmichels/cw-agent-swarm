@@ -89,12 +89,13 @@ export async function GET(
     
     // Search for messages with this chat ID
     console.log(`Searching for messages using filter-based approach...`);
-    const searchResults = await searchService.search("", {
-      // Note: We're NOT using types restriction since it was blocking all results
+    console.log(`Trying structured ID format first: metadata.chatId.id = ${chatId}`);
+    
+    let searchResults = await searchService.search("", {
       filter: {
         must: [
           { key: "type", match: { value: MemoryType.MESSAGE } }, // Filter for message type in results
-          { key: "metadata.chatId.id", match: { value: chatId } }
+          { key: "metadata.chatId.id", match: { value: chatId } }  // Structured ID format (new)
         ],
         must_not: includeInternal ? [] : [
           { key: "metadata.isInternalMessage", match: { value: true } }
@@ -104,6 +105,31 @@ export async function GET(
       offset,
       sort: { field: "timestamp", direction: "asc" }
     });
+    
+    // If no results with structured ID format, try legacy string format
+    if (searchResults.length === 0) {
+      console.log(`No results with structured ID format, trying legacy string format: metadata.chatId = ${chatId}`);
+      searchResults = await searchService.search("", {
+        filter: {
+          must: [
+            { key: "type", match: { value: MemoryType.MESSAGE } },
+            { key: "metadata.chatId", match: { value: chatId } }      // Simple string format (legacy)
+          ],
+          must_not: includeInternal ? [] : [
+            { key: "metadata.isInternalMessage", match: { value: true } }
+          ]
+        },
+        limit,
+        offset,
+        sort: { field: "timestamp", direction: "asc" }
+      });
+      
+      if (searchResults.length > 0) {
+        console.log(`Found ${searchResults.length} results with legacy string format`);
+      }
+    } else {
+      console.log(`Found ${searchResults.length} results with structured ID format`);
+    }
 
     console.log(`Found ${searchResults.length} total items, filtering to message types only...`);
     
