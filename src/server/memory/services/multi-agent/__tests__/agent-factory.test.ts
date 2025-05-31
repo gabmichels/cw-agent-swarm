@@ -232,7 +232,7 @@ describe('AgentFactory', () => {
         expect(result.data.name).toBe('Test Assistant');
         expect(result.data.capabilities.length).toBeGreaterThan(0);
         expect(result.data.metadata.tags).toContain('assistant');
-        expect(result.data.parameters.model).toBe('gpt-4');
+        expect(result.data.parameters.model).toBe('gpt-4.1-2025-04-14');
       }
     });
     

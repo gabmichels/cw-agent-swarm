@@ -100,7 +100,7 @@ export class DefaultKnowledgeGapIdentification implements KnowledgeGapIdentifica
       defaultMaxGaps: 5,
       modelConfig: {
         provider: 'openai',
-        modelName: 'gpt-4',
+        modelName: 'gpt-4.1-2025-04-14',
         temperature: 0.1,
         maxTokens: 2000
       },

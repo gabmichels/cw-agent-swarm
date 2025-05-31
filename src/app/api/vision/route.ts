@@ -58,7 +58,7 @@ async function processWithVisionModel(message: string, imageData: Array<{data: s
     
     // Call the OpenAI vision model
     const response = await openai.chat.completions.create({
-      model: process.env.OPENAI_VISION_MODEL_NAME || "gpt-4o",
+      model: process.env.OPENAI_VISION_MODEL_NAME || "gpt-4.1-2025-04-14",
       messages: messages,
       max_tokens: process.env.OPENAI_MAX_TOKENS ? parseInt(process.env.OPENAI_MAX_TOKENS, 10) : 1000,
       temperature: 0.5

@@ -68,7 +68,7 @@ export class AgentFactory {
       status: (config.status as any) || 'available',
       capabilities: [],
       parameters: {
-        model: config.parameters?.model || 'gpt-4',
+        model: config.parameters?.model || 'gpt-4.1-2025-04-14',
         temperature: config.parameters?.temperature || 0.7,
         maxTokens: config.parameters?.maxTokens || 2000,
         tools: config.parameters?.tools || []
@@ -167,7 +167,7 @@ export class AgentFactory {
       parameters: {
         ...profile.parameters,
         tools,
-        model: profile.parameters.model || 'gpt-4',
+        model: profile.parameters.model || 'gpt-4.1-2025-04-14',
         temperature: profile.parameters.temperature || 0.7,
         maxTokens: profile.parameters.maxTokens || 2000
       },

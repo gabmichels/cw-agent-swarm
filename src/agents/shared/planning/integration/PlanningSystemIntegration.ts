@@ -86,7 +86,7 @@ export class EnhancedPlanningManager extends DefaultPlanningManager {
     
     // Initialize LLM model
     this.model = options.model || new ChatOpenAI({
-      modelName: 'gpt-4',
+      modelName: 'gpt-4.1-2025-04-14',
       temperature: 0.2,
       maxTokens: 2000
     });

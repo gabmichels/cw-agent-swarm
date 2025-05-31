@@ -30,7 +30,7 @@ export class DefaultTrendAnalyzer implements ITrendAnalyzer {
     minConfidence: 0.7,
     maxTrends: 10,
     useLlm: true,
-    modelName: 'gpt-4',
+    modelName: 'gpt-4.1-2025-04-14',
     mergeSimilarTrends: true,
     similarityThreshold: 0.7
   };
@@ -44,7 +44,7 @@ export class DefaultTrendAnalyzer implements ITrendAnalyzer {
   async initialize(model?: ChatOpenAI, config?: TrendAnalysisConfig): Promise<void> {
     this.model = model || new ChatOpenAI({
       temperature: 0.2,
-      modelName: config?.modelName || 'gpt-4',
+      modelName: config?.modelName || 'gpt-4.1-2025-04-14',
     });
     
     if (config) {

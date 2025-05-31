@@ -69,7 +69,7 @@ export class RelevanceScorer {
    * @param memoryManager Memory manager to use for retrieval
    * @param modelName Name of the model to use for scoring
    */
-  constructor(memoryManager: MemoryManager, modelName: string = process.env.OPENAI_MODEL_NAME || 'gpt-4') {
+  constructor(memoryManager: MemoryManager, modelName: string = process.env.OPENAI_MODEL_NAME || 'gpt-4.1-2025-04-14') {
     this.memoryManager = memoryManager;
     this.model = createChatOpenAI({
       model: modelName,

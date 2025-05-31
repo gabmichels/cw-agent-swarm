@@ -28,7 +28,7 @@ async function setupMultiAgentSystem() {
       agentId: 'chloe',
       name: 'Chloe',
       description: 'Coordinator agent that delegates tasks to specialized sub-agents',
-      model: 'gpt-4',
+      model: 'gpt-4.1-2025-04-14',
       temperature: 0.7,
       coordinatorPrompt: 'You are Chloe, a coordinator agent who delegates tasks to specialized sub-agents.'
     }
@@ -40,7 +40,7 @@ async function setupMultiAgentSystem() {
       agentId: 'researcher',
       name: 'Researcher',
       description: 'Specialized agent for information gathering and research tasks',
-      model: 'gpt-4',
+      model: 'gpt-4.1-2025-04-14',
       temperature: 0.5,
       researchPrompt: 'You are a specialized research agent focused on gathering accurate information.',
       capabilities: {

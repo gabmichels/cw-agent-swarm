@@ -33,7 +33,7 @@ class MockAgent extends AbstractAgentBase {
       createdBy: 'test',
       capabilities: [],
       parameters: {
-        model: process.env.OPENAI_MODEL_NAME || 'gpt-4',
+        model: process.env.OPENAI_MODEL_NAME || 'gpt-4.1-2025-04-14',
         temperature: 0.7,
         maxTokens: 2048,
         tools: [],

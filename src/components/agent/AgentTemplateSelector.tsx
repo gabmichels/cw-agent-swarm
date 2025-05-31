@@ -47,7 +47,7 @@ const AGENT_TEMPLATES: AgentTemplate[] = [
       descriptions: {}
     },
     parameters: {
-      model: process.env.NEXT_PUBLIC_DEFAULT_MODEL || 'gpt-4',
+      model: process.env.NEXT_PUBLIC_DEFAULT_MODEL || 'gpt-4.1-2025-04-14',
       temperature: 0.7,
       maxTokens: 2000,
       tools: []
@@ -78,7 +78,7 @@ const AGENT_TEMPLATES: AgentTemplate[] = [
       descriptions: {}
     },
     parameters: {
-      model: 'gpt-4',
+      model: 'gpt-4.1-2025-04-14',
       temperature: 0.7,
       maxTokens: 2000,
       tools: []
@@ -108,7 +108,7 @@ const AGENT_TEMPLATES: AgentTemplate[] = [
       descriptions: {}
     },
     parameters: {
-      model: 'gpt-4',
+      model: 'gpt-4.1-2025-04-14',
       temperature: 0.7,
       maxTokens: 2000,
       tools: []
@@ -139,7 +139,7 @@ const AGENT_TEMPLATES: AgentTemplate[] = [
       descriptions: {}
     },
     parameters: {
-      model: 'gpt-4',
+      model: 'gpt-4.1-2025-04-14',
       temperature: 0.5,
       maxTokens: 2500,
       tools: []
@@ -170,7 +170,7 @@ const AGENT_TEMPLATES: AgentTemplate[] = [
       descriptions: {}
     },
     parameters: {
-      model: 'gpt-4',
+      model: 'gpt-4.1-2025-04-14',
       temperature: 0.4,
       maxTokens: 3000,
       tools: []

@@ -368,7 +368,7 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
         status: AgentStatus.AVAILABLE,
         capabilities: [],
         parameters: {
-          model: process.env.NEXT_PUBLIC_DEFAULT_MODEL || 'gpt-4',
+          model: process.env.NEXT_PUBLIC_DEFAULT_MODEL || 'gpt-4.1-2025-04-14',
           temperature: 0.7,
           maxTokens: 2000,
           tools: []

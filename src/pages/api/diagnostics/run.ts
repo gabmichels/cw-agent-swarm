@@ -333,7 +333,7 @@ function checkAgentStatus(enabled = true) {
     return {
       status: 'ok',
       agentLoaded: true,
-      modelVersion: 'gpt-4-0125-preview',
+      modelVersion: 'gpt-4.1-2025-04-14',
       uptime: 86400, // seconds
       lastConfigUpdate: '2023-01-01T00:00:00Z'
     };

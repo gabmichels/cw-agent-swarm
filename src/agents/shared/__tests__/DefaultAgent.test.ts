@@ -146,7 +146,7 @@ describe('DefaultAgent', () => {
       name: 'Test Agent',
       description: 'A test agent',
       type: 'test',
-      modelName: 'gpt-4',
+      modelName: 'gpt-4.1-2025-04-14',
       temperature: 0.7,
       maxTokens: 1000,
                       componentsConfig: {

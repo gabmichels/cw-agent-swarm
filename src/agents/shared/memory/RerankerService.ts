@@ -30,7 +30,7 @@ export class RerankerService {
     maxBatchSize?: number;
     confidenceThreshold?: number;
   } = {}) {
-    this.modelName = options.modelName || process.env.OPENAI_CHEAP_MODEL || 'gpt-4o-mini';
+    this.modelName = options.modelName || process.env.OPENAI_CHEAP_MODEL || 'gpt-4.1-2025-04-14-mini';
     this.maxBatchSize = options.maxBatchSize || 10;
     this.confidenceThreshold = options.confidenceThreshold || 70;
     

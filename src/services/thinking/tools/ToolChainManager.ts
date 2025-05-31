@@ -60,7 +60,7 @@ export class ToolChainManager {
   
   constructor(toolService: any) {
     this.llm = new ChatOpenAI({
-      modelName: "gpt-4",
+      modelName: "gpt-4.1-2025-04-14",
       temperature: 0.2
     });
     this.toolService = toolService;

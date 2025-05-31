@@ -42,7 +42,7 @@ const createMockConfig = (overrides: Partial<AgentInitializationConfig> = {}): A
   name: 'Test Agent',
   description: 'Test agent for unit testing',
   type: 'default',
-  modelName: 'gpt-4',
+  modelName: 'gpt-4.1-2025-04-14',
   temperature: 0.7,
   maxTokens: 2000,
   adaptiveBehavior: true,
@@ -559,7 +559,7 @@ describe('AgentInitializer', () => {
 
     it('should handle LLM configuration parameters', async () => {
       const config = createMockConfig({
-        modelName: 'gpt-4-turbo',
+        modelName: 'gpt-4.1-2025-04-14-turbo',
         temperature: 0.3,
         maxTokens: 4000
       });

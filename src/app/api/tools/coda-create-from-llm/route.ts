@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
       // Generate content using OpenAI
       console.log(`Generating content for "${title}" with prompt: ${contentPrompt}`);
       const response = await openai.chat.completions.create({
-        model: process.env.OPENAI_VISION_MODEL_NAME || "gpt-4o",
+        model: process.env.OPENAI_VISION_MODEL_NAME || "gpt-4.1-2025-04-14",
         messages: [
           {
             role: "system",

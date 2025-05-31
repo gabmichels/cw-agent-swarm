@@ -21,7 +21,7 @@ export const getEnv = () => {
  */
 export const DEFAULT_CONFIG = {
   llm: {
-    defaultModel: process.env.OPENAI_MODEL_NAME || 'gpt-4.1',
+    defaultModel: process.env.OPENAI_MODEL_NAME || 'gpt-4.1-2025-04-14',
     cheapModel: process.env.OPENAI_CHEAP_MODEL || 'gpt-4.1-nano-2025-04-14',
     defaultTemperature: 0.7,
   },

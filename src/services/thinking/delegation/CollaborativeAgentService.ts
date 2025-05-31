@@ -180,7 +180,7 @@ export class CollaborativeAgentService {
   constructor(delegationManager: any) {
     this.delegationManager = delegationManager;
     this.llm = new ChatOpenAI({
-      modelName: "gpt-4",
+      modelName: "gpt-4.1-2025-04-14",
       temperature: 0.2
     });
   }

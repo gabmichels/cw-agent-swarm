@@ -54,7 +54,7 @@ describe('Database Agent Registration', () => {
           description: 'Test agent 1',
           status: 'available',
           capabilities: [{ id: 'cap1', name: 'capability1', description: 'Capability 1' }],
-          parameters: { model: 'gpt-4', temperature: 0.7, maxTokens: 2000, tools: [] },
+          parameters: { model: 'gpt-4.1-2025-04-14', temperature: 0.7, maxTokens: 2000, tools: [] },
           metadata: { tags: [], domain: [], specialization: [], version: '1.0', isPublic: false, performanceMetrics: { successRate: 0, averageResponseTime: 0, taskCompletionRate: 0 } },
           createdAt: new Date(),
           updatedAt: new Date()
@@ -65,7 +65,7 @@ describe('Database Agent Registration', () => {
           description: 'Test agent 2',
           status: 'available',
           capabilities: [{ id: 'cap2', name: 'capability2', description: 'Capability 2' }],
-          parameters: { model: 'gpt-4', temperature: 0.7, maxTokens: 2000, tools: [] },
+          parameters: { model: 'gpt-4.1-2025-04-14', temperature: 0.7, maxTokens: 2000, tools: [] },
           metadata: { tags: [], domain: [], specialization: [], version: '1.0', isPublic: false, performanceMetrics: { successRate: 0, averageResponseTime: 0, taskCompletionRate: 0 } },
           createdAt: new Date(),
           updatedAt: new Date()

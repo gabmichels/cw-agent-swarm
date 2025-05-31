@@ -102,7 +102,7 @@ class SpecializedAgent implements AgentBase {
         }))
       ],
       parameters: {
-        model: 'gpt-4',
+        model: 'gpt-4.1-2025-04-14',
         temperature: 0.7,
         maxTokens: 2048,
         tools: []

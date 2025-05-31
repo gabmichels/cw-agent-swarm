@@ -114,13 +114,13 @@ const TEST_TIMEOUT = 60000; // 60 seconds
 
 // Mock process.env for testing
 process.env.OPENAI_API_KEY = 'sk-mock-key-for-testing';
-process.env.OPENAI_MODEL_NAME = 'gpt-4-turbo';
+process.env.OPENAI_MODEL_NAME = 'gpt-4.1-2025-04-14';
 
 // Prepare default agent config
 const createTestAgent = (): DefaultAgent => {
   // Create a standard configuration for testing
   const config = {
-    modelName: process.env.OPENAI_MODEL_NAME || 'gpt-4-turbo',
+    modelName: process.env.OPENAI_MODEL_NAME || 'gpt-4.1-2025-04-14',
     temperature: 0.7,
     maxTokens: 4000,
     adaptiveBehavior: false,

@@ -150,7 +150,7 @@ export class KnowledgeGapsService {
 
       // Use OpenAI to identify potential knowledge gaps
       const response = await openai.chat.completions.create({
-        model: process.env.OPENAI_MODEL_NAME || "gpt-4",
+        model: process.env.OPENAI_MODEL_NAME || "gpt-4.1-2025-04-14",
         messages: [
           {
             role: "system",

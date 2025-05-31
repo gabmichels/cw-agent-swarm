@@ -700,7 +700,7 @@ TECHNICAL_NOTES: [Any relevant technical observations]`;
     /*
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
     const response = await openai.chat.completions.create({
-      model: "gpt-4-vision-preview",
+      model: "gpt-4.1-2025-04-14-vision-preview",
       messages: [
         {
           role: "user",
@@ -975,7 +975,7 @@ Summary:`;
     /*
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
     const response = await openai.chat.completions.create({
-      model: "gpt-4",
+      model: "gpt-4.1-2025-04-14",
       messages: [
         {
           role: "user",

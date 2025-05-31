@@ -55,7 +55,7 @@ export class OpenAISearchService {
 
       // Use the search-capable model with proper type handling
       const response = await openai.chat.completions.create({
-        model: process.env.OPENAI_SEARCH_MODEL_NAME || "gpt-4o-search-preview",
+        model: process.env.OPENAI_SEARCH_MODEL_NAME || "gpt-4o-search-preview-2025-03-11",
         messages: [
           {
             role: "system",
