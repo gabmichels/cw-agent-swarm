@@ -23,5 +23,8 @@ export enum ManagerType {
   RESOURCE = 'resource',
   INTEGRATION = 'integration',
   STATUS = 'status',
-  NOTIFICATION = 'notification'
+  NOTIFICATION = 'notification',
+  ETHICS = 'ethics',
+  COLLABORATION = 'collaboration',
+  COMMUNICATION = 'communication'
 } 
