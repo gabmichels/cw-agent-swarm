@@ -93,6 +93,12 @@ interface DefaultAgentConfig {
   enableResourceTracking?: boolean;
   enableReflectionManager?: boolean;
   
+  // New manager enablement flags (Phase 2 integration)
+  enableEthicsManager?: boolean;
+  enableCollaborationManager?: boolean;
+  enableCommunicationManager?: boolean;
+  enableNotificationManager?: boolean;
+  
   // Enhanced manager flags
   useEnhancedMemory?: boolean;
   useEnhancedReflection?: boolean;
@@ -131,6 +137,12 @@ interface DefaultAgentConfig {
     knowledgeManager?: { enabled: boolean; [key: string]: unknown };
     schedulerManager?: { enabled: boolean; [key: string]: unknown };
     reflectionManager?: { enabled: boolean; [key: string]: unknown };
+    
+    // New manager configurations (Phase 2 integration)
+    ethicsManager?: { enabled: boolean; [key: string]: unknown };
+    collaborationManager?: { enabled: boolean; [key: string]: unknown };
+    communicationManager?: { enabled: boolean; [key: string]: unknown };
+    notificationManager?: { enabled: boolean; [key: string]: unknown };
     
     [key: string]: Record<string, unknown> | undefined;
   };
@@ -416,6 +428,12 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
         enableSchedulerManager: this.agentConfig.enableSchedulerManager || this.agentConfig.componentsConfig?.schedulerManager?.enabled || false,
         enableReflectionManager: this.agentConfig.enableReflectionManager || this.agentConfig.componentsConfig?.reflectionManager?.enabled || false,
         
+        // New manager enablement flags (Phase 2 integration)
+        enableEthicsManager: this.agentConfig.enableEthicsManager || this.agentConfig.componentsConfig?.ethicsManager?.enabled || false,
+        enableCollaborationManager: this.agentConfig.enableCollaborationManager || this.agentConfig.componentsConfig?.collaborationManager?.enabled || false,
+        enableCommunicationManager: this.agentConfig.enableCommunicationManager || this.agentConfig.componentsConfig?.communicationManager?.enabled || false,
+        enableNotificationManager: this.agentConfig.enableNotificationManager || this.agentConfig.componentsConfig?.notificationManager?.enabled || false,
+        
         // Map componentsConfig to managersConfig for AgentInitializer
         managersConfig: {
           memoryManager: this.agentConfig.componentsConfig?.memoryManager || { enabled: this.agentConfig.enableMemoryManager || false },
@@ -426,7 +444,13 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
           reflectionManager: this.agentConfig.componentsConfig?.reflectionManager || { enabled: this.agentConfig.enableReflectionManager || false },
           inputProcessor: this.agentConfig.componentsConfig?.inputProcessor as InputProcessorConfig || { enabled: this.agentConfig.enableInputProcessor || false },
           outputProcessor: this.agentConfig.componentsConfig?.outputProcessor as OutputProcessorConfig || { enabled: this.agentConfig.enableOutputProcessor || false },
-          resourceTracker: this.agentConfig.componentsConfig?.resourceTracker || {}
+          resourceTracker: this.agentConfig.componentsConfig?.resourceTracker || {},
+          
+          // New manager configurations (Phase 2 integration)
+          ethicsManager: this.agentConfig.componentsConfig?.ethicsManager || { enabled: this.agentConfig.enableEthicsManager || false },
+          collaborationManager: this.agentConfig.componentsConfig?.collaborationManager || { enabled: this.agentConfig.enableCollaborationManager || false },
+          communicationManager: this.agentConfig.componentsConfig?.communicationManager || { enabled: this.agentConfig.enableCommunicationManager || false },
+          notificationManager: this.agentConfig.componentsConfig?.notificationManager || { enabled: this.agentConfig.enableNotificationManager || false }
         }
       };
       

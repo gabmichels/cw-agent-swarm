@@ -40,6 +40,12 @@ import {
 } from '../../../lib/opportunity';
 import { createLogger } from '../../../lib/logging/winston-logger';
 
+// New manager imports for Phase 2 integration
+import { EthicsManagerConfig } from '../base/managers/EthicsManager.interface';
+import { CollaborationManagerConfig } from '../base/managers/CollaborationManager.interface';
+import { CommunicationManagerConfig } from '../base/managers/CommunicationManager.interface';
+import { NotificationManagerConfig } from '../base/managers/NotificationManager.interface';
+
 /**
  * Configuration interface for agent initialization
  */
@@ -71,6 +77,12 @@ export interface AgentInitializationConfig {
   enableOutputProcessor?: boolean;
   enableResourceTracking?: boolean;
   enableReflectionManager?: boolean;
+  
+  // New manager enablement flags (Phase 2 integration)
+  enableEthicsManager?: boolean;
+  enableCollaborationManager?: boolean;
+  enableCommunicationManager?: boolean;
+  enableNotificationManager?: boolean;
   
   // Enhanced manager flags
   useEnhancedMemory?: boolean;
@@ -104,6 +116,13 @@ export interface AgentInitializationConfig {
     outputProcessor?: OutputProcessorConfig;
     resourceTracker?: Partial<ResourceUtilizationTrackerOptions>;
     reflectionManager?: ManagerConfig;
+    
+    // New manager configurations (Phase 2 integration)
+    ethicsManager?: EthicsManagerConfig;
+    collaborationManager?: CollaborationManagerConfig;
+    communicationManager?: CommunicationManagerConfig;
+    notificationManager?: NotificationManagerConfig;
+    
     [key: string]: ManagerConfig | Record<string, unknown> | undefined;
   };
 }
@@ -205,6 +224,23 @@ export class AgentInitializer {
       
       if (config.enableOutputProcessor) {
         await this.initializeOutputProcessor(agent, config, errors);
+      }
+      
+      // Initialize new managers (Phase 2 integration)
+      if (config.enableEthicsManager) {
+        await this.initializeEthicsManager(agent, config, errors);
+      }
+      
+      if (config.enableCollaborationManager) {
+        await this.initializeCollaborationManager(agent, config, errors);
+      }
+      
+      if (config.enableCommunicationManager) {
+        await this.initializeCommunicationManager(agent, config, errors);
+      }
+      
+      if (config.enableNotificationManager) {
+        await this.initializeNotificationManagerWrapper(agent, config, errors);
       }
       
       // Initialize opportunity manager
@@ -704,5 +740,113 @@ export class AgentInitializer {
    */
   getOpportunityManager(): OpportunityManager | undefined {
     return this.opportunityManager;
+  }
+
+  /**
+   * Initialize ethics manager
+   */
+  private async initializeEthicsManager(
+    agent: AgentBase,
+    config: AgentInitializationConfig,
+    errors: Array<{ managerType: string; error: Error }>
+  ): Promise<void> {
+    if (!config.enableEthicsManager) {
+      this.logger.info('Ethics Manager disabled in configuration');
+      return;
+    }
+
+    try {
+      this.logger.info('Initializing Ethics Manager...');
+      const ethicsConfig = config.managersConfig?.ethicsManager || { enabled: false };
+      const { DefaultEthicsManager } = await import('../../../lib/agents/implementations/managers/DefaultEthicsManager');
+      const ethicsManager = new DefaultEthicsManager(agent, ethicsConfig);
+      this.managers.set(ManagerType.ETHICS, ethicsManager);
+      this.logger.info('Ethics Manager initialized successfully');
+      
+    } catch (error) {
+      this.logger.error('Error initializing Ethics Manager:', { error: error instanceof Error ? error.message : String(error) });
+      errors.push({ managerType: 'ethics', error: error as Error });
+    }
+  }
+
+  /**
+   * Initialize collaboration manager
+   */
+  private async initializeCollaborationManager(
+    agent: AgentBase,
+    config: AgentInitializationConfig,
+    errors: Array<{ managerType: string; error: Error }>
+  ): Promise<void> {
+    if (!config.enableCollaborationManager) {
+      this.logger.info('Collaboration Manager disabled in configuration');
+      return;
+    }
+
+    try {
+      this.logger.info('Initializing Collaboration Manager...');
+      const collaborationConfig = config.managersConfig?.collaborationManager || { enabled: false };
+      const { DefaultCollaborationManager } = await import('../../../lib/agents/implementations/managers/DefaultCollaborationManager');
+      const collaborationManager = new DefaultCollaborationManager(agent, collaborationConfig);
+      this.managers.set(ManagerType.COLLABORATION, collaborationManager);
+      this.logger.info('Collaboration Manager initialized successfully');
+      
+    } catch (error) {
+      this.logger.error('Error initializing Collaboration Manager:', { error: error instanceof Error ? error.message : String(error) });
+      errors.push({ managerType: 'collaboration', error: error as Error });
+    }
+  }
+
+  /**
+   * Initialize communication manager
+   */
+  private async initializeCommunicationManager(
+    agent: AgentBase,
+    config: AgentInitializationConfig,
+    errors: Array<{ managerType: string; error: Error }>
+  ): Promise<void> {
+    if (!config.enableCommunicationManager) {
+      this.logger.info('Communication Manager disabled in configuration');
+      return;
+    }
+
+    try {
+      this.logger.info('Initializing Communication Manager...');
+      const communicationConfig = config.managersConfig?.communicationManager || { enabled: false };
+      const { DefaultCommunicationManager } = await import('../../../lib/agents/implementations/managers/DefaultCommunicationManager');
+      const communicationManager = new DefaultCommunicationManager(agent, communicationConfig);
+      this.managers.set(ManagerType.COMMUNICATION, communicationManager);
+      this.logger.info('Communication Manager initialized successfully');
+      
+    } catch (error) {
+      this.logger.error('Error initializing Communication Manager:', { error: error instanceof Error ? error.message : String(error) });
+      errors.push({ managerType: 'communication', error: error as Error });
+    }
+  }
+
+  /**
+   * Initialize notification manager wrapper
+   */
+  private async initializeNotificationManagerWrapper(
+    agent: AgentBase,
+    config: AgentInitializationConfig,
+    errors: Array<{ managerType: string; error: Error }>
+  ): Promise<void> {
+    if (!config.enableNotificationManager) {
+      this.logger.info('Notification Manager disabled in configuration');
+      return;
+    }
+
+    try {
+      this.logger.info('Initializing Notification Manager Wrapper...');
+      const notificationConfig = config.managersConfig?.notificationManager || { enabled: false };
+      const { DefaultNotificationManagerWrapper } = await import('../../../lib/agents/implementations/managers/DefaultNotificationManagerWrapper');
+      const notificationManager = new DefaultNotificationManagerWrapper(agent, notificationConfig);
+      this.managers.set(ManagerType.NOTIFICATION, notificationManager);
+      this.logger.info('Notification Manager Wrapper initialized successfully');
+      
+    } catch (error) {
+      this.logger.error('Error initializing Notification Manager Wrapper:', { error: error instanceof Error ? error.message : String(error) });
+      errors.push({ managerType: 'notification', error: error as Error });
+    }
   }
 } 

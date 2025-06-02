@@ -117,6 +117,12 @@ async function createAgentInstance(dbAgent: AgentMemoryEntity): Promise<AgentBas
       schedulerManager: { enabled: true },
       reflectionManager: { enabled: true },
       
+      // New manager configurations (Phase 2 integration - disabled by default)
+      ethicsManager: { enabled: false },
+      collaborationManager: { enabled: false },
+      communicationManager: { enabled: false },
+      notificationManager: { enabled: false },
+      
       // Component configurations
       initializer: {
         enabled: true,
