@@ -57,6 +57,9 @@ export interface MemoryRetrievalOptions {
   // Exclusion options
   excludeMessageIds?: string[];  // New: Exclude specific message IDs (e.g., current message being responded to)
   
+  // Summary request flag
+  isSummaryRequest?: boolean;     // New: Force working memory sufficiency for summary requests
+  
   // Importance weighting
   importanceWeighting?: {
     enabled: boolean;
@@ -816,12 +819,14 @@ export class MemoryRetriever {
       
       // Determine if working memory is sufficient based on relevance and confidence
       const isWorkingMemorySufficient = 
-        highestRelevance > 0.7 && 
-        (options.intentConfidence || 0) > confidenceThreshold;
+        options.isSummaryRequest || // Force sufficiency for summary requests
+        (highestRelevance > 0.7 && 
+         (options.intentConfidence || 0) > confidenceThreshold);
       
       this.log(MemoryRetrievalLogLevel.BASIC, 
         `📊 Working memory check results: found ${relevantMemories.length} relevant items, ` +
         `highest relevance: ${highestRelevance.toFixed(3)}, ` +
+        `isSummaryRequest: ${!!options.isSummaryRequest}, ` +
         `sufficient: ${isWorkingMemorySufficient}`);
       
       return {

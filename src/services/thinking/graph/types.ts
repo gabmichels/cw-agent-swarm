@@ -16,6 +16,7 @@ export interface Intent {
   name: string;
   confidence: number;
   alternatives?: Array<{name: string, confidence: number}>;
+  isSummaryRequest?: boolean;
 }
 
 /**

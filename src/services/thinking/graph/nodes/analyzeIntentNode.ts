@@ -9,7 +9,8 @@ const intentSchema = z.object({
   primary: z.object({
     name: z.string().describe("The primary intent of the user's message"),
     confidence: z.number().min(0).max(1).describe("Confidence score between 0 and 1"),
-    description: z.string().describe("A brief description of what the user wants")
+    description: z.string().describe("A brief description of what the user wants"),
+    isSummaryRequest: z.boolean().describe("True if this is a request to summarize conversation or recent messages")
   }),
   alternatives: z.array(
     z.object({
@@ -56,6 +57,14 @@ export async function analyzeIntentNode(state: ThinkingState): Promise<ThinkingS
 You are an expert in understanding user intent. Analyze the following message and determine 
 the primary intent and possible alternative intents.
 
+Pay special attention to summary requests. A message is a summary request if the user is asking to:
+- Summarize conversation or messages (e.g., "summarize our conversation", "recap what we discussed")
+- Get an overview of recent discussion (e.g., "what did we talk about", "give me an overview")
+- Review or recap previous content (e.g., "can you recap", "what have we covered")
+- List or review recent topics (e.g., "what topics did we discuss")
+
+Set isSummaryRequest to true for such requests, regardless of the specific intent name.
+
 ${parser.getFormatInstructions()}
     `;
     
@@ -77,7 +86,8 @@ ${parser.getFormatInstructions()}
     const intent: Intent = {
       name: parsedOutput.primary.name,
       confidence: parsedOutput.primary.confidence,
-      alternatives: parsedOutput.alternatives
+      alternatives: parsedOutput.alternatives,
+      isSummaryRequest: parsedOutput.primary.isSummaryRequest
     };
     
     // Add description as a reasoning item if it exists
@@ -86,7 +96,12 @@ ${parser.getFormatInstructions()}
       reasoning.push(`Intent analysis: ${parsedOutput.primary.description}`);
     }
     
-    console.log(`Analyzed intent: ${intent.name} (${intent.confidence.toFixed(2)})`);
+    // Add summary detection to reasoning
+    if (parsedOutput.primary.isSummaryRequest) {
+      reasoning.push(`Summary request detected: This appears to be a request to summarize or recap conversation content`);
+    }
+    
+    console.log(`Analyzed intent: ${intent.name} (${intent.confidence.toFixed(2)}) ${intent.isSummaryRequest ? '[SUMMARY REQUEST]' : ''}`);
     
     // Return updated state with intent
     return {

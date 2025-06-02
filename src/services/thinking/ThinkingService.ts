@@ -96,7 +96,8 @@ export class ThinkingService implements IThinkingService {
         alternatives: graphResult.intent?.alternatives?.map(alt => ({
           intent: alt.name,
           confidence: alt.confidence
-        }))
+        })),
+        isSummaryRequest: graphResult.intent?.isSummaryRequest || false
       },
       entities: graphResult.entities || [],
       shouldDelegate: graphResult.shouldDelegate || false,
@@ -707,6 +708,8 @@ I've decided to delegate this task to an agent with the appropriate specializati
       semanticSearch: true,
       // Pass through message exclusion if provided
       excludeMessageIds: options.excludeMessageIds,
+      // Pass summary request flag to force working memory sufficiency
+      isSummaryRequest: options.isSummaryRequest,
       importanceWeighting: {
         enabled: true,
         priorityWeight: 1.2,

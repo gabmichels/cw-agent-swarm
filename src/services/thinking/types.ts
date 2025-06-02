@@ -13,6 +13,7 @@ export interface ThinkingResult {
     primary: string;
     confidence: number;
     alternatives?: Array<{intent: string, confidence: number}>;
+    isSummaryRequest?: boolean;
   };
   
   /**
@@ -97,6 +98,11 @@ export interface ThinkingOptions {
    * Message IDs to exclude from memory retrieval (e.g., current message being responded to)
    */
   excludeMessageIds?: string[];
+  
+  /**
+   * Flag indicating if this is a summary request (for expanded conversation history and working memory preference)
+   */
+  isSummaryRequest?: boolean;
   
   /**
    * Chat history to include

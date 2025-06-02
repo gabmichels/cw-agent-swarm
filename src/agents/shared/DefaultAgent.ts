@@ -910,6 +910,10 @@ Please provide a helpful, contextual response based on this analysis and memory 
       const memoryManager = this.getManager<MemoryManager>(ManagerType.MEMORY);
       let conversationHistory: MemoryEntry[] = [];
       
+      // Check if this is a summary request to expand conversation history
+      const isSummaryRequest = thinkingResult.intent?.isSummaryRequest || false;
+      const conversationHistoryLimit = isSummaryRequest ? 30 : 10; // Expand for summaries
+      
       if (memoryManager) {
         try {
           // Store the user input in memory first
@@ -921,10 +925,12 @@ Please provide a helpful, contextual response based on this analysis and memory 
             ...(options || {})
           });
           
-          // Retrieve recent conversation history (last 10 interactions)
-          conversationHistory = await memoryManager.getRecentMemories(10);
+          // Retrieve recent conversation history with expanded limit for summaries
+          conversationHistory = await memoryManager.getRecentMemories(conversationHistoryLimit);
           this.logger.info('Retrieved conversation history', {
-            historyCount: conversationHistory.length
+            historyCount: conversationHistory.length,
+            isSummaryRequest,
+            expandedLimit: conversationHistoryLimit
           });
         } catch (error) {
           this.logger.warn('Memory operations failed', {
@@ -1299,6 +1305,8 @@ Please provide a helpful, contextual response based on this analysis and memory 
             userId: options?.userId,
             // Pass current message ID to exclude from memory retrieval
             excludeMessageIds: options?.userMessageId ? [options?.userMessageId] : [],
+            // Detect summary request from message content for memory retrieval optimization
+            isSummaryRequest: this.isSimpleSummaryRequest(message),
             // Convert ThinkOptions to ThinkingOptions format
             ...(options || {})
           }
@@ -1768,5 +1776,24 @@ Please provide a helpful, contextual response based on this analysis and memory 
       return this.agentConfig.systemPrompt || 
              'You are a helpful assistant. Provide concise, accurate, and helpful responses.';
     }
+  }
+
+  /**
+   * Simple detection of summary requests based on common patterns
+   * This helps optimize memory retrieval before full intent analysis
+   */
+  private isSimpleSummaryRequest(message: string): boolean {
+    const lowerMessage = message.toLowerCase();
+    
+    // Common summary patterns
+    const summaryPatterns = [
+      'summarize', 'summary', 'recap', 'overview', 'brief',
+      'what did we', 'what have we', 'can you recap',
+      'give me an overview', 'what topics', 'main points',
+      'key takeaways', 'highlights', 'review our',
+      'what we discussed', 'what we talked about'
+    ];
+    
+    return summaryPatterns.some(pattern => lowerMessage.includes(pattern));
   }
 } 
