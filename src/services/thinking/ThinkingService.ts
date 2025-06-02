@@ -705,6 +705,8 @@ I've decided to delegate this task to an agent with the appropriate specializati
       userId: options.userId,
       limit: 15, // Get enough memories for good context
       semanticSearch: true,
+      // Pass through message exclusion if provided
+      excludeMessageIds: options.excludeMessageIds,
       importanceWeighting: {
         enabled: true,
         priorityWeight: 1.2,

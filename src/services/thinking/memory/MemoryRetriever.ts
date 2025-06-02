@@ -13,6 +13,9 @@ const DEFAULT_IMPORTANCE_WEIGHT = 1.5;
 const DEFAULT_SEMANTIC_WEIGHT = 1.0;
 const DEFAULT_TAG_MATCH_WEIGHT = 0.8;
 const DEFAULT_RECENCY_WEIGHT = 0.5;
+const DEFAULT_CONTENT_VALUE_WEIGHT = 0.7;  // New: Content value scoring
+const DEFAULT_LENGTH_WEIGHT = 0.3;         // New: Length scoring
+const DEFAULT_USER_MESSAGE_WEIGHT = 0.4;   // New: User message preference
 
 // Weight configuration for the scoring algorithm
 export interface ScoringWeights {
@@ -20,6 +23,9 @@ export interface ScoringWeights {
   importanceWeight: number;
   tagMatchWeight: number;
   recencyWeight: number;
+  contentValueWeight: number;  // New: Content value (answers vs questions)
+  lengthWeight: number;        // New: Message length bonus
+  userMessageWeight: number;   // New: User vs agent message preference
 }
 
 /**
@@ -47,6 +53,9 @@ export interface MemoryRetrievalOptions {
     days?: number;
     hours?: number;
   };
+  
+  // Exclusion options
+  excludeMessageIds?: string[];  // New: Exclude specific message IDs (e.g., current message being responded to)
   
   // Importance weighting
   importanceWeighting?: {
@@ -91,7 +100,10 @@ export class MemoryRetriever {
     semanticWeight: DEFAULT_SEMANTIC_WEIGHT,
     importanceWeight: DEFAULT_IMPORTANCE_WEIGHT,
     tagMatchWeight: DEFAULT_TAG_MATCH_WEIGHT,
-    recencyWeight: DEFAULT_RECENCY_WEIGHT
+    recencyWeight: DEFAULT_RECENCY_WEIGHT,
+    contentValueWeight: DEFAULT_CONTENT_VALUE_WEIGHT,
+    lengthWeight: DEFAULT_LENGTH_WEIGHT,
+    userMessageWeight: DEFAULT_USER_MESSAGE_WEIGHT
   };
   
   /**
@@ -161,9 +173,19 @@ export class MemoryRetriever {
       };
       
       // Add exclusion filter for working memory IDs to avoid duplicates
-      if (workingMemoryResult.memoryIds.length > 0) {
+      const excludeIds = [...(workingMemoryResult.memoryIds || [])];
+      
+      // Add any specifically excluded message IDs (e.g., current message being responded to)
+      if (options.excludeMessageIds && options.excludeMessageIds.length > 0) {
+        excludeIds.push(...options.excludeMessageIds);
+        this.log(MemoryRetrievalLogLevel.BASIC, 
+          `🚫 Excluding ${options.excludeMessageIds.length} message IDs from retrieval: ${options.excludeMessageIds.join(', ')}`);
+      }
+      
+      // Apply exclusion filter if we have IDs to exclude
+      if (excludeIds.length > 0) {
         filter.must_not = [
-          { key: "id", match: { values: workingMemoryResult.memoryIds } }
+          { key: "id", match: { any: excludeIds } }
         ];
       }
       
@@ -339,12 +361,16 @@ export class MemoryRetriever {
         ? (scoringWeights.importanceWeight ?? this.defaultWeights.importanceWeight)
         : 0,
       tagMatchWeight: scoringWeights.tagMatchWeight ?? this.defaultWeights.tagMatchWeight,
-      recencyWeight: scoringWeights.recencyWeight ?? this.defaultWeights.recencyWeight
+      recencyWeight: scoringWeights.recencyWeight ?? this.defaultWeights.recencyWeight,
+      contentValueWeight: scoringWeights.contentValueWeight ?? 0.5,
+      lengthWeight: scoringWeights.lengthWeight ?? 0.5,
+      userMessageWeight: scoringWeights.userMessageWeight ?? 0.5
     };
     
     this.log(MemoryRetrievalLogLevel.VERBOSE, 
       `⚖️ Scoring weights: semantic=${weights.semanticWeight}, importance=${weights.importanceWeight}, ` +
-      `tag=${weights.tagMatchWeight}, recency=${weights.recencyWeight}`);
+      `tag=${weights.tagMatchWeight}, recency=${weights.recencyWeight}, ` +
+      `contentValue=${weights.contentValueWeight}, length=${weights.lengthWeight}, userMessage=${weights.userMessageWeight}`);
     
     // Calculate timestamp for recency comparison (24 hours ago)
     const recentTimestamp = Date.now() - (24 * 60 * 60 * 1000);
@@ -383,16 +409,30 @@ export class MemoryRetriever {
       const timestamp = memory.metadata?.timestamp || memory.addedAt.getTime();
       const recencyScore = timestamp > recentTimestamp ? 1.0 : 0.5;
       
+      // Calculate content value score (0-1.0 range)
+      const contentValueScore = this.calculateContentValueScore(memory.content);
+      
+      // Calculate length score (0-1.0 range)
+      const lengthScore = this.calculateLengthScore(memory.content);
+      
+      // Calculate user message score (0-1.0 range)
+      const userMessageScore = this.calculateUserMessageScore(memory.content);
+      
       // Calculate final score using weighted formula
       const finalScore = 
         (semanticScore * weights.semanticWeight) +
         (importanceScore * weights.importanceWeight) +
         (tagMatchScore * weights.tagMatchWeight) +
-        (recencyScore * weights.recencyWeight);
+        (recencyScore * weights.recencyWeight) +
+        (contentValueScore * weights.contentValueWeight) +
+        (lengthScore * weights.lengthWeight) +
+        (userMessageScore * weights.userMessageWeight);
       
       // Normalize by sum of weights
       const weightSum = weights.semanticWeight + weights.importanceWeight + 
-                       weights.tagMatchWeight + weights.recencyWeight;
+                       weights.tagMatchWeight + weights.recencyWeight +
+                       weights.contentValueWeight + weights.lengthWeight +
+                       weights.userMessageWeight;
                        
       const normalizedScore = finalScore / weightSum;
           
@@ -404,6 +444,9 @@ export class MemoryRetriever {
           `importance=${importanceScore.toFixed(2)}, ` +
           `tags=${tagMatchScore.toFixed(2)}, ` +
           `recency=${recencyScore.toFixed(2)}, ` +
+          `contentValue=${contentValueScore.toFixed(2)}, ` +
+          `length=${lengthScore.toFixed(2)}, ` +
+          `userMessage=${userMessageScore.toFixed(2)}, ` +
           `final=${normalizedScore.toFixed(4)}`);
       }
       
@@ -414,7 +457,10 @@ export class MemoryRetriever {
           semanticScore,
           importanceScore,
           tagMatchScore,
-          recencyScore
+          recencyScore,
+          contentValueScore,
+          lengthScore,
+          userMessageScore
         }
       };
     });
@@ -509,34 +555,41 @@ export class MemoryRetriever {
   /**
    * Retrieve the user's working memory (last 20 messages)
    */
-  async getWorkingMemory(userId: string): Promise<WorkingMemoryItem[]> {
+  async getWorkingMemory(userId: string, excludeMessageIds?: string[]): Promise<WorkingMemoryItem[]> {
     try {
       const { memoryService, searchService } = await getMemoryServices();
       
       this.log(MemoryRetrievalLogLevel.BASIC, 
         `🧠 Retrieving working memory (last 20 messages) for user: ${userId}`);
       
-      // Create filter for memory search
+      // Build filter for working memory with exclusions
       const filter: Record<string, any> = {
         must: [
-          { key: "metadata.userId.id", match: { value: userId } },
-          { key: "type", match: { value: "message" } }
+          { key: "metadata.userId.id", match: { value: userId } }
         ]
       };
       
-      // Define search options to get last 20 messages
-      const searchOptions = {
+      // Add exclusion filter for specific message IDs if provided
+      if (excludeMessageIds && excludeMessageIds.length > 0) {
+        filter.must_not = [
+          { key: "id", match: { any: excludeMessageIds } }
+        ];
+        this.log(MemoryRetrievalLogLevel.BASIC, 
+          `🚫 Excluding ${excludeMessageIds.length} message IDs from working memory: ${excludeMessageIds.join(', ')}`);
+      }
+      
+      // Use filter method instead of search with empty query for better results
+      // This method is specifically designed for filtering without semantic search
+      const filterOptions = {
+        types: [MemoryType.MESSAGE], // Use proper MemoryType enum
         filter,
         limit: 20,
-        includeMetadata: true,
-        sortBy: {
-          field: "metadata.timestamp",
-          order: "desc"
-        }
+        sortBy: "metadata.timestamp", // Use string field name for sortBy
+        sortOrder: "desc" as const // Sort newest first
       };
       
-      // Fetch the last 20 messages
-      const searchResults = await searchService.search("", searchOptions);
+      // Use filter method which handles sorting properly for non-semantic searches
+      const searchResults = await searchService.filter(filterOptions);
       
       this.log(MemoryRetrievalLogLevel.BASIC, 
         `📊 Retrieved ${searchResults.length} working memory items (recent messages)`);
@@ -552,6 +605,7 @@ export class MemoryRetriever {
               id: string;
               payload: {
                 content: string;
+                text?: string; // Alternative field name
                 metadata?: {
                   tags?: string[];
                   type?: string;
@@ -576,9 +630,14 @@ export class MemoryRetriever {
             ? resultData.point.payload.metadata.tags 
             : [];
           
-          // Get memory content
+          // Get memory content - try multiple field names
           const payload = resultData.point?.payload as any;
           const content = String(payload?.content || payload?.text || '');
+          
+          // Skip empty content
+          if (!content.trim()) {
+            continue;
+          }
           
           // Create a working memory item
           workingMemories.push({
@@ -600,6 +659,100 @@ export class MemoryRetriever {
         } catch (itemError) {
           this.log(MemoryRetrievalLogLevel.ERROR, 
             `⚠️ Error processing working memory item:`, itemError);
+        }
+      }
+      
+      // If we didn't get results with the filter method, try a fallback approach
+      if (workingMemories.length === 0) {
+        this.log(MemoryRetrievalLogLevel.BASIC, 
+          `🔄 Filter method returned no results, trying fallback approach`);
+        
+        // Fallback: Use search with proper SearchOptions format
+        const searchOptions = {
+          types: [MemoryType.MESSAGE],
+          filter: {
+            must: [
+              { key: "metadata.userId.id", match: { value: userId } }
+            ],
+            // Add exclusion filter if we have message IDs to exclude
+            ...(excludeMessageIds && excludeMessageIds.length > 0 ? {
+              must_not: [
+                { key: "id", match: { value: null, in: excludeMessageIds } }
+              ]
+            } : {})
+          },
+          limit: 20,
+          sort: {
+            field: "metadata.timestamp",
+            direction: "desc" as const
+          }
+        };
+        
+        // Try with a minimal query to trigger semantic search
+        const fallbackResults = await searchService.search("message", searchOptions);
+        
+        this.log(MemoryRetrievalLogLevel.BASIC, 
+          `📊 Fallback search retrieved ${fallbackResults.length} working memory items`);
+        
+        // Process fallback results the same way
+        for (const result of fallbackResults) {
+          try {
+            const resultData = result as unknown as {
+              point: {
+                id: string;
+                payload: {
+                  content: string;
+                  text?: string;
+                  metadata?: {
+                    tags?: string[];
+                    type?: string;
+                    importance?: ImportanceLevel;
+                    importance_score?: number;
+                    contentSummary?: string;
+                    timestamp?: number;
+                    createdAt?: number;
+                  };
+                };
+              };
+            };
+            
+            const memoryId = String(resultData.point?.id || IdGenerator.generate("memory"));
+            const memoryType = String(resultData.point?.payload?.metadata?.type || 'message');
+            const timestamp = resultData.point?.payload?.metadata?.timestamp || 
+                           resultData.point?.payload?.metadata?.createdAt || 
+                           Date.now();
+            
+            const memoryTags = Array.isArray(resultData.point?.payload?.metadata?.tags) 
+              ? resultData.point.payload.metadata.tags 
+              : [];
+            
+            const payload = resultData.point?.payload as any;
+            const content = String(payload?.content || payload?.text || '');
+            
+            if (!content.trim()) {
+              continue;
+            }
+            
+            workingMemories.push({
+              id: memoryId,
+              type: memoryType as 'entity' | 'fact' | 'preference' | 'task' | 'goal' | 'message',
+              content: content,
+              tags: memoryTags,
+              addedAt: new Date(timestamp),
+              priority: 0,
+              expiresAt: null,
+              confidence: 1.0,
+              userId: userId,
+              _relevanceScore: 1.0,
+              metadata: {
+                timestamp: timestamp,
+                isWorkingMemory: true
+              }
+            });
+          } catch (itemError) {
+            this.log(MemoryRetrievalLogLevel.ERROR, 
+              `⚠️ Error processing fallback memory item:`, itemError);
+          }
         }
       }
       
@@ -630,7 +783,7 @@ export class MemoryRetriever {
         `🔍 Checking working memory first with confidence threshold: ${confidenceThreshold}`);
       
       // Retrieve working memory
-      const workingMemories = await this.getWorkingMemory(options.userId);
+      const workingMemories = await this.getWorkingMemory(options.userId, options.excludeMessageIds);
       
       if (workingMemories.length === 0) {
         this.log(MemoryRetrievalLogLevel.BASIC, 
@@ -681,5 +834,108 @@ export class MemoryRetriever {
         `❌ Error checking working memory:`, error);
       return { memories: [], sufficientConfidence: false, memoryIds: [] };
     }
+  }
+
+  /**
+   * Calculate content value score - answers vs questions
+   * Questions get lower scores, informative content gets higher scores
+   */
+  private calculateContentValueScore(content: string): number {
+    if (!content) return 0.5;
+    
+    const lowerContent = content.toLowerCase().trim();
+    
+    // Strong question indicators - heavily penalize
+    if (lowerContent.includes('can you repeat:') || 
+        lowerContent.includes('what is our') || 
+        lowerContent.includes('what are our') ||
+        lowerContent.startsWith('can you ') ||
+        lowerContent.startsWith('could you ') ||
+        lowerContent.startsWith('would you ')) {
+      return 0.1; // Very low score for obvious questions
+    }
+    
+    // General question patterns - moderately penalize
+    if (lowerContent.endsWith('?') || 
+        lowerContent.includes('how do ') ||
+        lowerContent.includes('where is ') ||
+        lowerContent.includes('when will ') ||
+        lowerContent.includes('why did ')) {
+      return 0.3; // Low score for questions
+    }
+    
+    // Value indicators - reward informative content
+    if (lowerContent.includes('budget') && (lowerContent.includes('€') || lowerContent.includes('$') || /\d+/.test(lowerContent))) {
+      return 1.0; // High score for budget information with numbers/currency
+    }
+    
+    if (lowerContent.includes('total') && /\d+/.test(lowerContent)) {
+      return 0.9; // High score for content with totals and numbers
+    }
+    
+    if (/\d+/.test(lowerContent) && lowerContent.length > 50) {
+      return 0.8; // Good score for longer content with numbers
+    }
+    
+    // Default score for neutral content
+    return 0.5;
+  }
+
+  /**
+   * Calculate length score - longer messages often contain more valuable information
+   */
+  private calculateLengthScore(content: string): number {
+    if (!content) return 0;
+    
+    const length = content.length;
+    
+    // Very short messages (under 50 chars) - likely not very informative
+    if (length < 50) return 0.2;
+    
+    // Short messages (50-150 chars) - moderate value
+    if (length < 150) return 0.4;
+    
+    // Medium messages (150-500 chars) - good value
+    if (length < 500) return 0.7;
+    
+    // Long messages (500-1500 chars) - high value
+    if (length < 1500) return 0.9;
+    
+    // Very long messages (1500+ chars) - very high value but cap at 1.0
+    return 1.0;
+  }
+
+  /**
+   * Calculate user message score - user messages often more valuable than agent responses
+   */
+  private calculateUserMessageScore(content: string): number {
+    if (!content) return 0.5;
+    
+    // Check for patterns that indicate agent responses
+    const lowerContent = content.toLowerCase();
+    
+    if (lowerContent.includes('i\'ve scheduled') ||
+        lowerContent.includes('task will be processed') ||
+        lowerContent.includes('here\'s how i\'d') ||
+        lowerContent.includes('let me ') ||
+        lowerContent.includes('i\'ll ') ||
+        lowerContent.includes('fantastic—') ||
+        lowerContent.includes('excellent!') ||
+        lowerContent.includes('ready to ')) {
+      return 0.3; // Lower score for agent-like responses
+    }
+    
+    // Check for patterns that indicate user input
+    if (lowerContent.includes('i am ') ||
+        lowerContent.includes('we are ') ||
+        lowerContent.includes('i have ') ||
+        lowerContent.includes('we have ') ||
+        lowerContent.includes('our ') ||
+        lowerContent.includes('my ')) {
+      return 0.8; // Higher score for user-like content
+    }
+    
+    // Default neutral score
+    return 0.5;
   }
 } 

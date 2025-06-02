@@ -94,6 +94,11 @@ export interface ThinkingOptions {
   userId?: string;
   
   /**
+   * Message IDs to exclude from memory retrieval (e.g., current message being responded to)
+   */
+  excludeMessageIds?: string[];
+  
+  /**
    * Chat history to include
    */
   chatHistory?: Array<{

@@ -68,8 +68,29 @@ export class SearchService {
    * Helper method to safely get collection name from memory type
    */
   private getCollectionNameForType(type: MemoryType): string {
-    // Use indexing with type assertion to avoid the "Property 'message' does not exist" error
-    return (COLLECTION_NAMES as Record<string, string>)[type] || '';
+    // Handle both string and enum values by trying multiple lookup approaches
+    let result = '';
+    
+    // First try direct lookup (for enum values)
+    result = (COLLECTION_NAMES as Record<string, string>)[type] || '';
+    
+    // If not found and type is a string, try uppercase version (for string values)
+    if (!result && typeof type === 'string') {
+      const upperCaseType = type.toUpperCase();
+      result = (COLLECTION_NAMES as Record<string, string>)[upperCaseType] || '';
+    }
+    
+    // If still not found, try matching by enum values
+    if (!result) {
+      for (const [enumKey, collectionName] of Object.entries(COLLECTION_NAMES)) {
+        if (enumKey.toLowerCase() === String(type).toLowerCase()) {
+          result = collectionName;
+          break;
+        }
+      }
+    }
+    
+    return result;
   }
   
   /**
@@ -123,7 +144,8 @@ export class SearchService {
             ? types.map(type => this.getCollectionNameForType(type as MemoryType)).filter(Boolean) as string[]
             : Object.values(COLLECTION_NAMES).filter(Boolean) as string[],
           filter,
-          limit
+          limit,
+          options.offset || 0
         );
       }
       
@@ -146,7 +168,7 @@ export class SearchService {
       const collectionsToSearch = types.length > 0
         ? types.map(type => this.getCollectionNameForType(type as MemoryType))
         : Object.values(COLLECTION_NAMES);
-        
+      
       // Filter out undefined collection names
       const validCollections = collectionsToSearch.filter(name => !!name) as string[];
       
@@ -158,7 +180,7 @@ export class SearchService {
       // If query is empty, use filter-based search instead of vector search
       if (isEmptyQuery) {
         console.log('Empty query detected, using filter-based search instead of vector search');
-        return await this.handleEmptyQuerySearch<T>(validCollections, filter, limit);
+        return await this.handleEmptyQuerySearch<T>(validCollections, filter, limit, options.offset || 0);
       }
       
       // If query optimizer is available and this is a single collection search,
@@ -299,7 +321,8 @@ export class SearchService {
   private async handleEmptyQuerySearch<T extends BaseMemorySchema>(
     collections: string[],
     filter?: MemoryFilter,
-    limit: number = 10
+    limit: number = 10,
+    offset: number = 0
   ): Promise<SearchResult<T>[]> {
     const results: SearchResult<T>[] = [];
     
@@ -407,22 +430,23 @@ export class SearchService {
           continue;
         }
         
-        // Use scrollPoints with filter
-        const points = await this.client.scrollPoints<T>(
+        // Use scrollPoints with correct parameters (no sorting support in this method)
+        const scrolledPoints = await this.client.scrollPoints<T>(
           collectionName,
           qdrantFilter,
-          limit
+          limit,
+          offset
         );
         
         // Add type and collection info to results
         const type = this.getTypeFromCollectionName(collectionName);
         
-        if (points.length > 0 && type) {
-          console.log(`Found ${points.length} results in collection ${collectionName}`);
+        if (scrolledPoints.length > 0 && type) {
+          console.log(`Found ${scrolledPoints.length} results in collection ${collectionName}`);
           
-          const mappedResults = points.map(point => ({
+          const mappedResults = scrolledPoints.map(point => ({
             point: point as MemoryPoint<T>,
-            score: 0.5, // Default score for non-semantic search
+            score: 1.0, // No relevance score for pure filtering
             type: type as MemoryType,
             collection: collectionName
           }));
@@ -973,37 +997,12 @@ export class SearchService {
             qdrantFilter = undefined;
           }
           
-          // Build scroll params including sort options
-          const scrollParams: {
-            filter?: Record<string, any>;
-            limit: number;
-            offset: number;
-            with_payload: boolean;
-            with_vector: boolean;
-            order_by?: {
-              key: string;
-              direction: 'asc' | 'desc';
-            };
-          } = {
-            filter: qdrantFilter,
-            limit,
-            offset,
-            with_payload: true,
-            with_vector: false
-          };
-          
-          // Add sorting if specified
-          if (sortBy) {
-            scrollParams.order_by = {
-              key: sortBy,
-              direction: sortOrder
-            };
-          }
-          
-          // Use scroll API to get paginated results with sorting
+          // Use scrollPoints with correct parameters (no sorting support in this method)
           const scrolledPoints = await this.client.scrollPoints<T>(
             collectionName,
-            scrollParams
+            qdrantFilter,
+            limit,
+            offset
           );
           
           if (scrolledPoints && scrolledPoints.length > 0) {

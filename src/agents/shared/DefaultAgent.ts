@@ -673,6 +673,12 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
         
         if (options?.thinkingResult) {
           const thinking = options.thinkingResult;
+          
+          // Get formatted memory context from thinking results
+          const memoryContext = thinking.context?.formattedMemoryContext || '';
+          const memoryContextSection = memoryContext ? 
+            `\nRelevant Memory Context:\n${memoryContext}` : '';
+          
           enhancedInput = `User Input: ${message}
 
 Context from thinking analysis:
@@ -682,9 +688,9 @@ Context from thinking analysis:
 - Priority: ${thinking.priority}/10
 - Is Urgent: ${thinking.isUrgent}
 - Required Capabilities: ${thinking.requiredCapabilities.join(', ')}
-${thinking.reasoning && thinking.reasoning.length > 0 ? `- Reasoning: ${thinking.reasoning.join('; ')}` : ''}
+${thinking.reasoning && thinking.reasoning.length > 0 ? `- Reasoning: ${thinking.reasoning.join('; ')}` : ''}${memoryContextSection}
 
-Please provide a helpful, contextual response based on this analysis.`;
+Please provide a helpful, contextual response based on this analysis and memory context.`;
         }
 
         try {
@@ -716,6 +722,12 @@ Please provide a helpful, contextual response based on this analysis.`;
         
         if (options?.thinkingResult) {
           const thinking = options.thinkingResult;
+          
+          // Get formatted memory context from thinking results
+          const memoryContext = thinking.context?.formattedMemoryContext || '';
+          const memoryContextSection = memoryContext ? 
+            `\nRelevant Memory Context:\n${memoryContext}` : '';
+          
           enhancedInput = `User Input: ${message}
 
 Context from thinking analysis:
@@ -725,9 +737,9 @@ Context from thinking analysis:
 - Priority: ${thinking.priority}/10
 - Is Urgent: ${thinking.isUrgent}
 - Required Capabilities: ${thinking.requiredCapabilities.join(', ')}
-${thinking.reasoning && thinking.reasoning.length > 0 ? `- Reasoning: ${thinking.reasoning.join('; ')}` : ''}
+${thinking.reasoning && thinking.reasoning.length > 0 ? `- Reasoning: ${thinking.reasoning.join('; ')}` : ''}${memoryContextSection}
 
-Please provide a helpful, contextual response based on this analysis.`;
+Please provide a helpful, contextual response based on this analysis and memory context.`;
         }
 
         // Get conversation history - ensure it's a proper array
@@ -833,7 +845,9 @@ Please provide a helpful, contextual response based on this analysis.`;
           contextUsed: {
             thinkingResult: !!options?.thinkingResult,
             conversationHistory: Array.isArray(options?.conversationHistory) ? options.conversationHistory.length : 0,
-            enhancedInput: options?.thinkingResult ? true : false
+            enhancedInput: options?.thinkingResult ? true : false,
+            formattedMemoryContext: !!(options?.thinkingResult?.context?.formattedMemoryContext),
+            memoryContextLength: options?.thinkingResult?.context?.formattedMemoryContext?.length || 0
           },
           timestamp: new Date().toISOString(),
           agentId: this.agentId,
@@ -1283,6 +1297,8 @@ Please provide a helpful, contextual response based on this analysis.`;
           message,
           {
             userId: options?.userId,
+            // Pass current message ID to exclude from memory retrieval
+            excludeMessageIds: options?.userMessageId ? [options?.userMessageId] : [],
             // Convert ThinkOptions to ThinkingOptions format
             ...(options || {})
           }
