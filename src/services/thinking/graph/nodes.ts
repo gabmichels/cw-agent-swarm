@@ -5,11 +5,12 @@ import { FileRetriever } from '../files/FileRetriever';
 import { DelegationService } from '../delegation/DelegationService';
 import { toolService, toolRegistry } from '../tools';
 
-// Create the LLM model for thinking processing
+// Create the LLM model for thinking processing with timeout
 const thinkingLLM = new ChatOpenAI({
   modelName: process.env.OPENAI_CHEAP_MODEL || "gpt-4.1-nano-2025-04-14",
   temperature: 0.2,
-  maxTokens: process.env.OPENAI_MAX_TOKENS ? parseInt(process.env.OPENAI_MAX_TOKENS, 10) : 32000
+  maxTokens: process.env.OPENAI_MAX_TOKENS ? parseInt(process.env.OPENAI_MAX_TOKENS, 10) : 32000,
+  timeout: 15000 // 15 second timeout for LLM calls
 });
 
 // Create the file retriever

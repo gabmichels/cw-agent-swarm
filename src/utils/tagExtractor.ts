@@ -153,7 +153,7 @@ export class OpenAITagExtractor {
           {
             role: "system" as const,
             content: `You are a tag extraction system. Extract the most relevant tags or keywords from the provided text. 
-            Focus on document purpose, core concepts, important topics, entities, and themes.
+            Focus on document purpose, business-relevance, core concepts, important topics, entities, and themes.
             
             Rules:
             - Always identify and tag the core document type/purpose (e.g., "mission", "policy", "product description")
@@ -171,6 +171,16 @@ export class OpenAITagExtractor {
             - For technical content, include technical terms as tags
             - For conversational content, focus on the main topics and intent
             - Return the tags with confidence scores between 0.0 and 1.0
+            
+            Business-Critical Concepts Priority:
+            - Business strategy terms like "growth strategy", "market analysis", "competitive landscape", "business model"
+            - User/Customer focus like "user persona", "target audience", "customer journey", "user feedback", "user acquisition"
+            - Metrics & Analytics like "kpis", "key metrics", "analytics setup", "performance tracking", "conversion rates", "retention metrics"
+            - Financial concepts like "budget", "revenue", "cost analysis", "roi", "pricing strategy", "funding"
+            - Product concepts like "product roadmap", "feature prioritization", "product development", "market fit", "mvp"
+            - Operations like "team structure", "workflow optimization", "process improvement", "resource allocation"
+            - Marketing & Growth like "marketing channels", "viral loops", "referral program", "content strategy", "brand positioning"
+            - Technology like "platform setup", "data integration", "tech stack", "api integration", "automation"
             
             Format your response as a JSON object with a "tags" array. Each tag in the array should be an object with "text" and "confidence" properties.`
           },

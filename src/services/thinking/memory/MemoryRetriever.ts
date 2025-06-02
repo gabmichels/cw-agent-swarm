@@ -520,7 +520,7 @@ export class MemoryRetriever {
       const filter: Record<string, any> = {
         must: [
           { key: "metadata.userId.id", match: { value: userId } },
-          { key: "metadata.type", match: { value: "message" } }
+          { key: "type", match: { value: "message" } }
         ]
       };
       

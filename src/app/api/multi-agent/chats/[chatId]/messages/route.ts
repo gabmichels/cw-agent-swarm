@@ -360,8 +360,9 @@ export async function POST(
     let userMessageTags: string[] = [];
     try {
       const extractionResult = await extractTags(content, {
-        maxTags: 8,
+        maxTags: 20,         // Increased to 20 like assistant messages
         minConfidence: 0.3
+        // No existingTags parameter - we want fresh tags for user input
       });
       
       if (extractionResult.success && extractionResult.tags.length > 0) {
@@ -372,11 +373,72 @@ export async function POST(
       console.warn('Error extracting tags from user message:', extractionError);
     }
     
+    // Calculate importance for user message
+    let userImportance: any = undefined;
+    let userImportanceScore: number | undefined = undefined;
+    try {
+      // Import importance calculator
+      const { ImportanceCalculatorService, ImportanceCalculationMode } = await import('../../../../../../services/importance/ImportanceCalculatorService');
+      const { getLLM } = await import('../../../../../../lib/core/llm');
+      
+      // Create LLM service wrapper for importance calculation
+      const llmService = {
+        generateStructuredOutput: async <T>(
+          model: string,
+          prompt: string,
+          outputSchema: Record<string, unknown>
+        ): Promise<T> => {
+          const cheapModel = getLLM({ 
+            useCheapModel: true, 
+            temperature: 0.3, 
+            maxTokens: 300 
+          });
+          
+          try {
+            const response = await cheapModel.invoke(prompt);
+            const responseContent = typeof response === 'string' ? response : response.content;
+            
+            try {
+              return JSON.parse(responseContent) as T;
+            } catch {
+              return responseContent as T;
+            }
+          } catch (error) {
+            throw error;
+          }
+        }
+      };
+      
+      const importanceCalculator = new ImportanceCalculatorService(llmService, {
+        defaultMode: ImportanceCalculationMode.LLM,
+        hybridConfidenceThreshold: 0.8
+      });
+      
+      const importanceResult = await importanceCalculator.calculateImportance({
+        content,
+        contentType: 'user_message',
+        tags: userMessageTags,
+        source: 'user',
+        userContext: `User ${userId} in chat ${chatId}`
+      }, ImportanceCalculationMode.LLM);
+      
+      userImportance = importanceResult.importance_level;
+      userImportanceScore = importanceResult.importance_score;
+      
+      console.log(`Calculated user message importance:`, {
+        importance: userImportance,
+        score: userImportanceScore,
+        reasoning: importanceResult.reasoning
+      });
+    } catch (importanceError) {
+      console.warn('Error calculating user message importance:', importanceError);
+    }
+    
     // Create thread info for user message
     const userThreadInfo = getOrCreateThreadInfo(chatId, 'user');
     console.log(`Created user message with thread ID: ${userThreadInfo.id}, position: ${userThreadInfo.position}`);
     
-    // Save user message to memory with extracted tags
+    // Save user message to memory with extracted tags and importance
     const userMemoryResult = await addMessageMemory(
       memoryService,
       content,
@@ -390,7 +452,9 @@ export async function POST(
         messageType: 'user_message',
         metadata: {
           chatId: chatStructuredId, 
-          tags: userMessageTags // Add extracted tags
+          tags: userMessageTags,
+          ...(userImportance && { importance: userImportance }),
+          ...(userImportanceScore && { importance_score: userImportanceScore })
         }
       }
     );
@@ -497,14 +561,19 @@ export async function POST(
     const responseContent = agentResponse.content;
     const thoughts = agentResponse.thoughts || [];
     const memories = agentResponse.memories || [];
+    
+    // Extract importance from agent response thinking analysis if available
+    const thinkingAnalysis = agentResponse.metadata?.thinkingAnalysis as any;
+    const importance = thinkingAnalysis?.importance;
+    const importanceScore = thinkingAnalysis?.importanceScore;
 
     // Extract tags from agent response
     let responseMessageTags: string[] = ['agent_response']; // Always include agent_response tag
     try {
       const extractionResult = await extractTags(responseContent, {
-        maxTags: 8,
-        minConfidence: 0.3,
-        existingTags: userMessageTags // Pass user message tags as context
+        maxTags: 20,         // Increased from 8 to 20 for more comprehensive tagging
+        minConfidence: 0.3   // Keep existing confidence threshold
+        // Removed existingTags parameter to prevent tag duplication between user and assistant
       });
       
       if (extractionResult.success && extractionResult.tags.length > 0) {
@@ -544,6 +613,8 @@ export async function POST(
           chatId: chatStructuredId,
           tags: responseMessageTags,
           category: 'response',
+          ...(importance && { importance }),
+          ...(importanceScore && { importance_score: importanceScore }),
           conversationContext: {
             purpose: 'user_query_response',
             sharedContext: {
@@ -568,7 +639,9 @@ export async function POST(
           threadId: assistantThreadInfo.id,
           parentMessageId: lastUserMessageId,
           thoughts,
-          memories
+          memories,
+          importance,
+          importanceScore
         }
       }
     });

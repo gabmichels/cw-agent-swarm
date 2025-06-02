@@ -988,7 +988,7 @@ Please provide a helpful, contextual response based on this analysis.`;
             const priorityText = priority >= 9 ? 'high priority' : priority >= 7 ? 'medium-high priority' : priority >= 5 ? 'medium priority' : 'low priority';
             
             response = {
-              content: `I understand your request: "${llmResponse.content}"\n\nI've scheduled a ${priorityText} task to handle this properly. The task will be processed according to its priority and scheduling requirements.`,
+              content: `${llmResponse.content}\n\nI've scheduled a ${priorityText} task to handle this properly. The task will be processed according to its priority and scheduling requirements.`,
               thoughts: llmResponse.thoughts || thinkingResult.reasoning,
               metadata: {
                 ...llmResponse.metadata,
@@ -1002,7 +1002,9 @@ Please provide a helpful, contextual response based on this analysis.`;
                   shouldDelegate: thinkingResult.shouldDelegate,
                   requiredCapabilities: thinkingResult.requiredCapabilities,
                   complexity: thinkingResult.complexity,
-                  priority: thinkingResult.priority
+                  priority: thinkingResult.priority,
+                  importance: thinkingResult.importance,
+                  importanceScore: thinkingResult.importanceScore
                 }
               }
             };
@@ -1055,7 +1057,9 @@ Please provide a helpful, contextual response based on this analysis.`;
                   shouldDelegate: thinkingResult.shouldDelegate,
                   requiredCapabilities: thinkingResult.requiredCapabilities,
                   complexity: thinkingResult.complexity,
-                  priority: thinkingResult.priority
+                  priority: thinkingResult.priority,
+                  importance: thinkingResult.importance,
+                  importanceScore: thinkingResult.importanceScore
                 }
               }
             };
@@ -1095,7 +1099,9 @@ Please provide a helpful, contextual response based on this analysis.`;
             shouldDelegate: thinkingResult.shouldDelegate,
             requiredCapabilities: thinkingResult.requiredCapabilities,
             complexity: thinkingResult.complexity,
-            priority: thinkingResult.priority
+            priority: thinkingResult.priority,
+            importance: thinkingResult.importance,
+            importanceScore: thinkingResult.importanceScore
           }
         };
       }
@@ -1282,11 +1288,11 @@ Please provide a helpful, contextual response based on this analysis.`;
           }
         );
         
-        // Race against timeout (120 seconds for thinking - increased for complex analysis)
+        // Race against timeout (30 seconds for thinking - reasonable timeout for memory + LLM calls)
         const timeoutPromise = new Promise<never>((_, reject) => {
           setTimeout(() => {
-            reject(new Error('ThinkingService timeout after 120 seconds'));
-          }, 120000);
+            reject(new Error('ThinkingService timeout after 30 seconds'));
+          }, 30000);
         });
         
         this.logger.info('Starting ThinkingService processing with complex analysis');

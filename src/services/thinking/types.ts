@@ -50,6 +50,16 @@ export interface ThinkingResult {
   complexity: number;
   
   /**
+   * Calculated importance level of this thinking process
+   */
+  importance?: import('../../constants/memory').ImportanceLevel;
+  
+  /**
+   * Calculated importance score (0-1) of this thinking process
+   */
+  importanceScore?: number;
+  
+  /**
    * Additional context for the task
    */
   context?: Record<string, any>;

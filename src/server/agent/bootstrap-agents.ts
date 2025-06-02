@@ -130,7 +130,7 @@ async function createAgentInstance(dbAgent: AgentMemoryEntity): Promise<AgentBas
       },
       lifecycleManager: {
         enabled: true,
-        healthCheckInterval: 30000,
+        healthCheckInterval: 120000,
         memoryRefreshInterval: 3600000
       },
       communicationHandler: {
@@ -140,7 +140,7 @@ async function createAgentInstance(dbAgent: AgentMemoryEntity): Promise<AgentBas
       executionEngine: {
         enabled: true,
         maxConcurrentTasks: 5,
-        taskTimeoutMs: 180000
+        taskTimeoutMs: 60000
       },
       inputProcessor: {
         enabled: true,

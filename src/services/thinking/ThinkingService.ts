@@ -354,8 +354,10 @@ export class ThinkingService implements IThinkingService {
       
       // Store thinking artifacts
       try {
-        const { detailedReasoning, storageResult } = await this.storeThinkingArtifacts(userId, message, thinkingResult);
+        const { detailedReasoning, storageResult, importance, importanceScore } = await this.storeThinkingArtifacts(userId, message, thinkingResult);
         thinkingResult.reasoning = detailedReasoning;
+        thinkingResult.importance = importance;
+        thinkingResult.importanceScore = importanceScore;
       } catch (error) {
         console.error('Error storing thinking artifacts:', error);
       }
@@ -430,19 +432,27 @@ export class ThinkingService implements IThinkingService {
   ): Promise<{
     detailedReasoning: string[];
     storageResult: any;
+    importance?: import('../../constants/memory').ImportanceLevel;
+    importanceScore?: number;
   }> {
     // Skip if cognitive artifact service is not initialized
     if (!this.cognitiveArtifactService) {
       console.warn('Cognitive artifact service not initialized, skipping artifact storage');
       return {
         detailedReasoning: thinkingResult.reasoning || [],
-        storageResult: null
+        storageResult: null,
+        importance: undefined,
+        importanceScore: undefined
       };
     }
     
     try {
       // Determine importance based on complexity and priority
       const importance = await this.calculateImportance(thinkingResult);
+      
+      // Calculate importance score from level
+      const { ImportanceConverter } = await import('../importance/ImportanceConverter');
+      const importanceScore = ImportanceConverter.levelToScore(importance);
       
       // Store the complete thinking process with all components
       const storageResult = await this.cognitiveArtifactService.storeThinkingResult(
@@ -497,13 +507,17 @@ export class ThinkingService implements IThinkingService {
       
       return {
         detailedReasoning,
-        storageResult
+        storageResult,
+        importance,
+        importanceScore
       };
     } catch (error) {
       console.error('Error storing thinking artifacts:', error);
       return {
         detailedReasoning: thinkingResult.reasoning || [],
-        storageResult: null
+        storageResult: null,
+        importance: undefined,
+        importanceScore: undefined
       };
     }
   }
