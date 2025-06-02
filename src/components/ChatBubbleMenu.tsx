@@ -248,12 +248,18 @@ const ChatBubbleMenu: React.FC<ChatBubbleMenuProps> = ({
           }
         }
         
-        Toast.show({ message: 'Message deleted successfully', type: 'success', duration: 3000 });
+        // Create a more informative success message
+        const thoughtsCount = data.deletedThoughtsCount || 0;
+        const successMessage = thoughtsCount > 0 
+          ? `Message and ${thoughtsCount} related thought${thoughtsCount === 1 ? '' : 's'} deleted successfully`
+          : 'Message deleted successfully';
+        
+        Toast.show({ message: successMessage, type: 'success', duration: 3000 });
         setShowDeleteDialog(false);
         
         // Dispatch a custom event that can be listened for by parent components
         const event = new CustomEvent('messageDeleted', {
-          detail: { id: message.id, timestamp: message.timestamp }
+          detail: { id: message.id, timestamp: message.timestamp, deletedThoughtsCount: thoughtsCount }
         });
         document.dispatchEvent(event);
         
@@ -444,8 +450,11 @@ const ChatBubbleMenu: React.FC<ChatBubbleMenuProps> = ({
             <DialogTitle>Delete Message</DialogTitle>
           </DialogHeader>
           <div className="mt-4">
-            <p className="text-gray-300 mb-4">
+            <p className="text-gray-300 mb-2">
               Are you sure you want to delete this message? This action cannot be undone.
+            </p>
+            <p className="text-gray-400 text-sm mb-4">
+              This will also delete any related thoughts, reflections, insights, and cognitive processes associated with this message.
             </p>
             <div className="flex justify-end gap-3">
               <button

@@ -441,12 +441,12 @@ export async function POST(
       
       console.log(`Processing user input with agent ${agentId} using its processUserInput method`);
       
-      // Set a reasonable timeout (30 seconds)
+      // Set a reasonable timeout (120 seconds for complex processing)
       const timeoutPromise = new Promise<never>((_, reject) => {
         const timeoutId = setTimeout(() => {
           clearTimeout(timeoutId);
-          reject(new Error('Request timed out after 30 seconds'));
-        }, 30000);
+          reject(new Error('Request timed out after 120 seconds'));
+        }, 120000);
       });
       
       // Process the user input through the new unified pipeline in the agent

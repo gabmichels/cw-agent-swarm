@@ -242,6 +242,95 @@ export async function DELETE(request: NextRequest) {
     console.log(`Deleting message with ID: ${messageToDelete.id}`);
     
     try {
+      // First, find and delete related thoughts and cognitive processes
+      console.log(`Looking for related thoughts and cognitive processes for message ID: ${messageToDelete.id}`);
+      
+      // Search for thoughts that are related to this message
+      const relatedThoughtsQuery = await searchService.search('', {
+        types: [MemoryType.THOUGHT, MemoryType.REFLECTION, MemoryType.INSIGHT, MemoryType.TASK],
+        limit: 100,
+        filter: {
+          must: [
+            {
+              key: "metadata.relatedTo",
+              match: { value: messageToDelete.id }
+            }
+          ]
+        }
+      });
+      
+      console.log(`Found ${relatedThoughtsQuery.length} related thoughts/cognitive processes`);
+      
+      // Also search by contextId if the message has conversationContext
+      let contextualThoughts: any[] = [];
+      const messageMetadata = messageToDelete.payload?.metadata || {};
+      if (messageMetadata.conversationContext?.taskId) {
+        console.log(`Looking for thoughts with contextId: ${messageMetadata.conversationContext.taskId}`);
+        
+        const contextualThoughtsQuery = await searchService.search('', {
+          types: [MemoryType.THOUGHT, MemoryType.REFLECTION, MemoryType.INSIGHT, MemoryType.TASK],
+          limit: 100,
+          filter: {
+            must: [
+              {
+                key: "metadata.contextId",
+                match: { value: messageMetadata.conversationContext.taskId }
+              }
+            ]
+          }
+        });
+        
+        contextualThoughts = contextualThoughtsQuery;
+        console.log(`Found ${contextualThoughts.length} contextual thoughts`);
+      }
+      
+      // Combine and deduplicate thoughts
+      const allRelatedThoughts = [...relatedThoughtsQuery, ...contextualThoughts];
+      const uniqueThoughts = allRelatedThoughts.filter((thought, index, arr) => 
+        arr.findIndex(t => t.point.id === thought.point.id) === index
+      );
+      
+      console.log(`Total unique related thoughts to delete: ${uniqueThoughts.length}`);
+      
+      // Delete each related thought
+      let deletedThoughtsCount = 0;
+      for (const thoughtResult of uniqueThoughts) {
+        try {
+          const thoughtPoint = thoughtResult.point;
+          console.log(`Deleting related thought with ID: ${thoughtPoint.id}`);
+          
+          // Determine the memory type from the thought's metadata
+          const thoughtMetadata = thoughtPoint.payload?.metadata || {};
+          let thoughtMemoryType = MemoryType.THOUGHT; // default
+          
+          if (thoughtMetadata.processType === 'reflection') {
+            thoughtMemoryType = MemoryType.REFLECTION;
+          } else if (thoughtMetadata.processType === 'insight') {
+            thoughtMemoryType = MemoryType.INSIGHT;
+          } else if (thoughtMetadata.processType === 'planning') {
+            thoughtMemoryType = MemoryType.TASK;
+          }
+          
+          const thoughtDeleteResult = await memoryService.deleteMemory({
+            id: thoughtPoint.id,
+            type: thoughtMemoryType
+          });
+          
+          if (thoughtDeleteResult) {
+            deletedThoughtsCount++;
+            console.log(`Successfully deleted thought: ${thoughtPoint.id}`);
+          } else {
+            console.warn(`Failed to delete thought: ${thoughtPoint.id}`);
+          }
+        } catch (error) {
+          console.error(`Error deleting thought ${thoughtResult.point.id}:`, error);
+          // Continue with other deletions even if one fails
+        }
+      }
+      
+      console.log(`Deleted ${deletedThoughtsCount} related thoughts`);
+      
+      // Now delete the message itself
       const deleteResult = await memoryService.deleteMemory({
         id: messageToDelete.id,
         type: MemoryType.MESSAGE
@@ -250,8 +339,9 @@ export async function DELETE(request: NextRequest) {
       if (deleteResult) {
         return NextResponse.json({
           success: true,
-          message: 'Message and attachments deleted successfully',
-          deletedId: messageToDelete.id
+          message: `Message and ${deletedThoughtsCount} related thoughts deleted successfully`,
+          deletedId: messageToDelete.id,
+          deletedThoughtsCount
         });
       } else {
         return NextResponse.json(

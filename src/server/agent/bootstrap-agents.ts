@@ -140,7 +140,7 @@ async function createAgentInstance(dbAgent: AgentMemoryEntity): Promise<AgentBas
       executionEngine: {
         enabled: true,
         maxConcurrentTasks: 5,
-        taskTimeoutMs: 30000
+        taskTimeoutMs: 180000
       },
       inputProcessor: {
         enabled: true,

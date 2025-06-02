@@ -354,7 +354,8 @@ export class ThinkingService implements IThinkingService {
       
       // Store thinking artifacts
       try {
-        await this.storeThinkingArtifacts(userId, message, thinkingResult);
+        const { detailedReasoning, storageResult } = await this.storeThinkingArtifacts(userId, message, thinkingResult);
+        thinkingResult.reasoning = detailedReasoning;
       } catch (error) {
         console.error('Error storing thinking artifacts:', error);
       }
@@ -420,16 +421,23 @@ export class ThinkingService implements IThinkingService {
   /**
    * Store all cognitive artifacts from the thinking process
    * Creates thoughts, reasoning, entities, plans, and links them together
+   * Returns enriched reasoning to include in the response
    */
   private async storeThinkingArtifacts(
     userId: string,
     message: string,
     thinkingResult: ThinkingResult
-  ): Promise<void> {
+  ): Promise<{
+    detailedReasoning: string[];
+    storageResult: any;
+  }> {
     // Skip if cognitive artifact service is not initialized
     if (!this.cognitiveArtifactService) {
       console.warn('Cognitive artifact service not initialized, skipping artifact storage');
-      return;
+      return {
+        detailedReasoning: thinkingResult.reasoning || [],
+        storageResult: null
+      };
     }
     
     try {
@@ -460,12 +468,43 @@ export class ThinkingService implements IThinkingService {
         entityCount: storageResult.entityIds.length
       });
       
+      // Create detailed reasoning for the response (what gets shown to user)
+      const detailedReasoning = [
+        `Intent Analysis: ${thinkingResult.intent.primary} (confidence: ${(thinkingResult.intent.confidence * 100).toFixed(0)}%)`,
+        ...(thinkingResult.intent.alternatives && thinkingResult.intent.alternatives.length > 0 
+          ? [`Alternative intents considered: ${thinkingResult.intent.alternatives.map(alt => `${alt.intent} (${(alt.confidence * 100).toFixed(0)}%)`).join(', ')}`]
+          : []
+        ),
+        ...(thinkingResult.entities && thinkingResult.entities.length > 0
+          ? [`Entities identified: ${thinkingResult.entities.map(e => `${e.value} (${e.type})`).join(', ')}`]
+          : []
+        ),
+        ...(thinkingResult.reasoning || []),
+        ...(thinkingResult.planSteps && thinkingResult.planSteps.length > 0
+          ? ['Execution plan:', ...thinkingResult.planSteps.map((step, i) => `${i + 1}. ${step}`)]
+          : []
+        ),
+        ...(thinkingResult.shouldDelegate 
+          ? [`Delegation: Task requires specialized capabilities: ${thinkingResult.requiredCapabilities.join(', ')}`]
+          : []
+        )
+      ];
+      
       // If delegation is needed, store a reflection about the delegation decision
       if (thinkingResult.shouldDelegate && thinkingResult.requiredCapabilities.length > 0) {
         this.storeReflectionOnDelegation(userId, thinkingResult, storageResult.thoughtId);
       }
+      
+      return {
+        detailedReasoning,
+        storageResult
+      };
     } catch (error) {
       console.error('Error storing thinking artifacts:', error);
+      return {
+        detailedReasoning: thinkingResult.reasoning || [],
+        storageResult: null
+      };
     }
   }
   

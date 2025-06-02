@@ -291,7 +291,7 @@ ${steps.map((step, index) => `${index + 1}. ${step}`).join('\n')}
       
       // Add the memory with proper metadata
       const result = await this.memoryService.addMemory({
-        type: MemoryType.TASK,
+        type: MemoryType.THOUGHT,
         content,
         metadata
       });
@@ -344,7 +344,7 @@ ${steps.map((step, index) => `${index + 1}. ${step}`).join('\n')}
       
       // Add the memory with proper metadata
       const result = await this.memoryService.addMemory({
-        type: MemoryType.TASK,
+        type: MemoryType.THOUGHT,
         content: `${title}: ${description}`,
         metadata
       });

@@ -55,6 +55,11 @@ import { OpportunityManager } from '../../lib/opportunity';
 import { processInputWithLangChain } from './processInput';
 import { ChatOpenAI } from '@langchain/openai';
 
+// Import ThinkingService and related types
+import { ThinkingService } from '../../services/thinking/ThinkingService';
+import { ImportanceCalculatorService, ImportanceCalculationMode } from '../../services/importance/ImportanceCalculatorService';
+import { getLLM } from '../../lib/core/llm';
+
 // Agent status constants
 const AGENT_STATUS = {
   AVAILABLE: 'available',
@@ -193,6 +198,9 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
   private outputProcessor: OutputProcessingCoordinator | null = null;
   private thinkingProcessor: ThinkingProcessor | null = null;
   private configValidator: AgentConfigValidator | null = null;
+  
+  // Add ThinkingService for proper thought storage
+  private thinkingService: ThinkingService | null = null;
   
   // Legacy compatibility properties
   private resourceTracker: ResourceUtilizationTracker | null = null;
@@ -506,6 +514,50 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
       this.thinkingProcessor = new ThinkingProcessor(this);
       this.logger.system("Processing coordinators initialized");
       
+      // Step 6.5: Initialize ThinkingService for proper thought storage
+      try {
+        // Create a generic LLM service wrapper using shared factory - no business logic here
+        const llmService = {
+          generateStructuredOutput: async <T>(
+            model: string,
+            prompt: string,
+            outputSchema: Record<string, unknown>
+          ): Promise<T> => {
+            // Use the shared getLLM factory with cheap model for importance calculation
+            const cheapModel = getLLM({ 
+              useCheapModel: true, 
+              temperature: 0.3, 
+              maxTokens: 300 
+            });
+            
+            try {
+              const response = await cheapModel.invoke(prompt);
+              const content = typeof response === 'string' ? response : response.content;
+              
+              // Try to parse as JSON first (for structured output)
+              try {
+                return JSON.parse(content) as T;
+              } catch {
+                // If not JSON, return the content as-is and let the caller handle it
+                return content as T;
+              }
+            } catch (error) {
+              this.logger.warn('LLM call failed, throwing error for ImportanceCalculatorService to handle', { error });
+              throw error; // Let ImportanceCalculatorService handle the fallback logic
+            }
+          }
+        };
+        
+        const importanceCalculator = new ImportanceCalculatorService(llmService, {
+          defaultMode: ImportanceCalculationMode.RULE_BASED, // Use rule-based by default to save costs
+          hybridConfidenceThreshold: 0.8 // Only use LLM if rule-based confidence is very low
+        });
+        this.thinkingService = new ThinkingService(importanceCalculator);
+        this.logger.system("ThinkingService initialized with shared LLM factory - thoughts will now be stored in the thoughts collection via CognitiveArtifactService");
+      } catch (error) {
+        this.logger.warn("Failed to initialize ThinkingService, falling back to ThinkingProcessor only - thoughts will only appear in message conversationContext", { error });
+      }
+      
       // Step 7: Initialize resource tracking if enabled
       if (this.agentConfig.enableResourceTracking) {
         this.initializeResourceTracking();
@@ -565,6 +617,12 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
       // Stop lifecycle manager
       if (this.lifecycleManager) {
         await this.lifecycleManager.stop();
+      }
+      
+      // Clean up ThinkingService
+      if (this.thinkingService) {
+        this.thinkingService = null;
+        this.logger.system("ThinkingService cleaned up");
       }
       
       // Stop resource tracking
@@ -643,15 +701,14 @@ Please provide a helpful, contextual response based on this analysis.`;
           );
         }
       } else {
-        // Use real LLM for production
-        this.logger.debug('Using real LLM for production');
+        // Use real LLM for production using shared factory
+        this.logger.debug('Using shared LLM factory for production');
         
-        // Create LLM instance with agent configuration
-        const model = new ChatOpenAI({
+        // Use shared LLM factory with agent configuration
+        const model = getLLM({
           modelName: this.agentConfig.modelName || process.env.OPENAI_MODEL_NAME || 'gpt-4.1-2025-04-14',
           temperature: this.agentConfig.temperature || 0.7,
-          maxTokens: this.agentConfig.maxTokens || (process.env.OPENAI_MAX_TOKENS ? parseInt(process.env.OPENAI_MAX_TOKENS, 10) : 32000),
-          apiKey: process.env.OPENAI_API_KEY
+          maxTokens: this.agentConfig.maxTokens || (process.env.OPENAI_MAX_TOKENS ? parseInt(process.env.OPENAI_MAX_TOKENS, 10) : 32000)
         });
 
         // Prepare enhanced input with thinking context
@@ -818,14 +875,21 @@ Please provide a helpful, contextual response based on this analysis.`;
       });
 
       // Step 1: Thinking phase - analyze the input and determine intent
-      const thinkingResult = await this.think(message, options);
+      const thinkingResult = await this.think(message, {
+        userId: options?.userId,
+        ...options
+      });
       
-      this.logger.info('Thinking completed', {
+      this.logger.info('=== THINKING COMPLETED - ANALYZING RESULT ===', {
         intent: thinkingResult.intent.primary,
         confidence: thinkingResult.intent.confidence,
         shouldDelegate: thinkingResult.shouldDelegate,
         complexity: thinkingResult.complexity,
-        priority: thinkingResult.priority
+        priority: thinkingResult.priority,
+        reasoningLength: thinkingResult.reasoning?.length || 0,
+        reasoning: thinkingResult.reasoning,
+        planStepsLength: thinkingResult.planSteps?.length || 0,
+        entitiesLength: thinkingResult.entities?.length || 0
       });
 
       // Step 2: Get memory manager for conversation history
@@ -1061,6 +1125,15 @@ Please provide a helpful, contextual response based on this analysis.`;
         intent: thinkingResult.intent.primary
       });
 
+      this.logger.info('=== FINAL RESPONSE THOUGHTS CHECK (PROCESS USER INPUT) ===', {
+        responseHasThoughts: !!response.thoughts,
+        responseThoughtsLength: response.thoughts?.length || 0,
+        responseThoughts: response.thoughts,
+        thinkingResultReasoningLength: thinkingResult.reasoning?.length || 0,
+        thinkingResultReasoning: thinkingResult.reasoning,
+        intentPrimary: thinkingResult.intent.primary
+      });
+
       return response;
 
     } catch (error) {
@@ -1182,36 +1255,155 @@ Please provide a helpful, contextual response based on this analysis.`;
   }
 
   /**
-   * Think about a message - delegates to ThinkingProcessor
+   * Think about a message - delegates to ThinkingService (preferred) or ThinkingProcessor (fallback)
    */
   async think(message: string, options?: ThinkOptions): Promise<ThinkingResult> {
-    if (!this.thinkingProcessor) {
-      throw new Error('Thinking processor not initialized');
+    this.logger.info('=== THINKING PIPELINE START ===', {
+      message: message.substring(0, 100),
+      hasThinkingService: !!this.thinkingService,
+      hasThinkingProcessor: !!this.thinkingProcessor
+    });
+
+    // Try to use ThinkingService first (stores thoughts properly)
+    if (this.thinkingService) {
+      try {
+        this.logger.info('Using ThinkingService for enhanced thought processing and storage', {
+          message: message.substring(0, 100)
+        });
+        
+        // Add timeout wrapper to prevent hanging
+        const thinkingPromise = this.thinkingService.processRequest(
+          options?.userId || 'user',
+          message,
+          {
+            userId: options?.userId,
+            // Convert ThinkOptions to ThinkingOptions format
+            ...(options || {})
+          }
+        );
+        
+        // Race against timeout (120 seconds for thinking - increased for complex analysis)
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          setTimeout(() => {
+            reject(new Error('ThinkingService timeout after 120 seconds'));
+          }, 120000);
+        });
+        
+        this.logger.info('Starting ThinkingService processing with complex analysis');
+        const thinkingResult = await Promise.race([thinkingPromise, timeoutPromise]);
+        
+        this.logger.info('=== THINKINGSERVICE SUCCESS ===', {
+          intent: thinkingResult.intent.primary,
+          confidence: thinkingResult.intent.confidence,
+          thoughtsStored: true,
+          reasoningSteps: thinkingResult.reasoning?.length || 0,
+          planSteps: thinkingResult.planSteps?.length || 0,
+          entities: thinkingResult.entities?.length || 0,
+          detailedReasoning: thinkingResult.reasoning
+        });
+        
+        return thinkingResult;
+      } catch (error) {
+        this.logger.warn('=== THINKINGSERVICE FAILED - FALLBACK TO PROCESSOR ===', {
+          error: error instanceof Error ? error.message : String(error),
+          isTimeout: error instanceof Error && error.message.includes('timeout')
+        });
+        // Fall through to ThinkingProcessor fallback
+      }
     }
     
-    // Convert ThinkingProcessor result to expected ThinkingResult format
-    const processingResult = await this.thinkingProcessor.processThinking(message, options);
+    // Fallback to ThinkingProcessor (original behavior)
+    if (!this.thinkingProcessor) {
+      // If no ThinkingProcessor, create a minimal thinking result
+      this.logger.warn('=== NO THINKING COMPONENTS - MINIMAL RESULT ===');
+      return {
+        intent: {
+          primary: 'user_request',
+          confidence: 0.8
+        },
+        entities: [],
+        shouldDelegate: false,
+        requiredCapabilities: ['general_conversation'],
+        priority: 5,
+        isUrgent: false,
+        complexity: 3,
+        reasoning: [`Analyzed user input: "${message.substring(0, 100)}${message.length > 100 ? '...' : ''}"`],
+        contextUsed: {
+          memories: [],
+          files: [],
+          tools: []
+        },
+        planSteps: []
+      };
+    }
     
-    // Transform the result to match the expected interface
-    return {
-      intent: {
-        primary: 'user_request',
-        confidence: processingResult.confidence
-      },
-      entities: [],
-      shouldDelegate: false,
-      requiredCapabilities: [],
-      priority: 5,
-      isUrgent: false,
-      complexity: 5,
-      reasoning: [processingResult.finalConclusion],
-      contextUsed: {
-        memories: [],
-        files: [],
-        tools: []
-      },
-      planSteps: processingResult.alternativeConclusions
-    };
+    this.logger.info('=== USING THINKINGPROCESSOR FALLBACK ===', {
+      message: message.substring(0, 100)
+    });
+    
+    try {
+      // Add timeout to ThinkingProcessor as well (10 seconds)
+      const processingPromise = this.thinkingProcessor.processThinking(message, options);
+      const processingTimeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => {
+          reject(new Error('ThinkingProcessor timeout after 10 seconds'));
+        }, 10000);
+      });
+      
+      const processingResult = await Promise.race([processingPromise, processingTimeoutPromise]);
+      
+      this.logger.info('=== THINKINGPROCESSOR SUCCESS ===', {
+        confidence: processingResult.confidence,
+        conclusion: processingResult.finalConclusion,
+        alternatives: processingResult.alternativeConclusions?.length || 0
+      });
+
+      // Transform the result to match the expected interface
+      return {
+        intent: {
+          primary: 'user_request',
+          confidence: processingResult.confidence
+        },
+        entities: [],
+        shouldDelegate: false,
+        requiredCapabilities: [],
+        priority: 5,
+        isUrgent: false,
+        complexity: 5,
+        reasoning: [processingResult.finalConclusion],
+        contextUsed: {
+          memories: [],
+          files: [],
+          tools: []
+        },
+        planSteps: processingResult.alternativeConclusions
+      };
+    } catch (error) {
+      this.logger.warn('=== THINKINGPROCESSOR ALSO FAILED - ULTIMATE FALLBACK ===', {
+        error: error instanceof Error ? error.message : String(error)
+      });
+      
+      // Ultimate fallback - always return a valid thinking result
+      return {
+        intent: {
+          primary: 'user_request',
+          confidence: 0.7
+        },
+        entities: [],
+        shouldDelegate: false,
+        requiredCapabilities: ['general_conversation'],
+        priority: 5,
+        isUrgent: false,
+        complexity: 3,
+        reasoning: [`Basic analysis of: "${message.substring(0, 100)}${message.length > 100 ? '...' : ''}"`],
+        contextUsed: {
+          memories: [],
+          files: [],
+          tools: []
+        },
+        planSteps: []
+      };
+    }
   }
 
   /**
