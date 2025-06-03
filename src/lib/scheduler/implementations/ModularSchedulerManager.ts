@@ -669,6 +669,8 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
           metadata: {
             ...task.metadata,
             executionTime: result.duration,
+            result: result.result,
+            output: result.result,
             retryCount: (task.metadata?.retryCount || 0) + (result.wasRetry ? 1 : 0),
             ...(result.successful ? {} : {
               errorInfo: result.error
@@ -867,6 +869,8 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
           metadata: {
             ...task.metadata,
             executionTime: result.duration,
+            result: result.result,
+            output: result.result,
             retryCount: (task.metadata?.retryCount || 0) + (result.wasRetry ? 1 : 0),
             ...(result.successful ? {} : {
               errorInfo: result.error
@@ -956,6 +960,8 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
         metadata: {
           ...task.metadata,
           executionTime: result.duration,
+          result: result.result,
+          output: result.result,
           retryCount: (task.metadata?.retryCount || 0) + (result.wasRetry ? 1 : 0),
           ...(result.successful ? {} : {
             errorInfo: result.error
