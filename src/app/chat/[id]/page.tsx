@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState, useRef, FormEvent } from 'react';
+import React, { useEffect, useState, useRef, FormEvent, useCallback, useMemo } from 'react';
 import { useParams } from 'next/navigation';
 import Header from '@/components/Header';
 import Sidebar from '@/components/Sidebar';
@@ -13,6 +13,7 @@ import { ParticipantType } from '@/lib/multi-agent/types/chat';
 import { FileMetadata, FileAttachmentType as StorageFileType, FileProcessingStatus, FileAttachment as StorageFileAttachment } from '@/types/files';
 import { Message as HandlerMessage, MessageType as HandlerMessageType, MessageStatus as HandlerMessageStatus, MessageHandlerOptions } from '@/services/message/MessageHandlerService';
 import { Message as DisplayMessage } from '@/types';
+import { Message } from '@/types';
 import { FileAttachmentType } from '@/constants/file';
 import { getCurrentUser } from '@/lib/user';
 import { FileUploadImplementation } from '@/services/upload/FileUploadImplementation';
@@ -32,6 +33,9 @@ import MemoryTab from '@/components/tabs/MemoryTab';
 import TasksTab from '@/components/tabs/TasksTab';
 import KnowledgeTab from '@/components/tabs/KnowledgeTab';
 import ToolsTab from '@/components/tabs/ToolsTab';
+import { createReplyContextFromMessage } from '@/lib/metadata/reply-context-factory';
+import { MessageMetadata } from '@/types/metadata';
+import { createStructuredId, EntityNamespace, EntityType } from '@/types/structured-id';
 
 // Define message priority enum
 enum MessagePriority {
@@ -94,18 +98,18 @@ interface MessageSender {
   role: "user" | "assistant" | "system";
 }
 
-// Define message metadata interface for type safety
-interface MessageMetadata {
-  tags?: string[];
-  priority?: string;
-  sensitivity?: string;
-  language?: string[];
-  version?: string;
-  userId?: string;
-  agentId?: string;
+// Extend the standardized MessageMetadata for local chat usage
+// Making some fields optional for backward compatibility
+interface ChatMessageMetadata extends Omit<Partial<MessageMetadata>, 'priority'> {
+  // Legacy fields for backward compatibility
   thinking?: boolean;
   thoughts?: string[];
   agentName?: string;
+  priority?: string; // Keep as string for backward compatibility
+  sensitivity?: string;
+  language?: string[];
+  version?: string;
+  // Allow any additional fields for flexibility
   [key: string]: any;
 }
 
@@ -117,7 +121,7 @@ interface MessageWithId extends Omit<DisplayMessage, 'sender' | 'attachments'> {
   attachments?: UIFileAttachment[];
   tags?: string[]; 
   importance?: ImportanceLevel;
-  metadata?: MessageMetadata;
+  metadata?: ChatMessageMetadata;
 }
 
 // Add WelcomeScreen component at the top level of the file
@@ -162,6 +166,10 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [showImageModal, setShowImageModal] = useState<boolean>(false);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
+
+  // Add new state for reply functionality
+  const [attachedMessage, setAttachedMessage] = useState<MessageWithId | null>(null);
+  const [highlightedMessageId, setHighlightedMessageId] = useState<string>('');
 
   // Initialize services
   const fileStorageService = useRef<IndexedDBFileStorage>();
@@ -260,19 +268,11 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
         
         // Found chat by ID - extract agentId from chat object
         const chatObj = chatData.chats[0];
-        console.log('Chat object from API:', chatObj);
-        console.log('Chat object agentId:', chatObj?.metadata?.agentId);
-        console.log('Chat object keys:', Object.keys(chatObj || {}));
         
         setChat(chatObj);
         
         if (chatObj && chatObj.metadata && chatObj.metadata.agentId) {
-          console.log(`Setting agentId to: ${chatObj.metadata.agentId}`);
           setAgentId(chatObj.metadata.agentId);
-        } else {
-          console.log('No agentId found in chat object metadata or chat object is null');
-          console.log('Chat object:', chatObj);
-          console.log('Chat metadata:', chatObj?.metadata);
         }
         
         // Load messages for this chat
@@ -303,7 +303,7 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
       // Define polling function
       const pollMessages = async () => {
         try {
-          // Only poll if we're not already loading
+          // Check if we're not in a loading state before polling
           if (!isLoading) {
             await fetchMessages(chat.id);
           }
@@ -322,7 +322,7 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
         clearInterval(pollingTimer);
       }
     };
-  }, [chat?.id, isLoading, selectedTab]);
+  }, [chat?.id, selectedTab]);
 
   // Convert MessageAttachment to UIFileAttachment
   const convertMessageToUIAttachment = (att: MessageAttachment): UIFileAttachment => {
@@ -337,15 +337,16 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
     };
   };
 
-  // Update handleSendMessage to use polling instead of WebSockets
+  // Update handleSendMessage to include attached message context
   const handleSendMessage = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!chat?.id || (!inputMessage.trim() && pendingAttachments.length === 0)) return;
+    if (!chat?.id || (!inputMessage.trim() && pendingAttachments.length === 0 && !attachedMessage)) return;
 
     try {
       // Save current values to avoid race conditions
       const currentMessage = inputMessage.trim();
       const currentAttachments = [...pendingAttachments];
+      const currentAttachedMessage = attachedMessage;
       
       // Create message object for UI update
       const tempMessageId = generateMessageId();
@@ -365,12 +366,31 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
       // Clear input and attachments immediately for better UX
       setInputMessage('');
       setPendingAttachments([]);
+      setAttachedMessage(null); // Clear attached message
+      setHighlightedMessageId(''); // Clear highlight
       
       // Optimistically update UI with the user message
       setMessages(prev => [...prev, messageWithId]);
       
       // Set loading state to show "thinking..." bubble
       setIsLoading(true);
+
+      // Prepare metadata with reply context
+      const baseMetadata: ChatMessageMetadata = {
+        userId: createStructuredId(EntityNamespace.USER, EntityType.USER, userId),
+        agentId: createStructuredId(EntityNamespace.AGENT, EntityType.AGENT, agentId),
+        thinking: true // Enable thinking mode
+      };
+
+      // Add standardized reply context if we have an attached message
+      if (currentAttachedMessage) {
+        const replyContext = createReplyContextFromMessage(currentAttachedMessage);
+        if (replyContext) {
+          baseMetadata.replyTo = replyContext;
+          // Note: The referenced message will be prioritized by the memory retrieval system
+          // rather than marking this message as high importance
+        }
+      }
 
       // Different handling for messages with vs. without attachments
       let response;
@@ -382,6 +402,14 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
         formData.append('agentId', agentId);
         formData.append('thinking', 'true'); // Enable thinking mode
 
+        // Add standardized reply context to form data if present
+        if (currentAttachedMessage) {
+          const replyContext = createReplyContextFromMessage(currentAttachedMessage);
+          if (replyContext) {
+            formData.append('replyContext', JSON.stringify(replyContext));
+          }
+        }
+
         // Add each attachment to the form
         currentAttachments.forEach((attachment, index) => {
           if (attachment.file) {
@@ -389,13 +417,6 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
             formData.append(`metadata_${index}_type`, attachment.type);
             formData.append(`metadata_${index}_fileId`, attachment.fileId || '');
           }
-        });
-
-        // Log the form data being sent (for debugging)
-        console.log('Sending message with attachments', {
-          message: currentMessage,
-          attachmentsCount: currentAttachments.length,
-          chatId: chat.id
         });
 
         // Send to file upload endpoint
@@ -412,11 +433,7 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
           },
           body: JSON.stringify({
             content: currentMessage,
-            metadata: {
-              userId,
-              agentId,
-              thinking: true // Enable thinking mode
-            }
+            metadata: baseMetadata
           })
         });
       }
@@ -433,13 +450,9 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
         throw new Error(data.error || 'Failed to send message');
       }
       
-      console.log('Message sent successfully:', data);
-      
       // After successful send, refresh messages to get the real message from the server
       // We'll also get the agent's response on the next poll
       await fetchMessages(chat.id);
-      
-      // Keep polling active to load the agent response
       
     } catch (error) {
       console.error('Error sending message:', error);
@@ -519,6 +532,42 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
     }
   };
 
+  // Add reply functionality handlers
+  const handleReplyToMessage = (message: Message) => {
+    // Convert Message to MessageWithId if needed
+    const messageWithId: MessageWithId = {
+      ...message,
+      id: message.id || '', // Ensure id is always a string
+      sender: typeof message.sender === 'string' 
+        ? { id: message.sender, name: message.sender, role: message.sender === 'You' ? 'user' : 'assistant' as 'user' | 'assistant' | 'system' }
+        : message.sender,
+      timestamp: message.timestamp instanceof Date ? message.timestamp : new Date(message.timestamp),
+      attachments: message.attachments ? message.attachments.map(att => ({
+        file: null,
+        type: att.type?.startsWith('image/') ? FileAttachmentType.IMAGE : FileAttachmentType.OTHER,
+        preview: att.url || att.preview || '',
+        filename: (att as any).filename || 'Unknown file',
+        fileId: (att as any).id || '',
+        size: (att as any).size || 0,
+        mimeType: att.type || 'application/octet-stream'
+      })) : undefined,
+      tags: (message as any).tags || [],
+      importance: (message as any).importance,
+      metadata: message.metadata
+    };
+    
+    setAttachedMessage(messageWithId);
+  };
+
+  const handleRemoveAttachedMessage = () => {
+    setAttachedMessage(null);
+    setHighlightedMessageId('');
+  };
+
+  const handleNavigateToMessage = (messageId: string) => {
+    setHighlightedMessageId(messageId);
+  };
+
   // Modify the formattedAttachments to match exactly what ChatMessages component expects
   const formatAttachmentForDisplay = (att: UIFileAttachment) => {
     return {
@@ -539,7 +588,6 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
   // Function to fetch messages for a chat
   const fetchMessages = async (chatId: string) => {
     try {
-      console.log(`Fetching messages for chat: ${chatId}`);
       const msgRes = await fetch(`/api/multi-agent/chats/${chatId}/messages`);
       
       if (!msgRes.ok) {
@@ -551,7 +599,6 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
       }
       
       const msgData = await msgRes.json();
-      console.log('Raw API response:', msgData);
       
       if (msgData.error) {
         console.error('API returned error:', msgData.error);
@@ -562,10 +609,7 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
       
       // Check if we have messages (even if empty array)
       if (msgData.messages && Array.isArray(msgData.messages)) {
-        console.log(`Found ${msgData.messages.length} messages to display`);
-        
         if (msgData.messages.length === 0) {
-          console.log('No messages found for this chat');
           setMessages([]);
           setIsLoading(false);
           return;
@@ -584,9 +628,6 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
           // Process attachments if they exist
           const processedAttachments: UIFileAttachment[] = [];
           if (msg.attachments && Array.isArray(msg.attachments) && msg.attachments.length > 0) {
-            // Log attachment data for debugging
-            console.log(`Processing ${msg.attachments.length} attachments for message ${msg.id}`);
-            
             msg.attachments.forEach((attachment, index) => {
               try {
                 // Handle different attachment formats from the API
@@ -605,7 +646,6 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
                   };
                   
                   processedAttachments.push(uiAttachment);
-                  console.log(`Processed attachment: ${uiAttachment.filename}, type: ${uiAttachment.type}`);
                 }
               } catch (attachError) {
                 console.error(`Error processing attachment ${index}:`, attachError);
@@ -649,16 +689,6 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
             metadata: msg.metadata || {}
           };
         });
-        
-        console.log('Formatted messages with processed attachments:', 
-          formattedMessages.map(m => ({
-            id: m.id, 
-            attachmentsCount: m.attachments?.length || 0,
-            timestamp: m.timestamp.toISOString()
-          }))
-        );
-        
-        console.log(`Page.tsx: Successfully processed ${formattedMessages.length} messages`);
         
         setMessages(formattedMessages);
         setIsLoading(false);
@@ -738,57 +768,57 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
 
   const formatCronExpression = (cronExp: string) => cronExp; // TODO: implement pretty formatting
 
+  // Memoize the transformed messages to prevent unnecessary re-renders
+  const transformedMessages = useMemo(() => {
+    return messages.map((msg: MessageWithId) => {
+      // Ensure sender is properly formatted as an object with correct properties
+      let sender: MessageSender;
+      if (typeof msg.sender === 'string') {
+        sender = { 
+          id: msg.sender, 
+          name: msg.sender, 
+          role: msg.sender === 'You' ? 'user' : 'assistant' as 'user' | 'assistant' | 'system' 
+        };
+      } else if (msg.sender && typeof msg.sender === 'object') {
+        // Make sure the sender object has all required fields
+        sender = {
+          id: msg.sender.id || '',
+          name: msg.sender.name || '',
+          role: msg.sender.role || 'assistant' as 'user' | 'assistant' | 'system'
+        };
+      } else {
+        // Default sender if missing or invalid
+        sender = { id: 'unknown', name: 'Unknown', role: 'assistant' as 'user' | 'assistant' | 'system' };
+      }
+      
+      // Convert our attachments to the format expected by ChatMessages
+      const formattedAttachments = msg.attachments?.map(att => formatAttachmentForDisplay(att)) || [];
+      
+      return { 
+        ...msg, 
+        sender,
+        tags: msg.tags || [], // Ensure tags are included
+        attachments: formattedAttachments as any[] // Use type assertion to bypass type checking
+      };
+    });
+  }, [messages]); // Only recalculate when messages actually change
+
   // Implement tabs content based on selected tab
   const renderTabContent = () => {
     switch (selectedTab) {
       case 'chat':
-        console.log('Render condition check:', {
-          agentId,
-          agentIdIncludesSoon: agentId?.includes('Soon'),
-          messagesLength: messages.length,
-          shouldShowWelcome: (!agentId || agentId.includes('Soon') || messages.length === 0),
-          messagesPreview: messages.slice(0, 2).map(m => ({ id: m.id, content: m.content.substring(0, 50) }))
-        });
-        
         return (
           <div className="flex flex-col h-full">
             {(!agentId || agentId.includes('Soon') || messages.length === 0) ? (
               <WelcomeScreen />
             ) : (
               <ChatMessages
-                messages={messages.map((msg: MessageWithId) => {
-                  // Ensure sender is properly formatted as an object with correct properties
-                  let sender: MessageSender;
-                  if (typeof msg.sender === 'string') {
-                    sender = { 
-                      id: msg.sender, 
-                      name: msg.sender, 
-                      role: msg.sender === 'You' ? 'user' : 'assistant' as 'user' | 'assistant' | 'system' 
-                    };
-                  } else if (msg.sender && typeof msg.sender === 'object') {
-                    // Make sure the sender object has all required fields
-                    sender = {
-                      id: msg.sender.id || '',
-                      name: msg.sender.name || '',
-                      role: msg.sender.role || 'assistant' as 'user' | 'assistant' | 'system'
-                    };
-                  } else {
-                    // Default sender if missing or invalid
-                    sender = { id: 'unknown', name: 'Unknown', role: 'assistant' as 'user' | 'assistant' | 'system' };
-                  }
-                  
-                  // Convert our attachments to the format expected by ChatMessages
-                  const formattedAttachments = msg.attachments?.map(att => formatAttachmentForDisplay(att)) || [];
-                  
-                  return { 
-                    ...msg, 
-                    sender,
-                    tags: msg.tags || [], // Ensure tags are included
-                    attachments: formattedAttachments as any[] // Use type assertion to bypass type checking
-                  };
-                })}
+                messages={transformedMessages}
                 isLoading={isLoading}
-                onImageClick={handleFilePreviewClick}
+                onImageClick={memoizedFilePreviewClick}
+                onReplyToMessage={memoizedReplyToMessage}
+                onNavigateToMessage={memoizedNavigateToMessage}
+                highlightedMessageId={highlightedMessageId}
                 showInternalMessages={showInternalMessages}
                 pageSize={20}
                 preloadCount={10}
@@ -803,9 +833,9 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
           <MemoryTab 
             selectedAgentId={agentId}
             availableAgents={[{id: agentId, name: chat?.name || 'Agent'}]}
-            onAgentChange={(id) => console.log('Agent changed to:', id)}
+            onAgentChange={() => {}}
             showAllMemories={false}
-            onViewChange={(showAll) => console.log(`View changed to ${showAll ? 'all memories' : 'agent memories'}`)}
+            onViewChange={() => {}}
             isLoadingMemories={isLoading}
             allMemories={messages.map(msg => {
               return {
@@ -861,13 +891,13 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
         return (
           <ToolsTab
             isLoading={isLoading}
-            checkChloe={() => console.log('Check Chloe')}
-            runDiagnostics={() => console.log('Run Diagnostics')}
-            inspectChloeMemory={() => console.log('Inspect Memory')}
-            resetChatHistory={() => console.log('Reset Chat')}
-            testChloeAgent={() => console.log('Test Agent')}
-            showFixInstructions={() => console.log('Show Instructions')}
-            runDirectMarketScan={() => console.log('Market Scan')}
+            checkChloe={() => {}}
+            runDiagnostics={() => {}}
+            inspectChloeMemory={() => {}}
+            resetChatHistory={() => {}}
+            testChloeAgent={() => {}}
+            showFixInstructions={() => {}}
+            runDirectMarketScan={() => {}}
             diagnosticResults={{}}
             chloeCheckResults={{}}
             fixInstructions={{}}
@@ -903,6 +933,78 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
     }
   };
 
+  // Optimize setInputMessage with useCallback to prevent ChatInput re-renders
+  const optimizedSetInputMessage = useCallback((message: string) => {
+    setInputMessage(message);
+  }, []);
+
+  // Optimize handleFileSelect with useCallback
+  const optimizedHandleFileSelect = useCallback(async (file: File) => {
+    await handleFileSelect(file);
+  }, []);
+
+  // Optimize removePendingAttachment with useCallback  
+  const optimizedRemovePendingAttachment = useCallback((index: number) => {
+    removePendingAttachment(index);
+  }, []);
+
+  // Optimize handleSendMessage with useCallback
+  const optimizedHandleSendMessage = useCallback(async (e: FormEvent<HTMLFormElement>) => {
+    await handleSendMessage(e);
+  }, [inputMessage, pendingAttachments, attachedMessage, chat?.id, userId, agentId]);
+
+  // Optimize other handlers
+  const optimizedHandleRemoveAttachedMessage = useCallback(() => {
+    handleRemoveAttachedMessage();
+  }, []);
+
+  const optimizedHandleNavigateToMessage = useCallback((messageId: string) => {
+    handleNavigateToMessage(messageId);
+  }, []);
+
+  // Memoize the file preview click handler to prevent recreation
+  const memoizedFilePreviewClick = useCallback((attachment: any, e: React.MouseEvent) => {
+    handleFilePreviewClick(attachment, e);
+  }, []);
+
+  // Memoize the reply handler to prevent recreation
+  const memoizedReplyToMessage = useCallback((message: Message) => {
+    handleReplyToMessage(message);
+  }, []);
+
+  // Memoize the navigation handler to prevent recreation
+  const memoizedNavigateToMessage = useCallback((messageId: string) => {
+    handleNavigateToMessage(messageId);
+  }, []);
+
+  // Memoize the converted pending attachments to prevent recreation
+  const memoizedPendingAttachments = useMemo(() => {
+    return pendingAttachments.map(convertToInputFileAttachment);
+  }, [pendingAttachments]);
+
+  // Memoize the formatted attached message to prevent recreation
+  const memoizedAttachedMessage = useMemo(() => {
+    if (!attachedMessage) return null;
+    
+    return {
+      ...attachedMessage,
+      attachments: attachedMessage.attachments?.map(att => ({
+        id: att.fileId || '',
+        type: att.mimeType,
+        url: att.preview,
+        preview: att.preview,
+        metadata: {
+          filename: att.filename,
+          size: att.size,
+          type: att.mimeType,
+          attachmentType: att.type,
+          timestamp: Date.now(),
+          processingStatus: 'completed' as any
+        }
+      })) || []
+    };
+  }, [attachedMessage]);
+
   // UI matches main page
   return (
     <div className="flex flex-col h-screen">
@@ -935,16 +1037,13 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
         <main className="flex-1 flex flex-col overflow-hidden">
           <TabsNavigation
             selectedTab={selectedTab}
-            setSelectedTab={(tab) => {
-              console.log(`Changing tab to: ${tab}`);
-              setSelectedTab(tab);
-            }}
+            setSelectedTab={setSelectedTab}
             isFullscreen={false}
             toggleFullscreen={() => {}}
             onSearch={() => {}}
             searchResults={[]}
             searchQuery=""
-            onSelectResult={(id) => console.log(`Selected result: ${id}`)}
+            onSelectResult={() => {}}
             agentId={agentId}
             agentName={chat?.name || 'Agent'}
             onViewAgent={(id) => {
@@ -976,13 +1075,16 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
           <div className="border-t border-gray-700 p-4 relative z-10 bg-gray-800">
             <ChatInput
               inputMessage={inputMessage}
-              setInputMessage={setInputMessage}
-              pendingAttachments={pendingAttachments.map(convertToInputFileAttachment)}
-              removePendingAttachment={removePendingAttachment}
-              handleSendMessage={handleSendMessage}
+              setInputMessage={optimizedSetInputMessage}
+              pendingAttachments={memoizedPendingAttachments}
+              removePendingAttachment={optimizedRemovePendingAttachment}
+              handleSendMessage={optimizedHandleSendMessage}
               isLoading={isLoading}
-              handleFileSelect={handleFileSelect}
+              handleFileSelect={optimizedHandleFileSelect}
               inputRef={inputRef}
+              attachedMessage={memoizedAttachedMessage}
+              onRemoveAttachedMessage={optimizedHandleRemoveAttachedMessage}
+              onNavigateToMessage={memoizedNavigateToMessage}
             />
           </div>
           <DevModeToggle showInternalMessages={showInternalMessages} setShowInternalMessages={setShowInternalMessages} />

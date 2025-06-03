@@ -12,35 +12,39 @@ interface ChatMessagesProps {
   isLoading?: boolean;
   onImageClick: (attachment: FileAttachment, e: React.MouseEvent) => void;
   onDeleteMessage?: (messageId: string) => Promise<boolean>;
+  onReplyToMessage?: (message: Message) => void;
+  onNavigateToMessage?: (messageId: string) => void;
   showInternalMessages?: boolean;
   pageSize?: number;
   preloadCount?: number;
   searchQuery?: string;
   initialMessageId?: string;
+  highlightedMessageId?: string; // New prop for highlighting messages
 }
 
-const ChatMessages: React.FC<ChatMessagesProps> = ({ 
+const ChatMessages: React.FC<ChatMessagesProps> = React.memo(({ 
   messages, 
   isLoading = false, 
   onImageClick,
   onDeleteMessage,
+  onReplyToMessage,
+  onNavigateToMessage,
   showInternalMessages = false,
   pageSize = 20,
   preloadCount = 10,
   searchQuery = '',
-  initialMessageId = ''
+  initialMessageId = '',
+  highlightedMessageId = ''
 }) => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const messageRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   
-  // Process and sort messages
+  // Process and sort messages - optimized without console.log
   const sortedMessages = useMemo(() => {
     if (!messages || !Array.isArray(messages)) {
-      console.warn('Messages is not an array or is empty:', messages);
       return [];
     }
-    
-    console.log(`ChatMessages: Received ${messages.length} messages from API`);
     
     // Process messages to ensure consistent sender format
     const processedMessages = messages.map(msg => ({
@@ -74,12 +78,44 @@ const ChatMessages: React.FC<ChatMessagesProps> = ({
     }, 100);
   }, []);
 
+  // Navigate to specific message
+  const navigateToMessage = useCallback((messageId: string) => {
+    const messageElement = messageRefs.current.get(messageId);
+    if (messageElement && messagesContainerRef.current) {
+      // Scroll to the message
+      messageElement.scrollIntoView({ 
+        behavior: 'smooth', 
+        block: 'center' 
+      });
+      
+      // Add highlight effect
+      messageElement.classList.add('message-highlight');
+      
+      // Remove highlight after animation
+      setTimeout(() => {
+        messageElement.classList.remove('message-highlight');
+      }, 2000);
+      
+      // Call the callback if provided
+      if (onNavigateToMessage) {
+        onNavigateToMessage(messageId);
+      }
+    }
+  }, [onNavigateToMessage]);
+
   // Auto-scroll to bottom on new messages
   useEffect(() => {
     if (messagesContainerRef.current) {
       scrollToBottom();
     }
   }, [sortedMessages.length, scrollToBottom]);
+
+  // Handle navigation requests
+  useEffect(() => {
+    if (highlightedMessageId) {
+      navigateToMessage(highlightedMessageId);
+    }
+  }, [highlightedMessageId, navigateToMessage]);
 
   // Handle deleting a message - takes timestamp but uses ID for deletion
   const handleDeleteMessage = async (timestamp: Date): Promise<boolean> => {
@@ -90,36 +126,28 @@ const ChatMessages: React.FC<ChatMessagesProps> = ({
       );
       
       if (!targetMessage) {
-        console.error('No message found with timestamp:', timestamp);
         return false;
       }
       
       // Only proceed if the message has an ID
       if (!targetMessage.id) {
-        console.error('Cannot delete message: no message ID available');
         return false;
       }
-      
-      console.log(`Found message with ID: ${targetMessage.id} for timestamp: ${timestamp.toISOString()}`);
       
       // Use the onDeleteMessage prop to delete by ID if available
       if (onDeleteMessage) {
         try {
           const result = await onDeleteMessage(targetMessage.id);
-          console.log(`Deletion result for message ID ${targetMessage.id}:`, result);
           return result;
         } catch (error) {
-          console.warn('Error in parent onDeleteMessage handler:', error);
           // Continue even if parent handler fails
         }
       }
       
       // If no handler or handler failed, we'll still consider this successful
       // since the API call in ChatBubbleMenu will handle the actual deletion
-      console.log('No parent deletion handler provided or it failed, but deletion will proceed in ChatBubbleMenu');
       return true;
     } catch (error) {
-      console.error('Error in handleDeleteMessage:', error);
       return false;
     }
   };
@@ -129,7 +157,7 @@ const ChatMessages: React.FC<ChatMessagesProps> = ({
     const handleMessageDeleted = (event: Event) => {
       const customEvent = event as CustomEvent;
       if (customEvent.detail?.id) {
-        console.log('Message deleted event detected for ID:', customEvent.detail.id);
+        // Message deleted, UI will be refreshed by parent component
       }
     };
 
@@ -143,11 +171,8 @@ const ChatMessages: React.FC<ChatMessagesProps> = ({
   useEffect(() => {
     if (initialMessageId && sortedMessages.length > 0) {
       const foundMessage = sortedMessages.find(msg => msg.id === initialMessageId);
-      if (foundMessage) {
-        console.log(`Found requested message with ID: ${initialMessageId}`);
-      } else {
-        console.warn(`Message with ID ${initialMessageId} not found in the displayed messages`);
-        console.log('Available message IDs:', sortedMessages.map(msg => msg.id));
+      if (!foundMessage) {
+        // Message not found - could log to console in development only
       }
     }
   }, [initialMessageId, sortedMessages]);
@@ -187,16 +212,35 @@ const ChatMessages: React.FC<ChatMessagesProps> = ({
           scrollbar-width: thin;
           scrollbar-color: #4a5568 #1a202c;
         }
+        
+        .message-highlight {
+          animation: messageHighlight 2s ease-in-out;
+        }
+        
+        @keyframes messageHighlight {
+          0% { background-color: rgba(59, 130, 246, 0.3); }
+          50% { background-color: rgba(59, 130, 246, 0.1); }
+          100% { background-color: transparent; }
+        }
       `}</style>
     
       {sortedMessages.map((message, index) => (
-        <ChatBubble
+        <div
           key={message.id || `msg_${index}`}
-          message={message}
-          onImageClick={onImageClick}
-          onDeleteMessage={handleDeleteMessage}
+          ref={(el) => {
+            if (el && message.id) {
+              messageRefs.current.set(message.id, el);
+            }
+          }}
           data-message-id={message.id || `msg_${index}`}
-        />
+        >
+          <ChatBubble
+            message={message}
+            onImageClick={onImageClick}
+            onDeleteMessage={handleDeleteMessage}
+            onReplyToMessage={onReplyToMessage}
+          />
+        </div>
       ))}
       
       {/* Loading indicator */}
@@ -217,6 +261,6 @@ const ChatMessages: React.FC<ChatMessagesProps> = ({
       <div ref={messagesEndRef} className="h-1" />
     </div>
   );
-};
+});
 
 export default ChatMessages; 

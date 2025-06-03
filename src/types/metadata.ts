@@ -119,6 +119,12 @@ export interface BaseMetadata {
 // Factory function type definitions
 export type MessageMetadataFactory = (partialMetadata: Partial<MessageMetadata>) => MessageMetadata;
 export type ThoughtMetadataFactory = (partialMetadata: Partial<CognitiveProcessMetadata>) => CognitiveProcessMetadata;
+export type MessageReplyContextFactory = (
+  messageId: StructuredId,
+  content: string,
+  senderRole: ImportedMessageRole,
+  options?: Partial<MessageReplyContext>
+) => MessageReplyContext;
 
 // Common metadata sources
 export enum MetadataSource {
@@ -158,6 +164,20 @@ export enum MessagePriority {
 }
 
 /**
+ * Reply context interface for message threading and context preservation
+ */
+export interface MessageReplyContext {
+  messageId: StructuredId;          // ID of the message being replied to
+  content: string;                  // Content of the original message
+  senderRole: ImportedMessageRole;  // Role of the original message sender
+  senderAgentId?: StructuredId;     // Agent ID if sender was an agent
+  senderUserId?: StructuredId;      // User ID if sender was a user
+  timestamp: string;                // ISO timestamp of original message
+  importance: ImportanceLevel;      // Importance level for LLM prioritization
+  threadId?: string;                // Thread context for conversation flow
+}
+
+/**
  * Message metadata interface with strong typing
  */
 export interface MessageMetadata extends BaseMetadata {
@@ -170,6 +190,9 @@ export interface MessageMetadata extends BaseMetadata {
   
   // Thread information (required, not optional)
   thread: ThreadInfo;
+  
+  // Reply context for message threading
+  replyTo?: MessageReplyContext;
   
   // Attachments
   attachments?: MessageAttachment[];
@@ -448,6 +471,9 @@ export enum MetadataField {
   
   // Thread fields
   THREAD = 'thread',
+  
+  // Reply context field
+  REPLY_TO = 'replyTo',
   
   // Multi-agent communication fields
   SENDER_AGENT_ID = 'senderAgentId',

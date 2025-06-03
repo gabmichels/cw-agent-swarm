@@ -1,10 +1,22 @@
-import React, { FormEvent, useRef, KeyboardEvent, useState, useEffect, DragEvent } from 'react';
+import React, { FormEvent, useRef, KeyboardEvent, useState, useEffect, DragEvent, useCallback } from 'react';
 import { Send, X } from 'lucide-react';
+import MessagePreview from './message/MessagePreview';
+import { Message } from '../types';
 
 interface FileAttachment {
   file: File;
   preview: string;
   type: 'image' | 'document' | 'text' | 'pdf' | 'other';
+}
+
+// Define a more flexible message interface for the preview
+interface MessageForPreview {
+  id?: string;
+  content: string;
+  sender: string | { id: string; name: string; role: string };
+  timestamp: Date | string | number;
+  attachments?: any[];
+  [key: string]: any;
 }
 
 interface ChatInputProps {
@@ -16,9 +28,13 @@ interface ChatInputProps {
   isLoading: boolean;
   handleFileSelect: (file: File) => void;
   inputRef: React.RefObject<HTMLTextAreaElement>;
+  // New props for message attachment
+  attachedMessage?: MessageForPreview | null;
+  onRemoveAttachedMessage?: () => void;
+  onNavigateToMessage?: (messageId: string) => void;
 }
 
-const ChatInput: React.FC<ChatInputProps> = ({
+const ChatInput: React.FC<ChatInputProps> = React.memo(({
   inputMessage,
   setInputMessage,
   pendingAttachments,
@@ -27,14 +43,17 @@ const ChatInput: React.FC<ChatInputProps> = ({
   isLoading,
   handleFileSelect,
   inputRef,
+  attachedMessage,
+  onRemoveAttachedMessage,
+  onNavigateToMessage,
 }) => {
   const [isFocused, setIsFocused] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const textareaWrapperRef = useRef<HTMLDivElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
 
-  // Handle clipboard paste
-  const handlePaste = (e: ClipboardEvent) => {
+  // Handle clipboard paste - memoized to prevent useEffect re-runs
+  const handlePaste = useCallback((e: ClipboardEvent) => {
     if (!e.clipboardData) return;
 
     // Check for files in clipboard
@@ -57,28 +76,28 @@ const ChatInput: React.FC<ChatInputProps> = ({
         }
       }
     }
-  };
+  }, [handleFileSelect]);
 
-  // Handle drag and drop
-  const handleDragEnter = (e: DragEvent) => {
+  // Handle drag and drop - memoized
+  const handleDragEnter = useCallback((e: DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
     setIsDragging(true);
-  };
+  }, []);
 
-  const handleDragLeave = (e: DragEvent) => {
+  const handleDragLeave = useCallback((e: DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
     if (e.currentTarget.contains(e.relatedTarget as Node)) return;
     setIsDragging(false);
-  };
+  }, []);
 
-  const handleDragOver = (e: DragEvent) => {
+  const handleDragOver = useCallback((e: DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
-  };
+  }, []);
 
-  const handleDrop = (e: DragEvent) => {
+  const handleDrop = useCallback((e: DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
     setIsDragging(false);
@@ -87,7 +106,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
     if (files.length > 0) {
       handleFileSelect(files[0]);
     }
-  };
+  }, [handleFileSelect]);
 
   // Add paste event listener
   useEffect(() => {
@@ -98,21 +117,21 @@ const ChatInput: React.FC<ChatInputProps> = ({
         textarea.removeEventListener('paste', handlePaste);
       };
     }
-  }, [inputRef]);
+  }, [handlePaste]);
 
-  const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+  const handleKeyDown = useCallback((e: KeyboardEvent<HTMLTextAreaElement>) => {
     // Submit on ENTER without SHIFT key
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       // Submit the form if we have content
-      if (inputMessage.trim() || pendingAttachments.length > 0) {
+      if (inputMessage.trim() || pendingAttachments.length > 0 || attachedMessage) {
         const form = e.currentTarget.form;
         if (form) form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
       }
     }
-  };
+  }, [inputMessage, pendingAttachments.length, attachedMessage]);
 
-  // Auto-resize textarea based on content height
+  // Auto-resize textarea based on content height - your original implementation
   useEffect(() => {
     if (inputRef.current) {
       // Reset height to default single line height
@@ -131,8 +150,32 @@ const ChatInput: React.FC<ChatInputProps> = ({
     }
   }, [inputMessage, inputRef, isFocused]);
 
+  // Handle message navigation
+  const handleNavigateToMessage = useCallback(() => {
+    if (attachedMessage?.id && onNavigateToMessage) {
+      onNavigateToMessage(attachedMessage.id);
+    }
+  }, [attachedMessage?.id, onNavigateToMessage]);
+
   return (
     <div>
+      {/* Message attachment preview */}
+      {attachedMessage && onRemoveAttachedMessage && (
+        <div className="mb-3">
+          <MessagePreview
+            message={{
+              ...attachedMessage,
+              id: attachedMessage.id || '',
+              timestamp: attachedMessage.timestamp instanceof Date 
+                ? attachedMessage.timestamp 
+                : new Date(attachedMessage.timestamp)
+            } as Message}
+            onRemove={onRemoveAttachedMessage}
+            onClick={handleNavigateToMessage}
+          />
+        </div>
+      )}
+
       {/* File attachment previews */}
       {pendingAttachments.length > 0 && (
         <div className="flex flex-wrap gap-2 mb-3">
@@ -236,7 +279,13 @@ const ChatInput: React.FC<ChatInputProps> = ({
             onKeyDown={handleKeyDown}
             onFocus={() => setIsFocused(true)}
             onBlur={() => setIsFocused(false)}
-            placeholder={pendingAttachments.length > 0 ? "Add context about the file..." : "Type your message..."}
+            placeholder={
+              attachedMessage 
+                ? "Reply to the attached message..." 
+                : pendingAttachments.length > 0 
+                  ? "Add context about the file..." 
+                  : "Type your message..."
+            }
             className="w-full bg-gray-700 border border-gray-600 rounded-l-lg py-2 px-3 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none transition-all duration-200"
             disabled={isLoading}
             rows={1}
@@ -264,6 +313,6 @@ const ChatInput: React.FC<ChatInputProps> = ({
       </form>
     </div>
   );
-};
+});
 
 export default ChatInput; 

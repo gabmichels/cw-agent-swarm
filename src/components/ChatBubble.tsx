@@ -11,15 +11,17 @@ interface ChatBubbleProps {
   message: Message;
   onImageClick: (attachment: FileAttachment, e: React.MouseEvent) => void;
   onDeleteMessage?: (messageTimestamp: Date) => Promise<boolean>;
+  onReplyToMessage?: (message: Message) => void;
   isInternalMessage?: boolean; // Flag indicating if this is an internal thought/reflection
   searchHighlight?: string; // Search query text to highlight
   'data-message-id'?: string; // Added property for message identification
 }
 
-const ChatBubble: React.FC<ChatBubbleProps> = ({ 
+const ChatBubble: React.FC<ChatBubbleProps> = React.memo(({ 
   message, 
   onImageClick,
   onDeleteMessage,
+  onReplyToMessage,
   isInternalMessage = false,
   searchHighlight = '',
   'data-message-id': dataMessageId
@@ -39,7 +41,6 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
         });
         setHighlightedContent(highlighted);
       } catch (e) {
-        console.error('Error highlighting search matches:', e);
         setHighlightedContent(null);
       }
     } else {
@@ -47,19 +48,6 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
     }
   }, [message.content, searchHighlight]);
   
-  // Debug logging on mount
-  useEffect(() => {
-    if (process.env.NODE_ENV === 'development') {
-      console.debug('Rendering message:', {
-        sender: typeof message.sender === 'object' ? message.sender.name : message.sender,
-        content: message.content?.substring(0, 30),
-        isInternal: isInternalMessage,
-        type: message.messageType,
-        searchHighlight: searchHighlight ? `"${searchHighlight}"` : 'none'
-      });
-    }
-  }, [message, isInternalMessage, searchHighlight]);
-
   useEffect(() => {
     // Safety check for empty messages
     if (!message.content) return;
@@ -71,8 +59,6 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
          message.content.includes('#') || 
          message.content.includes('---'))) {
       
-      console.debug('User message contains markdown, ensuring proper rendering');
-      
       // Force a redraw of the message content
       const updatedContent = message.content;
       setMessageVersions([updatedContent]);
@@ -82,7 +68,6 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
 
   // Safety check - if we somehow received an invalid message
   if (!message || !message.content) {
-    console.warn('Received invalid message in ChatBubble:', message);
     return null;
   }
 
@@ -341,34 +326,24 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
     
   // Handle timestamp display - improved validation with debug logging
   const formattedTime = (() => {
-    // Debug log the raw timestamp
-    console.log(`ChatBubble raw timestamp for message ${message.id}:`, {
-      value: message.timestamp,
-      type: typeof message.timestamp
-    });
-    
     try {
       // First validate what type of timestamp we have and create a valid date
       let date: Date | null = null;
       
       if (message.timestamp instanceof Date) {
         date = message.timestamp;
-        console.log(`Date instance: ${date.toISOString()}`);
       }
       else if (typeof message.timestamp === 'number') {
         date = new Date(message.timestamp);
-        console.log(`Numeric timestamp ${message.timestamp} -> ${date.toISOString()}`);
       }
       else if (typeof message.timestamp === 'string') {
         // Handle numeric strings first (most common from database)
         if (/^\d+$/.test(message.timestamp)) {
           const parsedTimestamp = parseInt(message.timestamp, 10);
           date = new Date(parsedTimestamp);
-          console.log(`String-numeric timestamp ${message.timestamp} -> ${parsedTimestamp} -> ${date.toISOString()}`);
         } else {
           // Try standard date parsing
           date = new Date(message.timestamp);
-          console.log(`String date timestamp ${message.timestamp} -> ${date.toISOString()}`);
         }
       }
       
@@ -384,7 +359,6 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
         minute: '2-digit',
         hour12: true
       });
-      console.log(`Final formatted time: ${formatted}`);
       return formatted;
     } catch (err) {
       console.error('Error formatting time:', err, 'for timestamp:', message.timestamp);
@@ -630,11 +604,12 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
             onDeleteMessage={onDeleteMessage ? handleDeleteMessage : undefined}
             messageId={message.id}
             onDeleteMemory={undefined}
+            onReplyToMessage={onReplyToMessage}
           />
         </div>
       </div>
     </div>
   );
-};
+});
 
 export default ChatBubble; 

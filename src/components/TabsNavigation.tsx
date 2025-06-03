@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef, useEffect } from 'react';
+import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { MinimizeIcon, MaximizeIcon, Search, Settings, Activity } from 'lucide-react';
 import SearchResults from './SearchResults';
 import AgentSettings from './agent/AgentSettings';
@@ -20,7 +20,7 @@ interface TabsNavigationProps {
   onViewAgent?: (agentId: string) => void;
 }
 
-const TabsNavigation: React.FC<TabsNavigationProps> = ({
+const TabsNavigation: React.FC<TabsNavigationProps> = React.memo(({
   selectedTab,
   setSelectedTab,
   isFullscreen,
@@ -36,14 +36,15 @@ const TabsNavigation: React.FC<TabsNavigationProps> = ({
   onDeleteChatHistory,
   onViewAgent
 }) => {
-  const tabs = ['Chat', 'Memory', 'Tools', 'Tasks', 'Knowledge', 'Social', 'Files', 'Visualizations'];
+  // Memoize tabs array to prevent recreation on every render
+  const tabs = useMemo(() => ['Chat', 'Memory', 'Tools', 'Tasks', 'Knowledge', 'Social', 'Files', 'Visualizations'], []);
+  
   const [searchInputValue, setSearchInputValue] = useState('');
   const [showSearchResults, setShowSearchResults] = useState(false);
   const [showSettingsMenu, setShowSettingsMenu] = useState(false);
   const settingsMenuRef = useRef<HTMLDivElement>(null);
 
   const handleTabClick = useCallback((tab: string) => {
-    console.log(`Tab selected: ${tab.toLowerCase()}`);
     setSelectedTab(tab.toLowerCase());
   }, [setSelectedTab]);
 
@@ -104,15 +105,9 @@ const TabsNavigation: React.FC<TabsNavigationProps> = ({
   }, []);
 
   const handleViewAgent = useCallback(() => {
-    console.log('View Agent clicked, agentId:', agentId);
-    
     if (agentId && onViewAgent) {
-      // Use callback if provided
-      console.log('Using provided onViewAgent callback');
       onViewAgent(agentId);
     } else if (agentId) {
-      // Direct navigation using most reliable method
-      console.log('Navigating to agent page:', `/agent/${agentId}`);
       window.location.assign(`/agents/${agentId}`);
     }
     setShowSettingsMenu(false);
@@ -229,7 +224,6 @@ const TabsNavigation: React.FC<TabsNavigationProps> = ({
                   searchQuery={searchInputValue}
                   results={searchResults || []}
                   onSelectResult={(id) => {
-                    console.log('Selected search result:', id);
                     if (onSelectResult) {
                       onSelectResult(id);
                     }
@@ -267,6 +261,6 @@ const TabsNavigation: React.FC<TabsNavigationProps> = ({
       </div>
     </>
   );
-};
+});
 
 export default TabsNavigation; 

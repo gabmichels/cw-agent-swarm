@@ -6,6 +6,7 @@ import { MemoryType } from '../../../server/memory/config/types';
 import { SearchResult } from '../../../server/memory/services/search/types';
 import { BaseMemorySchema } from '../../../server/memory/models';
 import { extractQueryTags } from '../../../utils/queryTagExtractor';
+import { MessageReplyContext } from '../../../types/metadata';
 
 // Constants for memory retrieval
 const DEFAULT_MEMORY_LIMIT = 10;
@@ -44,6 +45,9 @@ export interface MemoryRetrievalOptions {
   query: string;
   userId: string;
   limit?: number;
+  
+  // Reply context support
+  replyContext?: MessageReplyContext;  // New: Reply context for prioritizing referenced messages
   
   // Advanced retrieval options
   semanticSearch?: boolean;
@@ -330,6 +334,11 @@ export class MemoryRetriever {
         
         this.log(MemoryRetrievalLogLevel.BASIC, 
           `📊 Combined ${workingMemoryResult.memories.length} working memory items with ${memories.length - workingMemoryResult.memories.length} long-term memory items`);
+      }
+      
+      // Handle reply context - prioritize referenced message if present
+      if (options.replyContext) {
+        memories = await this.prioritizeReplyContext(memories, options.replyContext, options);
       }
       
       // Log top memories
@@ -942,5 +951,112 @@ export class MemoryRetriever {
     
     // Default neutral score
     return 0.5;
+  }
+
+  /**
+   * Prioritize reply context messages
+   */
+  private async prioritizeReplyContext(
+    memories: WorkingMemoryItem[],
+    replyContext: MessageReplyContext,
+    options: MemoryRetrievalOptions
+  ): Promise<WorkingMemoryItem[]> {
+    try {
+      this.log(MemoryRetrievalLogLevel.BASIC, 
+        `🔗 Processing reply context for message: ${replyContext.messageId.toString()}`);
+
+      // Get memory services
+      const { searchService } = await getMemoryServices();
+      
+      // Extract the actual message ID from the StructuredId
+      const messageId = replyContext.messageId.id;
+      
+      // Check if the referenced message is already in our memory list
+      const existingMessage = memories.find(memory => memory.id === messageId);
+      
+      if (existingMessage) {
+        // Message is already in the list, move it to the front
+        this.log(MemoryRetrievalLogLevel.BASIC, 
+          `✅ Referenced message already in memory list, moving to front`);
+        
+        const otherMemories = memories.filter(memory => memory.id !== messageId);
+        return [existingMessage, ...otherMemories];
+      }
+      
+      // Message not in current list, retrieve it specifically
+      const filter = {
+        must: [
+          { key: "id", match: { value: messageId } },
+          { key: "metadata.userId.id", match: { value: options.userId } }
+        ]
+      };
+      
+      const searchOptions = {
+        filter,
+        limit: 1,
+        includeMetadata: true,
+        types: [MemoryType.MESSAGE, MemoryType.THOUGHT, MemoryType.REFLECTION, MemoryType.INSIGHT]
+      };
+      
+      this.log(MemoryRetrievalLogLevel.VERBOSE, 
+        `🔍 Searching for reply context message with ID: ${messageId}`);
+      
+      const referencedResults = await searchService.search(`id:${messageId}`, searchOptions);
+      
+      if (referencedResults.length === 0) {
+        this.log(MemoryRetrievalLogLevel.BASIC, 
+          `⚠️ Referenced message not found: ${messageId}, continuing without it`);
+        return memories;
+      }
+      
+      // Convert the referenced message to WorkingMemoryItem format
+      const referencedResult = referencedResults[0];
+      const resultData = referencedResult as unknown as {
+        point: {
+          id: string;
+          payload: {
+            content: string;
+            metadata?: {
+              tags?: string[];
+              type?: string;
+              timestamp?: number;
+              [key: string]: any;
+            };
+          };
+        };
+      };
+      
+      const referencedMemory: WorkingMemoryItem = {
+        id: resultData.point.id,
+        content: resultData.point.payload.content,
+        type: (resultData.point.payload.metadata?.type as 'entity' | 'fact' | 'preference' | 'task' | 'goal' | 'message') || 'message',
+        addedAt: new Date(resultData.point.payload.metadata?.timestamp || Date.now()),
+        tags: resultData.point.payload.metadata?.tags || [],
+        metadata: {
+          ...resultData.point.payload.metadata,
+          _replyContext: true // Mark as reply context for identification
+        },
+        _relevanceScore: 1.0, // Give highest relevance score to referenced message
+        priority: 10, // High priority for reply context
+        expiresAt: null,
+        confidence: 1.0,
+        userId: options.userId
+      };
+      
+      this.log(MemoryRetrievalLogLevel.BASIC, 
+        `✅ Retrieved referenced message: "${referencedMemory.content.substring(0, 50)}..."`);
+      
+      // Remove one memory from the end to make room, maintaining the limit
+      const adjustedMemories = memories.slice(0, Math.max(0, (options.limit || DEFAULT_MEMORY_LIMIT) - 1));
+      
+      // Place referenced message at the front
+      return [referencedMemory, ...adjustedMemories];
+      
+    } catch (error) {
+      this.log(MemoryRetrievalLogLevel.ERROR, 
+        `❌ Error processing reply context:`, error);
+      // If there's an error, just return the original memories
+      return memories;
+    }
   }
 } 

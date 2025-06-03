@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { Copy, FileText, Star, Database, ThumbsDown, RefreshCw, ChevronLeft, ChevronRight, Trash2, Loader2 } from 'lucide-react';
+import { Copy, FileText, Star, Database, ThumbsDown, RefreshCw, ChevronLeft, ChevronRight, Trash2, Loader2, Reply } from 'lucide-react';
 import { Message } from '../types';
 import { MessageActionHandler } from '../services/message/MessageActionHandler';
 import { MessageImportance, MessageReliability } from '../services/message/MessageActionService';
@@ -27,6 +27,7 @@ interface ChatBubbleMenuProps {
   onAddToKnowledge: (content: string) => Promise<void>;
   onExportToCoda: (content: string) => Promise<void>;
   onDeleteMessage?: (timestamp: Date) => Promise<boolean>;
+  onReplyToMessage?: (message: Message) => void;
   messageId?: string;
   onDeleteMemory?: () => Promise<void>;
 }
@@ -51,6 +52,7 @@ const ChatBubbleMenu: React.FC<ChatBubbleMenuProps> = ({
   onAddToKnowledge,
   onExportToCoda,
   onDeleteMessage,
+  onReplyToMessage,
   messageId,
   onDeleteMemory
 }) => {
@@ -284,6 +286,13 @@ const ChatBubbleMenu: React.FC<ChatBubbleMenuProps> = ({
     }
   }, [message.id, message.timestamp, onDeleteMessage]);
 
+  const handleReply = useCallback(() => {
+    if (onReplyToMessage) {
+      onReplyToMessage(message);
+      showToast('Message attached for reply');
+    }
+  }, [message, onReplyToMessage]);
+
   // Toast notification
   const showToast = (message: string) => {
     Toast.show({
@@ -311,6 +320,18 @@ const ChatBubbleMenu: React.FC<ChatBubbleMenuProps> = ({
             )}
           </button>
         </Tooltip>
+        
+        {/* Reply button - available for all messages */}
+        {onReplyToMessage && (
+          <Tooltip content="Reply to this message">
+            <button 
+              onClick={handleReply}
+              className="p-1.5 rounded-full hover:bg-gray-800 hover:text-blue-400 transition-colors"
+            >
+              <Reply className="h-4 w-4" />
+            </button>
+          </Tooltip>
+        )}
         
         {isAssistantMessage && (
           <>
