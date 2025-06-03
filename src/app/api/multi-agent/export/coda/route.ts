@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAllEnhancedCodaTools } from '../../../../../agents/shared/tools/implementations/CodaTools';
+import { formatContentForCoda, addExportMetadata } from '../../../../../agents/shared/tools/utils/CodaFormatting';
 import { logger } from '../../../../../lib/logging';
 
 export async function POST(request: NextRequest) {
@@ -30,19 +31,20 @@ export async function POST(request: NextRequest) {
     // Generate title if not provided
     const documentTitle = title || generateTitleFromContent(content) || `Exported Message - ${new Date().toLocaleDateString()}`;
 
-    // Format content based on requested format
-    const formattedContent = formatContentForCoda(content, format);
+    // Format content using shared utility
+    const formattedContent = formatContentForCoda(content, {
+      format: format as 'markdown' | 'plain' | 'html',
+      convertTables: true,
+      preserveStructure: true
+    });
 
-    // Add export metadata
-    const enhancedContent = `${formattedContent}
-
----
-
-## Export Information
-- **Exported from**: Crowd Wisdom Chat
-- **Message ID**: ${messageId || 'N/A'}
-- **Export Date**: ${new Date().toLocaleString()}
-- **Original Timestamp**: ${timestamp ? new Date(timestamp).toLocaleString() : 'N/A'}`;
+    // Add export metadata using shared utility
+    const enhancedContent = addExportMetadata(formattedContent, {
+      source: 'Crowd Wisdom Chat',
+      messageId,
+      timestamp: new Date().toLocaleString(),
+      originalTimestamp: timestamp ? new Date(timestamp).toLocaleString() : undefined
+    });
 
     // Execute the enhanced Coda create tool
     const result = await createTool.execute({
@@ -111,22 +113,4 @@ function generateTitleFromContent(content: string): string | null {
   }
 
   return null;
-}
-
-/**
- * Format content for Coda based on requested format
- */
-function formatContentForCoda(content: string, format?: string): string {
-  if (format === 'plain') {
-    // Strip markdown formatting for plain text
-    return content
-      .replace(/^#+\s/gm, '') // Remove headers
-      .replace(/\*\*(.+?)\*\*/g, '$1') // Remove bold
-      .replace(/\*(.+?)\*/g, '$1') // Remove italic
-      .replace(/`(.+?)`/g, '$1') // Remove code
-      .replace(/\[(.+?)\]\(.+?\)/g, '$1'); // Remove links, keep text
-  }
-  
-  // Default to markdown (Coda supports markdown)
-  return content;
 } 

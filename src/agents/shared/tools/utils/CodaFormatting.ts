@@ -1,0 +1,183 @@
+/**
+ * Shared utilities for formatting content for Coda
+ * Used by both export functionality and LLM-to-Coda workflows
+ */
+
+export interface CodaFormatOptions {
+  format?: 'markdown' | 'plain' | 'html';
+  convertTables?: boolean;
+  preserveStructure?: boolean;
+}
+
+/**
+ * Format content for optimal display in Coda
+ */
+export function formatContentForCoda(content: string, options: CodaFormatOptions = {}): string {
+  const {
+    format = 'markdown',
+    convertTables = true,
+    preserveStructure = true
+  } = options;
+
+  let formattedContent = content;
+
+  // Convert markdown tables to Coda-friendly format
+  if (convertTables) {
+    formattedContent = convertMarkdownTablesToCodaFormat(formattedContent);
+  }
+
+  // Handle different format types
+  switch (format) {
+    case 'plain':
+      return stripMarkdownFormatting(formattedContent);
+    case 'html':
+      return convertMarkdownToHtml(formattedContent);
+    case 'markdown':
+    default:
+      return formattedContent;
+  }
+}
+
+/**
+ * Convert markdown tables to a format that displays well in Coda
+ */
+export function convertMarkdownTablesToCodaFormat(content: string): string {
+  // Regex to match markdown tables
+  const tableRegex = /(\|[^\n]+\|\n\|[-:\s|]+\|\n(?:\|[^\n]+\|\n?)*)/g;
+  
+  return content.replace(tableRegex, (match) => {
+    const lines = match.trim().split('\n');
+    
+    if (lines.length < 3) return match; // Not a valid table
+    
+    const headerLine = lines[0];
+    const separatorLine = lines[1];
+    const dataLines = lines.slice(2);
+    
+    // Extract headers
+    const headers = headerLine.split('|')
+      .map(h => h.trim())
+      .filter(h => h.length > 0);
+    
+    // Extract data rows
+    const rows = dataLines.map(line => 
+      line.split('|')
+        .map(cell => cell.trim())
+        .filter(cell => cell.length > 0)
+    ).filter(row => row.length > 0);
+    
+    // Try HTML table first (Coda might support this better)
+    let result = '\n<table border="1" style="border-collapse: collapse; width: 100%; margin: 10px 0;">\n';
+    
+    // Add headers
+    result += '  <thead>\n    <tr>\n';
+    headers.forEach(header => {
+      result += `      <th style="padding: 8px; background-color: #f5f5f5; font-weight: bold; text-align: left;">${header}</th>\n`;
+    });
+    result += '    </tr>\n  </thead>\n';
+    
+    // Add rows
+    result += '  <tbody>\n';
+    rows.forEach(row => {
+      result += '    <tr>\n';
+      row.forEach(cell => {
+        result += `      <td style="padding: 8px; border-bottom: 1px solid #ddd;">${cell}</td>\n`;
+      });
+      result += '    </tr>\n';
+    });
+    result += '  </tbody>\n</table>\n\n';
+    
+    // Also add a fallback structured format (most reliable in Coda)
+    result += '**Alternative Format:**\n';
+    rows.forEach((row, rowIndex) => {
+      result += `\n• **${headers[0] || 'Item'} ${row[0] || (rowIndex + 1)}:**\n`;
+      row.forEach((cell, cellIndex) => {
+        if (cellIndex < headers.length) {
+          result += `  - **${headers[cellIndex]}:** ${cell}\n`;
+        }
+      });
+    });
+    result += '\n';
+    
+    return result;
+  });
+}
+
+/**
+ * Strip markdown formatting for plain text
+ */
+function stripMarkdownFormatting(content: string): string {
+  return content
+    .replace(/^#+\s/gm, '') // Remove headers
+    .replace(/\*\*(.+?)\*\*/g, '$1') // Remove bold
+    .replace(/\*(.+?)\*/g, '$1') // Remove italic
+    .replace(/`(.+?)`/g, '$1') // Remove code
+    .replace(/\[(.+?)\]\(.+?\)/g, '$1') // Remove links, keep text
+    .replace(/>\s/gm, '') // Remove blockquotes
+    .replace(/^\s*[-*+]\s/gm, '• '); // Convert lists to bullets
+}
+
+/**
+ * Convert basic markdown to HTML (for better Coda compatibility)
+ */
+function convertMarkdownToHtml(content: string): string {
+  let html = content;
+  
+  // Headers
+  html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+  html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+  html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+  
+  // Bold and italic
+  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+  
+  // Code
+  html = html.replace(/`(.+?)`/g, '<code>$1</code>');
+  
+  // Links
+  html = html.replace(/\[(.+?)\]\((.+?)\)/g, '<a href="$2">$1</a>');
+  
+  // Line breaks
+  html = html.replace(/\n\n/g, '</p><p>');
+  html = '<p>' + html + '</p>';
+  
+  return html;
+}
+
+/**
+ * Add export metadata to content
+ */
+export function addExportMetadata(
+  content: string,
+  metadata: {
+    source?: string;
+    messageId?: string;
+    timestamp?: string;
+    originalTimestamp?: string;
+    generatedBy?: string;
+  }
+): string {
+  const {
+    source = 'Crowd Wisdom Chat',
+    messageId,
+    timestamp,
+    originalTimestamp,
+    generatedBy
+  } = metadata;
+
+  const metadataSection = `
+
+---
+
+## Document Information
+- **Source**: ${source}
+${messageId ? `- **Message ID**: ${messageId}` : ''}
+${generatedBy ? `- **Generated by**: ${generatedBy}` : ''}
+- **Created**: ${timestamp || new Date().toLocaleString()}
+${originalTimestamp ? `- **Original**: ${originalTimestamp}` : ''}
+
+---`;
+
+  return content + metadataSection;
+} 
