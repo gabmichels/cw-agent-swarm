@@ -177,6 +177,24 @@ export interface ThinkingState {
   intent?: Intent;
   
   /**
+   * Request type classification for smart routing
+   */
+  requestType?: {
+    type: 'PURE_LLM_TASK' | 'EXTERNAL_TOOL_TASK' | 'SCHEDULED_TASK';
+    confidence: number;
+    reasoning: string;
+    requiredTools?: string[];
+    availableTools?: string[];
+    missingTools?: string[];
+    delegationSuggested?: boolean;
+    suggestedSchedule?: {
+      scheduledFor?: Date;
+      recurring?: boolean;
+      intervalExpression?: string;
+    };
+  };
+  
+  /**
    * Entities extracted from the input
    */
   entities?: Entity[];
@@ -240,4 +258,21 @@ export interface ThinkingState {
    * Fallback response if the workflow fails
    */
   fallbackResponse?: string;
+  
+  /**
+   * Context about what was used in processing
+   */
+  contextUsed?: {
+    memories?: any[];
+    files?: any[];
+    tools?: any[];
+  };
+  
+  /**
+   * Metadata including agent reference for tool discovery
+   */
+  metadata?: {
+    agent?: any;
+    [key: string]: any;
+  };
 } 

@@ -752,6 +752,12 @@ class SpecializedAgent implements AgentBase {
     // Simplified implementation for demo purposes
     return {
       intent: { primary: 'query', confidence: 0.9 },
+      requestType: {
+        type: 'PURE_LLM_TASK',
+        confidence: 0.8,
+        reasoning: 'Demo implementation defaults to pure LLM task',
+        requiredTools: []
+      },
       entities: [],
       reasoning: [`Analyzing input: ${message}`],
       complexity: 2,

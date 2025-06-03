@@ -17,6 +17,24 @@ export interface ThinkingResult {
   };
   
   /**
+   * Classification of request type for smart routing
+   */
+  requestType: {
+    type: 'PURE_LLM_TASK' | 'EXTERNAL_TOOL_TASK' | 'SCHEDULED_TASK';
+    confidence: number;
+    reasoning: string;
+    requiredTools?: string[];
+    availableTools?: string[];
+    missingTools?: string[];
+    delegationSuggested?: boolean;
+    suggestedSchedule?: {
+      scheduledFor?: Date;
+      recurring?: boolean;
+      intervalExpression?: string;
+    };
+  };
+  
+  /**
    * Entities extracted from the user's message
    */
   entities: Array<{

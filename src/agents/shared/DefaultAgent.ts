@@ -59,6 +59,10 @@ import { ChatOpenAI } from '@langchain/openai';
 import { ThinkingService } from '../../services/thinking/ThinkingService';
 import { ImportanceCalculatorService, ImportanceCalculationMode } from '../../services/importance/ImportanceCalculatorService';
 import { getLLM } from '../../lib/core/llm';
+import { TaskScheduleType } from '../../lib/scheduler/models/Task.model';
+
+// Import new types
+// Removed problematic import from './types' as it doesn't exist
 
 // Agent status constants
 const AGENT_STATUS = {
@@ -971,141 +975,182 @@ Please provide a helpful, contextual response based on this analysis and memory 
         }
       };
 
-      // Step 5: Choose processing path based on intent and configuration
+      // Step 5: Choose processing path based on intelligent request type classification
       let response: AgentResponse;
 
-      if (shouldCreateTask && schedulerManager) {
-        // Path A: Task creation with LLM response
-        this.logger.info('Processing as task creation with LLM guidance', {
+      // Use intelligent classification from thinking process instead of manual rules
+      const requestType = thinkingResult.requestType?.type || 'PURE_LLM_TASK';
+      const requestClassification = thinkingResult.requestType?.reasoning || 'No classification available';
+      
+      console.log(`🧠 Smart routing decision: ${requestType} (confidence: ${thinkingResult.requestType?.confidence?.toFixed(2) || 'N/A'})`);
+      console.log(`📝 Classification reasoning: ${requestClassification}`);
+
+      // Enhanced routing logic based on LLM classification:
+      // 1. SCHEDULED_TASK → Task creation path  
+      // 2. EXTERNAL_TOOL_TASK → Planning path (for tool execution)
+      // 3. PURE_LLM_TASK → Direct LLM path (for conversational responses)
+
+      if (requestType === 'SCHEDULED_TASK' && schedulerManager) {
+        // Path A: Scheduled task creation with LLM response
+        this.logger.info('Processing as scheduled task based on LLM classification', {
           intent: thinkingResult.intent.primary,
-          priority: thinkingResult.priority,
-          hasSchedulerManager: !!schedulerManager,
-          hasPlanningManager: !!planningManager
+          requestType,
+          confidence: thinkingResult.requestType?.confidence,
+          priority: thinkingResult.priority
         });
 
-        // Get LLM response first to understand the request better
+        // Get LLM response first to understand the request
         const llmResponse = await this.getLLMResponse(message, enhancedOptions);
         
-        // Create task based on LLM understanding
-        try {
+        // Create task based on LLM understanding - ensure we have the right manager type
+        if (schedulerManager && 'createTask' in schedulerManager) {
           const taskResult = await (schedulerManager as any).createTask({
-            name: `Task: ${message.substring(0, 50)}${message.length > 50 ? '...' : ''}`,
+            name: `Task: ${message.length > 50 ? message.substring(0, 50) + '...' : message}`,
             description: `Task created from user input: ${message}`,
-            priority: this.determinePriorityFromIntent(thinkingResult),
+            priority: thinkingResult.priority,
+            scheduleType: TaskScheduleType.EXPLICIT,
+            scheduledTime: thinkingResult.requestType?.suggestedSchedule?.scheduledFor || new Date(),
             metadata: {
               source: 'user_input',
               originalMessage: message,
               createdBy: 'DefaultAgent',
               llmGuidance: llmResponse.content,
               intent: thinkingResult.intent.primary,
-              // Add user and chat context for filtering
-              userId: options?.userId,
-              chatId: options?.chatId,
-              userMessageId: options?.userMessageId,
-              ...(options || {})
+              requestType: thinkingResult.requestType
             }
           });
 
-          if (taskResult && (taskResult.success || taskResult.id)) {
-            const task = taskResult.task || taskResult;
-            const priority = this.determinePriorityFromIntent(thinkingResult);
-            const priorityText = priority >= 9 ? 'high priority' : priority >= 7 ? 'medium-high priority' : priority >= 5 ? 'medium priority' : 'low priority';
-            
-            response = {
-              content: `${llmResponse.content}\n\nI've scheduled a ${priorityText} task to handle this properly. The task will be processed according to its priority and scheduling requirements.`,
-              thoughts: llmResponse.thoughts || thinkingResult.reasoning,
-              metadata: {
-                ...llmResponse.metadata,
-                taskCreated: true,
-                taskId: task.id,
-                taskPriority: priority,
-                llmProcessed: true,
-                thinkingAnalysis: {
-                  intent: thinkingResult.intent,
-                  entities: thinkingResult.entities,
-                  shouldDelegate: thinkingResult.shouldDelegate,
-                  requiredCapabilities: thinkingResult.requiredCapabilities,
-                  complexity: thinkingResult.complexity,
-                  priority: thinkingResult.priority,
-                  importance: thinkingResult.importance,
-                  importanceScore: thinkingResult.importanceScore
-                }
-              }
-            };
-          } else {
-            // Task creation failed, return LLM response
-            response = llmResponse;
-          }
-        } catch (error) {
-          this.logger.error('Task creation failed, returning LLM response', { error });
-          response = llmResponse;
+          response = {
+            content: `${llmResponse.content}\n\nI've scheduled a task to handle this properly.`,
+            metadata: {
+              ...llmResponse.metadata,
+              taskCreated: true,
+              taskId: taskResult.taskId,
+              processingPath: 'scheduled_task_creation',
+              thinkingResult,
+              requestClassification,
+              confidence: thinkingResult.requestType?.confidence
+            }
+          };
+        } else {
+          // Fallback if scheduler manager doesn't have createTask method
+          this.logger.warn('Scheduler manager does not support createTask, falling back to LLM response');
+          response = {
+            content: `${llmResponse.content}\n\nNote: I would have scheduled a task for this but the task manager is not available.`,
+            metadata: {
+              ...llmResponse.metadata,
+              taskCreated: false,
+              processingPath: 'scheduled_task_fallback',
+              thinkingResult,
+              requestClassification,
+              confidence: thinkingResult.requestType?.confidence
+            }
+          };
         }
 
-      } else if (planningManager && thinkingResult.complexity >= 7) {
-        // Path B: Complex requests - use planning with LLM verification
-        this.logger.info('Processing as complex request with planning and LLM verification', {
+      } else if (requestType === 'EXTERNAL_TOOL_TASK' && planningManager) {
+        // Path B: External tool execution via planning manager
+        this.logger.info('Processing with planning manager for external tool execution', {
           intent: thinkingResult.intent.primary,
-          complexity: thinkingResult.complexity
+          requestType,
+          requiredTools: thinkingResult.requestType?.requiredTools,
+          confidence: thinkingResult.requestType?.confidence
         });
 
-        try {
-          // Execute using planning manager with conversation context
+        // Check if planning manager has planAndExecute method, otherwise use createPlan + executePlan
+        if ('planAndExecute' in planningManager && typeof (planningManager as any).planAndExecute === 'function') {
           const planResult = await (planningManager as any).planAndExecute(message, {
-            dryRun: false,
-            maxSteps: 5,
-            timeout: 180000, // 3 minutes
-            conversationHistory: conversationHistory,
-            thinkingContext: thinkingResult
+            complexity: thinkingResult.complexity,
+            priority: thinkingResult.priority,
+            userId: options?.userId,
+            conversationId: options?.conversationId,
+            isUrgent: thinkingResult.isUrgent,
+            thinkingResult
           });
 
-          if (planResult && planResult.success && planResult.message) {
-            // Get LLM verification/enhancement of the plan result
-            const llmResponse = await this.getLLMResponse(
-              `Please review and enhance this response: ${planResult.message}`,
-              enhancedOptions
-            );
-
-            response = {
-              content: llmResponse.content,
-              thoughts: llmResponse.thoughts || thinkingResult.reasoning,
+          response = {
+            content: planResult.response || 'Completed tool execution.',
+            metadata: {
+              processingPath: 'external_tool_execution',
+              plan: planResult.plan,
+              planSuccess: planResult.success,
+              error: planResult.error,
+              thinkingResult,
+              requestClassification,
+              confidence: thinkingResult.requestType?.confidence
+            }
+          };
+        } else {
+          // Fallback: use standard PlanningManager methods
+          this.logger.info('Planning manager does not have planAndExecute, using createPlan + executePlan');
+          
+          try {
+            const createResult = await planningManager.createPlan({
+              name: `External Tool Task: ${message.substring(0, 50)}`,
+              description: `Execute external tools for: ${message}`,
+              goals: [message],
+              priority: thinkingResult.priority / 10, // Convert to 0-1 scale
               metadata: {
-                ...llmResponse.metadata,
-                immediateExecution: true,
-                planExecuted: true,
-                planResult: planResult,
-                llmEnhanced: true,
-                conversationHistoryUsed: conversationHistory.length > 0,
-                thinkingAnalysis: {
-                  intent: thinkingResult.intent,
-                  entities: thinkingResult.entities,
-                  shouldDelegate: thinkingResult.shouldDelegate,
-                  requiredCapabilities: thinkingResult.requiredCapabilities,
-                  complexity: thinkingResult.complexity,
-                  priority: thinkingResult.priority,
-                  importance: thinkingResult.importance,
-                  importanceScore: thinkingResult.importanceScore
-                }
+                requestType: thinkingResult.requestType,
+                requiredTools: thinkingResult.requestType?.requiredTools,
+                thinkingResult
               }
-            };
-          } else {
-            // Plan execution failed, get direct LLM response
+            });
+
+            if (createResult.success && createResult.plan) {
+              const executeResult = await planningManager.executePlan(createResult.plan.id);
+              
+              response = {
+                content: executeResult.success ? 'Completed external tool execution via planning.' : 'External tool execution encountered issues.',
+                metadata: {
+                  processingPath: 'external_tool_execution_fallback',
+                  planCreated: createResult.success,
+                  planExecuted: executeResult.success,
+                  plan: createResult.plan,
+                  error: executeResult.error,
+                  thinkingResult,
+                  requestClassification,
+                  confidence: thinkingResult.requestType?.confidence
+                }
+              };
+            } else {
+              throw new Error(`Plan creation failed: ${createResult.error}`);
+            }
+          } catch (planningError) {
+            this.logger.warn('Planning manager execution failed, falling back to LLM response', {
+              error: planningError instanceof Error ? planningError.message : String(planningError)
+            });
+            
             response = await this.getLLMResponse(message, enhancedOptions);
+            response.metadata = {
+              ...response.metadata,
+              processingPath: 'external_tool_execution_error_fallback',
+              planningError: planningError instanceof Error ? planningError.message : String(planningError),
+              thinkingResult,
+              requestClassification,
+              confidence: thinkingResult.requestType?.confidence
+            };
           }
-        } catch (error) {
-          this.logger.error('Planning execution failed, falling back to direct LLM response', {
-            error: error instanceof Error ? error.message : String(error)
-          });
-          response = await this.getLLMResponse(message, enhancedOptions);
         }
 
       } else {
-        // Path C: Direct LLM response (the standard path)
-        this.logger.info('Processing as direct LLM request', {
+        // Path C: Direct LLM response for pure knowledge/reasoning tasks
+        this.logger.info('Processing with direct LLM response', {
           intent: thinkingResult.intent.primary,
-          complexity: thinkingResult.complexity
+          requestType,
+          confidence: thinkingResult.requestType?.confidence
         });
 
         response = await this.getLLMResponse(message, enhancedOptions);
+        
+        // Add classification info to metadata
+        response.metadata = {
+          ...response.metadata,
+          processingPath: 'direct_llm_response',
+          thinkingResult,
+          requestClassification,
+          confidence: thinkingResult.requestType?.confidence
+        };
       }
 
       // Step 6: Ensure thoughts are included from thinking if not in LLM response
@@ -1221,13 +1266,58 @@ Please provide a helpful, contextual response based on this analysis and memory 
       'search for', 'fetch', 'retrieve', 'get current', 'latest'
     ].some(keyword => messageContent.includes(keyword));
     
-    // Check for scheduling/task-related intents
-    const taskIntents = [
+    // EXPANDED: Check for action commands and imperative intents
+    const actionIntents = [
+      // Traditional scheduling/task intents
       'schedule', 'remind', 'monitor', 'track', 'watch', 'follow_up',
-      'create_task', 'add_task', 'queue', 'defer', 'later'
+      'create_task', 'add_task', 'queue', 'defer', 'later',
+      
+      // Core action verbs (imperatives that require doing something)
+      'create', 'make', 'build', 'generate', 'produce', 'develop',
+      'write', 'compose', 'draft', 'author', 'pen',
+      'plan', 'design', 'architect', 'outline', 'structure',
+      'execute', 'perform', 'do', 'run', 'implement',
+      'analyze', 'research', 'investigate', 'study', 'examine',
+      'calculate', 'compute', 'process', 'solve', 'figure out',
+      'find', 'search', 'locate', 'discover', 'identify',
+      'organize', 'arrange', 'sort', 'categorize', 'group',
+      'format', 'convert', 'transform', 'modify', 'update',
+      'send', 'post', 'publish', 'share', 'distribute',
+      'download', 'upload', 'export', 'import', 'sync',
+      'test', 'verify', 'validate', 'check', 'confirm',
+      'optimize', 'improve', 'enhance', 'refine', 'polish',
+      'fix', 'repair', 'correct', 'resolve', 'troubleshoot',
+      'install', 'setup', 'configure', 'deploy', 'launch',
+      'backup', 'restore', 'save', 'store', 'archive',
+      'delete', 'remove', 'clear', 'clean', 'purge',
+      
+      // Tool-specific actions
+      'coda', 'document', 'spreadsheet', 'table', 'database',
+      'twitter', 'tweet', 'post', 'social media',
+      'email', 'message', 'notification', 'alert',
+      'report', 'summary', 'analysis', 'dashboard',
+      'api', 'integration', 'webhook', 'automation'
     ];
     
-    const hasTaskIntent = taskIntents.some(taskIntent => intent.includes(taskIntent));
+    // Check if the message starts with action verbs (imperative form)
+    const messageWords = messageContent.split(/\s+/);
+    const firstWord = messageWords[0];
+    const startsWithAction = actionIntents.includes(firstWord);
+    
+    // Check if intent or message contains action keywords
+    const hasActionIntent = actionIntents.some(actionIntent => 
+      intent.includes(actionIntent) || messageContent.includes(actionIntent)
+    );
+    
+    // Check for imperative sentence patterns (commands)
+    const imperativePatterns = [
+      /^(create|make|build|generate|write|plan|do|execute|perform|run)/i,
+      /^(please\s+)?(create|make|build|generate|write|plan|do|execute|perform|run)/i,
+      /^(can you|could you|would you)\s+(create|make|build|generate|write|plan|do|execute|perform|run)/i,
+      /^(i want you to|i need you to)\s+(create|make|build|generate|write|plan|do|execute|perform|run)/i
+    ];
+    
+    const hasImperativePattern = imperativePatterns.some(pattern => pattern.test(messageContent));
     
     // Check for high priority or urgent requests that should be tracked
     const isUrgent = thinkingResult.isUrgent || thinkingResult.priority >= 9;
@@ -1239,26 +1329,39 @@ Please provide a helpful, contextual response based on this analysis and memory 
     // 1. Explicit timing/scheduling language
     // 2. Multi-step processes
     // 3. Requires external tools/APIs
-    // 4. Traditional task intents
+    // 4. Action intents or imperative commands
     // 5. High complexity + urgency combo
     const shouldCreate = hasTimingKeywords || 
                         hasMultiStepKeywords || 
                         requiresExternalTools ||
-                        hasTaskIntent || 
+                        hasActionIntent ||
+                        startsWithAction ||
+                        hasImperativePattern ||
                         (isUrgent && isComplex);
     
-    this.logger.info('Enhanced task creation decision from intent', {
+    this.logger.info('Enhanced action intent detection', {
       intent: intent,
       message: message.substring(0, 100),
+      firstWord,
       hasTimingKeywords,
       hasMultiStepKeywords,
       requiresExternalTools,
-      hasTaskIntent,
+      hasActionIntent,
+      startsWithAction,
+      hasImperativePattern,
       isUrgent,
       isComplex,
       shouldCreate,
       priority: thinkingResult.priority,
-      complexity: thinkingResult.complexity
+      complexity: thinkingResult.complexity,
+      detectionReason: shouldCreate ? 
+        (hasTimingKeywords ? 'timing keywords' :
+         hasMultiStepKeywords ? 'multi-step keywords' :
+         requiresExternalTools ? 'external tools needed' :
+         hasActionIntent ? 'action intent detected' :
+         startsWithAction ? 'starts with action verb' :
+         hasImperativePattern ? 'imperative pattern' :
+         'high complexity + urgency') : 'no triggers detected'
     });
     
     return shouldCreate;
@@ -1355,6 +1458,12 @@ Please provide a helpful, contextual response based on this analysis and memory 
           primary: 'user_request',
           confidence: 0.8
         },
+        requestType: {
+          type: 'PURE_LLM_TASK',
+          confidence: 0.5,
+          reasoning: 'No thinking components available, defaulting to pure LLM task',
+          requiredTools: []
+        },
         entities: [],
         shouldDelegate: false,
         requiredCapabilities: ['general_conversation'],
@@ -1398,6 +1507,12 @@ Please provide a helpful, contextual response based on this analysis and memory 
           primary: 'user_request',
           confidence: processingResult.confidence
         },
+        requestType: {
+          type: 'PURE_LLM_TASK',
+          confidence: 0.5,
+          reasoning: 'ThinkingProcessor fallback, defaulting to pure LLM task',
+          requiredTools: []
+        },
         entities: [],
         shouldDelegate: false,
         requiredCapabilities: [],
@@ -1422,6 +1537,12 @@ Please provide a helpful, contextual response based on this analysis and memory 
         intent: {
           primary: 'user_request',
           confidence: 0.7
+        },
+        requestType: {
+          type: 'PURE_LLM_TASK',
+          confidence: 0.5,
+          reasoning: 'Ultimate fallback, defaulting to pure LLM task',
+          requiredTools: []
         },
         entities: [],
         shouldDelegate: false,
@@ -1812,5 +1933,109 @@ Please provide a helpful, contextual response based on this analysis and memory 
     ];
     
     return summaryPatterns.some(pattern => lowerMessage.includes(pattern));
+  }
+
+  // NEW: Check for action requests that need tool execution (regardless of complexity)
+  private needsToolExecution(thinkingResult: ThinkingResult, message: string): boolean {
+    const intent = thinkingResult.intent.primary.toLowerCase();
+    const messageContent = message.toLowerCase(); // Use actual message content
+    
+    // Check for external API/tool requirements that suggest async execution
+    const requiresExternalTools = [
+      'api call', 'external data', 'real-time', 'bitcoin price', 'coingecko',
+      'search for', 'fetch', 'retrieve', 'get current', 'latest'
+    ].some(keyword => messageContent.includes(keyword));
+    
+    // EXPANDED: Use the same action intents as shouldCreateTaskFromIntent
+    const actionIntents = [
+      // Traditional scheduling/task intents
+      'schedule', 'remind', 'monitor', 'track', 'watch', 'follow_up',
+      'create_task', 'add_task', 'queue', 'defer', 'later',
+      
+      // Core action verbs (imperatives that require doing something)
+      'create', 'make', 'build', 'generate', 'produce', 'develop',
+      'write', 'compose', 'draft', 'author', 'pen',
+      'plan', 'design', 'architect', 'outline', 'structure',
+      'execute', 'perform', 'do', 'run', 'implement',
+      'analyze', 'research', 'investigate', 'study', 'examine',
+      'calculate', 'compute', 'process', 'solve', 'figure out',
+      'find', 'search', 'locate', 'discover', 'identify',
+      'organize', 'arrange', 'sort', 'categorize', 'group',
+      'format', 'convert', 'transform', 'modify', 'update',
+      'send', 'post', 'publish', 'share', 'distribute',
+      'download', 'upload', 'export', 'import', 'sync',
+      'test', 'verify', 'validate', 'check', 'confirm',
+      'optimize', 'improve', 'enhance', 'refine', 'polish',
+      'fix', 'repair', 'correct', 'resolve', 'troubleshoot',
+      'install', 'setup', 'configure', 'deploy', 'launch',
+      'backup', 'restore', 'save', 'store', 'archive',
+      'delete', 'remove', 'clear', 'clean', 'purge',
+      
+      // Tool-specific actions
+      'coda', 'document', 'spreadsheet', 'table', 'database',
+      'twitter', 'tweet', 'post', 'social media',
+      'email', 'message', 'notification', 'alert',
+      'report', 'summary', 'analysis', 'dashboard',
+      'api', 'integration', 'webhook', 'automation'
+    ];
+    
+    // Check if the message starts with action verbs (imperative form)
+    const messageWords = messageContent.split(/\s+/);
+    const firstWord = messageWords[0];
+    const startsWithAction = actionIntents.includes(firstWord);
+    
+    // Check if intent or message contains action keywords
+    const hasActionIntent = actionIntents.some(actionIntent => 
+      intent.includes(actionIntent) || messageContent.includes(actionIntent)
+    );
+    
+    // Check for imperative sentence patterns (commands)
+    const imperativePatterns = [
+      /^(create|make|build|generate|write|plan|do|execute|perform|run)/i,
+      /^(please\s+)?(create|make|build|generate|write|plan|do|execute|perform|run)/i,
+      /^(can you|could you|would you)\s+(create|make|build|generate|write|plan|do|execute|perform|run)/i,
+      /^(i want you to|i need you to)\s+(create|make|build|generate|write|plan|do|execute|perform|run)/i
+    ];
+    
+    const hasImperativePattern = imperativePatterns.some(pattern => pattern.test(messageContent));
+    
+    // Check for high priority or urgent requests that should be tracked
+    const isUrgent = thinkingResult.isUrgent || thinkingResult.priority >= 9;
+    
+    // Check for complex requests that benefit from task tracking
+    const isComplex = thinkingResult.complexity >= 7;
+    
+    // Tool execution needed if:
+    // 1. Requires external tools/APIs
+    // 2. Action intents or imperative commands
+    // 3. High complexity + urgency combo
+    const needsExecution = requiresExternalTools ||
+                          hasActionIntent ||
+                          startsWithAction ||
+                          hasImperativePattern ||
+                          (isUrgent && isComplex);
+    
+    this.logger.info('Tool execution need assessment', {
+      intent: intent,
+      message: message.substring(0, 100),
+      firstWord,
+      requiresExternalTools,
+      hasActionIntent,
+      startsWithAction,
+      hasImperativePattern,
+      isUrgent,
+      isComplex,
+      needsExecution,
+      priority: thinkingResult.priority,
+      complexity: thinkingResult.complexity,
+      executionReason: needsExecution ? 
+        (requiresExternalTools ? 'external tools needed' :
+         hasActionIntent ? 'action intent detected' :
+         startsWithAction ? 'starts with action verb' :
+         hasImperativePattern ? 'imperative pattern' :
+         'high complexity + urgency') : 'no execution triggers'
+    });
+    
+    return needsExecution;
   }
 } 

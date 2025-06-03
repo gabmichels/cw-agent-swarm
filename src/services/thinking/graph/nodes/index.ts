@@ -8,6 +8,7 @@
 // Context and intent nodes
 export { retrieveContextNode } from './retrieveContextNode';
 export { analyzeIntentNode } from './analyzeIntentNode';
+export { classifyRequestTypeNode } from './classifyRequestTypeNode';
 export { extractEntitiesNode } from './extractEntitiesNode';
 
 // Delegation nodes

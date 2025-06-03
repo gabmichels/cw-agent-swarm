@@ -10,6 +10,7 @@ import {
   applyReasoningNode,
   generateResponseNode
 } from './nodes';
+import { classifyRequestTypeNode } from './nodes/classifyRequestTypeNode';
 import { storeCognitiveArtifactsNode } from './nodes/storeCognitiveArtifactsNode';
 
 /**
@@ -196,7 +197,24 @@ export async function executeThinkingWorkflow(
       }
     );
     
-    // Store artifacts after intent analysis
+    // Classify request type for smart routing (NEW)
+    state = await executeNodeSafely(state, 'classifyRequestTypeNode', classifyRequestTypeNode,
+      async (failedState) => {
+        // Recovery: Default to pure LLM task if classification fails
+        return {
+          ...failedState,
+          requestType: {
+            type: 'PURE_LLM_TASK',
+            confidence: 0.5,
+            reasoning: 'Classification failed, defaulting to pure LLM task',
+            requiredTools: [],
+            suggestedSchedule: undefined
+          }
+        };
+      }
+    );
+    
+    // Store artifacts after intent analysis and request classification
     state = await executeNodeSafely(state, 'storeCognitiveArtifactsNode_1', 
       (s) => storeCognitiveArtifactsNode(s),
       async (failedState) => {

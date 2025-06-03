@@ -1613,6 +1613,48 @@ Complete the task comprehensively using the available data:`;
             };
             console.log(`🔍 Selected LinkedIn Jobs tool: ${selectedTool}`);
           }
+        } else if (descriptionLower.includes('coda') && (descriptionLower.includes('create') || descriptionLower.includes('document'))) {
+          // Coda document creation
+          const codaCreateTool = await toolManager.getTool('coda_create_document');
+          if (codaCreateTool) {
+            selectedTool = 'coda_create_document';
+            toolParams = {
+              title: this.extractCodaDocumentTitle(stepDescription),
+              content: this.extractCodaDocumentContent(stepDescription)
+            };
+            console.log(`🔍 Selected Coda Create Document tool: ${selectedTool}`);
+          }
+        } else if (descriptionLower.includes('coda') && (descriptionLower.includes('list') || descriptionLower.includes('documents') || descriptionLower.includes('show'))) {
+          // Coda document listing
+          const codaListTool = await toolManager.getTool('coda_list_documents');
+          if (codaListTool) {
+            selectedTool = 'coda_list_documents';
+            toolParams = {
+              limit: this.extractCodaListLimit(stepDescription)
+            };
+            console.log(`🔍 Selected Coda List Documents tool: ${selectedTool}`);
+          }
+        } else if (descriptionLower.includes('coda') && (descriptionLower.includes('read') || descriptionLower.includes('get'))) {
+          // Coda document reading
+          const codaReadTool = await toolManager.getTool('coda_read_document');
+          if (codaReadTool) {
+            selectedTool = 'coda_read_document';
+            toolParams = {
+              documentId: this.extractCodaDocumentId(stepDescription)
+            };
+            console.log(`🔍 Selected Coda Read Document tool: ${selectedTool}`);
+          }
+        } else if (descriptionLower.includes('coda') && (descriptionLower.includes('update') || descriptionLower.includes('edit'))) {
+          // Coda document updating
+          const codaUpdateTool = await toolManager.getTool('coda_update_document');
+          if (codaUpdateTool) {
+            selectedTool = 'coda_update_document';
+            toolParams = {
+              documentId: this.extractCodaDocumentId(stepDescription),
+              content: this.extractCodaDocumentContent(stepDescription)
+            };
+            console.log(`🔍 Selected Coda Update Document tool: ${selectedTool}`);
+          }
         } else if (descriptionLower.includes('apify-website-crawler') || 
                    (descriptionLower.includes('crawl') && descriptionLower.includes('website'))) {
           const crawlerTool = await toolManager.getTool('apify-website-crawler');
@@ -2073,13 +2115,125 @@ Complete the task comprehensively using the available data:`;
   }
 
   /**
+   * Extract Coda document title from step description
+   */
+  private extractCodaDocumentTitle(stepDescription: string): string {
+    // Look for explicit title patterns like "title: X" or "called X" or "named X"
+    const titlePatterns = [
+      /title["']?\s*[:=]\s*["']([^"']+)["']/i,
+      /titled\s+["']([^"']+)["']/i,
+      /called\s+["']([^"']+)["']/i,
+      /named\s+["']([^"']+)["']/i,
+      /["']([^"']+)["']/i // Last resort: any quoted text
+    ];
+    
+    for (const pattern of titlePatterns) {
+      const match = stepDescription.match(pattern);
+      if (match && match[1]) {
+        return match[1];
+      }
+    }
+    
+    // Fallback: extract meaningful keywords for auto-title
+    const words = stepDescription
+      .toLowerCase()
+      .replace(/[^\w\s]/g, '')
+      .split(/\s+/)
+      .filter(word => 
+        word.length > 2 && 
+        !['create', 'coda', 'document', 'with', 'the', 'and', 'for', 'about', 'make', 'new'].includes(word)
+      );
+    
+    const autoTitle = words.slice(0, 4).map(word => 
+      word.charAt(0).toUpperCase() + word.slice(1)
+    ).join(' ');
+    
+    return autoTitle || `Document ${Date.now()}`;
+  }
+
+  /**
+   * Extract Coda document content from step description
+   */
+  private extractCodaDocumentContent(stepDescription: string): string {
+    // Look for explicit content patterns
+    const contentPatterns = [
+      /content["']?\s*[:=]\s*["']([^"']+)["']/i,
+      /with content\s+["']([^"']+)["']/i,
+      /containing\s+["']([^"']+)["']/i,
+      /about\s+(.+?)(?:\.|$)/i
+    ];
+    
+    for (const pattern of contentPatterns) {
+      const match = stepDescription.match(pattern);
+      if (match && match[1]) {
+        return match[1];
+      }
+    }
+    
+    // If no explicit content found, create default content based on the task
+    const title = this.extractCodaDocumentTitle(stepDescription);
+    return `# ${title}
+
+This document was created automatically based on the request: "${stepDescription}"
+
+Created at: ${new Date().toISOString()}
+
+## Content
+Please add your content here.`;
+  }
+
+  /**
+   * Extract Coda document ID from step description
+   */
+  private extractCodaDocumentId(stepDescription: string): string {
+    // Look for Coda document ID patterns
+    const idPatterns = [
+      /document\s+id["']?\s*[:=]\s*["']?([a-zA-Z0-9_-]+)["']?/i,
+      /doc\s+id["']?\s*[:=]\s*["']?([a-zA-Z0-9_-]+)["']?/i,
+      /id["']?\s*[:=]\s*["']?([a-zA-Z0-9_-]+)["']?/i,
+      /([a-zA-Z0-9_-]{8,})/i // Any alphanumeric string that could be an ID
+    ];
+    
+    for (const pattern of idPatterns) {
+      const match = stepDescription.match(pattern);
+      if (match && match[1]) {
+        return match[1];
+      }
+    }
+    
+    // Fallback: return a placeholder that will cause the tool to list documents first
+    return 'DOCUMENT_ID_REQUIRED';
+  }
+
+  /**
+   * Extract limit for Coda document listing
+   */
+  private extractCodaListLimit(stepDescription: string): number | undefined {
+    // Look for limit patterns
+    const limitPatterns = [
+      /limit\s+(\d+)/i,
+      /first\s+(\d+)/i,
+      /top\s+(\d+)/i,
+      /(\d+)\s+documents/i,
+      /(\d+)\s+docs/i
+    ];
+    
+    for (const pattern of limitPatterns) {
+      const match = stepDescription.match(pattern);
+      if (match && match[1]) {
+        const limit = parseInt(match[1], 10);
+        if (limit > 0 && limit <= 100) { // Reasonable limits
+          return limit;
+        }
+      }
+    }
+    
+    // Default: no limit (return all documents)
+    return undefined;
+  }
+
+  /**
    * TEST UTILITY METHOD - For development and testing purposes only
-   * 
-   * This method demonstrates and tests the Twitter query optimization functionality.
-   * It shows how the generic keyword extraction works with various input scenarios
-   * and verifies that engagement filters are properly applied.
-   * 
-   * Usage: Call this method during development to verify query optimization behavior
    */
   public testTwitterQueryOptimization(): void {
     console.log('🧪 Testing Twitter Query Optimization (Generic Implementation):');

@@ -92,6 +92,21 @@ export interface ThinkingResult {
   processingTime: number;
   warnings: string[];
   errors: string[];
+  
+  /**
+   * Classification of request type for smart routing
+   */
+  requestType?: {
+    type: 'PURE_LLM_TASK' | 'EXTERNAL_TOOL_TASK' | 'SCHEDULED_TASK';
+    confidence: number;
+    reasoning: string;
+    requiredTools?: string[];
+    suggestedSchedule?: {
+      scheduledFor?: Date;
+      recurring?: boolean;
+      intervalExpression?: string;
+    };
+  };
 }
 
 /**
@@ -686,7 +701,18 @@ export class ThinkingProcessor {
       cognitiveLoad: this.cognitiveLoadMetrics.currentLoad,
       processingTime,
       warnings: fromCache ? ['Result retrieved from cache'] : [],
-      errors: []
+      errors: [],
+      requestType: {
+        type: 'PURE_LLM_TASK',
+        confidence: 1.0,
+        reasoning: 'This is a pure LLM task',
+        requiredTools: [],
+        suggestedSchedule: {
+          scheduledFor: new Date(),
+          recurring: false,
+          intervalExpression: 'PT1H'
+        }
+      }
     };
   }
 

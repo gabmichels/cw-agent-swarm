@@ -99,6 +99,12 @@ export class ThinkingService implements IThinkingService {
         })),
         isSummaryRequest: graphResult.intent?.isSummaryRequest || false
       },
+      requestType: graphResult.requestType || {
+        type: 'PURE_LLM_TASK',
+        confidence: 0.5,
+        reasoning: 'No classification found, defaulting to pure LLM task',
+        requiredTools: []
+      },
       entities: graphResult.entities || [],
       shouldDelegate: graphResult.shouldDelegate || false,
       requiredCapabilities: graphResult.delegationTarget ? [graphResult.delegationTarget] : [],
