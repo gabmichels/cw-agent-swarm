@@ -95,6 +95,11 @@ export class AgentLifecycleManager {
   private memoryRefreshInterval: NodeJS.Timeout | null = null;
   private shutdownPromise: Promise<void> | null = null;
   private shuttingDown = false;
+  
+  // Health check rate limiting
+  private lastHealthyState: boolean = true;
+  private lastHealthCheckLog: Date | null = null;
+  private consecutiveHealthFailures: number = 0;
 
   constructor(agent: AgentBase) {
     this.agent = agent;
@@ -461,9 +466,46 @@ export class AgentLifecycleManager {
     this.healthCheckInterval = setInterval(async () => {
       try {
         const isHealthy = await this.isHealthy();
-        if (!isHealthy && this.status !== AgentStatus.ERROR) {
-          this.logger.warn(`Agent ${this.agent.getId()} health check failed`);
+        const now = new Date();
+        
+        // Only log when health state changes or after long periods of failure
+        if (isHealthy !== this.lastHealthyState) {
+          // Health state changed
+          if (isHealthy) {
+            this.logger.info(`Agent ${this.agent.getId()} health recovered after ${this.consecutiveHealthFailures} failures`);
+            this.consecutiveHealthFailures = 0;
+          } else {
+            // Just became unhealthy, log with details
+            const health = await this.getHealth();
+            const unhealthyManagers = health.managerHealth.filter(m => m.status === 'unhealthy');
+            const highMemory = health.memoryUsage.percentage > 90;
+            
+            this.logger.warn(`Agent ${this.agent.getId()} health check failed`, {
+              reasons: {
+                unhealthyManagers: unhealthyManagers.map(m => ({ type: m.type, issues: m.issues })),
+                highMemoryUsage: highMemory ? health.memoryUsage.percentage : null,
+                agentStatus: health.status
+              }
+            });
+            this.consecutiveHealthFailures = 1;
+          }
+          this.lastHealthyState = isHealthy;
+          this.lastHealthCheckLog = now;
+        } else if (!isHealthy) {
+          // Still unhealthy - only log periodically to avoid spam
+          this.consecutiveHealthFailures++;
+          const timeSinceLastLog = this.lastHealthCheckLog 
+            ? now.getTime() - this.lastHealthCheckLog.getTime()
+            : 0;
+          
+          // Log every 5 minutes (300000ms) when continuously unhealthy
+          if (timeSinceLastLog > 300000) {
+            this.logger.warn(`Agent ${this.agent.getId()} still unhealthy (${this.consecutiveHealthFailures} consecutive failures)`);
+            this.lastHealthCheckLog = now;
+          }
         }
+        // If healthy and was previously healthy, don't log anything
+        
       } catch (error) {
         this.logger.error('Error during health check:', { error: error instanceof Error ? error.message : String(error) });
       }

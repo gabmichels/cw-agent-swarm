@@ -499,7 +499,11 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
    * @throws {SchedulerError} If there's an error querying for tasks
    */
   async findTasksForAgent(agentId: string, filter: TaskFilter = {}): Promise<Task[]> {
-    this.logger.info("Finding tasks for agent", {
+    // Add simple, clean info log for task checking
+    this.logger.info(`Checking tasks for ${agentId}`);
+    
+    // Change detailed logging to debug level
+    this.logger.debug("Finding tasks for agent", {
       agentId,
       additionalFilter: filter
     });
@@ -517,7 +521,8 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
       
       const tasks = await this.registry.findTasks(combinedFilter);
       
-      this.logger.info("Agent tasks found", {
+      // Change detailed task results to debug level
+      this.logger.debug("Agent tasks found", {
         agentId,
         taskCount: tasks.length,
         taskIds: tasks.map(t => t.id).slice(0, 5) // Log first 5 task IDs
@@ -742,7 +747,8 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
         status: TaskStatus.PENDING
       });
       
-      this.logger.info("Tasks fetched for agent", {
+      // Change task fetch results to debug level to reduce console noise
+      this.logger.debug("Tasks fetched for agent", {
         agentId,
         pendingTaskCount: pendingTasks.length
       });

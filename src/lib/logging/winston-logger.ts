@@ -70,10 +70,10 @@ export interface LoggerConfig {
 
 // Default configuration
 const DEFAULT_CONFIG: LoggerConfig = {
-  level: LogLevel.DEBUG, // Debug by default as requested
-  enableColors: true,    // Colors enabled by default
-  enableConsole: true,   // Console output enabled by default
-  enableFile: false      // File output disabled by default
+  level: LogLevel.INFO,     // Changed from DEBUG to INFO to reduce console noise
+  enableColors: true,       // Colors enabled by default
+  enableConsole: true,      // Console output enabled by default
+  enableFile: false         // File output disabled by default
 };
 
 // Create the Winston logger
