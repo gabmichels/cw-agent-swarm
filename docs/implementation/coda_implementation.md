@@ -92,6 +92,16 @@ Restore full Coda capabilities to DefaultAgent by properly integrating existing 
   - [x] **Status Tracking**: Task progress updates for document creation stages
   - [x] **Result Handling**: Return document link and metadata to user
 
+### **Task 2.5: Chat Export Integration** ⭐ **NEW**
+- [x] **Connect Export to Coda Button in Chat Interface**
+  - [x] File: `src/app/api/multi-agent/export/coda/route.ts`
+  - [x] **Integration**: Chat bubble menu "Export to Coda" button → Enhanced Coda tools
+  - [x] **Auto-Title Generation**: Extract title from content headers or first line
+  - [x] **Content Formatting**: Support markdown and plain text formats
+  - [x] **Export Metadata**: Include message ID, timestamps, source information
+  - [x] **Error Handling**: Comprehensive error handling with proper status codes
+  - [x] **Real API Integration**: Uses enhanced Coda create tool with live API
+
 ---
 
 ## 🏗️ **PHASE 3: ADVANCED FEATURES (Lower Priority)**
@@ -248,18 +258,19 @@ src/agents/chloe/tools/
 ## 📊 **PROGRESS TRACKING**
 
 **Phase 1 Progress:** 3/3 tasks complete ✅  
-**Phase 2 Progress:** 4/4 tasks complete ✅  
+**Phase 2 Progress:** 5/5 tasks complete ✅  
 **Phase 3 Progress:** 0/3 tasks complete  
 
-**Overall Progress:** 70% complete → **85% complete**
+**Overall Progress:** 70% complete → **90% complete**
 
-**✅ REAL API INTEGRATION VERIFIED**: Enhanced Coda tools successfully tested with live Coda API
+**✅ REAL API INTEGRATION VERIFIED + CHAT EXPORT**: Enhanced Coda tools + Chat interface integration
 
 **Test Results:**
 - ✅ **Enhanced Implementation**: 23/24 tests passed (96% success rate)
 - ✅ **Real API Connection**: Confirmed working with live `CODA_API_KEY` 
 - ✅ **Document Creation**: Successfully creates documents in workspace
 - ✅ **Document Listing**: Successfully retrieves workspace documents
+- ✅ **Chat Export Integration**: "Export to Coda" button connected and working
 - ✅ **Error Handling**: Proper 404/429 error handling for invalid docs/rate limits
 - ✅ **Performance**: 300-2000ms response times (normal for Coda API)
 - ✅ **Rate Limiting**: Proper handling of `429 Too Many Requests` errors
