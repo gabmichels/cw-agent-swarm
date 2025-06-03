@@ -3,7 +3,7 @@ import { Message, FileAttachment } from '../types';
 import MarkdownRenderer from './MarkdownRenderer';
 import { highlightSearchMatches } from '../utils/smartSearch';
 import ChatBubbleMenu from './ChatBubbleMenu';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Paperclip } from 'lucide-react';
 import { FileAttachmentType } from '../constants/file';
 import { toast } from 'react-hot-toast';
 
@@ -572,7 +572,16 @@ const ChatBubble: React.FC<ChatBubbleProps> = React.memo(({
             
             {/* Message metadata with version indicators */}
             <div className="text-xs opacity-70 flex justify-between items-center mt-2">
-              <span>{senderName}</span>
+              <div className="flex items-center gap-2">
+                <span>{senderName}</span>
+                {/* Attachment indicator */}
+                {message.attachments && message.attachments.length > 0 && (
+                  <div className="flex items-center gap-1 text-blue-400">
+                    <Paperclip className="h-3 w-3" />
+                    <span>{message.attachments.length}</span>
+                  </div>
+                )}
+              </div>
               <div className="flex items-center">
                 {messageVersions.length > 1 && (
                   <div className="flex items-center mr-2">

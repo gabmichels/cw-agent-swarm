@@ -154,6 +154,18 @@ export async function POST(
     const message = formData.get('message') as string || '';
     const userId = formData.get('userId') as string || '';
     const agentId = formData.get('agentId') as string || '';
+    const replyContextString = formData.get('replyContext') as string || '';
+    
+    // Parse reply context if provided
+    let replyContext = null;
+    if (replyContextString) {
+      try {
+        replyContext = JSON.parse(replyContextString);
+        console.log('Parsed reply context from form data:', replyContext);
+      } catch (error) {
+        console.warn('Error parsing reply context:', error);
+      }
+    }
     
     // Get the file service
     const fileService = getFileService();
@@ -352,6 +364,8 @@ export async function POST(
           // Replace hardcoded tags with extracted + file type tags
           tags: allTags,
           category: 'file_upload',
+          // Include reply context if present
+          ...(replyContext && { replyTo: replyContext }),
           // Enhanced context
           conversationContext: {
             purpose: 'file_sharing',

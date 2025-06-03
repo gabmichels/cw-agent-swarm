@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, MessageCircle, User, Bot } from 'lucide-react';
+import { X, MessageCircle, User, Bot, Paperclip } from 'lucide-react';
 import { Message } from '../../types';
 
 interface MessagePreviewProps {
@@ -91,8 +91,9 @@ const MessagePreview: React.FC<MessagePreviewProps> = ({
 
       {/* Attachments indicator */}
       {message.attachments && message.attachments.length > 0 && (
-        <div className="mt-2 text-xs text-gray-500">
-          📎 {message.attachments.length} attachment{message.attachments.length !== 1 ? 's' : ''}
+        <div className="mt-2 flex items-center gap-1 text-xs text-blue-400">
+          <Paperclip className="h-3 w-3" />
+          <span>{message.attachments.length} attachment{message.attachments.length !== 1 ? 's' : ''}</span>
         </div>
       )}
 

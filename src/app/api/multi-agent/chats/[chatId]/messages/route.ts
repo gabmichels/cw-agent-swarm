@@ -198,6 +198,18 @@ export async function GET(
         status: 'delivered',
         attachments: metadata.attachments || [],
         tags: metadata.tags || [], // Include tags in the response
+        // Include reply context and other metadata for client use
+        metadata: {
+          ...(metadata.replyTo && { replyTo: metadata.replyTo }),
+          ...(metadata.importance && { importance: metadata.importance }),
+          ...(metadata.importance_score && { importance_score: metadata.importance_score }),
+          // Include other metadata fields that might be useful
+          ...Object.fromEntries(
+            Object.entries(metadata).filter(([key]) => 
+              !['userId', 'agentId', 'chatId', 'role', 'messageType', 'thread', 'attachments', 'tags'].includes(key)
+            )
+          )
+        },
         
         // DEBUG: Include type information for troubleshooting
         _debug: {
@@ -254,6 +266,13 @@ export async function POST(
     const dynamicParams = await params;
     const chatId = dynamicParams.chatId;
 
+    // Extract actual string values from structured IDs if they exist
+    // Handle both StructuredId objects and plain strings for backward compatibility
+    const actualUserId = typeof userId === 'object' && userId?.id ? userId.id : userId;
+    const actualAgentId = typeof agentId === 'object' && agentId?.id ? agentId.id : agentId;
+
+    console.log(`Processing message for user: ${actualUserId}, agent: ${actualAgentId}, chat: ${chatId}`);
+
     if (!content?.trim()) {
       return NextResponse.json(
         { error: 'Message content is required' },
@@ -285,7 +304,7 @@ export async function POST(
         // Get agent info for title
         let agentName = 'Assistant';
         try {
-          const agent = await AgentService.getAgent(agentId);
+          const agent = await AgentService.getAgent(actualAgentId);
           if (agent) {
             agentName = agent.name || 'Assistant';
           }
@@ -293,9 +312,9 @@ export async function POST(
           console.warn('Error getting agent info:', agentError);
         }
         
-        chatSession = await chatService.createChat(userId, agentId, {
+        chatSession = await chatService.createChat(actualUserId, actualAgentId, {
           title: `Chat with ${agentName}`,
-          description: `Conversation between user ${userId} and agent ${agentName}`
+          description: `Conversation between user ${actualUserId} and agent ${agentName}`
         });
       }
     } catch (chatError) {
@@ -303,7 +322,7 @@ export async function POST(
       // Create a minimal chat session for conversation continuity
       let agentName = 'Assistant';
       try {
-        const agent = await AgentService.getAgent(agentId);
+        const agent = await AgentService.getAgent(actualAgentId);
         if (agent) {
           agentName = agent.name || 'Assistant';
         }
@@ -318,19 +337,19 @@ export async function POST(
         updatedAt: new Date().toISOString(),
         status: 'active',
         participants: [
-          { id: userId, type: 'user', joinedAt: new Date().toISOString() },
-          { id: agentId, type: 'agent', joinedAt: new Date().toISOString() }
+          { id: actualUserId, type: 'user', joinedAt: new Date().toISOString() },
+          { id: actualAgentId, type: 'agent', joinedAt: new Date().toISOString() }
         ],
         metadata: {
           title: `Chat with ${agentName}`,
-          description: `Conversation between user ${userId} and agent ${agentName}`
+          description: `Conversation between user ${actualUserId} and agent ${agentName}`
         }
       };
     }
     
     // Create structured IDs
-    const userStructuredId = createUserId(userId);
-    const agentStructuredId = createAgentId(agentId);
+    const userStructuredId = createUserId(actualUserId);
+    const agentStructuredId = createAgentId(actualAgentId);
     const chatStructuredId = createChatId(chatId);
 
     // Process any attachments
@@ -419,7 +438,7 @@ export async function POST(
         contentType: 'user_message',
         tags: userMessageTags,
         source: 'user',
-        userContext: `User ${userId} in chat ${chatId}`
+        userContext: `User ${actualUserId} in chat ${chatId}`
       }, ImportanceCalculationMode.LLM);
       
       userImportance = importanceResult.importance_level;
@@ -454,7 +473,15 @@ export async function POST(
           chatId: chatStructuredId, 
           tags: userMessageTags,
           ...(userImportance && { importance: userImportance }),
-          ...(userImportanceScore && { importance_score: userImportanceScore })
+          ...(userImportanceScore && { importance_score: userImportanceScore }),
+          // Include the full metadata from client (including replyTo context)
+          ...(metadata.replyTo && { replyTo: metadata.replyTo }),
+          // Include any other metadata fields from the client
+          ...Object.fromEntries(
+            Object.entries(metadata).filter(([key]) => 
+              !['userId', 'agentId', 'attachments', 'thinking'].includes(key)
+            )
+          )
         }
       }
     );
@@ -466,18 +493,18 @@ export async function POST(
     }
 
     // Get the agent instance from the runtime registry (already bootstrapped and running)
-    const { getAgentById } = await import('@/server/agent/agent-service');
-    const agent = getAgentById(agentId);
+    const { getAgentById } = await import('../../../../../../server/agent/agent-service');
+    const agent = getAgentById(actualAgentId);
     
     if (!agent) {
-      throw new Error(`Agent ${agentId} not found in runtime registry. Make sure agents are bootstrapped on server startup.`);
+      throw new Error(`Agent ${actualAgentId} not found in runtime registry. Make sure agents are bootstrapped on server startup.`);
     }
     
-    console.log(`Using already running agent ${agentId} from runtime registry`);
+    console.log(`Using already running agent ${actualAgentId} from runtime registry`);
     
     // Check if agent has the required processUserInput method
     if (typeof (agent as any).processUserInput !== 'function') {
-      throw new Error(`Agent ${agentId} does not have processUserInput method. This agent may not be compatible with the current system.`);
+      throw new Error(`Agent ${actualAgentId} does not have processUserInput method. This agent may not be compatible with the current system.`);
     }
 
     // Process message with agent
@@ -496,14 +523,14 @@ export async function POST(
           has_full_preview: attachment.has_full_preview,
           is_image_for_vision: attachment.type === 'image'
         })),
-        userId: userId,
+        userId: actualUserId,
         chatId: chatId,
         userMessageId: lastUserMessageId || undefined,
         skipResponseMemoryStorage: true, // We'll handle memory storage here
         thinking: thinking // Pass thinking flag to the agent
       };
       
-      console.log(`Processing user input with agent ${agentId} using its processUserInput method`);
+      console.log(`Processing user input with agent ${actualAgentId} using its processUserInput method`);
       
       // Set a reasonable timeout (120 seconds for complex processing)
       const timeoutPromise = new Promise<never>((_, reject) => {
@@ -633,9 +660,9 @@ export async function POST(
         content: responseContent,
         timestamp: new Date().toISOString(),
         metadata: {
-          agentId,
+          agentId: actualAgentId,
           agentName: agent.getName() || 'Assistant',
-          userId,
+          userId: actualUserId,
           threadId: assistantThreadInfo.id,
           parentMessageId: lastUserMessageId,
           thoughts,
