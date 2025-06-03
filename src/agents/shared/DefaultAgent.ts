@@ -998,6 +998,10 @@ Please provide a helpful, contextual response based on this analysis and memory 
               createdBy: 'DefaultAgent',
               llmGuidance: llmResponse.content,
               intent: thinkingResult.intent.primary,
+              // Add user and chat context for filtering
+              userId: options?.userId,
+              chatId: options?.chatId,
+              userMessageId: options?.userMessageId,
               ...(options || {})
             }
           });
@@ -1787,11 +1791,24 @@ Please provide a helpful, contextual response based on this analysis and memory 
     
     // Common summary patterns
     const summaryPatterns = [
+      // Direct summary requests
       'summarize', 'summary', 'recap', 'overview', 'brief',
       'what did we', 'what have we', 'can you recap',
       'give me an overview', 'what topics', 'main points',
       'key takeaways', 'highlights', 'review our',
-      'what we discussed', 'what we talked about'
+      'what we discussed', 'what we talked about',
+      
+      // Context-based summary requests (new patterns)
+      'based on our recent messages', 'based on previous messages',
+      'based on our recent conversation', 'based on our conversation',
+      'based on provided information', 'based on the information',
+      'based on what we discussed', 'based on our discussion',
+      'from our previous conversation', 'from our recent messages',
+      'from what we talked about', 'from our chat',
+      'considering our conversation', 'given our discussion',
+      'looking at our messages', 'reviewing our conversation',
+      'from the context above', 'based on the context',
+      'according to our conversation', 'per our discussion'
     ];
     
     return summaryPatterns.some(pattern => lowerMessage.includes(pattern));

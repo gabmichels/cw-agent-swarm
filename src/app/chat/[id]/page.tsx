@@ -851,6 +851,8 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
             runTaskNow={runTaskNow}
             toggleTaskEnabled={toggleTaskEnabled}
             formatCronExpression={formatCronExpression}
+            chatId={chat?.id}
+            userId={userId}
           />
         );
       case 'knowledge':
