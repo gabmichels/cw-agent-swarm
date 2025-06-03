@@ -61,6 +61,7 @@ export enum ToolCategory {
   DATA = 'data',
   COMMUNICATION = 'communication',
   UTILITY = 'utility',
+  DOCUMENT = 'document',
   CUSTOM = 'custom'
 }
 

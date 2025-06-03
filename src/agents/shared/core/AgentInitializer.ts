@@ -416,13 +416,120 @@ export class AgentInitializer {
     try {
       this.logger.info('Registering shared tools...');
       
-      // Skip shared tools registration since the module doesn't exist yet
-      // This can be implemented later when the shared tools module is created
-      this.logger.info('Shared tools module not available, skipping registration');
-      this.logger.info('Tools can be registered individually using toolManager.registerTool() later');
+      // Register Coda tools from the adapter
+      try {
+        const { createAllCodaTools } = await import('../tools/adapters/CodaToolAdapter');
+        const codaTools = createAllCodaTools();
+        
+        let registeredCount = 0;
+        for (const tool of codaTools) {
+          try {
+            // Convert to the ToolManager interface format
+            const managerTool = {
+              id: tool.id,
+              name: tool.name,
+              description: tool.description,
+              version: (tool.metadata?.version as string) || '1.0.0',
+              categories: [tool.category],
+              capabilities: [],
+              enabled: tool.enabled,
+              experimental: false,
+              costPerUse: (tool.metadata?.costEstimate as number) || 1,
+              timeoutMs: 30000,
+              metadata: tool.metadata,
+              execute: async (params: unknown, context?: unknown): Promise<unknown> => {
+                // Adapt the execute function signature
+                const args = (params as Record<string, unknown>) || {};
+                const result = await tool.execute(args);
+                return result.data;
+              }
+            };
+            await toolManager.registerTool(managerTool);
+            registeredCount++;
+            this.logger.info(`Registered Coda tool: ${tool.id}`, {
+              toolName: tool.name,
+              category: tool.category,
+              enabled: tool.enabled
+            });
+          } catch (toolError) {
+            this.logger.warn(`Failed to register Coda tool ${tool.id}:`, {
+              error: toolError instanceof Error ? toolError.message : String(toolError)
+            });
+          }
+        }
+        
+        this.logger.info(`Successfully registered ${registeredCount}/${codaTools.length} Coda tools`);
+        
+      } catch (codaError) {
+        this.logger.warn('Failed to import or register Coda tools:', {
+          error: codaError instanceof Error ? codaError.message : String(codaError)
+        });
+      }
+      
+      // Register other shared tools from SharedToolRegistry
+      try {
+        const { SharedToolRegistry } = await import('../tools/registry/SharedToolRegistry');
+        const sharedToolRegistry = new SharedToolRegistry();
+        await sharedToolRegistry.ensureInitialized();
+        
+        const sharedTools = sharedToolRegistry.getAllTools();
+        let sharedRegisteredCount = 0;
+        
+        for (const tool of sharedTools) {
+          try {
+            // Convert shared tools to ToolManager interface format
+            const managerTool = {
+              id: tool.id,
+              name: tool.name,
+              description: tool.description,
+              version: '1.0.0',
+              categories: [tool.category],
+              capabilities: [],
+              enabled: tool.enabled,
+              experimental: false,
+              costPerUse: 1,
+              timeoutMs: 30000,
+              metadata: tool.metadata,
+              execute: async (params: unknown, context?: unknown): Promise<unknown> => {
+                // Adapt the execute function signature
+                const args = (params as Record<string, unknown>) || {};
+                const result = await tool.execute(args);
+                return result.data;
+              }
+            };
+            await toolManager.registerTool(managerTool);
+            sharedRegisteredCount++;
+            this.logger.info(`Registered shared tool: ${tool.id}`, {
+              toolName: tool.name,
+              category: tool.category,
+              enabled: tool.enabled
+            });
+          } catch (toolError) {
+            this.logger.warn(`Failed to register shared tool ${tool.id}:`, {
+              error: toolError instanceof Error ? toolError.message : String(toolError)
+            });
+          }
+        }
+        
+        this.logger.info(`Successfully registered ${sharedRegisteredCount}/${sharedTools.length} shared tools from registry`);
+        
+      } catch (registryError) {
+        this.logger.warn('Failed to register tools from SharedToolRegistry:', {
+          error: registryError instanceof Error ? registryError.message : String(registryError)
+        });
+      }
+      
+      this.logger.info('Shared tools registration completed');
       
     } catch (error) {
-      this.logger.warn('Failed to register shared tools:', { error: error instanceof Error ? error.message : String(error) });
+      this.logger.error('Error during shared tools registration:', {
+        error: error instanceof Error ? error.message : String(error)
+      });
+      throw new AgentInitializationError(
+        'Failed to register shared tools',
+        'SHARED_TOOLS_REGISTRATION_FAILED',
+        { originalError: error }
+      );
     }
   }
 

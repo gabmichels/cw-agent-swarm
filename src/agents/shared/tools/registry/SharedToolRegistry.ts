@@ -353,6 +353,21 @@ export class SharedToolRegistry implements IToolRegistry {
       logger.warn('Could not register web search tool:', error);
     }
     
+    // Register Coda tools
+    try {
+      const { createAllCodaTools } = await import('../adapters/CodaToolAdapter');
+      const codaTools = createAllCodaTools();
+      
+      for (const codaTool of codaTools) {
+        this.registerTool(codaTool);
+        logger.info(`[INFO] Registered Coda tool: ${codaTool.id} (${codaTool.enabled ? 'enabled' : 'disabled'})`);
+      }
+      
+      logger.info(`[INFO] Successfully registered ${codaTools.length} Coda tools`);
+    } catch (error) {
+      logger.warn('Could not register Coda tools:', error);
+    }
+    
     // TODO: Register other shared tools here as they are implemented
   }
   
