@@ -33,6 +33,7 @@ import MemoryTab from '@/components/tabs/MemoryTab';
 import TasksTab from '@/components/tabs/TasksTab';
 import KnowledgeTab from '@/components/tabs/KnowledgeTab';
 import ToolsTab from '@/components/tabs/ToolsTab';
+import BookmarksTab from '@/components/tabs/BookmarksTab';
 import { createReplyContextFromMessage } from '@/lib/metadata/reply-context-factory';
 import { MessageMetadata } from '@/types/metadata';
 import { createStructuredId, EntityNamespace, EntityType } from '@/types/structured-id';
@@ -170,6 +171,7 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
   // Add new state for reply functionality
   const [attachedMessage, setAttachedMessage] = useState<MessageWithId | null>(null);
   const [highlightedMessageId, setHighlightedMessageId] = useState<string>('');
+  const [pendingNavigateToMessage, setPendingNavigateToMessage] = useState<string>('');
 
   // Initialize services
   const fileStorageService = useRef<IndexedDBFileStorage>();
@@ -323,6 +325,26 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
       }
     };
   }, [chat?.id, selectedTab]);
+
+  // Handle pending navigation to message after tab switch and messages load
+  useEffect(() => {
+    console.log('Navigation useEffect:', {
+      pendingNavigateToMessage,
+      selectedTab,
+      messagesLength: messages.length,
+      isLoading
+    });
+    
+    if (pendingNavigateToMessage && selectedTab === 'chat' && messages.length > 0 && !isLoading) {
+      console.log('All conditions met, navigating to message:', pendingNavigateToMessage);
+      // Increase delay to ensure ChatMessages component is fully rendered
+      setTimeout(() => {
+        console.log('Setting highlightedMessageId:', pendingNavigateToMessage);
+        setHighlightedMessageId(pendingNavigateToMessage);
+        setPendingNavigateToMessage('');
+      }, 500); // Increased from 200ms to 500ms
+    }
+  }, [pendingNavigateToMessage, selectedTab, messages.length, isLoading]);
 
   // Convert MessageAttachment to UIFileAttachment
   const convertMessageToUIAttachment = (att: MessageAttachment): UIFileAttachment => {
@@ -565,7 +587,18 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
   };
 
   const handleNavigateToMessage = (messageId: string) => {
-    setHighlightedMessageId(messageId);
+    console.log('handleNavigateToMessage called with:', messageId, 'currentTab:', selectedTab);
+    
+    if (selectedTab === 'chat') {
+      // We're already on chat tab, navigate immediately
+      console.log('Already on chat tab, setting highlightedMessageId immediately');
+      setHighlightedMessageId(messageId);
+    } else {
+      // We need to switch tabs first, set pending navigation
+      console.log('Switching to chat tab and setting pending navigation');
+      setPendingNavigateToMessage(messageId);
+      setSelectedTab('chat');
+    }
   };
 
   // Modify the formattedAttachments to match exactly what ChatMessages component expects
@@ -928,6 +961,8 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
             />
           </div>
         );
+      case 'bookmarks':
+        return <BookmarksTab onSelectMessage={memoizedNavigateToMessage} />;
       default:
         return <WelcomeScreen />;
     }
@@ -960,7 +995,7 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
 
   const optimizedHandleNavigateToMessage = useCallback((messageId: string) => {
     handleNavigateToMessage(messageId);
-  }, []);
+  }, [selectedTab]);
 
   // Memoize the file preview click handler to prevent recreation
   const memoizedFilePreviewClick = useCallback((attachment: any, e: React.MouseEvent) => {
@@ -975,7 +1010,7 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
   // Memoize the navigation handler to prevent recreation
   const memoizedNavigateToMessage = useCallback((messageId: string) => {
     handleNavigateToMessage(messageId);
-  }, []);
+  }, [selectedTab]);
 
   // Memoize the converted pending attachments to prevent recreation
   const memoizedPendingAttachments = useMemo(() => {
@@ -1084,7 +1119,7 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
               inputRef={inputRef}
               attachedMessage={memoizedAttachedMessage}
               onRemoveAttachedMessage={optimizedHandleRemoveAttachedMessage}
-              onNavigateToMessage={memoizedNavigateToMessage}
+              onNavigateToMessage={optimizedHandleNavigateToMessage}
             />
           </div>
           <DevModeToggle showInternalMessages={showInternalMessages} setShowInternalMessages={setShowInternalMessages} />

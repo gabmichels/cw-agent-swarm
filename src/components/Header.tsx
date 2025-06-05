@@ -49,7 +49,7 @@ const Header: React.FC<HeaderProps> = ({
     checkMultipleAgents();
     
     // Set up an interval to check periodically
-    const intervalId = setInterval(checkMultipleAgents, 5000);
+    const intervalId = setInterval(checkMultipleAgents, 30000);
     
     // Clean up interval on unmount
     return () => clearInterval(intervalId);

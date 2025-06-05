@@ -1,5 +1,5 @@
-import React, { useState, useCallback } from 'react';
-import { Copy, FileText, Star, Database, ThumbsDown, RefreshCw, ChevronLeft, ChevronRight, Trash2, Loader2, Reply } from 'lucide-react';
+import React, { useState, useCallback, useEffect } from 'react';
+import { Copy, FileText, Star, Database, ThumbsDown, RefreshCw, ChevronLeft, ChevronRight, Trash2, Loader2, Reply, Bookmark } from 'lucide-react';
 import { Message } from '../types';
 import { MessageActionHandler } from '../services/message/MessageActionHandler';
 import { MessageImportance, MessageReliability } from '../services/message/MessageActionService';
@@ -8,6 +8,7 @@ import { KnowledgeService } from '../services/message/KnowledgeService';
 import { RegenerationService } from '../services/message/RegenerationService';
 import { ExportService } from '../services/message/ExportService';
 import { ReliabilityService } from '../services/message/ReliabilityService';
+import { BookmarkService } from '../services/message/BookmarkService';
 import { Tooltip } from './ui/tooltip';
 import { Toast } from '../components/ui/toast';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
@@ -28,6 +29,7 @@ interface ChatBubbleMenuProps {
   onExportToCoda: (content: string) => Promise<void>;
   onDeleteMessage?: (timestamp: Date) => Promise<boolean>;
   onReplyToMessage?: (message: Message) => void;
+  onBookmarkMessage?: (messageId: string, isBookmarked: boolean) => Promise<void>;
   messageId?: string;
   onDeleteMemory?: () => Promise<void>;
 }
@@ -53,6 +55,7 @@ const ChatBubbleMenu: React.FC<ChatBubbleMenuProps> = ({
   onExportToCoda,
   onDeleteMessage,
   onReplyToMessage,
+  onBookmarkMessage,
   messageId,
   onDeleteMemory
 }) => {
@@ -86,6 +89,11 @@ const ChatBubbleMenu: React.FC<ChatBubbleMenuProps> = ({
         : 'Message reliability updated');
     }
   }));
+  const [bookmarkService] = useState(() => new BookmarkService({
+    onBookmarkChange: (messageId, isBookmarked) => {
+      showToast(isBookmarked ? 'Message bookmarked' : 'Bookmark removed');
+    }
+  }));
 
   // Action states
   const [copyState, setCopyState] = useState<ActionState>({ isLoading: false, error: null });
@@ -95,7 +103,22 @@ const ChatBubbleMenu: React.FC<ChatBubbleMenuProps> = ({
   const [exportState, setExportState] = useState<ActionState>({ isLoading: false, error: null });
   const [reliabilityState, setReliabilityState] = useState<ActionState>({ isLoading: false, error: null });
   const [deleteState, setDeleteState] = useState<ActionState>({ isLoading: false, error: null });
+  const [bookmarkState, setBookmarkState] = useState<ActionState>({ isLoading: false, error: null });
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+
+  // Track bookmark status - check if message has bookmark metadata
+  const [isBookmarked, setIsBookmarked] = useState(() => {
+    return message.metadata?.isBookmark || false;
+  });
+
+  // Load actual bookmark status from API on mount
+  useEffect(() => {
+    if (message.id) {
+      bookmarkService.getMessageBookmarkStatus(message.id).then(status => {
+        setIsBookmarked(status);
+      });
+    }
+  }, [message.id, bookmarkService]);
 
   // Action handlers
   const handleCopy = useCallback(async () => {
@@ -293,6 +316,43 @@ const ChatBubbleMenu: React.FC<ChatBubbleMenuProps> = ({
     }
   }, [message, onReplyToMessage]);
 
+  const handleBookmark = useCallback(async () => {
+    if (!message.id) {
+      showToast('Cannot bookmark message: ID missing');
+      return;
+    }
+    
+    setBookmarkState({ isLoading: true, error: null });
+    try {
+      const newBookmarkStatus = !isBookmarked;
+      const result = await bookmarkService.toggleBookmark({
+        messageId: message.id,
+        timestamp: message.timestamp || new Date(),
+        content: message.content || '',
+        isBookmarked: newBookmarkStatus
+      });
+      
+      if (!result.success) {
+        throw new Error(result.error);
+      }
+      
+      setIsBookmarked(newBookmarkStatus);
+      
+      // Also call the parent callback if provided
+      if (onBookmarkMessage) {
+        await onBookmarkMessage(message.id, newBookmarkStatus);
+      }
+    } catch (error) {
+      setBookmarkState({ 
+        isLoading: false, 
+        error: error instanceof Error ? error.message : 'Failed to update bookmark'
+      });
+      showToast('Failed to update bookmark');
+    } finally {
+      setBookmarkState({ isLoading: false, error: null });
+    }
+  }, [message.id, message.timestamp, message.content, isBookmarked, bookmarkService, onBookmarkMessage]);
+
   // Toast notification
   const showToast = (message: string) => {
     Toast.show({
@@ -329,6 +389,27 @@ const ChatBubbleMenu: React.FC<ChatBubbleMenuProps> = ({
               className="p-1.5 rounded-full hover:bg-gray-800 hover:text-blue-400 transition-colors"
             >
               <Reply className="h-4 w-4" />
+            </button>
+          </Tooltip>
+        )}
+        
+        {/* Bookmark button - available for all messages */}
+        {message.id && (
+          <Tooltip content={isBookmarked ? "Remove bookmark" : "Bookmark message"}>
+            <button 
+              onClick={handleBookmark}
+              className={`p-1.5 rounded-full hover:bg-gray-800 transition-colors ${
+                isBookmarked 
+                  ? 'text-yellow-400 hover:text-yellow-300' 
+                  : 'hover:text-yellow-400'
+              }`}
+              disabled={bookmarkState.isLoading}
+            >
+              {bookmarkState.isLoading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Bookmark className={`h-4 w-4 ${isBookmarked ? 'fill-current' : ''}`} />
+              )}
             </button>
           </Tooltip>
         )}

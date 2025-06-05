@@ -37,7 +37,7 @@ const TabsNavigation: React.FC<TabsNavigationProps> = React.memo(({
   onViewAgent
 }) => {
   // Memoize tabs array to prevent recreation on every render
-  const tabs = useMemo(() => ['Chat', 'Memory', 'Tools', 'Tasks', 'Knowledge', 'Social', 'Files', 'Visualizations'], []);
+  const tabs = useMemo(() => ['Chat', 'Memory', 'Tools', 'Tasks', 'Knowledge', 'Bookmarks', 'Files', 'Visualizations'], []);
   
   const [searchInputValue, setSearchInputValue] = useState('');
   const [showSearchResults, setShowSearchResults] = useState(false);

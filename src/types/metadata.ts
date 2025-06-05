@@ -201,6 +201,10 @@ export interface MessageMetadata extends BaseMetadata {
   source?: string;
   category?: string;
   
+  // Bookmark functionality
+  isBookmark?: boolean;
+  bookmarkedAt?: string; // ISO date string when bookmarked
+  
   // Enhanced fields for multi-agent communication
   senderAgentId?: StructuredId;
   receiverAgentId?: StructuredId;
@@ -453,6 +457,7 @@ export enum MetadataField {
   TAGS = 'tags',
   IS_DELETED = 'is_deleted',
   DELETION_TIME = 'deletion_time',
+  TIMESTAMP = 'timestamp',
   
   // Authentication and tenant fields
   AUTH_CONTEXT = 'authContext',
@@ -464,10 +469,15 @@ export enum MetadataField {
   USER_ID = 'userId',
   AGENT_ID = 'agentId',
   CHAT_ID = 'chatId',
+  MESSAGE_ID = 'messageId',
   MESSAGE_TYPE = 'messageType',
   SOURCE = 'source',
   CATEGORY = 'category',
   ATTACHMENTS = 'attachments',
+  
+  // Bookmark fields
+  IS_BOOKMARK = 'isBookmark',
+  BOOKMARKED_AT = 'bookmarkedAt',
   
   // Thread fields
   THREAD = 'thread',
