@@ -5,6 +5,7 @@
 export { createCoreApifyTools } from './core';
 export { createInstagramTools } from './instagram';
 export { createFacebookTools } from './facebook';
+export { createTikTokTools } from './tiktok';
 export { createYouTubeTools } from './youtube';
 export { createLinkedInTools } from './linkedin';
 export { createTwitterTools } from './twitter';
