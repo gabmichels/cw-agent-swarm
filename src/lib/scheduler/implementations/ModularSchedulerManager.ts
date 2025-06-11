@@ -263,7 +263,13 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
           });
           
           // Try to parse as natural language date
-          const parsedDate = this.dateTimeProcessor.parseNaturalLanguage(task.scheduledTime);
+          let parsedDate = this.dateTimeProcessor.parseNaturalLanguage(task.scheduledTime);
+          
+          // Handle both sync and async versions
+          if (parsedDate instanceof Promise) {
+            parsedDate = await parsedDate;
+          }
+          
           if (parsedDate) {
             scheduledTime = parsedDate;
           this.logger.info("✅ TIMING DEBUG: Natural language date parsed", {

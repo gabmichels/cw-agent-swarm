@@ -97,6 +97,7 @@
     "module-alias": "^2.2.3",
     "next": "^15.4.0-canary.0",
     "node-fetch": "^3.3.2",
+    "node-nlp": "^5.0.0-alpha.5",
     "openai": "^4.98.0",
     "path-browserify": "^1.0.1",
     "pdf-parse": "^1.1.1",

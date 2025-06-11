@@ -25,7 +25,7 @@ export interface DateTimeProcessor {
    * @param referenceDate - Optional reference date (defaults to current time)
    * @returns The parsed Date object or null if parsing fails
    */
-  parseNaturalLanguage(expression: string, referenceDate?: Date): Date | null;
+  parseNaturalLanguage(expression: string, referenceDate?: Date): Date | null | Promise<Date | null>;
   
   /**
    * Format a Date object into a standardized string representation

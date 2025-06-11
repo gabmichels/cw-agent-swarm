@@ -6,6 +6,10 @@
  */
 
 import { DateTimeProcessor } from '../../interfaces/DateTimeProcessor.interface';
+import { NlpManager } from 'node-nlp';
+
+// Initialize NLP manager for datetime processing
+const nlpManager = new NlpManager({ languages: ['en'], forceNER: true });
 
 /**
  * Helper function to add time to a date
@@ -136,7 +140,7 @@ export class BasicDateTimeProcessor implements DateTimeProcessor {
    * @param referenceDate - Optional reference date (defaults to current time)
    * @returns The parsed Date object or null if parsing fails
    */
-  parseNaturalLanguage(expression: string, referenceDate?: Date): Date | null {
+  async parseNaturalLanguage(expression: string, referenceDate?: Date): Promise<Date | null> {
     try {
       const now = referenceDate || new Date();
       const lowerExpression = expression.toLowerCase().trim();
@@ -147,7 +151,93 @@ export class BasicDateTimeProcessor implements DateTimeProcessor {
         return vagueResult.date;
       }
       
-      // Handle special cases
+      // 🚀 NEW: Use node-nlp for advanced datetime entity recognition
+      try {
+        const nlpResult = await nlpManager.process('en', expression);
+        
+        // Look for datetime entities
+        const dateTimeEntities = nlpResult.entities?.filter((entity: any) => 
+          entity.entity === 'datetime' || 
+          entity.entity === 'date' || 
+          entity.entity === 'time'
+        );
+        
+        if (dateTimeEntities && dateTimeEntities.length > 0) {
+          // Use the first datetime entity found
+          const entity = dateTimeEntities[0];
+          
+          // If the entity has a resolution with parsed datetime
+          if (entity.resolution && entity.resolution.values) {
+            const value = entity.resolution.values[0];
+            if (value.value) {
+              const parsedDate = new Date(value.value);
+              if (!isNaN(parsedDate.getTime())) {
+                console.log("🎯 NLP DATETIME: Successfully parsed with node-nlp", {
+                  original: expression,
+                  entity: entity.sourceText,
+                  parsed: parsedDate.toISOString(),
+                  confidence: entity.accuracy
+                });
+                return parsedDate;
+              }
+            }
+          }
+        }
+      } catch (nlpError) {
+        console.log("⚠️ NLP DATETIME: node-nlp parsing failed, falling back to custom logic", {
+          expression,
+          error: nlpError instanceof Error ? nlpError.message : String(nlpError)
+        });
+      }
+      
+      // 📅 ENHANCED: Better time pattern matching for expressions like "4pm today", "9:30 AM tomorrow"
+      const timePatterns = [
+        // "4pm today", "9am tomorrow", "2:30 PM next Monday"
+        /^(\d{1,2}):?(\d{2})?\s*(am|pm)\s+(today|tomorrow|yesterday)$/i,
+        // "4pm", "16:00", "9:30 AM"
+        /^(\d{1,2}):?(\d{2})?\s*(am|pm)?$/i,
+        // "at 4pm today", "at 9am tomorrow"
+        /^at\s+(\d{1,2}):?(\d{2})?\s*(am|pm)\s+(today|tomorrow|yesterday)$/i
+      ];
+      
+      for (const pattern of timePatterns) {
+        const match = lowerExpression.match(pattern);
+        if (match) {
+          let hours = parseInt(match[1], 10);
+          const minutes = match[2] ? parseInt(match[2], 10) : 0;
+          const ampm = match[3]?.toLowerCase();
+          const dayRef = match[4]?.toLowerCase();
+          
+          // Convert to 24-hour format
+          if (ampm === 'pm' && hours !== 12) {
+            hours += 12;
+          } else if (ampm === 'am' && hours === 12) {
+            hours = 0;
+          }
+          
+          // Determine the target date
+          let targetDate = new Date(now);
+          if (dayRef === 'tomorrow') {
+            targetDate.setDate(targetDate.getDate() + 1);
+          } else if (dayRef === 'yesterday') {
+            targetDate.setDate(targetDate.getDate() - 1);
+          }
+          // "today" or no day reference uses current date
+          
+          // Set the time
+          targetDate.setHours(hours, minutes, 0, 0);
+          
+          console.log("🎯 ENHANCED DATETIME: Parsed time expression", {
+            original: expression,
+            parsed: targetDate.toISOString(),
+            hours, minutes, ampm, dayRef
+          });
+          
+          return targetDate;
+        }
+      }
+      
+      // Handle special cases (existing logic)
       if (lowerExpression === 'now') {
         return new Date(now);
       }
