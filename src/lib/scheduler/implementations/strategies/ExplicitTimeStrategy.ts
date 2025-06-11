@@ -38,13 +38,32 @@ export class ExplicitTimeStrategy implements SchedulingStrategy {
    */
   async isTaskDue(task: Task, referenceTime?: Date): Promise<boolean> {
     if (!this.appliesTo(task)) {
+      console.log("🔍 TIMING DEBUG: ExplicitTimeStrategy - Task doesn't apply", {
+        taskId: task.id,
+        scheduleType: task.scheduleType,
+        hasScheduledTime: !!task.scheduledTime
+      });
       return false;
     }
 
     const now = referenceTime || new Date();
+    const isDue = task.scheduledTime !== undefined && task.scheduledTime <= now;
+    
+    console.log("🔍 TIMING DEBUG: ExplicitTimeStrategy - Due check", {
+      taskId: task.id,
+      taskName: task.name,
+      scheduledTime: task.scheduledTime instanceof Date ? task.scheduledTime.toISOString() : task.scheduledTime,
+      scheduledTimeMs: task.scheduledTime instanceof Date ? task.scheduledTime.getTime() : null,
+      currentTime: now.toISOString(),
+      currentTimeMs: now.getTime(),
+      timeDifference: task.scheduledTime instanceof Date ? (task.scheduledTime.getTime() - now.getTime()) : null,
+      timeDifferenceSeconds: task.scheduledTime instanceof Date ? Math.round((task.scheduledTime.getTime() - now.getTime()) / 1000) : null,
+      isDue,
+      reason: !isDue ? (task.scheduledTime instanceof Date ? 'Scheduled time is in the future' : 'No scheduled time') : 'Task is due'
+    });
     
     // Task is due if it has a scheduled time that is in the past or now
-    return task.scheduledTime !== undefined && task.scheduledTime <= now;
+    return isDue;
   }
 
   /**

@@ -154,14 +154,18 @@ export class SearchService {
       const isEmptyQuery = normalizedQuery.length === 0;
       
       // Log query information
-      console.log(`Memory search - Query: "${normalizedQuery}", Empty: ${isEmptyQuery}, Types: ${types.join(', ') || 'all'}`);
+      if (process.env.MEMORY_DEBUG === 'true') {
+        console.debug(`Memory search - Query: "${normalizedQuery}", Empty: ${isEmptyQuery}, Types: ${types.join(', ') || 'all'}`);
+      }
       
       // Check if this is a causal chain search request
       if (options.maxDepth !== undefined || options.direction || options.analyze) {
         // Handle causal chain search as a special case
         // For now, return regular search results since actual causal chain 
         // functionality will be implemented in a future update
-        console.log('Causal chain search requested - using standard search as fallback');
+        if (process.env.MEMORY_DEBUG === 'true') {
+          console.debug('Causal chain search requested - using standard search as fallback');
+        }
       }
       
       // If no specific types requested, search all collections
@@ -179,7 +183,9 @@ export class SearchService {
       
       // If query is empty, use filter-based search instead of vector search
       if (isEmptyQuery) {
-        console.log('Empty query detected, using filter-based search instead of vector search');
+        if (process.env.MEMORY_DEBUG === 'true') {
+          console.debug('Empty query detected, using filter-based search instead of vector search');
+        }
         return await this.handleEmptyQuerySearch<T>(validCollections, filter, limit, options.offset || 0);
       }
       
@@ -332,7 +338,9 @@ export class SearchService {
     }
     
     // Enhanced logging for debugging
-    console.log('Empty query search with filter:', JSON.stringify(filter));
+    if (process.env.MEMORY_DEBUG === 'true') {
+      console.debug('Empty query search with filter:', JSON.stringify(filter));
+    }
     
     // Special handling for task filters - check both places where task data might be stored
     if (filter && typeof filter === 'object') {
@@ -348,7 +356,9 @@ export class SearchService {
            filter.status.$in.some((s: string) => ['pending', 'scheduled', 'in_progress'].includes(s))));
       
       if (isTaskFilter) {
-        console.log('Detected task filter - enhancing to check both metadata and root paths');
+        if (process.env.MEMORY_DEBUG === 'true') {
+          console.debug('Detected task filter - enhancing to check both metadata and root paths');
+        }
         
         // Create a more flexible filter that checks both possible locations of fields
         const enhancedFilter: any = { should: [] };
@@ -387,7 +397,9 @@ export class SearchService {
           enhancedFilter.should.push(metadataFilter);
         }
         
-        console.log('Enhanced task filter:', JSON.stringify(enhancedFilter));
+        if (process.env.MEMORY_DEBUG === 'true') {
+          console.debug('Enhanced task filter:', JSON.stringify(enhancedFilter));
+        }
         
         // Use the enhanced filter
         filter = enhancedFilter;
@@ -406,7 +418,9 @@ export class SearchService {
         }
         
         // Log the transformed filter for debugging
-        console.log('Transformed filter for Qdrant:', JSON.stringify(qdrantFilter));
+        if (process.env.MEMORY_DEBUG === 'true') {
+          console.debug('Transformed filter for Qdrant:', JSON.stringify(qdrantFilter));
+        }
         
         // If filter builds to empty object, set to undefined
         if (qdrantFilter && typeof qdrantFilter === 'object' && Object.keys(qdrantFilter).length === 0) {
@@ -442,7 +456,9 @@ export class SearchService {
         const type = this.getTypeFromCollectionName(collectionName);
         
         if (scrolledPoints.length > 0 && type) {
-          console.log(`Found ${scrolledPoints.length} results in collection ${collectionName}`);
+          if (process.env.MEMORY_DEBUG === 'true') {
+            console.debug(`Found ${scrolledPoints.length} results in collection ${collectionName}`);
+          }
           
           const mappedResults = scrolledPoints.map(point => ({
             point: point as MemoryPoint<T>,
@@ -497,7 +513,9 @@ export class SearchService {
       
       // Special handling for array values - convert to "any" match condition
       if (Array.isArray(value)) {
-        console.log(`Converting array condition for key ${key}:`, value);
+        if (process.env.MEMORY_DEBUG === 'true') {
+          console.debug(`Converting array condition for key ${key}:`, value);
+        }
         conditions.push({
           key,
           match: { any: value }
@@ -567,7 +585,9 @@ export class SearchService {
         else if ('$in' in value || '$nin' in value || '$eq' in value || '$ne' in value) {
           // Special handling for $in with array
           if ('$in' in value && Array.isArray(value.$in)) {
-            console.log(`Converting $in condition for key ${key}:`, value.$in);
+            if (process.env.MEMORY_DEBUG === 'true') {
+              console.debug(`Converting $in condition for key ${key}:`, value.$in);
+            }
             conditions.push({
               key,
               match: { any: value.$in }

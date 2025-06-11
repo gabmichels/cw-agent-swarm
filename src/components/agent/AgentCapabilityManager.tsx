@@ -773,9 +773,9 @@ const AgentCapabilityManager: React.FC<AgentCapabilityManagerProps> = ({
                   ) : (
                     <>
                       <ul className="space-y-2">
-                        {!isLoading && filteredCapabilities.map(capability => (
+                        {!isLoading && filteredCapabilities.map((capability, index) => (
                           <li
-                            key={capability.id}
+                            key={`capability-${capability.id}-${index}`}
                             className="p-2 bg-gray-800 rounded cursor-pointer hover:bg-gray-750"
                             onClick={(e) => {
                               e.preventDefault();
@@ -991,9 +991,9 @@ const AgentCapabilityManager: React.FC<AgentCapabilityManagerProps> = ({
           </div>
         ) : (
           <div className="space-y-3">
-            {capabilityList.map(capability => (
+            {capabilityList.map((capability, index) => (
                 <div 
-                  key={capability.id} 
+                  key={`selected-${capability.id}-${index}`} 
                   className={`p-3 bg-gray-700 rounded flex flex-col md:flex-row md:items-center justify-between ${
                     activeFilter === capability.type ? 'border-l-4' : ''
                   } ${activeFilter === capability.type ? getCapabilityTypeColor(capability.type).replace('bg-', 'border-').split(' ')[0] : ''}`}

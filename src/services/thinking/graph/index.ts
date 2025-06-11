@@ -1,4 +1,4 @@
-import { ThinkingState, AgentPersona, NodeError } from './types';
+import { ThinkingState, AgentPersona, NodeError, IAgent } from './types';
 import {
   retrieveContextNode,
   analyzeIntentNode,
@@ -14,12 +14,31 @@ import { classifyRequestTypeNode } from './nodes/classifyRequestTypeNode';
 import { storeCognitiveArtifactsNode } from './nodes/storeCognitiveArtifactsNode';
 
 /**
+ * Workflow execution options with proper typing
+ */
+export interface WorkflowExecutionOptions {
+  userId: string;
+  message: string;
+  agent?: IAgent;
+  options?: {
+    agentInfo?: {
+      name?: string;
+      description?: string;
+      systemPrompt?: string;
+      capabilities?: string[];
+      traits?: string[];
+    };
+  };
+}
+
+/**
  * Create initial state for the thinking process
  */
 export function createInitialState(
   userId: string, 
   input: string, 
-  agentPersona?: AgentPersona
+  agentPersona?: AgentPersona,
+  agent?: IAgent
 ): ThinkingState {
   return {
     userId,
@@ -30,7 +49,8 @@ export function createInitialState(
     entities: [],
     shouldDelegate: false,
     status: 'in_progress',
-    errors: []
+    errors: [],
+    metadata: agent ? { agent } : undefined
   };
 }
 
@@ -77,7 +97,7 @@ function updateErrorWithRecovery(
   return {
     ...state,
     errors: updatedErrors,
-    status: recoverySuccessful ? 'recovered' : 'failed'
+    status: recoverySuccessful ? 'completed' : 'failed'
   };
 }
 
@@ -133,23 +153,12 @@ async function executeNodeSafely(
  * with cognitive artifact storage after each step
  */
 export async function executeThinkingWorkflow(
-  options: {
-    userId: string;
-    message: string;
-    options?: {
-      agentInfo?: {
-        name?: string;
-        description?: string;
-        systemPrompt?: string;
-        capabilities?: string[];
-        traits?: string[];
-      };
-    }
-  }
+  options: WorkflowExecutionOptions
 ): Promise<ThinkingState> {
   try {
     const userId = options.userId;
     const input = options.message;
+    const agent = options.agent;
     
     // Convert agentInfo to AgentPersona if present
     const agentPersona = options.options?.agentInfo ? {
@@ -160,8 +169,8 @@ export async function executeThinkingWorkflow(
       traits: options.options.agentInfo.traits || []
     } : undefined;
     
-    // Create initial state
-    let state = createInitialState(userId, input, agentPersona);
+    // Create initial state with agent instance
+    let state = createInitialState(userId, input, agentPersona, agent);
     
     // Execute the workflow steps sequentially with error handling
     

@@ -290,7 +290,7 @@ export class AgentInitializer {
       
       const loggerManager = new DefaultLoggerManager(agent, {
         enabled: true,
-        level: LogLevel.DEBUG,
+        level: LogLevel.INFO,
         logToConsole: true,
         formatMessages: true,
         trackLogHistory: true
@@ -397,10 +397,18 @@ export class AgentInitializer {
       const { DefaultToolManager } = await import('../../../lib/agents/implementations/managers/DefaultToolManager');
       const toolManager = new DefaultToolManager(agent, toolConfig);
       
-      // Register shared tools
+      // CRITICAL: Initialize the tool manager BEFORE registering tools
+      const initialized = await toolManager.initialize();
+      if (!initialized) {
+        throw new Error('Tool manager initialization failed');
+      }
+      
+      // Store the manager in the map so it can be found by other processes
+      this.managers.set(ManagerType.TOOL, toolManager);
+      
+      // Now register shared tools AFTER initialization
       await this.registerSharedTools(toolManager);
       
-      this.managers.set(ManagerType.TOOL, toolManager);
       this.logger.info('Tool Manager initialized successfully');
       
     } catch (error) {
@@ -415,6 +423,41 @@ export class AgentInitializer {
   private async registerSharedTools(toolManager: DefaultToolManager): Promise<void> {
     try {
       this.logger.info('Registering shared tools...');
+      
+      // Register send_message tool (required for message delivery during task execution)
+      try {
+        const { createSendMessageTool } = await import('../tools/messaging/SendMessageTool');
+        const sendMessageToolInstance = createSendMessageTool();
+        
+        // Wrap the tool with the same pattern as other tools to ensure interface compatibility
+        const sendMessageTool = {
+          id: sendMessageToolInstance.id,
+          name: sendMessageToolInstance.name,
+          description: sendMessageToolInstance.description,
+          version: sendMessageToolInstance.version,
+          categories: sendMessageToolInstance.categories,
+          capabilities: sendMessageToolInstance.capabilities,
+          enabled: sendMessageToolInstance.enabled,
+          experimental: sendMessageToolInstance.experimental,
+          costPerUse: sendMessageToolInstance.costPerUse,
+          timeoutMs: sendMessageToolInstance.timeoutMs,
+          execute: async (params: unknown, context?: unknown): Promise<unknown> => {
+            // Use the original tool's execute method
+            const result = await sendMessageToolInstance.execute(params, context);
+            return result;
+          }
+        };
+        
+        await toolManager.registerTool(sendMessageTool);
+        this.logger.info('Registered send_message tool successfully', {
+          toolId: sendMessageTool.id,
+          toolName: sendMessageTool.name
+        });
+      } catch (sendMessageError) {
+        this.logger.warn('Failed to register send_message tool:', {
+          error: sendMessageError instanceof Error ? sendMessageError.message : String(sendMessageError)
+        });
+      }
       
       // Register Coda tools from the adapter
       try {
@@ -577,27 +620,49 @@ export class AgentInitializer {
       this.logger.info('Initializing Scheduler Manager...');
       
       const schedulerConfig = config.managersConfig?.schedulerManager || {};
-      // Use factory function to create scheduler manager with agent instance
-      try {
-        this.schedulerManager = await createSchedulerManager({
-          enabled: true,
-          ...schedulerConfig
-        }, agent); // Pass the agent instance to enable AgentAwareTaskExecutor
+      
+      // Import the agent-specific scheduler factory
+      const { createSchedulerManagerForAgent } = await import('../../../lib/scheduler/factories/SchedulerFactory');
+      
+      // Use agent-specific scheduler that only handles tasks for this agent
+      this.schedulerManager = await createSchedulerManagerForAgent({
+        enabled: true,
+        enableAutoScheduling: true, // Enable auto-scheduling for agent-specific schedulers
+        ...schedulerConfig
+      }, agent.getId()); // Pass agent ID for filtering
+      
+      // Register the scheduler manager with the managers map so it can be found by getManager()
+      if (this.schedulerManager) {
+        this.managers.set(ManagerType.SCHEDULER, this.schedulerManager as any);
         
-        // Register the scheduler manager with the managers map so it can be found by getManager()
-        if (this.schedulerManager) {
-          this.managers.set(ManagerType.SCHEDULER, this.schedulerManager as any);
+        // CRITICAL FIX: Start the scheduler so it begins polling for due tasks
+        try {
+          await this.schedulerManager.startScheduler();
+          this.logger.info(`Scheduler Manager started successfully for agent ${agent.getId()} - now polling for due tasks`);
+        } catch (startError) {
+          this.logger.error(`Failed to start scheduler for agent ${agent.getId()}:`, { 
+            error: startError instanceof Error ? startError.message : String(startError) 
+          });
+          throw startError;
         }
-      } catch (importError) {
-        this.logger.warn('Failed to create scheduler manager, skipping scheduler initialization');
-        errors.push({ managerType: 'scheduler', error: new Error('Failed to create scheduler manager') });
       }
-      this.logger.info('Scheduler Manager initialized successfully');
+      
+      this.logger.info('Scheduler Manager initialized and started successfully');
       
     } catch (error) {
-      this.logger.error('Failed to initialize scheduler manager:', { error: error instanceof Error ? error.message : String(error) });
+      this.logger.error(`CRITICAL: Failed to initialize scheduler manager for agent ${agent.getId()}:`, { 
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        agentId: agent.getId()
+      });
       errors.push({ managerType: 'scheduler', error: error as Error });
-      // Continue without scheduler manager - not critical for basic operation
+      
+      // IMPORTANT: Scheduler failure is now considered critical - do not continue
+      console.error(`❌ CRITICAL: Agent ${agent.getId()} scheduler initialization failed: ${error instanceof Error ? error.message : String(error)}`);
+      console.error(`❌ This agent will not have a running scheduler and cannot process scheduled tasks!`);
+      
+      // For now, continue but with very visible warnings
+      // TODO: Consider making this fatal in production
     }
   }
 

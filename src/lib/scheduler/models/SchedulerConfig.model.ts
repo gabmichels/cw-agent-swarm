@@ -174,7 +174,7 @@ export interface SchedulerConfig {
  */
 export const DEFAULT_SCHEDULER_CONFIG: SchedulerConfig = {
   enabled: true,
-  enableAutoScheduling: true,
+  enableAutoScheduling: false,
   schedulingIntervalMs: 60000, // 1 minute
   maxConcurrentTasks: 10,
   enableTaskPrioritization: true,

@@ -49,7 +49,7 @@ export class AgentBootstrapRegistry {
   private bootstrapRegistry: Map<string, AgentBootstrapInfo>;
   private locks: Map<string, boolean>;
   private maxRetries: number = 3;
-  private maxLockDurationMs: number = 10 * 60 * 1000;
+  private maxLockDurationMs: number = 2 * 60 * 1000;
   private registryFile: string;
   
   /**
@@ -216,15 +216,33 @@ export class AgentBootstrapRegistry {
       return false;
     }
     
-    // Check if the agent has been in IN_PROGRESS state for too long
-    if (info.startTime) {
-      const now = new Date();
-      const stateDuration = now.getTime() - info.startTime.getTime();
-      return stateDuration > this.maxLockDurationMs;
+    // If no start time but in IN_PROGRESS state, consider it stale
+    if (!info.startTime) {
+      logger.warn(`Agent ${agentId} in IN_PROGRESS state with no start time - considering stale`);
+      return true;
     }
     
-    // If no start time but in IN_PROGRESS state, consider it stale
-    return true;
+    // Check for corrupted timestamps (endTime before startTime)
+    if (info.endTime && info.startTime && info.endTime.getTime() < info.startTime.getTime()) {
+      logger.warn(`Agent ${agentId} has corrupted timestamps (endTime before startTime) - considering stale`);
+      return true;
+    }
+    
+    // Check if the agent has been in IN_PROGRESS state for too long
+    const now = new Date();
+    const stateDuration = now.getTime() - info.startTime.getTime();
+    if (stateDuration > this.maxLockDurationMs) {
+      logger.warn(`Agent ${agentId} stuck in IN_PROGRESS for ${Math.round(stateDuration / 1000)}s - considering stale`);
+      return true;
+    }
+    
+    // Also check for invalid/corrupted date values
+    if (isNaN(info.startTime.getTime())) {
+      logger.warn(`Agent ${agentId} has invalid start time - considering stale`);
+      return true;
+    }
+    
+    return false;
   }
   
   /**
@@ -295,15 +313,23 @@ export class AgentBootstrapRegistry {
         let shouldReset = false;
         let reason = '';
         
-        if (info.startTime) {
+        // Check for corrupted or missing start time
+        if (!info.startTime) {
+          shouldReset = true;
+          reason = 'no start time recorded';
+        } else if (isNaN(info.startTime.getTime())) {
+          shouldReset = true;
+          reason = 'invalid start time';
+        } else if (info.endTime && info.endTime.getTime() < info.startTime.getTime()) {
+          shouldReset = true;
+          reason = 'corrupted timestamps (endTime before startTime)';
+        } else {
+          // Check normal timeout
           const stateDuration = now.getTime() - info.startTime.getTime();
           if (stateDuration > this.maxLockDurationMs) {
             shouldReset = true;
             reason = `stuck for ${Math.round(stateDuration / 1000)}s`;
           }
-        } else {
-          shouldReset = true;
-          reason = 'no start time recorded';
         }
         
         if (shouldReset) {

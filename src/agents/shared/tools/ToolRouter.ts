@@ -281,7 +281,13 @@ export class ToolRouter {
       
       // Execute the tool
       try {
-        const result = await resolvedTool.execute(params);
+        // Prepare the execution context for the tool
+        const toolExecutionContext = {
+          agentId,
+          ...agentContext
+        };
+        
+        const result = await resolvedTool.execute(params, toolExecutionContext);
         const executionTime = Date.now() - startTime;
         
         // Update visualization nodes with success if available

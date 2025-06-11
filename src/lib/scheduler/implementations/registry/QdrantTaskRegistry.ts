@@ -116,23 +116,33 @@ export class QdrantTaskRegistry implements TaskRegistry {
    */
   async initialize(): Promise<void> {
     try {
+      console.log('🔧 QdrantTaskRegistry: Initializing task collection...');
+      
       const collections = await this.client.getCollections();
       const collectionExists = collections.collections.some(
         collection => collection.name === this.collectionName
       );
 
       if (!collectionExists) {
+        console.log(`📦 QdrantTaskRegistry: Creating collection '${this.collectionName}'...`);
+        
         // Create the collection if it doesn't exist
         await this.client.createCollection(this.collectionName, {
           vectors: {
-            size: 1, // Minimal vector size since we're not using vector search
+            size: 1536, // 1536-dimensional vector size
             distance: 'Dot', // Doesn't matter for our use case
           },
         });
+        
+        console.log(`✅ QdrantTaskRegistry: Collection '${this.collectionName}' created successfully`);
+      } else {
+        console.log(`✅ QdrantTaskRegistry: Collection '${this.collectionName}' already exists`);
       }
 
       this.initialized = true;
+      console.log('✅ QdrantTaskRegistry: Initialization completed successfully');
     } catch (error) {
+      console.error('❌ QdrantTaskRegistry: Failed to initialize:', error);
       throw TaskRegistryError.storageError(
         `Failed to initialize Qdrant collection: ${(error as Error).message}`
       );
@@ -338,30 +348,111 @@ export class QdrantTaskRegistry implements TaskRegistry {
       taskToStore.createdAt = taskToStore.createdAt || now;
       taskToStore.updatedAt = now;
 
+      // Fix scheduledTime - convert temporal expressions to actual dates
+      if (taskToStore.scheduledTime) {
+        if (typeof taskToStore.scheduledTime === 'string') {
+          // Handle temporal expressions like "2m", "1h", etc.
+          const timeStr = (taskToStore.scheduledTime as string).toLowerCase();
+          if (/^\d+[smhd]$/.test(timeStr)) {
+            // Parse temporal expression
+            const value = parseInt(timeStr);
+            const unit = timeStr.slice(-1);
+            
+            let milliseconds = 0;
+            switch (unit) {
+              case 's': milliseconds = value * 1000; break;
+              case 'm': milliseconds = value * 60 * 1000; break;
+              case 'h': milliseconds = value * 60 * 60 * 1000; break;
+              case 'd': milliseconds = value * 24 * 60 * 60 * 1000; break;
+            }
+            
+            taskToStore.scheduledTime = new Date(now.getTime() + milliseconds);
+            console.log(`📅 QdrantTaskRegistry: Converted temporal expression '${timeStr}' to ${taskToStore.scheduledTime.toISOString()}`);
+          } else {
+            // Try to parse as ISO string or other date format
+            try {
+              taskToStore.scheduledTime = new Date(taskToStore.scheduledTime as string);
+              if (isNaN(taskToStore.scheduledTime.getTime())) {
+                throw new Error('Invalid date');
+              }
+            } catch (error) {
+              console.warn(`⚠️ QdrantTaskRegistry: Failed to parse scheduledTime '${taskToStore.scheduledTime}', using current time + 1 minute`);
+              taskToStore.scheduledTime = new Date(now.getTime() + 60000); // Default to 1 minute from now
+            }
+          }
+        } else if (!(taskToStore.scheduledTime instanceof Date)) {
+          // Handle other types (like numbers)
+          try {
+            taskToStore.scheduledTime = new Date(taskToStore.scheduledTime as any);
+            if (isNaN(taskToStore.scheduledTime.getTime())) {
+              throw new Error('Invalid date');
+            }
+          } catch (error) {
+            console.warn(`⚠️ QdrantTaskRegistry: Failed to convert scheduledTime, using current time + 1 minute`);
+            taskToStore.scheduledTime = new Date(now.getTime() + 60000);
+          }
+        }
+      }
+
       // Store the task in Qdrant
       const qdrantId = this.ulidToUuid(taskToStore.id);
       
       // Serialize the task, handling the handler function specially
       const qdrantPayload = { ...taskToStore } as any;
       
-      // Serialize the handler function if it exists
+      // Simplify handler serialization - just store a reference for now
       if (taskToStore.handler && typeof taskToStore.handler === 'function') {
-        qdrantPayload.handler = this.serializeHandler(taskToStore.handler);
+        // For now, just store a simple handler identifier instead of the complex serialized function
+        qdrantPayload.handler = 'function_handler_placeholder';
       } else {
-        // Ensure we have some form of handler identifier
         qdrantPayload.handler = null;
       }
+
+      // Convert dates to ISO strings for Qdrant storage
+      if (qdrantPayload.createdAt instanceof Date) {
+        qdrantPayload.createdAt = qdrantPayload.createdAt.toISOString();
+      }
+      if (qdrantPayload.updatedAt instanceof Date) {
+        qdrantPayload.updatedAt = qdrantPayload.updatedAt.toISOString();
+      }
+      if (qdrantPayload.lastExecutedAt instanceof Date) {
+        qdrantPayload.lastExecutedAt = qdrantPayload.lastExecutedAt.toISOString();
+      }
+      // CRITICAL: Also convert scheduledTime to ISO string
+      if (qdrantPayload.scheduledTime instanceof Date) {
+        qdrantPayload.scheduledTime = qdrantPayload.scheduledTime.toISOString();
+      }
+
+      // Debug: Log what we're about to send to Qdrant
+      console.log('🔍 DEBUG: About to upsert to Qdrant:', {
+        collectionName: this.collectionName,
+        qdrantId,
+        originalTaskId: taskToStore.id,
+        payloadKeys: Object.keys(qdrantPayload),
+        vectorLength: new Array(1536).fill(0).length,
+        payloadSample: {
+          id: qdrantPayload.id,
+          name: qdrantPayload.name,
+          status: qdrantPayload.status,
+          scheduledTime: qdrantPayload.scheduledTime, // Include this in debug
+          handler: typeof qdrantPayload.handler,
+          createdAt: qdrantPayload.createdAt,
+          updatedAt: qdrantPayload.updatedAt
+        }
+      });
 
       await this.client.upsert(this.collectionName, {
         wait: true,
         points: [
           {
             id: qdrantId,
-            vector: [0], // Simple 1-dimensional vector for task collection
+            vector: new Array(1536).fill(0), // 1536-dimensional zero vector to match embedding standards
             payload: qdrantPayload,
           },
         ],
       });
+
+      console.log('✅ DEBUG: Qdrant upsert successful for task:', taskToStore.id);
 
       // Cache the stored task (with original handler)
       this.taskCache.set(taskToStore.id, taskToStore);
@@ -371,6 +462,7 @@ export class QdrantTaskRegistry implements TaskRegistry {
 
       return taskToStore;
     } catch (error) {
+      console.error('❌ QdrantTaskRegistry: Failed to store task:', error);
       if (error instanceof TaskRegistryError) {
         throw error;
       }
@@ -980,25 +1072,32 @@ export class QdrantTaskRegistry implements TaskRegistry {
    * Qdrant only accepts UUIDs or integers as point IDs
    */
   private ulidToUuid(ulidString: string): string {
-    // Simple deterministic mapping: use the ULID as a seed for consistent UUID generation
-    // We'll create a hash-like transformation to ensure the same ULID always produces the same UUID
-    let hash = 0;
-    for (let i = 0; i < ulidString.length; i++) {
-      hash = ((hash << 5) - hash + ulidString.charCodeAt(i)) & 0xffffffff;
+    // Create a proper UUID by deterministically converting the ULID
+    // This ensures the same ULID always produces the same valid UUID
+    
+    // Take the first 32 characters of the ULID and pad/trim as needed
+    const cleanUlid = ulidString.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+    let hex = '';
+    
+    // Convert each character to a hex digit
+    for (let i = 0; i < cleanUlid.length && hex.length < 32; i++) {
+      const char = cleanUlid[i];
+      if (/[0-9a-f]/.test(char)) {
+        hex += char;
+      } else {
+        // Convert letters to hex digits deterministically
+        const code = char.charCodeAt(0);
+        hex += (code % 16).toString(16);
+      }
     }
     
-    // Convert to positive and create hex string
-    const hex = Math.abs(hash).toString(16).padStart(8, '0');
+    // Pad with zeros if needed
+    hex = hex.padEnd(32, '0').slice(0, 32);
     
-    // Generate a deterministic UUID format
-    // We'll use the original ULID string to create more entropy
-    const part1 = ulidString.slice(0, 8).replace(/[^a-fA-F0-9]/g, '0').padStart(8, '0').slice(0, 8);
-    const part2 = ulidString.slice(8, 12).replace(/[^a-fA-F0-9]/g, '0').padStart(4, '0').slice(0, 4);
-    const part3 = '4' + ulidString.slice(12, 15).replace(/[^a-fA-F0-9]/g, '0').padStart(3, '0').slice(0, 3);
-    const part4 = '8' + ulidString.slice(15, 18).replace(/[^a-fA-F0-9]/g, '0').padStart(3, '0').slice(0, 3);
-    const part5 = ulidString.slice(18).replace(/[^a-fA-F0-9]/g, '0').padStart(12, '0').slice(0, 12);
+    // Format as proper UUID: 8-4-4-4-12
+    const uuid = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(12, 15)}-8${hex.slice(15, 18)}-${hex.slice(18, 30)}`;
     
-    return `${part1}-${part2}-${part3}-${part4}-${part5}`;
+    return uuid;
   }
 
   /**

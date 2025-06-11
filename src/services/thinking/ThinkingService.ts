@@ -300,6 +300,7 @@ export class ThinkingService implements IThinkingService {
       const graphResult = await executeThinkingWorkflow({
         userId,
         message,
+        agent: options?.agent,
         options: optionsWithMemories
       });
       

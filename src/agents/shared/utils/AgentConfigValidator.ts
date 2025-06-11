@@ -837,6 +837,31 @@ export class AgentConfigValidator {
           default: false,
           description: 'Enable reflection manager'
         },
+        // Phase 2 manager enablement flags
+        enableEthicsManager: {
+          type: 'boolean',
+          required: false,
+          default: false,
+          description: 'Enable ethics manager'
+        },
+        enableCollaborationManager: {
+          type: 'boolean',
+          required: false,
+          default: false,
+          description: 'Enable collaboration manager'
+        },
+        enableCommunicationManager: {
+          type: 'boolean',
+          required: false,
+          default: false,
+          description: 'Enable communication manager'
+        },
+        enableNotificationManager: {
+          type: 'boolean',
+          required: false,
+          default: false,
+          description: 'Enable notification manager'
+        },
         useEnhancedMemory: {
           type: 'boolean',
           required: false,
@@ -894,6 +919,79 @@ export class AgentConfigValidator {
             }
           },
           description: 'Memory refresh configuration'
+        },
+        // Manager-specific configurations
+        managersConfig: {
+          type: 'object',
+          required: false,
+          properties: {
+            memoryManager: {
+              type: 'object',
+              required: false,
+              description: 'Memory manager configuration'
+            },
+            planningManager: {
+              type: 'object',
+              required: false,
+              description: 'Planning manager configuration'
+            },
+            toolManager: {
+              type: 'object',
+              required: false,
+              description: 'Tool manager configuration'
+            },
+            knowledgeManager: {
+              type: 'object',
+              required: false,
+              description: 'Knowledge manager configuration'
+            },
+            schedulerManager: {
+              type: 'object',
+              required: false,
+              description: 'Scheduler manager configuration'
+            },
+            reflectionManager: {
+              type: 'object',
+              required: false,
+              description: 'Reflection manager configuration'
+            },
+            inputProcessor: {
+              type: 'object',
+              required: false,
+              description: 'Input processor configuration'
+            },
+            outputProcessor: {
+              type: 'object',
+              required: false,
+              description: 'Output processor configuration'
+            },
+            resourceTracker: {
+              type: 'object',
+              required: false,
+              description: 'Resource tracker configuration'
+            },
+            ethicsManager: {
+              type: 'object',
+              required: false,
+              description: 'Ethics manager configuration'
+            },
+            collaborationManager: {
+              type: 'object',
+              required: false,
+              description: 'Collaboration manager configuration'
+            },
+            communicationManager: {
+              type: 'object',
+              required: false,
+              description: 'Communication manager configuration'
+            },
+            notificationManager: {
+              type: 'object',
+              required: false,
+              description: 'Notification manager configuration'
+            }
+          },
+          description: 'Manager-specific configurations'
         },
         componentsConfig: {
           type: 'object',

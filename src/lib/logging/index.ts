@@ -17,7 +17,7 @@ export const LogLevel = winstonLogger.LogLevel;
 
 // Configure the logger if needed based on environment variables
 // Use string values directly for better compatibility with CommonJS
-const LOG_LEVEL = process.env.LOG_LEVEL?.toLowerCase() || 'debug';
+const LOG_LEVEL = process.env.LOG_LEVEL?.toLowerCase() || 'info';
 const ENABLE_FILE_LOGGING = process.env.ENABLE_FILE_LOGGING === 'true';
 const LOG_FILE_PATH = process.env.LOG_FILE_PATH || './logs/app.log';
 

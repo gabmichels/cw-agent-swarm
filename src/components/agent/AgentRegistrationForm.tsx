@@ -79,6 +79,9 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
   const router = useRouter();
   const [currentStep, setCurrentStep] = useState<FormStep>(FormStep.TEMPLATE);
   
+  // Add state to track template selection
+  const [selectedTemplate, setSelectedTemplate] = useState<AgentTemplate | null>(null);
+  
   // Use extended type for formData
   const [formData, setFormData] = useState<ExtendedAgentRegistrationRequest>({
     name: '',
@@ -310,35 +313,75 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
       
       setAgentCapabilities(safeCapabilities);
       
-      // Convert capabilities to the format expected by the API
-      const mappedCapabilities: AgentCapability[] = Object.entries(safeCapabilities.skills).map(([id, level]) => {
-        const description = safeCapabilities.descriptions?.[id] || '';
-        return {
+      // Convert capabilities to the format expected by the API with complete information
+      const mappedCapabilities: AgentCapability[] = [];
+      
+      // Add skill capabilities with level information
+      Object.entries(safeCapabilities.skills).forEach(([id, level]) => {
+        const name = id.split('.').slice(1).join(' ').replace(/_/g, ' ') || id;
+        const description = safeCapabilities.descriptions?.[id] || `${name} capability at ${level} level`;
+        
+        mappedCapabilities.push({
           id,
-          name: id.split('.')[1] || id,
-          description: description
-        };
+          name: name.split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' '),
+          description: description,
+          version: '1.0.0',
+          parameters: {
+            type: 'skill',
+            level: level,
+            category: 'skill'
+          }
+        });
       });
       
       // Add domain capabilities
       safeCapabilities.domains.forEach(domain => {
         const id = `domain.${domain.toLowerCase().replace(/\s+/g, '_')}`;
-        const description = safeCapabilities.descriptions?.[id] || '';
+        const description = safeCapabilities.descriptions?.[id] || `Knowledge and expertise in ${domain}`;
+        
         mappedCapabilities.push({
           id,
           name: domain,
-          description: description
+          description: description,
+          version: '1.0.0',
+          parameters: {
+            type: 'domain',
+            category: 'domain'
+          }
         });
       });
       
       // Add role capabilities
       safeCapabilities.roles.forEach(role => {
         const id = `role.${role.toLowerCase().replace(/\s+/g, '_')}`;
-        const description = safeCapabilities.descriptions?.[id] || '';
+        const description = safeCapabilities.descriptions?.[id] || `Ability to function as a ${role}`;
+        
         mappedCapabilities.push({
           id,
           name: role,
-          description: description
+          description: description,
+          version: '1.0.0',
+          parameters: {
+            type: 'role',
+            category: 'role'
+          }
+        });
+      });
+      
+      // Add tag capabilities
+      safeCapabilities.tags?.forEach(tag => {
+        const id = `tag.${tag.toLowerCase().replace(/\s+/g, '_')}`;
+        const description = safeCapabilities.descriptions?.[id] || `Tagged with ${tag} characteristic`;
+        
+        mappedCapabilities.push({
+          id,
+          name: tag,
+          description: description,
+          version: '1.0.0',
+          parameters: {
+            type: 'tag',
+            category: 'tag'
+          }
         });
       });
       
@@ -360,6 +403,9 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
 
   // Handle selecting a template
   const handleTemplateSelect = (template: AgentTemplate) => {
+    // Store the selected template
+    setSelectedTemplate(template);
+    
     // If custom agent template is selected, reset the form to defaults
     if (template.id === 'custom-agent') {
       setFormData({
@@ -731,6 +777,28 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
       </div>
       
       <AgentTemplateSelector onChange={handleTemplateSelect} />
+      
+      {/* Show selection confirmation */}
+      {selectedTemplate && (
+        <div className="mt-4 p-4 bg-green-900/30 border border-green-800 rounded-lg">
+          <div className="flex items-start">
+            <div className="flex-shrink-0 mt-0.5">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-green-400" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+              </svg>
+            </div>
+            <div className="ml-3">
+              <h3 className="text-sm font-medium text-green-400">Template Selected</h3>
+              <p className="text-xs text-gray-300 mt-1">
+                <strong>{selectedTemplate.name}</strong> - {selectedTemplate.description}
+              </p>
+              <p className="text-xs text-gray-400 mt-1">
+                Click "Next" to continue with the agent configuration.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 
@@ -940,17 +1008,24 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
             </button>
           </div>
           
+          {currentStep < FormStep.MANAGERS ? (
+            <button
+              type="button"
+              onClick={goToNextStep}
+              disabled={isSubmitting || (currentStep === FormStep.TEMPLATE && !selectedTemplate)}
+              className="wizard-btn wizard-btn-primary"
+            >
+              Next
+            </button>
+          ) : (
           <button
             type="submit"
             disabled={isSubmitting}
             className="wizard-btn wizard-btn-primary"
           >
-            {currentStep < FormStep.MANAGERS 
-              ? 'Next' 
-              : isSubmitting 
-                ? 'Registering...' 
-                : 'Finalize Agent'}
+              {isSubmitting ? 'Registering...' : 'Finalize Agent'}
           </button>
+          )}
         </div>
       </div>
     </form>

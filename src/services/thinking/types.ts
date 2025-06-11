@@ -3,6 +3,131 @@
  */
 
 /**
+ * Agent information for thinking options
+ */
+export interface IAgentInfo {
+  /**
+   * Agent name
+   */
+  name?: string;
+  
+  /**
+   * Agent description
+   */
+  description?: string;
+  
+  /**
+   * Agent system prompt
+   */
+  systemPrompt?: string;
+  
+  /**
+   * Agent capabilities
+   */
+  capabilities?: string[];
+  
+  /**
+   * Agent personality traits
+   */
+  traits?: string[];
+}
+
+/**
+ * Visualization node for tracking thinking process
+ */
+export interface IVisualizationNode {
+  id: string;
+  type: string;
+  status: 'pending' | 'in_progress' | 'completed' | 'error';
+  data: Record<string, unknown>;
+  metrics?: {
+    startTime?: number;
+    endTime?: number;
+    duration?: number;
+  };
+}
+
+/**
+ * Visualization object for thinking process
+ */
+export interface IVisualization {
+  nodes: IVisualizationNode[];
+  edges: Array<{
+    from: string;
+    to: string;
+    type: string;
+  }>;
+}
+
+/**
+ * Visualizer service interface
+ */
+export interface IVisualizer {
+  addNode(
+    visualization: IVisualization,
+    type: string,
+    title: string,
+    data: Record<string, unknown>,
+    status: string
+  ): void;
+}
+
+/**
+ * Tool execution result interface
+ */
+export interface IToolExecutionResult {
+  /**
+   * Whether the execution was successful
+   */
+  success: boolean;
+  
+  /**
+   * Result data
+   */
+  data: unknown;
+  
+  /**
+   * Output string representation of the result
+   */
+  output?: string;
+  
+  /**
+   * Error message if the execution failed
+   */
+  error?: string;
+  
+  /**
+   * Execution time in milliseconds
+   */
+  executionTime: number;
+  
+  /**
+   * Metadata about the execution
+   */
+  metadata?: {
+    /**
+     * ID of the tool that was executed
+     */
+    toolId: string;
+    
+    /**
+     * When the execution started
+     */
+    startTime: string;
+    
+    /**
+     * When the execution ended
+     */
+    endTime: string;
+    
+    /**
+     * Parameters used in the execution
+     */
+    parameters: Record<string, unknown>;
+  };
+}
+
+/**
  * The outcome of analyzing user input through the thinking process
  */
 export interface ThinkingResult {
@@ -28,7 +153,7 @@ export interface ThinkingResult {
     missingTools?: string[];
     delegationSuggested?: boolean;
     suggestedSchedule?: {
-      scheduledFor?: Date;
+      timeExpression?: string;
       recurring?: boolean;
       intervalExpression?: string;
     };
@@ -81,7 +206,7 @@ export interface ThinkingResult {
   /**
    * Additional context for the task
    */
-  context?: Record<string, any>;
+  context?: Record<string, unknown>;
   
   /**
    * Reasoning steps that led to this analysis
@@ -154,42 +279,22 @@ export interface ThinkingOptions {
   /**
    * Agent information for persona-based responses
    */
-  agentInfo?: {
-    /**
-     * Agent name
-     */
-    name?: string;
-    
-    /**
-     * Agent description
-     */
-    description?: string;
-    
-    /**
-     * Agent system prompt
-     */
-    systemPrompt?: string;
-    
-    /**
-     * Agent capabilities
-     */
-    capabilities?: string[];
-    
-    /**
-     * Agent personality traits
-     */
-    traits?: string[];
-  };
+  agentInfo?: IAgentInfo;
   
   /**
    * Visualization object for tracking thinking process
    */
-  visualization?: any;
+  visualization?: IVisualization;
   
   /**
    * Visualizer service for creating visualization nodes
    */
-  visualizer?: any;
+  visualizer?: IVisualizer;
+  
+  /**
+   * Agent instance for tool discovery and capability analysis
+   */
+  agent?: import('./graph/types').IAgent;
 }
 
 /**
@@ -258,7 +363,7 @@ export interface WorkingMemoryItem {
     importance_score?: number;
     message_type?: string;
     contentSummary?: string;
-    [key: string]: any;
+    [key: string]: unknown;
   };
 }
 
@@ -289,7 +394,7 @@ export interface FileReference {
   /**
    * File metadata
    */
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
 }
 
 /**
@@ -323,7 +428,7 @@ export interface ToolExecutionResult {
   /**
    * Result data
    */
-  data: any;
+  data: unknown;
   
   /**
    * Output string representation of the result

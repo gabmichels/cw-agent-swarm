@@ -113,6 +113,7 @@
     "reactflow": "^11.11.4",
     "rehype-raw": "^7.0.0",
     "remark-gfm": "^4.0.1",
+    "request": "^2.88.2",
     "rss-parser": "^3.13.0",
     "sharp": "^0.34.1",
     "socket.io": "^4.8.1",

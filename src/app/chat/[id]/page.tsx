@@ -305,10 +305,9 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
       // Define polling function
       const pollMessages = async () => {
         try {
-          // Check if we're not in a loading state before polling
-          if (!isLoading) {
-            await fetchMessages(chat.id);
-          }
+          // Always poll for messages, but pass appropriate shouldClearLoading flag
+          // When we're in loading state (thinking), let fetchMessages decide when to clear it
+          await fetchMessages(chat.id);
         } catch (error) {
           console.error('Error polling messages:', error);
         }
@@ -370,8 +369,11 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
       const currentAttachments = [...pendingAttachments];
       const currentAttachedMessage = attachedMessage;
       
+      // Store current message count to detect when agent responds
+      const currentMessageCount = messages.length;
+      
       // Create message object for UI update
-      const tempMessageId = generateMessageId();
+      const tempMessageId = `temp_${generateMessageId()}_${Date.now()}`;
       const messageWithId: MessageWithId = {
         id: tempMessageId,
         content: currentMessage,
@@ -472,9 +474,9 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
         throw new Error(data.error || 'Failed to send message');
       }
       
-      // After successful send, refresh messages to get the real message from the server
-      // We'll also get the agent's response on the next poll
-      await fetchMessages(chat.id);
+      // Fetch messages immediately to get the real user message from server, but don't clear loading
+      // The thinking bubble will stay until polling detects the agent's response
+      await fetchMessages(chat.id, false);
       
     } catch (error) {
       console.error('Error sending message:', error);
@@ -619,7 +621,7 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
   };
 
   // Function to fetch messages for a chat
-  const fetchMessages = async (chatId: string) => {
+  const fetchMessages = async (chatId: string, shouldClearLoading: boolean = true) => {
     try {
       const msgRes = await fetch(`/api/multi-agent/chats/${chatId}/messages`);
       
@@ -627,7 +629,7 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
         const errorText = await msgRes.text();
         console.error(`Failed to fetch messages: ${msgRes.status} ${msgRes.statusText}`, errorText);
         setError(`Failed to load messages: ${msgRes.status}`);
-        setIsLoading(false);
+        if (shouldClearLoading) setIsLoading(false);
         return;
       }
       
@@ -636,7 +638,7 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
       if (msgData.error) {
         console.error('API returned error:', msgData.error);
         setError(msgData.error);
-        setIsLoading(false);
+        if (shouldClearLoading) setIsLoading(false);
         return;
       }
       
@@ -644,7 +646,7 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
       if (msgData.messages && Array.isArray(msgData.messages)) {
         if (msgData.messages.length === 0) {
           setMessages([]);
-          setIsLoading(false);
+          if (shouldClearLoading) setIsLoading(false);
           return;
         }
         
@@ -723,17 +725,55 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
           };
         });
         
-        setMessages(formattedMessages);
-        setIsLoading(false);
+        // Intelligent message merging: preserve temp messages that aren't on the server yet
+        // Temp messages have IDs that start with 'temp_' or are not found in server response
+        const tempMessages = messages.filter(msg => 
+          msg.id.startsWith('temp_') || msg.id.includes('temp-') || 
+          !formattedMessages.find(serverMsg => serverMsg.id === msg.id)
+        );
+        
+        // Only preserve temp messages if we're in loading state (thinking) or if shouldClearLoading is false
+        const shouldPreserveTempMessages = isLoading || !shouldClearLoading;
+        const messagesToPreserve = shouldPreserveTempMessages ? tempMessages : [];
+        
+        // Combine server messages with temp messages, sorted by timestamp
+        const allMessages = [...formattedMessages, ...messagesToPreserve].sort((a, b) => 
+          a.timestamp.getTime() - b.timestamp.getTime()
+        );
+        
+        setMessages(allMessages);
+        
+        // For polling: only clear loading if we detect an agent response
+        if (shouldClearLoading) {
+          const hasAgentResponse = formattedMessages.some(msg => 
+            msg.sender.role === 'assistant' && 
+            !messages.find(existingMsg => existingMsg.id === msg.id)
+          );
+          
+          console.log('fetchMessages debug:', {
+            shouldClearLoading,
+            isLoading,
+            formattedMessagesCount: formattedMessages.length,
+            currentMessagesCount: messages.length,
+            hasAgentResponse,
+            lastFormattedMessage: formattedMessages[formattedMessages.length - 1]?.sender?.role
+          });
+          
+          // Clear loading if we have agent response - temp messages are handled separately
+          if (hasAgentResponse) {
+            console.log('Clearing loading state due to agent response');
+            setIsLoading(false);
+          }
+        }
       } else {
         console.warn('API response missing messages array:', msgData);
         setMessages([]);
-        setIsLoading(false);
+        if (shouldClearLoading) setIsLoading(false);
       }
     } catch (error) {
       console.error('Error fetching messages:', error);
       setError('Failed to load messages');
-      setIsLoading(false);
+      if (shouldClearLoading) setIsLoading(false);
     }
   };
 

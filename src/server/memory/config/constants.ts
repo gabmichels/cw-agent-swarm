@@ -19,6 +19,7 @@ export const COLLECTION_NAMES: Partial<Record<MemoryType, string>> = {
   [MemoryType.TASK]: 'tasks',
   [MemoryType.MEMORY_EDIT]: 'memory_edits',
   [MemoryType.ANALYSIS]: 'analysis',
+  [MemoryType.CAPABILITY_DEFINITION]: 'capabilities',
 };
 
 // Add the visualization collection separately since it's not a memory type
@@ -252,6 +253,17 @@ export const DEFAULT_INDICES: Partial<Record<MemoryType, string[]>> = {
     'metadata.agentId.id',
     'metadata.contextId',
     'metadata.importance',
+  ],
+  [MemoryType.CAPABILITY_DEFINITION]: [
+    'timestamp',
+    'type',
+    'metadata.schemaVersion',
+    'metadata.agentId',
+    'metadata.capabilityType',
+    'metadata.capabilityName',
+    'metadata.level',
+    'metadata.category',
+    'metadata.tags',
   ],
 };
 

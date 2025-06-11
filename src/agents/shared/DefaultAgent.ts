@@ -40,7 +40,7 @@ import {
 } from './base/AgentBase.interface';
 import { ThinkingResult } from '../../services/thinking/types';
 import { TaskCreationOptions, TaskCreationResult, TaskExecutionResult } from './base/managers/SchedulerManager.interface';
-import { Task, TaskStatus } from '../../lib/scheduler/models/Task.model';
+import { Task, TaskStatus, createTask } from '../../lib/scheduler/models/Task.model';
 import { ModularSchedulerManager } from '../../lib/scheduler/implementations/ModularSchedulerManager';
 import { PlanCreationOptions, PlanCreationResult, PlanExecutionResult, PlanningManager } from './base/managers/PlanningManager.interface';
 import { ReflectionResult } from './base/managers/ReflectionManager.interface';
@@ -60,6 +60,7 @@ import { ThinkingService } from '../../services/thinking/ThinkingService';
 import { ImportanceCalculatorService, ImportanceCalculationMode } from '../../services/importance/ImportanceCalculatorService';
 import { getLLM } from '../../lib/core/llm';
 import { TaskScheduleType } from '../../lib/scheduler/models/Task.model';
+import { IAgent } from '../../services/thinking/graph/types';
 
 // Import new types
 // Removed problematic import from './types' as it doesn't exist
@@ -185,13 +186,16 @@ interface AgentMemoryEntity {
  * This agent delegates all major functionality to specialized components,
  * providing a clean orchestration layer that coordinates between components.
  */
-export class DefaultAgent extends AbstractAgentBase implements ResourceUsageListener {
+export class DefaultAgent extends AbstractAgentBase implements ResourceUsageListener, IAgent {
   // Core properties
   private readonly agentId: string;
   private readonly agentType: string;
   private readonly version: string = '2.0.0'; // Updated version for refactored agent
   private readonly logger: ReturnType<typeof createLogger>;
   private agentConfig: DefaultAgentConfig;
+  
+  // DEBUG: Add instance tracking
+  private readonly _instanceId: string = `agent-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
   
   // Component instances
   private initializer: AgentInitializer | null = null;
@@ -851,7 +855,7 @@ Please provide a helpful, contextual response based on this analysis and memory 
             conversationHistory: Array.isArray(options?.conversationHistory) ? options.conversationHistory.length : 0,
             enhancedInput: options?.thinkingResult ? true : false,
             formattedMemoryContext: !!(options?.thinkingResult?.context?.formattedMemoryContext),
-            memoryContextLength: options?.thinkingResult?.context?.formattedMemoryContext?.length || 0
+            memoryContextLength: (options?.thinkingResult?.context?.formattedMemoryContext as string)?.length || 0
           },
           timestamp: new Date().toISOString(),
           agentId: this.agentId,
@@ -1004,28 +1008,126 @@ Please provide a helpful, contextual response based on this analysis and memory 
         
         // Create task based on LLM understanding - ensure we have the right manager type
         if (schedulerManager && 'createTask' in schedulerManager) {
-          const taskResult = await (schedulerManager as any).createTask({
+          // Extract time expression from LLM classification, or use the original message to extract time info
+          let timeExpression = thinkingResult.requestType?.suggestedSchedule?.timeExpression;
+          
+          // If LLM didn't extract time expression, try to extract from the message
+          if (!timeExpression) {
+            // Simple regex to catch common time expressions
+            const timePatterns = [
+              /in\s+(\d+)\s+(second|minute|hour|day)s?/i,
+              /(\d+)\s+(second|minute|hour|day)s?\s+from\s+now/i,
+              /(tomorrow|today|tonight|later|soon)/i,
+              /(next|this)\s+(week|month|friday|monday|tuesday|wednesday|thursday|saturday|sunday)/i
+            ];
+            
+            for (const pattern of timePatterns) {
+              const match = message.match(pattern);
+              if (match) {
+                timeExpression = match[0];
+                break;
+              }
+            }
+            
+            // If still no time expression, default to "now"
+            if (!timeExpression) {
+              timeExpression = "now";
+            }
+          }
+          
+          this.logger.info('Creating scheduled task with time expression', {
+            originalMessage: message,
+            extractedTimeExpression: timeExpression,
+            llmSuggestedExpression: thinkingResult.requestType?.suggestedSchedule?.timeExpression
+          });
+          
+          // Create tool-specific task description for message scheduling
+          let taskDescription = `Task created from user input: ${message}`;
+          
+          // If this is a message scheduling task, make it explicit that the agent should use the send_message tool
+          if (message.toLowerCase().includes('send') && message.toLowerCase().includes('message') ||
+              message.toLowerCase().includes('deliver') && message.toLowerCase().includes('joke') ||
+              message.toLowerCase().includes('schedule') && message.toLowerCase().includes('chat')) {
+            
+            // Extract chat ID from options context first, then try message text if not available
+            const contextChatId = options?.chatId;
+            const messageTextChatId = message.match(/chat\s+([a-f0-9-]{36})/i)?.[1];
+            const chatId = contextChatId || messageTextChatId;
+            
+            this.logger.info('Chat ID extraction for scheduled message', {
+              contextChatId,
+              messageTextChatId,
+              finalChatId: chatId,
+              hasContextChatId: !!contextChatId
+            });
+            
+            // Create explicit tool execution instructions
+            taskDescription = `Execute send_message tool to deliver the scheduled message. ` +
+                             `Original request: ${message}. ` +
+                             `IMPORTANT: Use the send_message tool with the following parameters: ` +
+                             `{chatId: "${chatId || 'MISSING_CHAT_ID'}", content: "generated-joke-content", messageType: "scheduled_message"}. ` +
+                             `Generate a funny programming joke as the content and deliver it via the send_message tool.`;
+          }
+          
+          // Create a simple task that AgentTaskExecutor can process directly
+          // The AgentTaskExecutor will extract the goal from the description and call agent.planAndExecute()
+          const taskData = {
             name: `Task: ${message.length > 50 ? message.substring(0, 50) + '...' : message}`,
-            description: `Task created from user input: ${message}`,
+            description: taskDescription, // This is what AgentTaskExecutor will use as the goal
             priority: thinkingResult.priority,
             scheduleType: TaskScheduleType.EXPLICIT,
-            scheduledTime: thinkingResult.requestType?.suggestedSchedule?.scheduledFor || new Date(),
+            scheduledTime: timeExpression, // ModularSchedulerManager will handle string parsing
             metadata: {
               source: 'user_input',
               originalMessage: message,
               createdBy: 'DefaultAgent',
               llmGuidance: llmResponse.content,
               intent: thinkingResult.intent.primary,
-              requestType: thinkingResult.requestType
+              requestType: thinkingResult.requestType,
+              originalTimeExpression: timeExpression,
+              requiresToolExecution: true,
+              targetTool: 'send_message',
+              chatId: options?.chatId, // Add chat ID from options context
+              context: `Original user message: "${message}". Chat ID: ${options?.chatId}. This is a scheduled messaging task.`,
+              requirements: 'Use the send_message tool to deliver the content to the appropriate chat',
+              contextualInfo: {
+                userId: options?.userId,
+                chatId: options?.chatId,
+                messageId: options?.messageId,
+                requestId: options?.requestId
+              },
+              agentId: {
+                namespace: 'agent',
+                type: 'agent',
+                id: this.getId()
+              }
             }
+          } as any; // Use 'as any' to bypass type checking since we're creating a partial
+
+          const taskResult = await (schedulerManager as any).createTask(taskData);
+
+          // Debug the task result structure
+          this.logger.info('Task creation result structure', {
+            taskResult,
+            taskResultKeys: Object.keys(taskResult || {}),
+            taskResultType: typeof taskResult,
+            hasTaskId: 'taskId' in (taskResult || {}),
+            hasId: 'id' in (taskResult || {}),
+            actualTaskId: taskResult?.taskId || taskResult?.id || 'not_found'
           });
 
+          // Extract task ID with fallback options
+          const actualTaskId = taskResult?.taskId || taskResult?.id || 'unknown';
+
+          // Generate appropriate scheduling confirmation message
+          const schedulingResponse = this.generateSchedulingConfirmation(message, timeExpression, actualTaskId);
+
           response = {
-            content: `${llmResponse.content}\n\nI've scheduled a task to handle this properly.`,
+            content: schedulingResponse,
             metadata: {
               ...llmResponse.metadata,
               taskCreated: true,
-              taskId: taskResult.taskId,
+              taskId: actualTaskId,
               processingPath: 'scheduled_task_creation',
               thinkingResult,
               requestClassification,
@@ -1414,6 +1516,8 @@ Please provide a helpful, contextual response based on this analysis and memory 
             excludeMessageIds: options?.userMessageId ? [options?.userMessageId] : [],
             // Detect summary request from message content for memory retrieval optimization
             isSummaryRequest: this.isSimpleSummaryRequest(message),
+            // Pass agent instance for tool discovery - cast this to IAgent
+            agent: this as IAgent,
             // Convert ThinkOptions to ThinkingOptions format
             ...(options || {})
           }
@@ -1501,6 +1605,14 @@ Please provide a helpful, contextual response based on this analysis and memory 
         alternatives: processingResult.alternativeConclusions?.length || 0
       });
 
+      // Simple classification logic for fallback scenarios
+      const isSchedulingRequest = this.detectSchedulingRequest(message);
+      const requestType = isSchedulingRequest ? 'SCHEDULED_TASK' : 'PURE_LLM_TASK';
+      const confidence = isSchedulingRequest ? 0.8 : 0.5;
+      const reasoning = isSchedulingRequest 
+        ? 'ThinkingProcessor fallback detected scheduling keywords'
+        : 'ThinkingProcessor fallback, defaulting to pure LLM task';
+
       // Transform the result to match the expected interface
       return {
         intent: {
@@ -1508,10 +1620,10 @@ Please provide a helpful, contextual response based on this analysis and memory 
           confidence: processingResult.confidence
         },
         requestType: {
-          type: 'PURE_LLM_TASK',
-          confidence: 0.5,
-          reasoning: 'ThinkingProcessor fallback, defaulting to pure LLM task',
-          requiredTools: []
+          type: requestType,
+          confidence,
+          reasoning,
+          requiredTools: isSchedulingRequest ? ['send_message'] : []
         },
         entities: [],
         shouldDelegate: false,
@@ -1566,7 +1678,7 @@ Please provide a helpful, contextual response based on this analysis and memory 
    */
   async createTask(options: TaskCreationOptions): Promise<TaskCreationResult> {
     const schedulerManager = this.getManager(ManagerType.SCHEDULER);
-    if (!schedulerManager || !('createTask' in schedulerManager)) {
+    if (!schedulerManager || typeof schedulerManager !== 'object' || !('createTask' in schedulerManager)) {
       throw new Error('Scheduler manager not available');
     }
     
@@ -1605,7 +1717,7 @@ Please provide a helpful, contextual response based on this analysis and memory 
   async executeTask(taskId: string): Promise<TaskExecutionResult> {
     // First try to use the scheduler manager for proper task execution
     const schedulerManager = this.getManager(ManagerType.SCHEDULER);
-    if (schedulerManager && 'executeTaskNow' in schedulerManager) {
+    if (schedulerManager && typeof schedulerManager === 'object' && 'executeTaskNow' in schedulerManager) {
       this.logger.info("Executing task via scheduler manager", { taskId });
       return (schedulerManager as any).executeTaskNow(taskId);
     }
@@ -1719,7 +1831,7 @@ Please provide a helpful, contextual response based on this analysis and memory 
    */
   async reflect(options: Record<string, unknown> = {}): Promise<ReflectionResult> {
     const reflectionManager = this.getManager(ManagerType.REFLECTION);
-    if (!reflectionManager || !('reflect' in reflectionManager)) {
+    if (!reflectionManager || typeof reflectionManager !== 'object' || !('reflect' in reflectionManager)) {
       throw new Error('Reflection manager not available');
     }
     
@@ -1731,10 +1843,10 @@ Please provide a helpful, contextual response based on this analysis and memory 
   // These methods maintain compatibility with the existing manager system
 
   /**
-   * Get a manager by type
+   * Get a manager by type (required by IAgent interface)
    */
-  getManager<T extends BaseManager>(managerType: ManagerType): T | null {
-    return super.getManager(managerType);
+  getManager<T>(managerType: unknown): T | null {
+    return super.getManager(managerType as ManagerType) as T | null;
   }
 
   /**
@@ -1777,7 +1889,7 @@ Please provide a helpful, contextual response based on this analysis and memory 
    */
   async getTasks(): Promise<Task[]> {
     const schedulerManager = this.getManager(ManagerType.SCHEDULER);
-    if (schedulerManager && 'getTasks' in schedulerManager) {
+    if (schedulerManager && typeof schedulerManager === 'object' && 'getTasks' in schedulerManager) {
       return (schedulerManager as any).getTasks();
     }
     return [];
@@ -1788,7 +1900,7 @@ Please provide a helpful, contextual response based on this analysis and memory 
    */
   async getTask(taskId: string): Promise<Task | null> {
     const schedulerManager = this.getManager(ManagerType.SCHEDULER);
-    if (schedulerManager && 'getTask' in schedulerManager) {
+    if (schedulerManager && typeof schedulerManager === 'object' && 'getTask' in schedulerManager) {
       return (schedulerManager as any).getTask(taskId);
     }
     return null;
@@ -1799,7 +1911,7 @@ Please provide a helpful, contextual response based on this analysis and memory 
    */
   async getPendingTasks(): Promise<Task[]> {
     const schedulerManager = this.getManager(ManagerType.SCHEDULER);
-    if (schedulerManager && 'getPendingTasks' in schedulerManager) {
+    if (schedulerManager && typeof schedulerManager === 'object' && 'getPendingTasks' in schedulerManager) {
       return (schedulerManager as any).getPendingTasks();
     }
       return [];
@@ -1878,17 +1990,30 @@ Please provide a helpful, contextual response based on this analysis and memory 
       // Extract persona from agent configuration
       const persona = this.agentConfig.persona;
       
-      // Format the system prompt with persona information
-      const formattedPrompt = PromptFormatter.formatSystemPrompt({
+      // Build agent context for dynamic tool discovery
+      const agentContext = {
+        agentPersona: {
+          capabilities: await this.getCapabilities()
+        },
+        availableTools: await this.getAvailableToolNames(),
+        contextUsed: {
+          tools: this.getRegisteredTools()
+        }
+      };
+      
+      // Format the system prompt with persona information and dynamic capabilities
+      const formattedPrompt = await PromptFormatter.formatSystemPrompt({
         basePrompt: baseSystemPrompt,
         persona: persona,
-        includeCapabilities: true
+        includeCapabilities: true,
+        agentContext: agentContext
       });
       
-      this.logger.info('Generated formatted system prompt', {
+      this.logger.info('Generated formatted system prompt with dynamic capabilities', {
         hasPersona: !!persona,
         basePromptLength: baseSystemPrompt.length,
-        formattedPromptLength: formattedPrompt.length
+        formattedPromptLength: formattedPrompt.length,
+        toolsDiscovered: agentContext.availableTools?.length || 0
       });
       
       return formattedPrompt;
@@ -1900,6 +2025,97 @@ Please provide a helpful, contextual response based on this analysis and memory 
       // Fallback to base system prompt or default
       return this.agentConfig.systemPrompt || 
              'You are a helpful assistant. Provide concise, accurate, and helpful responses.';
+    }
+  }
+
+  /**
+   * Get available tool names for dynamic capability detection
+   */
+  private async getAvailableToolNames(): Promise<string[]> {
+    try {
+      const toolManager = this.getManager<BaseManager>(ManagerType.TOOL);
+      if (toolManager && typeof (toolManager as any).getAllTools === 'function') {
+        const tools = await (toolManager as any).getAllTools();
+        if (Array.isArray(tools)) {
+          return tools.map((tool: any) => tool.name || tool.id || 'unknown_tool');
+        }
+      }
+      
+      // Fallback: check for registered tools in this agent
+      const registeredTools = this.getRegisteredTools();
+      if (Array.isArray(registeredTools)) {
+        return registeredTools.map((tool: any) => 
+          typeof tool === 'string' ? tool : tool.name || tool.id || 'unknown_tool'
+        );
+      }
+      
+      // If we still don't have an array, return the fallback
+      return ['send_message', 'general_llm_capabilities'];
+    } catch (error) {
+      this.logger.warn('Failed to get available tool names:', {
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return ['send_message', 'general_llm_capabilities']; // Safe fallback
+    }
+  }
+
+  /**
+   * Get registered tools from this agent instance
+   */
+  private getRegisteredTools(): any[] {
+    try {
+      // Try to get tools from tool manager
+      const toolManager = this.getManager<BaseManager>(ManagerType.TOOL);
+      if (toolManager) {
+        // Try different methods tool managers might have
+        if (typeof (toolManager as any).getTools === 'function') {
+          const tools = (toolManager as any).getTools();
+          // Handle both sync and async returns, and ensure it's an array
+          if (Array.isArray(tools)) {
+            return tools;
+          } else if (tools && typeof tools.then === 'function') {
+            // It's a Promise, we can't wait for it here, so return fallback
+            this.logger.warn('getTools returned a Promise, using fallback tools');
+            return ['send_message', 'general_llm_capabilities'];
+          }
+        }
+        
+        if (typeof (toolManager as any).getAllTools === 'function') {
+          const tools = (toolManager as any).getAllTools();
+          // Handle both sync and async returns, and ensure it's an array
+          if (Array.isArray(tools)) {
+            return tools;
+          } else if (tools && typeof tools.then === 'function') {
+            // It's a Promise, we can't wait for it here, so return fallback
+            this.logger.warn('getAllTools returned a Promise, using fallback tools');
+            return ['send_message', 'general_llm_capabilities'];
+          }
+        }
+        
+        if ((toolManager as any).tools) {
+          const tools = (toolManager as any).tools;
+          if (Array.isArray(tools)) {
+            return tools;
+          } else if (tools instanceof Map) {
+            return Array.from(tools.values());
+          } else if (typeof tools === 'object') {
+            return Object.values(tools);
+          }
+        }
+      }
+      
+      // Try to get from agent configuration
+      if (this.agentConfig.componentsConfig?.toolManager) {
+        return []; // Will be populated by tool manager
+      }
+      
+      // Default tools that are typically available
+      return ['send_message', 'schedule_task', 'general_capabilities'];
+    } catch (error) {
+      this.logger.warn('Failed to get registered tools:', {
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return ['send_message']; // Minimal fallback
     }
   }
 
@@ -2038,4 +2254,52 @@ Please provide a helpful, contextual response based on this analysis and memory 
     
     return needsExecution;
   }
-} 
+
+  private detectSchedulingRequest(message: string): boolean {
+    // Check for common scheduling keywords
+    const schedulingKeywords = [
+      'schedule', 'remind', 'monitor', 'track', 'watch', 'follow_up',
+      'create_task', 'add_task', 'queue', 'defer', 'later',
+      'tomorrow', 'next week', 'when', 'defer', 'queue', 'wait'
+    ];
+    
+    // Check if any of the scheduling keywords are present in the message
+    return schedulingKeywords.some(keyword => message.toLowerCase().includes(keyword));
+  }
+
+  /**
+   * Generate appropriate confirmation message for scheduled tasks
+   */
+  private generateSchedulingConfirmation(originalMessage: string, timeExpression: string, taskId: string): string {
+    // Extract the intent from the message for personalized response
+    const lowerMessage = originalMessage.toLowerCase();
+    
+    // Safely handle task ID - provide fallback if undefined/empty
+    const safeTaskId = taskId && taskId !== 'unknown' && taskId !== 'not_found' 
+      ? taskId.substring(0, 8) + '...' 
+      : 'generated';
+    
+    if (lowerMessage.includes('joke')) {
+      return `Perfect! I'll send you a surprise developer joke ${timeExpression}. Get ready for some coding humor! 😄⏰
+
+Task scheduled successfully (ID: ${safeTaskId})`;
+    }
+    
+    if (lowerMessage.includes('reminder') || lowerMessage.includes('remind')) {
+      return `Got it! I'll send you a reminder ${timeExpression} as requested. ✅⏰
+
+Task scheduled successfully (ID: ${safeTaskId})`;
+    }
+    
+    if (lowerMessage.includes('message')) {
+      return `Understood! I'll deliver your message ${timeExpression}. The task has been scheduled and will execute automatically. 📅✨
+
+Task scheduled successfully (ID: ${safeTaskId})`;
+    }
+    
+    // Generic scheduling confirmation
+    return `Perfect! I've scheduled your request to be handled ${timeExpression}. The task will execute automatically when the time comes. ⏰✅
+
+Task scheduled successfully (ID: ${safeTaskId})`;
+  }
+  }

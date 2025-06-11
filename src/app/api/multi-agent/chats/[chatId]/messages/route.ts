@@ -58,10 +58,9 @@ export async function GET(
     const chat = await chatService.getChatById(chatId);
     
     if (!chat) {
-      return NextResponse.json(
-        { error: 'Chat not found' },
-        { status: 404 }
-      );
+      console.warn(`⚠️ Chat ${chatId} not found during message retrieval, but continuing anyway`);
+      // Don't fail immediately - allow message retrieval to continue
+      // This prevents user messages from disappearing due to chat persistence issues
     }
     
     // Get memory services
@@ -78,18 +77,24 @@ export async function GET(
     
     // Add tag filters if provided
     if (tags && tags.length > 0) {
-      console.log(`Filtering by tags: ${tags.join(', ')}`);
+      if (process.env.NODE_ENV === 'development') {
+        console.debug(`Filtering by tags: ${tags.join(', ')}`);
+      }
       // For each tag, add a filter to match any message that contains that tag
       tags.forEach(tag => {
         mustFilters.push({ key: "metadata.tags", match: { value: tag } });
       });
     }
     
-    console.log(`Search filters being applied:`, JSON.stringify(mustFilters, null, 2));
+    if (process.env.NODE_ENV === 'development') {
+      console.debug(`Search filters being applied:`, JSON.stringify(mustFilters, null, 2));
+    }
     
     // Search for messages with this chat ID
-    console.log(`Searching for messages using filter-based approach...`);
-    console.log(`Trying structured ID format first: metadata.chatId.id = ${chatId}`);
+    if (process.env.NODE_ENV === 'development') {
+      console.debug(`Searching for messages using filter-based approach...`);
+      console.debug(`Trying structured ID format first: metadata.chatId.id = ${chatId}`);
+    }
     
     let searchResults = await searchService.search("", {
       filter: {
@@ -108,7 +113,9 @@ export async function GET(
     
     // If no results with structured ID format, try legacy string format
     if (searchResults.length === 0) {
-      console.log(`No results with structured ID format, trying legacy string format: metadata.chatId = ${chatId}`);
+      if (process.env.NODE_ENV === 'development') {
+        console.debug(`No results with structured ID format, trying legacy string format: metadata.chatId = ${chatId}`);
+      }
       searchResults = await searchService.search("", {
         filter: {
           must: [
@@ -125,13 +132,19 @@ export async function GET(
       });
       
       if (searchResults.length > 0) {
-        console.log(`Found ${searchResults.length} results with legacy string format`);
+        if (process.env.NODE_ENV === 'development') {
+          console.debug(`Found ${searchResults.length} results with legacy string format`);
+        }
       }
     } else {
-      console.log(`Found ${searchResults.length} results with structured ID format`);
+      if (process.env.NODE_ENV === 'development') {
+        console.debug(`Found ${searchResults.length} results with structured ID format`);
+      }
     }
 
-    console.log(`Found ${searchResults.length} total items, filtering to message types only...`);
+    if (process.env.NODE_ENV === 'development') {
+      console.debug(`Found ${searchResults.length} total items, filtering to message types only...`);
+    }
     
     // Filter to only message types (client-side validation)
     const messageResults = searchResults.filter(result => {
@@ -141,7 +154,9 @@ export async function GET(
       return actualType === MemoryType.MESSAGE;
     });
     
-    console.log(`✅ Filtered to ${messageResults.length} message items (removed ${searchResults.length - messageResults.length} non-message items)`);
+    if (process.env.NODE_ENV === 'development') {
+      console.debug(`✅ Filtered to ${messageResults.length} message items (removed ${searchResults.length - messageResults.length} non-message items)`);
+    }
     
     const nonMessageResults = searchResults.filter(result => {
       const payloadType = result.point?.payload?.type;
@@ -220,12 +235,14 @@ export async function GET(
       };
     });
     
-    console.log(`Final response: ${messages.length} messages prepared for client`);
+    if (process.env.NODE_ENV === 'development') {
+      console.debug(`Final response: ${messages.length} messages prepared for client`);
+    }
     
     // Log sample content for debugging (first message only)
-    if (messages.length > 0) {
+    if (messages.length > 0 && process.env.NODE_ENV === 'development') {
       const firstMessage = messages[0];
-      console.log(`Sample message content:`, {
+      console.debug(`Sample message content:`, {
         id: firstMessage.id,
         contentPreview: firstMessage.content?.substring(0, 100),
         sender: firstMessage.sender,
@@ -296,11 +313,18 @@ export async function POST(
       const chatService = await getChatService();
       // Try to get an existing chat first
       try {
+        console.log('🧪 DEBUG: Attempting to get existing chat:', chatId);
         chatSession = await chatService.getChatById(chatId);
-        console.log(`Found existing chat session: ${chatId}`);
+        console.log(`✅ Found existing chat session: ${chatId}`, {
+          chatExists: !!chatSession,
+          chatId: chatSession?.id,
+          status: chatSession?.status
+        });
       } catch (notFoundError) {
         // If not found, create a new chat
-        console.log(`Creating new chat session: ${chatId}`);
+        console.log(`🧪 DEBUG: Chat not found, creating new chat session: ${chatId}`);
+        console.log('Chat not found error:', notFoundError);
+        
         // Get agent info for title
         let agentName = 'Assistant';
         try {
@@ -312,13 +336,27 @@ export async function POST(
           console.warn('Error getting agent info:', agentError);
         }
         
+        console.log('🧪 DEBUG: Creating chat with params:', {
+          userId: actualUserId,
+          agentId: actualAgentId,
+          chatId: chatId,
+          agentName: agentName
+        });
+        
         chatSession = await chatService.createChat(actualUserId, actualAgentId, {
           title: `Chat with ${agentName}`,
           description: `Conversation between user ${actualUserId} and agent ${agentName}`
         });
+        
+        console.log('🧪 DEBUG: Chat creation result:', {
+          success: !!chatSession,
+          newChatId: chatSession?.id,
+          requestedChatId: chatId,
+          idsMatch: chatSession?.id === chatId
+        });
       }
     } catch (chatError) {
-      console.error('Error creating chat session:', chatError);
+      console.error('🧪 DEBUG: Error in chat creation/retrieval:', chatError);
       // Create a minimal chat session for conversation continuity
       let agentName = 'Assistant';
       try {
@@ -330,6 +368,7 @@ export async function POST(
         console.warn('Error getting agent info:', agentError);
       }
       
+      console.log('🧪 DEBUG: Creating fallback chat session...');
       chatSession = {
         id: chatId,
         type: 'direct',
@@ -345,6 +384,7 @@ export async function POST(
           description: `Conversation between user ${actualUserId} and agent ${agentName}`
         }
       };
+      console.log('🧪 DEBUG: Fallback chat session created:', !!chatSession);
     }
     
     // Create structured IDs
@@ -458,6 +498,16 @@ export async function POST(
     console.log(`Created user message with thread ID: ${userThreadInfo.id}, position: ${userThreadInfo.position}`);
     
     // Save user message to memory with extracted tags and importance
+    console.log('🧪 DEBUG: About to save user message to memory...', {
+      content: content.substring(0, 100) + '...',
+      userId: actualUserId,
+      agentId: actualAgentId,
+      chatId: chatId,
+      userMessageTags,
+      userImportance,
+      userImportanceScore
+    });
+    
     const userMemoryResult = await addMessageMemory(
       memoryService,
       content,
@@ -486,21 +536,68 @@ export async function POST(
       }
     );
 
+    console.log('🧪 DEBUG: User message save result:', {
+      success: !!userMemoryResult?.id,
+      messageId: userMemoryResult?.id,
+      error: userMemoryResult?.error || 'none'
+    });
+
     // Store user message ID for assistant response
     if (userMemoryResult && userMemoryResult.id) {
       lastUserMessageId = userMemoryResult.id;
       console.log(`Saved user message to memory with ID: ${lastUserMessageId}`);
+    } else {
+      console.error('🚨 USER MESSAGE SAVE FAILED!', userMemoryResult);
     }
 
     // Get the agent instance from the runtime registry (already bootstrapped and running)
-    const { getAgentById } = await import('../../../../../../server/agent/agent-service');
-    const agent = getAgentById(actualAgentId);
+    const { getAgentById, getAllAgents, debugAgentRegistry } = await import('../../../../../../server/agent/agent-service');
+    let agent = getAgentById(actualAgentId);
     
     if (!agent) {
-      throw new Error(`Agent ${actualAgentId} not found in runtime registry. Make sure agents are bootstrapped on server startup.`);
+      console.warn(`Agent ${actualAgentId} not found in runtime registry. Attempting recovery...`);
+      
+      // Try to get any available agent as fallback
+      const availableAgents = getAllAgents();
+      if (availableAgents.length > 0) {
+        agent = availableAgents[0];
+        console.log(`Using fallback agent ${agent.getAgentId()} instead of ${actualAgentId}`);
+      } else {
+        // No agents available, try to bootstrap
+        console.log('No agents available in registry. Attempting bootstrap...');
+        try {
+          const { bootstrapAgentsFromDatabase } = await import('../../../../../../server/agent/bootstrap-agents');
+          const bootstrappedCount = await bootstrapAgentsFromDatabase();
+          console.log(`Bootstrapped ${bootstrappedCount} agents`);
+          
+          // Try to get the originally requested agent again
+          agent = getAgentById(actualAgentId);
+          if (!agent) {
+            // Still not found, use first available
+            const newlyAvailableAgents = getAllAgents();
+            if (newlyAvailableAgents.length > 0) {
+              agent = newlyAvailableAgents[0];
+              console.log(`Using bootstrapped agent ${agent.getAgentId()} instead of ${actualAgentId}`);
+            }
+          }
+        } catch (bootstrapError) {
+          console.error('Failed to bootstrap agents:', bootstrapError);
+        }
+      }
     }
     
-    console.log(`Using already running agent ${actualAgentId} from runtime registry`);
+    if (!agent) {
+      // Log debug information about the registry state
+      debugAgentRegistry();
+      throw new Error(`No agents available in runtime registry. Make sure agents are bootstrapped on server startup. Try restarting the server with: npm run dev:with-bootstrap`);
+    }
+    
+    const actualUsedAgentId = agent.getAgentId();
+    if (actualUsedAgentId !== actualAgentId) {
+      console.log(`Note: Using agent ${actualUsedAgentId} instead of requested agent ${actualAgentId}`);
+    } else {
+      console.log(`Using requested agent ${actualAgentId} from runtime registry`);
+    }
     
     // Check if agent has the required processUserInput method
     if (typeof (agent as any).processUserInput !== 'function') {

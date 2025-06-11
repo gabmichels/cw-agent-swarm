@@ -12,7 +12,7 @@ const requestTypeSchema = z.object({
   missingTools: z.array(z.string()).describe("List of required tools that are not available to this agent"),
   delegationSuggested: z.boolean().describe("Whether this task should be delegated due to missing tools"),
   suggestedSchedule: z.object({
-    scheduledFor: z.string().nullable().optional().describe("ISO date string for when to schedule (if applicable)"),
+    timeExpression: z.string().nullable().optional().describe("Natural language time expression from user (e.g., 'in 2 minutes', 'tomorrow at 3pm', 'next Friday')"),
     recurring: z.boolean().optional().describe("Whether this should be a recurring task"),
     intervalExpression: z.string().optional().describe("Interval expression like '1h', '1d', 'weekly' if recurring")
   }).optional().describe("Scheduling information if this is a scheduled task")
@@ -23,46 +23,75 @@ const requestTypeSchema = z.object({
  */
 async function discoverAgentTools(state: ThinkingState): Promise<string[]> {
   try {
+    // 🎯 PRIMARY: Try to get tools from the agent instance if available
+    if (state.metadata?.agent && typeof state.metadata.agent === 'object') {
+      const agent = state.metadata.agent;
+      console.log('🔧 Found agent instance in metadata, discovering tools...');
+      
+      // Try to get tools from the agent's tool manager
+      if (typeof agent.getManager === 'function') {
+        try {
+          const toolManager = agent.getManager('tools');
+          if (toolManager && typeof (toolManager as any).getAllTools === 'function') {
+            const tools = await (toolManager as any).getAllTools();
+            const toolNames = tools.map((tool: any) => tool.name || tool.id || 'unknown_tool');
+            console.log(`🎯 Discovered ${toolNames.length} tools from agent tool manager:`, toolNames);
+            return toolNames;
+          }
+        } catch (toolError) {
+          console.warn('Failed to get tools from agent tool manager:', toolError);
+        }
+      }
+      
+      // Try getAvailableToolNames method if exists
+      if (typeof (agent as any).getAvailableToolNames === 'function') {
+        try {
+          const toolNames = await (agent as any).getAvailableToolNames();
+          console.log(`🎯 Discovered ${toolNames.length} tools from agent.getAvailableToolNames():`, toolNames);
+          return toolNames;
+        } catch (toolError) {
+          console.warn('Failed to get tools from agent.getAvailableToolNames():', toolError);
+        }
+      }
+      
+      // Try getRegisteredTools method if exists
+      if (typeof (agent as any).getRegisteredTools === 'function') {
+        try {
+          const tools = (agent as any).getRegisteredTools();
+          const toolNames = tools.map((tool: any) => typeof tool === 'string' ? tool : tool.name || tool.id || 'unknown_tool');
+          console.log(`🎯 Discovered ${toolNames.length} tools from agent.getRegisteredTools():`, toolNames);
+          return toolNames;
+        } catch (toolError) {
+          console.warn('Failed to get tools from agent.getRegisteredTools():', toolError);
+        }
+      }
+    }
+    
     // Try to get tools from agent context if available
     if (state.agentPersona?.capabilities) {
+      console.log('🔧 Using tools from state.agentPersona.capabilities:', state.agentPersona.capabilities);
       return state.agentPersona.capabilities;
     }
     
     // Try to get from thinking context
     if (state.contextUsed?.tools) {
-      return state.contextUsed.tools.map((tool: any) => typeof tool === 'string' ? tool : tool.name || 'unknown_tool');
-    }
-    
-    // If we have access to the agent instance through state metadata
-    if (state.metadata?.agent) {
-      const agent = state.metadata.agent;
-      
-      // Try to get registered tools
-      if (typeof agent.getTools === 'function') {
-        const tools = await agent.getTools();
-        return tools.map((tool: any) => tool.name || tool.id || 'unnamed_tool');
-      }
-      
-      // Try to get tool manager
-      if (typeof agent.getToolManager === 'function') {
-        const toolManager = agent.getToolManager();
-        if (toolManager && typeof toolManager.getTools === 'function') {
-          const tools = await toolManager.getTools();
-          return tools.map((tool: any) => tool.name || tool.id || 'unnamed_tool');
-        }
-      }
+      const toolNames = state.contextUsed.tools.map((tool: any) => typeof tool === 'string' ? tool : tool.name || 'unknown_tool');
+      console.log('🔧 Using tools from state.contextUsed.tools:', toolNames);
+      return toolNames;
     }
     
     // Fallback: return common tools (this maintains backward compatibility)
+    console.warn('🔧 No agent tools found, using fallback tools');
     return [
       'general_llm_capabilities',
       'text_processing',
       'analysis',
-      'reasoning'
+      'reasoning',
+      'send_message' // Add send_message as available tool
     ];
   } catch (error) {
     console.warn('Failed to discover agent tools:', error);
-    return ['general_llm_capabilities']; // Safe fallback
+    return ['general_llm_capabilities', 'send_message']; // Safe fallback
   }
 }
 
@@ -157,6 +186,17 @@ Analyze the user's request and classify it into one of three categories:
 2. **EXTERNAL_TOOL_TASK**: Requires external tools, APIs, or real-time data  
 3. **SCHEDULED_TASK**: Should be scheduled for future execution
 
+CRITICAL SCHEDULING DETECTION:
+- If the request contains time expressions like "in X minutes", "in X hours", "tomorrow", "next week", "schedule", "remind me", "send later", etc. → SCHEDULED_TASK
+- If the request asks to "schedule a message", "send a message in X time", "deliver automatically" → SCHEDULED_TASK  
+- If the request mentions specific timing for execution → SCHEDULED_TASK
+
+EXAMPLES OF SCHEDULED_TASK:
+- "Please schedule a message to be sent in 2 minutes"
+- "Send me a reminder in 1 hour"
+- "Schedule a tweet for tomorrow"
+- "Deliver this message automatically in 30 minutes"
+
 IMPORTANT: Pay attention to the available tools for this specific agent. If the user requests functionality that requires tools this agent doesn't have, suggest delegation.
 
 For tool analysis:
@@ -180,7 +220,7 @@ Please respond with a valid JSON object in this exact format:
   "missingTools": ["array", "of", "missing", "tools"],
   "delegationSuggested": true or false,
   "suggestedSchedule": {
-    "scheduledFor": "ISO date string (optional)",
+    "timeExpression": "string like 1h, 1d, weekly (optional)",
     "recurring": true or false (optional), 
     "intervalExpression": "string like 1h, 1d, weekly (optional)"
   }
@@ -231,7 +271,7 @@ Please classify this request, analyze tool requirements, and determine if delega
       missingTools: validatedOutput.missingTools || [],
       delegationSuggested: validatedOutput.delegationSuggested || false,
       suggestedSchedule: validatedOutput.suggestedSchedule ? {
-        scheduledFor: validatedOutput.suggestedSchedule.scheduledFor && validatedOutput.suggestedSchedule.scheduledFor !== null ? new Date(validatedOutput.suggestedSchedule.scheduledFor) : undefined,
+        timeExpression: validatedOutput.suggestedSchedule.timeExpression,
         recurring: validatedOutput.suggestedSchedule.recurring,
         intervalExpression: validatedOutput.suggestedSchedule.intervalExpression
       } : undefined

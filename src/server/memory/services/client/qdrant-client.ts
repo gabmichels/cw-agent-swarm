@@ -693,13 +693,17 @@ export class QdrantMemoryClient implements IMemoryClient {
           )
         );
       
-      // Log detailed information about this request
-      console.log(`scrollPoints for collection ${collectionName}, isTaskRequest: ${isTaskRequest}`);
-      console.log(`Raw filter:`, JSON.stringify(filter, null, 2));
+      // Log detailed information about this request at debug level only
+      if (process.env.NODE_ENV === 'development' && process.env.QDRANT_DEBUG === 'true') {
+        console.debug(`scrollPoints for collection ${collectionName}, isTaskRequest: ${isTaskRequest}`);
+        console.debug(`Raw filter:`, JSON.stringify(filter, null, 2));
+      }
       
       // For task requests, use a simplified approach to get all tasks
       if (isTaskRequest) {
-        console.log(`Using simplified task retrieval approach`);
+        if (process.env.QDRANT_DEBUG === 'true') {
+          console.debug(`Using simplified task retrieval approach`);
+        }
         try {
           // Create a simplified search request focused on tasks
           const searchRequest = {
@@ -718,9 +722,13 @@ export class QdrantMemoryClient implements IMemoryClient {
           };
           
           // Execute simplified search
-          console.log(`Executing simplified task search:`, JSON.stringify(searchRequest, null, 2));
+          if (process.env.QDRANT_DEBUG === 'true') {
+            console.debug(`Executing simplified task search:`, JSON.stringify(searchRequest, null, 2));
+          }
           const response = await this.client.scroll(collectionName, searchRequest);
-          console.log(`Simplified task search found ${response.points.length} points`);
+          if (process.env.QDRANT_DEBUG === 'true') {
+            console.debug(`Simplified task search found ${response.points.length} points`);
+          }
           
           // Map points to memory format with type safety
         return response.points.map(point => {
@@ -761,7 +769,9 @@ export class QdrantMemoryClient implements IMemoryClient {
       if (filter) {
         try {
           validatedFilter = this.validateAndFixFilter(filter);
-          console.log(`Validated filter:`, JSON.stringify(validatedFilter, null, 2));
+          if (process.env.QDRANT_DEBUG === 'true') {
+            console.debug(`Validated filter:`, JSON.stringify(validatedFilter, null, 2));
+          }
         } catch (filterError) {
           console.error(`Filter validation failed:`, filterError);
           // Continue with undefined filter
@@ -782,9 +792,13 @@ export class QdrantMemoryClient implements IMemoryClient {
       }
 
       // Execute scroll request
-      console.log(`Executing standard scroll with request:`, JSON.stringify(scrollRequest, null, 2));
+      if (process.env.QDRANT_DEBUG === 'true') {
+        console.debug(`Executing standard scroll with request:`, JSON.stringify(scrollRequest, null, 2));
+      }
       const response = await this.client.scroll(collectionName, scrollRequest);
-      console.log(`Standard scroll found ${response.points.length} points`);
+      if (process.env.QDRANT_DEBUG === 'true') {
+        console.debug(`Standard scroll found ${response.points.length} points`);
+      }
 
       // Map points to memory format with proper typing
       return response.points.map(point => {
@@ -815,7 +829,9 @@ export class QdrantMemoryClient implements IMemoryClient {
       
       // If Qdrant query fails, try fallback method
       try {
-        console.log(`Attempting fallback search for collection ${collectionName}`);
+        if (process.env.QDRANT_DEBUG === 'true') {
+          console.debug(`Attempting fallback search for collection ${collectionName}`);
+        }
         return await this.executeSearchFallback<T>(collectionName, {
           filter: filter,
           limit: limit || 10,

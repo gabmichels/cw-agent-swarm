@@ -63,6 +63,16 @@ export const TASK_COLLECTION: CollectionConfig<TaskSchema> = {
 };
 
 /**
+ * Capability collection configuration
+ */
+export const CAPABILITY_COLLECTION: CollectionConfig<DocumentSchema> = {
+  name: getCollectionNameWithFallback(MemoryType.CAPABILITY_DEFINITION),
+  schema: {} as DocumentSchema, // Use DocumentSchema as base, capabilities are document-like
+  indices: getDefaultIndicesWithFallback(MemoryType.CAPABILITY_DEFINITION),
+  defaults: DOCUMENT_DEFAULTS // Use document defaults as base
+};
+
+/**
  * Memory edit collection configuration
  * Note: Defaults are created at runtime via createMemoryEditDefaults()
  */
@@ -134,6 +144,7 @@ export const COLLECTION_CONFIGS: Partial<Record<MemoryType, CollectionConfig<any
   [MemoryType.TASK]: TASK_COLLECTION,
   [MemoryType.MEMORY_EDIT]: MEMORY_EDIT_COLLECTION,
   [MemoryType.TOOL_EXECUTION_METRICS]: DOCUMENT_COLLECTION, // Store tool metrics in document collection
+  [MemoryType.CAPABILITY_DEFINITION]: CAPABILITY_COLLECTION, // Store capability definitions in document collection
   // Remove visualization from memory types
   // [MemoryType.VISUALIZATION]: VISUALIZATION_COLLECTION,
 };

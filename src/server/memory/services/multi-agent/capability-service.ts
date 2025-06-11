@@ -69,7 +69,7 @@ export class DefaultCapabilityMemoryService {
       
       // Add capability to memory
       return await this.memoryService!.addMemory({
-        type: 'capability' as MemoryType,
+        type: MemoryType.CAPABILITY_DEFINITION,
         content: content,
         metadata: capability
       });
@@ -97,7 +97,7 @@ export class DefaultCapabilityMemoryService {
       await this.ensureInitialized();
       
       const result = await this.memoryService!.getMemory({
-        type: 'capability' as MemoryType,
+        type: MemoryType.CAPABILITY_DEFINITION,
         id
       });
       
@@ -127,7 +127,7 @@ export class DefaultCapabilityMemoryService {
       
       // Update capability in memory
       return await this.memoryService!.updateMemory({
-        type: 'capability' as MemoryType,
+        type: MemoryType.CAPABILITY_DEFINITION,
         id: capability.id,
         content,
         metadata: capability
@@ -149,7 +149,7 @@ export class DefaultCapabilityMemoryService {
       await this.ensureInitialized();
       
       return await this.memoryService!.deleteMemory({
-        type: 'capability' as MemoryType,
+        type: MemoryType.CAPABILITY_DEFINITION,
         id
       });
     } catch (error) {
@@ -173,7 +173,7 @@ export class DefaultCapabilityMemoryService {
       await this.ensureInitialized();
       
       const result = await this.memoryService!.searchMemories({
-        type: 'capability' as MemoryType,
+        type: MemoryType.CAPABILITY_DEFINITION,
         query: `type:${type}`,
         limit
       });
@@ -200,7 +200,7 @@ export class DefaultCapabilityMemoryService {
       await this.ensureInitialized();
       
       const result = await this.memoryService!.searchMemories({
-        type: 'capability' as MemoryType,
+        type: MemoryType.CAPABILITY_DEFINITION,
         query: searchText,
         limit
       });

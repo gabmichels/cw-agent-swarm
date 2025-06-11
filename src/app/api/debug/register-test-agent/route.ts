@@ -14,47 +14,39 @@ export async function POST() {
     const existingAgents = getAllAgents();
     console.log(`📊 Current agents in registry: ${existingAgents.length}`);
     
-    // Create a functional test agent
-    const testAgent = {
-      getId: () => 'manual-test-agent',
-      getAgentId: () => 'manual-test-agent',
-      getHealth: async () => ({ 
-        status: 'healthy' as const,
-        message: 'Test agent is healthy',
-        timestamp: new Date()
-      }),
-      planAndExecute: async (options: any) => {
-        console.log('🤖 Test agent executing task:', options.goal || 'No goal provided');
-        
-        // Simulate task execution
-        await new Promise(resolve => setTimeout(resolve, 100));
-        
-        return {
-          task: { 
-            status: 'complete',
-            id: options.taskId || 'test-task'
-          },
-          finalResult: { 
-            success: true, 
-            message: 'Test agent execution successful',
-            executedAt: new Date(),
-            goal: options.goal
-          }
-        };
-      },
-      constructor: { name: 'ManualTestAgent' },
-      
-      // Additional methods that might be expected
-      getName: () => 'Manual Test Agent',
-      getType: () => 'test-agent',
-      initialize: async () => {
-        console.log('✅ Test agent initialized');
-        return true;
-      }
-    };
+    // Import DefaultAgent to create a real agent instance
+    const { DefaultAgent } = await import('../../../../agents/shared/DefaultAgent');
+    
+    // Create a real DefaultAgent instance
+    const testAgent = new DefaultAgent({
+      id: 'manual-test-agent',
+      name: 'Manual Test Agent',
+      description: 'A test agent created for debugging purposes',
+      type: 'test-agent',
+      enableMemoryManager: true,
+      enablePlanningManager: true,
+      enableToolManager: true,
+      enableSchedulerManager: true,
+      enableInputProcessor: true,
+      enableOutputProcessor: true,
+      systemPrompt: 'You are a helpful test agent. Respond to user messages in a friendly and helpful manner.',
+      modelName: 'gpt-4o-mini',
+      temperature: 0.7,
+      maxTokens: 1000
+    });
+    
+    // Initialize the agent
+    console.log('🔄 Initializing test agent...');
+    const initResult = await testAgent.initialize();
+    
+    if (!initResult) {
+      throw new Error('Failed to initialize test agent');
+    }
+    
+    console.log('✅ Test agent initialized successfully');
     
     // Register the test agent
-    registerAgent(testAgent as any);
+    registerAgent(testAgent);
     
     // Verify registration
     const updatedAgents = getAllAgents();
@@ -72,7 +64,7 @@ export async function POST() {
       success: true,
       message: 'Test agent registered successfully',
       agentId: 'manual-test-agent',
-      agentType: 'ManualTestAgent',
+      agentType: 'DefaultAgent',
       previousAgentCount: existingAgents.length,
       currentAgentCount: updatedAgents.length,
       registered: !!registered,

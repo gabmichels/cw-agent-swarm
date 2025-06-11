@@ -29,15 +29,43 @@ export async function GET(request: Request) {
     
     // If type is specified, filter by type
     if (type) {
-      capabilities = await capabilityService.findCapabilitiesByType(type, limit + offset);
+      const rawCapabilities = await capabilityService.findCapabilitiesByType(type, limit + offset);
+      
+      // Deduplicate capabilities by ID
+      const seenIds = new Set<string>();
+      const deduplicatedCapabilities = rawCapabilities.filter(cap => {
+        if (!cap || !cap.name || !cap.type || !cap.id) {
+          return false;
+        }
+        if (seenIds.has(cap.id)) {
+          return false;
+        }
+        seenIds.add(cap.id);
+        return true;
+      });
+      
       // Apply offset
-      capabilities = capabilities.slice(offset, offset + limit);
+      capabilities = deduplicatedCapabilities.slice(offset, offset + limit);
     } 
     // If search text is specified, search by text
     else if (searchText) {
-      capabilities = await capabilityService.searchCapabilities(searchText, limit + offset);
+      const rawCapabilities = await capabilityService.searchCapabilities(searchText, limit + offset);
+      
+      // Deduplicate capabilities by ID
+      const seenIds = new Set<string>();
+      const deduplicatedCapabilities = rawCapabilities.filter(cap => {
+        if (!cap || !cap.name || !cap.type || !cap.id) {
+          return false;
+        }
+        if (seenIds.has(cap.id)) {
+          return false;
+        }
+        seenIds.add(cap.id);
+        return true;
+      });
+      
       // Apply offset
-      capabilities = capabilities.slice(offset, offset + limit);
+      capabilities = deduplicatedCapabilities.slice(offset, offset + limit);
     } 
     // Otherwise get all capabilities (limited)
     else {
@@ -50,10 +78,31 @@ export async function GET(request: Request) {
       const tagCapabilities = await capabilityService.findCapabilitiesByType(CapabilityType.TAG, pageSize);
       
       // Combine all capabilities
-      capabilities = [...skillCapabilities, ...domainCapabilities, ...roleCapabilities, ...tagCapabilities];
+      const allCapabilities = [...skillCapabilities, ...domainCapabilities, ...roleCapabilities, ...tagCapabilities];
       
-      // Sort by name for consistent ordering
-      capabilities.sort((a, b) => a.name.localeCompare(b.name));
+      // Deduplicate capabilities by ID - this is crucial to avoid React key errors
+      const seenIds = new Set<string>();
+      capabilities = allCapabilities.filter(cap => {
+        // Skip if capability is malformed
+        if (!cap || !cap.name || !cap.type || !cap.id) {
+          return false;
+        }
+        
+        // Skip if we've already seen this ID
+        if (seenIds.has(cap.id)) {
+          return false;
+        }
+        
+        seenIds.add(cap.id);
+        return true;
+      });
+      
+      // Sort by name for consistent ordering (with null safety)
+      capabilities.sort((a, b) => {
+        const nameA = a.name || '';
+        const nameB = b.name || '';
+        return nameA.localeCompare(nameB);
+      });
       
       // Apply pagination
       capabilities = capabilities.slice(offset, offset + limit);

@@ -16,6 +16,7 @@ import { PriorityBasedStrategy } from '../implementations/strategies/PriorityBas
 import { CapacityBasedStrategy } from '../implementations/strategies/CapacityBasedStrategy';
 import { BasicTaskExecutor } from '../implementations/executor/BasicTaskExecutor';
 import { AgentAwareTaskExecutor } from '../implementations/executor/AgentAwareTaskExecutor';
+import { MultiAgentTaskExecutor } from '../implementations/executor/MultiAgentTaskExecutor';
 import { BasicDateTimeProcessor } from '../implementations/datetime/BasicDateTimeProcessor';
 import { SchedulerConfig, DEFAULT_SCHEDULER_CONFIG } from '../models/SchedulerConfig.model';
 import { Task, TaskStatus } from '../models/Task.model';
@@ -179,13 +180,13 @@ export async function createSchedulerManager(
   // Create the task executor - REAL AGENT EXECUTION!
   const executor = agent 
     ? new AgentAwareTaskExecutor(agent, config?.maxConcurrentTasks || 5)
-    : new BasicTaskExecutor();
+    : new MultiAgentTaskExecutor(config?.maxConcurrentTasks || 20);
   
   // Log which executor is being used
   if (agent) {
     console.log(`🔥 Creating REAL AgentAwareTaskExecutor for agent ${agent.getId()}`);
   } else {
-    console.log(`⚠️ No agent provided - using BasicTaskExecutor placeholder`);
+    console.log(`🔥 Creating REAL MultiAgentTaskExecutor for global scheduler`);
   }
   
   // Create the scheduler manager with all components
@@ -193,7 +194,7 @@ export async function createSchedulerManager(
   try {
     // Development-friendly config overrides
     const devConfig = {
-      schedulingIntervalMs: 60000, // Check every 60 seconds (1 minute)
+      schedulingIntervalMs: 60000, // Check every 60 seconds instead of 5 seconds
       maxConcurrentTasks: 5, // Start with 5 concurrent tasks for development
       defaultTaskTimeoutMs: 120000, // 2 minutes timeout for tasks
       ...config
@@ -238,8 +239,17 @@ export async function createSchedulerManagerForAgent(
   config?: Partial<SchedulerConfig>,
   agentId?: string
 ): Promise<ModularSchedulerManager> {
-  // Create the standard scheduler manager
-  const manager = await createSchedulerManager(config);
+  // Force agent-specific schedulers to use MemoryTaskRegistry to prevent conflicts
+  // This avoids the issue where multiple agents see the same tasks in shared Qdrant
+  const agentConfig = {
+    ...config,
+    registryType: RegistryType.MEMORY // Override to use memory registry for agent-specific schedulers
+  };
+  
+  console.log(`🔧 Creating agent-specific scheduler for agent ${agentId} with MemoryTaskRegistry to avoid conflicts`);
+  
+  // Create the standard scheduler manager with memory registry
+  const manager = await createSchedulerManager(agentConfig);
   
   // If no agent ID is provided, return the standard manager
   if (!agentId) {
@@ -253,8 +263,18 @@ export async function createSchedulerManagerForAgent(
   };
   agentAwareManager.agentId = agentId;
   
+  // CRITICAL FIX: Set a mock agent object so the scheduler knows it's agent-specific
+  // This ensures the scheduler uses agent-specific execution path
+  const mockAgent = {
+    getId: () => agentId
+  };
+  (agentAwareManager as any).agent = mockAgent;
+  
+  console.log(`✅ Set mock agent for scheduler manager - agent ID: ${agentId}`);
+  
   // Store original methods to avoid recursive calls
   const originalExecuteDueTasks = manager.executeDueTasks.bind(manager);
+  const originalExecuteDueTasksForAgent = manager.executeDueTasksForAgent.bind(manager);
   const originalCreateTask = manager.createTask.bind(manager);
   const originalFindTasks = manager.findTasks.bind(manager);
   const originalExecuteTaskNow = manager.executeTaskNow.bind(manager);
@@ -273,6 +293,12 @@ export async function createSchedulerManagerForAgent(
           }
         }
       };
+      
+      console.log(`🔍 Agent ${this.agentId} findTasks with filter:`, {
+        originalFilter: filter,
+        agentFilter: agentFilter,
+        registryType: 'Memory'
+      });
       
       // Use the original findTasks with the agent filter
       return await originalFindTasks(agentFilter);
@@ -300,6 +326,14 @@ export async function createSchedulerManagerForAgent(
         }
       };
       
+      console.log(`📝 Creating task for agent ${this.agentId}:`, {
+        taskId: taskWithAgentId.id,
+        taskName: taskWithAgentId.name,
+        agentId: this.agentId,
+        scheduledTime: taskWithAgentId.scheduledTime,
+        metadata: taskWithAgentId.metadata
+      });
+      
       // Call the original createTask method to avoid recursion
       return await originalCreateTask(taskWithAgentId);
     },
@@ -307,35 +341,83 @@ export async function createSchedulerManagerForAgent(
     configurable: true
   });
   
-  // Override the executeDueTasks method to filter by agent ID
-  Object.defineProperty(agentAwareManager, 'executeDueTasks', {
-    value: async function(): Promise<TaskExecutionResult[]> {
+  // Override executeDueTasksForAgent to provide better logging and execution
+  Object.defineProperty(agentAwareManager, 'executeDueTasksForAgent', {
+    value: async function(agentId: string): Promise<TaskExecutionResult[]> {
+      console.log(`🎯 Agent ${agentId} checking for due tasks...`);
+      
       // Get pending tasks for this agent
       const pendingTasks = await this.findTasks({
         status: TaskStatus.PENDING
       });
       
       if (!pendingTasks.length) {
+        console.log(`📭 Agent ${agentId} has no pending tasks`);
         return [];
       }
       
-      // Execute each due task individually
-      const results: TaskExecutionResult[] = [];
-      for (const task of pendingTasks) {
-        // Check if the task is due (has a scheduled time in the past)
-        const now = new Date();
-        if (task.scheduledTime && task.scheduledTime <= now) {
-          // Execute the task
-          const result = await originalExecuteTaskNow(task.id);
-          results.push(result);
-        }
-      }
+      console.log(`📋 Agent ${agentId} found ${pendingTasks.length} pending tasks`);
+      
+             // Check which tasks are due
+       const now = new Date();
+       const dueTasks = pendingTasks.filter((task: Task) => 
+         task.scheduledTime && task.scheduledTime <= now
+       );
+       
+       if (!dueTasks.length) {
+         console.log(`⏰ Agent ${agentId} has no due tasks (${pendingTasks.length} pending but not yet due)`);
+         return [];
+       }
+       
+       console.log(`🚀 Agent ${agentId} executing ${dueTasks.length} due tasks:`, 
+         dueTasks.map((t: Task) => ({ id: t.id, name: t.name, scheduledTime: t.scheduledTime })));
+       
+       // Execute each due task individually with detailed logging
+       const results: TaskExecutionResult[] = [];
+       for (const task of dueTasks) {
+         try {
+           console.log(`⏰ Agent ${agentId} executing task: ${task.id} (${task.name}) scheduled for ${task.scheduledTime}`);
+           
+           // Execute the task using the original method
+           const result = await originalExecuteTaskNow(task.id);
+           results.push(result);
+           
+           console.log(`✅ Agent ${agentId} task execution result:`, {
+             taskId: task.id,
+             successful: result.successful,
+             status: result.status,
+             duration: result.duration
+           });
+           
+         } catch (error) {
+           console.error(`❌ Agent ${agentId} failed to execute task ${task.id}:`, error);
+           
+           // Create a failed result
+           const errorResult: TaskExecutionResult = {
+             taskId: task.id,
+             successful: false,
+             status: TaskStatus.FAILED,
+             startTime: new Date(),
+             endTime: new Date(),
+             duration: 0,
+             error: error instanceof Error ? { message: error.message, code: 'TASK_EXECUTION_ERROR', stack: error.stack } : { message: String(error), code: 'TASK_EXECUTION_ERROR' },
+             result: null,
+             wasRetry: false,
+             retryCount: 0
+           };
+           results.push(errorResult);
+         }
+       }
+      
+      console.log(`🏁 Agent ${agentId} completed execution of ${results.length} tasks - ${results.filter(r => r.successful).length} successful, ${results.filter(r => !r.successful).length} failed`);
       
       return results;
     },
     writable: true,
     configurable: true
   });
+  
+  console.log(`🎯 Agent-specific scheduler manager created for agent ${agentId} with enhanced logging and execution`);
   
   return agentAwareManager;
 }

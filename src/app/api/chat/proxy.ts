@@ -514,12 +514,21 @@ export async function POST(req: Request) {
         
         if (!effectiveAgentId) {
           try {
-            // Try to get the default agent
+            // First try to get an agent from the runtime registry
+            const { getDefaultAgent: getRuntimeDefaultAgent, getAllAgents } = await import('../../../server/agent/agent-service');
+            const runtimeDefaultAgent = getRuntimeDefaultAgent();
+            
+            if (runtimeDefaultAgent) {
+              effectiveAgentId = runtimeDefaultAgent.getId();
+              agentName = runtimeDefaultAgent.getName ? runtimeDefaultAgent.getName() : 'Agent';
+              console.log(`Using runtime default agent: ${agentName} (${effectiveAgentId})`);
+            } else {
+              // Fallback to API-based agent service
             const defaultAgent = await AgentService.getDefaultAgent();
             if (defaultAgent) {
               effectiveAgentId = defaultAgent.id;
               agentName = defaultAgent.name || 'Agent';
-              console.log(`Using default agent: ${agentName} (${effectiveAgentId})`);
+                console.log(`Using API default agent: ${agentName} (${effectiveAgentId})`);
             } else {
               console.error('No agent specified and no default agent available');
               // Return a proper response object that matches the expected return type
@@ -530,6 +539,7 @@ export async function POST(req: Request) {
                 timestamp: new Date().toISOString(),
                 error: 'No agent specified and no default agent available'
               };
+              }
             }
           } catch (agentError) {
             console.error('Error getting default agent:', agentError);
@@ -634,9 +644,15 @@ export async function POST(req: Request) {
           }
           
           // Make sure agent is initialized
-          if (agent.initialized === false && typeof agent.initialize === 'function') {
-            console.log(`Initializing agent ${effectiveAgentId} on first use`);
-            await agent.initialize();
+          if (typeof agent.initialize === 'function') {
+            try {
+              const isInitialized = await agent.initialize();
+              if (!isInitialized) {
+                console.log(`Failed to initialize agent ${effectiveAgentId}`);
+              }
+            } catch (initError) {
+              console.log(`Error initializing agent ${effectiveAgentId}:`, initError);
+            }
           }
         } catch (error: any) {
           throw new Error(`Error loading agent ${effectiveAgentId}: ${error.message}`);
@@ -645,7 +661,8 @@ export async function POST(req: Request) {
         // Process the message with the selected agent - with timeout protection
         let chatResponse;
         try {
-          const processPromise = agent.processMessage(normalizedMessage, {
+          // Use processUserInput instead of processMessage (which doesn't exist on AgentBase)
+          const processPromise = agent.processUserInput(normalizedMessage, {
             attachments,
             userId,
             // Add the userMessageId to the options so the agent knows not to save this message again
@@ -720,13 +737,24 @@ export async function POST(req: Request) {
       } catch (error) {
         console.error('Error processing message:', error);
         
-        // Generate a fallback response
-        const errorMessage = error instanceof Error ? error.message : String(error);
+        // Get the full error message
+        const fullErrorMessage = error instanceof Error ? error.message : String(error);
+        const errorStack = error instanceof Error ? error.stack : undefined;
+        
+        console.error('Full proxy error details:', {
+          message: fullErrorMessage,
+          stack: errorStack,
+          type: typeof error,
+          errorObject: error
+        });
+        
         const fallbackReply = 'I encountered an error while processing your message. Please try again later.';
         
         return {
           reply: fallbackReply,
-          error: errorMessage,
+          error: fullErrorMessage, // Return the full error message
+          errorStack: errorStack,
+          errorType: typeof error,
           timestamp: new Date().toISOString()
         };
       } finally {
@@ -748,10 +776,24 @@ export async function POST(req: Request) {
   } catch (error) {
     console.error('Unexpected error in /api/chat/proxy POST handler:', error);
     
+    // Get the full error message
+    const fullErrorMessage = error instanceof Error ? error.message : String(error);
+    const errorStack = error instanceof Error ? error.stack : undefined;
+    
+    console.error('Full proxy error details:', {
+      message: fullErrorMessage,
+      stack: errorStack,
+      type: typeof error,
+      errorObject: error
+    });
+    
     return NextResponse.json(
       {
         reply: 'Sorry, I encountered an unexpected error processing your request.',
-        error: error instanceof Error ? error.message : String(error)
+        error: fullErrorMessage, // Return the full error message
+        errorStack: errorStack,
+        errorType: typeof error,
+        timestamp: new Date().toISOString()
       },
       { status: 500 }
     );
@@ -783,18 +825,33 @@ export async function GET(req: Request) {
 }
 
 async function getAgentInstance(agentId = '') {
+  // Import the runtime agent service that has the actual agent instances
+  const { getAgentById, getDefaultAgent, getAllAgents } = await import('../../../server/agent/agent-service');
+  
   // If no agent ID is provided, try to get the default agent
   if (!agentId) {
-    const defaultAgent = await AgentService.getDefaultAgent();
+    const defaultAgent = getDefaultAgent();
     if (!defaultAgent) {
+      // Debug: Check what agents are available
+      const allAgents = getAllAgents();
+      console.log(`No default agent found. Available agents: ${allAgents.length}`);
+      allAgents.forEach(agent => {
+        console.log(`  - Agent ID: ${agent.getId ? agent.getId() : 'unknown'}, Type: ${agent.constructor.name}`);
+      });
       throw new Error('No agent ID provided and no default agent available');
     }
     return defaultAgent;
   }
   
   // Get the agent with the specified ID
-  const agent = await AgentService.getAgent(agentId);
+  const agent = getAgentById(agentId);
   if (!agent) {
+    // Debug: Check what agents are available
+    const allAgents = getAllAgents();
+    console.log(`Agent ${agentId} not found. Available agents: ${allAgents.length}`);
+    allAgents.forEach(agent => {
+      console.log(`  - Agent ID: ${agent.getId ? agent.getId() : 'unknown'}, Type: ${agent.constructor.name}`);
+    });
     throw new Error(`Agent with ID ${agentId} not found`);
   }
   

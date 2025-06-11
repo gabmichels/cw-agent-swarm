@@ -320,6 +320,53 @@ export interface PlanningMetadata extends CognitiveProcessMetadata {
 }
 
 /**
+ * Agent status enum
+ */
+export enum AgentStatus {
+  AVAILABLE = 'available',
+  BUSY = 'busy',
+  OFFLINE = 'offline',
+  MAINTENANCE = 'maintenance'
+}
+
+/**
+ * Agent metadata interface
+ */
+export interface AgentMetadata extends BaseMetadata {
+  // Agent-specific identification
+  agentId: StructuredId;
+  name: string;
+  description: string;
+  
+  // Agent state
+  status: AgentStatus;
+  lastActive?: string;  // ISO date string
+  
+  // Agent configuration
+  version: string;
+  isPublic: boolean;
+  
+  // Categorization
+  domain: string[];
+  specialization: string[];
+  
+  // Performance tracking
+  performanceMetrics: {
+    successRate: number;        // 0-1
+    averageResponseTime: number; // milliseconds
+    taskCompletionRate: number; // 0-1
+  };
+  
+  // Relationships
+  chatIds?: string[];
+  teamIds?: string[];
+  createdBy?: StructuredId;
+  
+  // Content summary for agent retrieval optimization
+  contentSummary?: string;
+}
+
+/**
  * Document source enum
  */
 export enum DocumentSource {
@@ -535,7 +582,20 @@ export enum MetadataField {
   COMPLETED_DATE = 'completedDate',
   PARENT_TASK_ID = 'parentTaskId',
   SUBTASK_IDS = 'subtaskIds',
-  BLOCKED_BY = 'blockedBy'
+  BLOCKED_BY = 'blockedBy',
+  
+  // Agent-specific fields
+  AGENT_NAME = 'name',
+  AGENT_DESCRIPTION = 'description',
+  AGENT_LAST_ACTIVE = 'lastActive',
+  AGENT_VERSION = 'version',
+  AGENT_IS_PUBLIC = 'isPublic',
+  AGENT_DOMAIN = 'domain',
+  AGENT_SPECIALIZATION = 'specialization',
+  AGENT_PERFORMANCE_METRICS = 'performanceMetrics',
+  AGENT_CHAT_IDS = 'chatIds',
+  AGENT_TEAM_IDS = 'teamIds',
+  AGENT_CONTENT_SUMMARY = 'contentSummary'
 }
 
 /**

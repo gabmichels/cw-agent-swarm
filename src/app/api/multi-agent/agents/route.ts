@@ -4,10 +4,10 @@ import { AgentRegistrationRequest, AgentProfile } from '@/lib/multi-agent/types/
 import { DefaultAgentMemoryService } from '@/server/memory/services/multi-agent/agent-service';
 import { DefaultCapabilityMemoryService } from '@/server/memory/services/multi-agent/capability-service';
 import { getMemoryServices } from '@/server/memory/services';
-import { AgentFactory } from '@/agents/shared/AgentFactory';
-import { AgentMemoryEntity, AgentStatus, agentSchema } from '@/server/memory/schema/agent';
+import { AgentMemoryEntity, AgentStatus } from '@/server/memory/schema/agent';
 import { CapabilityMemoryEntity, CapabilityType } from '@/server/memory/schema/capability';
-import { ChatType } from '@/server/memory/models/chat-collection';
+import { AgentMetadata, AgentStatus as MetadataAgentStatus } from '@/types/metadata';
+import { StructuredId } from '@/types/structured-id';
 
 // Extended type to handle the additional fields from the form
 interface ExtendedAgentRegistrationRequest extends AgentRegistrationRequest {
@@ -20,6 +20,148 @@ interface ExtendedAgentRegistrationRequest extends AgentRegistrationRequest {
       communicationStyle: string;
       preferences: string;
     };
+  };
+}
+
+/**
+ * Agent memory entity with embedding for storage
+ */
+interface AgentMemoryEntityWithEmbedding extends AgentMemoryEntity {
+  embedding: number[];
+}
+
+/**
+ * Creates standardized agent metadata following implementation guidelines
+ */
+function createAgentMetadata(
+  agent: AgentProfile, 
+  agentId: string,
+  timestamp: Date
+): AgentMetadata {
+  // Create structured ID
+  const structuredAgentId: StructuredId = {
+    namespace: 'agent',
+    type: 'agent',
+    id: agentId,
+    version: 1
+  };
+
+  return {
+    // Required BaseMetadata fields
+    schemaVersion: '1.0',
+    timestamp: timestamp.toISOString(),
+    
+    // Agent-specific identification
+    agentId: structuredAgentId,
+    name: agent.name,
+    description: agent.description,
+    
+    // Agent state
+    status: mapAgentStatus(agent.status),
+    lastActive: timestamp.toISOString(),
+    
+    // Agent configuration
+    version: agent.metadata?.version || '1.0.0',
+    isPublic: agent.metadata?.isPublic || false,
+    
+    // Categorization
+    domain: agent.metadata?.domain || [],
+    specialization: agent.metadata?.specialization || [],
+    tags: agent.metadata?.tags || [],
+    
+    // Performance tracking
+    performanceMetrics: {
+      successRate: 0,
+      averageResponseTime: 0,
+      taskCompletionRate: 0
+    },
+    
+    // Content summary for retrieval optimization
+    contentSummary: generateAgentContentSummary(agent)
+  };
+}
+
+/**
+ * Maps API agent status to metadata agent status
+ */
+function mapAgentStatus(status?: string): MetadataAgentStatus {
+  if (!status) return MetadataAgentStatus.AVAILABLE;
+  
+  switch (status) {
+    case 'available': return MetadataAgentStatus.AVAILABLE;
+    case 'busy': return MetadataAgentStatus.BUSY;
+    case 'offline': return MetadataAgentStatus.OFFLINE;
+    case 'maintenance': return MetadataAgentStatus.MAINTENANCE;
+    default: return MetadataAgentStatus.AVAILABLE;
+  }
+}
+
+/**
+ * Generates content summary for agent retrieval optimization
+ */
+function generateAgentContentSummary(agent: AgentProfile): string {
+  let summary = `${agent.name} - ${agent.description}`;
+  
+  // Add capabilities
+  if (agent.capabilities.length > 0) {
+    summary += ` | Capabilities: ${agent.capabilities.map(c => c.name).join(', ')}`;
+  }
+  
+  // Add persona information if available
+  if (agent.metadata?.persona) {
+    const persona = agent.metadata.persona;
+    if (persona.background) summary += ` | Background: ${persona.background}`;
+    if (persona.personality) summary += ` | Personality: ${persona.personality}`;
+    if (persona.communicationStyle) summary += ` | Style: ${persona.communicationStyle}`;
+  }
+  
+  // Add system prompt if available
+  if (agent.parameters?.systemPrompt) {
+    summary += ` | Instructions: ${agent.parameters.systemPrompt}`;
+  }
+  
+  return summary;
+}
+
+/**
+ * Converts capabilities to schema-compatible format with agent-specific references
+ */
+function convertCapabilitiesToSchemaFormat(
+  capabilities: AgentProfile['capabilities'],
+  storedCapabilityIds: string[]
+): AgentMemoryEntity['capabilities'] {
+  return storedCapabilityIds.map(capabilityId => {
+    const originalCapability = capabilities.find(cap => cap.id === capabilityId);
+    const level = originalCapability?.parameters?.level || 'basic';
+    const type = originalCapability?.parameters?.type || 'skill';
+    
+    return {
+      id: capabilityId,
+      name: originalCapability?.name || capabilityId.split('.').pop() || capabilityId,
+      description: `Agent-specific reference to capability: ${capabilityId}`,
+      version: '1.0.0',
+      parameters: {
+        level: level,
+        type: type,
+        proficiency: level,
+        dateAdded: new Date().toISOString(),
+        source: 'agent-creation'
+      }
+    };
+  });
+}
+
+/**
+ * Creates schema-compatible agent parameters
+ */
+function createAgentParameters(agent: AgentProfile): AgentMemoryEntity['parameters'] {
+  return {
+    model: agent.parameters?.model || process.env.OPENAI_MODEL_NAME || 'gpt-4.1-2025-04-14',
+    temperature: agent.parameters?.temperature || 0.7,
+    maxTokens: agent.parameters?.maxTokens || 1024,
+    tools: [],
+    customInstructions: agent.parameters?.systemPrompt,
+    systemMessages: agent.parameters?.systemPrompt ? [agent.parameters.systemPrompt] : undefined
   };
 }
 
@@ -135,50 +277,92 @@ export async function POST(request: Request) {
       }
     }
     
-    // Create capability service
+    // Store each custom capability in the capabilities collection FIRST
+    console.log(`📦 Storing ${agent.capabilities.length} capabilities in collection...`);
+    let storedCapabilitiesCount = 0;
+    const storedCapabilityIds: string[] = [];
+    
+    // Create capability service once outside the loop
     const capabilityService = new DefaultCapabilityMemoryService(client);
     
-    // Store each custom capability in the capabilities collection
     for (const capability of agent.capabilities) {
-      // Determine capability type from ID or name if not explicitly provided
+      try {
+        console.log(`🔄 Processing capability: ${capability.name}`);
+        
+        // Check if this capability already exists in the collection
+        const existingCapability = await capabilityService.getCapability(capability.id);
+        if (existingCapability) {
+          console.log(`⚠️ Capability ${capability.name} already exists, skipping creation`);
+          storedCapabilitiesCount++;
+          storedCapabilityIds.push(capability.id);
+          continue;
+        }
+        
+        // Determine capability type from ID or parameters
       let capabilityType: CapabilityType;
-      if (capability.id.startsWith('skill.')) {
+        if (capability.parameters?.type === 'skill' || capability.id.startsWith('skill.')) {
         capabilityType = CapabilityType.SKILL;
-      } else if (capability.id.startsWith('domain.')) {
+        } else if (capability.parameters?.type === 'domain' || capability.id.startsWith('domain.')) {
         capabilityType = CapabilityType.DOMAIN;
-      } else if (capability.id.startsWith('role.')) {
+        } else if (capability.parameters?.type === 'role' || capability.id.startsWith('role.')) {
         capabilityType = CapabilityType.ROLE;
-      } else if (capability.id.startsWith('tag.')) {
+        } else if (capability.parameters?.type === 'tag' || capability.id.startsWith('tag.')) {
         capabilityType = CapabilityType.TAG;
       } else {
         // Default to SKILL if can't determine type
         capabilityType = CapabilityType.SKILL;
       }
       
-      // Create capability object
+        // Extract level from parameters if it's a skill
+        const level = capability.parameters?.level || 'basic';
+        
+        // Create capability entity for the capabilities collection (NO agent-specific data)
       const capabilityEntity: CapabilityMemoryEntity = {
-        id: capability.id || `capability_${capabilityType}_${capability.name.toLowerCase().replace(/\s+/g, '_')}_${ulid()}`,
+          id: capability.id,
         name: capability.name,
         description: capability.description,
         type: capabilityType,
         version: capability.version || '1.0.0',
         parameters: capability.parameters || {},
         tags: [],
-        domains: [],
-        content: `${capability.name} - ${capability.description}`,
+          domains: capabilityType === CapabilityType.DOMAIN ? [capability.name] : [],
+          content: `${capability.name} - ${capability.description} (${capabilityType})`, // Remove level from content
         createdAt: timestamp,
         updatedAt: timestamp,
         schemaVersion: '1.0',
-        metadata: {} // Required by BaseMemoryEntity
+          metadata: {
+            // Remove agent-specific metadata - this is a reusable capability definition
+            category: capabilityType
+          }
       };
       
-      // Store capability
-      try {
-        await capabilityService.createCapability(capabilityEntity);
+        // Store using capability service which handles proper memory types
+        const result = await capabilityService.createCapability(capabilityEntity);
+        
+        if (result.success) {
+          console.log(`✅ Stored capability: ${capability.name} (${capabilityType})`);
+          storedCapabilitiesCount++;
+          storedCapabilityIds.push(capability.id);
+        } else {
+          console.error(`❌ Failed to store capability ${capability.name}: ${result.error?.message}`);
+        }
       } catch (error) {
-        console.error(`Error storing capability ${capability.name}:`, error);
+        console.error(`❌ Error storing capability ${capability.name}:`, error);
+        console.error('Error details:', {
+          capabilityName: capability.name,
+          capabilityId: capability.id,
+          agentId: id,
+          error: error instanceof Error ? error.message : String(error),
+          stack: error instanceof Error ? error.stack : undefined
+        });
         // Continue with other capabilities even if one fails
       }
+    }
+    
+    console.log(`📊 Capability storage summary: ${storedCapabilitiesCount}/${agent.capabilities.length} capabilities stored successfully`);
+    
+    if (storedCapabilitiesCount === 0 && agent.capabilities.length > 0) {
+      console.warn('⚠️ No capabilities were stored successfully, but the agent will still be created');
     }
     
     // Create an agent memory service using our UUID-compatible implementation
@@ -187,128 +371,45 @@ export async function POST(request: Request) {
     // Create agent data for storage
     console.log('Preparing agent data for storage...');
     
-    // Helper function to convert API agent capabilities to schema-compatible format
-    const convertCapabilities = (capabilities: typeof agent.capabilities): AgentMemoryEntity['capabilities'] => {
-      return capabilities.map(cap => ({
-        id: cap.id || `capability_${cap.name.toLowerCase().replace(/\s+/g, '_')}`,
-        name: cap.name,
-        description: cap.description,
-        version: '1.0.0', // Default version for API-created capabilities
-        parameters: {}
-      }));
-    };
-    
-    // Helper function to create schema-compatible parameters
-    const createSchemaParameters = (): AgentMemoryEntity['parameters'] => {
-      return {
-        model: agent.parameters?.model || process.env.OPENAI_MODEL_NAME || 'gpt-4.1-2025-04-14',
-        temperature: agent.parameters?.temperature || 0.7,
-        maxTokens: agent.parameters?.maxTokens || 1024,
-        tools: [], // Convert string[] to AgentTool[]
-        customInstructions: agent.parameters?.systemPrompt,
-        systemMessages: agent.parameters?.systemPrompt ? [agent.parameters.systemPrompt] : undefined
-      };
-    };
-    
-    // Helper function to create schema-compatible metadata
-    const createSchemaMetadata = (): AgentMemoryEntity['metadata'] => {
-      // Start with required fields with defaults
-      const baseMetadata = {
-        tags: agent.metadata?.tags || [],
-        domain: agent.metadata?.domain || [],
-        specialization: agent.metadata?.specialization || [],
-        performanceMetrics: agent.metadata?.performanceMetrics || {
-          successRate: 0,
-          averageResponseTime: 0,
-          taskCompletionRate: 0
-        },
-        version: agent.metadata?.version || '1.0.0',
-        isPublic: agent.metadata?.isPublic || false,
-        // Store persona information in metadata
-        persona: agent.metadata?.persona || {
-          background: '',
-          personality: '',
-          communicationStyle: '',
-          preferences: ''
-        }
-      };
-      
-      // Add any custom fields from the agent metadata but exclude ones we've already added
-      const { tags, domain, specialization, performanceMetrics, version, isPublic, persona, ...customMetadata } = agent.metadata || {};
-      
-      // Return combined metadata
-      return {
-        ...baseMetadata,
-        ...customMetadata
-      } as AgentMemoryEntity['metadata'];
-    };
-    
-    // Helper function to generate rich content for semantic search
-    const generateAgentContent = (agentProfile: AgentProfile): string => {
-      // Start with basic information
-      let content = `${agentProfile.name} - ${agentProfile.description}`;
-      
-      // Add capabilities
-      content += ` - Capabilities: ${agentProfile.capabilities.map(c => c.name).join(', ')}`;
-      
-      // Add persona information if available
-      if (agentProfile.metadata?.persona) {
-        const persona = agentProfile.metadata.persona;
-        content += ` - Background: ${persona.background || ''}`;
-        content += ` - Personality: ${persona.personality || ''}`;
-        content += ` - Communication Style: ${persona.communicationStyle || ''}`;
-        content += ` - Preferences: ${persona.preferences || ''}`;
-      }
-      
-      // Add system prompt if available
-      if (agentProfile.parameters?.systemPrompt) {
-        content += ` - Custom Instructions: ${agentProfile.parameters.systemPrompt}`;
-      }
-      
-      return content;
-    };
-    
-    // Map agent status from API to schema enum
-    const mapStatus = (status?: string): AgentStatus => {
-      if (!status) return AgentStatus.AVAILABLE;
-      
-      switch (status) {
-        case 'available': return AgentStatus.AVAILABLE;
-        case 'unavailable': return AgentStatus.OFFLINE;
-        case 'maintenance': return AgentStatus.MAINTENANCE;
-        default: return AgentStatus.AVAILABLE;
-      }
-    };
+    // Create standardized metadata following implementation guidelines
+    const agentMetadata = createAgentMetadata(agent, id, timestamp);
     
     // Create properly formatted agent data that conforms to the schema
-    const agentData = {
-      id, // This will be handled by the service
+    const agentData: AgentMemoryEntity = {
+      id,
       name: agent.name,
       description: agent.description || '',
       createdBy: 'api', 
-      capabilities: convertCapabilities(agent.capabilities),
-      parameters: createSchemaParameters(),
-      status: mapStatus(agent.status),
+      capabilities: convertCapabilitiesToSchemaFormat(agent.capabilities, storedCapabilityIds),
+      parameters: createAgentParameters(agent),
+      status: agentMetadata.status === MetadataAgentStatus.AVAILABLE ? AgentStatus.AVAILABLE :
+              agentMetadata.status === MetadataAgentStatus.BUSY ? AgentStatus.BUSY :
+              agentMetadata.status === MetadataAgentStatus.OFFLINE ? AgentStatus.OFFLINE :
+              AgentStatus.MAINTENANCE,
       lastActive: new Date(),
       chatIds: [],
       teamIds: [],
-      metadata: createSchemaMetadata(),
-      content: generateAgentContent(agent),
-      type: 'agent', // Required for base memory schema
+      metadata: {
+        tags: agentMetadata.tags || [],
+        domain: agentMetadata.domain,
+        specialization: agentMetadata.specialization,
+        performanceMetrics: agentMetadata.performanceMetrics,
+        version: agentMetadata.version,
+        isPublic: agentMetadata.isPublic
+      },
+      content: agentMetadata.contentSummary || generateAgentContentSummary(agent),
+      type: 'agent',
       createdAt: agent.createdAt,
       updatedAt: agent.updatedAt,
-      schemaVersion: '1.0' // Required by AgentMemoryEntity
+      schemaVersion: '1.0'
     };
-    
-    // We need to use this as unknown first to satisfy TypeScript
-    const typedAgentData = agentData as unknown as AgentMemoryEntity;
     
     // Get embedding for the agent content
     console.log('Generating agent embedding...');
     const embeddingService = services.embeddingService;
     
     try {
-        const embeddingResult = await embeddingService.getEmbedding(typedAgentData.content);
+        const embeddingResult = await embeddingService.getEmbedding(agentData.content);
         
       // Validate embedding
       if (!Array.isArray(embeddingResult.embedding) || embeddingResult.embedding.length === 0) {
@@ -321,12 +422,15 @@ export async function POST(request: Request) {
       
       console.log(`Successfully generated embedding with ${embeddingResult.embedding.length} dimensions`);
       
-      // Add the embedding to the agent data
-      (typedAgentData as any).embedding = embeddingResult.embedding;
+      // Create agent data with embedding
+      const agentDataWithEmbedding: AgentMemoryEntityWithEmbedding = {
+        ...agentData,
+        embedding: embeddingResult.embedding
+      };
           
       // Store using our agent service (which handles UUID conversion)
       console.log('Storing agent in Qdrant...');
-      const result = await agentService.createAgent(typedAgentData);
+      const result = await agentService.createAgent(agentDataWithEmbedding);
             
             if (result.isError) {
         console.error('Failed to store agent in Qdrant:', result.error);

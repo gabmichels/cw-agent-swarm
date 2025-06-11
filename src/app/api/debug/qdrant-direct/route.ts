@@ -76,15 +76,18 @@ export async function POST(request: NextRequest) {
       case 'deletePoints':
         return await deletePoints(client, body.collection, body.filter);
       
+      case 'scrollPoints':
+        return await scrollPoints(client, body.collection, body.limit);
+      
       case 'createCollections':
         return await createCollections(client, body.collections);
       
       default:
-          return NextResponse.json(
+        return NextResponse.json(
           { success: false, error: `Unknown operation: ${operation}` },
-            { status: 400 }
-          );
-        }
+          { status: 400 }
+        );
+    }
   } catch (error) {
     console.error('Error in Qdrant direct API:', error);
     return NextResponse.json(
@@ -223,6 +226,39 @@ async function deletePoints(client: QdrantClient, collectionName: string, filter
         collection: collectionName,
         deleted: result.status === 'completed' ? true : false,
         status: result.status
+      }
+    });
+  } catch (error) {
+    return NextResponse.json(
+      { success: false, error: String(error) },
+      { status: 500 }
+    );
+  }
+}
+
+/**
+ * Scroll points in a collection
+ */
+async function scrollPoints(client: QdrantClient, collectionName: string, limit: number) {
+  if (!collectionName) {
+    return NextResponse.json(
+      { success: false, error: 'Collection name is required' },
+      { status: 400 }
+    );
+  }
+
+  try {
+    const result = await client.scroll(collectionName, { limit });
+    
+    return NextResponse.json({
+      success: true,
+      result: {
+        collection: collectionName,
+        points: result.points.map(p => ({
+          id: p.id,
+          vector: p.vector,
+          payload: p.payload
+        }))
       }
     });
   } catch (error) {

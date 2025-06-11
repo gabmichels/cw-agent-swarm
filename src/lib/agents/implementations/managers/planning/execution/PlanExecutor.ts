@@ -63,7 +63,7 @@ const DEFAULT_CONFIG: PlanExecutorConfig = {
   },
   enableLogging: true,
   enableProgressTracking: true,
-  progressUpdateIntervalMs: 5000, // 5 seconds
+  progressUpdateIntervalMs: 30000, // 30 seconds instead of 5 seconds
   enableMetrics: true,
   maxExecutionTimeMs: 3600000 // 1 hour
 };

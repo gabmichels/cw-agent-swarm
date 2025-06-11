@@ -1,6 +1,26 @@
 import { WorkingMemoryItem, FileReference } from '../types';
 
 /**
+ * Agent interface for tool discovery and capability analysis
+ */
+export interface IAgent {
+  /**
+   * Get the agent's unique identifier
+   */
+  getId(): string;
+  
+  /**
+   * Get the agent's capabilities
+   */
+  getCapabilities(): Promise<string[]>;
+  
+  /**
+   * Get a manager by type (for tool discovery)
+   */
+  getManager<T>(managerType: unknown): T | null;
+}
+
+/**
  * Entity extracted from user input
  */
 export interface Entity {
@@ -133,6 +153,43 @@ export interface AgentPersona {
 }
 
 /**
+ * Additional metadata for thinking state
+ */
+export interface ThinkingMetadata {
+  /**
+   * Agent instance for tool discovery and capability analysis
+   */
+  agent?: IAgent;
+  
+  /**
+   * Workflow execution context
+   */
+  executionContext?: {
+    startTime: Date;
+    nodeHistory: string[];
+    retryCount: number;
+  };
+  
+  /**
+   * Performance metrics
+   */
+  performance?: {
+    memoryRetrievalTime?: number;
+    llmCallTime?: number;
+    totalProcessingTime?: number;
+  };
+  
+  /**
+   * Debug information
+   */
+  debug?: {
+    enableLogging: boolean;
+    logLevel: 'error' | 'warn' | 'info' | 'debug';
+    traceId?: string;
+  };
+}
+
+/**
  * State object for the thinking workflow
  */
 export interface ThinkingState {
@@ -232,7 +289,7 @@ export interface ThinkingState {
   /**
    * Results from executed tools
    */
-  toolResults?: Record<string, any>;
+  toolResults?: Record<string, unknown>;
   
   /**
    * Final response
@@ -245,14 +302,19 @@ export interface ThinkingState {
   cognitiveArtifacts?: CognitiveArtifactTracker;
   
   /**
-   * Errors that occurred during workflow execution
+   * Additional metadata with proper typing
    */
-  errors?: NodeError[];
+  metadata?: ThinkingMetadata;
   
   /**
-   * Current workflow status
+   * Status of the thinking process
    */
-  status?: 'in_progress' | 'completed' | 'failed' | 'recovered';
+  status?: 'in_progress' | 'completed' | 'failed' | 'delegated';
+  
+  /**
+   * Errors encountered during thinking
+   */
+  errors?: NodeError[];
   
   /**
    * Fallback response if the workflow fails
@@ -263,16 +325,8 @@ export interface ThinkingState {
    * Context about what was used in processing
    */
   contextUsed?: {
-    memories?: any[];
-    files?: any[];
-    tools?: any[];
-  };
-  
-  /**
-   * Metadata including agent reference for tool discovery
-   */
-  metadata?: {
-    agent?: any;
-    [key: string]: any;
+    memories?: WorkingMemoryItem[];
+    files?: FileReference[];
+    tools?: ToolReference[];
   };
 } 

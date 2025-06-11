@@ -25,7 +25,7 @@ export class SchedulerHelper {
    * @param intervalMs - Polling interval in milliseconds
    * @returns true if setup was successful
    */
-  public static setupSchedulingTimer(agent: DefaultAgent, intervalMs: number = 5000): boolean {
+  public static setupSchedulingTimer(agent: DefaultAgent, intervalMs: number = 60000): boolean {
     // Clear existing timer if any
     if (this.schedulingTimer) {
       clearInterval(this.schedulingTimer);
@@ -202,7 +202,7 @@ export class SchedulerHelper {
         
         // Update task status if possible
         const schedulerManager = agent.getManager(ManagerType.SCHEDULER);
-        if (schedulerManager && 'updateTask' in schedulerManager) {
+        if (schedulerManager && typeof schedulerManager === 'object' && 'updateTask' in schedulerManager) {
           const updateMethod = schedulerManager.updateTask as (task: Task) => Promise<unknown>;
           
           // Get the existing task first

@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { AgentProfile } from '@/lib/multi-agent/types/agent';
 import CreateChatButton from '@/components/chat/CreateChatButton';
 import MemoryUploader from '@/components/agent/MemoryUploader';
+import AgentCapabilityEditor from '@/components/agent/AgentCapabilityEditor';
 import { Edit, Save, Upload, X } from 'lucide-react';
 
 export default function AgentPage({ params }: { params: { id?: string } }) {
@@ -32,6 +33,9 @@ export default function AgentPage({ params }: { params: { id?: string } }) {
   });
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+
+  // Add state for capability editing
+  const [isEditingCapabilities, setIsEditingCapabilities] = useState(false);
 
   useEffect(() => {
     const fetchAgentDetails = async () => {
@@ -182,6 +186,11 @@ export default function AgentPage({ params }: { params: { id?: string } }) {
     setSaveError(null);
   };
 
+  // Add handler for capability updates
+  const handleCapabilitiesUpdate = (updatedAgent: AgentProfile) => {
+    setAgent(updatedAgent);
+  };
+
   if (isLoading) {
     return (
       <div className="flex justify-center items-center min-h-screen">
@@ -248,15 +257,15 @@ export default function AgentPage({ params }: { params: { id?: string } }) {
         
         <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>
-            <h2 className="text-xl font-semibold mb-4">Capabilities</h2>
-            <ul className="space-y-2">
-              {agent.capabilities.map((capability) => (
-                <li key={capability.id} className="bg-gray-700 p-3 rounded">
-                  <h3 className="font-medium">{capability.name}</h3>
-                  <p className="text-sm text-gray-300">{capability.description}</p>
-                </li>
-              ))}
-            </ul>
+            <div>
+              <h2 className="text-xl font-semibold mb-4">Capabilities</h2>
+              <AgentCapabilityEditor 
+                agent={agent}
+                onCapabilitiesUpdate={handleCapabilitiesUpdate}
+                isEditing={isEditingCapabilities}
+                onEditingChange={setIsEditingCapabilities}
+              />
+            </div>
           </div>
           
           <div>

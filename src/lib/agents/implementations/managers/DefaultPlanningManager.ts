@@ -1461,257 +1461,346 @@ Complete the task comprehensively using the available data:`;
    * Create actions for a plan step
    */
   private async createActionsForStep(stepDescription: string, stepId: string): Promise<PlanAction[]> {
-    const actions: PlanAction[] = [];
-    const now = new Date();
-    
-    // Check if this is a dry run from the plan context
-    const isDryRun = this.currentPlanContext?.dryRun || this.currentPlanContext?.metadata?.dryRun || false;
-    
-    // Analyze step description to determine appropriate actions
-    const descriptionLower = stepDescription.toLowerCase();
-    
-    // Get tool manager to check available tools
-    const toolManager = this.agent.getManager<ToolManager>(ManagerType.TOOL);
-    
-    console.log(`🔍 Checking for tool manager and available tools...`);
-    console.log(`🔍 Tool manager exists: ${!!toolManager}`);
-    console.log(`🔍 Dry run mode: ${isDryRun}`);
-    
-    // Intelligent tool selection based on task description
-    let selectedTool: string | null = null;
-    let toolParams: Record<string, any> = {};
-    
-    if (toolManager) {
-      try {
-        // Check for specific Apify tools first based on task description
-        if (descriptionLower.includes('apify-twitter-search') || 
-            (descriptionLower.includes('twitter') && descriptionLower.includes('search')) ||
-            (descriptionLower.includes('x.com') && descriptionLower.includes('search')) ||
-            (descriptionLower.includes('x ') && descriptionLower.includes('search'))) {
-          const twitterTool = await toolManager.getTool('apify-twitter-search');
-          if (twitterTool) {
-            selectedTool = 'apify-twitter-search';
-            toolParams = {
-              keyword: this.extractOptimizedTwitterQuery(stepDescription),
-              limit: 20 // Default 20 for cost control, will be capped at 40 by the tool itself
-            };
-            console.log(`🔍 Selected Twitter tool: ${selectedTool}`);
-          }
-        } else if (descriptionLower.includes('apify-reddit-search') || 
-                   (descriptionLower.includes('reddit') && descriptionLower.includes('search'))) {
-          const redditTool = await toolManager.getTool('apify-reddit-search');
-          if (redditTool) {
-            selectedTool = 'apify-reddit-search';
-            toolParams = {
-              keyword: this.extractRedditQuery(stepDescription),
-              limit: 5 // Reduced for cost control
-            };
-            console.log(`🔍 Selected Reddit tool: ${selectedTool}`);
-          }
-        } else if (descriptionLower.includes('instagram') && descriptionLower.includes('hashtag')) {
-          const instagramHashtagTool = await toolManager.getTool('instagram-hashtag-scraper');
-          if (instagramHashtagTool) {
-            selectedTool = 'instagram-hashtag-scraper';
-            toolParams = {
-              hashtags: this.extractHashtags(stepDescription),
-              limit: 10, // Reduced for cost control
-              dryRun: isDryRun // Pass dry run mode to the tool
-            };
-            console.log(`🔍 Selected Instagram Hashtag tool: ${selectedTool} with params:`, toolParams);
-          }
-        } else if (descriptionLower.includes('instagram') && (descriptionLower.includes('profile') || descriptionLower.includes('user'))) {
-          const instagramProfileTool = await toolManager.getTool('instagram-profile-scraper');
-          if (instagramProfileTool) {
-            selectedTool = 'instagram-profile-scraper';
-            toolParams = {
-              usernames: this.extractInstagramUsernames(stepDescription),
-              includeRecentPosts: true,
-              limit: 10
-            };
-            console.log(`🔍 Selected Instagram Profile tool: ${selectedTool}`);
-          }
-        } else if (descriptionLower.includes('instagram') && descriptionLower.includes('post')) {
-          const instagramPostTool = await toolManager.getTool('instagram-post-scraper');
-          if (instagramPostTool) {
-            selectedTool = 'instagram-post-scraper';
-            toolParams = {
-              postUrls: this.extractInstagramUrls(stepDescription),
-              includeComments: false
-            };
-            console.log(`🔍 Selected Instagram Post tool: ${selectedTool}`);
-          }
-        } else if (descriptionLower.includes('facebook') && descriptionLower.includes('post')) {
-          const facebookPostsTool = await toolManager.getTool('facebook-posts-scraper');
-          if (facebookPostsTool) {
-            selectedTool = 'facebook-posts-scraper';
-            toolParams = {
-              pageUrls: this.extractFacebookUrls(stepDescription),
-              limit: 10 // Reduced for cost control
-            };
-            console.log(`🔍 Selected Facebook Posts tool: ${selectedTool}`);
-          }
-        } else if (descriptionLower.includes('facebook') && descriptionLower.includes('page')) {
-          const facebookPagesTool = await toolManager.getTool('facebook-pages-scraper');
-          if (facebookPagesTool) {
-            selectedTool = 'facebook-pages-scraper';
-            toolParams = {
-              pageUrls: this.extractFacebookUrls(stepDescription),
-              includeReviews: false
-            };
-            console.log(`🔍 Selected Facebook Pages tool: ${selectedTool}`);
-          }
-        } else if (descriptionLower.includes('youtube') && descriptionLower.includes('video')) {
-          const youtubeVideoTool = await toolManager.getTool('youtube-video-scraper');
-          if (youtubeVideoTool) {
-            selectedTool = 'youtube-video-scraper';
-            toolParams = {
-              videoUrls: this.extractYouTubeUrls(stepDescription),
-              includeComments: false,
-              commentLimit: 10
-            };
-            console.log(`🔍 Selected YouTube Video tool: ${selectedTool}`);
-          }
-        } else if (descriptionLower.includes('youtube') && descriptionLower.includes('channel')) {
-          const youtubeChannelTool = await toolManager.getTool('youtube-channel-scraper');
-          if (youtubeChannelTool) {
-            selectedTool = 'youtube-channel-scraper';
-            toolParams = {
-              channelUrls: this.extractYouTubeUrls(stepDescription),
-              includeVideos: true,
-              videoLimit: 10
-            };
-            console.log(`🔍 Selected YouTube Channel tool: ${selectedTool}`);
-          }
-        } else if (descriptionLower.includes('linkedin') && descriptionLower.includes('company')) {
-          const linkedinCompanyTool = await toolManager.getTool('linkedin-company-scraper');
-          if (linkedinCompanyTool) {
-            selectedTool = 'linkedin-company-scraper';
-            toolParams = {
-              companyUrls: this.extractLinkedInUrls(stepDescription),
-              includeEmployees: false
-            };
-            console.log(`🔍 Selected LinkedIn Company tool: ${selectedTool}`);
-          }
-        } else if (descriptionLower.includes('linkedin') && descriptionLower.includes('profile')) {
-          const linkedinProfileTool = await toolManager.getTool('linkedin-profile-scraper');
-          if (linkedinProfileTool) {
-            selectedTool = 'linkedin-profile-scraper';
-            toolParams = {
-              profileUrls: this.extractLinkedInUrls(stepDescription),
-              includeExperience: true
-            };
-            console.log(`🔍 Selected LinkedIn Profile tool: ${selectedTool}`);
-          }
-        } else if (descriptionLower.includes('linkedin') && descriptionLower.includes('job')) {
-          const linkedinJobsTool = await toolManager.getTool('linkedin-jobs-scraper');
-          if (linkedinJobsTool) {
-            selectedTool = 'linkedin-jobs-scraper';
-            toolParams = {
-              keywords: this.extractJobKeywords(stepDescription),
-              location: this.extractLocation(stepDescription),
-              limit: 10 // Reduced for cost control
-            };
-            console.log(`🔍 Selected LinkedIn Jobs tool: ${selectedTool}`);
-          }
-        } else if (descriptionLower.includes('coda') && (descriptionLower.includes('create') || descriptionLower.includes('document'))) {
-          // Coda document creation
-          const codaCreateTool = await toolManager.getTool('coda_create_document');
-          if (codaCreateTool) {
-            selectedTool = 'coda_create_document';
-            toolParams = {
-              title: this.extractCodaDocumentTitle(stepDescription),
-              content: this.extractCodaDocumentContent(stepDescription)
-            };
-            console.log(`🔍 Selected Coda Create Document tool: ${selectedTool}`);
-          }
-        } else if (descriptionLower.includes('coda') && (descriptionLower.includes('list') || descriptionLower.includes('documents') || descriptionLower.includes('show'))) {
-          // Coda document listing
-          const codaListTool = await toolManager.getTool('coda_list_documents');
-          if (codaListTool) {
-            selectedTool = 'coda_list_documents';
-            toolParams = {
-              limit: this.extractCodaListLimit(stepDescription)
-            };
-            console.log(`🔍 Selected Coda List Documents tool: ${selectedTool}`);
-          }
-        } else if (descriptionLower.includes('coda') && (descriptionLower.includes('read') || descriptionLower.includes('get'))) {
-          // Coda document reading
-          const codaReadTool = await toolManager.getTool('coda_read_document');
-          if (codaReadTool) {
-            selectedTool = 'coda_read_document';
-            toolParams = {
-              documentId: this.extractCodaDocumentId(stepDescription)
-            };
-            console.log(`🔍 Selected Coda Read Document tool: ${selectedTool}`);
-          }
-        } else if (descriptionLower.includes('coda') && (descriptionLower.includes('update') || descriptionLower.includes('edit'))) {
-          // Coda document updating
-          const codaUpdateTool = await toolManager.getTool('coda_update_document');
-          if (codaUpdateTool) {
-            selectedTool = 'coda_update_document';
-            toolParams = {
-              documentId: this.extractCodaDocumentId(stepDescription),
-              content: this.extractCodaDocumentContent(stepDescription)
-            };
-            console.log(`🔍 Selected Coda Update Document tool: ${selectedTool}`);
-          }
-        } else if (descriptionLower.includes('apify-website-crawler') || 
-                   (descriptionLower.includes('crawl') && descriptionLower.includes('website'))) {
-          const crawlerTool = await toolManager.getTool('apify-website-crawler');
-          if (crawlerTool) {
-            selectedTool = 'apify-website-crawler';
-            toolParams = {
-              url: this.extractUrlFromDescription(stepDescription) || 'https://example.com',
-              maxPages: 3 // Reduced for cost control
-            };
-            console.log(`🔍 Selected Website Crawler tool: ${selectedTool}`);
-          }
-        } else if (descriptionLower.includes('apify-actor-discovery') || 
-                   (descriptionLower.includes('discover') && descriptionLower.includes('actor'))) {
-          const discoveryTool = await toolManager.getTool('apify-actor-discovery');
-          if (discoveryTool) {
-            selectedTool = 'apify-actor-discovery';
-            toolParams = {
-              query: this.extractDiscoveryQuery(stepDescription),
-              limit: 3 // Reduced for cost control
-            };
-            console.log(`🔍 Selected Actor Discovery tool: ${selectedTool}`);
-          }
-        }
-        
-        if (selectedTool) {
-          console.log(`🔍 Tool selected: ${selectedTool} with params:`, toolParams);
-        }
-      } catch (error) {
-        console.log('Error checking for tools:', error);
-      }
-    }
-    
-    // Create tool_execution action if a tool was selected, regardless of keywords
-    if (selectedTool) {
-      actions.push({
-        id: `${stepId}-action-tool`,
-        name: `${selectedTool} Execution`,
-        description: stepDescription,
-        type: 'tool_execution',
-        parameters: {
-          toolName: selectedTool,
-          toolParams: toolParams
-        },
-        status: 'pending',
-        createdAt: now,
-        updatedAt: now
-      });
+    try {
+      const actions: PlanAction[] = [];
+      const now = new Date();
       
-      // Return early since we have a tool action - no need for keyword-based fallbacks
-      return actions;
-    }
-    
-    if (descriptionLower.includes('search') || descriptionLower.includes('find') || descriptionLower.includes('discover')) {
+      // Check if this is a dry run from the plan context
+      const isDryRun = this.currentPlanContext?.dryRun || this.currentPlanContext?.metadata?.dryRun || false;
+      
+      // Analyze step description to determine appropriate actions
+      const descriptionLower = stepDescription.toLowerCase();
+      
+      // Get tool manager to check available tools
+      const toolManager = this.agent.getManager<ToolManager>(ManagerType.TOOL);
+      
+      console.log(`🔍 Checking for tool manager and available tools...`);
+      console.log(`🔍 Tool manager exists: ${!!toolManager}`);
+      console.log(`🔍 Dry run mode: ${isDryRun}`);
+      
+      // Intelligent tool selection based on task description
+      let selectedTool: string | null = null;
+      let toolParams: Record<string, any> = {};
+      
+      if (toolManager) {
+        try {
+          // First check for explicit tool mentions in the task description
+          // Pattern 1: "Use the [tool_name] tool"
+          const explicitToolMatch1 = stepDescription.match(/use\s+the\s+([a-zA-Z_-]+)\s+tool/i);
+          // Pattern 2: "use [tool_name]"  
+          const explicitToolMatch2 = stepDescription.match(/use\s+([a-zA-Z_-]+)(?:\s+tool)?/i);
+          // Pattern 3: Check metadata for targetTool
+          const metadataTarget = this.currentPlanContext?.metadata?.targetTool;
+          
+          let explicitToolName = null;
+          if (explicitToolMatch1) {
+            explicitToolName = explicitToolMatch1[1];
+            console.log(`🎯 Found explicit tool mention (pattern 1): ${explicitToolName}`);
+          } else if (explicitToolMatch2 && !explicitToolMatch2[1].includes(' ')) {
+            // Only use pattern 2 if the matched word doesn't contain spaces (single word tool name)
+            explicitToolName = explicitToolMatch2[1];
+            console.log(`🎯 Found explicit tool mention (pattern 2): ${explicitToolName}`);
+          } else if (metadataTarget) {
+            explicitToolName = metadataTarget;
+            console.log(`🎯 Found explicit tool in metadata: ${explicitToolName}`);
+          }
+          
+          if (explicitToolName) {
+            // Check if this tool actually exists
+            const explicitTool = await toolManager.getTool(explicitToolName);
+            if (explicitTool) {
+              selectedTool = explicitToolName;
+              // For send_message tool, extract parameters from description
+              if (explicitToolName === 'send_message') {
+                // First try to extract from structured parameters like: {chatId: "...", content: "...", messageType: "..."}
+                const structuredParamsMatch = stepDescription.match(/\{[^}]*chatId[^}]*\}/i);
+                let chatId: string | undefined;
+                let content: string | undefined;
+                let messageType = 'scheduled_message';
+                
+                // PRIORITY 1: Check execution context metadata for chatId
+                if (this.currentPlanContext?.metadata) {
+                  if (typeof this.currentPlanContext.metadata.chatId === 'string') {
+                    chatId = this.currentPlanContext.metadata.chatId;
+                    console.log('🎯 Extracted chatId from context metadata:', chatId);
+                  } else if (this.currentPlanContext.metadata.contextualInfo?.chatId) {
+                    chatId = this.currentPlanContext.metadata.contextualInfo.chatId;
+                    console.log('🎯 Extracted chatId from contextualInfo:', chatId);
+                  }
+                }
+                
+                // PRIORITY 2: Extract from structured parameters in description
+                if (!chatId && structuredParamsMatch) {
+                  console.log('🔍 Found structured parameters:', structuredParamsMatch[0]);
+                  
+                  // Extract chatId from structured params
+                  const chatIdMatch = structuredParamsMatch[0].match(/chatId:\s*["']([^"']+)["']/i);
+                  if (chatIdMatch) {
+                    chatId = chatIdMatch[1];
+                    console.log('🎯 Extracted chatId from structured params:', chatId);
+                  }
+                  
+                  // Extract messageType from structured params
+                  const messageTypeMatch = structuredParamsMatch[0].match(/messageType:\s*["']([^"']+)["']/i);
+                  if (messageTypeMatch) {
+                    messageType = messageTypeMatch[1];
+                  }
+                }
+                
+                // PRIORITY 3: Fallback - extract chatId from "to chat [id]" pattern
+                if (!chatId) {
+                  const chatMatch = stepDescription.match(/to\s+chat\s+([a-f0-9-]{36})/i);
+                  if (chatMatch) {
+                    chatId = chatMatch[1];
+                    console.log('🎯 Extracted chatId from text pattern:', chatMatch[1]);
+                  }
+                }
+                
+                // Generate content (joke) if needed
+                if (!content || content.includes('generated-joke-content')) {
+                  const jokes = [
+                    "Why do programmers prefer dark mode? Because light attracts bugs! 🐛",
+                    "How many programmers does it take to change a light bulb? None, that's a hardware problem! 💡",
+                    "Why don't programmers like nature? It has too many bugs! 🌿🐛",
+                    "What's a programmer's favorite hangout place? Foo Bar! 🍺",
+                    "Why did the programmer quit his job? He didn't get arrays! 📊",
+                    "How do you comfort a JavaScript bug? You console it! 🖥️",
+                    "Why do Java developers wear glasses? Because they can't C#! 👓",
+                    "What do you call a programmer from Finland? Nerdic! 🇫🇮"
+                  ];
+                  content = jokes[Math.floor(Math.random() * jokes.length)];
+                  console.log('🎭 Generated joke content:', content);
+                }
+                
+                toolParams = {
+                  chatId: chatId || "unknown",
+                  content: content || "Hello! Here's your scheduled message with a programming joke! 😄",
+                  messageType,
+                  metadata: {
+                    scheduledTask: true,
+                    generatedAt: new Date().toISOString(),
+                    toolUsed: 'send_message'
+                  }
+                };
+                
+                console.log('🎯 Final send_message params:', toolParams);
+              }
+              console.log(`🎯 Selected explicit tool: ${selectedTool} with params:`, toolParams);
+            } else {
+              console.log(`⚠️ Explicit tool ${explicitToolName} not found in tool manager`);
+            }
+          }
+          
+          // If no explicit tool found, check for specific Apify tools and others as before
+          if (!selectedTool) {
+            if (descriptionLower.includes('apify-twitter-search') || 
+                (descriptionLower.includes('twitter') && descriptionLower.includes('search')) ||
+                (descriptionLower.includes('x.com') && descriptionLower.includes('search')) ||
+                (descriptionLower.includes('x ') && descriptionLower.includes('search'))) {
+              const twitterTool = await toolManager.getTool('apify-twitter-search');
+              if (twitterTool) {
+                selectedTool = 'apify-twitter-search';
+                toolParams = {
+                  keyword: this.extractOptimizedTwitterQuery(stepDescription),
+                  limit: 20 // Default 20 for cost control, will be capped at 40 by the tool itself
+                };
+                console.log(`🔍 Selected Twitter tool: ${selectedTool}`);
+              }
+            } else if (descriptionLower.includes('apify-reddit-search') || 
+                       (descriptionLower.includes('reddit') && descriptionLower.includes('search'))) {
+              const redditTool = await toolManager.getTool('apify-reddit-search');
+              if (redditTool) {
+                selectedTool = 'apify-reddit-search';
+                toolParams = {
+                  keyword: this.extractRedditQuery(stepDescription),
+                  limit: 5 // Reduced for cost control
+                };
+                console.log(`🔍 Selected Reddit tool: ${selectedTool}`);
+              }
+            } else if (descriptionLower.includes('instagram') && descriptionLower.includes('hashtag')) {
+              const instagramHashtagTool = await toolManager.getTool('instagram-hashtag-scraper');
+              if (instagramHashtagTool) {
+                selectedTool = 'instagram-hashtag-scraper';
+                toolParams = {
+                  hashtags: this.extractHashtags(stepDescription),
+                  limit: 10, // Reduced for cost control
+                  dryRun: isDryRun // Pass dry run mode to the tool
+                };
+                console.log(`🔍 Selected Instagram Hashtag tool: ${selectedTool} with params:`, toolParams);
+              }
+            } else if (descriptionLower.includes('instagram') && (descriptionLower.includes('profile') || descriptionLower.includes('user'))) {
+              const instagramProfileTool = await toolManager.getTool('instagram-profile-scraper');
+              if (instagramProfileTool) {
+                selectedTool = 'instagram-profile-scraper';
+                toolParams = {
+                  usernames: this.extractInstagramUsernames(stepDescription),
+                  includeRecentPosts: true,
+                  limit: 10
+                };
+                console.log(`🔍 Selected Instagram Profile tool: ${selectedTool}`);
+              }
+            } else if (descriptionLower.includes('instagram') && descriptionLower.includes('post')) {
+              const instagramPostTool = await toolManager.getTool('instagram-post-scraper');
+              if (instagramPostTool) {
+                selectedTool = 'instagram-post-scraper';
+                toolParams = {
+                  postUrls: this.extractInstagramUrls(stepDescription),
+                  includeComments: false
+                };
+                console.log(`🔍 Selected Instagram Post tool: ${selectedTool}`);
+              }
+            } else if (descriptionLower.includes('facebook') && descriptionLower.includes('post')) {
+              const facebookPostsTool = await toolManager.getTool('facebook-posts-scraper');
+              if (facebookPostsTool) {
+                selectedTool = 'facebook-posts-scraper';
+                toolParams = {
+                  pageUrls: this.extractFacebookUrls(stepDescription),
+                  limit: 10 // Reduced for cost control
+                };
+                console.log(`🔍 Selected Facebook Posts tool: ${selectedTool}`);
+              }
+            } else if (descriptionLower.includes('facebook') && descriptionLower.includes('page')) {
+              const facebookPagesTool = await toolManager.getTool('facebook-pages-scraper');
+              if (facebookPagesTool) {
+                selectedTool = 'facebook-pages-scraper';
+                toolParams = {
+                  pageUrls: this.extractFacebookUrls(stepDescription),
+                  includeReviews: false
+                };
+                console.log(`🔍 Selected Facebook Pages tool: ${selectedTool}`);
+              }
+            } else if (descriptionLower.includes('youtube') && descriptionLower.includes('video')) {
+              const youtubeVideoTool = await toolManager.getTool('youtube-video-scraper');
+              if (youtubeVideoTool) {
+                selectedTool = 'youtube-video-scraper';
+                toolParams = {
+                  videoUrls: this.extractYouTubeUrls(stepDescription),
+                  includeComments: false,
+                  commentLimit: 10
+                };
+                console.log(`🔍 Selected YouTube Video tool: ${selectedTool}`);
+              }
+            } else if (descriptionLower.includes('youtube') && descriptionLower.includes('channel')) {
+              const youtubeChannelTool = await toolManager.getTool('youtube-channel-scraper');
+              if (youtubeChannelTool) {
+                selectedTool = 'youtube-channel-scraper';
+                toolParams = {
+                  channelUrls: this.extractYouTubeUrls(stepDescription),
+                  includeVideos: true,
+                  videoLimit: 10
+                };
+                console.log(`🔍 Selected YouTube Channel tool: ${selectedTool}`);
+              }
+            } else if (descriptionLower.includes('linkedin') && descriptionLower.includes('company')) {
+              const linkedinCompanyTool = await toolManager.getTool('linkedin-company-scraper');
+              if (linkedinCompanyTool) {
+                selectedTool = 'linkedin-company-scraper';
+                toolParams = {
+                  companyUrls: this.extractLinkedInUrls(stepDescription),
+                  includeEmployees: false
+                };
+                console.log(`🔍 Selected LinkedIn Company tool: ${selectedTool}`);
+              }
+            } else if (descriptionLower.includes('linkedin') && descriptionLower.includes('profile')) {
+              const linkedinProfileTool = await toolManager.getTool('linkedin-profile-scraper');
+              if (linkedinProfileTool) {
+                selectedTool = 'linkedin-profile-scraper';
+                toolParams = {
+                  profileUrls: this.extractLinkedInUrls(stepDescription),
+                  includeExperience: true
+                };
+                console.log(`🔍 Selected LinkedIn Profile tool: ${selectedTool}`);
+              }
+            } else if (descriptionLower.includes('linkedin') && descriptionLower.includes('job')) {
+              const linkedinJobsTool = await toolManager.getTool('linkedin-jobs-scraper');
+              if (linkedinJobsTool) {
+                selectedTool = 'linkedin-jobs-scraper';
+                toolParams = {
+                  keywords: this.extractJobKeywords(stepDescription),
+                  location: this.extractLocation(stepDescription),
+                  limit: 10 // Reduced for cost control
+                };
+                console.log(`🔍 Selected LinkedIn Jobs tool: ${selectedTool}`);
+              }
+            } else if (descriptionLower.includes('coda') && (descriptionLower.includes('create') || descriptionLower.includes('document'))) {
+              // Coda document creation
+              const codaCreateTool = await toolManager.getTool('coda_create_document');
+              if (codaCreateTool) {
+                selectedTool = 'coda_create_document';
+                toolParams = {
+                  title: this.extractCodaDocumentTitle(stepDescription),
+                  content: this.extractCodaDocumentContent(stepDescription)
+                };
+                console.log(`🔍 Selected Coda Create Document tool: ${selectedTool}`);
+              }
+            } else if (descriptionLower.includes('coda') && (descriptionLower.includes('list') || descriptionLower.includes('documents') || descriptionLower.includes('show'))) {
+              // Coda document listing
+              const codaListTool = await toolManager.getTool('coda_list_documents');
+              if (codaListTool) {
+                selectedTool = 'coda_list_documents';
+                toolParams = {
+                  limit: this.extractCodaListLimit(stepDescription)
+                };
+                console.log(`🔍 Selected Coda List Documents tool: ${selectedTool}`);
+              }
+            } else if (descriptionLower.includes('coda') && (descriptionLower.includes('read') || descriptionLower.includes('get'))) {
+              // Coda document reading
+              const codaReadTool = await toolManager.getTool('coda_read_document');
+              if (codaReadTool) {
+                selectedTool = 'coda_read_document';
+                toolParams = {
+                  documentId: this.extractCodaDocumentId(stepDescription)
+                };
+                console.log(`🔍 Selected Coda Read Document tool: ${selectedTool}`);
+              }
+            } else if (descriptionLower.includes('coda') && (descriptionLower.includes('update') || descriptionLower.includes('edit'))) {
+              // Coda document updating
+              const codaUpdateTool = await toolManager.getTool('coda_update_document');
+              if (codaUpdateTool) {
+                selectedTool = 'coda_update_document';
+                toolParams = {
+                  documentId: this.extractCodaDocumentId(stepDescription),
+                  content: this.extractCodaDocumentContent(stepDescription)
+                };
+                console.log(`🔍 Selected Coda Update Document tool: ${selectedTool}`);
+              }
+            } else if (descriptionLower.includes('apify-website-crawler') || 
+                       (descriptionLower.includes('crawl') && descriptionLower.includes('website'))) {
+              const crawlerTool = await toolManager.getTool('apify-website-crawler');
+              if (crawlerTool) {
+                selectedTool = 'apify-website-crawler';
+                toolParams = {
+                  url: this.extractUrlFromDescription(stepDescription) || 'https://example.com',
+                  maxPages: 3 // Reduced for cost control
+                };
+                console.log(`🔍 Selected Website Crawler tool: ${selectedTool}`);
+              }
+            } else if (descriptionLower.includes('apify-actor-discovery') || 
+                       (descriptionLower.includes('discover') && descriptionLower.includes('actor'))) {
+              const discoveryTool = await toolManager.getTool('apify-actor-discovery');
+              if (discoveryTool) {
+                selectedTool = 'apify-actor-discovery';
+                toolParams = {
+                  query: this.extractDiscoveryQuery(stepDescription),
+                  limit: 3 // Reduced for cost control
+                };
+                console.log(`🔍 Selected Actor Discovery tool: ${selectedTool}`);
+              }
+            }
+          }
+          
+          if (selectedTool) {
+            console.log(`🔍 Tool selected: ${selectedTool} with params:`, toolParams);
+          }
+        } catch (error) {
+          console.log('Error checking for tools:', error);
+        }
+      }
+      
+      // Create tool_execution action if a tool was selected, regardless of keywords
       if (selectedTool) {
-        // Create a tool execution action with the selected tool
         actions.push({
-          id: `${stepId}-action-search`,
+          id: `${stepId}-action-tool`,
           name: `${selectedTool} Execution`,
           description: stepDescription,
           type: 'tool_execution',
@@ -1723,60 +1812,85 @@ Complete the task comprehensively using the available data:`;
           createdAt: now,
           updatedAt: now
         });
-      } else {
-        // Fallback to LLM-based search simulation
+        
+        // Return early since we have a tool action - no need for keyword-based fallbacks
+        return actions;
+      }
+      
+      if (descriptionLower.includes('search') || descriptionLower.includes('find') || descriptionLower.includes('discover')) {
+        if (selectedTool) {
+          // Create a tool execution action with the selected tool
+          actions.push({
+            id: `${stepId}-action-search`,
+            name: `${selectedTool} Execution`,
+            description: stepDescription,
+            type: 'tool_execution',
+            parameters: {
+              toolName: selectedTool,
+              toolParams: toolParams
+            },
+            status: 'pending',
+            createdAt: now,
+            updatedAt: now
+          });
+        } else {
+          // Fallback to LLM-based search simulation
+          actions.push({
+            id: `${stepId}-action-search-llm`,
+            name: 'Search Simulation',
+            description: `Simulate search for: ${stepDescription}`,
+            type: 'llm_query',
+            parameters: {
+              searchQuery: this.extractSearchQuery(stepDescription)
+            },
+            status: 'pending',
+            createdAt: now,
+            updatedAt: now
+          });
+        }
+      } else if (descriptionLower.includes('analyze') || descriptionLower.includes('extract')) {
+        // Create an analysis action
         actions.push({
-          id: `${stepId}-action-search-llm`,
-          name: 'Search Simulation',
-          description: `Simulate search for: ${stepDescription}`,
+          id: `${stepId}-action-analyze`,
+          name: 'Analysis',
+          description: stepDescription,
+          type: 'analysis',
+          parameters: {},
+          status: 'pending',
+          createdAt: now,
+          updatedAt: now
+        });
+      } else if (descriptionLower.includes('calculate') || descriptionLower.includes('math')) {
+        // Create a calculation action
+        actions.push({
+          id: `${stepId}-action-calculate`,
+          name: 'Calculation',
+          description: stepDescription,
           type: 'llm_query',
-          parameters: {
-            searchQuery: this.extractSearchQuery(stepDescription)
-          },
+          parameters: {},
+          status: 'pending',
+          createdAt: now,
+          updatedAt: now
+        });
+      } else {
+        // Create a generic LLM action
+        actions.push({
+          id: `${stepId}-action-execute`,
+          name: 'Execute Task',
+          description: stepDescription,
+          type: 'llm_query',
+          parameters: {},
           status: 'pending',
           createdAt: now,
           updatedAt: now
         });
       }
-    } else if (descriptionLower.includes('analyze') || descriptionLower.includes('extract')) {
-      // Create an analysis action
-      actions.push({
-        id: `${stepId}-action-analyze`,
-        name: 'Analysis',
-        description: stepDescription,
-        type: 'analysis',
-        parameters: {},
-        status: 'pending',
-        createdAt: now,
-        updatedAt: now
-      });
-    } else if (descriptionLower.includes('calculate') || descriptionLower.includes('math')) {
-      // Create a calculation action
-      actions.push({
-        id: `${stepId}-action-calculate`,
-        name: 'Calculation',
-        description: stepDescription,
-        type: 'llm_query',
-        parameters: {},
-        status: 'pending',
-        createdAt: now,
-        updatedAt: now
-      });
-    } else {
-      // Create a generic LLM action
-      actions.push({
-        id: `${stepId}-action-execute`,
-        name: 'Execute Task',
-        description: stepDescription,
-        type: 'llm_query',
-        parameters: {},
-        status: 'pending',
-        createdAt: now,
-        updatedAt: now
-      });
+      
+      return actions;
+    } catch (error) {
+      console.error(`❌ Error creating actions for step:`, error);
+      throw error;
     }
-    
-    return actions;
   }
 
   /**

@@ -223,6 +223,16 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
       
       if (task.scheduleType === TaskScheduleType.EXPLICIT && 
           typeof task.scheduledTime === 'string') {
+      
+      // 🔍 DEBUG: Add comprehensive time parsing logs
+      const currentTime = new Date();
+      this.logger.info("🔍 TIMING DEBUG: Starting scheduled time parsing", {
+        taskId: task.id,
+        originalScheduledTime: task.scheduledTime,
+        currentTime: currentTime.toISOString(),
+        currentTimeMs: currentTime.getTime()
+      });
+      
       this.logger.info("Processing vague temporal expression", {
         taskId: task.id,
         originalScheduledTime: task.scheduledTime
@@ -235,26 +245,79 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
           // Use the date and priority from the vague term
           if (vagueResult.date) {
             scheduledTime = vagueResult.date;
-          this.logger.info("Vague term translated to date", {
+          this.logger.info("✅ TIMING DEBUG: Vague term translated to date", {
             taskId: task.id,
             originalTerm: task.scheduledTime,
-            translatedDate: vagueResult.date,
-            priority: vagueResult.priority
+            translatedDate: vagueResult.date.toISOString(),
+            translatedDateMs: vagueResult.date.getTime(),
+            priority: vagueResult.priority,
+            timeDifferenceMs: vagueResult.date.getTime() - currentTime.getTime(),
+            timeDifferenceMin: (vagueResult.date.getTime() - currentTime.getTime()) / 60000
           });
           }
           priority = vagueResult.priority;
         } else {
+          this.logger.info("❌ TIMING DEBUG: Vague term parsing failed, trying natural language", {
+            taskId: task.id,
+            originalTerm: task.scheduledTime
+          });
+          
           // Try to parse as natural language date
           const parsedDate = this.dateTimeProcessor.parseNaturalLanguage(task.scheduledTime);
           if (parsedDate) {
             scheduledTime = parsedDate;
-          this.logger.info("Natural language date parsed", {
+          this.logger.info("✅ TIMING DEBUG: Natural language date parsed", {
             taskId: task.id,
             originalTerm: task.scheduledTime,
-            parsedDate: parsedDate
+            parsedDate: parsedDate.toISOString(),
+            parsedDateMs: parsedDate.getTime(),
+            timeDifferenceMs: parsedDate.getTime() - currentTime.getTime(),
+            timeDifferenceMin: (parsedDate.getTime() - currentTime.getTime()) / 60000
           });
+          } else {
+            this.logger.info("❌ TIMING DEBUG: Natural language parsing failed, trying interval", {
+              taskId: task.id,
+              originalTerm: task.scheduledTime
+            });
+            
+            // Try to parse as interval (e.g. "2m", "5h", "1d")
+            try {
+              const intervalDate = this.dateTimeProcessor.calculateInterval(new Date(), task.scheduledTime);
+              if (intervalDate) {
+                scheduledTime = intervalDate;
+                this.logger.info("✅ TIMING DEBUG: Interval expression parsed", {
+                  taskId: task.id,
+                  originalTerm: task.scheduledTime,
+                  calculatedDate: intervalDate.toISOString(),
+                  calculatedDateMs: intervalDate.getTime(),
+                  timeDifferenceMs: intervalDate.getTime() - currentTime.getTime(),
+                  timeDifferenceMin: (intervalDate.getTime() - currentTime.getTime()) / 60000
+                });
+              } else {
+                this.logger.error("❌ TIMING DEBUG: Interval calculation returned null", {
+                  taskId: task.id,
+                  originalTerm: task.scheduledTime
+                });
+              }
+            } catch (error) {
+              this.logger.warn("❌ TIMING DEBUG: Failed to parse as interval", {
+                taskId: task.id,
+                originalTerm: task.scheduledTime,
+                error: error instanceof Error ? error.message : String(error)
+              });
+            }
           }
         }
+        
+        // 🔍 DEBUG: Final scheduled time summary
+        this.logger.info("🎯 TIMING DEBUG: Final scheduled time result", {
+          taskId: task.id,
+          originalTerm: task.scheduledTime,
+          finalScheduledTime: scheduledTime instanceof Date ? scheduledTime.toISOString() : scheduledTime,
+          finalScheduledTimeMs: scheduledTime instanceof Date ? scheduledTime.getTime() : null,
+          isInFuture: scheduledTime instanceof Date ? scheduledTime > currentTime : null,
+          secondsFromNow: scheduledTime instanceof Date ? Math.round((scheduledTime.getTime() - currentTime.getTime()) / 1000) : null
+        });
       }
 
       // Apply default values
@@ -311,10 +374,10 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
       metadataKeys: Object.keys(taskWithAgentId.metadata || {})
     });
     
-    // Store the task with agent metadata in the registry
-    const storedTask = await this.registry.storeTask(taskWithAgentId);
+    // Update the existing task with agent metadata instead of storing a new one
+    const storedTask = await this.registry.updateTask(taskWithAgentId);
     
-    this.logger.success("Task created for agent successfully", {
+    this.logger.success("Task updated for agent successfully", {
       taskId: storedTask.id,
       agentId,
       status: storedTask.status
@@ -499,8 +562,8 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
    * @throws {SchedulerError} If there's an error querying for tasks
    */
   async findTasksForAgent(agentId: string, filter: TaskFilter = {}): Promise<Task[]> {
-    // Add simple, clean info log for task checking
-    this.logger.info(`Checking tasks for ${agentId}`);
+    // Change frequent task checking log to debug level to reduce noise
+    this.logger.debug(`Checking tasks for ${agentId}`);
     
     // Change detailed logging to debug level
     this.logger.debug("Finding tasks for agent", {
@@ -626,14 +689,39 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
         maxConcurrentTasks: this.config.maxConcurrentTasks
       });
       
+      // CRITICAL FIX: Immediately mark tasks as RUNNING to prevent re-execution
+      // This prevents race conditions where the same task gets picked up by multiple scheduler cycles
+      this.logger.debug("Marking due tasks as RUNNING to prevent re-execution", {
+        taskIds: dueTasks.map(t => t.id)
+      });
+      
+      const runningTasks = dueTasks.map(task => ({
+        ...task,
+        status: TaskStatus.RUNNING,
+        updatedAt: new Date()
+      }));
+      
+      // Update tasks to RUNNING status immediately
+      for (const task of runningTasks) {
+        try {
+          await this.registry.updateTask(task);
+        } catch (error) {
+          this.logger.error("Failed to mark task as running", {
+            taskId: task.id,
+            error: error instanceof Error ? error.message : String(error)
+          });
+        }
+      }
+      
+      // Execute the due tasks (now marked as RUNNING)
       const results = await this.executor.executeTasks(
-        dueTasks,
+        runningTasks,
         this.config.maxConcurrentTasks
       );
 
-      // Log task completion details
-      results.forEach((result, index) => {
-        const task = dueTasks[index];
+              // Log task completion details
+        results.forEach((result, index) => {
+          const task = runningTasks[index];
         if (result.successful) {
           this.logger.info("Task completed successfully", {
             taskId: task.id,
@@ -660,12 +748,13 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
       });
 
       // Prepare tasks for update
-      const tasksToUpdate = dueTasks.map((task, i) => {
+      const tasksToUpdate = runningTasks.map((task, i) => {
         const result = results[i];
         return {
           ...task,
           status: result.status,
           lastExecutedAt: result.endTime,
+          updatedAt: new Date(),
           metadata: {
             ...task.metadata,
             executionTime: result.duration,
@@ -765,7 +854,13 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
         });
         this.logger.debug("All pending tasks in system", {
           totalPendingTasks: allPendingTasks.length,
-          agentIds: allPendingTasks.map(t => t.metadata?.agentId).slice(0, 10),
+          agentIds: allPendingTasks.map(t => {
+            const agentIdMetadata = t.metadata?.agentId;
+            if (agentIdMetadata && typeof agentIdMetadata === 'object' && 'id' in agentIdMetadata) {
+              return (agentIdMetadata as { id: string }).id;
+            }
+            return agentIdMetadata;
+          }).slice(0, 10),
           taskNames: allPendingTasks.map(t => t.name).slice(0, 5)
         });
       }

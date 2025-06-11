@@ -64,7 +64,7 @@ async function createAgentInstance(dbAgent: AgentMemoryEntity): Promise<AgentBas
     );
   }
   
-  // Register with bootstrap registry
+  // Register with bootstrap registry if not already registered
   if (!agentBootstrapRegistry.isAgentRegistered(dbAgent.id)) {
     agentBootstrapRegistry.registerAgent(
       dbAgent.id,
@@ -93,6 +93,23 @@ async function createAgentInstance(dbAgent: AgentMemoryEntity): Promise<AgentBas
     // Enable adaptive behavior
     adaptiveBehavior: true,
     
+    // CRITICAL: Enable all required managers explicitly
+    enableMemoryManager: true,
+    enablePlanningManager: true,
+    enableToolManager: true,
+    enableKnowledgeManager: true,
+    enableSchedulerManager: true,
+    enableReflectionManager: true,
+    enableInputProcessor: true,
+    enableOutputProcessor: true,
+    enableResourceTracking: true,
+    
+    // Phase 2 managers (disabled for now)
+    enableEthicsManager: false,
+    enableCollaborationManager: false,
+    enableCommunicationManager: false,
+    enableNotificationManager: false,
+    
     // Configure memory refresh
     memoryRefresh: {
       enabled: true,
@@ -107,9 +124,34 @@ async function createAgentInstance(dbAgent: AgentMemoryEntity): Promise<AgentBas
                  
     persona: (dbAgent.metadata as any)?.persona || {},
     
-    // Clean slate component configurations
+    // Manager-specific configurations
+    managersConfig: {
+      memoryManager: {},
+      planningManager: {},
+      toolManager: {},
+      knowledgeManager: {},
+      schedulerManager: {},
+      reflectionManager: {},
+      inputProcessor: {},
+      outputProcessor: {},
+      resourceTracker: {
+        samplingIntervalMs: 60000,
+        maxHistorySamples: 60,
+        defaultLimits: {
+          cpuUtilization: 0.8,
+          memoryBytes: 1024 * 1024 * 512,
+          tokensPerMinute: 50000,
+          apiCallsPerMinute: 100
+        },
+        enforceResourceLimits: true,
+        limitWarningBuffer: 0.2,
+        trackPerTaskUtilization: true
+      }
+    },
+    
+    // Clean slate component configurations (legacy support)
     componentsConfig: {
-      // Manager configurations
+      // Manager configurations (these provide backward compatibility)
       memoryManager: { enabled: true },
       planningManager: { enabled: true },
       toolManager: { enabled: true },
@@ -149,7 +191,7 @@ async function createAgentInstance(dbAgent: AgentMemoryEntity): Promise<AgentBas
       },
       outputProcessor: {
         enabled: true,
-        processingSteps: ['format', 'validate', 'sanitize'],
+        processingSteps: ['format', 'validate', 'transform'],
         maxOutputLength: 50000
       },
       thinkingProcessor: {
@@ -241,7 +283,7 @@ export async function bootstrapAgentsFromDatabase(): Promise<number> {
     let loadedCount = 0;
     const failedAgents: Array<{ id: string; reason: string }> = [];
     
-    // Load and register each agent with our new locking mechanism
+    // Load and register each agent simply
     for (const dbAgent of dbAgents) {
       try {
         // Skip if agent is already registered in runtime registry
@@ -255,47 +297,6 @@ export async function bootstrapAgentsFromDatabase(): Promise<number> {
           logger.debug(`⏩ ${logMsg}`);
           continue;
         }
-        
-        // Check if this agent is already being bootstrapped
-        const bootstrapInfo = agentBootstrapRegistry.getAgentBootstrapInfo(dbAgent.id);
-        if (bootstrapInfo && bootstrapInfo.state === AgentBootstrapState.IN_PROGRESS) {
-          // Check if the lock or bootstrap state is stale
-          if (agentBootstrapRegistry.isLockStale(dbAgent.id) || agentBootstrapRegistry.isBootstrapStateStale(dbAgent.id)) {
-            logger.warn(`Detected stale lock/state for agent ${dbAgent.id}, force releasing`, { 
-              agentId: dbAgent.id,
-              lockTimestamp: bootstrapInfo.lockTimestamp,
-              startTime: bootstrapInfo.startTime,
-              state: bootstrapInfo.state,
-              locked: bootstrapInfo.locked
-            });
-            
-            // Force release the stale lock and reset state
-            agentBootstrapRegistry.forceReleaseStaleLock(dbAgent.id);
-            logger.debug(`🔧 Reset stale bootstrap state for agent ${dbAgent.id} (${dbAgent.name})`);
-          } else {
-            // Another bootstrap process is handling this agent
-            const logMsg = `Agent ${dbAgent.id} is already being bootstrapped by another process, skipping`;
-            logger.info(logMsg, { agentId: dbAgent.id, bootstrapInfo });
-            logger.debug(`⏩ ${logMsg}`);
-            continue;
-          }
-        }
-        
-        // Try to acquire initialization lock
-        if (!agentBootstrapRegistry.acquireLock(dbAgent.id)) {
-          const logMsg = `Cannot acquire lock for agent ${dbAgent.id}, skipping`;
-          logger.warn(logMsg, { agentId: dbAgent.id });
-          logger.debug(`⚠️ ${logMsg}`);
-          
-          failedAgents.push({ 
-            id: dbAgent.id, 
-            reason: 'Failed to acquire initialization lock' 
-          });
-          continue;
-        }
-        
-        // Update bootstrap state
-        agentBootstrapRegistry.updateAgentBootstrapState(dbAgent.id, AgentBootstrapState.IN_PROGRESS);
         
         // Create agent instance with pre-validation
         const agent = await createAgentInstance(dbAgent);
@@ -361,6 +362,18 @@ export async function bootstrapAgentsFromDatabase(): Promise<number> {
           
           // Register with runtime registry
           logger.debug(`📝 Registering agent ${dbAgent.id} with runtime registry...`);
+          
+          // DEBUG: Check agent state before registration
+          const preRegManagers = agent.getManagers();
+          const preRegToolManager = agent.getManager(ManagerType.TOOL);
+          logger.debug(`🔍 PRE-REGISTRATION agent state for ${dbAgent.id}`, {
+            agentInstanceId: (agent as any)._instanceId || 'no-instance-id',
+            managersCount: preRegManagers.length,
+            hasToolManager: !!preRegToolManager,
+            toolManagerType: preRegToolManager?.constructor.name,
+            managerTypes: preRegManagers.map(m => m.managerType)
+          });
+          
           registerAgent(agent);
           
           // VERIFY REGISTRATION: Check if agent was actually registered
@@ -374,10 +387,74 @@ export async function bootstrapAgentsFromDatabase(): Promise<number> {
             );
           }
           
+          // DEBUG: Check if it's the same instance
+          const isSameInstance = registeredAgent === agent;
+          logger.debug(`🔍 POST-REGISTRATION verification for ${dbAgent.id}`, {
+            isSameInstance,
+            originalInstanceId: (agent as any)._instanceId || 'no-instance-id',
+            registeredInstanceId: (registeredAgent as any)._instanceId || 'no-instance-id'
+          });
+          
           // VERIFY AGENT METHODS: Ensure the agent has required methods
           try {
             const agentId = registeredAgent.getId();
             const health = await registeredAgent.getHealth();
+            
+            // VERIFY TOOL REGISTRATION: Check if tools are registered
+            const toolManager = registeredAgent.getManager(ManagerType.TOOL);
+            
+            // DEBUG: Add detailed manager inspection
+            const allManagers = registeredAgent.getManagers();
+            const managerInfo = allManagers.map(m => ({
+              name: m.constructor.name,
+              type: m.managerType,
+              hasGetAllTools: typeof (m as any).getAllTools === 'function',
+              hasGetTools: typeof (m as any).getTools === 'function'
+            }));
+            
+            logger.debug(`🔍 Manager inspection for agent ${dbAgent.id}`, { 
+              managerCount: allManagers.length,
+              managers: managerInfo,
+              toolManagerFound: !!toolManager,
+              lookingForType: ManagerType.TOOL
+            });
+            
+            if (toolManager && typeof (toolManager as any).getTools === 'function') {
+              try {
+                const allTools = await (toolManager as any).getTools();
+                const toolCount = Array.isArray(allTools) ? allTools.length : 0;
+                const toolNames = Array.isArray(allTools) ? allTools.map((t: any) => t.name || t.id).join(', ') : 'none';
+                
+                // Check specifically for send_message tool
+                const hasSendMessage = Array.isArray(allTools) && allTools.some((t: any) => t.id === 'send_message' || t.name === 'send_message');
+                
+                logger.debug(`🔧 Tool registration verification for agent ${dbAgent.id}`, {
+                  toolCount,
+                  hasSendMessage,
+                  toolNames: toolNames.substring(0, 200) + (toolNames.length > 200 ? '...' : '')
+                });
+                
+                if (hasSendMessage) {
+                  console.log(`✅ CRITICAL: send_message tool successfully registered for agent ${dbAgent.id}`);
+                } else {
+                  console.log(`❌ CRITICAL: send_message tool NOT FOUND for agent ${dbAgent.id} - scheduled messaging will not work!`);
+                }
+                
+                if (toolCount === 0) {
+                  console.log(`⚠️ WARNING: No tools registered for agent ${dbAgent.id} - agent will have limited capabilities`);
+                } else {
+                  console.log(`📋 Agent ${dbAgent.id} registered with ${toolCount} tools: ${toolNames.substring(0, 100)}${toolNames.length > 100 ? '...' : ''}`);
+                }
+                
+              } catch (toolError) {
+                logger.debug(`Failed to verify tool registration for agent ${dbAgent.id}`, {
+                  error: toolError instanceof Error ? toolError.message : String(toolError)
+                });
+                console.log(`⚠️ Could not verify tool registration for agent ${dbAgent.id}: ${toolError instanceof Error ? toolError.message : String(toolError)}`);
+              }
+            } else {
+              console.log(`❌ CRITICAL: No tool manager found for agent ${dbAgent.id} - tools will not be available!`);
+            }
             
             logger.debug(`Verified registered agent ${dbAgent.id}`, {
               agentId,
@@ -518,6 +595,38 @@ export async function bootstrapAgentsFromDatabase(): Promise<number> {
     logger.debug(`   - Total Agents: ${summaryMetrics.totalAgents}`);
     logger.debug(`   - Success Rate: ${(summaryMetrics.initializationSuccessRate * 100).toFixed(1)}%`);
     logger.debug(`   - Avg Init Time: ${(summaryMetrics.averageInitializationTime / 1000).toFixed(2)}s`);
+    
+    // Start a single centralized scheduler for all agents
+    if (loadedCount > 0) {
+      logger.info('Agent-specific schedulers will handle task execution - global scheduler disabled');
+      // DISABLED: Using agent-specific schedulers instead of global scheduler
+      // This prevents multiple scheduler conflicts and ensures each agent only handles its own tasks
+      /*
+      logger.info('Starting centralized scheduler for all agents...');
+      try {
+        // Import the scheduler factory to create a global scheduler
+        const { createSchedulerManager } = await import('../../lib/scheduler/factories/SchedulerFactory');
+        
+        // Create a global scheduler without being tied to a specific agent
+        const globalScheduler = await createSchedulerManager({
+          enableAutoScheduling: true,
+          schedulingIntervalMs: 60000, // Check every minute
+          maxConcurrentTasks: 20, // Higher limit for global scheduler
+          logSchedulingActivity: false // Reduce logging for global scheduler
+        });
+        
+        // Start the global scheduler
+        await globalScheduler.startScheduler();
+        logger.info('Global centralized scheduler started successfully');
+        
+        // Store reference to global scheduler for cleanup if needed
+        (global as any).__globalScheduler = globalScheduler;
+        
+      } catch (schedulerError) {
+        logger.error('Failed to start centralized scheduler:', { error: schedulerError });
+      }
+      */
+    }
     
     return loadedCount;
   } catch (error) {
