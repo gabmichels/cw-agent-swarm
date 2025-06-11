@@ -23,7 +23,7 @@ export async function GET(request: Request) {
     const client = services.client;
     
     // Create capability service
-    const capabilityService = new DefaultCapabilityMemoryService(client);
+    const capabilityService = new DefaultCapabilityMemoryService();
     
     let capabilities: CapabilityMemoryEntity[] = [];
     
@@ -198,7 +198,7 @@ export async function POST(request: Request) {
     }
     
     // Create capability service
-    const capabilityService = new DefaultCapabilityMemoryService(client);
+    const capabilityService = new DefaultCapabilityMemoryService();
     
     // Check for duplicates - search for capabilities with same name and type
     const similarCapabilities = await capabilityService.searchCapabilities(

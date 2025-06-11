@@ -317,7 +317,9 @@ export async function POST(request: Request) {
           continue;
         }
         
-        // If not found, try the normal findOrCreateCapability method
+        // If not found, create the new capability directly (bypass broken findOrCreateCapability)
+        console.log(`🔨 Creating new capability: ${capability.name} (${capability.id})`);
+        
         // Determine capability type from ID or parameters
         let capabilityType: CapabilityType;
         if (capability.parameters?.type === 'skill' || capability.id.startsWith('skill.')) {
@@ -352,16 +354,20 @@ export async function POST(request: Request) {
           }
         };
         
-        // Use findOrCreateCapability to get proper UUID mapping
-        const mapping = await capabilityService.findOrCreateCapability(capabilityEntity);
+        // Create the capability directly using createCapability method
+        const createResult = await capabilityService.createCapability(capabilityEntity);
         
-        if (mapping) {
-          console.log(`✅ Processed capability: ${capability.name} -> ${mapping.pointId}`);
+        if (createResult.success && createResult.id) {
+          console.log(`✅ Created new capability: ${capability.name} -> ${createResult.id}`);
+          capabilityMappings.push({
+            pointId: createResult.id, // UUID point ID from Qdrant
+            capabilityId: capability.id, // String capability ID
+            entity: capabilityEntity
+          });
           storedCapabilitiesCount++;
-          capabilityMappings.push(mapping);
         } else {
-          console.error(`❌ Failed to process capability: ${capability.name}`);
-          // Continue processing other capabilities instead of failing completely
+          console.error(`❌ Failed to create capability: ${capability.name}`);
+          console.error(`   Error:`, createResult.error);
         }
         
       } catch (error) {
