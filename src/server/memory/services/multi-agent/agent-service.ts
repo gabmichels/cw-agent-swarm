@@ -68,23 +68,28 @@ export class DefaultAgentMemoryService implements AgentMemoryService {
   }
 
   /**
-   * Create a dummy embedding vector with the correct dimensions
-   * This is needed to ensure compatibility with Qdrant
+   * Create a dummy vector for agent operations
    */
   private createDummyVector(size = 1536) {
-    return Array(size).fill(0).map(() => Math.random() * 0.01);
+    return Array(size).fill(0);
   }
 
   /**
-   * Adapt agent entity to format required by Qdrant memory system
+   * Adapt agent to memory point compatible with Qdrant
+   * FIXED: Generate UUID for point ID and store agent ID in payload
    */
   private adaptAgentToMemoryPoint(agent: AgentMemoryEntity): any {
-    // Create a memory point compatible with Qdrant
+    // FIXED: Generate a UUID for the point ID instead of using agent ID
+    // This prevents "Bad Request" errors from Qdrant
+    const { v4: uuidv4 } = require('uuid');
+    
     return {
-      id: agent.id.toString(),
+      id: uuidv4(), // Use UUID for Qdrant point ID
       vector: this.createDummyVector(),
       payload: {
         ...agent,
+        // Store the agent ID in payload for searching
+        agentId: agent.id,
         // Add required BaseMemorySchema fields
         text: agent.name,
         timestamp: new Date().toISOString(),
@@ -121,19 +126,34 @@ export class DefaultAgentMemoryService implements AgentMemoryService {
         });
         throw innerError;
       }
-      
-      // Verify that the agent was stored successfully
-      const storedAgents = await this.memoryClient.getPoints(
+
+      // FIXED: Verify agent was stored by searching for agent ID in payload
+      // instead of using direct point retrieval which would fail with string IDs
+      const searchResult = await this.memoryClient.searchPoints(
         this.collectionName,
-        [point.id]
+        {
+          vector: this.createDummyVector(),
+          limit: 1,
+          filter: {
+            must: [
+              {
+                key: 'agentId',
+                match: {
+                  value: agent.id
+                }
+              }
+            ]
+          },
+          includeVectors: false
+        }
       );
-      
-      if (!storedAgents || storedAgents.length === 0) {
+
+      if (!searchResult || searchResult.length === 0) {
         return failureResult(
           new AppError(`Failed to verify agent ${agent.id} was stored`, AgentMemoryErrorCode.CREATE_FAILED)
         );
       }
-      
+
       return { isError: false, value: agent.id };
     } catch (error) {
       console.error('Error creating agent in memory service:', error);
@@ -155,20 +175,38 @@ export class DefaultAgentMemoryService implements AgentMemoryService {
         return failureResult(new AppError('Agent ID is required for update', AgentMemoryErrorCode.VALIDATION_FAILED));
       }
       
-      // Create a memory point compatible with Qdrant
-      const point = this.adaptAgentToMemoryPoint(agent);
-
-      // First check if the agent exists
-      const existingAgents = await this.memoryClient.getPoints(
+      // FIXED: Find the actual UUID point ID by searching for the agent ID
+      const searchResult = await this.memoryClient.searchPoints(
         this.collectionName,
-        [point.id]
+        {
+          vector: this.createDummyVector(),
+          limit: 1,
+          filter: {
+            must: [
+              {
+                key: 'agentId',
+                match: {
+                  value: agent.id
+                }
+              }
+            ]
+          },
+          includeVectors: false
+        }
       );
 
-      if (!existingAgents || existingAgents.length === 0) {
+      if (!searchResult || searchResult.length === 0) {
         return failureResult(new AppError(`Agent ${agent.id} not found`, AgentMemoryErrorCode.NOT_FOUND));
       }
 
-      await this.memoryClient.updatePoint(this.collectionName, point.id, point);
+      // Get the UUID point ID from the search result
+      const pointId = searchResult[0].id;
+      
+      // Create updated memory point (with new UUID)
+      const updatedPoint = this.adaptAgentToMemoryPoint(agent);
+      
+      // Update using the found UUID point ID
+      await this.memoryClient.updatePoint(this.collectionName, pointId, updatedPoint);
       return { isError: false, value: agent.id };
     } catch (error) {
       console.error('Error updating agent in memory service:', error);
@@ -186,54 +224,33 @@ export class DefaultAgentMemoryService implements AgentMemoryService {
    */
   async getAgent(agentId: string): Promise<Result<AgentMemoryEntity>> {
     try {
-      // First try direct point retrieval
-      const agents = await this.memoryClient.getPoints(
+      // FIXED: Search by agent ID in payload instead of direct point retrieval
+      // Direct retrieval fails because we're using UUID point IDs, not agent IDs
+      const searchResult = await this.memoryClient.searchPoints(
         this.collectionName,
-        [agentId]
+        {
+          vector: this.createDummyVector(),
+          limit: 1,
+          filter: {
+            must: [
+              {
+                key: 'agentId',
+                match: {
+                  value: agentId
+                }
+              }
+            ]
+          },
+          includeVectors: false
+        }
       );
 
-      // If direct retrieval fails, try searching
-      if (!agents || agents.length === 0) {
-        const searchResult = await this.memoryClient.searchPoints(
-          this.collectionName,
-          {
-            vector: this.createDummyVector(),
-            limit: 10000,
-            filter: {
-              must: [
-                {
-                  key: 'id',
-                  match: {
-                    value: agentId
-                  }
-                }
-              ]
-            },
-            includeVectors: false
-          }
-        );
-
-        if (!searchResult || searchResult.length === 0) {
-          return failureResult(new AppError(`Agent ${agentId} not found`, AgentMemoryErrorCode.NOT_FOUND));
-        }
-
-        // Use the first matching result
-        const agent = searchResult[0].payload as unknown as AgentMemoryEntity;
-        
-        // Ensure required fields are present
-        if (!agent.name) {
-          agent.name = 'Unnamed Agent';
-        }
-        
-        // Ensure the ID is properly set
-        agent.id = agentId;
-        
-        return { isError: false, value: agent };
+      if (!searchResult || searchResult.length === 0) {
+        return failureResult(new AppError(`Agent ${agentId} not found`, AgentMemoryErrorCode.NOT_FOUND));
       }
 
-      // Extract the agent from the payload and ensure it has the correct type
-      const memoryPoint = agents[0];
-      const agent = memoryPoint.payload as unknown as AgentMemoryEntity;
+      // Extract agent from the first result
+      const agent = searchResult[0].payload as unknown as AgentMemoryEntity;
       
       // Ensure required fields are present
       if (!agent.name) {
@@ -447,7 +464,36 @@ export class DefaultAgentMemoryService implements AgentMemoryService {
    */
   async deleteAgent(agentId: string): Promise<Result<boolean>> {
     try {
-      await this.memoryClient.deletePoint(this.collectionName, agentId);
+      // FIXED: Find the actual UUID point ID by searching for the agent ID
+      // This prevents "Bad Request" errors when trying to delete using string IDs
+      const searchResult = await this.memoryClient.searchPoints(
+        this.collectionName,
+        {
+          vector: this.createDummyVector(),
+          limit: 1,
+          filter: {
+            must: [
+              {
+                key: 'agentId',
+                match: {
+                  value: agentId
+                }
+              }
+            ]
+          },
+          includeVectors: false
+        }
+      );
+
+      if (!searchResult || searchResult.length === 0) {
+        return failureResult(new AppError(`Agent ${agentId} not found`, AgentMemoryErrorCode.NOT_FOUND));
+      }
+
+      // Get the UUID point ID from the search result
+      const pointId = searchResult[0].id;
+      
+      // Delete using the actual UUID point ID
+      await this.memoryClient.deletePoint(this.collectionName, pointId);
       return { isError: false, value: true };
     } catch (error) {
       console.error('Error deleting agent from memory service:', error);

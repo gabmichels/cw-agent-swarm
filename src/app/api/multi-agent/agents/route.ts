@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { ulid } from 'ulid';
+import { v4 as uuidv4 } from 'uuid';
 import { AgentRegistrationRequest, AgentProfile } from '@/lib/multi-agent/types/agent';
 import { DefaultAgentMemoryService } from '@/server/memory/services/multi-agent/agent-service';
 import { DefaultCapabilityMemoryService } from '@/server/memory/services/multi-agent/capability-service';
@@ -124,28 +124,35 @@ function generateAgentContentSummary(agent: AgentProfile): string {
 }
 
 /**
- * Converts capabilities to schema-compatible format with agent-specific references
+ * Converts capabilities to schema-compatible format with UUID point ID references
+ * FIXED: Now uses UUID point IDs instead of string capability IDs
  */
 function convertCapabilitiesToSchemaFormat(
   capabilities: AgentProfile['capabilities'],
-  storedCapabilityIds: string[]
+  capabilityMappings: Array<{
+    pointId: string;
+    capabilityId: string;
+    entity: any;
+  }>
 ): AgentMemoryEntity['capabilities'] {
-  return storedCapabilityIds.map(capabilityId => {
-    const originalCapability = capabilities.find(cap => cap.id === capabilityId);
+  return capabilityMappings.map(mapping => {
+    const originalCapability = capabilities.find(cap => cap.id === mapping.capabilityId);
     const level = originalCapability?.parameters?.level || 'basic';
     const type = originalCapability?.parameters?.type || 'skill';
     
     return {
-      id: capabilityId,
-      name: originalCapability?.name || capabilityId.split('.').pop() || capabilityId,
-      description: `Agent-specific reference to capability: ${capabilityId}`,
+      id: mapping.pointId, // FIXED: Use UUID point ID instead of string capability ID
+      name: mapping.entity.name || originalCapability?.name || mapping.capabilityId.split('.').pop() || mapping.capabilityId,
+      description: `Reference to capability: ${mapping.entity.name} (${mapping.capabilityId})`,
       version: '1.0.0',
       parameters: {
         level: level,
         type: type,
         proficiency: level,
         dateAdded: new Date().toISOString(),
-        source: 'agent-creation'
+        source: 'agent-creation',
+        // Store the original capability ID for reference
+        originalCapabilityId: mapping.capabilityId
       }
     };
   });
@@ -196,9 +203,9 @@ export async function POST(request: Request) {
       );
     }
     
-    // Generate a new agent ID using ULID for sortable, unique IDs
+    // Generate a new agent ID using UUID for proper unique identification
     const timestamp = new Date();
-    const id = `agent_${requestData.name.toLowerCase().replace(/\s+/g, '_')}_${ulid(timestamp.getTime())}`;
+    const id = uuidv4();
     
     // Process extended data if available
     if (requestData._extended) {
@@ -278,91 +285,98 @@ export async function POST(request: Request) {
     }
     
     // Store each custom capability in the capabilities collection FIRST
-    console.log(`📦 Storing ${agent.capabilities.length} capabilities in collection...`);
+    console.log(`📦 Processing ${agent.capabilities.length} capabilities...`);
     let storedCapabilitiesCount = 0;
-    const storedCapabilityIds: string[] = [];
+    const capabilityMappings: Array<{
+      pointId: string;        // UUID point ID for Qdrant
+      capabilityId: string;   // String capability ID (e.g., "skill.programming")
+      entity: any;            // Capability entity
+    }> = [];
     
-    // Create capability service once outside the loop
-    const capabilityService = new DefaultCapabilityMemoryService(client);
+    // Create capability service once outside the loop (use same pattern as working endpoints)
+    const capabilityService = new DefaultCapabilityMemoryService();
+    
+    // WORKAROUND: Get all existing capabilities first as a fallback
+    const allCapabilities = await capabilityService.getAllCapabilities();
+    const capabilityLookup = new Map(allCapabilities.map(cap => [cap.capabilityId, cap]));
     
     for (const capability of agent.capabilities) {
       try {
-        console.log(`🔄 Processing capability: ${capability.name}`);
+        console.log(`🔄 Processing capability: ${capability.name} (${capability.id})`);
         
-        // Check if this capability already exists in the collection
-        const existingCapability = await capabilityService.getCapability(capability.id);
+        // First try direct lookup in existing capabilities
+        const existingCapability = capabilityLookup.get(capability.id);
         if (existingCapability) {
-          console.log(`⚠️ Capability ${capability.name} already exists, skipping creation`);
+          console.log(`✅ Found existing capability: ${capability.name} -> ${existingCapability.pointId}`);
+          capabilityMappings.push({
+            pointId: existingCapability.pointId,
+            capabilityId: capability.id,
+            entity: existingCapability.entity
+          });
           storedCapabilitiesCount++;
-          storedCapabilityIds.push(capability.id);
           continue;
         }
         
+        // If not found, try the normal findOrCreateCapability method
         // Determine capability type from ID or parameters
-      let capabilityType: CapabilityType;
+        let capabilityType: CapabilityType;
         if (capability.parameters?.type === 'skill' || capability.id.startsWith('skill.')) {
-        capabilityType = CapabilityType.SKILL;
+          capabilityType = CapabilityType.SKILL;
         } else if (capability.parameters?.type === 'domain' || capability.id.startsWith('domain.')) {
-        capabilityType = CapabilityType.DOMAIN;
+          capabilityType = CapabilityType.DOMAIN;
         } else if (capability.parameters?.type === 'role' || capability.id.startsWith('role.')) {
-        capabilityType = CapabilityType.ROLE;
+          capabilityType = CapabilityType.ROLE;
         } else if (capability.parameters?.type === 'tag' || capability.id.startsWith('tag.')) {
-        capabilityType = CapabilityType.TAG;
-      } else {
-        // Default to SKILL if can't determine type
-        capabilityType = CapabilityType.SKILL;
-      }
-      
-        // Extract level from parameters if it's a skill
-        const level = capability.parameters?.level || 'basic';
+          capabilityType = CapabilityType.TAG;
+        } else {
+          // Default to SKILL if can't determine type
+          capabilityType = CapabilityType.SKILL;
+        }
         
         // Create capability entity for the capabilities collection (NO agent-specific data)
-      const capabilityEntity: CapabilityMemoryEntity = {
+        const capabilityEntity: CapabilityMemoryEntity = {
           id: capability.id,
-        name: capability.name,
-        description: capability.description,
-        type: capabilityType,
-        version: capability.version || '1.0.0',
-        parameters: capability.parameters || {},
-        tags: [],
+          name: capability.name,
+          description: capability.description,
+          type: capabilityType,
+          version: capability.version || '1.0.0',
+          parameters: capability.parameters || {},
+          tags: [],
           domains: capabilityType === CapabilityType.DOMAIN ? [capability.name] : [],
-          content: `${capability.name} - ${capability.description} (${capabilityType})`, // Remove level from content
-        createdAt: timestamp,
-        updatedAt: timestamp,
-        schemaVersion: '1.0',
+          content: `${capability.name} - ${capability.description} (${capabilityType})`,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+          schemaVersion: '1.0',
           metadata: {
-            // Remove agent-specific metadata - this is a reusable capability definition
             category: capabilityType
           }
-      };
-      
-        // Store using capability service which handles proper memory types
-        const result = await capabilityService.createCapability(capabilityEntity);
+        };
         
-        if (result.success) {
-          console.log(`✅ Stored capability: ${capability.name} (${capabilityType})`);
+        // Use findOrCreateCapability to get proper UUID mapping
+        const mapping = await capabilityService.findOrCreateCapability(capabilityEntity);
+        
+        if (mapping) {
+          console.log(`✅ Processed capability: ${capability.name} -> ${mapping.pointId}`);
           storedCapabilitiesCount++;
-          storedCapabilityIds.push(capability.id);
+          capabilityMappings.push(mapping);
         } else {
-          console.error(`❌ Failed to store capability ${capability.name}: ${result.error?.message}`);
+          console.error(`❌ Failed to process capability: ${capability.name}`);
+          // Continue processing other capabilities instead of failing completely
         }
+        
       } catch (error) {
-        console.error(`❌ Error storing capability ${capability.name}:`, error);
-        console.error('Error details:', {
-          capabilityName: capability.name,
-          capabilityId: capability.id,
-          agentId: id,
-          error: error instanceof Error ? error.message : String(error),
-          stack: error instanceof Error ? error.stack : undefined
-        });
-        // Continue with other capabilities even if one fails
+        console.error(`❌ Error processing capability ${capability.name}:`, error);
+        // Continue processing other capabilities instead of failing completely
       }
     }
     
-    console.log(`📊 Capability storage summary: ${storedCapabilitiesCount}/${agent.capabilities.length} capabilities stored successfully`);
+    console.log(`📊 Capability processing complete: ${storedCapabilitiesCount}/${agent.capabilities.length} capabilities processed successfully`);
+    console.log(`🔍 Capability mappings: ${capabilityMappings.length}`);
     
     if (storedCapabilitiesCount === 0 && agent.capabilities.length > 0) {
-      console.warn('⚠️ No capabilities were stored successfully, but the agent will still be created');
+      console.warn('⚠️ WARNING: No capabilities were processed successfully');
+      console.warn('⚠️ The agent will be created without capabilities');
+      // Continue with agent creation but with empty capabilities
     }
     
     // Create an agent memory service using our UUID-compatible implementation
@@ -380,7 +394,7 @@ export async function POST(request: Request) {
       name: agent.name,
       description: agent.description || '',
       createdBy: 'api', 
-      capabilities: convertCapabilitiesToSchemaFormat(agent.capabilities, storedCapabilityIds),
+      capabilities: convertCapabilitiesToSchemaFormat(agent.capabilities, capabilityMappings),
       parameters: createAgentParameters(agent),
       status: agentMetadata.status === MetadataAgentStatus.AVAILABLE ? AgentStatus.AVAILABLE :
               agentMetadata.status === MetadataAgentStatus.BUSY ? AgentStatus.BUSY :
@@ -457,7 +471,7 @@ export async function POST(request: Request) {
       console.log('Successfully verified agent was stored.');
       
       // Generate a thread ID for the agent
-      const threadId = `thread_${agent.name.toLowerCase().replace(/\s+/g, '_')}_${ulid()}`;
+      const threadId = `thread_${agent.name.toLowerCase().replace(/\s+/g, '_')}_${uuidv4()}`;
       
       // Create response with thread ID
       return NextResponse.json({
