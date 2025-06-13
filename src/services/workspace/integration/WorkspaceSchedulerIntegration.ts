@@ -197,7 +197,7 @@ export class WorkspaceSchedulerIntegration {
    */
   private async executeSendEmail(agentId: string, connectionId: string, entities: any): Promise<any> {
     const params = {
-      to: entities.recipients || [],
+      to: entities.to || entities.recipients || [],
       subject: entities.subject || 'Scheduled Email',
       body: entities.body || 'This is a scheduled email.',
       connectionId
@@ -241,16 +241,15 @@ export class WorkspaceSchedulerIntegration {
    */
   private async executeUploadFile(agentId: string, connectionId: string, entities: any): Promise<any> {
     const params = {
-      name: entities.fileName,
+      name: entities.fileName || entities.name,
       content: entities.content,
-      mimeType: entities.mimeType,
-      folderId: entities.folderId,
+      parentFolder: entities.folderId || entities.parentFolder,
       connectionId
     };
 
-    // Access the private createFileTool through the public interface
+    // Access the createFileTool through the public interface
     const availableTools = await this.workspaceTools.getAvailableTools(agentId);
-    const createFileTool = availableTools.find(tool => tool.name === 'Create File');
+    const createFileTool = availableTools.find(tool => tool.name === 'create_file');
     
     if (!createFileTool) {
       throw new Error('Create file tool not available');
