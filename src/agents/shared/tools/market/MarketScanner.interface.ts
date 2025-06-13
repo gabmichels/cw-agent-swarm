@@ -13,27 +13,33 @@ import { StructuredTool } from '@langchain/core/tools';
  */
 export interface MarketSource {
   id: string;
-  type: 'rss' | 'reddit' | 'twitter';
-  url: string;
+  name: string;
+  type: string;
   category: string;
-  theme: string;
-  refresh_interval: number; // in hours
-  last_checked?: string;
+  url?: string;
+  apiEndpoint?: string;
+  apiKey?: string;
+  refresh_frequency?: number;
+  last_checked?: number;
+  parameters?: Record<string, unknown>;
+  enabled?: boolean;
 }
 
 /**
  * Interface representing a market signal from a source
  */
 export interface MarketSignal {
-  title: string;
-  content: string;
+  id: string;
   source: string;
   sourceType: string;
+  title: string;
+  content: string;
+  url?: string;
+  timestamp: Date;
   category: string;
-  theme: string;
-  url: string;
-  published: Date;
-  retrieved: Date;
+  keywords?: string[];
+  sentiment?: number; // -1 to 1
+  relevance?: number; // 0 to 1
 }
 
 /**
@@ -64,6 +70,7 @@ export interface MarketScannerConfig {
     news?: string;
     research?: string;
     trends?: string;
+    apify?: string;
   };
   sources?: string[];
   dataDir?: string;
@@ -123,4 +130,18 @@ export interface IMarketScanner {
    * @returns Structured tool for finding market trends
    */
   createMarketTrendTool(): StructuredTool;
+  
+  /**
+   * Create market scanner command tool for natural language interactions
+   * 
+   * @returns Command tool for market scanning
+   */
+  createMarketCommandTool(): StructuredTool;
+  
+  /**
+   * Create all market scanner tools
+   * 
+   * @returns Array of market scanner tools
+   */
+  createMarketTools(): StructuredTool[];
 } 

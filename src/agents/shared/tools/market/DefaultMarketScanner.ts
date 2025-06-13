@@ -23,9 +23,8 @@ import {
 
 import { ISourceManager } from './interfaces/MarketSource.interface';
 import { ITrendAnalyzer } from './interfaces/TrendAnalysis.interface';
-// TODO: Uncomment these when implementations are available
-// import { DefaultSourceManager } from './processors/DefaultSourceManager';
-// import { DefaultTrendAnalyzer } from './analysis/DefaultTrendAnalyzer';
+import { DefaultSourceManager } from './processors/DefaultSourceManager';
+import { DefaultTrendAnalyzer } from './analysis/DefaultTrendAnalyzer';
 import { DefaultRssProcessor } from './processors/rss/DefaultRssProcessor';
 import { ISourceProcessor, IRssProcessor } from './interfaces/SourceProcessor.interface';
 import { RssSource } from './interfaces/MarketSource.interface';
@@ -33,9 +32,8 @@ import { RssSource } from './interfaces/MarketSource.interface';
 // Import our DefaultApifyManager
 import defaultApifyManager, { IApifyManager } from '../integrations/apify';
 
-// This is a reference to our DefaultApifyManager implementation
-// In the future, this could be injected for better testability
-let apifyManager: IApifyManager = defaultApifyManager;
+// Initialize Apify manager with the default implementation
+const apifyManager: IApifyManager = defaultApifyManager;
 
 /**
  * Default implementation of the Market Scanner
@@ -60,7 +58,11 @@ export class DefaultMarketScanner implements IMarketScanner {
     this.config = {
       maxResults: config.maxResults || 100,
       scanFrequency: config.scanFrequency || 24 * 60 * 60 * 1000, // Default: daily
-      apiKeys: config.apiKeys || {},
+      apiKeys: config.apiKeys || {
+        news: process.env.NEWS_API_KEY,
+        research: process.env.RESEARCH_API_KEY,
+        trends: process.env.TRENDS_API_KEY
+      },
       sources: config.sources || [
         'news',
         'research',
@@ -72,46 +74,11 @@ export class DefaultMarketScanner implements IMarketScanner {
       enabled: config.enabled !== undefined ? config.enabled : true
     };
 
-    // Initialize with default implementations
-    // These could be injected for better testability
+    // Initialize the source manager and trend analyzer with real implementations
+    this.sourceManager = new DefaultSourceManager(this.config);
+    this.trendAnalyzer = new DefaultTrendAnalyzer();
     
-    // TODO: Replace these with actual implementations when available
-    // For now, create placeholder implementations
-    this.sourceManager = {
-      loadSources: async () => [],
-      addSource: async () => {},
-      removeSource: async () => false,
-      updateSource: async (id: string, updates: Partial<MarketSource>): Promise<MarketSource> => {
-        // Create a properly typed MarketSource object
-        return {
-          id,
-          type: updates.type || 'rss', // Default to RSS
-          url: updates.url || '',
-          category: updates.category || 'default',
-          theme: updates.theme || 'general',
-          refresh_interval: updates.refresh_interval || 24,
-          last_checked: updates.last_checked
-        };
-      },
-      getSourcesByCategory: async () => [],
-      getDueSources: async () => [],
-      updateSourceTimestamp: async () => {}
-    };
-    
-    this.trendAnalyzer = {
-      initialize: async () => {},
-      analyzeSignals: async () => ({ 
-        trends: [], 
-        confidence: 0, 
-        processingTime: 0, 
-        signalsProcessed: 0, 
-        metadata: {} 
-      }),
-      mergeSimilarTrends: async (trends) => trends,
-      calculateTrendScore: async (trend) => trend,
-      determineTrendStage: async (trend) => trend
-    };
-    
+    // Initialize RssProcessor with the real implementation
     this.rssProcessor = new DefaultRssProcessor();
     
     // Check if the data directory exists
@@ -125,6 +92,9 @@ export class DefaultMarketScanner implements IMarketScanner {
       logger.error('Failed to initialize market scanner data directory:', error);
       this.isEnabled = false;
     }
+    
+    // Create default sources if none exist
+    this.createDefaultSources();
   }
 
   /**
@@ -357,6 +327,100 @@ export class DefaultMarketScanner implements IMarketScanner {
       }
     });
   }
+  
+  /**
+   * Create market scanner command tool for natural language interactions
+   * 
+   * @returns Command tool for market scanning
+   */
+  createMarketCommandTool(): StructuredTool {
+    return new StructuredTool({
+      name: 'market_scan_command',
+      description: 'Execute market scanning commands using natural language',
+      schema: z.object({
+        command: z.string().describe('Natural language command for market scanning, like "scan the market for AI trends" or "schedule daily market scan at 9am"')
+      }),
+      func: async ({ command }: { command: string }) => {
+        try {
+          // Dynamically import to avoid circular dependency
+          const { parseMarketScanCommand, MarketScanCommandType } = await import('./MarketScannerNLP');
+          
+          // Parse the command
+          const parsedCommand = parseMarketScanCommand(command);
+          
+          if (!parsedCommand) {
+            return "I couldn't understand your market scanning command. Try phrases like 'scan the market for AI trends' or 'schedule a daily market scan at 9 AM'.";
+          }
+          
+          // For immediate scans, handle directly
+          if (parsedCommand.type === MarketScanCommandType.IMMEDIATE_SCAN) {
+            // Refresh trends if requested
+            await this.refreshTrends();
+            
+            // Get trends
+            const category = parsedCommand.category;
+            const minScore = parsedCommand.minScore || 50;
+            const limit = parsedCommand.limit || 10;
+            
+            const trends = await this.getTrends(category, minScore, limit);
+            
+            if (trends.length === 0) {
+              return `No market trends found${category ? ` for category '${category}'` : ''}.`;
+            }
+            
+            // Format the trends into a readable response
+            let response = `Found ${trends.length} market trends${category ? ` for category '${category}'` : ''}:\n\n`;
+            
+            trends.forEach((trend, index) => {
+              response += `${index + 1}. ${trend.name} (Score: ${trend.score}/100)\n`;
+              response += `   ${trend.description}\n`;
+              response += `   Category: ${trend.category}, Stage: ${trend.stage}\n`;
+              response += `   Keywords: ${trend.keywords.join(', ')}\n\n`;
+            });
+            
+            return response;
+          }
+          
+          // For other commands, import the necessary components dynamically
+          const { MarketScanScheduler } = await import('./MarketScanScheduler'); 
+          const scheduler = new MarketScanScheduler(this);
+          
+          // Initialize the scheduler with a scheduler manager
+          const { createSchedulerManager } = await import('../../../../lib/scheduler/factories/SchedulerFactory');
+          const schedulerManager = await createSchedulerManager({
+            schedulingIntervalMs: 60000, // Check every minute
+            maxConcurrentTasks: 3, // Max 3 concurrent scans
+            defaultTaskTimeoutMs: 5 * 60 * 1000, // 5 minute timeout
+            enabled: true,
+          });
+          
+          await scheduler.initialize(schedulerManager);
+          
+          // Create a one-time tool instance to handle the command
+          const { MarketScannerTool } = await import('./MarketScannerTool');
+          const tool = new MarketScannerTool(this, scheduler);
+          
+          // Execute the command using the tool
+          return await tool._call({ command });
+        } catch (error) {
+          logger.error('Error handling market scan command:', error);
+          return `Error processing market scan command: ${error instanceof Error ? error.message : String(error)}`;
+        }
+      }
+    });
+  }
+  
+  /**
+   * Create all market scanner tools
+   * 
+   * @returns Array of market scanner tools
+   */
+  createMarketTools(): StructuredTool[] {
+    return [
+      this.createMarketTrendTool(),
+      this.createMarketCommandTool()
+    ];
+  }
 
   /**
    * Process a specific source to extract market signals
@@ -398,76 +462,41 @@ export class DefaultMarketScanner implements IMarketScanner {
   }
   
   /**
-   * Process a Reddit source using ApifyManager
-   * 
-   * @param source Reddit source to process
-   * @returns Extracted market signals
+   * Process a Reddit source using Apify
    */
   private async processRedditSource(source: MarketSource): Promise<MarketSignal[]> {
+    if (!source.url) {
+      logger.error(`Reddit source ${source.id} has no URL`);
+      return [];
+    }
+
+    logger.info(`Processing Reddit source: ${source.id} - ${source.url}`);
+    
     try {
-      // Extract search query from URL
-      const url = source.url;
-      let searchTerm = '';
-      
-      // Handle subreddit URLs
-      if (url.includes('r/') || url.startsWith('r/')) {
-        // Extract subreddit name
-        const subredditMatch = url.match(/r\/([a-zA-Z0-9_]+)/);
-        if (subredditMatch && subredditMatch[1]) {
-          searchTerm = subredditMatch[1];
-        } else {
-          searchTerm = url;
-        }
-      } else {
-        // Use URL as is for search term
-        searchTerm = url;
-      }
-      
-      logger.info(`Processing Reddit source ${source.id} with query: ${searchTerm}`);
-      
-      // Use ApifyManager to run Reddit search
-      const result = await apifyManager.runRedditSearch(searchTerm, false, 25);
+      const result = await apifyManager.runRedditSearch(
+        source.url,
+        false,
+        20
+      );
       
       if (!result.success || !result.output) {
-        logger.warn(`Failed to process Reddit source ${source.id}`);
+        logger.error(`Failed to process Reddit source ${source.id}:`, result.error);
         return [];
       }
       
-      // Convert Apify results to market signals
-      const signals: MarketSignal[] = [];
-      const now = new Date();
-      
-      for (const post of result.output) {
-        // Extract post data
-        const title = post.title || 'Untitled';
-        const content = post.text || post.description || '';
-        const postUrl = post.url || post.permalink || '';
-        const community = post.community || post.subreddit || '';
-        
-        // Parse date
-        let published = now;
-        if (post.postedAt) {
-          published = new Date(post.postedAt);
-        } else if (post.created) {
-          published = new Date(post.created * 1000);
-        }
-        
-        // Create signal
-        signals.push({
-          title,
-          content: this.cleanContent(content),
-          source: `Reddit - ${community}`,
-          sourceType: 'reddit',
-          category: source.category,
-          theme: source.theme,
-          url: postUrl,
-          published,
-          retrieved: now
-        });
-      }
-      
-      logger.info(`Processed Reddit source ${source.id} and found ${signals.length} signals`);
-      return signals;
+      return result.output.map(post => ({
+        id: `${source.id}-${post.id || Date.now()}-${Math.random().toString(36).substring(7)}`,
+        title: post.title || 'Untitled Reddit Post',
+        content: post.text || post.contentText || post.description || '',
+        source: `Reddit - ${source.url}`,
+        sourceType: 'reddit',
+        category: source.category,
+        url: post.url || post.link || '',
+        timestamp: post.postedAt ? new Date(post.postedAt) : new Date(),
+        keywords: [],
+        sentiment: 0,
+        relevance: 0.5
+      }));
     } catch (error) {
       logger.error(`Error processing Reddit source ${source.id}:`, error);
       return [];
@@ -475,66 +504,41 @@ export class DefaultMarketScanner implements IMarketScanner {
   }
   
   /**
-   * Process a Twitter source using ApifyManager
-   * 
-   * @param source Twitter source to process
-   * @returns Extracted market signals
+   * Process a Twitter source using Apify
    */
   private async processTwitterSource(source: MarketSource): Promise<MarketSignal[]> {
+    if (!source.url) {
+      logger.error(`Twitter source ${source.id} has no URL`);
+      return [];
+    }
+
+    logger.info(`Processing Twitter source: ${source.id} - ${source.url}`);
+    
     try {
-      // Extract search query from URL
-      let searchTerm = '';
-      
-      if (source.url.startsWith('search:')) {
-        searchTerm = source.url.substring(7);
-      } else {
-        searchTerm = source.url;
-      }
-      
-      logger.info(`Processing Twitter source ${source.id} with query: ${searchTerm}`);
-      
-      // Use ApifyManager to run Twitter search
-      const result = await apifyManager.runTwitterSearch(searchTerm, false, 25);
+      const result = await apifyManager.runTwitterSearch(
+        source.url,
+        false,
+        20
+      );
       
       if (!result.success || !result.output) {
-        logger.warn(`Failed to process Twitter source ${source.id}`);
+        logger.error(`Failed to process Twitter source ${source.id}:`, result.error);
         return [];
       }
       
-      // Convert Apify results to market signals
-      const signals: MarketSignal[] = [];
-      const now = new Date();
-      
-      for (const tweet of result.output) {
-        // Extract tweet data
-        const title = `Tweet by @${tweet.username || 'unknown'}`;
-        const content = tweet.text || tweet.content || tweet.full_text || '';
-        const tweetUrl = tweet.url || '';
-        
-        // Parse date
-        let published = now;
-        if (tweet.date) {
-          published = new Date(tweet.date);
-        } else if (tweet.created_at) {
-          published = new Date(tweet.created_at);
-        }
-        
-        // Create signal
-        signals.push({
-          title,
-          content,
-          source: `Twitter - ${searchTerm}`,
-          sourceType: 'twitter',
-          category: source.category,
-          theme: source.theme,
-          url: tweetUrl,
-          published,
-          retrieved: now
-        });
-      }
-      
-      logger.info(`Processed Twitter source ${source.id} and found ${signals.length} signals`);
-      return signals;
+      return result.output.map(tweet => ({
+        id: `${source.id}-${tweet.id || Date.now()}-${Math.random().toString(36).substring(7)}`,
+        title: tweet.text ? tweet.text.substring(0, 100) : 'Tweet',
+        content: tweet.text || tweet.contentText || tweet.full_text || '',
+        source: `Twitter - ${tweet.username || 'Unknown'}`,
+        sourceType: 'twitter',
+        category: source.category,
+        url: tweet.url || tweet.permalink || '',
+        timestamp: tweet.postedAt ? new Date(tweet.postedAt) : new Date(),
+        keywords: [],
+        sentiment: 0,
+        relevance: 0.5
+      }));
     } catch (error) {
       logger.error(`Error processing Twitter source ${source.id}:`, error);
       return [];
@@ -629,5 +633,85 @@ export class DefaultMarketScanner implements IMarketScanner {
       .slice(0, this.config.maxResults);
     
     this.lastScanTime = new Date();
+  }
+
+  /**
+   * Create default data sources if none exist
+   */
+  private async createDefaultSources(): Promise<void> {
+    try {
+      // Check if we have any sources
+      const sources = await this.sourceManager.loadSources();
+      
+      if (sources.length === 0) {
+        logger.info('Creating default market scanner data sources');
+        
+        // Add default RSS feeds for AI and tech news
+        const defaultSources: MarketSource[] = [
+          {
+            id: 'techcrunch-ai',
+            name: 'TechCrunch AI',
+            type: 'rss',
+            url: 'https://techcrunch.com/category/artificial-intelligence/feed/',
+            category: 'ai',
+            refresh_frequency: 12,
+            enabled: true,
+            parameters: { type: 'news' }
+          },
+          {
+            id: 'mit-tech-review',
+            name: 'MIT Technology Review',
+            type: 'rss',
+            url: 'https://www.technologyreview.com/feed/',
+            category: 'tech',
+            refresh_frequency: 24,
+            enabled: true,
+            parameters: { type: 'research' }
+          },
+          {
+            id: 'hn-ai',
+            name: 'Hacker News AI',
+            type: 'rss',
+            url: 'https://hnrss.org/newest?q=artificial+intelligence',
+            category: 'ai',
+            refresh_frequency: 6,
+            enabled: true,
+            parameters: { type: 'tech' }
+          },
+          {
+            id: 'reddit-artificial',
+            name: 'Reddit Artificial Intelligence',
+            type: 'reddit',
+            url: 'artificial',
+            category: 'ai',
+            refresh_frequency: 24,
+            enabled: true,
+            parameters: { type: 'social' }
+          },
+          {
+            id: 'twitter-ai',
+            name: 'Twitter AI Search',
+            type: 'twitter',
+            url: 'artificial intelligence',
+            category: 'ai',
+            refresh_frequency: 12,
+            enabled: true,
+            parameters: { type: 'social' }
+          }
+        ];
+        
+        // Add each default source
+        for (const source of defaultSources) {
+          try {
+            await this.sourceManager.addSource(source);
+            logger.info(`Added default source: ${source.id}`);
+          } catch (error) {
+            logger.error(`Error adding default source ${source.id}:`, error);
+          }
+        }
+      }
+    } catch (error) {
+      logger.error('Error creating default sources:', error);
+    }
   }
 } 

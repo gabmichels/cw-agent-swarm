@@ -1,0 +1,28 @@
+{
+  "sources": [
+    {
+      "id": "reddit-artificial",
+      "type": "reddit",
+      "url": "artificial",
+      "category": "ai",
+      "theme": "social",
+      "refresh_interval": 24
+    },
+    {
+      "id": "reddit-machinelearning",
+      "type": "reddit",
+      "url": "MachineLearning",
+      "category": "ai",
+      "theme": "technical",
+      "refresh_interval": 24
+    },
+    {
+      "id": "reddit-openai",
+      "type": "reddit",
+      "url": "OpenAI",
+      "category": "ai",
+      "theme": "company",
+      "refresh_interval": 12
+    }
+  ]
+} 

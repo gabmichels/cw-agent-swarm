@@ -7,7 +7,7 @@
       "category": "SEO",
       "theme": "Marketing",
       "refresh_interval": 24,
-      "last_checked": "2025-04-25T15:26:52.378Z"
+      "last_checked": "2025-06-12T23:10:23.054Z"
     },
     {
       "id": "travel-leisure",
@@ -24,7 +24,7 @@
       "category": "AI News",
       "theme": "Technology",
       "refresh_interval": 6,
-      "last_checked": "2025-04-25T15:27:03.382Z"
+      "last_checked": "2025-06-12T23:10:23.522Z"
     },
     {
       "id": "hubspot-marketing",
@@ -33,7 +33,7 @@
       "category": "Marketing Strategy",
       "theme": "Marketing",
       "refresh_interval": 12,
-      "last_checked": "2025-04-25T15:27:10.075Z"
+      "last_checked": "2025-06-12T23:10:24.605Z"
     },
     {
       "id": "lonely-planet",
@@ -51,7 +51,7 @@
       "category": "Language Learning",
       "theme": "Education",
       "refresh_interval": 24,
-      "last_checked": "2025-04-25T15:27:23.993Z"
+      "last_checked": "2025-06-12T23:10:25.894Z"
     }
   ]
 }

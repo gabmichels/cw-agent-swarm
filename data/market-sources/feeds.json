@@ -1,0 +1,30 @@
+{
+  "sources": [
+    {
+      "id": "techcrunch-ai",
+      "type": "rss",
+      "url": "https://techcrunch.com/category/artificial-intelligence/feed/",
+      "category": "ai",
+      "theme": "news",
+      "refresh_interval": 12,
+      "last_checked": "2025-06-12T23:51:33.647Z"
+    },
+    {
+      "id": "mit-tech-review",
+      "type": "rss",
+      "url": "https://www.technologyreview.com/feed/",
+      "category": "tech",
+      "theme": "research",
+      "refresh_interval": 24
+    },
+    {
+      "id": "hn-ai",
+      "type": "rss",
+      "url": "https://hnrss.org/newest?q=artificial+intelligence",
+      "category": "ai",
+      "theme": "tech",
+      "refresh_interval": 6,
+      "last_checked": "2025-06-12T23:51:35.791Z"
+    }
+  ]
+}

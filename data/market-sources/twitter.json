@@ -1,0 +1,28 @@
+{
+  "sources": [
+    {
+      "id": "twitter-ai",
+      "type": "twitter",
+      "url": "artificial intelligence",
+      "category": "ai",
+      "theme": "social",
+      "refresh_interval": 12
+    },
+    {
+      "id": "twitter-llm",
+      "type": "twitter",
+      "url": "large language model",
+      "category": "ai",
+      "theme": "technical",
+      "refresh_interval": 12
+    },
+    {
+      "id": "twitter-automation",
+      "type": "twitter",
+      "url": "automation technology",
+      "category": "automation",
+      "theme": "business",
+      "refresh_interval": 24
+    }
+  ]
+} 

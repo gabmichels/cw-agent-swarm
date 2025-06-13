@@ -562,6 +562,48 @@ export class AgentInitializer {
         });
       }
       
+      // Register Market Scanner tool
+      try {
+        const { createMarketScanner } = await import('../tools/market');
+        const marketScanner = createMarketScanner();
+        await marketScanner.initialize();
+        
+        const marketTrendTool = marketScanner.createMarketTrendTool();
+        
+        // Convert to the ToolManager interface format
+        const managerTool = {
+          id: 'market_trends',
+          name: (marketTrendTool as any).name || 'Market Trend Finder',
+          description: (marketTrendTool as any).description || 'Find current market trends in AI and technology',
+          version: '1.0.0',
+          categories: ['research'],
+          capabilities: ['market_analysis', 'trend_detection'],
+          enabled: true,
+          experimental: false,
+          costPerUse: 2,
+          timeoutMs: 30000,
+          metadata: {
+            dataSource: 'MarketScanner',
+            qualityScore: 0.85,
+            lastUpdated: new Date().toISOString()
+          },
+          execute: async (params: unknown, context?: unknown): Promise<unknown> => {
+            // Adapt the execute function signature
+            return await (marketTrendTool as any).call(params);
+          }
+        };
+        
+        await toolManager.registerTool(managerTool);
+        this.logger.info('Registered market_trends tool successfully', {
+          toolId: managerTool.id,
+          toolName: managerTool.name
+        });
+      } catch (marketScannerError) {
+        this.logger.warn('Failed to register market_trends tool:', {
+          error: marketScannerError instanceof Error ? marketScannerError.message : String(marketScannerError)
+        });
+      }
+      
       this.logger.info('Shared tools registration completed');
       
     } catch (error) {

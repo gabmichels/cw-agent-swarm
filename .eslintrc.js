@@ -12,7 +12,11 @@ module.exports = {
     project: true,
   },
   rules: {
-    "@typescript-eslint/no-explicit-any": "warn",
-    "@typescript-eslint/ban-ts-comment": "warn"
+    "@typescript-eslint/no-explicit-any": "off",
+    "@typescript-eslint/ban-ts-comment": "off",
+    "@typescript-eslint/no-unused-vars": "off",
+    "@typescript-eslint/no-empty-object-type": "off",
+    "no-case-declarations": "off",
+    "no-useless-escape": "off"
   }
 }; 

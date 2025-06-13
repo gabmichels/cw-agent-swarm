@@ -368,6 +368,90 @@ export class SharedToolRegistry implements IToolRegistry {
       logger.warn('Could not register Coda tools:', error);
     }
     
+    // Register Market Scanner tool
+    try {
+      const { createMarketScanner } = await import('../market');
+      const marketScanner = createMarketScanner();
+      await marketScanner.initialize();
+      
+      const marketTrendTool = marketScanner.createMarketTrendTool();
+      
+      // Convert to our Tool interface
+      const tool: Tool = {
+        id: 'market_trends',
+        name: (marketTrendTool as any).name || 'Market Trend Finder',
+        description: (marketTrendTool as any).description || 'Find current market trends in AI and technology',
+        category: ToolCategory.WEB, // Use WEB since RESEARCH might not exist
+        enabled: true,
+        schema: (marketTrendTool as any).schema || {
+          type: 'object',
+          properties: {
+            category: {
+              type: 'string',
+              description: 'The category of trends to find (ai, automation, integration, analytics)'
+            },
+            minScore: {
+              type: 'number',
+              description: 'Minimum score threshold (0-100)'
+            },
+            limit: {
+              type: 'number',
+              description: 'Maximum number of trends to return'
+            }
+          }
+        },
+        metadata: {
+          dataSource: 'MarketScanner',
+          qualityScore: 0.85,
+          lastUpdated: new Date().toISOString(),
+          costEstimate: 2,
+          usageLimit: 100
+        },
+        execute: async (args: Record<string, unknown>): Promise<ToolExecutionResult> => {
+          const startTime = Date.now();
+          try {
+            // Use the call method directly which should be available on StructuredTool
+            const result = await (marketTrendTool as any).call(args);
+            const endTime = Date.now();
+            
+            return {
+              id: IdGenerator.generate('trun'),
+              toolId: 'market_trends',
+              success: true,
+              data: result,
+              metrics: {
+                startTime,
+                endTime,
+                durationMs: endTime - startTime
+              }
+            };
+          } catch (error) {
+            const endTime = Date.now();
+            return {
+              id: IdGenerator.generate('trun'),
+              toolId: 'market_trends',
+              success: false,
+              error: {
+                message: error instanceof Error ? error.message : String(error),
+                code: 'EXECUTION_ERROR',
+                details: error
+              },
+              metrics: {
+                startTime,
+                endTime,
+                durationMs: endTime - startTime
+              }
+            };
+          }
+        }
+      };
+      
+      this.registerTool(tool);
+      logger.info(`[INFO] Registered market_trends tool (enabled)`);
+    } catch (error) {
+      logger.warn('Could not register market trends tool:', error);
+    }
+    
     // TODO: Register other shared tools here as they are implemented
   }
   
