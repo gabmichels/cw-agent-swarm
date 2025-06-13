@@ -116,6 +116,43 @@ export class GoogleWorkspaceProvider implements IWorkspaceProvider {
 
       // Create workspace connection record
       const db = DatabaseService.getInstance();
+      
+      // Check for existing connections for this user/provider combination
+      const existingConnections = await db.findWorkspaceConnections({
+        email,
+        provider: WorkspaceProvider.GOOGLE_WORKSPACE
+      });
+      
+      // If there are existing connections, update the most recent one instead of creating a new one
+      if (existingConnections.length > 0) {
+        console.log(`Found ${existingConnections.length} existing connections for ${email}, updating the most recent one`);
+        
+        // Sort by creation date and get the most recent
+        existingConnections.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        const mostRecentConnection = existingConnections[0];
+        
+        // Update the existing connection with new tokens
+        const updatedConnection = await db.updateWorkspaceConnection(mostRecentConnection.id, {
+          accessToken: tokens.access_token || '',
+          refreshToken: tokens.refresh_token || mostRecentConnection.refreshToken,
+          tokenExpiresAt: tokens.expiry_date ? new Date(tokens.expiry_date) : undefined,
+          scopes: tokens.scope || mostRecentConnection.scopes,
+          displayName: userInfo.data.name || email,
+          status: ConnectionStatus.ACTIVE,
+          updatedAt: new Date()
+        });
+        
+        // Delete any duplicate connections (keep only the updated one)
+        const duplicateConnections = existingConnections.slice(1);
+        for (const duplicate of duplicateConnections) {
+          console.log(`Deleting duplicate connection ${duplicate.id}`);
+          await db.deleteWorkspaceConnection(duplicate.id);
+        }
+        
+        return updatedConnection;
+      }
+      
+      // Create new connection if none exists
       const connection = await db.createWorkspaceConnection({
         userId: stateData.userId,
         organizationId: stateData.organizationId,
@@ -192,13 +229,35 @@ export class GoogleWorkspaceProvider implements IWorkspaceProvider {
         };
       }
 
-      // Check if token is expired
-      if (connection.tokenExpiresAt && connection.tokenExpiresAt < new Date()) {
-        return {
-          isValid: false,
-          status: ConnectionStatus.EXPIRED,
-          expiresAt: connection.tokenExpiresAt
-        };
+      // Check if token is expired or will expire soon (within 5 minutes)
+      const now = new Date();
+      const fiveMinutesFromNow = new Date(now.getTime() + 5 * 60 * 1000);
+      const isExpiredOrExpiringSoon = connection.tokenExpiresAt && connection.tokenExpiresAt < fiveMinutesFromNow;
+
+      if (isExpiredOrExpiringSoon && connection.refreshToken) {
+        console.log(`Token for connection ${connectionId} is expired or expiring soon, attempting refresh...`);
+        
+        // Attempt to refresh the token automatically
+        const refreshResult = await this.refreshConnection(connectionId);
+        
+        if (refreshResult.success) {
+          console.log(`Successfully refreshed token for connection ${connectionId}`);
+          // Get the updated connection after refresh
+          const updatedConnection = await db.getWorkspaceConnection(connectionId);
+          return {
+            isValid: true,
+            status: ConnectionStatus.ACTIVE,
+            expiresAt: updatedConnection?.tokenExpiresAt || undefined
+          };
+        } else {
+          console.error(`Failed to refresh token for connection ${connectionId}:`, refreshResult.error);
+          return {
+            isValid: false,
+            status: ConnectionStatus.EXPIRED,
+            error: `Token expired and refresh failed: ${refreshResult.error}`,
+            expiresAt: connection.tokenExpiresAt
+          };
+        }
       }
 
       // Test the connection by making a simple API call
@@ -207,14 +266,36 @@ export class GoogleWorkspaceProvider implements IWorkspaceProvider {
         refresh_token: connection.refreshToken
       });
 
-      const oauth2 = google.oauth2({ version: 'v2', auth: this.oauth2Client });
-      await oauth2.userinfo.get();
+      try {
+        const oauth2 = google.oauth2({ version: 'v2', auth: this.oauth2Client });
+        await oauth2.userinfo.get();
 
-      return {
-        isValid: true,
-        status: ConnectionStatus.ACTIVE,
-        expiresAt: connection.tokenExpiresAt || undefined
-      };
+        return {
+          isValid: true,
+          status: ConnectionStatus.ACTIVE,
+          expiresAt: connection.tokenExpiresAt || undefined
+        };
+      } catch (apiError) {
+        // If API call fails, try to refresh the token
+        if (connection.refreshToken) {
+          console.log(`API call failed for connection ${connectionId}, attempting token refresh...`);
+          const refreshResult = await this.refreshConnection(connectionId);
+          
+          if (refreshResult.success) {
+            return {
+              isValid: true,
+              status: ConnectionStatus.ACTIVE,
+              expiresAt: connection.tokenExpiresAt || undefined
+            };
+          }
+        }
+        
+        return {
+          isValid: false,
+          status: ConnectionStatus.ERROR,
+          error: apiError instanceof Error ? apiError.message : 'API call failed'
+        };
+      }
     } catch (error) {
       return {
         isValid: false,

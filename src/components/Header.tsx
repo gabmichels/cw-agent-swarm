@@ -65,6 +65,23 @@ const Header: React.FC<HeaderProps> = ({
 
   // Handle OAuth callback success and load workspace connections
   useEffect(() => {
+    const loadWorkspaceConnections = async () => {
+      try {
+        const params = new URLSearchParams();
+        if (userId) params.append('userId', userId);
+        if (organizationId) params.append('organizationId', organizationId);
+
+        const response = await fetch(`/api/workspace/connections?${params}`);
+        const data = await response.json();
+
+        if (data.success) {
+          setWorkspaceConnectionCount(data.connections.length);
+        }
+      } catch (error) {
+        console.error('Error loading workspace connections:', error);
+      }
+    };
+
     const handleOAuthCallback = () => {
       const urlParams = new URLSearchParams(window.location.search);
       const workspaceConnected = urlParams.get('workspace_connected');
@@ -75,36 +92,36 @@ const Header: React.FC<HeaderProps> = ({
         setShowSuccessMessage(`Successfully connected to ${provider.replace('_', ' ')}`);
         // Clean up URL parameters
         window.history.replaceState({}, document.title, window.location.pathname);
-        // Auto-open workspace modal to show the new connection
-        setIsWorkspaceModalOpen(true);
+        
+        // Refresh workspace connections immediately after successful OAuth
+        loadWorkspaceConnections().then(() => {
+          // Dispatch custom event to notify other components
+          window.dispatchEvent(new CustomEvent('workspaceConnectionsUpdated'));
+          
+          // Auto-open workspace modal to show the new connection AFTER connections are refreshed
+          // Add a small delay to ensure database consistency
+          setTimeout(() => {
+            setIsWorkspaceModalOpen(true);
+          }, 500);
+        });
+        
         // Clear success message after 5 seconds
         setTimeout(() => setShowSuccessMessage(null), 5000);
+        return true; // Indicate OAuth callback was handled
       } else if (error) {
         console.error('Workspace connection error:', error);
+        return true; // Indicate OAuth callback was handled (even if error)
       }
+      return false; // No OAuth callback
     };
 
-    const loadWorkspaceConnections = async () => {
-      if (userId || organizationId) {
-        try {
-          const params = new URLSearchParams();
-          if (userId) params.append('userId', userId);
-          if (organizationId) params.append('organizationId', organizationId);
-
-          const response = await fetch(`/api/workspace/connections?${params}`);
-          const data = await response.json();
-
-          if (data.success) {
-            setWorkspaceConnectionCount(data.connections.length);
-          }
-        } catch (error) {
-          console.error('Error loading workspace connections:', error);
-        }
-      }
-    };
-
-    handleOAuthCallback();
-    loadWorkspaceConnections();
+    // Handle OAuth callback first
+    const wasOAuthCallback = handleOAuthCallback();
+    
+    // Only load connections on initial mount if there's no OAuth callback
+    if (!wasOAuthCallback) {
+      loadWorkspaceConnections();
+    }
   }, [userId, organizationId]);
 
   return (
@@ -255,20 +272,18 @@ const Header: React.FC<HeaderProps> = ({
         onClose={() => {
           setIsWorkspaceModalOpen(false);
           // Refresh connection count when modal closes
-          if (userId || organizationId) {
-            const params = new URLSearchParams();
-            if (userId) params.append('userId', userId);
-            if (organizationId) params.append('organizationId', organizationId);
-            
-            fetch(`/api/workspace/connections?${params}`)
-              .then(res => res.json())
-              .then(data => {
-                if (data.success) {
-                  setWorkspaceConnectionCount(data.connections.length);
-                }
-              })
-              .catch(console.error);
-          }
+          const params = new URLSearchParams();
+          if (userId) params.append('userId', userId);
+          if (organizationId) params.append('organizationId', organizationId);
+          
+          fetch(`/api/workspace/connections?${params}`)
+            .then(res => res.json())
+            .then(data => {
+              if (data.success) {
+                setWorkspaceConnectionCount(data.connections.length);
+              }
+            })
+            .catch(console.error);
         }}
         userId={userId}
         organizationId={organizationId}

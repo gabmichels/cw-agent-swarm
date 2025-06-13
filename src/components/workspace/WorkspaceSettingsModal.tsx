@@ -33,7 +33,7 @@ export const WorkspaceSettingsModal: React.FC<WorkspaceSettingsModalProps> = ({
 
   // Load connections when modal opens
   useEffect(() => {
-    if (isOpen && (userId || organizationId)) {
+    if (isOpen) {
       loadConnections();
     }
   }, [isOpen, userId, organizationId]);
@@ -55,6 +55,9 @@ export const WorkspaceSettingsModal: React.FC<WorkspaceSettingsModalProps> = ({
           connections: data.connections,
           loading: false
         }));
+        
+        // Dispatch custom event to notify other components
+        window.dispatchEvent(new CustomEvent('workspaceConnectionsUpdated'));
       } else {
         throw new Error(data.error || 'Failed to load connections');
       }

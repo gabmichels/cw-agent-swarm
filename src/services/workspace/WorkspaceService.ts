@@ -187,6 +187,14 @@ export class WorkspaceService {
   }
 
   /**
+   * Get all workspace connections
+   */
+  async getAllConnections(): Promise<WorkspaceConnection[]> {
+    const db = DatabaseService.getInstance();
+    return db.findWorkspaceConnections({});
+  }
+
+  /**
    * Check health of all providers
    */
   async checkProvidersHealth(): Promise<Record<string, boolean>> {

@@ -257,4 +257,26 @@
   background-color: #991b1b;
   border: 1px solid #b91c1c;
   color: #fecaca;
+}
+
+/* Workspace Permission Manager Styles */
+.workspace-permission-manager {
+  @apply w-full;
+}
+
+.workspace-permission-manager .bg-gray-750 {
+  @apply bg-gray-700;
+}
+
+.workspace-permission-manager .hover\:bg-gray-750:hover {
+  @apply hover:bg-gray-600;
+}
+
+/* Step indicator improvements */
+.wizard-step-icon {
+  @apply text-lg;
+}
+
+.wizard-step-circle {
+  @apply flex items-center justify-center;
 } 

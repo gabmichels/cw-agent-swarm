@@ -10,13 +10,6 @@ export async function GET(request: NextRequest) {
     const userId = searchParams.get('userId');
     const organizationId = searchParams.get('organizationId');
 
-    if (!userId && !organizationId) {
-      return NextResponse.json(
-        { error: 'Either userId or organizationId is required' },
-        { status: 400 }
-      );
-    }
-
     const workspaceService = new WorkspaceService();
 
     let connections;
@@ -24,6 +17,10 @@ export async function GET(request: NextRequest) {
       connections = await workspaceService.getUserConnections(userId);
     } else if (organizationId) {
       connections = await workspaceService.getOrganizationConnections(organizationId);
+    } else {
+      // If no specific user or organization is requested, return all connections
+      // This is useful for development and when user context is not available
+      connections = await workspaceService.getAllConnections();
     }
 
     return NextResponse.json({

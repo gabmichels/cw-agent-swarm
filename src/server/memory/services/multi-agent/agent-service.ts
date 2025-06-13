@@ -127,15 +127,20 @@ export class DefaultAgentMemoryService implements AgentMemoryService {
         throw innerError;
       }
 
-      // FIXED: Verify agent was stored by searching for agent ID in payload
-      // instead of using direct point retrieval which would fail with string IDs
+      // Verify agent was stored by searching for agent ID in payload
       const searchResult = await this.memoryClient.searchPoints(
         this.collectionName,
         {
           vector: this.createDummyVector(),
           limit: 1,
           filter: {
-            must: [
+            should: [
+              {
+                key: 'id',
+                match: {
+                  value: agent.id
+                }
+              },
               {
                 key: 'agentId',
                 match: {
@@ -175,14 +180,20 @@ export class DefaultAgentMemoryService implements AgentMemoryService {
         return failureResult(new AppError('Agent ID is required for update', AgentMemoryErrorCode.VALIDATION_FAILED));
       }
       
-      // FIXED: Find the actual UUID point ID by searching for the agent ID
+      // Try searching by both 'id' and 'agentId' fields to handle different storage formats
       const searchResult = await this.memoryClient.searchPoints(
         this.collectionName,
         {
           vector: this.createDummyVector(),
           limit: 1,
           filter: {
-            must: [
+            should: [
+              {
+                key: 'id',
+                match: {
+                  value: agent.id
+                }
+              },
               {
                 key: 'agentId',
                 match: {
@@ -224,15 +235,20 @@ export class DefaultAgentMemoryService implements AgentMemoryService {
    */
   async getAgent(agentId: string): Promise<Result<AgentMemoryEntity>> {
     try {
-      // FIXED: Search by agent ID in payload instead of direct point retrieval
-      // Direct retrieval fails because we're using UUID point IDs, not agent IDs
+      // Try searching by both 'id' and 'agentId' fields to handle different storage formats
       const searchResult = await this.memoryClient.searchPoints(
         this.collectionName,
         {
           vector: this.createDummyVector(),
           limit: 1,
           filter: {
-            must: [
+            should: [
+              {
+                key: 'id',
+                match: {
+                  value: agentId
+                }
+              },
               {
                 key: 'agentId',
                 match: {

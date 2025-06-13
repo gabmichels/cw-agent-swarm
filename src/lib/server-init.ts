@@ -6,6 +6,7 @@
 // Import agent bootstrap system
 import { bootstrapAgents } from './agent-bootstrap';
 import { createLogger } from './logging/winston-logger';
+import { TokenRefreshService } from '../services/workspace/TokenRefreshService';
 
 // Create a logger for server initialization
 const serverLogger = createLogger({ moduleId: 'server-init' });
@@ -52,6 +53,16 @@ export async function initializeServer() {
           error: bootstrapError 
         });
         // Continue with initialization even if bootstrap fails
+      }
+      
+      // Start the token refresh service
+      try {
+        const tokenRefreshService = TokenRefreshService.getInstance();
+        tokenRefreshService.start();
+        serverLogger.info('Token refresh service started successfully');
+      } catch (tokenError) {
+        serverLogger.error('Failed to start token refresh service', { error: tokenError });
+        // Continue with initialization even if token service fails
       }
       
       // Use a flag to track agent initialization attempts within this process

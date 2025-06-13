@@ -8,6 +8,7 @@ import AgentCapabilityManager from './AgentCapabilityManager';
 import AgentTemplateSelector, { AgentTemplate, AGENT_TEMPLATES } from './AgentTemplateSelector';
 import ManagerConfigPanel, { AgentManagersConfig } from './ManagerConfigPanel';
 import AgentProcessingStatus, { ProcessingLog, ProcessingStep } from './AgentProcessingStatus';
+import { AgentWorkspacePermissionManager, AgentWorkspacePermissionConfig } from './AgentWorkspacePermissionManager';
 import { CapabilityLevel } from '@/agents/shared/capability-system';
 import './wizard.css';
 import { AgentStatus } from '@/server/memory/schema/agent';
@@ -26,6 +27,7 @@ interface ExtendedAgentMetadata extends AgentMetadata {
     communicationStyle: string;
     preferences: string;
   };
+  workspacePermissions?: AgentWorkspacePermissionConfig[];
 }
 
 interface KnowledgeFile {
@@ -67,7 +69,8 @@ enum FormStep {
   PERSONA = 2,
   KNOWLEDGE = 3, 
   CAPABILITIES = 4,
-  MANAGERS = 5
+  WORKSPACE = 5,
+  MANAGERS = 6
 }
 
 const STORAGE_KEY = 'agent_registration_form_data';
@@ -153,6 +156,8 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
     schedulerManager: { enabled: true }
   });
   
+  const [workspacePermissions, setWorkspacePermissions] = useState<AgentWorkspacePermissionConfig[]>([]);
+  
   // Add processing status state
   const [processingLog, setProcessingLog] = useState<ProcessingLog>({
     steps: [
@@ -199,6 +204,7 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
         if (parsedData.personaData) setPersonaData(parsedData.personaData);
         if (parsedData.agentCapabilities) setAgentCapabilities(parsedData.agentCapabilities);
         if (parsedData.managersConfig) setManagersConfig(parsedData.managersConfig);
+        if (parsedData.workspacePermissions) setWorkspacePermissions(parsedData.workspacePermissions);
         if (parsedData.currentStep !== undefined) setCurrentStep(parsedData.currentStep);
       } catch (error) {
         console.error('Error loading saved form data:', error);
@@ -215,11 +221,12 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
       personaData,
       agentCapabilities,
       managersConfig,
+      workspacePermissions,
       currentStep
     };
     
     localStorage.setItem(STORAGE_KEY, JSON.stringify(dataToSave));
-  }, [formData, systemPrompt, knowledgeData, personaData, agentCapabilities, managersConfig, currentStep]);
+  }, [formData, systemPrompt, knowledgeData, personaData, agentCapabilities, managersConfig, workspacePermissions, currentStep]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -538,13 +545,22 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
   // Handle managers configuration changes
   const handleManagersConfigChange = (config: AgentManagersConfig) => {
     setManagersConfig(config);
-    
-    // Update form data with managers config
-    setFormData(prevData => ({
-      ...prevData,
-      parameters: {
-        ...prevData.parameters,
+    setFormData(prevFormData => ({
+      ...prevFormData,
+      metadata: {
+        ...prevFormData.metadata,
         managersConfig: config
+      }
+    }));
+  };
+
+  const handleWorkspacePermissionsChange = (permissions: AgentWorkspacePermissionConfig[]) => {
+    setWorkspacePermissions(permissions);
+    setFormData(prevFormData => ({
+      ...prevFormData,
+      metadata: {
+        ...prevFormData.metadata,
+        workspacePermissions: permissions
       }
     }));
   };
@@ -661,13 +677,40 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
         _extended: {
           systemPrompt,
           knowledgePaths: knowledgeData.knowledgePaths,
-          persona: personaData
+          persona: personaData,
+          workspacePermissions: workspacePermissions
         }
       };
       
       await onSubmit(extendedRequest as any);
       
       updateStepStatus('registration', 'completed', 'Agent registered successfully');
+      
+      // Process workspace permissions if any are configured
+      if (workspacePermissions.length > 0) {
+        try {
+          const response = await fetch('/api/agents/workspace-permissions', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              agentId: standardRequest.name, // Using name as agentId for now
+              permissions: workspacePermissions,
+              grantedBy: 'system' // TODO: Replace with actual user ID
+            }),
+          });
+
+          const data = await response.json();
+          if (!data.success) {
+            console.warn('Failed to grant workspace permissions:', data.error);
+            // Don't fail the entire registration for workspace permission errors
+          }
+        } catch (error) {
+          console.warn('Error processing workspace permissions:', error);
+          // Don't fail the entire registration for workspace permission errors
+        }
+      }
       
       // Clear form data from storage
       localStorage.removeItem(STORAGE_KEY);
@@ -715,36 +758,39 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
   };
 
   const renderStepIndicator = () => {
+    const steps = [
+      { id: FormStep.TEMPLATE, name: 'Template', icon: '📋' },
+      { id: FormStep.INFO_AND_PROMPT, name: 'Info & Prompt', icon: '📝' },
+      { id: FormStep.PERSONA, name: 'Persona', icon: '🎭' },
+      { id: FormStep.KNOWLEDGE, name: 'Knowledge', icon: '📚' },
+      { id: FormStep.CAPABILITIES, name: 'Capabilities', icon: '⚡' },
+      { id: FormStep.WORKSPACE, name: 'Workspace', icon: '🔗' },
+      { id: FormStep.MANAGERS, name: 'Managers', icon: '⚙️' }
+    ];
+
     return (
       <div className="wizard-step-indicator">
-        {[
-          { step: FormStep.TEMPLATE, label: "Template" },
-          { step: FormStep.INFO_AND_PROMPT, label: "Agent Info" },
-          { step: FormStep.PERSONA, label: "Persona" },
-          { step: FormStep.KNOWLEDGE, label: "Knowledge" },
-          { step: FormStep.CAPABILITIES, label: "Capabilities" },
-          { step: FormStep.MANAGERS, label: "Managers" }
-        ].map(({ step, label }) => (
+        {steps.map(({ id, name, icon }) => (
           <div 
-            key={step} 
-            className={`wizard-step ${currentStep === step ? 'active' : ''} ${currentStep > step ? 'completed' : ''}`}
+            key={id} 
+            className={`wizard-step ${currentStep === id ? 'active' : ''} ${currentStep > id ? 'completed' : ''}`}
           >
             <div className="wizard-step-circle">
-              {currentStep > step ? (
+              {currentStep > id ? (
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                 </svg>
               ) : (
-                step + 1
+                <span className="wizard-step-icon">{icon}</span>
               )}
             </div>
-            <span className="wizard-step-label">{label}</span>
+            <span className="wizard-step-label">{name}</span>
           </div>
         ))}
         <div className="wizard-progress-bar">
           <div 
             className="wizard-progress-fill"
-            style={{ width: `${(currentStep / 5) * 100}%` }}
+            style={{ width: `${(currentStep / 6) * 100}%` }}
           ></div>
         </div>
       </div>
@@ -976,6 +1022,20 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
         )}
         
         {currentStep === FormStep.CAPABILITIES && renderCapabilitiesStep()}
+        {currentStep === FormStep.WORKSPACE && (
+          <div className="wizard-panel">
+            <h2 className="wizard-panel-title">Workspace Permissions</h2>
+            <p className="text-sm text-gray-400 mb-4">
+              Configure which workspace capabilities this agent can access. Permissions are granted per connection and can be fine-tuned with access levels.
+            </p>
+            
+            <AgentWorkspacePermissionManager
+              initialPermissions={workspacePermissions}
+              onChange={handleWorkspacePermissionsChange}
+              className="mt-4"
+            />
+          </div>
+        )}
         {currentStep === FormStep.MANAGERS && renderManagersStep()}
         
         {/* Show processing status when submitting */}

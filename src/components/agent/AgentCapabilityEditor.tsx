@@ -64,17 +64,37 @@ const convertAgentCapabilities = (agentCapabilities: AgentProfile['capabilities'
     return result;
   }
 
-  // Track processed IDs to avoid duplicates
+  // Track processed IDs and originalCapabilityIds to avoid duplicates
   const processedIds = new Set<string>();
+  const processedOriginalIds = new Set<string>();
+  const processedNameTypes = new Set<string>();
 
   agentCapabilities.forEach(cap => {
     // Skip if we've already processed this capability ID
     if (processedIds.has(cap.id)) {
       return;
     }
-    processedIds.add(cap.id);
-
+    
+    // Skip if we've already processed this originalCapabilityId
+    const originalCapabilityId = cap.parameters?.originalCapabilityId;
+    if (originalCapabilityId && processedOriginalIds.has(originalCapabilityId)) {
+      return;
+    }
+    
+    // Skip if we've already processed this name-type combination
     const type = cap.parameters?.type || 'skill';
+    const nameTypeKey = `${cap.name}-${type}`;
+    if (processedNameTypes.has(nameTypeKey)) {
+      return;
+    }
+    
+    // Add to processed sets
+    processedIds.add(cap.id);
+    if (originalCapabilityId) {
+      processedOriginalIds.add(originalCapabilityId);
+    }
+    processedNameTypes.add(nameTypeKey);
+
     const level = extractCapabilityLevel(cap);
     
     result.descriptions[cap.id] = cap.description;
@@ -199,13 +219,37 @@ const AgentCapabilityEditor: React.FC<AgentCapabilityEditorProps> = ({
       level: extractCapabilityLevel(cap)
     }));
     
-    // Deduplicate selected capabilities by ID
+    // Deduplicate selected capabilities by ID, originalCapabilityId, and name
     const seenIds = new Set<string>();
+    const seenOriginalIds = new Set<string>();
+    const seenNames = new Set<string>();
+    
     const deduplicatedSelected = selected.filter(cap => {
+      // Check for duplicate ID
       if (seenIds.has(cap.id)) {
         return false;
       }
+      
+      // Check for duplicate originalCapabilityId (from agent capabilities)
+      const originalCapabilityId = (agent.capabilities || [])
+        .find(agentCap => agentCap.id === cap.id)?.parameters?.originalCapabilityId;
+      if (originalCapabilityId && seenOriginalIds.has(originalCapabilityId)) {
+        return false;
+      }
+      
+      // Check for duplicate name within the same type
+      const nameTypeKey = `${cap.name}-${cap.type}`;
+      if (seenNames.has(nameTypeKey)) {
+        return false;
+      }
+      
+      // Add to seen sets
       seenIds.add(cap.id);
+      if (originalCapabilityId) {
+        seenOriginalIds.add(originalCapabilityId);
+      }
+      seenNames.add(nameTypeKey);
+      
       return true;
     });
     
@@ -516,7 +560,7 @@ const AgentCapabilityEditor: React.FC<AgentCapabilityEditorProps> = ({
         
         <div className="space-y-2">
           {selectedCapabilities.map((capability, index) => (
-            <div key={`selected-readonly-${capability.id}-${index}`} className={`p-3 rounded border ${getCapabilityTypeColor(capability.type)}`}>
+            <div key={`selected-readonly-${capability.id}-${capability.type}-${index}`} className={`p-3 rounded border ${getCapabilityTypeColor(capability.type)}`}>
               <div className="flex justify-between items-start">
                 <div className="flex-1">
                   <h3 className="font-medium">{capability.name}</h3>
@@ -583,7 +627,7 @@ const AgentCapabilityEditor: React.FC<AgentCapabilityEditorProps> = ({
       {/* Selected Capabilities */}
       <div className="space-y-2 mb-4">
         {selectedCapabilities.map((capability, index) => (
-          <div key={`selected-${capability.id}-${index}`} className={`p-3 rounded border ${getCapabilityTypeColor(capability.type)}`}>
+          <div key={`selected-edit-${capability.id}-${capability.type}-${index}`} className={`p-3 rounded border ${getCapabilityTypeColor(capability.type)}`}>
             <div className="flex justify-between items-start">
               <div className="flex-1">
                 <h3 className="font-medium">{capability.name}</h3>
@@ -660,7 +704,7 @@ const AgentCapabilityEditor: React.FC<AgentCapabilityEditorProps> = ({
               .filter(cap => !selectedCapabilities.some(selected => selected.id === cap.id))
               .map((capability, index) => (
                 <div
-                  key={`available-${capability.id}-${index}`}
+                  key={`available-${capability.id}-${capability.type}-${index}`}
                   onClick={() => addCapability(capability)}
                   className={`p-2 rounded border cursor-pointer hover:bg-opacity-80 ${getCapabilityTypeColor(capability.type)}`}
                 >

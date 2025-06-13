@@ -234,16 +234,6 @@ const TabsNavigation: React.FC<TabsNavigationProps> = React.memo(({
             )}
           </div>
           
-          {/* Agent Settings Button */}
-          {agentId && (
-            <div className="p-2 rounded hover:bg-gray-700">
-              <AgentSettings 
-                agentId={agentId}
-                agentName={agentName}
-              />
-            </div>
-          )}
-          
           {/* Fullscreen Button */}
           <button 
             onClick={toggleFullscreen}

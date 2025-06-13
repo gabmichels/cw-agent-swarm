@@ -5,7 +5,6 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { AgentService } from '@/services/AgentService';
 import { Plus, Info, Settings, RefreshCw, Network } from 'lucide-react';
-import AgentSettings from '@/components/agent/AgentSettings';
 import AgentRelationshipVisualizer from '@/components/agent/AgentRelationshipVisualizer';
 import { AgentType } from '@/constants/agent';
 
@@ -205,12 +204,13 @@ export default function AgentsPage() {
                     >
                       <Info size={18} />
                     </button>
-                    <div className="p-2 rounded hover:bg-gray-700">
-                      <AgentSettings
-                        agentId={agent.id}
-                        agentName={agent.name}
-                      />
-                    </div>
+                    <button
+                      onClick={() => router.push(`/agents/${agent.id}`)}
+                      className="p-2 rounded hover:bg-gray-700"
+                      title="Edit agent"
+                    >
+                      <Settings size={18} />
+                    </button>
                   </div>
                 </div>
                 

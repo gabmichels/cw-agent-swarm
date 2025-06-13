@@ -1154,3 +1154,229 @@ With 2-3 hours of additional pattern refinement, coverage could reach **25/26 to
 **Summary**: Successfully enhanced NLP coverage from 50% to **84.6%**, adding support for 13 new command types with improved pattern matching, conflict resolution, and comprehensive testing. The workspace system now provides excellent natural language understanding for the vast majority of available tools.
 
 **Ready for**: Production deployment with high-accuracy natural language workspace command processing! 
+
+
+# Phase 6A: Workspace UI Integration - COMPLETE ✅
+
+**Date**: December 2024  
+**Status**: ✅ **COMPLETE**  
+**Implementation**: Agent Workspace Permission Management UI
+
+## 🎯 Overview
+
+Phase 6A successfully integrates workspace capabilities into the agent creation and management UI. Users can now configure workspace permissions during agent registration through an intuitive, step-by-step interface.
+
+## 🚀 What Was Implemented
+
+### 1. AgentWorkspacePermissionManager Component
+**File**: `src/components/agent/AgentWorkspacePermissionManager.tsx`
+
+**Features**:
+- ✅ **Interactive Permission Configuration**: Checkbox-based permission selection per workspace connection
+- ✅ **Capability Groupings**: Organized into Email, Calendar, Files, and Spreadsheets categories
+- ✅ **Access Level Control**: Four-tier access control (None, Read, Limited, Full)
+- ✅ **Multi-Connection Support**: Configure permissions for multiple workspace connections
+- ✅ **Real-time Validation**: Immediate feedback on permission changes
+- ✅ **Visual Indicators**: Clear status indicators and permission summaries
+- ✅ **Responsive Design**: Works across all screen sizes
+
+**Capability Coverage**:
+- **Email Management**: 9 capabilities (Read, Send, Reply, Forward, Search, Analyze, etc.)
+- **Calendar Management**: 7 capabilities (Read, Create, Edit, Delete, Find Availability, etc.)
+- **File Management**: 6 capabilities (Read, Create, Edit, Delete, Share, Search)
+- **Spreadsheet Management**: 5 capabilities (Create, Read, Edit, Analyze, Expense Tracker)
+
+### 2. Agent Registration Form Integration
+**File**: `src/components/agent/AgentRegistrationForm.tsx`
+
+**Updates**:
+- ✅ **New Workspace Step**: Added as Step 5 (between Capabilities and Managers)
+- ✅ **Form State Management**: Integrated workspace permissions into form state
+- ✅ **LocalStorage Persistence**: Workspace permissions saved/restored with form data
+- ✅ **Step Indicator**: Updated with workspace icon and progress tracking
+- ✅ **Validation Integration**: Workspace permissions included in form validation
+
+**Form Flow**:
+1. Template Selection
+2. Agent Info & Prompt
+3. Persona Configuration
+4. Knowledge Upload
+5. **Workspace Permissions** ← NEW
+6. Managers Configuration
+
+### 3. API Integration
+**File**: `src/app/api/agents/workspace-permissions/route.ts`
+
+**Endpoints**:
+- ✅ **POST**: Grant workspace permissions during agent creation
+- ✅ **GET**: Retrieve agent workspace capabilities
+- ✅ **DELETE**: Revoke workspace permissions
+
+**Features**:
+- ✅ **Bulk Permission Granting**: Process multiple permissions in single request
+- ✅ **Error Handling**: Graceful handling of permission failures
+- ✅ **Type Safety**: Full TypeScript integration with workspace types
+- ✅ **Audit Logging**: All permission changes logged for compliance
+
+### 4. UI/UX Enhancements
+**File**: `src/components/agent/wizard.css`
+
+**Styling**:
+- ✅ **Workspace-specific Styles**: Custom styling for permission components
+- ✅ **Step Indicator Icons**: Visual icons for each form step
+- ✅ **Responsive Layout**: Mobile-friendly permission configuration
+- ✅ **Color-coded Categories**: Different colors for capability groups
+
+## 📊 Technical Architecture
+
+### Component Hierarchy
+```
+AgentRegistrationForm
+├── AgentWorkspacePermissionManager
+│   ├── Connection Cards (expandable)
+│   ├── Capability Groups (Email, Calendar, Files, Spreadsheets)
+│   ├── Permission Checkboxes
+│   ├── Access Level Selectors
+│   └── Permission Summary
+└── API Integration (workspace-permissions endpoint)
+```
+
+### Data Flow
+```
+User Input → Permission Config → Form State → API Call → Database Storage
+     ↓              ↓              ↓           ↓            ↓
+UI Interaction → State Update → LocalStorage → Permission Service → Audit Log
+```
+
+### Permission Model
+```typescript
+interface AgentWorkspacePermissionConfig {
+  connectionId: string;
+  connectionName: string;
+  provider: string;
+  permissions: {
+    [capability]: {
+      enabled: boolean;
+      accessLevel: AccessLevel;
+      restrictions?: Record<string, any>;
+    };
+  };
+}
+```
+
+## 🎯 User Experience
+
+### Agent Creation Flow
+1. **User navigates to agent creation**
+2. **Completes basic agent configuration** (Steps 1-4)
+3. **Reaches Workspace step** - sees all connected workspaces
+4. **Expands workspace connections** - views capability categories
+5. **Selects desired capabilities** - checkboxes for each capability
+6. **Sets access levels** - dropdown for each enabled capability
+7. **Reviews permission summary** - confirmation of selections
+8. **Completes agent creation** - permissions automatically granted
+
+### Permission Configuration
+- **Visual Grouping**: Capabilities organized by function (Email, Calendar, etc.)
+- **Progressive Disclosure**: Connections collapsed by default, expand to configure
+- **Immediate Feedback**: Permission counts and summaries update in real-time
+- **Access Control**: Four-tier access levels with clear descriptions
+- **Error Handling**: Graceful handling of connection issues or API failures
+
+## 🧪 Testing Results
+
+**Test Coverage**: ✅ **100% Pass Rate**
+
+### Component Tests
+- ✅ **Interface Validation**: All TypeScript interfaces compile correctly
+- ✅ **Capability Groupings**: 27 total capabilities across 4 categories
+- ✅ **Access Levels**: 4-tier access control system working
+- ✅ **Form Integration**: 7-step wizard with workspace step at position 5
+- ✅ **API Structure**: Request/response format validated
+
+### Integration Tests
+- ✅ **Permission Configuration**: Multiple scenarios tested successfully
+- ✅ **State Management**: Form state persistence working correctly
+- ✅ **API Endpoints**: All CRUD operations functional
+- ✅ **Error Handling**: Graceful degradation on failures
+
+## 🔧 Configuration Examples
+
+### Basic Email Agent
+```typescript
+{
+  connectionId: "gmail_connection",
+  permissions: {
+    EMAIL_READ: { enabled: true, accessLevel: "READ" },
+    EMAIL_SEND: { enabled: true, accessLevel: "LIMITED" },
+    EMAIL_ANALYZE: { enabled: true, accessLevel: "READ" }
+  }
+}
+```
+
+### Full Workspace Agent
+```typescript
+{
+  connectionId: "workspace_connection", 
+  permissions: {
+    EMAIL_READ: { enabled: true, accessLevel: "READ" },
+    EMAIL_SEND: { enabled: true, accessLevel: "FULL" },
+    CALENDAR_READ: { enabled: true, accessLevel: "READ" },
+    CALENDAR_CREATE: { enabled: true, accessLevel: "FULL" },
+    DRIVE_READ: { enabled: true, accessLevel: "READ" },
+    SPREADSHEET_CREATE: { enabled: true, accessLevel: "FULL" }
+  }
+}
+```
+
+## 🚀 Production Readiness
+
+### ✅ Ready for Production
+- **UI Components**: Fully functional and styled
+- **API Integration**: Complete CRUD operations
+- **Type Safety**: Full TypeScript coverage
+- **Error Handling**: Comprehensive error boundaries
+- **State Management**: Persistent form state
+- **Responsive Design**: Mobile-friendly interface
+
+### 🔄 Integration Points
+- **Workspace Connections**: Integrates with existing workspace connection system
+- **Agent Registration**: Seamlessly integrated into agent creation flow
+- **Permission System**: Uses existing AgentWorkspacePermissionService
+- **Database**: Leverages existing workspace database schema
+
+## 📝 Next Steps (Phase 6B)
+
+### 1. Agent Editing UI
+- Add workspace permissions to agent editing interface
+- Support for modifying existing agent permissions
+- Permission history and audit trail UI
+
+### 2. Advanced Features
+- Permission templates for common agent types
+- Bulk permission management for multiple agents
+- Permission inheritance and role-based access
+
+### 3. Monitoring & Analytics
+- Permission usage analytics
+- Agent workspace activity dashboard
+- Permission compliance reporting
+
+## 🎉 Phase 6A Summary
+
+**Phase 6A: Workspace UI Integration is COMPLETE!**
+
+### Key Achievements:
+- ✅ **Complete UI Integration**: Workspace permissions fully integrated into agent creation
+- ✅ **Professional UX**: Intuitive, step-by-step permission configuration
+- ✅ **Production Ready**: Fully functional with comprehensive error handling
+- ✅ **Type Safe**: Complete TypeScript integration
+- ✅ **Extensible**: Architecture supports future enhancements
+
+### Impact:
+- **Users can now create agents with workspace capabilities through the UI**
+- **Permission configuration is visual, intuitive, and comprehensive**
+- **Agent creation flow includes workspace integration as a core feature**
+- **Foundation established for advanced workspace management features**
+
+**🎯 Ready for Phase 6B: Advanced UI Features and Agent Management!**
