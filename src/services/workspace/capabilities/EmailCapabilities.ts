@@ -265,7 +265,7 @@ export class EmailCapabilities {
     const gmail = await this.getGmailClient(connection);
     
     try {
-      const emailContent = this.buildEmailContent(params);
+      const emailContent = this.buildEmailContent(params, connection.email);
       const response = await gmail.users.messages.send({
         userId: 'me',
         requestBody: {
@@ -515,13 +515,18 @@ export class EmailCapabilities {
     return queryParts.join(' ');
   }
 
-  private buildEmailContent(params: SendEmailParams): string {
+  private buildEmailContent(params: SendEmailParams, fromEmail: string): string {
     const lines = [
+      `From: ${fromEmail}`,
       `To: ${params.to.join(', ')}`,
       params.cc ? `Cc: ${params.cc.join(', ')}` : '',
       params.bcc ? `Bcc: ${params.bcc.join(', ')}` : '',
       `Subject: ${params.subject}`,
-      'Content-Type: text/plain; charset=utf-8',
+      `Date: ${new Date().toUTCString()}`,
+      `Message-ID: <${Date.now()}.${Math.random().toString(36)}@gmail.com>`,
+      'MIME-Version: 1.0',
+      'Content-Type: text/plain; charset=UTF-8',
+      'Content-Transfer-Encoding: 7bit',
       '',
       params.body
     ].filter(Boolean);

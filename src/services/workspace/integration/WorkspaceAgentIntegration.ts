@@ -255,6 +255,13 @@ export class WorkspaceAgentIntegration {
           connectionId
         }, context);
 
+      case WorkspaceCommandType.GET_ACTION_ITEMS:
+        return await this.workspaceTools.analyzeEmailsTool.execute({
+          analysisType: 'action_items',
+          timeframe: entities.timeframe || 'today',
+          connectionId
+        }, context);
+
       case WorkspaceCommandType.SCHEDULE_EVENT:
         return await this.workspaceTools.scheduleEventTool.execute({
           title: entities.title || 'Agent Scheduled Event',
@@ -283,6 +290,17 @@ export class WorkspaceAgentIntegration {
           connectionId
         }, context);
 
+      case WorkspaceCommandType.SUMMARIZE_DAY:
+        const dayStart = new Date();
+        const dayEnd = new Date();
+        dayEnd.setHours(23, 59, 59, 999);
+        
+        return await this.workspaceTools.readCalendarTool.execute({
+          startDate: dayStart.toISOString().split('T')[0],
+          endDate: dayEnd.toISOString().split('T')[0],
+          connectionId
+        }, context);
+
       case WorkspaceCommandType.CREATE_SPREADSHEET:
         return await this.workspaceTools.createSpreadsheetTool.execute({
           title: entities.title || 'Agent Created Spreadsheet',
@@ -290,10 +308,42 @@ export class WorkspaceAgentIntegration {
           connectionId
         }, context);
 
+      case WorkspaceCommandType.READ_SPREADSHEET:
+        return await this.workspaceTools.readSpreadsheetTool.execute({
+          spreadsheetId: entities.spreadsheetId || 'default',
+          range: entities.range || 'A1:Z100',
+          connectionId
+        }, context);
+
+      case WorkspaceCommandType.UPDATE_SPREADSHEET:
+        return await this.workspaceTools.updateSpreadsheetTool.execute({
+          spreadsheetId: entities.spreadsheetId || 'default',
+          range: entities.range || 'A1',
+          values: entities.values || [['Updated by Agent']],
+          connectionId
+        }, context);
+
       case WorkspaceCommandType.SEARCH_FILES:
         return await this.workspaceTools.searchFilesTool.execute({
           name: entities.query,
           mimeType: entities.fileType,
+          connectionId
+        }, context);
+
+      case WorkspaceCommandType.UPLOAD_FILE:
+        return await this.workspaceTools.uploadFileTool.execute({
+          name: entities.fileName || 'agent-upload.txt',
+          content: entities.content || 'File uploaded by agent',
+          mimeType: entities.mimeType || 'text/plain',
+          parentFolderId: entities.folderId,
+          connectionId
+        }, context);
+
+      case WorkspaceCommandType.SHARE_FILE:
+        return await this.workspaceTools.shareFileTool.execute({
+          fileId: entities.fileId || 'default',
+          email: entities.email,
+          role: entities.role || 'reader',
           connectionId
         }, context);
 
