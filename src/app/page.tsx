@@ -164,6 +164,7 @@ export default function Home() {
           setIsDebugMode={setIsDebugMode}
           departments={departments}
           agentsByDepartment={agentsByDepartment}
+          userId="test-user"
         />
 
       {/* Main content area */}

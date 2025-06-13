@@ -19,14 +19,22 @@ export class GoogleWorkspaceProvider implements IWorkspaceProvider {
   readonly supportedCapabilities = [
     WorkspaceCapabilityType.EMAIL_SEND,
     WorkspaceCapabilityType.EMAIL_READ,
+    WorkspaceCapabilityType.DOCUMENT_READ,
+    WorkspaceCapabilityType.DOCUMENT_CREATE,
+    WorkspaceCapabilityType.DOCUMENT_EDIT,
     WorkspaceCapabilityType.CALENDAR_READ,
     WorkspaceCapabilityType.CALENDAR_CREATE,
     WorkspaceCapabilityType.CALENDAR_EDIT,
+    WorkspaceCapabilityType.CALENDAR_DELETE,
     WorkspaceCapabilityType.DRIVE_READ,
     WorkspaceCapabilityType.DRIVE_UPLOAD,
     WorkspaceCapabilityType.DRIVE_MANAGE,
     WorkspaceCapabilityType.CONTACTS_READ,
-    WorkspaceCapabilityType.CONTACTS_MANAGE
+    WorkspaceCapabilityType.CONTACTS_MANAGE,
+    WorkspaceCapabilityType.SPREADSHEET_READ,
+    WorkspaceCapabilityType.SPREADSHEET_CREATE,
+    WorkspaceCapabilityType.SPREADSHEET_EDIT,
+    WorkspaceCapabilityType.SPREADSHEET_DELETE
   ];
 
   private oauth2Client: OAuth2Client;
@@ -66,8 +74,27 @@ export class GoogleWorkspaceProvider implements IWorkspaceProvider {
 
   async completeConnection(authCode: string, state: string): Promise<WorkspaceConnection> {
     try {
+      console.log('Attempting to exchange auth code for tokens...');
+      
+      // Decode state parameter to get user info
+      let stateData: any = {};
+      if (state) {
+        try {
+          stateData = JSON.parse(Buffer.from(state, 'base64').toString());
+          console.log('Decoded state data:', stateData);
+        } catch (error) {
+          console.warn('Failed to decode state parameter:', error);
+        }
+      }
+      
       // Exchange authorization code for tokens
       const { tokens } = await this.oauth2Client.getToken(authCode);
+      
+      console.log('Token exchange successful, tokens received:', {
+        hasAccessToken: !!tokens.access_token,
+        hasRefreshToken: !!tokens.refresh_token,
+        expiryDate: tokens.expiry_date
+      });
       this.oauth2Client.setCredentials(tokens);
 
       // Get user info to populate connection details
@@ -90,13 +117,15 @@ export class GoogleWorkspaceProvider implements IWorkspaceProvider {
       // Create workspace connection record
       const db = DatabaseService.getInstance();
       const connection = await db.createWorkspaceConnection({
+        userId: stateData.userId,
+        organizationId: stateData.organizationId,
         provider: WorkspaceProvider.GOOGLE_WORKSPACE,
         accountType,
         connectionType: ConnectionType.OAUTH_PERSONAL,
         accessToken: tokens.access_token || '',
         refreshToken: tokens.refresh_token || undefined,
         tokenExpiresAt: tokens.expiry_date ? new Date(tokens.expiry_date) : undefined,
-        scopes: tokens.scope?.split(' ') || [],
+        scopes: tokens.scope || '',
         providerAccountId: userInfo.data.id || '',
         displayName: userInfo.data.name || email,
         email,

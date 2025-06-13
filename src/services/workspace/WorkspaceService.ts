@@ -24,7 +24,7 @@ export class WorkspaceService {
     // Initialize Google Workspace provider
     const googleClientId = process.env.GOOGLE_CLIENT_ID;
     const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET;
-    const googleRedirectUri = process.env.GOOGLE_REDIRECT_URI || 'http://localhost:3000/auth/google/callback';
+    const googleRedirectUri = process.env.GOOGLE_REDIRECT_URI || 'http://localhost:3000/api/workspace/callback';
 
     if (googleClientId && googleClientSecret) {
       const googleProvider = new GoogleWorkspaceProvider(
@@ -78,13 +78,25 @@ export class WorkspaceService {
   /**
    * Complete a workspace connection
    */
-  async completeConnection(provider: WorkspaceProvider, authCode: string, state: string): Promise<WorkspaceConnection> {
+  async completeConnection(provider: WorkspaceProvider, authCode: string, state: string, userId?: string, organizationId?: string): Promise<WorkspaceConnection> {
     const providerInstance = this.providers.get(provider);
     if (!providerInstance) {
       throw new Error(`Provider ${provider} is not available`);
     }
 
-    return providerInstance.completeConnection(authCode, state);
+    const connection = await providerInstance.completeConnection(authCode, state);
+    
+    // Update the connection with user/organization info if provided
+    if (userId || organizationId) {
+      const db = DatabaseService.getInstance();
+      const updatedConnection = await db.updateWorkspaceConnection(connection.id, {
+        ...(userId && { userId }),
+        ...(organizationId && { organizationId })
+      });
+      return updatedConnection;
+    }
+
+    return connection;
   }
 
   /**

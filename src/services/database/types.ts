@@ -36,11 +36,16 @@ export enum WorkspaceCapabilityType {
   CALENDAR_READ = "CALENDAR_READ",
   CALENDAR_CREATE = "CALENDAR_CREATE",
   CALENDAR_EDIT = "CALENDAR_EDIT",
+  CALENDAR_DELETE = "CALENDAR_DELETE",
   DRIVE_READ = "DRIVE_READ",
   DRIVE_UPLOAD = "DRIVE_UPLOAD",
   DRIVE_MANAGE = "DRIVE_MANAGE",
   CONTACTS_READ = "CONTACTS_READ",
-  CONTACTS_MANAGE = "CONTACTS_MANAGE"
+  CONTACTS_MANAGE = "CONTACTS_MANAGE",
+  SPREADSHEET_READ = "SPREADSHEET_READ",
+  SPREADSHEET_CREATE = "SPREADSHEET_CREATE",
+  SPREADSHEET_EDIT = "SPREADSHEET_EDIT",
+  SPREADSHEET_DELETE = "SPREADSHEET_DELETE"
 }
 
 export enum AccessLevel {
@@ -104,7 +109,7 @@ export interface WorkspaceConnection {
   accessToken: string;
   refreshToken?: string;
   tokenExpiresAt?: Date;
-  scopes: string[];
+  scopes: string;
   providerAccountId: string;
   displayName: string;
   email: string;
@@ -165,7 +170,7 @@ export interface WorkspaceConnectionCreateInput {
   accessToken: string;
   refreshToken?: string;
   tokenExpiresAt?: Date;
-  scopes: string[];
+  scopes: string;
   providerAccountId: string;
   displayName: string;
   email: string;
@@ -174,10 +179,12 @@ export interface WorkspaceConnectionCreateInput {
 }
 
 export interface WorkspaceConnectionUpdateInput {
+  userId?: string;
+  organizationId?: string;
   accessToken?: string;
   refreshToken?: string;
   tokenExpiresAt?: Date;
-  scopes?: string[];
+  scopes?: string;
   displayName?: string;
   status?: ConnectionStatus;
   lastSyncAt?: Date;
