@@ -152,6 +152,12 @@ export class PrismaDatabaseProvider implements IDatabaseProvider {
     });
   }
 
+  async deleteWorkspaceAuditLog(id: string): Promise<void> {
+    await this.client.workspaceAuditLog.delete({
+      where: { id }
+    });
+  }
+
   // Agent Notification Operations
   async createAgentNotification(input: AgentNotificationCreateInput): Promise<AgentNotification> {
     return this.client.agentNotification.create({

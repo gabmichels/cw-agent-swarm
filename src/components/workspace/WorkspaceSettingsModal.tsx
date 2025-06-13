@@ -75,6 +75,9 @@ export const WorkspaceSettingsModal: React.FC<WorkspaceSettingsModalProps> = ({
     setConnecting(provider);
     
     try {
+      const scopes = getDefaultScopes(provider);
+      console.log(`Connecting to ${provider} with scopes:`, scopes);
+      
       const response = await fetch('/api/workspace/connect', {
         method: 'POST',
         headers: {
@@ -84,13 +87,14 @@ export const WorkspaceSettingsModal: React.FC<WorkspaceSettingsModalProps> = ({
           provider,
           userId,
           organizationId,
-          scopes: getDefaultScopes(provider)
+          scopes
         }),
       });
 
       const data = await response.json();
 
       if (data.success && data.authUrl) {
+        console.log(`Generated auth URL for ${provider}:`, data.authUrl);
         // Redirect to OAuth URL
         window.location.href = data.authUrl;
       } else {
@@ -150,9 +154,15 @@ export const WorkspaceSettingsModal: React.FC<WorkspaceSettingsModalProps> = ({
         ];
       case WorkspaceProvider.ZOHO:
         return [
+          'email',
           'ZohoMail.messages.READ',
-          'ZohoCalendar.events.READ',
-          'ZohoDocs.files.READ'
+          'ZohoMail.messages.CREATE',
+          'ZohoCalendar.calendar.READ',
+          'ZohoCalendar.calendar.CREATE',
+          'ZohoCalendar.calendar.UPDATE',
+          'ZohoSheet.dataAPI.READ',
+          'ZohoSheet.dataAPI.CREATE',
+          'ZohoSheet.dataAPI.UPDATE'
         ];
       default:
         return [];

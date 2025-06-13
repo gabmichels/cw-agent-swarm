@@ -1,5 +1,6 @@
 import { IWorkspaceProvider, ConnectionConfig, ConnectionResult, ValidationResult } from './providers/IWorkspaceProvider';
 import { GoogleWorkspaceProvider } from './providers/GoogleWorkspaceProvider';
+import { ZohoWorkspaceProvider } from './providers/ZohoWorkspaceProvider';
 import { 
   WorkspaceProvider, 
   WorkspaceConnection,
@@ -35,7 +36,23 @@ export class WorkspaceService {
       this.providers.set(WorkspaceProvider.GOOGLE_WORKSPACE, googleProvider);
     }
 
-    // TODO: Initialize Microsoft 365 and Zoho providers
+    // Initialize Zoho Workspace provider
+    const zohoClientId = process.env.ZOHO_CLIENT_ID;
+    const zohoClientSecret = process.env.ZOHO_CLIENT_SECRET;
+    const zohoRedirectUri = process.env.ZOHO_REDIRECT_URI || 'http://localhost:3000/api/workspace/callback';
+    const zohoRegion = process.env.ZOHO_REGION || 'com';
+
+    if (zohoClientId && zohoClientSecret) {
+      const zohoProvider = new ZohoWorkspaceProvider(
+        zohoClientId,
+        zohoClientSecret,
+        zohoRedirectUri,
+        zohoRegion
+      );
+      this.providers.set(WorkspaceProvider.ZOHO, zohoProvider);
+    }
+
+    // TODO: Initialize Microsoft 365 provider
   }
 
   /**

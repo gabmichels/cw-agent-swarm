@@ -284,9 +284,75 @@ export class GoogleWorkspaceProvider implements IWorkspaceProvider {
 }
 
 // Zoho Provider
-export class ZohoProvider implements IWorkspaceProvider {
+export class ZohoWorkspaceProvider implements IWorkspaceProvider {
   readonly providerId = WorkspaceProvider.ZOHO;
-  // ... implementation
+  readonly supportedCapabilities = [
+    WorkspaceCapabilityType.EMAIL_SEND,
+    WorkspaceCapabilityType.EMAIL_READ,
+    WorkspaceCapabilityType.DOCUMENT_READ,
+    WorkspaceCapabilityType.DOCUMENT_CREATE,
+    WorkspaceCapabilityType.DOCUMENT_EDIT,
+    WorkspaceCapabilityType.CALENDAR_READ,
+    WorkspaceCapabilityType.CALENDAR_CREATE,
+    WorkspaceCapabilityType.CALENDAR_EDIT,
+    WorkspaceCapabilityType.CALENDAR_DELETE,
+    WorkspaceCapabilityType.SPREADSHEET_READ,
+    WorkspaceCapabilityType.SPREADSHEET_CREATE,
+    WorkspaceCapabilityType.SPREADSHEET_EDIT,
+    WorkspaceCapabilityType.DRIVE_READ,
+    WorkspaceCapabilityType.DRIVE_UPLOAD,
+    WorkspaceCapabilityType.DRIVE_MANAGE
+  ];
+
+  constructor(
+    private clientId: string,
+    private clientSecret: string,
+    private redirectUri: string,
+    private region: string = 'com' // Zoho region (com, eu, in, etc.)
+  ) {}
+
+  async getAuthUrl(state: string, scopes: string[]): Promise<string> {
+    const params = new URLSearchParams({
+      response_type: 'code',
+      client_id: this.clientId,
+      redirect_uri: this.redirectUri,
+      scope: scopes.join(' '),
+      state,
+      access_type: 'offline',
+      prompt: 'consent'
+    });
+
+    return `https://accounts.zoho.${this.region}/oauth/v2/auth?${params.toString()}`;
+  }
+
+  async exchangeCodeForTokens(code: string): Promise<TokenResult> {
+    const response = await axios.post(`https://accounts.zoho.${this.region}/oauth/v2/token`, {
+      grant_type: 'authorization_code',
+      client_id: this.clientId,
+      client_secret: this.clientSecret,
+      redirect_uri: this.redirectUri,
+      code
+    });
+
+    return {
+      accessToken: response.data.access_token,
+      refreshToken: response.data.refresh_token,
+      expiresIn: response.data.expires_in,
+      scope: response.data.scope
+    };
+  }
+
+  async getAuthenticatedClient(connectionId: string): Promise<AxiosInstance> {
+    const connection = await this.getValidConnection(connectionId);
+    
+    return axios.create({
+      baseURL: `https://mail.zoho.${this.region}`,
+      headers: {
+        'Authorization': `Zoho-oauthtoken ${connection.accessToken}`,
+        'Content-Type': 'application/json'
+      }
+    });
+  }
 }
 ```
 
@@ -1013,6 +1079,7 @@ This expanded Phase 3 provides a comprehensive foundation for natural language w
 ## Future Extensibility
 
 ### Additional Providers
+- **Zoho Workspace** - Complete implementation with Mail, Calendar, WorkDrive, and Sheet integration
 - Slack integration for team communication
 - Notion integration for knowledge management
 - Salesforce integration for CRM capabilities
@@ -1143,4 +1210,444 @@ export interface WorkspaceJobService {
   processNotificationQueue(): Promise<void>;
   cleanupExpiredTokens(): Promise<void>;
 }
-``` 
+```
+
+## Zoho Workspace Implementation
+
+### Overview
+The Zoho Workspace provider offers comprehensive integration with Zoho's suite of productivity applications, including Zoho Mail, Calendar, WorkDrive, and Sheet. This implementation follows the same architectural patterns as Google Workspace but adapts to Zoho's specific API requirements and authentication mechanisms.
+
+### Zoho Provider Architecture
+
+```typescript
+/**
+ * Zoho Workspace Provider Implementation
+ * Handles OAuth authentication and API client management for Zoho services
+ */
+export class ZohoWorkspaceProvider implements IWorkspaceProvider {
+  readonly providerId = WorkspaceProvider.ZOHO;
+  readonly supportedCapabilities = [
+    WorkspaceCapabilityType.EMAIL_SEND,
+    WorkspaceCapabilityType.EMAIL_READ,
+    WorkspaceCapabilityType.DOCUMENT_READ,
+    WorkspaceCapabilityType.DOCUMENT_CREATE,
+    WorkspaceCapabilityType.DOCUMENT_EDIT,
+    WorkspaceCapabilityType.CALENDAR_READ,
+    WorkspaceCapabilityType.CALENDAR_CREATE,
+    WorkspaceCapabilityType.CALENDAR_EDIT,
+    WorkspaceCapabilityType.CALENDAR_DELETE,
+    WorkspaceCapabilityType.SPREADSHEET_READ,
+    WorkspaceCapabilityType.SPREADSHEET_CREATE,
+    WorkspaceCapabilityType.SPREADSHEET_EDIT,
+    WorkspaceCapabilityType.DRIVE_READ,
+    WorkspaceCapabilityType.DRIVE_UPLOAD,
+    WorkspaceCapabilityType.DRIVE_MANAGE
+  ];
+
+  constructor(
+    private clientId: string,
+    private clientSecret: string,
+    private redirectUri: string,
+    private region: string = 'com' // Zoho region (com, eu, in, etc.)
+  ) {}
+
+  async getAuthUrl(state: string, scopes: string[]): Promise<string> {
+    const params = new URLSearchParams({
+      response_type: 'code',
+      client_id: this.clientId,
+      redirect_uri: this.redirectUri,
+      scope: scopes.join(' '),
+      state,
+      access_type: 'offline',
+      prompt: 'consent'
+    });
+
+    return `https://accounts.zoho.${this.region}/oauth/v2/auth?${params.toString()}`;
+  }
+
+  async exchangeCodeForTokens(code: string): Promise<TokenResult> {
+    const response = await axios.post(`https://accounts.zoho.${this.region}/oauth/v2/token`, {
+      grant_type: 'authorization_code',
+      client_id: this.clientId,
+      client_secret: this.clientSecret,
+      redirect_uri: this.redirectUri,
+      code
+    });
+
+    return {
+      accessToken: response.data.access_token,
+      refreshToken: response.data.refresh_token,
+      expiresIn: response.data.expires_in,
+      scope: response.data.scope
+    };
+  }
+
+  async getAuthenticatedClient(connectionId: string): Promise<AxiosInstance> {
+    const connection = await this.getValidConnection(connectionId);
+    
+    return axios.create({
+      baseURL: `https://mail.zoho.${this.region}`,
+      headers: {
+        'Authorization': `Zoho-oauthtoken ${connection.accessToken}`,
+        'Content-Type': 'application/json'
+      }
+    });
+  }
+}
+```
+
+### Zoho Email Capabilities
+
+```typescript
+/**
+ * Zoho Mail Integration
+ * Implements email reading and sending through Zoho Mail API
+ */
+export class ZohoEmailCapabilities extends EmailCapabilities {
+  async sendEmail(params: SendEmailParams): Promise<EmailResult> {
+    const client = await this.zohoProvider.getAuthenticatedClient(this.connectionId);
+    
+    const emailData = {
+      fromAddress: params.from || await this.getDefaultFromAddress(client),
+      toAddress: Array.isArray(params.to) ? params.to.join(',') : params.to,
+      ccAddress: params.cc ? (Array.isArray(params.cc) ? params.cc.join(',') : params.cc) : undefined,
+      bccAddress: params.bcc ? (Array.isArray(params.bcc) ? params.bcc.join(',') : params.bcc) : undefined,
+      subject: params.subject,
+      content: params.body || params.html || '',
+      mailFormat: params.html ? 'html' : 'plaintext',
+      askReceipt: params.requestReadReceipt ? 'yes' : 'no'
+    };
+
+    const response = await client.post('/mail/v1/accounts/primary/messages', emailData);
+    
+    if (response.data.status?.code === 200) {
+      return {
+        success: true,
+        id: response.data.data?.messageId,
+        message: 'Email sent successfully via Zoho Mail'
+      };
+    } else {
+      throw new Error(response.data.status?.description || 'Failed to send email');
+    }
+  }
+
+  async readEmails(query: EmailQuery): Promise<Email[]> {
+    const client = await this.zohoProvider.getAuthenticatedClient(this.connectionId);
+    
+    const params: any = {
+      limit: query.maxResults || 50,
+      start: query.pageToken ? parseInt(query.pageToken) : 0
+    };
+
+    if (query.q) {
+      params.searchKey = query.q;
+    }
+
+    if (query.labelIds && query.labelIds.length > 0) {
+      const folderMap: Record<string, string> = {
+        'INBOX': 'Inbox',
+        'SENT': 'Sent',
+        'DRAFT': 'Drafts',
+        'SPAM': 'Spam',
+        'TRASH': 'Trash'
+      };
+      params.folder = folderMap[query.labelIds[0]] || query.labelIds[0];
+    }
+
+    const response = await client.get('/mail/v1/accounts/primary/messages', { params });
+    const messages = response.data.data || [];
+    
+    return Promise.all(
+      messages.map(async (msg: any) => this.convertZohoMessageToEmail(client, msg))
+    );
+  }
+}
+```
+
+### Zoho Calendar Integration
+
+```typescript
+/**
+ * Zoho Calendar Integration
+ * Manages calendar events through Zoho Calendar API
+ */
+export class ZohoCalendarCapabilities extends CalendarCapabilities {
+  async getEvents(query: CalendarQuery): Promise<CalendarEvent[]> {
+    const client = await this.getZohoCalendarClient();
+    
+    const params = {
+      range: {
+        start: query.timeMin,
+        end: query.timeMax
+      },
+      maxResults: query.maxResults || 250
+    };
+
+    const response = await client.get('/calendar/v1/calendars/primary/events', { params });
+    return response.data.events?.map(this.convertZohoEventToCalendarEvent) || [];
+  }
+
+  async createEvent(event: CalendarEventInput): Promise<CalendarEvent> {
+    const client = await this.getZohoCalendarClient();
+    
+    const zohoEvent = {
+      title: event.summary,
+      description: event.description,
+      start: {
+        dateTime: event.start.dateTime,
+        timeZone: event.start.timeZone || 'UTC'
+      },
+      end: {
+        dateTime: event.end.dateTime,
+        timeZone: event.end.timeZone || 'UTC'
+      },
+      participants: event.attendees?.map(attendee => ({
+        email: attendee.email,
+        name: attendee.displayName
+      })) || []
+    };
+
+    const response = await client.post('/calendar/v1/calendars/primary/events', zohoEvent);
+    return this.convertZohoEventToCalendarEvent(response.data);
+  }
+
+  private getZohoCalendarClient(): Promise<AxiosInstance> {
+    return axios.create({
+      baseURL: `https://calendar.zoho.${this.region}`,
+      headers: {
+        'Authorization': `Zoho-oauthtoken ${this.accessToken}`,
+        'Content-Type': 'application/json'
+      }
+    });
+  }
+}
+```
+
+### Zoho WorkDrive Integration
+
+```typescript
+/**
+ * Zoho WorkDrive Integration
+ * Handles file operations through Zoho WorkDrive API
+ */
+export class ZohoDriveCapabilities extends DriveCapabilities {
+  async searchFiles(query: DriveQuery): Promise<DriveFile[]> {
+    const client = await this.getZohoWorkDriveClient();
+    
+    const params = {
+      q: query.q,
+      limit: query.maxResults || 100,
+      offset: query.pageToken ? parseInt(query.pageToken) : 0
+    };
+
+    const response = await client.get('/workdrive/api/v1/files/search', { params });
+    return response.data.data?.map(this.convertZohoFileToDriverFile) || [];
+  }
+
+  async createFile(params: CreateFileParams): Promise<DriveFile> {
+    const client = await this.getZohoWorkDriveClient();
+    
+    const formData = new FormData();
+    formData.append('filename', params.name);
+    formData.append('content', params.content);
+    formData.append('parent_id', params.parentId || 'root');
+
+    const response = await client.post('/workdrive/api/v1/files', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data'
+      }
+    });
+
+    return this.convertZohoFileToDriverFile(response.data.data);
+  }
+
+  private getZohoWorkDriveClient(): Promise<AxiosInstance> {
+    return axios.create({
+      baseURL: `https://workdrive.zoho.${this.region}`,
+      headers: {
+        'Authorization': `Zoho-oauthtoken ${this.accessToken}`,
+        'Content-Type': 'application/json'
+      }
+    });
+  }
+}
+```
+
+### Zoho Sheet Integration
+
+```typescript
+/**
+ * Zoho Sheet Integration
+ * Manages spreadsheets through Zoho Sheet API
+ */
+export class ZohoSheetsCapabilities extends SheetsCapabilities {
+  async createSpreadsheet(params: CreateSpreadsheetParams): Promise<Spreadsheet> {
+    const client = await this.getZohoSheetClient();
+    
+    const spreadsheetData = {
+      spreadsheet_name: params.title,
+      sheet_names: params.sheets?.map(sheet => sheet.properties?.title) || ['Sheet1']
+    };
+
+    const response = await client.post('/sheet/v2/spreadsheets', spreadsheetData);
+    
+    return {
+      spreadsheetId: response.data.spreadsheet_id,
+      properties: {
+        title: params.title
+      },
+      sheets: response.data.sheets?.map((sheet: any) => ({
+        properties: {
+          sheetId: sheet.sheet_id,
+          title: sheet.sheet_name,
+          gridProperties: {
+            rowCount: sheet.row_count || 1000,
+            columnCount: sheet.column_count || 26
+          }
+        }
+      })) || []
+    };
+  }
+
+  async updateValues(params: UpdateValuesParams): Promise<UpdateValuesResult> {
+    const client = await this.getZohoSheetClient();
+    
+    const [spreadsheetId, range] = params.range.split('!');
+    const updateData = {
+      values: params.values,
+      range: range
+    };
+
+    const response = await client.put(
+      `/sheet/v2/spreadsheets/${params.spreadsheetId}/data`,
+      updateData
+    );
+
+    return {
+      spreadsheetId: params.spreadsheetId,
+      updatedRange: params.range,
+      updatedRows: params.values.length,
+      updatedColumns: Math.max(...params.values.map(row => row.length)),
+      updatedCells: params.values.reduce((total, row) => total + row.length, 0)
+    };
+  }
+
+  private getZohoSheetClient(): Promise<AxiosInstance> {
+    return axios.create({
+      baseURL: `https://sheet.zoho.${this.region}`,
+      headers: {
+        'Authorization': `Zoho-oauthtoken ${this.accessToken}`,
+        'Content-Type': 'application/json'
+      }
+    });
+  }
+}
+```
+
+### Zoho OAuth Scopes
+
+```typescript
+export const ZOHO_SCOPES = {
+  // Email scopes
+  MAIL_READ: 'ZohoMail.messages.READ',
+  MAIL_SEND: 'ZohoMail.messages.CREATE',
+  MAIL_MODIFY: 'ZohoMail.messages.UPDATE',
+  
+  // Calendar scopes
+  CALENDAR_READ: 'ZohoCalendar.calendar.READ',
+  CALENDAR_WRITE: 'ZohoCalendar.calendar.CREATE',
+  CALENDAR_MODIFY: 'ZohoCalendar.calendar.UPDATE',
+  CALENDAR_DELETE: 'ZohoCalendar.calendar.DELETE',
+  
+  // WorkDrive scopes
+  WORKDRIVE_READ: 'ZohoWorkDrive.files.READ',
+  WORKDRIVE_WRITE: 'ZohoWorkDrive.files.CREATE',
+  WORKDRIVE_MODIFY: 'ZohoWorkDrive.files.UPDATE',
+  WORKDRIVE_DELETE: 'ZohoWorkDrive.files.DELETE',
+  
+  // Sheet scopes
+  SHEET_READ: 'ZohoSheet.spreadsheets.READ',
+  SHEET_WRITE: 'ZohoSheet.spreadsheets.CREATE',
+  SHEET_MODIFY: 'ZohoSheet.spreadsheets.UPDATE'
+};
+
+export function getRequiredZohoScopes(capabilities: WorkspaceCapabilityType[]): string[] {
+  const scopes: string[] = [];
+  
+  capabilities.forEach(capability => {
+    switch (capability) {
+      case WorkspaceCapabilityType.EMAIL_READ:
+        scopes.push(ZOHO_SCOPES.MAIL_READ);
+        break;
+      case WorkspaceCapabilityType.EMAIL_SEND:
+        scopes.push(ZOHO_SCOPES.MAIL_SEND);
+        break;
+      case WorkspaceCapabilityType.CALENDAR_READ:
+        scopes.push(ZOHO_SCOPES.CALENDAR_READ);
+        break;
+      case WorkspaceCapabilityType.CALENDAR_CREATE:
+        scopes.push(ZOHO_SCOPES.CALENDAR_WRITE);
+        break;
+      case WorkspaceCapabilityType.DRIVE_READ:
+        scopes.push(ZOHO_SCOPES.WORKDRIVE_READ);
+        break;
+      case WorkspaceCapabilityType.DRIVE_UPLOAD:
+        scopes.push(ZOHO_SCOPES.WORKDRIVE_WRITE);
+        break;
+      case WorkspaceCapabilityType.SPREADSHEET_READ:
+        scopes.push(ZOHO_SCOPES.SHEET_READ);
+        break;
+      case WorkspaceCapabilityType.SPREADSHEET_CREATE:
+        scopes.push(ZOHO_SCOPES.SHEET_WRITE);
+        break;
+    }
+  });
+  
+  return [...new Set(scopes)]; // Remove duplicates
+}
+```
+
+### Zoho Testing Strategy
+
+The Zoho implementation includes comprehensive testing that mirrors the Google Workspace test suite:
+
+#### Real Execution Tests
+- **Email Operations**: Reading from Zoho Mail inbox, sending test emails
+- **Calendar Operations**: Reading events, creating/deleting test events
+- **Drive Operations**: Searching files, uploading test documents
+- **Spreadsheet Operations**: Creating spreadsheets, updating cell values
+
+#### Scheduler Integration Tests
+- **Task Scheduling**: Scheduling Zoho workspace tasks via the scheduler
+- **Task Execution**: Verifying scheduled tasks execute properly
+- **Error Handling**: Testing retry logic and failure scenarios
+
+#### Provider Health Checks
+- **Connection Validation**: Verifying OAuth tokens and API connectivity
+- **Capability Factory**: Testing provider registration and capability creation
+- **Performance Monitoring**: Tracking API response times and success rates
+
+### Zoho vs Google Workspace Comparison
+
+| Feature | Google Workspace | Zoho Workspace |
+|---------|------------------|----------------|
+| **Email API** | Gmail API with labels | Zoho Mail API with folders |
+| **Calendar API** | Google Calendar API | Zoho Calendar API |
+| **File Storage** | Google Drive API | Zoho WorkDrive API |
+| **Spreadsheets** | Google Sheets API | Zoho Sheet API |
+| **Authentication** | Google OAuth 2.0 | Zoho OAuth 2.0 |
+| **Regional Support** | Global | Multi-region (.com, .eu, .in) |
+| **Rate Limits** | Per-user quotas | Per-application quotas |
+| **Webhook Support** | Push notifications | Webhook subscriptions |
+
+### Migration Path
+
+For organizations wanting to migrate from Google Workspace to Zoho Workspace:
+
+1. **Connection Setup**: Configure Zoho OAuth credentials
+2. **Permission Mapping**: Map existing agent permissions to Zoho capabilities
+3. **Data Migration**: Optional data synchronization between platforms
+4. **Testing**: Run comprehensive test suite to verify functionality
+5. **Gradual Rollout**: Use feature flags to gradually migrate agents
+
+This Zoho implementation provides feature parity with Google Workspace while adapting to Zoho's specific API patterns and regional deployment requirements. 

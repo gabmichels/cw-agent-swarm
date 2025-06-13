@@ -45,6 +45,45 @@ describe('Workspace Capabilities Integration Tests', () => {
       }
     }
     
+    // Clean up any test workspace connections created during this test
+    try {
+      const allConnections = await db.findWorkspaceConnections({});
+      const testConnections = allConnections.filter(conn => 
+        conn.email === 'test@example.com' || 
+        (conn.email !== 'gabriel.michels@gmail.com' && !conn.refreshToken)
+      );
+
+      if (testConnections.length > 0) {
+        console.log(`🧹 Cleaning up ${testConnections.length} test workspace connections...`);
+        
+        for (const connection of testConnections) {
+          try {
+            // Delete related records first
+            if (testAgent?.id) {
+              const permissions = await permissionService.getAgentPermissions(testAgent.id);
+              const connectionPermissions = permissions.filter(p => 
+                p.workspaceConnectionId === connection.id
+              );
+              
+              for (const permission of connectionPermissions) {
+                await permissionService.revokePermission(permission.id, 'test-cleanup');
+              }
+            }
+            
+            // Delete the connection (if it's a test connection)
+            if (connection.email === 'test@example.com') {
+              await db.deleteWorkspaceConnection(connection.id);
+              console.log(`  ✅ Deleted test connection: ${connection.id}`);
+            }
+          } catch (error) {
+            console.warn(`  ⚠️ Failed to cleanup connection ${connection.id}:`, error);
+          }
+        }
+      }
+    } catch (error) {
+      console.warn('Failed to cleanup test workspace connections:', error);
+    }
+    
     // Don't delete the real workspace connection - it's needed for other tests and actual use
   });
 

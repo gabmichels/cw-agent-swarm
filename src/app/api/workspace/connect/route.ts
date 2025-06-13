@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { WorkspaceService } from '../../../../services/workspace/WorkspaceService';
 import { DatabaseService } from '../../../../services/database/DatabaseService';
 import { WorkspaceProvider } from '../../../../services/database/types';
+import { ZohoWorkspaceProvider } from '../../../../services/workspace/providers/ZohoWorkspaceProvider';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -45,13 +46,39 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Get the redirect URI from environment or use default
-    const redirectUri = process.env.GOOGLE_REDIRECT_URI || 'http://localhost:3000/api/workspace/callback';
+    // Get provider-specific redirect URI and scopes
+    let redirectUri: string;
+    let defaultScopes: string[];
+
+    switch (body.provider) {
+      case WorkspaceProvider.GOOGLE_WORKSPACE:
+        redirectUri = process.env.GOOGLE_REDIRECT_URI || 'http://localhost:3000/api/workspace/callback';
+        defaultScopes = [
+          'https://www.googleapis.com/auth/gmail.send',
+          'https://www.googleapis.com/auth/gmail.modify',
+          'https://www.googleapis.com/auth/calendar',
+          'https://www.googleapis.com/auth/drive',
+          'https://www.googleapis.com/auth/spreadsheets',
+          'https://www.googleapis.com/auth/userinfo.email',
+          'https://www.googleapis.com/auth/userinfo.profile'
+        ];
+        break;
+      
+      case WorkspaceProvider.ZOHO:
+        redirectUri = process.env.ZOHO_REDIRECT_URI || 'http://localhost:3000/api/workspace/callback';
+        defaultScopes = ZohoWorkspaceProvider.getRequiredScopes();
+        break;
+      
+      default:
+        redirectUri = 'http://localhost:3000/api/workspace/callback';
+        defaultScopes = [];
+    }
 
     // Create state parameter with user info
     const stateData = {
       userId: body.userId,
       organizationId: body.organizationId,
+      provider: body.provider,
       timestamp: Date.now()
     };
     const state = Buffer.from(JSON.stringify(stateData)).toString('base64');
@@ -60,15 +87,7 @@ export async function POST(request: NextRequest) {
     const result = await provider.initiateConnection({
       userId: body.userId,
       organizationId: body.organizationId,
-      scopes: body.scopes || [
-        'https://www.googleapis.com/auth/gmail.send',
-        'https://www.googleapis.com/auth/gmail.modify',
-        'https://www.googleapis.com/auth/calendar',
-        'https://www.googleapis.com/auth/drive',
-        'https://www.googleapis.com/auth/spreadsheets',
-        'https://www.googleapis.com/auth/userinfo.email',
-        'https://www.googleapis.com/auth/userinfo.profile'
-      ],
+      scopes: body.scopes || defaultScopes,
       redirectUri,
       state
     });

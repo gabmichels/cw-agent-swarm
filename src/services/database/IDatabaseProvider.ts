@@ -61,6 +61,7 @@ export interface IDatabaseProvider {
   createWorkspaceAuditLog(input: WorkspaceAuditLogCreateInput): Promise<WorkspaceAuditLog>;
   getWorkspaceAuditLog(id: string): Promise<WorkspaceAuditLog | null>;
   findWorkspaceAuditLogs(query: WorkspaceAuditLogQuery): Promise<WorkspaceAuditLog[]>;
+  deleteWorkspaceAuditLog(id: string): Promise<void>;
   
   // Agent Notification Operations
   createAgentNotification(input: AgentNotificationCreateInput): Promise<AgentNotification>;

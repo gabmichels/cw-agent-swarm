@@ -11,7 +11,19 @@ export async function GET(request: NextRequest) {
     const code = searchParams.get('code');
     const state = searchParams.get('state');
     const error = searchParams.get('error');
-    const provider = searchParams.get('provider') || WorkspaceProvider.GOOGLE_WORKSPACE;
+    let provider = searchParams.get('provider') || WorkspaceProvider.GOOGLE_WORKSPACE;
+
+    // Try to determine provider from state parameter if not explicitly provided
+    if (state && !searchParams.get('provider')) {
+      try {
+        const stateData = JSON.parse(Buffer.from(state, 'base64').toString());
+        if (stateData.provider) {
+          provider = stateData.provider;
+        }
+      } catch (error) {
+        console.warn('Failed to decode state parameter for provider detection:', error);
+      }
+    }
 
     // Debug logging
     console.log('OAuth callback received:', {
