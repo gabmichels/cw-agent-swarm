@@ -287,28 +287,39 @@ export class WorkspaceAgentTools {
   }
 
   // Email Tools
-  private readSpecificEmailTool: AgentTool<ReadEmailParams, any> = {
+  public readSpecificEmailTool: AgentTool<ReadEmailParams, any> = {
     name: "read_specific_email",
     description: "Read a specific email by ID or search for an email and read it",
     parameters: {
       type: "object",
       properties: {
-        emailId: { 
-          type: "string", 
-          description: "Email ID to read (if known)" 
+        emailId: {
+          type: "string",
+          description: "Specific email ID to read"
         },
-        searchQuery: { 
+        searchQuery: {
           type: "string", 
-          description: "Search query to find the email if ID is not known" 
+          description: "Search query to find emails if no emailId provided"
         },
-        connectionId: { 
-          type: "string", 
-          description: "Workspace connection ID to use" 
+        connectionId: {
+          type: "string",
+          description: "Workspace connection ID"
         }
       },
       required: ["connectionId"]
     },
     execute: async (params: ReadEmailParams, context: AgentContext) => {
+      // Validate permissions
+      const validation = await this.permissionService.validatePermissions(
+        context.agentId,
+        'EMAIL_READ' as any,
+        params.connectionId
+      );
+      
+      if (!validation.isValid) {
+        throw new Error(`Permission denied: ${validation.error}`);
+      }
+
       const emailCapabilities = await this.getEmailCapabilities(params.connectionId);
       
       if (params.emailId) {
@@ -318,19 +329,14 @@ export class WorkspaceAgentTools {
           query: params.searchQuery,
           maxResults: 1
         }, params.connectionId, context.agentId);
-        
-        if (emails.length > 0) {
-          return await emailCapabilities.readSpecificEmail(emails[0].id, params.connectionId, context.agentId);
-        } else {
-          throw new Error('No emails found matching the search query');
-        }
+        return emails.length > 0 ? emails[0] : null;
       } else {
         throw new Error('Either emailId or searchQuery must be provided');
       }
     }
   };
 
-  private findImportantEmailsTool: AgentTool<FindImportantEmailsParams, any> = {
+  public findImportantEmailsTool: AgentTool<FindImportantEmailsParams, any> = {
     name: "find_important_emails",
     description: "Find important emails that require attention, such as unread emails, emails with attachments, or emails from important contacts",
     parameters: {
@@ -372,7 +378,7 @@ export class WorkspaceAgentTools {
     }
   };
 
-  private searchEmailsTool: AgentTool<any, any> = {
+  public searchEmailsTool: AgentTool<any, any> = {
     name: "search_emails",
     description: "Search for emails using various criteria like sender, subject, content, or date range",
     parameters: {
@@ -422,7 +428,7 @@ export class WorkspaceAgentTools {
     }
   };
 
-  private sendEmailTool: AgentTool<SendEmailParams, any> = {
+  public sendEmailTool: AgentTool<SendEmailParams, any> = {
     name: "send_email",
     description: "Send a new email to specified recipients",
     parameters: {
@@ -531,23 +537,23 @@ export class WorkspaceAgentTools {
   };
 
   // Calendar Tools
-  private readCalendarTool: AgentTool<ReadCalendarParams, any> = {
+  public readCalendarTool: AgentTool<ReadCalendarParams, any> = {
     name: "read_calendar",
-    description: "Read calendar events for a specific date range (e.g., today, tomorrow, this week)",
+    description: "Read calendar events for a specific date range",
     parameters: {
       type: "object",
       properties: {
-        startDate: { 
-          type: "string", 
-          description: "Start date in ISO format (YYYY-MM-DD)" 
+        startDate: {
+          type: "string",
+          description: "Start date in YYYY-MM-DD format"
         },
-        endDate: { 
+        endDate: {
           type: "string", 
-          description: "End date in ISO format (YYYY-MM-DD)" 
+          description: "End date in YYYY-MM-DD format"
         },
-        connectionId: { 
-          type: "string", 
-          description: "Workspace connection ID to use" 
+        connectionId: {
+          type: "string",
+          description: "Workspace connection ID"
         }
       },
       required: ["startDate", "endDate", "connectionId"]
@@ -561,46 +567,42 @@ export class WorkspaceAgentTools {
     }
   };
 
-  private findAvailabilityTool: AgentTool<FindAvailabilityParams, any> = {
+  public findAvailabilityTool: AgentTool<FindAvailabilityParams, any> = {
     name: "find_availability",
-    description: "Find available time slots for scheduling meetings on a specific date",
+    description: "Find available time slots for scheduling meetings",
     parameters: {
       type: "object",
       properties: {
-        date: { 
-          type: "string", 
-          description: "Date to check availability (YYYY-MM-DD)" 
+        date: {
+          type: "string",
+          description: "Date to check availability (YYYY-MM-DD)"
         },
-        duration: { 
-          type: "number", 
-          description: "Meeting duration in minutes" 
+        duration: {
+          type: "number",
+          description: "Duration of the meeting in minutes"
         },
         workingHours: {
           type: "object",
           properties: {
-            start: { type: "string", description: "Working hours start time (HH:MM)" },
-            end: { type: "string", description: "Working hours end time (HH:MM)" }
+            start: { type: "string", description: "Start time (HH:MM)" },
+            end: { type: "string", description: "End time (HH:MM)" }
           },
-          description: "Working hours constraint (optional, defaults to 9:00-17:00)"
+          description: "Working hours constraint (optional)"
         },
-        connectionId: { 
-          type: "string", 
-          description: "Workspace connection ID to use" 
+        connectionId: {
+          type: "string",
+          description: "Workspace connection ID"
         }
       },
       required: ["date", "duration", "connectionId"]
     },
     execute: async (params: FindAvailabilityParams, context: AgentContext) => {
       const calendarCapabilities = await this.getCalendarCapabilities(params.connectionId);
-      return await calendarCapabilities.findAvailability({
-        date: params.date,
-        duration: params.duration,
-        workingHours: params.workingHours
-      }, params.connectionId, context.agentId);
+      return await calendarCapabilities.findAvailability(params, params.connectionId, context.agentId);
     }
   };
 
-  private scheduleEventTool: AgentTool<ScheduleEventParams, any> = {
+  public scheduleEventTool: AgentTool<ScheduleEventParams, any> = {
     name: "schedule_event",
     description: "Schedule a new calendar event with specified attendees",
     parameters: {
@@ -805,15 +807,15 @@ export class WorkspaceAgentTools {
   };
 
   // Spreadsheet Tools
-  private createSpreadsheetTool: AgentTool<CreateSpreadsheetParams, any> = {
+  public createSpreadsheetTool: AgentTool<CreateSpreadsheetParams, any> = {
     name: "create_spreadsheet",
-    description: "Create a new Google Spreadsheet with optional sheets and headers",
+    description: "Create a new spreadsheet with optional sheets and headers",
     parameters: {
       type: "object",
       properties: {
-        title: { 
-          type: "string", 
-          description: "Spreadsheet title" 
+        title: {
+          type: "string",
+          description: "Title of the spreadsheet"
         },
         sheets: {
           type: "array",
@@ -824,21 +826,18 @@ export class WorkspaceAgentTools {
               headers: { type: "array", items: { type: "string" } }
             }
           },
-          description: "Optional sheets with headers"
+          description: "Array of sheets to create with optional headers"
         },
-        connectionId: { 
-          type: "string", 
-          description: "Workspace connection ID to use" 
+        connectionId: {
+          type: "string",
+          description: "Workspace connection ID"
         }
       },
       required: ["title", "connectionId"]
     },
     execute: async (params: CreateSpreadsheetParams, context: AgentContext) => {
       const sheetsCapabilities = await this.getSheetsCapabilities(params.connectionId);
-      return await sheetsCapabilities.createSpreadsheet({
-        title: params.title,
-        sheets: params.sheets
-      }, params.connectionId, context.agentId);
+      return await sheetsCapabilities.createSpreadsheet(params, params.connectionId, context.agentId);
     }
   };
 
@@ -976,38 +975,35 @@ export class WorkspaceAgentTools {
   };
 
   // Drive Tools
-  private searchFilesTool: AgentTool<SearchFilesParams, any> = {
+  public searchFilesTool: AgentTool<SearchFilesParams, any> = {
     name: "search_files",
-    description: "Search for files and folders in Google Drive",
+    description: "Search for files in the workspace drive",
     parameters: {
       type: "object",
       properties: {
-        name: { 
-          type: "string", 
-          description: "File name to search for (partial match)" 
+        name: {
+          type: "string",
+          description: "File name to search for"
         },
-        mimeType: { 
-          type: "string", 
-          description: "File type filter (e.g., 'application/pdf')" 
+        mimeType: {
+          type: "string",
+          description: "MIME type filter (e.g., 'application/pdf')"
         },
-        maxResults: { 
-          type: "number", 
-          description: "Maximum number of results (default: 20)" 
+        maxResults: {
+          type: "number",
+          description: "Maximum number of results to return",
+          default: 10
         },
-        connectionId: { 
-          type: "string", 
-          description: "Workspace connection ID to use" 
+        connectionId: {
+          type: "string",
+          description: "Workspace connection ID"
         }
       },
       required: ["connectionId"]
     },
     execute: async (params: SearchFilesParams, context: AgentContext) => {
       const driveCapabilities = await this.getDriveCapabilities(params.connectionId);
-      return await driveCapabilities.searchFiles({
-        name: params.name,
-        mimeType: params.mimeType,
-        maxResults: params.maxResults
-      }, params.connectionId, context.agentId);
+      return await driveCapabilities.searchFiles(params, params.connectionId, context.agentId);
     }
   };
 
@@ -1110,7 +1106,7 @@ export class WorkspaceAgentTools {
   };
 
   // Email Analysis Tools
-  private analyzeEmailsTool: AgentTool<AnalyzeEmailsParams, any> = {
+  public analyzeEmailsTool: AgentTool<AnalyzeEmailsParams, any> = {
     name: "analyze_emails",
     description: "Analyze emails for insights, sentiment, activity patterns, action items, or trends",
     parameters: {
@@ -1152,7 +1148,7 @@ export class WorkspaceAgentTools {
     }
   };
 
-  private getEmailAttentionTool: AgentTool<GetEmailAttentionParams, any> = {
+  public getEmailAttentionTool: AgentTool<GetEmailAttentionParams, any> = {
     name: "get_emails_needing_attention",
     description: "Get emails that need immediate attention - urgent, unread, or overdue replies",
     parameters: {

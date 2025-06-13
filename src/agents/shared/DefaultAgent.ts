@@ -65,6 +65,9 @@ import { IAgent } from '../../services/thinking/graph/types';
 // Import new types
 // Removed problematic import from './types' as it doesn't exist
 
+// Import workspace integration
+import { WorkspaceAgentIntegration } from '../../services/workspace/integration/WorkspaceAgentIntegration';
+
 // Agent status constants
 const AGENT_STATUS = {
   AVAILABLE: 'available',
@@ -216,6 +219,8 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
   protected schedulerManager?: ModularSchedulerManager;
   protected initialized: boolean = false;
 
+  private workspaceIntegration: WorkspaceAgentIntegration | null = null;
+
   /**
    * Create a new refactored DefaultAgent
    * @param config Agent configuration
@@ -281,6 +286,9 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
       version: this.version,
       config: config
     });
+    
+    // Initialize workspace integration
+    this.workspaceIntegration = new WorkspaceAgentIntegration();
   }
 
   // getId() and getAgentId() inherited from AbstractAgentBase
@@ -964,7 +972,51 @@ Please provide a helpful, contextual response based on this analysis and memory 
         }))
       });
 
-      // Step 4: Enhanced options for LLM response with thinking context
+      // Step 4: Check for workspace commands and process if applicable
+      if (this.workspaceIntegration) {
+        try {
+          const workspaceResult = await this.workspaceIntegration.processWorkspaceInput(
+            this.agentId,
+            message
+          );
+          
+          if (workspaceResult.success) {
+            this.logger.info('Workspace command processed successfully', {
+              scheduled: workspaceResult.scheduled,
+              taskId: workspaceResult.taskId,
+              hasData: !!workspaceResult.data
+            });
+            
+            // Generate response based on result
+            let responseContent = 'Workspace command executed successfully.';
+            if (workspaceResult.scheduled) {
+              responseContent = `Workspace command scheduled for execution. Task ID: ${workspaceResult.taskId}`;
+            } else if (workspaceResult.data) {
+              responseContent = `Workspace command completed. Result: ${JSON.stringify(workspaceResult.data)}`;
+            }
+            
+            // Return workspace response directly
+            return {
+              content: responseContent,
+              thoughts: [`Processed workspace command successfully`],
+              metadata: {
+                workspaceProcessed: true,
+                scheduled: workspaceResult.scheduled,
+                taskId: workspaceResult.taskId,
+                workspaceData: workspaceResult.data,
+                intent: thinkingResult.intent,
+                entities: thinkingResult.entities
+              }
+            };
+          }
+        } catch (error) {
+          this.logger.warn('Workspace processing failed, continuing with normal flow', {
+            error: error instanceof Error ? error.message : String(error)
+          });
+        }
+      }
+
+      // Step 5: Enhanced options for LLM response with thinking context
       const enhancedOptions: GetLLMResponseOptions = {
         ...options,
         thinkingResult,
