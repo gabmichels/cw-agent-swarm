@@ -427,10 +427,478 @@ export interface AgentPermissionManagerProps {
 - Zoho provider implementation
 - SSO and OAuth flow implementation
 
-### Phase 3: Agent Capability Integration
-- Agent permission system integration
-- Workspace capability exposure to agents
-- Basic read-only operations (emails, documents, calendar viewing)
+### Phase 3: Agent Capability Integration (Current Focus)
+
+**Objective**: Enable agents to interact with workspace data through natural language processing and structured permissions.
+
+#### 3.1 Agent Workspace Permission System
+
+**Permission Configuration UI**:
+- Checkbox-based permission selection during agent creation/editing
+- Multi-workspace support with clear visual separation
+- Permission inheritance and conflict resolution
+- Real-time permission validation and testing
+
+**Agent Registration Integration**:
+```typescript
+// Enhanced agent creation form
+export interface AgentWorkspaceConfig {
+  enableWorkspaceIntegration: boolean;
+  workspacePermissions: {
+    connectionId: string;
+    connectionName: string; // "Gmail - john@company.com"
+    provider: WorkspaceProvider;
+    permissions: {
+      [WorkspaceCapabilityType.EMAIL_READ]: boolean;
+      [WorkspaceCapabilityType.EMAIL_SEND]: boolean;
+      [WorkspaceCapabilityType.CALENDAR_READ]: boolean;
+      [WorkspaceCapabilityType.CALENDAR_CREATE]: boolean;
+      [WorkspaceCapabilityType.CALENDAR_EDIT]: boolean;
+      [WorkspaceCapabilityType.DRIVE_READ]: boolean;
+      [WorkspaceCapabilityType.SPREADSHEET_CREATE]: boolean;
+      [WorkspaceCapabilityType.SPREADSHEET_EDIT]: boolean;
+    };
+    restrictions?: {
+      emailDomainWhitelist?: string[];
+      calendarTimeRestrictions?: TimeRestriction[];
+      drivePathRestrictions?: string[];
+    };
+  }[];
+}
+
+// Permission validation service
+export interface AgentPermissionValidator {
+  validatePermissions(agentId: string, capability: WorkspaceCapabilityType, connectionId: string): Promise<boolean>;
+  getAgentWorkspaceCapabilities(agentId: string): Promise<AgentWorkspaceCapability[]>;
+  checkRateLimit(agentId: string, capability: WorkspaceCapabilityType): Promise<RateLimitResult>;
+}
+```
+
+#### 3.2 Natural Language Processing Integration
+
+**Core NLP Workspace Tools**:
+```typescript
+// Agent tool definitions for workspace capabilities
+export interface WorkspaceAgentTools {
+  // Email capabilities
+  readSpecificEmail: AgentTool<ReadEmailParams, EmailContent>;
+  findImportantEmails: AgentTool<EmailQueryParams, Email[]>;
+  replyToEmail: AgentTool<ReplyEmailParams, EmailResult>;
+  forwardEmail: AgentTool<ForwardEmailParams, EmailResult>;
+  createEmail: AgentTool<CreateEmailParams, EmailResult>;
+  
+  // Calendar capabilities  
+  readCalendar: AgentTool<CalendarQueryParams, CalendarEvent[]>;
+  findEvents: AgentTool<EventSearchParams, CalendarEvent[]>;
+  scheduleEvent: AgentTool<CreateEventParams, CalendarEvent>;
+  summarizeDay: AgentTool<DaySummaryParams, DaySummary>;
+  findAvailability: AgentTool<AvailabilityParams, AvailabilitySlot[]>;
+  editCalendarEntry: AgentTool<EditEventParams, CalendarEvent>;
+  deleteCalendarEntry: AgentTool<DeleteEventParams, void>;
+  
+  // Google Sheets capabilities
+  createSpreadsheet: AgentTool<CreateSpreadsheetParams, Spreadsheet>;
+  editSpreadsheet: AgentTool<EditSpreadsheetParams, SpreadsheetResult>;
+  readSpreadsheet: AgentTool<ReadSpreadsheetParams, SpreadsheetData>;
+  
+  // Google Drive capabilities
+  findFiles: AgentTool<FileSearchParams, DriveFile[]>;
+  uploadFile: AgentTool<UploadFileParams, DriveFile>;
+  downloadFile: AgentTool<DownloadFileParams, FileContent>;
+}
+
+// Example tool implementations
+export const readSpecificEmailTool: AgentTool<ReadEmailParams, EmailContent> = {
+  name: "read_specific_email",
+  description: "Read a specific email by ID or search criteria",
+  parameters: {
+    type: "object",
+    properties: {
+      emailId: { type: "string", description: "Email ID to read" },
+      searchQuery: { type: "string", description: "Search query if no ID provided" },
+      connectionId: { type: "string", description: "Workspace connection ID" }
+    },
+    required: ["connectionId"]
+  },
+  execute: async (params: ReadEmailParams, context: AgentContext) => {
+    // Validate permissions
+    await validateAgentPermission(context.agentId, WorkspaceCapabilityType.EMAIL_READ, params.connectionId);
+    
+    // Execute email read
+    const emailService = getEmailService(params.connectionId);
+    return await emailService.readEmail(params);
+  }
+};
+
+export const scheduleEventTool: AgentTool<CreateEventParams, CalendarEvent> = {
+  name: "schedule_event",
+  description: "Schedule a calendar event with specified attendees",
+  parameters: {
+    type: "object",
+    properties: {
+      title: { type: "string", description: "Event title" },
+      startTime: { type: "string", description: "Start time in ISO format" },
+      endTime: { type: "string", description: "End time in ISO format" },
+      attendees: { 
+        type: "array", 
+        items: { type: "string" },
+        description: "Email addresses of attendees" 
+      },
+      description: { type: "string", description: "Event description" },
+      connectionId: { type: "string", description: "Workspace connection ID" }
+    },
+    required: ["title", "startTime", "endTime", "connectionId"]
+  },
+  execute: async (params: CreateEventParams, context: AgentContext) => {
+    // Validate permissions
+    await validateAgentPermission(context.agentId, WorkspaceCapabilityType.CALENDAR_CREATE, params.connectionId);
+    
+    // Execute event creation
+    const calendarService = getCalendarService(params.connectionId);
+    return await calendarService.createEvent(params);
+  }
+};
+```
+
+#### 3.3 Example Use Cases & NLP Handling
+
+**Use Case 1: "What is my schedule for tomorrow?"**
+```typescript
+// NLP Processing Flow
+const scheduleQuery = {
+  intent: "READ_CALENDAR",
+  entities: {
+    timeframe: "tomorrow",
+    date: "2024-01-15"
+  },
+  tool: "readCalendar",
+  params: {
+    startDate: "2024-01-15T00:00:00Z",
+    endDate: "2024-01-15T23:59:59Z",
+    connectionId: "user-primary-calendar"
+  }
+};
+
+// Agent Response Generation
+const response = await agent.processWorkspaceQuery({
+  query: "What is my schedule for tomorrow?",
+  expectedTool: "readCalendar",
+  responseTemplate: "Here's your schedule for tomorrow:\n{events_formatted}"
+});
+```
+
+**Use Case 2: "Do I have time for a 30-min meeting tomorrow? If yes, schedule with test@email.com"**
+```typescript
+// Multi-step NLP Processing
+const availabilityCheck = {
+  step1: {
+    intent: "CHECK_AVAILABILITY",
+    tool: "findAvailability",
+    params: {
+      date: "2024-01-15",
+      duration: 30,
+      connectionId: "user-primary-calendar"
+    }
+  },
+  step2: {
+    intent: "SCHEDULE_EVENT",
+    tool: "scheduleEvent",
+    conditionalOn: "availability_found",
+    params: {
+      title: "Meeting",
+      duration: 30,
+      attendees: ["test@email.com"],
+      connectionId: "user-primary-calendar"
+    }
+  }
+};
+```
+
+**Use Case 3: "Do I have any important emails that require my attention?"**
+```typescript
+const importantEmailsQuery = {
+  intent: "FIND_IMPORTANT_EMAILS",
+  tool: "findImportantEmails",
+  params: {
+    filters: {
+      unread: true,
+      importance: "high",
+      timeframe: "last_24_hours"
+    },
+    connectionId: "user-primary-email"
+  }
+};
+```
+
+**Use Case 4: "Create a Google Sheet for business expenses"**
+```typescript
+const createExpenseSheet = {
+  intent: "CREATE_SPREADSHEET",
+  tool: "createSpreadsheet",
+  params: {
+    title: "Business Expenses Tracker",
+    headers: ["Date", "Description", "Category", "Amount", "Receipt"],
+    template: "expense_tracking",
+    connectionId: "user-primary-drive"
+  }
+};
+```
+
+#### 3.4 Comprehensive Capability Implementation
+
+**Email Capabilities**:
+```typescript
+export interface EmailCapabilities {
+  // Read operations
+  readSpecificEmail(emailId: string, connectionId: string): Promise<EmailContent>;
+  findImportantEmails(criteria: ImportanceFilter, connectionId: string): Promise<Email[]>;
+  searchEmails(query: EmailSearchQuery, connectionId: string): Promise<Email[]>;
+  
+  // Write operations  
+  replyToEmail(emailId: string, content: EmailContent, connectionId: string): Promise<EmailResult>;
+  forwardEmail(emailId: string, recipients: string[], content: EmailContent, connectionId: string): Promise<EmailResult>;
+  createEmail(params: CreateEmailParams, connectionId: string): Promise<EmailResult>;
+  
+  // Smart operations
+  categorizeEmails(emails: Email[]): Promise<CategorizedEmails>;
+  extractActionItems(emails: Email[]): Promise<ActionItem[]>;
+  generateEmailSummary(emails: Email[]): Promise<EmailSummary>;
+}
+
+export interface ImportanceFilter {
+  unread?: boolean;
+  fromVIPs?: boolean;
+  hasAttachments?: boolean;
+  keywords?: string[];
+  timeframe?: TimeRange;
+  priority?: EmailPriority;
+}
+```
+
+**Calendar Capabilities**:
+```typescript
+export interface CalendarCapabilities {
+  // Read operations
+  readCalendar(dateRange: DateRange, connectionId: string): Promise<CalendarEvent[]>;
+  findEvents(searchCriteria: EventSearchCriteria, connectionId: string): Promise<CalendarEvent[]>;
+  getEventDetails(eventId: string, connectionId: string): Promise<CalendarEventDetails>;
+  
+  // Availability operations
+  findAvailability(params: AvailabilityParams, connectionId: string): Promise<AvailabilitySlot[]>;
+  checkConflicts(proposedEvent: EventParams, connectionId: string): Promise<ConflictResult>;
+  
+  // Write operations
+  scheduleEvent(params: CreateEventParams, connectionId: string): Promise<CalendarEvent>;
+  editCalendarEntry(eventId: string, changes: EventChanges, connectionId: string): Promise<CalendarEvent>;
+  deleteCalendarEntry(eventId: string, connectionId: string): Promise<void>;
+  
+  // Smart operations
+  summarizeDay(date: string, connectionId: string): Promise<DaySummary>;
+  generateMeetingAgenda(eventId: string, connectionId: string): Promise<MeetingAgenda>;
+  suggestMeetingTimes(participants: string[], duration: number, preferences: SchedulingPreferences): Promise<TimeSlot[]>;
+}
+
+export interface DaySummary {
+  date: string;
+  totalEvents: number;
+  totalDuration: number;
+  eventsByType: Record<string, number>;
+  busyHours: TimeSlot[];
+  freeHours: TimeSlot[];
+  upcomingDeadlines: CalendarEvent[];
+  summary: string; // AI-generated summary
+}
+```
+
+**Google Sheets Capabilities**:
+```typescript
+export interface SpreadsheetCapabilities {
+  // Creation operations
+  createSpreadsheet(params: CreateSpreadsheetParams, connectionId: string): Promise<Spreadsheet>;
+  createFromTemplate(templateType: SpreadsheetTemplate, params: TemplateParams, connectionId: string): Promise<Spreadsheet>;
+  
+  // Read operations
+  readSpreadsheet(spreadsheetId: string, range?: string, connectionId: string): Promise<SpreadsheetData>;
+  searchSpreadsheets(query: SpreadsheetSearchQuery, connectionId: string): Promise<Spreadsheet[]>;
+  
+  // Edit operations
+  editSpreadsheet(spreadsheetId: string, changes: SpreadsheetChanges, connectionId: string): Promise<SpreadsheetResult>;
+  appendData(spreadsheetId: string, data: any[][], range?: string, connectionId: string): Promise<SpreadsheetResult>;
+  
+  // Smart operations
+  analyzeData(spreadsheetId: string, analysisType: AnalysisType, connectionId: string): Promise<DataAnalysis>;
+  generateCharts(spreadsheetId: string, chartConfig: ChartConfig, connectionId: string): Promise<Chart>;
+}
+
+export enum SpreadsheetTemplate {
+  EXPENSE_TRACKER = "expense_tracker",
+  PROJECT_TIMELINE = "project_timeline", 
+  BUDGET_PLANNER = "budget_planner",
+  INVENTORY_TRACKER = "inventory_tracker",
+  CONTACT_LIST = "contact_list"
+}
+```
+
+**Google Drive Capabilities**:
+```typescript
+export interface DriveCapabilities {
+  // Search operations
+  findFiles(query: FileSearchQuery, connectionId: string): Promise<DriveFile[]>;
+  searchByContent(contentQuery: string, fileTypes: string[], connectionId: string): Promise<DriveFile[]>;
+  
+  // File operations
+  uploadFile(params: UploadFileParams, connectionId: string): Promise<DriveFile>;
+  downloadFile(fileId: string, connectionId: string): Promise<FileContent>;
+  deleteFile(fileId: string, connectionId: string): Promise<void>;
+  
+  // Organization operations
+  createFolder(name: string, parentId?: string, connectionId: string): Promise<DriveFolder>;
+  moveFile(fileId: string, newParentId: string, connectionId: string): Promise<DriveFile>;
+  shareFile(fileId: string, shareParams: ShareParams, connectionId: string): Promise<ShareResult>;
+  
+  // Smart operations
+  organizeFiles(folderId: string, organizationRules: OrganizationRule[], connectionId: string): Promise<OrganizationResult>;
+  generateFileIndex(folderId: string, connectionId: string): Promise<FileIndex>;
+}
+```
+
+#### 3.5 Testing Strategy
+
+**Unit Tests for Each Capability**:
+```typescript
+describe('Email Capabilities', () => {
+  test('should read specific email with valid permissions', async () => {
+    const emailContent = await emailCapabilities.readSpecificEmail('email-123', 'connection-456');
+    expect(emailContent).toBeDefined();
+    expect(emailContent.subject).toBeTruthy();
+  });
+  
+  test('should find important unread emails', async () => {
+    const importantEmails = await emailCapabilities.findImportantEmails({
+      unread: true,
+      priority: EmailPriority.HIGH
+    }, 'connection-456');
+    expect(importantEmails).toBeInstanceOf(Array);
+  });
+  
+  test('should create and send email', async () => {
+    const result = await emailCapabilities.createEmail({
+      to: ['test@example.com'],
+      subject: 'Test Email',
+      body: 'This is a test email'
+    }, 'connection-456');
+    expect(result.success).toBe(true);
+  });
+});
+
+describe('Calendar Capabilities', () => {
+  test('should read calendar for specific date range', async () => {
+    const events = await calendarCapabilities.readCalendar({
+      start: '2024-01-15T00:00:00Z',
+      end: '2024-01-15T23:59:59Z'
+    }, 'connection-456');
+    expect(events).toBeInstanceOf(Array);
+  });
+  
+  test('should find availability for meeting scheduling', async () => {
+    const availability = await calendarCapabilities.findAvailability({
+      date: '2024-01-15',
+      duration: 30,
+      workingHours: { start: '09:00', end: '17:00' }
+    }, 'connection-456');
+    expect(availability).toBeInstanceOf(Array);
+  });
+  
+  test('should schedule event with attendees', async () => {
+    const event = await calendarCapabilities.scheduleEvent({
+      title: 'Test Meeting',
+      startTime: '2024-01-15T10:00:00Z',
+      endTime: '2024-01-15T10:30:00Z',
+      attendees: ['test@example.com']
+    }, 'connection-456');
+    expect(event.id).toBeTruthy();
+  });
+});
+
+describe('Spreadsheet Capabilities', () => {
+  test('should create expense tracking spreadsheet', async () => {
+    const spreadsheet = await spreadsheetCapabilities.createFromTemplate(
+      SpreadsheetTemplate.EXPENSE_TRACKER,
+      { title: 'Business Expenses 2024' },
+      'connection-456'
+    );
+    expect(spreadsheet.id).toBeTruthy();
+  });
+  
+  test('should read and analyze spreadsheet data', async () => {
+    const analysis = await spreadsheetCapabilities.analyzeData(
+      'spreadsheet-123',
+      AnalysisType.FINANCIAL_SUMMARY,
+      'connection-456'
+    );
+    expect(analysis.summary).toBeTruthy();
+  });
+});
+
+describe('Drive Capabilities', () => {
+  test('should find files by search query', async () => {
+    const files = await driveCapabilities.findFiles({
+      query: 'business expenses',
+      fileType: 'spreadsheet'
+    }, 'connection-456');
+    expect(files).toBeInstanceOf(Array);
+  });
+  
+  test('should upload and organize files', async () => {
+    const file = await driveCapabilities.uploadFile({
+      name: 'test-document.pdf',
+      content: Buffer.from('test content'),
+      parentFolderId: 'folder-123'
+    }, 'connection-456');
+    expect(file.id).toBeTruthy();
+  });
+});
+```
+
+#### 3.6 LLM Integration Architecture
+
+**Response Generation System**:
+```typescript
+export interface WorkspaceLLMIntegration {
+  // Email response generation
+  generateEmailReply(originalEmail: Email, context: ConversationContext): Promise<EmailDraft>;
+  generateEmailSummary(emails: Email[]): Promise<string>;
+  
+  // Calendar response generation  
+  generateScheduleSummary(events: CalendarEvent[], date: string): Promise<string>;
+  generateMeetingAgenda(event: CalendarEvent, context: MeetingContext): Promise<string>;
+  
+  // Document generation
+  generateSpreadsheetStructure(purpose: string, requirements: string[]): Promise<SpreadsheetTemplate>;
+  generateDocumentContent(type: DocumentType, specifications: DocumentSpecs): Promise<string>;
+  
+  // Smart suggestions
+  suggestEmailActions(emails: Email[]): Promise<EmailAction[]>;
+  suggestCalendarOptimizations(events: CalendarEvent[]): Promise<CalendarSuggestion[]>;
+  suggestFileOrganization(files: DriveFile[]): Promise<OrganizationSuggestion[]>;
+}
+
+// Context-aware response generation
+export interface ResponseGenerator {
+  generateWorkspaceResponse(
+    query: string,
+    workspaceData: WorkspaceData,
+    agentPersonality: AgentPersonality
+  ): Promise<AgentResponse>;
+  
+  formatWorkspaceResults(
+    results: WorkspaceOperationResult,
+    responseFormat: ResponseFormat
+  ): Promise<FormattedResponse>;
+}
+```
+
+This expanded Phase 3 provides a comprehensive foundation for natural language workspace integration, with detailed implementations for all requested capabilities and robust testing strategies.
 
 ### Phase 4: Advanced Capabilities
 - Email sending capabilities
