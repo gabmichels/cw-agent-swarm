@@ -562,4 +562,117 @@ export interface AgentPermissionManagerProps {
 - Custom compliance frameworks
 - White-label deployment options
 
-This comprehensive workspace capabilities system provides a solid foundation for integrating workspace platforms while maintaining security, scalability, and extensibility for future enhancements. 
+This comprehensive workspace capabilities system provides a solid foundation for integrating workspace platforms while maintaining security, scalability, and extensibility for future enhancements.
+
+## Real-Time Event Processing Architecture
+
+### Gmail Push Notifications
+
+```typescript
+// Gmail webhook configuration
+export interface GmailWebhookConfig {
+  topicName: string;        // Google Cloud Pub/Sub topic
+  subscriptionName: string; // Subscription name
+  webhookUrl: string;       // Our webhook endpoint
+  historyId: string;        // Last processed history ID
+}
+
+// Gmail event processing
+export interface GmailEventProcessor {
+  processHistoryEvents(historyId: string, connection: WorkspaceConnection): Promise<void>;
+  notifyAgentsOfNewEmails(emails: Email[], agentIds: string[]): Promise<void>;
+  handleCalendarInvites(emails: Email[], connection: WorkspaceConnection): Promise<void>;
+}
+```
+
+### Google Calendar Push Notifications
+
+```typescript
+// Calendar webhook configuration  
+export interface CalendarWebhookConfig {
+  channelId: string;        // Unique channel ID
+  resourceId: string;       // Calendar resource ID
+  webhookUrl: string;       // Our webhook endpoint
+  expiration: number;       // Channel expiration timestamp
+}
+
+// Calendar event processing
+export interface CalendarEventProcessor {
+  processCalendarChanges(channelId: string, connection: WorkspaceConnection): Promise<void>;
+  notifyAgentsOfCalendarEvents(events: CalendarEvent[], agentIds: string[]): Promise<void>;
+  handleEventInvitations(events: CalendarEvent[], connection: WorkspaceConnection): Promise<void>;
+}
+```
+
+### Agent Notification System
+
+```typescript
+// Agent notification queue
+model AgentNotification {
+  id              String               @id @default(cuid())
+  agentId         String
+  connectionId    String
+  eventType       WorkspaceEventType
+  eventData       Json                 // Event-specific data
+  priority        NotificationPriority @default(NORMAL)
+  status          NotificationStatus   @default(PENDING)
+  
+  // Processing metadata
+  createdAt       DateTime             @default(now())
+  processedAt     DateTime?
+  failedAt        DateTime?
+  retryCount      Int                  @default(0)
+  errorMessage    String?
+  
+  // Relationships
+  workspaceConnection WorkspaceConnection @relation(fields: [connectionId], references: [id])
+  
+  @@index([agentId, status])
+  @@index([connectionId, eventType])
+}
+
+// Additional enums
+enum WorkspaceEventType {
+  NEW_EMAIL
+  CALENDAR_INVITE
+  CALENDAR_UPDATE
+  CALENDAR_CANCELLATION
+  EMAIL_REPLY_NEEDED
+  MEETING_REMINDER
+}
+
+enum NotificationPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum NotificationStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+```
+
+### Background Job System
+
+```typescript
+// Background job for email checking
+export interface EmailCheckJob {
+  connectionId: string;
+  lastCheckTime: Date;
+  checkInterval: number; // minutes
+  agentIds: string[];    // agents with permission
+}
+
+// Job processing service
+export interface WorkspaceJobService {
+  scheduleEmailCheck(connectionId: string, intervalMinutes: number): Promise<void>;
+  scheduleCalendarSync(connectionId: string, intervalMinutes: number): Promise<void>;
+  processNotificationQueue(): Promise<void>;
+  cleanupExpiredTokens(): Promise<void>;
+}
+``` 

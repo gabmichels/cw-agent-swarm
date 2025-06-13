@@ -7,33 +7,232 @@ generator client {
 
 datasource db {
   provider = "sqlite"
-  url      = "file:./dev.db"
+  url      = env("DATABASE_URL")
 }
 
+// Enums for workspace models - using String type instead of enum for SQLite compatibility
+model WorkspaceProvider {
+  id          String   @id @default(uuid())
+  name        String   @unique // MICROSOFT_365, GOOGLE_WORKSPACE, ZOHO
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model WorkspaceAccountType {
+  id          String   @id @default(uuid())
+  name        String   @unique // ORGANIZATIONAL, PERSONAL
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model ConnectionType {
+  id          String   @id @default(uuid())
+  name        String   @unique // SSO, OAUTH_PERSONAL, SERVICE_ACCOUNT
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model ConnectionStatus {
+  id          String   @id @default(uuid())
+  name        String   @unique // ACTIVE, EXPIRED, REVOKED, ERROR
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model WorkspaceCapabilityType {
+  id          String   @id @default(uuid())
+  name        String   @unique // EMAIL_SEND, EMAIL_READ, etc.
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model AccessLevel {
+  id          String   @id @default(uuid())
+  name        String   @unique // NONE, READ, WRITE, ADMIN
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model WorkspaceAction {
+  id          String   @id @default(uuid())
+  name        String   @unique // CONNECT, DISCONNECT, etc.
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model ActionResult {
+  id          String   @id @default(uuid())
+  name        String   @unique // SUCCESS, FAILURE, etc.
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model WorkspaceEventType {
+  id          String   @id @default(uuid())
+  name        String   @unique // NEW_EMAIL, CALENDAR_INVITE, etc.
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model NotificationPriority {
+  id          String   @id @default(uuid())
+  name        String   @unique // LOW, NORMAL, HIGH, URGENT
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model NotificationStatus {
+  id          String   @id @default(uuid())
+  name        String   @unique // PENDING, PROCESSING, etc.
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// Main models
+model WorkspaceConnection {
+  id                String   @id @default(uuid())
+  userId            String?
+  organizationId    String?
+  provider          String   // References WorkspaceProvider.name
+  accountType       String   // References WorkspaceAccountType.name
+  connectionType    String   // References ConnectionType.name
+  accessToken       String   // Using String instead of @db.Text
+  refreshToken      String?  // Using String instead of @db.Text
+  tokenExpiresAt    DateTime?
+  scopes            String   // Storing as comma-separated string
+  providerAccountId String
+  displayName       String
+  email             String
+  domain            String?
+  status            String   // References ConnectionStatus.name
+  lastSyncAt        DateTime?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  // Relations
+  permissions       AgentWorkspacePermission[]
+  auditLogs         WorkspaceAuditLog[]
+  notifications     AgentNotification[]
+
+  @@index([userId])
+  @@index([organizationId])
+  @@index([provider])
+  @@index([email])
+  @@index([status])
+}
+
+model AgentWorkspacePermission {
+  id                    String   @id @default(uuid())
+  agentId               String
+  workspaceConnectionId String
+  capability            String   // References WorkspaceCapabilityType.name
+  accessLevel           String   // References AccessLevel.name
+  restrictions          String?  // Storing JSON as string
+  grantedBy             String
+  grantedAt             DateTime @default(now())
+  revokedAt             DateTime?
+  lastUsedAt            DateTime @default(now())
+
+  // Relations
+  workspaceConnection   WorkspaceConnection @relation(fields: [workspaceConnectionId], references: [id])
+
+  @@index([agentId])
+  @@index([workspaceConnectionId])
+  @@index([capability])
+  @@index([accessLevel])
+}
+
+model WorkspaceCapability {
+  id                String   @id @default(uuid())
+  workspaceConnectionId String
+  capabilityType    String   // References WorkspaceCapabilityType.name
+  isEnabled         Boolean  @default(true)
+  configuration     String   // Storing JSON as string
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([workspaceConnectionId])
+  @@index([capabilityType])
+}
+
+model WorkspaceAuditLog {
+  id                    String   @id @default(uuid())
+  workspaceConnectionId String
+  agentId               String?
+  action                String   // References WorkspaceAction.name
+  capability            String   // References WorkspaceCapabilityType.name
+  resourceId            String?
+  result                String   // References ActionResult.name
+  metadata              String?  // Storing JSON as string
+  timestamp             DateTime @default(now())
+
+  // Relations
+  workspaceConnection   WorkspaceConnection @relation(fields: [workspaceConnectionId], references: [id])
+
+  @@index([workspaceConnectionId])
+  @@index([agentId])
+  @@index([action])
+  @@index([timestamp])
+}
+
+model AgentNotification {
+  id            String   @id @default(uuid())
+  agentId       String
+  connectionId  String
+  eventType     String   // References WorkspaceEventType.name
+  eventData     String   // Storing JSON as string
+  priority      String   // References NotificationPriority.name
+  status        String   // References NotificationStatus.name
+  createdAt     DateTime @default(now())
+  processedAt   DateTime?
+  failedAt      DateTime?
+  retryCount    Int      @default(0)
+  errorMessage  String?
+
+  // Relations
+  workspaceConnection WorkspaceConnection @relation(fields: [connectionId], references: [id])
+
+  @@index([agentId])
+  @@index([connectionId])
+  @@index([eventType])
+  @@index([status])
+  @@index([createdAt])
+}
+
+// Existing models
 model Chat {
-  id        String   @id @default(cuid())
-  title     String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  
-  // Relationships
+  id          String   @id @default(uuid())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  messages    ChatMessage[]
   attachments ChatAttachment[]
 }
 
-// Chat Attachment model to store file references
+model ChatMessage {
+  id        String   @id @default(uuid())
+  chatId    String
+  content   String
+  role      String
+  createdAt DateTime @default(now())
+  chat      Chat     @relation(fields: [chatId], references: [id])
+}
+
 model ChatAttachment {
-  id          String   @id @default(cuid())
-  chatId      String
-  fileId      String   @unique
-  fileName    String
-  fileType    String
-  fileSize    Int
-  storageUrl  String
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  // Relationships
-  chat Chat @relation(fields: [chatId], references: [id], onDelete: Cascade)
-
-  @@index([chatId])
+  id        String   @id @default(uuid())
+  chatId    String
+  type      String   @default("file")
+  url       String   @default("")
+  createdAt DateTime @default(now())
+  chat      Chat     @relation(fields: [chatId], references: [id])
 } 
