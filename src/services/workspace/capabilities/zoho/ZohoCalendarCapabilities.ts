@@ -1,7 +1,7 @@
 import { ICalendarCapabilities } from '../interfaces/ICalendarCapabilities';
 import { CalendarCapabilities, CalendarEvent, CreateEventParams } from '../CalendarCapabilities';
 import { ZohoWorkspaceProvider } from '../../providers/ZohoWorkspaceProvider';
-import { AxiosInstance } from 'axios';
+import { AxiosInstance, AxiosError } from 'axios';
 
 export interface CalendarQuery {
   timeMin?: string;
@@ -24,6 +24,22 @@ export interface CalendarEventInput {
   attendees?: Array<{
     email: string;
     displayName?: string;
+  }>;
+  location?: string;
+}
+
+// Define the Zoho event data structure
+interface ZohoEventData {
+  title: string;
+  dateandtime: {
+    timezone: string;
+    start: string;
+    end: string;
+  };
+  richtext_description?: string;
+  attendees?: Array<{
+    email: string;
+    status: string;
   }>;
   location?: string;
 }
@@ -137,7 +153,7 @@ export class ZohoCalendarCapabilities extends CalendarCapabilities implements IC
       console.log('Creating Zoho calendar event with correct API format');
       
       // FIXED: Use exact format from user's example - eventdata as query parameter
-      const eventData = {
+      const eventData: ZohoEventData = {
         title: event.summary,
         dateandtime: {
           timezone: event.start.timeZone || 'UTC',
@@ -157,6 +173,10 @@ export class ZohoCalendarCapabilities extends CalendarCapabilities implements IC
         }));
       }
 
+      if (event.location) {
+        eventData.location = event.location;
+      }
+
       // FIXED: Pass eventdata as query parameter with JSON string - USE POST METHOD
       // Use exact URL format from user's example
       const eventDataString = JSON.stringify(eventData);
@@ -169,10 +189,11 @@ export class ZohoCalendarCapabilities extends CalendarCapabilities implements IC
       }
     } catch (error) {
       console.error('Zoho create event error:', error);
-      if (error.response) {
-        console.error('Error response status:', error.response.status);
-        console.error('Error response data:', error.response.data);
-        console.error('Error response headers:', error.response.headers);
+      if (error && typeof error === 'object' && 'response' in error) {
+        const axiosError = error as AxiosError;
+        console.error('Error response status:', axiosError.response?.status);
+        console.error('Error response data:', axiosError.response?.data);
+        console.error('Error response headers:', axiosError.response?.headers);
       }
       throw new Error(`Failed to create event in Zoho Calendar: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
@@ -215,9 +236,10 @@ export class ZohoCalendarCapabilities extends CalendarCapabilities implements IC
       console.log('✅ Event deleted successfully from Zoho Calendar');
     } catch (error) {
       console.error('Zoho delete event error:', error);
-      if (error.response) {
-        console.error('Delete error response status:', error.response.status);
-        console.error('Delete error response data:', error.response.data);
+      if (error && typeof error === 'object' && 'response' in error) {
+        const axiosError = error as AxiosError;
+        console.error('Delete error response status:', axiosError.response?.status);
+        console.error('Delete error response data:', axiosError.response?.data);
       }
       throw new Error(`Failed to delete event from Zoho Calendar: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
@@ -247,7 +269,7 @@ export class ZohoCalendarCapabilities extends CalendarCapabilities implements IC
       endTime = new Date(startTime.getTime() + 60 * 60 * 1000); // 1 hour later
     }
     
-    const calendarEvent = {
+    const calendarEvent: CalendarEvent = {
       id: zohoEvent.uid || zohoEvent.id || 'unknown',
       title: zohoEvent.title || 'Untitled Event',
       description: zohoEvent.description || '',
@@ -257,7 +279,7 @@ export class ZohoCalendarCapabilities extends CalendarCapabilities implements IC
       attendees: zohoEvent.attendees?.map((attendee: any) => ({
         email: attendee.email || 'unknown@example.com',
         displayName: attendee.dName || attendee.displayName || attendee.email || 'Unknown',
-        responseStatus: this.convertZohoStatus(attendee.status || 'NEEDS-ACTION')
+        responseStatus: this.convertZohoAttendeeStatus(attendee.status || 'NEEDS-ACTION')
       })) || [],
       organizer: {
         email: zohoEvent.organizer || zohoEvent.createdby || 'unknown@example.com',
@@ -265,21 +287,10 @@ export class ZohoCalendarCapabilities extends CalendarCapabilities implements IC
         responseStatus: 'accepted' as const
       },
       isAllDay: zohoEvent.isallday || false,
-      status: this.convertZohoStatus(zohoEvent.estatus || 'confirmed'),
-      created: zohoEvent.createdtime ? new Date(zohoEvent.createdtime) : new Date(),
-      updated: zohoEvent.lastmodifiedtime ? new Date(zohoEvent.lastmodifiedtime) : new Date(),
-      etag: zohoEvent.etag?.toString() || '',
+      status: this.convertZohoEventStatus(zohoEvent.estatus || 'confirmed'),
       htmlLink: zohoEvent.viewEventURL || '',
-      summary: zohoEvent.title || 'Untitled Event',
-      // FIXED: Add start/end properties for test compatibility (Google Calendar format)
-      start: {
-        dateTime: startTime.toISOString(),
-        timeZone: zohoEvent.dateandtime?.timezone || 'UTC'
-      },
-      end: {
-        dateTime: endTime.toISOString(),
-        timeZone: zohoEvent.dateandtime?.timezone || 'UTC'
-      }
+      visibility: 'default',
+      calendarId: 'primary'
     };
     
     return calendarEvent;
@@ -357,9 +368,21 @@ export class ZohoCalendarCapabilities extends CalendarCapabilities implements IC
   }
 
   /**
-   * Convert Zoho status to standard format
+   * Convert Zoho status to standard format for event status
    */
-  private convertZohoStatus(zohoStatus: string): string {
+  private convertZohoEventStatus(zohoStatus: string): 'confirmed' | 'tentative' | 'cancelled' {
+    switch (zohoStatus?.toUpperCase()) {
+      case 'CONFIRMED': return 'confirmed';
+      case 'TENTATIVE': return 'tentative';
+      case 'CANCELLED': return 'cancelled';
+      default: return 'confirmed';
+    }
+  }
+
+  /**
+   * Convert Zoho attendee status to standard format
+   */
+  private convertZohoAttendeeStatus(zohoStatus: string): 'needsAction' | 'declined' | 'tentative' | 'accepted' {
     switch (zohoStatus?.toUpperCase()) {
       case 'ACCEPTED': return 'accepted';
       case 'DECLINED': return 'declined';
@@ -472,9 +495,10 @@ export class ZohoCalendarCapabilities extends CalendarCapabilities implements IC
       }
     } catch (error) {
       console.error('Smart Add API error:', error);
-      if (error.response) {
-        console.error('Error response status:', error.response.status);
-        console.error('Error response data:', error.response.data);
+      if (error && typeof error === 'object' && 'response' in error) {
+        const axiosError = error as AxiosError;
+        console.error('Error response status:', axiosError.response?.status);
+        console.error('Error response data:', axiosError.response?.data);
       }
       throw new Error(`Failed to create event from text: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
