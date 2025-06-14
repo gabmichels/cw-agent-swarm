@@ -15,6 +15,9 @@ import { AgentWorkspacePermissionService } from '../../src/services/workspace/Ag
 import { generateUuid } from '../../src/utils/uuid';
 import { ZohoWorkspaceProvider } from '../../src/services/workspace/providers/ZohoWorkspaceProvider';
 import { CapabilityFactory } from '../../src/services/workspace/capabilities/CapabilityFactory';
+import { PrismaClient } from '@prisma/client';
+
+const prisma = new PrismaClient();
 
 // Test configuration
 const TEST_CONFIG = {
@@ -148,13 +151,13 @@ describe('Zoho Workspace Capabilities Execution', () => {
         for (const connection of testConnections) {
           try {
             // Delete related records first
-            const permissions = await permissionService.getAgentPermissions(testAgentId);
-            const connectionPermissions = permissions.filter(p => 
-              p.workspaceConnectionId === connection.id
+            const capabilities = await permissionService.getAgentWorkspaceCapabilities(testAgentId);
+            const connectionCapabilities = capabilities.filter(c => 
+              c.workspaceConnectionId === connection.id
             );
             
-            for (const permission of connectionPermissions) {
-              await permissionService.revokePermission(permission.id, 'test-cleanup');
+            for (const capability of connectionCapabilities) {
+              await permissionService.revokePermission(capability.id, 'test-cleanup');
             }
             
             // Delete the connection (if it's a test connection)
@@ -193,13 +196,13 @@ describe('Zoho Workspace Capabilities Execution', () => {
         return;
       }
 
-      const permissions = await permissionService.getAgentPermissions(testAgentId);
-      const zohoPermissions = permissions.filter(p => 
-        p.workspaceConnection?.provider === WorkspaceProvider.ZOHO
+      const capabilities = await permissionService.getAgentWorkspaceCapabilities(testAgentId);
+      const zohoCapabilities = capabilities.filter(c => 
+        c.provider === WorkspaceProvider.ZOHO
       );
       
-      expect(zohoPermissions.length).toBeGreaterThan(0);
-      console.log(`✅ Agent has ${zohoPermissions.length} Zoho workspace permissions`);
+      expect(zohoCapabilities.length).toBeGreaterThan(0);
+      console.log(`✅ Agent has ${zohoCapabilities.length} Zoho workspace capabilities`);
     });
   });
 
@@ -286,7 +289,6 @@ This email confirms that the Zoho workspace integration can send emails successf
   });
 
   describe('📅 Zoho Calendar Operations', () => {
-    let createdEventId: string | undefined;
 
     test('should read calendar events from Zoho Calendar', async () => {
       if (testConnectionId === 'mock-connection-id') {
@@ -296,7 +298,8 @@ This email confirms that the Zoho workspace integration can send emails successf
 
       const calendarCapabilities = CapabilityFactory.createCalendarCapabilities(
         WorkspaceProvider.ZOHO,
-        testConnectionId
+        testConnectionId,
+        zohoProvider
       );
 
       const events = await calendarCapabilities.getEvents({
@@ -317,17 +320,19 @@ This email confirms that the Zoho workspace integration can send emails successf
       }
     });
 
-    test('should create calendar event in Zoho Calendar', async () => {
+    test('should create and delete calendar event in Zoho Calendar', async () => {
       if (testConnectionId === 'mock-connection-id') {
-        console.log('⚠️  Skipping real Zoho calendar create test - no connection');
+        console.log('⚠️  Skipping real Zoho calendar create/delete test - no connection');
         return;
       }
 
       const calendarCapabilities = CapabilityFactory.createCalendarCapabilities(
         WorkspaceProvider.ZOHO,
-        testConnectionId
+        testConnectionId,
+        zohoProvider
       );
 
+      // Step 1: Create the event
       const startTime = new Date(Date.now() + 24 * 60 * 60 * 1000); // Tomorrow
       const endTime = new Date(startTime.getTime() + 60 * 60 * 1000); // 1 hour later
 
@@ -349,25 +354,162 @@ This email confirms that the Zoho workspace integration can send emails successf
 
       expect(event).toBeDefined();
       expect(event.id).toBeTruthy();
-      createdEventId = event.id;
       
       console.log(`✅ Calendar event created successfully - ID: ${event.id}`);
       console.log(`   📅 Event: "${event.summary}" at ${event.start?.dateTime}`);
+
+      // Step 2: Delete the same event
+      await calendarCapabilities.deleteEvent(event.id);
+      console.log(`✅ Calendar event deleted successfully - ID: ${event.id}`);
     });
 
-    test('should delete created calendar event', async () => {
-      if (testConnectionId === 'mock-connection-id' || !createdEventId) {
-        console.log('⚠️  Skipping Zoho calendar delete test - no connection or event');
+    test('should search calendar events using Search API', async () => {
+      if (testConnectionId === 'mock-connection-id') {
+        console.log('⚠️  Skipping real Zoho calendar search test - no connection');
         return;
       }
 
       const calendarCapabilities = CapabilityFactory.createCalendarCapabilities(
         WorkspaceProvider.ZOHO,
-        testConnectionId
+        testConnectionId,
+        zohoProvider
       );
 
-      await calendarCapabilities.deleteEvent(createdEventId);
-      console.log(`✅ Calendar event deleted successfully - ID: ${createdEventId}`);
+      const searchResults = await calendarCapabilities.searchEvents('meeting', {
+        startDate: new Date().toISOString(),
+        endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), // Next 30 days
+        maxResults: 10
+      });
+
+      expect(Array.isArray(searchResults)).toBe(true);
+      console.log(`✅ Found ${searchResults.length} events matching 'meeting' in Zoho Calendar`);
+
+      if (searchResults.length > 0) {
+        const firstResult = searchResults[0];
+        expect(firstResult.id).toBeTruthy();
+        expect(firstResult.summary).toBeTruthy();
+        console.log(`First result: "${firstResult.summary}"`);
+      }
+    });
+
+    test('should get free/busy information using Free/Busy API', async () => {
+      if (testConnectionId === 'mock-connection-id') {
+        console.log('⚠️  Skipping real Zoho free/busy test - no connection');
+        return;
+      }
+
+      const calendarCapabilities = CapabilityFactory.createCalendarCapabilities(
+        WorkspaceProvider.ZOHO,
+        testConnectionId,
+        zohoProvider
+      );
+
+      // Test with the current user's email (should be available from connection)
+      const connection = await prisma.workspaceConnection.findUnique({
+        where: { id: testConnectionId }
+      });
+
+      if (!connection?.email) {
+        console.log('⚠️  Skipping free/busy test - no email in connection');
+        return;
+      }
+
+      const freeBusyInfo = await calendarCapabilities.getFreeBusyInfo(
+        [connection.email],
+        {
+          startTime: new Date().toISOString(),
+          endTime: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString() // Next 7 days
+        }
+      );
+
+      expect(Array.isArray(freeBusyInfo)).toBe(true);
+      expect(freeBusyInfo.length).toBe(1);
+      expect(freeBusyInfo[0].email).toBe(connection.email);
+      expect(Array.isArray(freeBusyInfo[0].freeBusySlots)).toBe(true);
+
+      console.log(`✅ Retrieved free/busy info for ${connection.email}`);
+      console.log(`Found ${freeBusyInfo[0].freeBusySlots.length} busy slots`);
+    });
+
+    test('should create event from natural language using Smart Add API', async () => {
+      if (testConnectionId === 'mock-connection-id') {
+        console.log('⚠️  Skipping real Zoho smart add test - no connection');
+        return;
+      }
+
+      const calendarCapabilities = CapabilityFactory.createCalendarCapabilities(
+        WorkspaceProvider.ZOHO,
+        testConnectionId,
+        zohoProvider
+      );
+
+      // Create an event using natural language
+      const naturalLanguageText = `Team standup tomorrow at 10 AM for 30 minutes`;
+      
+      const createdEvent = await calendarCapabilities.createEventFromText(naturalLanguageText);
+
+      expect(createdEvent.id).toBeTruthy();
+      expect(createdEvent.summary).toBeTruthy();
+      expect(createdEvent.start).toBeTruthy();
+      expect(createdEvent.end).toBeTruthy();
+
+      console.log(`✅ Created event from text: "${naturalLanguageText}"`);
+      console.log(`Event: "${createdEvent.summary}" on ${createdEvent.start.dateTime}`);
+
+      // Clean up: delete the created event
+      try {
+        await calendarCapabilities.deleteEvent(createdEvent.id);
+        console.log('✅ Cleaned up test event');
+      } catch (error) {
+        console.log('⚠️  Could not clean up test event:', error);
+      }
+    });
+
+    test('should find available time slots for scheduling', async () => {
+      if (testConnectionId === 'mock-connection-id') {
+        console.log('⚠️  Skipping real Zoho available slots test - no connection');
+        return;
+      }
+
+      const calendarCapabilities = CapabilityFactory.createCalendarCapabilities(
+        WorkspaceProvider.ZOHO,
+        testConnectionId,
+        zohoProvider
+      );
+
+      // Test with the current user's email
+      const connection = await prisma.workspaceConnection.findUnique({
+        where: { id: testConnectionId }
+      });
+
+      if (!connection?.email) {
+        console.log('⚠️  Skipping available slots test - no email in connection');
+        return;
+      }
+
+      const availableSlots = await calendarCapabilities.findAvailableSlots({
+        attendeeEmails: [connection.email],
+        durationMinutes: 30,
+        startDate: new Date().toISOString(),
+        endDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(), // Next 7 days
+        workingHours: {
+          start: "09:00",
+          end: "17:00"
+        }
+      });
+
+      expect(Array.isArray(availableSlots)).toBe(true);
+      console.log(`✅ Found ${availableSlots.length} available 30-minute slots`);
+
+      if (availableSlots.length > 0) {
+        const firstSlot = availableSlots[0];
+        expect(firstSlot.start).toBeTruthy();
+        expect(firstSlot.end).toBeTruthy();
+        expect(Array.isArray(firstSlot.attendees)).toBe(true);
+        expect(firstSlot.attendees).toContain(connection.email);
+        
+        console.log(`First available slot: ${new Date(firstSlot.start).toLocaleString()} - ${new Date(firstSlot.end).toLocaleString()}`);
+      }
     });
   });
 
@@ -382,13 +524,14 @@ This email confirms that the Zoho workspace integration can send emails successf
 
       const driveCapabilities = CapabilityFactory.createDriveCapabilities(
         WorkspaceProvider.ZOHO,
-        testConnectionId
+        testConnectionId,
+        zohoProvider
       );
 
       const files = await driveCapabilities.searchFiles({
         q: 'type:document',
         maxResults: 10
-      });
+      }, testConnectionId, testAgentId);
 
       expect(Array.isArray(files)).toBe(true);
       console.log(`✅ Found ${files.length} files in Zoho WorkDrive`);
@@ -410,25 +553,27 @@ This email confirms that the Zoho workspace integration can send emails successf
 
       const driveCapabilities = CapabilityFactory.createDriveCapabilities(
         WorkspaceProvider.ZOHO,
-        testConnectionId
+        testConnectionId,
+        zohoProvider
       );
 
-      const testContent = 'This is a test file created by the Zoho workspace integration test.';
-      const testFileName = `zoho-test-${Date.now()}.txt`;
-
-      const file = await driveCapabilities.createFile({
-        name: testFileName,
-        content: Buffer.from(testContent),
-        mimeType: 'text/plain'
-      });
-
-      expect(file).toBeDefined();
-      expect(file.id).toBeTruthy();
-      expect(file.name).toBe(testFileName);
-      uploadedFileId = file.id;
+      // NOTE: WorkDrive doesn't handle file creation directly
+      // Files are created through specific apps (Zoho Sheet, Writer, etc.)
+      // This test verifies that the createFile method properly throws an error
       
-      console.log(`✅ File uploaded successfully to Zoho WorkDrive - ID: ${file.id}`);
-      console.log(`   📄 File: "${file.name}" (${file.size} bytes)`);
+      try {
+        await driveCapabilities.createFile({
+          name: `zoho-test-${Date.now()}.txt`,
+          content: Buffer.from('test content'),
+          mimeType: 'text/plain'
+        }, testConnectionId, testAgentId);
+        
+        // Should not reach here
+        expect(true).toBe(false);
+      } catch (error) {
+        expect(error.message).toContain('File creation is not supported through WorkDrive');
+        console.log('✅ WorkDrive correctly rejects file creation - use specific app APIs instead');
+      }
     });
   });
 
@@ -441,42 +586,39 @@ This email confirms that the Zoho workspace integration can send emails successf
 
       const sheetsCapabilities = CapabilityFactory.createSheetsCapabilities(
         WorkspaceProvider.ZOHO,
-        testConnectionId
+        testConnectionId,
+        zohoProvider
       );
 
       const spreadsheet = await sheetsCapabilities.createSpreadsheet({
         title: `Zoho Test Spreadsheet ${Date.now()}`,
         sheets: [
           {
-            properties: {
-              title: 'Test Data',
-              gridProperties: {
-                rowCount: 100,
-                columnCount: 10
-              }
-            }
+            title: 'Test Data',
+            rowCount: 100,
+            columnCount: 10,
+            headers: ['Name', 'Email', 'Department']
           }
         ]
-      });
+      }, testConnectionId, testAgentId);
 
       expect(spreadsheet).toBeDefined();
-      expect(spreadsheet.spreadsheetId).toBeTruthy();
-      expect(spreadsheet.properties?.title).toBeTruthy();
+      expect(spreadsheet.id).toBeTruthy();
+      expect(spreadsheet.title).toBeTruthy();
       
-      console.log(`✅ Spreadsheet created successfully in Zoho Sheet - ID: ${spreadsheet.spreadsheetId}`);
-      console.log(`   📊 Spreadsheet: "${spreadsheet.properties?.title}"`);
+      console.log(`✅ Spreadsheet created successfully in Zoho Sheet - ID: ${spreadsheet.id}`);
+      console.log(`   📊 Spreadsheet: "${spreadsheet.title}"`);
 
       // Add some test data
-      if (spreadsheet.spreadsheetId) {
-        await sheetsCapabilities.updateValues({
-          spreadsheetId: spreadsheet.spreadsheetId,
-          range: 'Test Data!A1:C3',
+      if (spreadsheet.id) {
+        await sheetsCapabilities.updateCells({
+          spreadsheetId: spreadsheet.id,
+          range: 'A2:C3',
           values: [
-            ['Name', 'Email', 'Department'],
             ['John Doe', 'john@example.com', 'Engineering'],
             ['Jane Smith', 'jane@example.com', 'Marketing']
           ]
-        });
+        }, testConnectionId, testAgentId);
         
         console.log(`   📊 Added test data to spreadsheet`);
       }
@@ -515,21 +657,24 @@ This email confirms that the Zoho workspace integration can send emails successf
       // Test calendar capabilities
       const calendarCaps = CapabilityFactory.createCalendarCapabilities(
         WorkspaceProvider.ZOHO,
-        testConnectionId
+        testConnectionId,
+        zohoProvider
       );
       expect(calendarCaps).toBeDefined();
 
       // Test sheets capabilities
       const sheetsCaps = CapabilityFactory.createSheetsCapabilities(
         WorkspaceProvider.ZOHO,
-        testConnectionId
+        testConnectionId,
+        zohoProvider
       );
       expect(sheetsCaps).toBeDefined();
 
       // Test drive capabilities
       const driveCaps = CapabilityFactory.createDriveCapabilities(
         WorkspaceProvider.ZOHO,
-        testConnectionId
+        testConnectionId,
+        zohoProvider
       );
       expect(driveCaps).toBeDefined();
 

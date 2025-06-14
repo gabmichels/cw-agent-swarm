@@ -1546,108 +1546,37 @@ export class ZohoSheetsCapabilities extends SheetsCapabilities {
 
 ### Zoho OAuth Scopes
 
-```typescript
-export const ZOHO_SCOPES = {
-  // Email scopes
-  MAIL_READ: 'ZohoMail.messages.READ',
-  MAIL_SEND: 'ZohoMail.messages.CREATE',
-  MAIL_MODIFY: 'ZohoMail.messages.UPDATE',
-  
-  // Calendar scopes
-  CALENDAR_READ: 'ZohoCalendar.calendar.READ',
-  CALENDAR_WRITE: 'ZohoCalendar.calendar.CREATE',
-  CALENDAR_MODIFY: 'ZohoCalendar.calendar.UPDATE',
-  CALENDAR_DELETE: 'ZohoCalendar.calendar.DELETE',
-  
-  // WorkDrive scopes
-  WORKDRIVE_READ: 'ZohoWorkDrive.files.READ',
-  WORKDRIVE_WRITE: 'ZohoWorkDrive.files.CREATE',
-  WORKDRIVE_MODIFY: 'ZohoWorkDrive.files.UPDATE',
-  WORKDRIVE_DELETE: 'ZohoWorkDrive.files.DELETE',
-  
-  // Sheet scopes
-  SHEET_READ: 'ZohoSheet.spreadsheets.READ',
-  SHEET_WRITE: 'ZohoSheet.spreadsheets.CREATE',
-  SHEET_MODIFY: 'ZohoSheet.spreadsheets.UPDATE'
-};
+**⚠️ IMPORTANT: Scopes are now centrally managed in `src/services/workspace/scopes/WorkspaceScopes.ts`**
 
-export function getRequiredZohoScopes(capabilities: WorkspaceCapabilityType[]): string[] {
-  const scopes: string[] = [];
-  
-  capabilities.forEach(capability => {
-    switch (capability) {
-      case WorkspaceCapabilityType.EMAIL_READ:
-        scopes.push(ZOHO_SCOPES.MAIL_READ);
-        break;
-      case WorkspaceCapabilityType.EMAIL_SEND:
-        scopes.push(ZOHO_SCOPES.MAIL_SEND);
-        break;
-      case WorkspaceCapabilityType.CALENDAR_READ:
-        scopes.push(ZOHO_SCOPES.CALENDAR_READ);
-        break;
-      case WorkspaceCapabilityType.CALENDAR_CREATE:
-        scopes.push(ZOHO_SCOPES.CALENDAR_WRITE);
-        break;
-      case WorkspaceCapabilityType.DRIVE_READ:
-        scopes.push(ZOHO_SCOPES.WORKDRIVE_READ);
-        break;
-      case WorkspaceCapabilityType.DRIVE_UPLOAD:
-        scopes.push(ZOHO_SCOPES.WORKDRIVE_WRITE);
-        break;
-      case WorkspaceCapabilityType.SPREADSHEET_READ:
-        scopes.push(ZOHO_SCOPES.SHEET_READ);
-        break;
-      case WorkspaceCapabilityType.SPREADSHEET_CREATE:
-        scopes.push(ZOHO_SCOPES.SHEET_WRITE);
-        break;
-    }
-  });
-  
-  return [...new Set(scopes)]; // Remove duplicates
-}
+For the most up-to-date and authoritative list of scopes, see the centralized configuration file. This ensures consistency across all components and prevents scope mismatches.
+
+```typescript
+// Import the centralized scopes
+import { getRequiredScopes, ZOHO_SCOPES } from '../services/workspace/scopes/WorkspaceScopes';
+
+// Get all required scopes for Zoho
+const zohoScopes = getRequiredScopes(WorkspaceProvider.ZOHO);
+
+// Or access individual scope constants
+const calendarAllScope = ZOHO_SCOPES.CALENDAR_ALL; // 'ZohoCalendar.calendar.ALL'
 ```
 
-### Zoho Testing Strategy
+**Current Zoho Scopes (as of latest update):**
+- ✅ `ZohoCalendar.calendar.ALL` - Full calendar management
+- ✅ `ZohoCalendar.event.ALL` - Complete event operations  
+- ✅ `ZohoCalendar.search.ALL` - Search functionality
+- ✅ `ZohoCalendar.freebusy.ALL` - Availability checking
+- ✅ `ZohoSheet.dataAPI.*` - All spreadsheet operations
+- ✅ `WorkDrive.files.READ` + search scopes - File operations
 
-The Zoho implementation includes comprehensive testing that mirrors the Google Workspace test suite:
+**Legacy Documentation (DO NOT USE):**
+The following function is deprecated and should not be used. It's kept here for reference only:
 
-#### Real Execution Tests
-- **Email Operations**: Reading from Zoho Mail inbox, sending test emails
-- **Calendar Operations**: Reading events, creating/deleting test events
-- **Drive Operations**: Searching files, uploading test documents
-- **Spreadsheet Operations**: Creating spreadsheets, updating cell values
-
-#### Scheduler Integration Tests
-- **Task Scheduling**: Scheduling Zoho workspace tasks via the scheduler
-- **Task Execution**: Verifying scheduled tasks execute properly
-- **Error Handling**: Testing retry logic and failure scenarios
-
-#### Provider Health Checks
-- **Connection Validation**: Verifying OAuth tokens and API connectivity
-- **Capability Factory**: Testing provider registration and capability creation
-- **Performance Monitoring**: Tracking API response times and success rates
-
-### Zoho vs Google Workspace Comparison
-
-| Feature | Google Workspace | Zoho Workspace |
-|---------|------------------|----------------|
-| **Email API** | Gmail API with labels | Zoho Mail API with folders |
-| **Calendar API** | Google Calendar API | Zoho Calendar API |
-| **File Storage** | Google Drive API | Zoho WorkDrive API |
-| **Spreadsheets** | Google Sheets API | Zoho Sheet API |
-| **Authentication** | Google OAuth 2.0 | Zoho OAuth 2.0 |
-| **Regional Support** | Global | Multi-region (.com, .eu, .in) |
-| **Rate Limits** | Per-user quotas | Per-application quotas |
-| **Webhook Support** | Push notifications | Webhook subscriptions |
-
-### Migration Path
-
-For organizations wanting to migrate from Google Workspace to Zoho Workspace:
-
-1. **Connection Setup**: Configure Zoho OAuth credentials
-2. **Permission Mapping**: Map existing agent permissions to Zoho capabilities
-3. **Data Migration**: Optional data synchronization between platforms
-4. **Testing**: Run comprehensive test suite to verify functionality
-5. **Gradual Rollout**: Use feature flags to gradually migrate agents
-
-This Zoho implementation provides feature parity with Google Workspace while adapting to Zoho's specific API patterns and regional deployment requirements. 
+```typescript
+// ❌ DEPRECATED - DO NOT USE
+export function getRequiredZohoScopes(capabilities: WorkspaceCapabilityType[]): string[] {
+  // This function is deprecated - use the centralized scopes instead
+  console.warn('getRequiredZohoScopes is deprecated. Use getRequiredScopes from WorkspaceScopes.ts');
+  return getRequiredScopes(WorkspaceProvider.ZOHO);
+}
+```

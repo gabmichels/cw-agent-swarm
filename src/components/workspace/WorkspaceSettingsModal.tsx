@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { X, Plus, Settings, AlertCircle, CheckCircle, Clock } from 'lucide-react';
 import { WorkspaceProvider, WorkspaceConnection, ConnectionStatus } from '../../services/database/types';
 import { WorkspaceConnectionCard } from '@/components/workspace/WorkspaceConnectionCard';
+import { getRequiredScopes } from '../../services/workspace/scopes/WorkspaceScopes';
 
 interface WorkspaceSettingsModalProps {
   isOpen: boolean;
@@ -133,40 +134,8 @@ export const WorkspaceSettingsModal: React.FC<WorkspaceSettingsModalProps> = ({
   };
 
   const getDefaultScopes = (provider: WorkspaceProvider): string[] => {
-    switch (provider) {
-      case WorkspaceProvider.GOOGLE_WORKSPACE:
-        return [
-          'https://www.googleapis.com/auth/gmail.send',
-          'https://www.googleapis.com/auth/gmail.modify',
-          'https://www.googleapis.com/auth/calendar',
-          'https://www.googleapis.com/auth/drive',
-          'https://www.googleapis.com/auth/spreadsheets',
-          'https://www.googleapis.com/auth/userinfo.email',
-          'https://www.googleapis.com/auth/userinfo.profile'
-        ];
-      case WorkspaceProvider.MICROSOFT_365:
-        return [
-          'https://graph.microsoft.com/Mail.ReadWrite',
-          'https://graph.microsoft.com/Mail.Send',
-          'https://graph.microsoft.com/Calendars.ReadWrite',
-          'https://graph.microsoft.com/Files.ReadWrite',
-          'https://graph.microsoft.com/User.Read'
-        ];
-      case WorkspaceProvider.ZOHO:
-        return [
-          'email',
-          'ZohoMail.messages.READ',
-          'ZohoMail.messages.CREATE',
-          'ZohoCalendar.calendar.READ',
-          'ZohoCalendar.calendar.CREATE',
-          'ZohoCalendar.calendar.UPDATE',
-          'ZohoSheet.dataAPI.READ',
-          'ZohoSheet.dataAPI.CREATE',
-          'ZohoSheet.dataAPI.UPDATE'
-        ];
-      default:
-        return [];
-    }
+    // Use the centralized scope configuration - single source of truth
+    return getRequiredScopes(provider);
   };
 
   const getProviderDisplayName = (provider: WorkspaceProvider): string => {

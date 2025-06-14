@@ -142,8 +142,8 @@ function convertCapabilitiesToSchemaFormat(
     
     return {
       id: mapping.pointId, // FIXED: Use UUID point ID instead of string capability ID
-      name: mapping.entity.name || originalCapability?.name || mapping.capabilityId.split('.').pop() || mapping.capabilityId,
-      description: `Reference to capability: ${mapping.entity.name} (${mapping.capabilityId})`,
+      name: mapping.entity.name || originalCapability?.name || (mapping.capabilityId ? mapping.capabilityId.split('.').pop() : 'unknown') || mapping.capabilityId || 'unknown',
+      description: `Reference to capability: ${mapping.entity.name} (${mapping.capabilityId || 'unknown'})`,
       version: '1.0.0',
       parameters: {
         level: level,
@@ -322,13 +322,13 @@ export async function POST(request: Request) {
         
         // Determine capability type from ID or parameters
         let capabilityType: CapabilityType;
-        if (capability.parameters?.type === 'skill' || capability.id.startsWith('skill.')) {
+        if (capability.parameters?.type === 'skill' || (capability.id && capability.id.startsWith('skill.'))) {
           capabilityType = CapabilityType.SKILL;
-        } else if (capability.parameters?.type === 'domain' || capability.id.startsWith('domain.')) {
+        } else if (capability.parameters?.type === 'domain' || (capability.id && capability.id.startsWith('domain.'))) {
           capabilityType = CapabilityType.DOMAIN;
-        } else if (capability.parameters?.type === 'role' || capability.id.startsWith('role.')) {
+        } else if (capability.parameters?.type === 'role' || (capability.id && capability.id.startsWith('role.'))) {
           capabilityType = CapabilityType.ROLE;
-        } else if (capability.parameters?.type === 'tag' || capability.id.startsWith('tag.')) {
+        } else if (capability.parameters?.type === 'tag' || (capability.id && capability.id.startsWith('tag.'))) {
           capabilityType = CapabilityType.TAG;
         } else {
           // Default to SKILL if can't determine type

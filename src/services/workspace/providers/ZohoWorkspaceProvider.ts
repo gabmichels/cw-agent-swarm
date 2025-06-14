@@ -9,6 +9,7 @@ import {
   ConnectionType
 } from '../../database/types';
 import { DatabaseService } from '../../database/DatabaseService';
+import { getRequiredScopes } from '../scopes/WorkspaceScopes';
 
 /**
  * Zoho Workspace provider implementation
@@ -64,6 +65,12 @@ export class ZohoWorkspaceProvider implements IWorkspaceProvider {
       authUrl.searchParams.set('response_type', 'code');
       authUrl.searchParams.set('client_id', this.clientId);
       authUrl.searchParams.set('redirect_uri', config.redirectUri);
+      
+      // CRITICAL: Add access_type=offline to get refresh tokens
+      authUrl.searchParams.set('access_type', 'offline');
+      
+      // Add prompt=consent to ensure user consent is always requested
+      authUrl.searchParams.set('prompt', 'consent');
       
       // Only add scope parameter if scopes are provided
       if (config.scopes && config.scopes.length > 0) {
@@ -180,8 +187,7 @@ export class ZohoWorkspaceProvider implements IWorkspaceProvider {
           tokenExpiresAt: tokens.expires_in ? new Date(Date.now() + tokens.expires_in * 1000) : undefined,
           scopes: tokens.scope || mostRecentConnection.scopes,
           displayName: userInfo.name || `${userInfo.given_name || ''} ${userInfo.family_name || ''}`.trim() || email,
-          status: ConnectionStatus.ACTIVE,
-          updatedAt: new Date()
+          status: ConnectionStatus.ACTIVE
         });
         
         // Delete any duplicate connections (keep only the updated one)
@@ -196,8 +202,8 @@ export class ZohoWorkspaceProvider implements IWorkspaceProvider {
       
       // Create new connection if none exists
       const connection = await db.createWorkspaceConnection({
-        userId: stateData.userId,
-        organizationId: stateData.organizationId,
+        userId: stateData.userId || null,
+        organizationId: stateData.organizationId || null,
         provider: WorkspaceProvider.ZOHO,
         accountType,
         connectionType: ConnectionType.OAUTH_PERSONAL,
@@ -224,12 +230,22 @@ export class ZohoWorkspaceProvider implements IWorkspaceProvider {
       const db = DatabaseService.getInstance();
       const connection = await db.getWorkspaceConnection(connectionId);
       
-      if (!connection || !connection.refreshToken) {
+      if (!connection) {
         return {
           success: false,
-          error: 'Connection not found or no refresh token available'
+          error: 'Connection not found'
         };
       }
+
+      if (!connection.refreshToken) {
+        console.error(`No refresh token available for connection ${connectionId}`);
+        return {
+          success: false,
+          error: 'No refresh token available. Please re-authenticate to get a new refresh token.'
+        };
+      }
+
+      console.log(`Refreshing Zoho access token for connection ${connectionId}...`);
 
       // Refresh the access token
       const tokenResponse = await this.httpClient.post(`${this.authBaseUrl}/token`, null, {
@@ -242,30 +258,58 @@ export class ZohoWorkspaceProvider implements IWorkspaceProvider {
       });
 
       const tokens = tokenResponse.data;
+      console.log('Zoho token refresh successful:', {
+        hasAccessToken: !!tokens.access_token,
+        expiresIn: tokens.expires_in,
+        tokenType: tokens.token_type
+      });
       
       // Update the connection with new tokens
-      await db.updateWorkspaceConnection(connectionId, {
+      const updatedConnection = await db.updateWorkspaceConnection(connectionId, {
         accessToken: tokens.access_token,
         tokenExpiresAt: tokens.expires_in ? new Date(Date.now() + tokens.expires_in * 1000) : undefined,
-        status: ConnectionStatus.ACTIVE,
-        updatedAt: new Date()
+        status: ConnectionStatus.ACTIVE
       });
+
+      console.log(`Successfully refreshed Zoho token for connection ${connectionId}`);
 
       return {
         success: true,
         connectionId
       };
-    } catch (error) {
+    } catch (error: any) {
       console.error('Zoho token refresh error:', error);
       
-      // Mark connection as expired if refresh fails
+      // Check if it's a specific OAuth error
+      if (error.response?.status === 400) {
+        const errorData = error.response.data;
+        if (errorData?.error === 'invalid_grant' || errorData?.error === 'invalid_request') {
+          console.error('Refresh token is invalid or expired. User needs to re-authenticate.');
+          
+          // Mark connection as expired
+          try {
+            const db = DatabaseService.getInstance();
+            await db.updateWorkspaceConnection(connectionId, {
+              status: ConnectionStatus.EXPIRED
+            });
+          } catch (updateError) {
+            console.error('Failed to update connection status:', updateError);
+          }
+
+          return {
+            success: false,
+            error: 'Refresh token is invalid or expired. Please re-authenticate.'
+          };
+        }
+      }
+      
+      // Mark connection as error for other failures
       try {
         const db = DatabaseService.getInstance();
         await db.updateWorkspaceConnection(connectionId, {
-          status: ConnectionStatus.EXPIRED,
-          updatedAt: new Date()
+          status: ConnectionStatus.ERROR
         });
-      } catch (updateError) {
+      } catch (updateError: any) {
         console.error('Failed to update connection status:', updateError);
       }
 
@@ -289,24 +333,12 @@ export class ZohoWorkspaceProvider implements IWorkspaceProvider {
         };
       }
 
-      // Check if token is expired
-      if (connection.tokenExpiresAt && connection.tokenExpiresAt <= new Date()) {
-        return {
-          isValid: false,
-          status: ConnectionStatus.EXPIRED,
-          expiresAt: connection.tokenExpiresAt,
-          error: 'Access token has expired'
-        };
-      }
-
-      // Test the connection by making a simple API call
+      // Test the connection by making a simple API call to user info endpoint
+      // This endpoint should work with basic email scope
       try {
-        await this.httpClient.get(`${this.apiBaseUrl}/crm/v6/users`, {
+        await this.httpClient.get(`${this.authBaseUrl}/userinfo`, {
           headers: {
             'Authorization': `Zoho-oauthtoken ${connection.accessToken}`
-          },
-          params: {
-            type: 'CurrentUser'
           }
         });
 
@@ -315,12 +347,14 @@ export class ZohoWorkspaceProvider implements IWorkspaceProvider {
           status: ConnectionStatus.ACTIVE,
           expiresAt: connection.tokenExpiresAt || undefined
         };
-      } catch (apiError) {
+      } catch (apiError: any) {
+        console.error('Zoho API validation error:', apiError.response?.data || apiError.message);
+        
         // If API call fails, the token might be invalid
         return {
           isValid: false,
           status: ConnectionStatus.ERROR,
-          error: 'API validation failed - token may be invalid'
+          error: `API validation failed: ${apiError.response?.data?.error?.[0]?.message || apiError.message || 'Token may be invalid'}`
         };
       }
     } catch (error) {
@@ -357,8 +391,7 @@ export class ZohoWorkspaceProvider implements IWorkspaceProvider {
 
       // Update connection status to revoked
       await db.updateWorkspaceConnection(connectionId, {
-        status: ConnectionStatus.REVOKED,
-        updatedAt: new Date()
+        status: ConnectionStatus.REVOKED
       });
 
       console.log(`Zoho connection ${connectionId} revoked successfully`);
@@ -430,28 +463,68 @@ export class ZohoWorkspaceProvider implements IWorkspaceProvider {
   }
 
   /**
+   * Get service-specific authenticated HTTP client for different Zoho APIs
+   */
+  async getServiceClient(connectionId: string, service: 'mail' | 'calendar' | 'sheets' | 'drive' | 'sheet'): Promise<AxiosInstance> {
+    const db = DatabaseService.getInstance();
+    const connection = await db.getWorkspaceConnection(connectionId);
+    
+    if (!connection) {
+      throw new Error('Connection not found');
+    }
+
+    // Check if token needs refresh
+    if (connection.tokenExpiresAt && connection.tokenExpiresAt <= new Date(Date.now() + 5 * 60 * 1000)) {
+      // Token expires in 5 minutes or less, refresh it
+      const refreshResult = await this.refreshConnection(connectionId);
+      if (!refreshResult.success) {
+        throw new Error(`Failed to refresh token: ${refreshResult.error}`);
+      }
+    }
+
+    // Get service-specific base URL - FIXED: Use region-specific URLs
+    let baseURL: string;
+    switch (service) {
+      case 'mail':
+        // FIXED: Use correct Zoho Mail API base URL format
+        baseURL = `https://mail.zoho.${this.region}`;
+        break;
+      case 'calendar':
+        // FIXED: Use region-specific calendar API URL
+        baseURL = `https://calendar.zoho.${this.region}/api/v1`;
+        break;
+      case 'sheets':
+        baseURL = `https://sheet.zoho.${this.region}/api/v2`;
+        break;
+      case 'drive':
+        baseURL = `https://workdrive.zoho.${this.region}/api/v1`;
+        break;
+      case 'sheet':
+        baseURL = `https://sheet.zoho.${this.region}`;
+        break;
+      default:
+        throw new Error(`Unsupported service: ${service}`);
+    }
+
+    console.log(`Creating ${service} client with base URL:`, baseURL);
+
+    return axios.create({
+      baseURL,
+      headers: {
+        'Authorization': `Zoho-oauthtoken ${connection.accessToken}`,
+        'Content-Type': 'application/json',
+        'User-Agent': 'CrowdWisdom-Agent-Swarm/1.0'
+      },
+      timeout: 30000
+    });
+  }
+
+  /**
    * Get Zoho API scopes for different capabilities
-   * Now including essential workspace scopes for full functionality
+   * Now using centralized scope configuration
    */
   static getRequiredScopes(): string[] {
-    return [
-      // Basic user info
-      'email',
-      
-      // Mail API scopes
-      'ZohoMail.messages.READ',
-      'ZohoMail.messages.CREATE',
-      
-      // Calendar API scopes  
-      'ZohoCalendar.calendar.READ',
-      'ZohoCalendar.calendar.CREATE',
-      'ZohoCalendar.calendar.UPDATE',
-      
-      // Sheet API scopes
-      'ZohoSheet.dataAPI.READ',
-      'ZohoSheet.dataAPI.CREATE',
-      'ZohoSheet.dataAPI.UPDATE'
-    ];
+    return getRequiredScopes(WorkspaceProvider.ZOHO);
   }
 
   /**
@@ -459,19 +532,7 @@ export class ZohoWorkspaceProvider implements IWorkspaceProvider {
    * Use this once basic connection is working
    */
   static getExtendedScopes(): string[] {
-    return [
-      // Calendar API scopes (verified from official docs)
-      'ZohoCalendar.calendar.ALL',
-      'ZohoCalendar.calendar.READ',
-      'ZohoCalendar.calendar.CREATE',
-      'ZohoCalendar.calendar.UPDATE',
-      'ZohoCalendar.calendar.DELETE',
-      
-      // Sheet API scopes (verified from official docs)
-      'ZohoSheet.dataAPI.READ',
-      'ZohoSheet.dataAPI.UPDATE',
-      'ZohoSheet.dataAPI.CREATE',
-      'ZohoSheet.dataAPI.DELETE'
-    ];
+    // For Zoho, extended scopes are the same as required since we use ALL scopes
+    return getRequiredScopes(WorkspaceProvider.ZOHO);
   }
 } 

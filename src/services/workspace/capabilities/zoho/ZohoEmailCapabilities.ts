@@ -17,9 +17,11 @@ import {
  */
 export class ZohoEmailCapabilities extends EmailCapabilities implements IEmailCapabilities {
   private zohoProvider: ZohoWorkspaceProvider;
+  private connectionId: string;
 
   constructor(connectionId: string, zohoProvider: ZohoWorkspaceProvider) {
-    super(connectionId);
+    super();
+    this.connectionId = connectionId;
     this.zohoProvider = zohoProvider;
   }
 
@@ -28,11 +30,14 @@ export class ZohoEmailCapabilities extends EmailCapabilities implements IEmailCa
    */
   async sendEmail(params: SendEmailParams): Promise<EmailResult> {
     try {
-      const client = await this.zohoProvider.getAuthenticatedClient(this.connectionId);
+      const client = await this.zohoProvider.getServiceClient(this.connectionId, 'mail');
+      
+      // Get account ID first
+      const accountId = await this.getAccountId(client);
       
       // Build email content for Zoho Mail API
       const emailData = {
-        fromAddress: params.from || await this.getDefaultFromAddress(client),
+        fromAddress: params.from || await this.getDefaultFromAddress(client, accountId),
         toAddress: Array.isArray(params.to) ? params.to.join(',') : params.to,
         ccAddress: params.cc ? (Array.isArray(params.cc) ? params.cc.join(',') : params.cc) : undefined,
         bccAddress: params.bcc ? (Array.isArray(params.bcc) ? params.bcc.join(',') : params.bcc) : undefined,
@@ -42,17 +47,24 @@ export class ZohoEmailCapabilities extends EmailCapabilities implements IEmailCa
         askReceipt: params.requestReadReceipt ? 'yes' : 'no'
       };
 
-      // Handle attachments if present
-      if (params.attachments && params.attachments.length > 0) {
-        // For Zoho Mail, attachments need to be uploaded first
-        const attachmentIds = await this.uploadAttachments(client, params.attachments);
-        emailData['attachments'] = attachmentIds.join(',');
-      }
+      // Remove undefined fields
+      Object.keys(emailData).forEach(key => {
+        if (emailData[key] === undefined) {
+          delete emailData[key];
+        }
+      });
 
-      // Send email via Zoho Mail API
-      const response = await client.post('/mail/v1/accounts/primary/messages', emailData);
+      console.log('Sending email via Zoho Mail API:', {
+        endpoint: `/api/accounts/${accountId}/messages`,
+        hasFromAddress: !!emailData.fromAddress,
+        hasToAddress: !!emailData.toAddress,
+        hasSubject: !!emailData.subject,
+        hasContent: !!emailData.content
+      });
 
-      if (response.data.status?.code === 200) {
+      const response = await client.post(`/api/accounts/${accountId}/messages`, emailData);
+      
+      if (response.data.status?.code === 200 || response.data.data) {
         return {
           success: true,
           id: response.data.data?.messageId || response.data.messageId,
@@ -63,21 +75,20 @@ export class ZohoEmailCapabilities extends EmailCapabilities implements IEmailCa
       }
     } catch (error) {
       console.error('Zoho email send error:', error);
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to send email via Zoho Mail'
-      };
+      throw new Error(`Failed to send email via Zoho Mail: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
   /**
-   * Read emails using Zoho Mail API
+   * Read emails from Zoho Mail
    */
   async readEmails(query: EmailQuery): Promise<Email[]> {
     try {
-      const client = await this.zohoProvider.getAuthenticatedClient(this.connectionId);
+      const client = await this.zohoProvider.getServiceClient(this.connectionId, 'mail');
       
-      // Build query parameters for Zoho Mail API
+      // Get account ID first
+      const accountId = await this.getAccountId(client);
+      
       const params: any = {
         limit: query.maxResults || 50,
         start: query.pageToken ? parseInt(query.pageToken) : 0
@@ -100,8 +111,13 @@ export class ZohoEmailCapabilities extends EmailCapabilities implements IEmailCa
         params.folder = folderMap[query.labelIds[0]] || query.labelIds[0];
       }
 
-      // Get messages from Zoho Mail
-      const response = await client.get('/mail/v1/accounts/primary/messages', { params });
+      console.log('Reading emails from Zoho Mail API:', {
+        endpoint: `/api/accounts/${accountId}/messages/view`,
+        params
+      });
+
+      // Get messages from Zoho Mail using correct endpoint
+      const response = await client.get(`/api/accounts/${accountId}/messages/view`, { params });
 
       if (response.data.status?.code !== 200) {
         throw new Error(response.data.status?.description || 'Failed to fetch emails');
@@ -126,9 +142,12 @@ export class ZohoEmailCapabilities extends EmailCapabilities implements IEmailCa
    */
   async getEmail(emailId: string): Promise<Email> {
     try {
-      const client = await this.zohoProvider.getAuthenticatedClient(this.connectionId);
+      const client = await this.zohoProvider.getServiceClient(this.connectionId, 'mail');
       
-      const response = await client.get(`/mail/v1/accounts/primary/messages/${emailId}`);
+      // Get account ID first
+      const accountId = await this.getAccountId(client);
+      
+      const response = await client.get(`/api/accounts/${accountId}/messages/${emailId}`);
 
       if (response.data.status?.code !== 200) {
         throw new Error(response.data.status?.description || 'Failed to fetch email');
@@ -236,12 +255,52 @@ export class ZohoEmailCapabilities extends EmailCapabilities implements IEmailCa
   }
 
   /**
+   * Get account ID for the authenticated user
+   */
+  private async getAccountId(client: AxiosInstance): Promise<string> {
+    try {
+      const response = await client.get('/api/accounts');
+      
+      console.log('Zoho accounts response:', {
+        status: response.status,
+        hasData: !!response.data,
+        data: response.data
+      });
+      
+      // Handle the response format from the official API documentation
+      if (response.status === 200 && response.data?.status?.code === 200) {
+        const accounts = response.data.data;
+        if (accounts && Array.isArray(accounts) && accounts.length > 0) {
+          const accountId = accounts[0].accountId;
+          console.log('Retrieved Zoho account ID:', accountId);
+          return accountId;
+        }
+      }
+      
+      throw new Error('No accounts found or invalid response format');
+    } catch (error: any) {
+      console.error('Failed to get account ID:', error);
+      if (error.response) {
+        console.error('Response status:', error.response.status);
+        console.error('Response data:', error.response.data);
+      }
+      throw error;
+    }
+  }
+
+  /**
    * Get default from address for the account
    */
-  private async getDefaultFromAddress(client: AxiosInstance): Promise<string> {
+  private async getDefaultFromAddress(client: AxiosInstance, accountId: string): Promise<string> {
     try {
-      const response = await client.get('/mail/v1/accounts/primary');
-      return response.data.data?.emailAddress || response.data.data?.accountName || '';
+      const response = await client.get(`/api/accounts/${accountId}`);
+      
+      if (response.data.status?.code === 200 && response.data.data) {
+        return response.data.data.primaryEmailAddress || response.data.data.emailAddress || '';
+      } else {
+        console.warn('Failed to get default from address, using empty string');
+        return '';
+      }
     } catch (error) {
       console.warn('Failed to get default from address:', error);
       return '';
