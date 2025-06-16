@@ -1,160 +1,166 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { ulid } from 'ulid';
-import { z } from 'zod';
-import { SocialMediaProvider } from '../../../../services/social-media/database/ISocialMediaDatabase';
-import { getSocialMediaScopes } from '../../../../services/social-media/scopes/SocialMediaScopes';
+import { MultiTenantTwitterProvider } from '@/services/social-media/providers/MultiTenantTwitterProvider';
+import { MultiTenantLinkedInProvider } from '@/services/social-media/providers/MultiTenantLinkedInProvider';
+import { MultiTenantTikTokProvider } from '@/services/social-media/providers/MultiTenantTikTokProvider';
+import { MultiTenantFacebookProvider } from '@/services/social-media/providers/MultiTenantFacebookProvider';
+import { MultiTenantInstagramProvider } from '@/services/social-media/providers/MultiTenantInstagramProvider';
+import { IMultiTenantSocialMediaProvider } from '@/services/social-media/providers/base/MultiTenantProviderBase';
 
-// Following IMPLEMENTATION_GUIDELINES.md - strict typing with Zod validation
-const ConnectRequestSchema = z.object({
-  provider: z.nativeEnum(SocialMediaProvider),
-  userId: z.string().optional(),
-  organizationId: z.string().optional(),
-  scopes: z.array(z.string()).optional(),
-  returnUrl: z.string().url().optional()
-});
+/**
+ * Multi-Platform OAuth Connection Initiator
+ * 
+ * Initiates OAuth flows for all social media platforms
+ * Route: POST /api/social-media/connect
+ */
 
-type ConnectRequest = z.infer<typeof ConnectRequestSchema>;
-
-// OAuth configuration for each provider
-const getOAuthConfig = (provider: SocialMediaProvider) => {
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-  const callbackUrl = `${baseUrl}/api/social-media/callback`;
-
-  switch (provider) {
-    case SocialMediaProvider.TWITTER:
-      return {
-        clientId: process.env.TWITTER_CLIENT_ID!,
-        clientSecret: process.env.TWITTER_CLIENT_SECRET!,
-        authUrl: 'https://twitter.com/i/oauth2/authorize',
-        redirectUri: `${callbackUrl}?provider=twitter`,
-        scopes: getSocialMediaScopes(provider)
-      };
-
-    case SocialMediaProvider.LINKEDIN:
-      return {
-        clientId: process.env.LINKEDIN_CLIENT_ID!,
-        clientSecret: process.env.LINKEDIN_CLIENT_SECRET!,
-        authUrl: 'https://www.linkedin.com/oauth/v2/authorization',
-        redirectUri: `${callbackUrl}?provider=linkedin`,
-        scopes: getSocialMediaScopes(provider)
-      };
-
-    case SocialMediaProvider.FACEBOOK:
-      return {
-        clientId: process.env.FACEBOOK_APP_ID!,
-        clientSecret: process.env.FACEBOOK_APP_SECRET!,
-        authUrl: 'https://www.facebook.com/v18.0/dialog/oauth',
-        redirectUri: `${callbackUrl}?provider=facebook`,
-        scopes: getSocialMediaScopes(provider)
-      };
-
-    case SocialMediaProvider.INSTAGRAM:
-      return {
-        clientId: process.env.INSTAGRAM_CLIENT_ID!,
-        clientSecret: process.env.INSTAGRAM_CLIENT_SECRET!,
-        authUrl: 'https://api.instagram.com/oauth/authorize',
-        redirectUri: `${callbackUrl}?provider=instagram`,
-        scopes: getSocialMediaScopes(provider)
-      };
-
-    case SocialMediaProvider.REDDIT:
-      return {
-        clientId: process.env.REDDIT_CLIENT_ID!,
-        clientSecret: process.env.REDDIT_CLIENT_SECRET!,
-        authUrl: 'https://www.reddit.com/api/v1/authorize',
-        redirectUri: `${callbackUrl}?provider=reddit`,
-        scopes: getSocialMediaScopes(provider)
-      };
-
-    case SocialMediaProvider.TIKTOK:
-      return {
-        clientId: process.env.TIKTOK_CLIENT_ID!,
-        clientSecret: process.env.TIKTOK_CLIENT_SECRET!,
-        authUrl: 'https://www.tiktok.com/auth/authorize/',
-        redirectUri: `${callbackUrl}?provider=tiktok`,
-        scopes: getSocialMediaScopes(provider)
-      };
-
-    default:
-      throw new Error(`Unsupported provider: ${provider}`);
-  }
+// Provider registry
+const providers: Record<string, () => IMultiTenantSocialMediaProvider> = {
+  twitter: () => new MultiTenantTwitterProvider(),
+  linkedin: () => new MultiTenantLinkedInProvider(),
+  tiktok: () => new MultiTenantTikTokProvider(),
+  facebook: () => new MultiTenantFacebookProvider(),
+  instagram: () => new MultiTenantInstagramProvider(),
+  // Add more platforms as they're implemented
+  // reddit: () => new MultiTenantRedditProvider(),
 };
+
+interface ConnectRequest {
+  platform: string;
+  accountType?: 'personal' | 'company' | 'product' | 'creator' | 'business';
+  tenantId: string;
+  userId: string;
+}
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const validatedData = ConnectRequestSchema.parse(body);
+    const body: ConnectRequest = await request.json();
     
-    console.log('Social media connect request:', {
-      provider: validatedData.provider,
-      userId: validatedData.userId,
-      organizationId: validatedData.organizationId
+    // Validate request body
+    if (!body.platform || !body.tenantId || !body.userId) {
+      return NextResponse.json(
+        { 
+          error: 'Missing required fields', 
+          required: ['platform', 'tenantId', 'userId'] 
+        },
+        { status: 400 }
+      );
+    }
+
+    const { platform, accountType = 'personal', tenantId, userId } = body;
+
+    // Get provider for platform
+    const providerFactory = providers[platform.toLowerCase()];
+    if (!providerFactory) {
+      return NextResponse.json(
+        { 
+          error: 'Unsupported platform', 
+          platform,
+          supportedPlatforms: Object.keys(providers)
+        },
+        { status: 400 }
+      );
+    }
+
+    const provider = providerFactory();
+
+    // Validate account type for platform
+    const supportedAccountTypes = provider.getSupportedAccountTypes();
+    if (!supportedAccountTypes.includes(accountType)) {
+      return NextResponse.json(
+        {
+          error: 'Unsupported account type for platform',
+          platform,
+          accountType,
+          supportedAccountTypes
+        },
+        { status: 400 }
+      );
+    }
+
+    // Initiate OAuth flow
+    const oauthData = await provider.initiateOAuth(tenantId, userId, accountType);
+
+    console.log(`Initiated OAuth for ${platform}:`, {
+      platform,
+      accountType,
+      tenantId,
+      userId,
+      state: oauthData.state
     });
-
-    // Get OAuth configuration for the provider
-    const oauthConfig = getOAuthConfig(validatedData.provider);
-    
-    // Generate state parameter for security (CSRF protection)
-    const state = ulid();
-    const stateData = {
-      provider: validatedData.provider,
-      userId: validatedData.userId,
-      organizationId: validatedData.organizationId,
-      returnUrl: validatedData.returnUrl,
-      timestamp: Date.now()
-    };
-
-    // Store state in session/cache (implement based on your session management)
-    // For now, we'll encode it in the state parameter (in production, use Redis/session store)
-    const encodedState = Buffer.from(JSON.stringify({ state, ...stateData })).toString('base64');
-
-    // Build authorization URL
-    const authParams = new URLSearchParams({
-      response_type: 'code',
-      client_id: oauthConfig.clientId,
-      redirect_uri: oauthConfig.redirectUri,
-      scope: (validatedData.scopes || oauthConfig.scopes).join(' '),
-      state: encodedState,
-      // Provider-specific parameters
-      ...(validatedData.provider === SocialMediaProvider.TWITTER && {
-        code_challenge: 'challenge', // PKCE - implement proper PKCE for production
-        code_challenge_method: 'S256'
-      }),
-      ...(validatedData.provider === SocialMediaProvider.LINKEDIN && {
-        access_type: 'offline'
-      }),
-      ...(validatedData.provider === SocialMediaProvider.REDDIT && {
-        duration: 'permanent'
-      })
-    });
-
-    const authUrl = `${oauthConfig.authUrl}?${authParams.toString()}`;
-
-    console.log(`Generated ${validatedData.provider} OAuth URL:`, authUrl);
 
     return NextResponse.json({
       success: true,
-      authUrl,
-      provider: validatedData.provider,
-      state: encodedState
+      platform,
+      accountType,
+      authUrl: oauthData.authUrl,
+      state: oauthData.state,
+      message: `OAuth flow initiated for ${platform}`
     });
 
   } catch (error) {
-    console.error('Error initiating social media connection:', error);
+    console.error('OAuth initiation error:', error);
     
-    if (error instanceof z.ZodError) {
-      return NextResponse.json({
-        success: false,
-        error: 'Invalid request data',
-        details: error.errors
-      }, { status: 400 });
+    return NextResponse.json(
+      {
+        error: 'Failed to initiate OAuth flow',
+        details: (error as Error).message
+      },
+      { status: 500 }
+    );
+  }
+}
+
+/**
+ * Get available platforms and their supported account types
+ */
+export async function GET() {
+  try {
+    const platformInfo: Record<string, {
+      platform: string;
+      supportedAccountTypes: string[];
+    }> = {};
+
+    for (const [platformName, providerFactory] of Object.entries(providers)) {
+      const provider = providerFactory();
+      platformInfo[platformName] = {
+        platform: platformName,
+        supportedAccountTypes: provider.getSupportedAccountTypes()
+      };
     }
 
     return NextResponse.json({
-      success: false,
-      error: error instanceof Error ? error.message : 'Failed to initiate connection'
-    }, { status: 500 });
+      success: true,
+      platforms: platformInfo,
+      totalPlatforms: Object.keys(providers).length
+    });
+
+  } catch (error) {
+    console.error('Error getting platform info:', error);
+    
+    return NextResponse.json(
+      {
+        error: 'Failed to get platform information',
+        details: (error as Error).message
+      },
+      { status: 500 }
+    );
   }
+}
+
+/**
+ * Validate connection request
+ */
+function validateConnectRequest(body: unknown): body is ConnectRequest {
+  if (!body || typeof body !== 'object') return false;
+  
+  const req = body as Record<string, unknown>;
+  
+  return (
+    typeof req.platform === 'string' &&
+    typeof req.tenantId === 'string' &&
+    typeof req.userId === 'string' &&
+    (!req.accountType || typeof req.accountType === 'string')
+  );
 }
 
 // OPTIONS handler for CORS

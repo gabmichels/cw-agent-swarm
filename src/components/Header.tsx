@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { AgentMonitor } from '@/agents/shared/monitoring/AgentMonitor';
 import { WorkspaceSettingsModal } from './workspace/WorkspaceSettingsModal';
+import { SettingsModal } from './SettingsModal';
 
 interface HeaderProps {
   selectedDepartment: string;
@@ -43,6 +44,7 @@ const Header: React.FC<HeaderProps> = ({
 }) => {
   const [hasMultipleAgents, setHasMultipleAgents] = useState<boolean>(false);
   const [isWorkspaceModalOpen, setIsWorkspaceModalOpen] = useState<boolean>(false);
+  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState<boolean>(false);
   const [workspaceConnectionCount, setWorkspaceConnectionCount] = useState<number>(0);
   const [showSuccessMessage, setShowSuccessMessage] = useState<string | null>(null);
 
@@ -244,7 +246,12 @@ const Header: React.FC<HeaderProps> = ({
               </button>
             </li>
             <li>
-              <a href="#" className="text-sm hover:text-blue-400">Settings</a>
+              <button 
+                onClick={() => setIsSettingsModalOpen(true)}
+                className="text-sm hover:text-blue-400"
+              >
+                Settings
+              </button>
             </li>
           </ul>
         </nav>
@@ -285,6 +292,14 @@ const Header: React.FC<HeaderProps> = ({
             })
             .catch(console.error);
         }}
+        userId={userId}
+        organizationId={organizationId}
+      />
+
+      {/* Settings Modal */}
+      <SettingsModal
+        isOpen={isSettingsModalOpen}
+        onClose={() => setIsSettingsModalOpen(false)}
         userId={userId}
         organizationId={organizationId}
       />

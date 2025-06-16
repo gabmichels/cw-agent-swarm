@@ -201,6 +201,10 @@ export interface SocialMediaConnectionParams {
   authCode: string;
   redirectUri: string;
   state?: string;
+  tenantId: string;
+  userId: string;
+  accountType?: 'personal' | 'company' | 'product';
+  accountDisplayName?: string;
 }
 
 export interface ResponseStrategy {
@@ -209,6 +213,38 @@ export interface ResponseStrategy {
   includeEmojis: boolean;
   autoRespond: boolean;
   keywords: string[];
+}
+
+// NEW: Multi-tenant OAuth configuration
+export interface MultiTenantOAuthConfig {
+  platform: SocialMediaProvider;
+  clientId: string;
+  clientSecret: string;
+  scopes: string[];
+  authUrl: string;
+  tokenUrl: string;
+  refreshUrl: string;
+  revokeUrl?: string;
+  callbackUrl: string; // e.g., /api/social-media/callback/{platform}
+}
+
+// NEW: Tenant-aware token management
+export interface TenantSocialToken {
+  tenantId: string;
+  userId: string;
+  platform: SocialMediaProvider;
+  accountId: string;
+  accountDisplayName: string;
+  accountUsername: string;
+  accountType: 'personal' | 'company' | 'product';
+  accessToken: string;
+  refreshToken?: string;
+  expiresAt: Date;
+  scopes: string[];
+  isActive: boolean;
+  lastRefreshed: Date;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 // Simplified provider interface for current implementation
@@ -351,4 +387,37 @@ export class SocialMediaError extends Error {
     super(message);
     this.name = 'SocialMediaError';
   }
+}
+
+// NEW: Enhanced provider interface for multi-tenant
+export interface ISocialMediaProvider {
+  // Multi-tenant connection management
+  initiateOAuth(tenantId: string, userId: string, accountType?: string): Promise<{
+    authUrl: string;
+    state: string;
+  }>;
+  
+  handleOAuthCallback(params: {
+    code: string;
+    state: string;
+    tenantId: string;
+    userId: string;
+  }): Promise<TenantSocialToken>;
+  
+  refreshToken(tokenId: string): Promise<TenantSocialToken>;
+  revokeToken(tokenId: string): Promise<void>;
+  
+  // Tenant-aware content operations
+  createPost(tenantId: string, accountId: string, params: PostCreationParams): Promise<SocialMediaPost>;
+  schedulePost(tenantId: string, accountId: string, params: PostScheduleParams): Promise<ScheduledPost>;
+  
+  // Tenant-aware analytics
+  getAccountAnalytics(tenantId: string, accountId: string, timeframe: string): Promise<AccountAnalytics>;
+  getPostMetrics(tenantId: string, accountId: string, postId: string): Promise<PostMetrics>;
+  
+  // Multi-account support per tenant
+  getConnectedAccounts(tenantId: string): Promise<TenantSocialToken[]>;
+  validateConnection(tenantId: string, accountId: string): Promise<boolean>;
+  
+  // ... existing methods updated with tenant context
 } 

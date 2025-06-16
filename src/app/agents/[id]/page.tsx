@@ -8,6 +8,7 @@ import CreateChatButton from '@/components/chat/CreateChatButton';
 import MemoryUploader from '@/components/agent/MemoryUploader';
 import AgentCapabilityEditor from '@/components/agent/AgentCapabilityEditor';
 import { AgentWorkspacePermissionEditor } from '@/components/agent/AgentWorkspacePermissionEditor';
+import { AgentSocialMediaPermissionEditor } from '@/components/agent/AgentSocialMediaPermissionEditor';
 import { Edit, Save, Upload, X, Trash2 } from 'lucide-react';
 
 export default function AgentPage({ params }: { params: { id?: string } }) {
@@ -41,6 +42,9 @@ export default function AgentPage({ params }: { params: { id?: string } }) {
 
   // Add state for workspace permissions editing
   const [isEditingWorkspacePermissions, setIsEditingWorkspacePermissions] = useState(false);
+
+  // Add state for social media permissions editing
+  const [isEditingSocialMediaPermissions, setIsEditingSocialMediaPermissions] = useState(false);
 
   // Add state for delete modal
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
@@ -320,6 +324,15 @@ export default function AgentPage({ params }: { params: { id?: string } }) {
               agent={agent}
               isEditing={isEditingWorkspacePermissions}
               onEditingChange={setIsEditingWorkspacePermissions}
+            />
+          </div>
+
+          {/* Social Media Permissions Section - Full Width */}
+          <div>
+            <AgentSocialMediaPermissionEditor
+              agent={agent}
+              isEditing={isEditingSocialMediaPermissions}
+              onEditingChange={setIsEditingSocialMediaPermissions}
             />
           </div>
           
