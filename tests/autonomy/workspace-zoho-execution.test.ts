@@ -17,6 +17,14 @@ import { ZohoWorkspaceProvider } from '../../src/services/workspace/providers/Zo
 import { CapabilityFactory } from '../../src/services/workspace/capabilities/CapabilityFactory';
 import { PrismaClient } from '@prisma/client';
 
+// Import our new test cleanup utilities
+import { 
+  createTestAgentWithWorkspaceCapabilities, 
+  testSuiteCleanup,
+  registerTestAgent,
+  cleanupTestAgent
+} from '../utils/test-cleanup';
+
 const prisma = new PrismaClient();
 
 // Test configuration
@@ -64,20 +72,17 @@ describe('Zoho Workspace Capabilities Execution', () => {
       TEST_CONFIG.region
     );
 
-    // Create test agent
-    testAgentId = generateUuid();
-    await AgentService.registerAgent({
-      id: testAgentId,
+    // Create test agent using our new cleanup-aware helper
+    testAgentId = await createTestAgentWithWorkspaceCapabilities({
       name: 'Zoho Test Agent',
       description: 'Agent for testing Zoho workspace capabilities',
       systemPrompt: 'Test Zoho workspace integration',
-      capabilities: ['workspace_integration'],
       metadata: {
         tags: ['test', 'zoho', 'workspace'],
         domains: ['productivity'],
         specializations: ['email', 'calendar', 'documents', 'drive']
       }
-    });
+    }, ['workspace_integration']);
 
     // Find or create Zoho workspace connection
     const connections = await db.findWorkspaceConnections({
@@ -127,52 +132,10 @@ describe('Zoho Workspace Capabilities Execution', () => {
   });
 
   afterAll(async () => {
-    // Clean up test agent
-    if (testAgentId) {
-      try {
-        await AgentService.deleteAgent(testAgentId);
-        console.log('✅ Cleaned up test agent');
-      } catch (error) {
-        console.warn('Failed to clean up test agent:', error);
-      }
-    }
-
-    // Clean up any test workspace connections created during this test
-    try {
-      const allConnections = await db.findWorkspaceConnections({});
-      const testConnections = allConnections.filter(conn => 
-        conn.email === 'test@example.com' || 
-        (conn.email !== 'gabriel.michels@gmail.com' && !conn.refreshToken)
-      );
-
-      if (testConnections.length > 0) {
-        console.log(`🧹 Cleaning up ${testConnections.length} test workspace connections...`);
-        
-        for (const connection of testConnections) {
-          try {
-            // Delete related records first
-            const capabilities = await permissionService.getAgentWorkspaceCapabilities(testAgentId);
-            const connectionCapabilities = capabilities.filter(c => 
-              c.workspaceConnectionId === connection.id
-            );
-            
-            for (const capability of connectionCapabilities) {
-              await permissionService.revokePermission(capability.id, 'test-cleanup');
-            }
-            
-            // Delete the connection (if it's a test connection)
-            if (connection.email === 'test@example.com') {
-              await db.deleteWorkspaceConnection(connection.id);
-              console.log(`  ✅ Deleted test connection: ${connection.id}`);
-            }
-          } catch (error) {
-            console.warn(`  ⚠️ Failed to cleanup connection ${connection.id}:`, error);
-          }
-        }
-      }
-    } catch (error) {
-      console.warn('Failed to cleanup test workspace connections:', error);
-    }
+    // Use our comprehensive test cleanup utility
+    console.log('🧹 Running Zoho test suite cleanup...');
+    await testSuiteCleanup();
+    console.log('✅ Zoho test suite cleanup complete');
   });
 
   describe('🔧 Setup Validation', () => {

@@ -17,6 +17,7 @@ import {
   DocumentRevision,
   ShareSettings
 } from '../DocumentCapabilities';
+import { WorkspaceCapabilityType } from '../../../database/types';
 import { WorkspaceConnection } from '../../../database/types';
 import { DatabaseService } from '../../../database/DatabaseService';
 
@@ -33,8 +34,16 @@ export class GoogleDocumentCapabilities extends DocumentCapabilities implements 
    * Search for documents using Google Drive API
    */
   async searchDocuments(criteria: DocumentSearchCriteria, connectionId: string, agentId: string): Promise<Document[]> {
-    // Call parent for permission validation
-    await super.searchDocuments(criteria, connectionId, agentId);
+    // Validate permissions directly
+    const validation = await this.permissionService.validatePermissions(
+      agentId, 
+      WorkspaceCapabilityType.DOCUMENT_READ, 
+      connectionId
+    );
+    
+    if (!validation.isValid) {
+      throw new Error(validation.error || 'Permission denied');
+    }
 
     const connection = await this.db.getWorkspaceConnection(connectionId);
     if (!connection) {
@@ -197,8 +206,16 @@ export class GoogleDocumentCapabilities extends DocumentCapabilities implements 
    * Create a new document
    */
   async createDocument(params: CreateDocumentParams, connectionId: string, agentId: string): Promise<Document> {
-    // Call parent for permission validation
-    await super.createDocument(params, connectionId, agentId);
+    // Validate permissions directly (don't call super.createDocument as it throws an error)
+    const validation = await this.permissionService.validatePermissions(
+      agentId, 
+      WorkspaceCapabilityType.DOCUMENT_CREATE, 
+      connectionId
+    );
+    
+    if (!validation.isValid) {
+      throw new Error(validation.error || 'Permission denied');
+    }
 
     const connection = await this.db.getWorkspaceConnection(connectionId);
     if (!connection) {
@@ -257,8 +274,16 @@ export class GoogleDocumentCapabilities extends DocumentCapabilities implements 
    * Update document content
    */
   async updateDocument(documentId: string, params: UpdateDocumentParams, connectionId: string, agentId: string): Promise<Document> {
-    // Call parent for permission validation
-    await super.updateDocument(documentId, params, connectionId, agentId);
+    // Validate permissions directly (don't call super.updateDocument as it throws an error)
+    const validation = await this.permissionService.validatePermissions(
+      agentId, 
+      WorkspaceCapabilityType.DOCUMENT_EDIT, 
+      connectionId
+    );
+    
+    if (!validation.isValid) {
+      throw new Error(validation.error || 'Permission denied');
+    }
 
     const connection = await this.db.getWorkspaceConnection(connectionId);
     if (!connection) {

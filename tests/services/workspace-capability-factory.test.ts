@@ -5,6 +5,7 @@ import { GoogleEmailCapabilities } from '../../src/services/workspace/capabiliti
 import { GoogleCalendarCapabilities } from '../../src/services/workspace/capabilities/google/GoogleCalendarCapabilities';
 import { GoogleSheetsCapabilities } from '../../src/services/workspace/capabilities/google/GoogleSheetsCapabilities';
 import { GoogleDriveCapabilities } from '../../src/services/workspace/capabilities/google/GoogleDriveCapabilities';
+import { GoogleDocumentCapabilities } from '../../src/services/workspace/capabilities/google/GoogleDocumentCapabilities';
 
 describe('CapabilityFactory', () => {
   describe('createEmailCapabilities', () => {
@@ -19,10 +20,10 @@ describe('CapabilityFactory', () => {
       }).toThrow('Microsoft 365 email capabilities not yet implemented');
     });
 
-    it('should throw error for Zoho', () => {
+    it('should throw error for Zoho without provider instance', () => {
       expect(() => {
         CapabilityFactory.createEmailCapabilities(WorkspaceProvider.ZOHO);
-      }).toThrow('Zoho email capabilities not yet implemented');
+      }).toThrow('Zoho provider instance required for email capabilities');
     });
 
     it('should throw error for unknown provider', () => {
@@ -44,10 +45,10 @@ describe('CapabilityFactory', () => {
       }).toThrow('Microsoft 365 calendar capabilities not yet implemented');
     });
 
-    it('should throw error for Zoho', () => {
+    it('should throw error for Zoho without provider instance', () => {
       expect(() => {
         CapabilityFactory.createCalendarCapabilities(WorkspaceProvider.ZOHO);
-      }).toThrow('Zoho calendar capabilities not yet implemented');
+      }).toThrow('Zoho provider instance required for calendar capabilities');
     });
   });
 
@@ -60,13 +61,13 @@ describe('CapabilityFactory', () => {
     it('should throw error for Microsoft 365', () => {
       expect(() => {
         CapabilityFactory.createSheetsCapabilities(WorkspaceProvider.MICROSOFT_365);
-      }).toThrow('Microsoft 365 spreadsheet capabilities not yet implemented');
+      }).toThrow('Microsoft 365 sheets capabilities not yet implemented');
     });
 
-    it('should throw error for Zoho', () => {
+    it('should throw error for Zoho without provider instance', () => {
       expect(() => {
         CapabilityFactory.createSheetsCapabilities(WorkspaceProvider.ZOHO);
-      }).toThrow('Zoho spreadsheet capabilities not yet implemented');
+      }).toThrow('Zoho provider instance required for sheets capabilities');
     });
   });
 
@@ -82,18 +83,37 @@ describe('CapabilityFactory', () => {
       }).toThrow('Microsoft 365 drive capabilities not yet implemented');
     });
 
-    it('should throw error for Zoho', () => {
+    it('should throw error for Zoho without provider instance', () => {
       expect(() => {
         CapabilityFactory.createDriveCapabilities(WorkspaceProvider.ZOHO);
-      }).toThrow('Zoho drive capabilities not yet implemented');
+      }).toThrow('Zoho provider instance required for drive capabilities');
+    });
+  });
+
+  describe('createDocumentCapabilities', () => {
+    it('should create GoogleDocumentCapabilities for Google Workspace', () => {
+      const capabilities = CapabilityFactory.createDocumentCapabilities(WorkspaceProvider.GOOGLE_WORKSPACE);
+      expect(capabilities).toBeInstanceOf(GoogleDocumentCapabilities);
+    });
+
+    it('should throw error for Microsoft 365', () => {
+      expect(() => {
+        CapabilityFactory.createDocumentCapabilities(WorkspaceProvider.MICROSOFT_365);
+      }).toThrow('Microsoft 365 document capabilities not yet implemented');
+    });
+
+    it('should throw error for Zoho without provider instance', () => {
+      expect(() => {
+        CapabilityFactory.createDocumentCapabilities(WorkspaceProvider.ZOHO);
+      }).toThrow('Zoho provider instance required for document capabilities');
     });
   });
 
   describe('getSupportedProviders', () => {
-    it('should return only Google Workspace as supported', () => {
+    it('should return Google Workspace and Zoho as supported', () => {
       const supported = CapabilityFactory.getSupportedProviders();
-      expect(supported).toEqual([WorkspaceProvider.GOOGLE_WORKSPACE]);
-      expect(supported).toHaveLength(1);
+      expect(supported).toEqual([WorkspaceProvider.GOOGLE_WORKSPACE, WorkspaceProvider.ZOHO]);
+      expect(supported).toHaveLength(2);
     });
   });
 
@@ -106,8 +126,8 @@ describe('CapabilityFactory', () => {
       expect(CapabilityFactory.isProviderSupported(WorkspaceProvider.MICROSOFT_365)).toBe(false);
     });
 
-    it('should return false for Zoho', () => {
-      expect(CapabilityFactory.isProviderSupported(WorkspaceProvider.ZOHO)).toBe(false);
+    it('should return true for Zoho', () => {
+      expect(CapabilityFactory.isProviderSupported(WorkspaceProvider.ZOHO)).toBe(true);
     });
   });
 
@@ -118,7 +138,8 @@ describe('CapabilityFactory', () => {
         email: true,
         calendar: true,
         sheets: true,
-        drive: true
+        drive: true,
+        documents: true
       });
     });
 
@@ -128,17 +149,19 @@ describe('CapabilityFactory', () => {
         email: false,
         calendar: false,
         sheets: false,
-        drive: false
+        drive: false,
+        documents: false
       });
     });
 
-    it('should return all capabilities as false for Zoho', () => {
+    it('should return all capabilities as true for Zoho', () => {
       const capabilities = CapabilityFactory.getProviderCapabilities(WorkspaceProvider.ZOHO);
       expect(capabilities).toEqual({
-        email: false,
-        calendar: false,
-        sheets: false,
-        drive: false
+        email: true,
+        calendar: true,
+        sheets: true,
+        drive: true,
+        documents: true
       });
     });
 
@@ -148,7 +171,8 @@ describe('CapabilityFactory', () => {
         email: false,
         calendar: false,
         sheets: false,
-        drive: false
+        drive: false,
+        documents: false
       });
     });
   });
