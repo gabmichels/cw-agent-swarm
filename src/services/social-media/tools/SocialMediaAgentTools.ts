@@ -1,6 +1,7 @@
 import { SocialMediaService } from '../SocialMediaService';
-import { SocialMediaProvider, SocialMediaCapability } from '../database/ISocialMediaDatabase';
-import { PostCreationParams } from '../providers/base/ISocialMediaProvider';
+import { SocialMediaNLP, SocialMediaCommand, ConversationContext } from '../integration/SocialMediaNLP';
+import { PrismaSocialMediaDatabase } from '../database/PrismaSocialMediaDatabase';
+import { SocialMediaProvider, SocialMediaCapability, PostCreationParams, MediaFile } from '../database/ISocialMediaDatabase';
 
 // Following IMPLEMENTATION_GUIDELINES.md - agent tool integration
 export interface SocialMediaToolParams {
@@ -39,478 +40,608 @@ export interface GetTrendsToolParams {
   category?: string;
 }
 
+export interface SocialMediaToolDefinition {
+  name: string;
+  description: string;
+  parameters: {
+    type: 'object';
+    properties: Record<string, {
+      type: string;
+      description: string;
+      required?: boolean;
+      enum?: string[];
+    }>;
+    required: string[];
+  };
+  capabilities: SocialMediaCapability[];
+  execute: (params: Record<string, unknown>, agentId: string, connectionIds: string[]) => Promise<unknown>;
+}
+
+export interface ToolExecutionResult {
+  success: boolean;
+  data?: unknown;
+  error?: string;
+  executionTime?: number;
+  auditLog?: {
+    agentId: string;
+    toolName: string;
+    parameters: Record<string, unknown>;
+    result: 'success' | 'failure';
+    timestamp: Date;
+  };
+}
+
 // Agent Tools for Social Media Management
 export class SocialMediaAgentTools {
-  constructor(private socialMediaService: SocialMediaService) {}
+  private socialMediaService: SocialMediaService;
+  private database: PrismaSocialMediaDatabase;
+  private nlpProcessor: SocialMediaNLP;
+  private tools: SocialMediaToolDefinition[];
 
-  // Core posting tools
-  async createPost(params: CreatePostToolParams): Promise<{
-    success: boolean;
-    postId?: string;
-    url?: string;
-    error?: string;
-    platform?: SocialMediaProvider;
-  }> {
-    try {
-      // Find appropriate connection if not specified
-      let connectionId = params.connectionId;
-      if (!connectionId) {
-        const capabilities = await this.socialMediaService.getAvailableCapabilities(params.agentId);
-        const suitableConnection = capabilities.find(cap => 
-          cap.capabilities.includes(SocialMediaCapability.POST_CREATE) &&
-          (!params.provider || cap.provider === params.provider)
-        );
-        
-        if (!suitableConnection) {
-          return {
-            success: false,
-            error: 'No suitable social media connection found with posting permissions'
-          };
-        }
-        
-        connectionId = suitableConnection.connectionId;
-      }
-
-      // Convert base64 images to MediaFile objects
-      const media = params.images?.map((img, index) => ({
-        id: `img_${index}`,
-        type: 'image' as const,
-        url: `data:image/jpeg;base64,${img}`,
-        filename: `image_${index}.jpg`,
-        size: Buffer.from(img, 'base64').length,
-        mimeType: 'image/jpeg'
-      }));
-
-      const postParams: PostCreationParams = {
-        content: params.content,
-        media,
-        hashtags: params.hashtags,
-        mentions: params.mentions,
-        visibility: params.privacy === 'friends' ? 'unlisted' : (params.privacy || 'public')
-      };
-
-      const post = await this.socialMediaService.createPost(
-        params.agentId,
-        connectionId,
-        postParams
-      );
-
-      const connection = await this.socialMediaService.getConnection(connectionId);
-
-      return {
-        success: true,
-        postId: post.id,
-        url: post.url,
-        platform: connection?.provider
-      };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to create post'
-      };
-    }
+  constructor(socialMediaService: SocialMediaService, database: PrismaSocialMediaDatabase) {
+    this.socialMediaService = socialMediaService;
+    this.database = database;
+    this.nlpProcessor = new SocialMediaNLP();
+    this.tools = this.initializeTools();
   }
 
-  async createTikTokVideo(params: TikTokVideoToolParams): Promise<{
-    success: boolean;
-    postId?: string;
-    url?: string;
-    error?: string;
-  }> {
-    try {
-      // Find TikTok connection if not specified
-      let connectionId = params.connectionId;
-      if (!connectionId) {
-        const capabilities = await this.socialMediaService.getAvailableCapabilities(params.agentId);
-        const tiktokConnection = capabilities.find(cap => 
-          cap.provider === SocialMediaProvider.TIKTOK &&
-          cap.capabilities.includes(SocialMediaCapability.TIKTOK_VIDEO_CREATE)
-        );
-        
-        if (!tiktokConnection) {
-          return {
-            success: false,
-            error: 'No TikTok connection found with video creation permissions'
-          };
-        }
-        
-        connectionId = tiktokConnection.connectionId;
-      }
+  /**
+   * Get available tools for an agent based on their permissions
+   */
+  async getAvailableTools(agentId: string): Promise<SocialMediaToolDefinition[]> {
+    const permissions = await this.database.getAgentPermissions(agentId);
+    const agentCapabilities = permissions.flatMap(p => p.capabilities);
 
-      // Convert base64 video to buffer
-      const videoFile = Buffer.from(params.videoFile, 'base64');
-
-      const post = await this.socialMediaService.uploadTikTokVideo(
-        params.agentId,
-        connectionId,
-        {
-          videoFile,
-          title: params.title,
-          description: params.description,
-          hashtags: params.hashtags,
-          privacy: params.privacy,
-          allowComments: params.allowComments ?? true,
-          allowDuet: params.allowDuet ?? true,
-          allowStitch: params.allowStitch ?? true
-        }
-      );
-
-      return {
-        success: true,
-        postId: post.id,
-        url: post.url
-      };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to create TikTok video'
-      };
-    }
+    return this.tools.filter(tool => 
+      tool.capabilities.every(cap => agentCapabilities.includes(cap))
+    );
   }
 
-  async schedulePost(params: CreatePostToolParams & { scheduleTime: Date }): Promise<{
-    success: boolean;
-    scheduleId?: string;
-    error?: string;
-  }> {
-    try {
-      // For now, return not supported since most platforms don't support native scheduling
-      return {
-        success: false,
-        error: 'Post scheduling not yet implemented - use third-party scheduling service'
-      };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to schedule post'
-      };
-    }
-  }
+  /**
+   * Process user input and execute appropriate social media actions
+   */
+  async processUserInput(
+    agentId: string,
+    userMessage: string,
+    connectionIds: string[]
+  ): Promise<ToolExecutionResult> {
+    const startTime = Date.now();
 
-  async deletePost(params: SocialMediaToolParams & { postId: string }): Promise<{
-    success: boolean;
-    error?: string;
-  }> {
     try {
-      if (!params.connectionId) {
+      // Get agent context
+      const context = await this.buildConversationContext(agentId, connectionIds);
+      
+      // Parse command
+      const command = this.nlpProcessor.parseCommand(userMessage, context);
+      
+      if (!command || command.type === 'unknown') {
         return {
           success: false,
-          error: 'Connection ID required for deleting posts'
+          error: 'No social media command detected in the message',
+          executionTime: Date.now() - startTime
         };
       }
 
-      await this.socialMediaService.deletePost(
-        params.agentId,
-        params.connectionId,
-        params.postId
-      );
-
-      return { success: true };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to delete post'
-      };
-    }
-  }
-
-  // Content analysis and optimization tools
-  async analyzeContent(params: AnalyzeContentToolParams): Promise<{
-    success: boolean;
-    analysis?: {
-      characterCount: number;
-      wordCount: number;
-      hashtagCount: number;
-      mentionCount: number;
-      sentiment: 'positive' | 'negative' | 'neutral';
-      suggestions: string[];
-      platformOptimized: boolean;
-    };
-    error?: string;
-  }> {
-    try {
-      const optimization = await this.socialMediaService.optimizeContentForPlatform(
-        params.content,
-        params.provider
-      );
-
-      // Simple sentiment analysis
-      const sentiment = this.analyzeSentiment(params.content);
-
-      return {
-        success: true,
-        analysis: {
-          characterCount: params.content.length,
-          wordCount: params.content.split(/\s+/).length,
-          hashtagCount: (params.content.match(/#\w+/g) || []).length,
-          mentionCount: (params.content.match(/@\w+/g) || []).length,
-          sentiment,
-          suggestions: optimization.suggestions,
-          platformOptimized: optimization.optimizedContent === optimization.originalContent
-        }
-      };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to analyze content'
-      };
-    }
-  }
-
-  async optimizeContent(params: AnalyzeContentToolParams): Promise<{
-    success: boolean;
-    optimizedContent?: string;
-    suggestions?: string[];
-    platformLimits?: {
-      characterLimit: number;
-      hashtagLimit: number;
-      mediaLimit: number;
-    };
-    error?: string;
-  }> {
-    try {
-      const optimization = await this.socialMediaService.optimizeContentForPlatform(
-        params.content,
-        params.provider
-      );
-
-      return {
-        success: true,
-        optimizedContent: optimization.optimizedContent,
-        suggestions: optimization.suggestions,
-        platformLimits: optimization.platformLimits
-      };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to optimize content'
-      };
-    }
-  }
-
-  // Analytics and insights tools
-  async getPostMetrics(params: SocialMediaToolParams & { postId: string }): Promise<{
-    success: boolean;
-    metrics?: {
-      likes: number;
-      shares: number;
-      comments: number;
-      views?: number;
-      engagementRate?: number;
-    };
-    error?: string;
-  }> {
-    try {
-      if (!params.connectionId) {
-        return {
-          success: false,
-          error: 'Connection ID required for getting post metrics'
-        };
-      }
-
-      const post = await this.socialMediaService.getPost(params.connectionId, params.postId);
-
-      return {
-        success: true,
-        metrics: post.metrics
-      };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to get post metrics'
-      };
-    }
-  }
-
-  async getAccountAnalytics(params: SocialMediaToolParams & { timeframe?: 'day' | 'week' | 'month' }): Promise<{
-    success: boolean;
-    analytics?: {
-      totalPosts: number;
-      totalEngagement: number;
-      followerGrowth: number;
-      topPerformingPosts: Array<{
-        postId: string;
-        engagement: number;
-        url?: string;
-      }>;
-    };
-    error?: string;
-  }> {
-    try {
-      // This would integrate with provider analytics APIs
-      // For now, return placeholder data
-      return {
-        success: true,
-        analytics: {
-          totalPosts: 0,
-          totalEngagement: 0,
-          followerGrowth: 0,
-          topPerformingPosts: []
-        }
-      };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to get account analytics'
-      };
-    }
-  }
-
-  // Trend analysis tools
-  async getTrendingHashtags(params: GetTrendsToolParams): Promise<{
-    success: boolean;
-    hashtags?: Array<{
-      hashtag: string;
-      postCount: number;
-      trend: 'rising' | 'stable' | 'declining';
-    }>;
-    error?: string;
-  }> {
-    try {
-      if (params.provider === SocialMediaProvider.TIKTOK) {
-        const hashtags = await this.socialMediaService.getTikTokTrendingHashtags(params.region);
-        return {
-          success: true,
-          hashtags
-        };
-      }
-
-      // For other platforms, return placeholder data
-      return {
-        success: true,
-        hashtags: []
-      };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to get trending hashtags'
-      };
-    }
-  }
-
-  async analyzeTrends(params: GetTrendsToolParams): Promise<{
-    success: boolean;
-    trends?: {
-      hashtags: string[];
-      topics: string[];
-      sentiment: 'positive' | 'negative' | 'neutral';
-      recommendations: string[];
-    };
-    error?: string;
-  }> {
-    try {
-      // This would integrate with trend analysis APIs
-      // For now, return basic analysis
-      return {
-        success: true,
-        trends: {
-          hashtags: [],
-          topics: [],
-          sentiment: 'neutral',
-          recommendations: [
-            'Monitor trending hashtags for your industry',
-            'Engage with trending topics relevant to your audience',
-            'Post during peak engagement hours'
-          ]
-        }
-      };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to analyze trends'
-      };
-    }
-  }
-
-  // Connection and permission management tools
-  async getAvailableConnections(params: { agentId: string }): Promise<{
-    success: boolean;
-    connections?: Array<{
-      connectionId: string;
-      provider: SocialMediaProvider;
-      accountName: string;
-      capabilities: SocialMediaCapability[];
-      accessLevel: string;
-    }>;
-    error?: string;
-  }> {
-    try {
-      const capabilities = await this.socialMediaService.getAvailableCapabilities(params.agentId);
-
-      return {
-        success: true,
-        connections: capabilities
-      };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to get available connections'
-      };
-    }
-  }
-
-  async checkPermissions(params: SocialMediaToolParams & { requiredCapabilities: SocialMediaCapability[] }): Promise<{
-    success: boolean;
-    hasPermission?: boolean;
-    missingCapabilities?: SocialMediaCapability[];
-    error?: string;
-  }> {
-    try {
-      if (!params.connectionId) {
-        return {
-          success: false,
-          error: 'Connection ID required for checking permissions'
-        };
-      }
-
-      const hasPermission = await this.socialMediaService.validateAgentPermissions(
-        params.agentId,
-        params.connectionId,
-        params.requiredCapabilities
-      );
-
+      // Validate permissions
+      const hasPermission = await this.validatePermissions(agentId, command.requiredCapabilities, connectionIds);
       if (!hasPermission) {
-        // Get current permissions to determine what's missing
-        const permissions = await this.socialMediaService.getAgentPermissions(params.agentId);
-        const currentPermission = permissions.find(p => p.connectionId === params.connectionId);
-        const currentCapabilities = currentPermission?.capabilities || [];
-        const missingCapabilities = params.requiredCapabilities.filter(
-          cap => !currentCapabilities.includes(cap)
-        );
-
         return {
-          success: true,
-          hasPermission: false,
-          missingCapabilities
+          success: false,
+          error: `Agent lacks required permissions: ${command.requiredCapabilities.join(', ')}`,
+          executionTime: Date.now() - startTime
         };
       }
 
+      // Execute the appropriate tool
+      const result = await this.executeCommandBasedAction(agentId, command, connectionIds);
+      
+      // Log execution
+      await this.logToolExecution(agentId, command.type, command.entities, result);
+
       return {
-        success: true,
-        hasPermission: true,
-        missingCapabilities: []
+        ...result,
+        executionTime: Date.now() - startTime
       };
+
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Failed to check permissions'
+        error: errorMessage,
+        executionTime: Date.now() - startTime
       };
     }
   }
 
-  // Utility methods
-  private analyzeSentiment(content: string): 'positive' | 'negative' | 'neutral' {
-    // Simple sentiment analysis - in production, use a proper sentiment analysis service
-    const positiveWords = ['good', 'great', 'awesome', 'excellent', 'amazing', 'love', 'best', 'fantastic', 'wonderful'];
-    const negativeWords = ['bad', 'terrible', 'awful', 'hate', 'worst', 'horrible', 'disappointing', 'sad', 'angry'];
-    
-    const words = content.toLowerCase().split(/\s+/);
-    const positiveCount = words.filter(word => positiveWords.includes(word)).length;
-    const negativeCount = words.filter(word => negativeWords.includes(word)).length;
-    
-    if (positiveCount > negativeCount) return 'positive';
-    if (negativeCount > positiveCount) return 'negative';
-    return 'neutral';
+  /**
+   * Execute a specific tool by name
+   */
+  async executeTool(
+    toolName: string,
+    parameters: Record<string, unknown>,
+    agentId: string,
+    connectionIds: string[]
+  ): Promise<ToolExecutionResult> {
+    const startTime = Date.now();
+
+    try {
+      const tool = this.tools.find(t => t.name === toolName);
+      if (!tool) {
+        return {
+          success: false,
+          error: `Tool '${toolName}' not found`,
+          executionTime: Date.now() - startTime
+        };
+      }
+
+      // Validate permissions
+      const hasPermission = await this.validatePermissions(agentId, tool.capabilities, connectionIds);
+      if (!hasPermission) {
+        return {
+          success: false,
+          error: `Agent lacks required permissions for tool '${toolName}'`,
+          executionTime: Date.now() - startTime
+        };
+      }
+
+      // Execute tool
+      const result = await tool.execute(parameters, agentId, connectionIds);
+      
+      // Log execution
+      await this.logToolExecution(agentId, toolName, parameters, { success: true, data: result });
+
+      return {
+        success: true,
+        data: result,
+        executionTime: Date.now() - startTime
+      };
+
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      
+      await this.logToolExecution(agentId, toolName, parameters, { success: false, error: errorMessage });
+
+      return {
+        success: false,
+        error: errorMessage,
+        executionTime: Date.now() - startTime
+      };
+    }
+  }
+
+  /**
+   * Initialize all available social media tools
+   */
+  private initializeTools(): SocialMediaToolDefinition[] {
+    return [
+      // Content Creation Tools
+      {
+        name: 'create_text_post',
+        description: 'Create a text-based post on social media platforms',
+        parameters: {
+          type: 'object',
+          properties: {
+            content: { type: 'string', description: 'The text content of the post' },
+            platforms: { type: 'array', description: 'Target platforms', enum: Object.values(SocialMediaProvider) },
+            hashtags: { type: 'array', description: 'Hashtags to include' },
+            visibility: { type: 'string', description: 'Post visibility', enum: ['public', 'private', 'unlisted'] }
+          },
+          required: ['content', 'platforms']
+        },
+        capabilities: [SocialMediaCapability.POST_CREATE],
+        execute: this.createTextPost.bind(this)
+      },
+
+      {
+        name: 'create_image_post',
+        description: 'Create a post with images on social media platforms',
+        parameters: {
+          type: 'object',
+          properties: {
+            content: { type: 'string', description: 'The text content of the post' },
+            platforms: { type: 'array', description: 'Target platforms', enum: Object.values(SocialMediaProvider) },
+            images: { type: 'array', description: 'Image URLs or file paths' },
+            hashtags: { type: 'array', description: 'Hashtags to include' },
+            visibility: { type: 'string', description: 'Post visibility', enum: ['public', 'private', 'unlisted'] }
+          },
+          required: ['content', 'platforms', 'images']
+        },
+        capabilities: [SocialMediaCapability.POST_CREATE, SocialMediaCapability.IMAGE_UPLOAD],
+        execute: this.createImagePost.bind(this)
+      },
+
+      {
+        name: 'create_video_post',
+        description: 'Create a post with video on social media platforms',
+        parameters: {
+          type: 'object',
+          properties: {
+            content: { type: 'string', description: 'The text content of the post' },
+            platforms: { type: 'array', description: 'Target platforms', enum: Object.values(SocialMediaProvider) },
+            video: { type: 'string', description: 'Video URL or file path' },
+            hashtags: { type: 'array', description: 'Hashtags to include' },
+            visibility: { type: 'string', description: 'Post visibility', enum: ['public', 'private', 'unlisted'] }
+          },
+          required: ['content', 'platforms', 'video']
+        },
+        capabilities: [SocialMediaCapability.POST_CREATE, SocialMediaCapability.VIDEO_UPLOAD],
+        execute: this.createVideoPost.bind(this)
+      },
+
+      {
+        name: 'schedule_post',
+        description: 'Schedule a post for later publication',
+        parameters: {
+          type: 'object',
+          properties: {
+            content: { type: 'string', description: 'The text content of the post' },
+            platforms: { type: 'array', description: 'Target platforms', enum: Object.values(SocialMediaProvider) },
+            scheduleTime: { type: 'string', description: 'ISO timestamp for when to post' },
+            hashtags: { type: 'array', description: 'Hashtags to include' },
+            media: { type: 'array', description: 'Media files to include' }
+          },
+          required: ['content', 'platforms', 'scheduleTime']
+        },
+        capabilities: [SocialMediaCapability.POST_CREATE, SocialMediaCapability.POST_SCHEDULE],
+        execute: this.schedulePost.bind(this)
+      },
+
+      // TikTok Specific Tools
+      {
+        name: 'create_tiktok_video',
+        description: 'Create a TikTok video with trending optimization',
+        parameters: {
+          type: 'object',
+          properties: {
+            title: { type: 'string', description: 'Video title' },
+            description: { type: 'string', description: 'Video description' },
+            video: { type: 'string', description: 'Video file path or URL' },
+            hashtags: { type: 'array', description: 'Hashtags including trending ones' },
+            music: { type: 'string', description: 'Background music or sound' },
+            privacy: { type: 'string', description: 'Privacy setting', enum: ['public', 'friends', 'private'] }
+          },
+          required: ['title', 'description', 'video']
+        },
+        capabilities: [SocialMediaCapability.TIKTOK_VIDEO_CREATE],
+        execute: this.createTikTokVideo.bind(this)
+      },
+
+      {
+        name: 'analyze_tiktok_trends',
+        description: 'Analyze current TikTok trends and suggest content',
+        parameters: {
+          type: 'object',
+          properties: {
+            category: { type: 'string', description: 'Trend category to analyze' },
+            region: { type: 'string', description: 'Geographic region for trends' },
+            timeframe: { type: 'string', description: 'Time period', enum: ['day', 'week', 'month'] }
+          },
+          required: []
+        },
+        capabilities: [SocialMediaCapability.TIKTOK_ANALYTICS_READ],
+        execute: this.analyzeTikTokTrends.bind(this)
+      },
+
+      // Analytics Tools
+      {
+        name: 'get_post_metrics',
+        description: 'Get performance metrics for specific posts',
+        parameters: {
+          type: 'object',
+          properties: {
+            postIds: { type: 'array', description: 'Post IDs to analyze' },
+            platforms: { type: 'array', description: 'Platforms to check', enum: Object.values(SocialMediaProvider) },
+            metrics: { type: 'array', description: 'Metrics to retrieve', enum: ['likes', 'shares', 'comments', 'views', 'engagement'] }
+          },
+          required: ['postIds']
+        },
+        capabilities: [SocialMediaCapability.ANALYTICS_READ],
+        execute: this.getPostMetrics.bind(this)
+      },
+
+      {
+        name: 'get_account_analytics',
+        description: 'Get account-level analytics and insights',
+        parameters: {
+          type: 'object',
+          properties: {
+            platforms: { type: 'array', description: 'Platforms to analyze', enum: Object.values(SocialMediaProvider) },
+            timeframe: { type: 'string', description: 'Analysis timeframe', enum: ['day', 'week', 'month', 'quarter'] },
+            metrics: { type: 'array', description: 'Metrics to include' }
+          },
+          required: ['platforms', 'timeframe']
+        },
+        capabilities: [SocialMediaCapability.ANALYTICS_READ],
+        execute: this.getAccountAnalytics.bind(this)
+      },
+
+      // Engagement Tools
+      {
+        name: 'get_comments',
+        description: 'Retrieve comments from posts',
+        parameters: {
+          type: 'object',
+          properties: {
+            postIds: { type: 'array', description: 'Post IDs to get comments from' },
+            platforms: { type: 'array', description: 'Platforms to check', enum: Object.values(SocialMediaProvider) },
+            limit: { type: 'number', description: 'Maximum number of comments to retrieve' }
+          },
+          required: ['postIds']
+        },
+        capabilities: [SocialMediaCapability.COMMENT_READ],
+        execute: this.getComments.bind(this)
+      },
+
+      {
+        name: 'reply_to_comment',
+        description: 'Reply to a specific comment',
+        parameters: {
+          type: 'object',
+          properties: {
+            commentId: { type: 'string', description: 'Comment ID to reply to' },
+            platform: { type: 'string', description: 'Platform where the comment exists', enum: Object.values(SocialMediaProvider) },
+            reply: { type: 'string', description: 'Reply text' }
+          },
+          required: ['commentId', 'platform', 'reply']
+        },
+        capabilities: [SocialMediaCapability.COMMENT_CREATE],
+        execute: this.replyToComment.bind(this)
+      },
+
+      {
+        name: 'like_post',
+        description: 'Like or react to a post',
+        parameters: {
+          type: 'object',
+          properties: {
+            postId: { type: 'string', description: 'Post ID to like' },
+            platform: { type: 'string', description: 'Platform where the post exists', enum: Object.values(SocialMediaProvider) },
+            reactionType: { type: 'string', description: 'Type of reaction', enum: ['like', 'love', 'laugh', 'wow', 'sad', 'angry'] }
+          },
+          required: ['postId', 'platform']
+        },
+        capabilities: [SocialMediaCapability.LIKE_CREATE],
+        execute: this.likePost.bind(this)
+      }
+    ];
+  }
+
+  // Tool Implementation Methods
+
+  private async createTextPost(params: Record<string, unknown>, agentId: string, connectionIds: string[]): Promise<unknown> {
+    const postParams: PostCreationParams = {
+      content: params.content as string,
+      platforms: params.platforms as SocialMediaProvider[],
+      hashtags: params.hashtags as string[] || [],
+      visibility: params.visibility as 'public' | 'private' | 'unlisted' || 'public',
+      media: []
+    };
+
+    return await this.socialMediaService.createPost(postParams, connectionIds, agentId);
+  }
+
+  private async createImagePost(params: Record<string, unknown>, agentId: string, connectionIds: string[]): Promise<unknown> {
+    const images = params.images as string[];
+    const media: MediaFile[] = images.map((url, index) => ({
+      id: `img_${index}`,
+      type: 'image',
+      url,
+      filename: `image_${index}.jpg`,
+      size: 0,
+      mimeType: 'image/jpeg'
+    }));
+
+    const postParams: PostCreationParams = {
+      content: params.content as string,
+      platforms: params.platforms as SocialMediaProvider[],
+      hashtags: params.hashtags as string[] || [],
+      visibility: params.visibility as 'public' | 'private' | 'unlisted' || 'public',
+      media
+    };
+
+    return await this.socialMediaService.createPost(postParams, connectionIds, agentId);
+  }
+
+  private async createVideoPost(params: Record<string, unknown>, agentId: string, connectionIds: string[]): Promise<unknown> {
+    const media: MediaFile[] = [{
+      id: 'video_1',
+      type: 'video',
+      url: params.video as string,
+      filename: 'video.mp4',
+      size: 0,
+      mimeType: 'video/mp4'
+    }];
+
+    const postParams: PostCreationParams = {
+      content: params.content as string,
+      platforms: params.platforms as SocialMediaProvider[],
+      hashtags: params.hashtags as string[] || [],
+      visibility: params.visibility as 'public' | 'private' | 'unlisted' || 'public',
+      media
+    };
+
+    return await this.socialMediaService.createPost(postParams, connectionIds, agentId);
+  }
+
+  private async schedulePost(params: Record<string, unknown>, agentId: string, connectionIds: string[]): Promise<unknown> {
+    const media: MediaFile[] = (params.media as string[] || []).map((url, index) => ({
+      id: `media_${index}`,
+      type: url.includes('video') ? 'video' : 'image',
+      url,
+      filename: `media_${index}`,
+      size: 0,
+      mimeType: url.includes('video') ? 'video/mp4' : 'image/jpeg'
+    }));
+
+    const postParams: PostCreationParams = {
+      content: params.content as string,
+      platforms: params.platforms as SocialMediaProvider[],
+      hashtags: params.hashtags as string[] || [],
+      visibility: 'public',
+      media,
+      scheduledTime: new Date(params.scheduleTime as string)
+    };
+
+    return await this.socialMediaService.schedulePost(postParams, connectionIds, agentId);
+  }
+
+  private async createTikTokVideo(params: Record<string, unknown>, agentId: string, connectionIds: string[]): Promise<unknown> {
+    // TikTok-specific video creation logic
+    return await this.socialMediaService.createTikTokVideo({
+      title: params.title as string,
+      description: params.description as string,
+      videoUrl: params.video as string,
+      hashtags: params.hashtags as string[] || [],
+      music: params.music as string,
+      privacy: params.privacy as 'public' | 'friends' | 'private' || 'public'
+    }, connectionIds, agentId);
+  }
+
+  private async analyzeTikTokTrends(params: Record<string, unknown>, agentId: string, connectionIds: string[]): Promise<unknown> {
+    return await this.socialMediaService.analyzeTikTokTrends({
+      category: params.category as string,
+      region: params.region as string || 'US',
+      timeframe: params.timeframe as 'day' | 'week' | 'month' || 'week'
+    }, connectionIds, agentId);
+  }
+
+  private async getPostMetrics(params: Record<string, unknown>, agentId: string, connectionIds: string[]): Promise<unknown> {
+    return await this.socialMediaService.getPostMetrics({
+      postIds: params.postIds as string[],
+      platforms: params.platforms as SocialMediaProvider[] || [],
+      metrics: params.metrics as string[] || ['likes', 'shares', 'comments', 'views']
+    }, connectionIds, agentId);
+  }
+
+  private async getAccountAnalytics(params: Record<string, unknown>, agentId: string, connectionIds: string[]): Promise<unknown> {
+    return await this.socialMediaService.getAccountAnalytics({
+      platforms: params.platforms as SocialMediaProvider[],
+      timeframe: params.timeframe as 'day' | 'week' | 'month' | 'quarter',
+      metrics: params.metrics as string[] || ['followers', 'engagement', 'reach', 'impressions']
+    }, connectionIds, agentId);
+  }
+
+  private async getComments(params: Record<string, unknown>, agentId: string, connectionIds: string[]): Promise<unknown> {
+    return await this.socialMediaService.getComments({
+      postIds: params.postIds as string[],
+      platforms: params.platforms as SocialMediaProvider[] || [],
+      limit: params.limit as number || 50
+    }, connectionIds, agentId);
+  }
+
+  private async replyToComment(params: Record<string, unknown>, agentId: string, connectionIds: string[]): Promise<unknown> {
+    return await this.socialMediaService.replyToComment({
+      commentId: params.commentId as string,
+      platform: params.platform as SocialMediaProvider,
+      reply: params.reply as string
+    }, connectionIds, agentId);
+  }
+
+  private async likePost(params: Record<string, unknown>, agentId: string, connectionIds: string[]): Promise<unknown> {
+    return await this.socialMediaService.likePost({
+      postId: params.postId as string,
+      platform: params.platform as SocialMediaProvider,
+      reactionType: params.reactionType as string || 'like'
+    }, connectionIds, agentId);
+  }
+
+  // Helper Methods
+
+  private async buildConversationContext(agentId: string, connectionIds: string[]): Promise<ConversationContext> {
+    const permissions = await this.database.getAgentPermissions(agentId);
+    const connections = await Promise.all(
+      connectionIds.map(id => this.database.getConnection(id))
+    );
+
+    return {
+      previousMessages: [], // Would be populated from conversation history
+      currentTopic: '', // Would be determined from context
+      userGoals: [], // Would be extracted from user preferences
+      availableConnections: connections.filter(conn => conn !== null).map(conn => ({
+        id: conn!.id,
+        provider: conn!.provider,
+        accountDisplayName: conn!.accountDisplayName
+      })),
+      agentCapabilities: permissions.flatMap(p => p.capabilities)
+    };
+  }
+
+  private async validatePermissions(
+    agentId: string, 
+    requiredCapabilities: SocialMediaCapability[], 
+    connectionIds: string[]
+  ): Promise<boolean> {
+    const permissions = await this.database.getAgentPermissions(agentId);
+    const agentCapabilities = permissions.flatMap(p => p.capabilities);
+
+    return requiredCapabilities.every(cap => agentCapabilities.includes(cap));
+  }
+
+  private async executeCommandBasedAction(
+    agentId: string, 
+    command: SocialMediaCommand, 
+    connectionIds: string[]
+  ): Promise<ToolExecutionResult> {
+    const params = command.entities || {};
+
+    switch (command.type) {
+      case 'post_create':
+        return {
+          success: true,
+          data: await this.createTextPost(params, agentId, connectionIds)
+        };
+
+      case 'post_schedule':
+        return {
+          success: true,
+          data: await this.schedulePost(params, agentId, connectionIds)
+        };
+
+      case 'analytics_get':
+        return {
+          success: true,
+          data: await this.getAccountAnalytics(params, agentId, connectionIds)
+        };
+
+      case 'tiktok_video_create':
+        return {
+          success: true,
+          data: await this.createTikTokVideo(params, agentId, connectionIds)
+        };
+
+      default:
+        return {
+          success: false,
+          error: `Unsupported command type: ${command.type}`
+        };
+    }
+  }
+
+  private async logToolExecution(
+    agentId: string,
+    toolName: string,
+    parameters: Record<string, unknown>,
+    result: { success: boolean; data?: unknown; error?: string }
+  ): Promise<void> {
+    try {
+      await this.database.logAuditEntry({
+        agentId,
+        action: toolName,
+        platform: SocialMediaProvider.TWITTER, // Default platform for logging
+        content: {
+          parameters,
+          result: result.success ? 'success' : 'failure',
+          error: result.error
+        },
+        result: result.success ? 'success' : 'failure',
+        timestamp: new Date(),
+        ipAddress: '127.0.0.1', // Would be actual IP in production
+        userAgent: 'SocialMediaAgentTools'
+      });
+    } catch (error) {
+      console.error('Failed to log tool execution:', error);
+    }
   }
 }
 

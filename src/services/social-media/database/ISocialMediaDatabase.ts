@@ -2,6 +2,17 @@ import { ulid } from 'ulid';
 
 // Following IMPLEMENTATION_GUIDELINES.md - ULID identifiers, strict typing, interface-first design
 
+// Import MediaFile from provider interfaces
+export interface MediaFile {
+  id: string;
+  type: 'image' | 'video' | 'gif' | 'audio';
+  url: string;
+  filename: string;
+  size: number;
+  mimeType: string;
+  metadata?: Record<string, unknown>;
+}
+
 export enum SocialMediaProvider {
   TWITTER = 'twitter',
   LINKEDIN = 'linkedin',
@@ -25,6 +36,11 @@ export enum SocialMediaCapability {
   POST_EDIT = 'POST_EDIT', 
   POST_DELETE = 'POST_DELETE',
   POST_SCHEDULE = 'POST_SCHEDULE',
+  
+  // Draft Management (NEW)
+  DRAFT_READ = 'DRAFT_READ',
+  DRAFT_PUBLISH = 'DRAFT_PUBLISH',
+  DRAFT_SCHEDULE = 'DRAFT_SCHEDULE',
   
   // Media & Stories
   STORY_CREATE = 'STORY_CREATE',
@@ -124,6 +140,31 @@ export interface SocialMediaAuditLog {
   ipAddress: string;
   userAgent: string;
   metadata: Record<string, unknown>;
+}
+
+// NEW: Draft post interfaces
+export interface DraftPost {
+  id: string;                            // Platform's draft ID
+  platform: SocialMediaProvider;
+  title?: string;                        // Draft title/name
+  content: string;
+  media?: MediaFile[];
+  hashtags?: string[];
+  mentions?: string[];
+  visibility?: 'public' | 'private' | 'unlisted';
+  createdAt: Date;
+  updatedAt: Date;
+  metadata?: Record<string, unknown>;    // Platform-specific data
+}
+
+export interface DraftPublishParams {
+  draftId: string;
+  scheduledTime?: Date;
+  overrides?: {
+    content?: string;
+    hashtags?: string[];
+    visibility?: 'public' | 'private' | 'unlisted';
+  };
 }
 
 // Database abstraction interface following workspace pattern

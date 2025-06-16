@@ -2,7 +2,9 @@ import {
   SocialMediaProvider, 
   SocialMediaConnection, 
   SocialMediaConnectionStatus,
-  SocialMediaCapability
+  SocialMediaCapability,
+  DraftPost,
+  DraftPublishParams
 } from '../../database/ISocialMediaDatabase';
 
 // Following IMPLEMENTATION_GUIDELINES.md - interface-first design, dependency injection
@@ -172,6 +174,35 @@ export interface CommentResponse {
   replies?: CommentResponse[];
 }
 
+export interface Comment {
+  id: string;
+  postId: string;
+  content: string;
+  author: string;
+  createdAt: Date;
+  likes: number;
+  replies?: Comment[];
+}
+
+export interface AccountAnalytics {
+  followerCount: number;
+  followingCount: number;
+  postCount: number;
+  totalLikes: number;
+  totalComments: number;
+  totalShares: number;
+  engagementRate: number;
+  reachGrowth: number;
+  topPosts: SocialMediaPost[];
+}
+
+export interface SocialMediaConnectionParams {
+  provider: SocialMediaProvider;
+  authCode: string;
+  redirectUri: string;
+  state?: string;
+}
+
 export interface ResponseStrategy {
   tone: 'professional' | 'friendly' | 'casual';
   maxLength: number;
@@ -183,40 +214,48 @@ export interface ResponseStrategy {
 // Simplified provider interface for current implementation
 export interface ISocialMediaProvider {
   // Connection management
-  validateConnection(connectionId: string): Promise<SocialMediaConnectionStatus>;
-  refreshTokens(connectionId: string): Promise<void>;
-  
-  // Content creation
-  createPost(connectionId: string, params: PostCreationParams): Promise<SocialMediaPost>;
-  schedulePost(connectionId: string, params: PostScheduleParams): Promise<ScheduledPost>;
+  connect(connectionParams: SocialMediaConnectionParams): Promise<SocialMediaConnection>;
+  disconnect(connectionId: string): Promise<void>;
+  validateConnection(connectionId: string): Promise<boolean>;
+  refreshConnection(connectionId: string): Promise<SocialMediaConnection>;
   
   // Content management
+  createPost(connectionId: string, params: PostCreationParams): Promise<SocialMediaPost>;
   getPost(connectionId: string, postId: string): Promise<SocialMediaPost>;
   getPosts(connectionId: string, params: { limit?: number; since?: Date; until?: Date }): Promise<SocialMediaPost[]>;
   editPost(connectionId: string, postId: string, content: string): Promise<SocialMediaPost>;
   deletePost(connectionId: string, postId: string): Promise<void>;
+  
+  // Scheduling
+  schedulePost(connectionId: string, params: PostScheduleParams): Promise<ScheduledPost>;
+  getScheduledPosts(connectionId: string): Promise<ScheduledPost[]>;
   cancelScheduledPost(connectionId: string, scheduledPostId: string): Promise<void>;
   
-  // Content analysis
-  analyzeContent(content: string): Promise<ContentAnalysis>;
-  optimizeContent(content: string): Promise<OptimizedContent>;
+  // NEW: Draft management
+  getDrafts(connectionId: string): Promise<DraftPost[]>;
+  getDraft(connectionId: string, draftId: string): Promise<DraftPost>;
+  publishDraft(connectionId: string, params: DraftPublishParams): Promise<SocialMediaPost>;
+  scheduleDraft(connectionId: string, params: DraftPublishParams): Promise<ScheduledPost>;
   
   // Analytics
   getPostMetrics(connectionId: string, postId: string): Promise<PostMetrics>;
+  getAccountAnalytics(connectionId: string, timeframe: string): Promise<AccountAnalytics>;
   
   // Engagement
-  getComments(connectionId: string, postId: string): Promise<CommentResponse[]>;
-  respondToComments(connectionId: string, postId: string, strategy: ResponseStrategy): Promise<CommentResponse[]>;
+  getComments(connectionId: string, postId: string): Promise<Comment[]>;
+  replyToComment(connectionId: string, commentId: string, content: string): Promise<Comment>;
+  likePost(connectionId: string, postId: string): Promise<void>;
+  sharePost(connectionId: string, postId: string): Promise<void>;
   
-  // Platform-specific capabilities
+  // Content optimization
+  analyzeContent(content: string): Promise<ContentAnalysis>;
+  optimizeContent(content: string, platform: SocialMediaProvider): Promise<OptimizedContent>;
+  
+  // Capabilities
   getSupportedCapabilities(): SocialMediaCapability[];
   
-  // Rate limiting
-  getRateLimitStatus(connectionId: string): Promise<{
-    remaining: number;
-    resetTime: Date;
-    limit: number;
-  }>;
+  // Error handling
+  handleError(error: Error): SocialMediaError;
 }
 
 // TikTok specific provider interface

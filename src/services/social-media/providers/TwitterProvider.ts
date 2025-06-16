@@ -10,7 +10,10 @@ import {
   OptimizedContent,
   CommentResponse,
   ResponseStrategy,
-  SocialMediaError
+  SocialMediaError,
+  SocialMediaConnectionParams,
+  Comment,
+  AccountAnalytics
 } from './base/ISocialMediaProvider';
 import { 
   SocialMediaProvider, 
@@ -30,11 +33,11 @@ export class TwitterProvider implements ISocialMediaProvider {
     this.connections.set(connection.id, connection);
   }
 
-  async validateConnection(connectionId: string): Promise<SocialMediaConnectionStatus> {
+  async validateConnection(connectionId: string): Promise<boolean> {
     try {
       const connection = this.connections.get(connectionId);
       if (!connection) {
-        return SocialMediaConnectionStatus.ERROR;
+        return false;
       }
 
       // Parse encrypted credentials
@@ -47,13 +50,9 @@ export class TwitterProvider implements ISocialMediaProvider {
         },
       });
 
-      if (response.ok) {
-        return SocialMediaConnectionStatus.ACTIVE;
-      } else {
-        return SocialMediaConnectionStatus.ERROR;
-      }
+      return response.ok;
     } catch (error) {
-      return SocialMediaConnectionStatus.ERROR;
+      return false;
     }
   }
 
@@ -308,17 +307,7 @@ export class TwitterProvider implements ISocialMediaProvider {
     };
   }
 
-  async optimizeContent(content: string): Promise<OptimizedContent> {
-    const optimized = this.formatTweetContent(content);
-    
-    return {
-      originalContent: content,
-      optimizedContent: optimized,
-      platform: SocialMediaProvider.TWITTER,
-      improvements: ['Optimized for Twitter character limit'],
-      estimatedEngagement: 0.7
-    };
-  }
+
 
   async getPostMetrics(connectionId: string, postId: string): Promise<PostMetrics> {
     const post = await this.getPost(connectionId, postId);
@@ -425,6 +414,127 @@ export class TwitterProvider implements ISocialMediaProvider {
         limit: 300
       };
     }
+  }
+
+  // Missing interface methods - basic implementations
+  async connect(connectionParams: SocialMediaConnectionParams): Promise<SocialMediaConnection> {
+    throw new SocialMediaError(
+      'Connect method not implemented - use OAuth flow instead',
+      'TWITTER_CONNECT_NOT_IMPLEMENTED',
+      SocialMediaProvider.TWITTER
+    );
+  }
+
+  async disconnect(connectionId: string): Promise<void> {
+    this.connections.delete(connectionId);
+  }
+
+  async refreshConnection(connectionId: string): Promise<SocialMediaConnection> {
+    const connection = this.connections.get(connectionId);
+    if (!connection) {
+      throw new SocialMediaError(
+        'Connection not found',
+        'CONNECTION_NOT_FOUND',
+        SocialMediaProvider.TWITTER
+      );
+    }
+    return connection;
+  }
+
+  async getScheduledPosts(connectionId: string): Promise<ScheduledPost[]> {
+    // Twitter doesn't support native scheduling
+    return [];
+  }
+
+  async getDrafts(connectionId: string): Promise<any[]> {
+    // Twitter doesn't have native draft support
+    return [];
+  }
+
+  async getDraft(connectionId: string, draftId: string): Promise<any> {
+    throw new SocialMediaError(
+      'Twitter does not support drafts',
+      'TWITTER_DRAFTS_NOT_SUPPORTED',
+      SocialMediaProvider.TWITTER
+    );
+  }
+
+  async publishDraft(connectionId: string, params: any): Promise<SocialMediaPost> {
+    throw new SocialMediaError(
+      'Twitter does not support drafts',
+      'TWITTER_DRAFTS_NOT_SUPPORTED',
+      SocialMediaProvider.TWITTER
+    );
+  }
+
+  async scheduleDraft(connectionId: string, params: any): Promise<ScheduledPost> {
+    throw new SocialMediaError(
+      'Twitter does not support drafts',
+      'TWITTER_DRAFTS_NOT_SUPPORTED',
+      SocialMediaProvider.TWITTER
+    );
+  }
+
+  async getAccountAnalytics(connectionId: string, timeframe: string): Promise<AccountAnalytics> {
+    // Basic mock implementation
+    return {
+      followerCount: 0,
+      followingCount: 0,
+      postCount: 0,
+      totalLikes: 0,
+      totalComments: 0,
+      totalShares: 0,
+      engagementRate: 0,
+      reachGrowth: 0,
+      topPosts: []
+    };
+  }
+
+  async replyToComment(connectionId: string, commentId: string, content: string): Promise<Comment> {
+    throw new SocialMediaError(
+      'Reply to comment not implemented',
+      'TWITTER_REPLY_NOT_IMPLEMENTED',
+      SocialMediaProvider.TWITTER
+    );
+  }
+
+  async likePost(connectionId: string, postId: string): Promise<void> {
+    // Implementation would go here
+    throw new SocialMediaError(
+      'Like post not implemented',
+      'TWITTER_LIKE_NOT_IMPLEMENTED',
+      SocialMediaProvider.TWITTER
+    );
+  }
+
+  async sharePost(connectionId: string, postId: string): Promise<void> {
+    // Implementation would go here (retweet)
+    throw new SocialMediaError(
+      'Share post not implemented',
+      'TWITTER_SHARE_NOT_IMPLEMENTED',
+      SocialMediaProvider.TWITTER
+    );
+  }
+
+  async optimizeContent(content: string, platform: SocialMediaProvider): Promise<OptimizedContent> {
+    const optimized = this.formatTweetContent(content);
+    
+    return {
+      originalContent: content,
+      optimizedContent: optimized,
+      platform: SocialMediaProvider.TWITTER,
+      improvements: ['Optimized for Twitter character limit'],
+      estimatedEngagement: 0.7
+    };
+  }
+
+  handleError(error: Error): SocialMediaError {
+    return new SocialMediaError(
+      error.message,
+      'TWITTER_ERROR',
+      SocialMediaProvider.TWITTER,
+      error
+    );
   }
 
   // Helper methods
