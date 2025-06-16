@@ -235,4 +235,103 @@ model ChatAttachment {
   url       String   @default("")
   createdAt DateTime @default(now())
   chat      Chat     @relation(fields: [chatId], references: [id])
+}
+
+// Social Media Management Tables - Following IMPLEMENTATION_GUIDELINES.md
+model SocialMediaProvider {
+  id          String   @id @default(uuid())
+  name        String   @unique // TWITTER, LINKEDIN, FACEBOOK, INSTAGRAM, REDDIT, TIKTOK
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model SocialMediaConnectionStatus {
+  id          String   @id @default(uuid())
+  name        String   @unique // ACTIVE, EXPIRED, ERROR, REVOKED
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model SocialMediaCapability {
+  id          String   @id @default(uuid())
+  name        String   @unique // POST_CREATE, POST_READ, etc.
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model SocialMediaConnection {
+  id                    String   @id @default(uuid())
+  userId                String?
+  organizationId        String?
+  provider              String   // References SocialMediaProvider.name
+  providerAccountId     String
+  accountDisplayName    String
+  accountUsername       String
+  accountType           String   // personal, business, creator
+  encryptedCredentials  String   // AES-256 encrypted OAuth tokens
+  scopes                String   // Comma-separated scopes
+  connectionStatus      String   // References SocialMediaConnectionStatus.name
+  metadata              String?  // JSON metadata as string
+  lastValidated         DateTime @default(now())
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  // Relations
+  permissions           AgentSocialMediaPermission[]
+  auditLogs             SocialMediaAuditLog[]
+
+  @@index([userId])
+  @@index([organizationId])
+  @@index([provider])
+  @@index([providerAccountId])
+  @@index([connectionStatus])
+}
+
+model AgentSocialMediaPermission {
+  id                        String   @id @default(uuid())
+  agentId                   String
+  socialMediaConnectionId   String
+  capabilities              String   // Comma-separated capabilities
+  accessLevel               String   // NONE, READ, LIMITED, FULL
+  restrictions              String?  // JSON restrictions as string
+  grantedBy                 String
+  grantedAt                 DateTime @default(now())
+  revokedAt                 DateTime?
+  isActive                  Boolean  @default(true)
+  lastUsedAt                DateTime @default(now())
+
+  // Relations
+  socialMediaConnection     SocialMediaConnection @relation(fields: [socialMediaConnectionId], references: [id])
+
+  @@index([agentId])
+  @@index([socialMediaConnectionId])
+  @@index([accessLevel])
+  @@index([isActive])
+}
+
+model SocialMediaAuditLog {
+  id                        String   @id @default(uuid())
+  socialMediaConnectionId   String
+  agentId                   String?
+  action                    String   // post, schedule, delete, authenticate, etc.
+  platform                  String   // References SocialMediaProvider.name
+  content                   String?  // JSON content as string
+  result                    String   // success, failure, pending
+  error                     String?
+  ipAddress                 String
+  userAgent                 String
+  metadata                  String?  // JSON metadata as string
+  timestamp                 DateTime @default(now())
+
+  // Relations
+  socialMediaConnection     SocialMediaConnection @relation(fields: [socialMediaConnectionId], references: [id])
+
+  @@index([socialMediaConnectionId])
+  @@index([agentId])
+  @@index([action])
+  @@index([platform])
+  @@index([timestamp])
 } 

@@ -9,6 +9,7 @@ import AgentTemplateSelector, { AgentTemplate, AGENT_TEMPLATES } from './AgentTe
 import ManagerConfigPanel, { AgentManagersConfig } from './ManagerConfigPanel';
 import AgentProcessingStatus, { ProcessingLog, ProcessingStep } from './AgentProcessingStatus';
 import { AgentWorkspacePermissionManager, AgentWorkspacePermissionConfig } from './AgentWorkspacePermissionManager';
+import { AgentSocialMediaPermissionManager, AgentSocialMediaPermissionConfig } from '../social-media/AgentSocialMediaPermissionManager';
 import { CapabilityLevel } from '@/agents/shared/capability-system';
 import './wizard.css';
 import { AgentStatus } from '@/server/memory/schema/agent';
@@ -28,6 +29,7 @@ interface ExtendedAgentMetadata extends AgentMetadata {
     preferences: string;
   };
   workspacePermissions?: AgentWorkspacePermissionConfig[];
+  socialMediaPermissions?: AgentSocialMediaPermissionConfig[];
 }
 
 interface KnowledgeFile {
@@ -70,7 +72,8 @@ enum FormStep {
   KNOWLEDGE = 3, 
   CAPABILITIES = 4,
   WORKSPACE = 5,
-  MANAGERS = 6
+  SOCIAL_MEDIA = 6,
+  MANAGERS = 7
 }
 
 const STORAGE_KEY = 'agent_registration_form_data';
@@ -157,6 +160,7 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
   });
   
   const [workspacePermissions, setWorkspacePermissions] = useState<AgentWorkspacePermissionConfig[]>([]);
+  const [socialMediaPermissions, setSocialMediaPermissions] = useState<AgentSocialMediaPermissionConfig[]>([]);
   
   // Add processing status state
   const [processingLog, setProcessingLog] = useState<ProcessingLog>({
@@ -205,6 +209,7 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
         if (parsedData.agentCapabilities) setAgentCapabilities(parsedData.agentCapabilities);
         if (parsedData.managersConfig) setManagersConfig(parsedData.managersConfig);
         if (parsedData.workspacePermissions) setWorkspacePermissions(parsedData.workspacePermissions);
+        if (parsedData.socialMediaPermissions) setSocialMediaPermissions(parsedData.socialMediaPermissions);
         if (parsedData.currentStep !== undefined) setCurrentStep(parsedData.currentStep);
       } catch (error) {
         console.error('Error loading saved form data:', error);
@@ -222,11 +227,12 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
       agentCapabilities,
       managersConfig,
       workspacePermissions,
+      socialMediaPermissions,
       currentStep
     };
     
     localStorage.setItem(STORAGE_KEY, JSON.stringify(dataToSave));
-  }, [formData, systemPrompt, knowledgeData, personaData, agentCapabilities, managersConfig, workspacePermissions, currentStep]);
+  }, [formData, systemPrompt, knowledgeData, personaData, agentCapabilities, managersConfig, workspacePermissions, socialMediaPermissions, currentStep]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -565,6 +571,17 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
     }));
   };
 
+  const handleSocialMediaPermissionsChange = (permissions: AgentSocialMediaPermissionConfig[]) => {
+    setSocialMediaPermissions(permissions);
+    setFormData(prevFormData => ({
+      ...prevFormData,
+      metadata: {
+        ...prevFormData.metadata,
+        socialMediaPermissions: permissions
+      }
+    }));
+  };
+
   // Helper to update step status
   const updateStepStatus = (
     stepId: string,
@@ -678,7 +695,8 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
           systemPrompt,
           knowledgePaths: knowledgeData.knowledgePaths,
           persona: personaData,
-          workspacePermissions: workspacePermissions
+          workspacePermissions: workspacePermissions,
+          socialMediaPermissions: socialMediaPermissions
         }
       };
       
@@ -765,6 +783,7 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
       { id: FormStep.KNOWLEDGE, name: 'Knowledge', icon: '📚' },
       { id: FormStep.CAPABILITIES, name: 'Capabilities', icon: '⚡' },
       { id: FormStep.WORKSPACE, name: 'Workspace', icon: '🔗' },
+      { id: FormStep.SOCIAL_MEDIA, name: 'Social Media', icon: '📱' },
       { id: FormStep.MANAGERS, name: 'Managers', icon: '⚙️' }
     ];
 
@@ -790,7 +809,7 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
         <div className="wizard-progress-bar">
           <div 
             className="wizard-progress-fill"
-            style={{ width: `${(currentStep / 6) * 100}%` }}
+            style={{ width: `${(currentStep / 7) * 100}%` }}
           ></div>
         </div>
       </div>
@@ -1032,6 +1051,20 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
             <AgentWorkspacePermissionManager
               initialPermissions={workspacePermissions}
               onChange={handleWorkspacePermissionsChange}
+              className="mt-4"
+            />
+          </div>
+        )}
+        {currentStep === FormStep.SOCIAL_MEDIA && (
+          <div className="wizard-panel">
+            <h2 className="wizard-panel-title">Social Media Permissions</h2>
+            <p className="text-sm text-gray-400 mb-4">
+              Configure which social media accounts this agent can access. Permissions are granted per connection and can be fine-tuned with access levels and capabilities.
+            </p>
+            
+            <AgentSocialMediaPermissionManager
+              initialPermissions={socialMediaPermissions}
+              onChange={handleSocialMediaPermissionsChange}
               className="mt-4"
             />
           </div>

@@ -266,7 +266,7 @@ export async function registerMarketTools(): Promise<Tool[]> {
 }
 
 // Export types and interfaces
-export {
+export type {
   IMarketScanner,
   MarketScannerConfig,
   MarketScanScheduler,
