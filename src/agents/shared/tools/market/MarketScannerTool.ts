@@ -26,7 +26,7 @@ export class MarketScannerTool extends StructuredTool {
   private scheduler: MarketScanScheduler;
 
   constructor(marketScanner: IMarketScanner, scheduler: MarketScanScheduler) {
-    super();
+    super({});
     this.marketScanner = marketScanner;
     this.scheduler = scheduler;
   }

@@ -173,6 +173,10 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
   const [highlightedMessageId, setHighlightedMessageId] = useState<string>('');
   const [pendingNavigateToMessage, setPendingNavigateToMessage] = useState<string>('');
 
+  // User context - for now using same pattern as home page
+  const userId = "test-user";
+  const organizationId = undefined; // Can be added later when org context is available
+
   // Initialize services
   const fileStorageService = useRef<IndexedDBFileStorage>();
   const fileUploadService = useRef<FileUploadImplementation>();
@@ -1098,6 +1102,8 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
         setIsDebugMode={setIsDebugMode}
         departments={departments}
         agentsByDepartment={agentsByDepartment}
+        userId={userId}
+        organizationId={organizationId}
       />
       <div className="flex flex-1 overflow-hidden">
         <aside className={`transition-all duration-300 ${isSidebarOpen ? 'w-64' : 'w-0'} bg-gray-900 border-r border-gray-800 flex-shrink-0`}>

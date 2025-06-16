@@ -31,6 +31,10 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
   const [isDeptDropdownOpen, setIsDeptDropdownOpen] = useState(false);
   const [isAgentDropdownOpen, setIsAgentDropdownOpen] = useState(false);
   
+  // User context - for now using same pattern as other pages
+  const userId = "test-user";
+  const organizationId = undefined; // Can be added later when org context is available
+  
   // Agent ID-to-name mapping
   const [agentIdMap, setAgentIdMap] = useState<Record<string, string>>({});
   
@@ -178,6 +182,8 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
           setIsDebugMode={setIsDebugMode}
           departments={departments}
           agentsByDepartment={availableAgents}
+          userId={userId}
+          organizationId={organizationId}
         />
       )}
 

@@ -28,6 +28,37 @@ export enum TaskScheduleType {
 }
 
 /**
+ * Task priority enum
+ */
+export enum TaskPriority {
+  LOW = 'low',
+  MEDIUM = 'medium',
+  HIGH = 'high',
+  URGENT = 'urgent'
+}
+
+/**
+ * Convert TaskPriority enum to numeric priority value
+ * 
+ * @param priority TaskPriority enum value
+ * @returns Numeric priority (0-10, higher is more important)
+ */
+export function taskPriorityToNumber(priority: TaskPriority): number {
+  switch (priority) {
+    case TaskPriority.LOW:
+      return 2;
+    case TaskPriority.MEDIUM:
+      return 5;
+    case TaskPriority.HIGH:
+      return 8;
+    case TaskPriority.URGENT:
+      return 10;
+    default:
+      return 5; // Default to medium priority
+  }
+}
+
+/**
  * Task metadata type
  */
 export interface TaskMetadata {

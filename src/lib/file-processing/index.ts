@@ -1295,3 +1295,6 @@ Summary:`;
 export function createFileProcessor(enhancedMemory?: EnhancedMemory): FileProcessor {
   return new FileProcessor(enhancedMemory);
 }
+
+// Export a default fileProcessor instance for backward compatibility
+export const fileProcessor = new FileProcessor();
