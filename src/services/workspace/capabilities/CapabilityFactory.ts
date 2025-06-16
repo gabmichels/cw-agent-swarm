@@ -3,18 +3,21 @@ import { IEmailCapabilities } from './interfaces/IEmailCapabilities';
 import { ICalendarCapabilities } from './interfaces/ICalendarCapabilities';
 import { ISheetsCapabilities } from './interfaces/ISheetsCapabilities';
 import { IDriveCapabilities } from './interfaces/IDriveCapabilities';
+import { IDocumentCapabilities } from './interfaces/IDocumentCapabilities';
 
 // Google implementations
 import { GoogleEmailCapabilities } from './google/GoogleEmailCapabilities';
 import { GoogleCalendarCapabilities } from './google/GoogleCalendarCapabilities';
 import { GoogleSheetsCapabilities } from './google/GoogleSheetsCapabilities';
 import { GoogleDriveCapabilities } from './google/GoogleDriveCapabilities';
+import { GoogleDocumentCapabilities } from './google/GoogleDocumentCapabilities';
 
 // Zoho implementations
 import { ZohoEmailCapabilities } from './zoho/ZohoEmailCapabilities';
 import { ZohoCalendarCapabilities } from './zoho/ZohoCalendarCapabilities';
 import { ZohoSheetsCapabilities } from './zoho/ZohoSheetsCapabilities';
 import { ZohoDriveCapabilities } from './zoho/ZohoDriveCapabilities';
+import { ZohoDocumentCapabilities } from './zoho/ZohoDocumentCapabilities';
 
 /**
  * Factory for creating provider-specific capability implementations
@@ -27,7 +30,7 @@ export class CapabilityFactory {
   static createEmailCapabilities(provider: WorkspaceProvider, connectionId: string, providerInstance?: any): IEmailCapabilities {
     switch (provider) {
       case WorkspaceProvider.GOOGLE_WORKSPACE:
-        return new GoogleEmailCapabilities(connectionId);
+        return new GoogleEmailCapabilities();
       case WorkspaceProvider.ZOHO:
         if (!providerInstance) {
           throw new Error('Zoho provider instance required for email capabilities');
@@ -46,7 +49,7 @@ export class CapabilityFactory {
   static createCalendarCapabilities(provider: WorkspaceProvider, connectionId: string, providerInstance?: any): ICalendarCapabilities {
     switch (provider) {
       case WorkspaceProvider.GOOGLE_WORKSPACE:
-        return new GoogleCalendarCapabilities(connectionId);
+        return new GoogleCalendarCapabilities();
       case WorkspaceProvider.ZOHO:
         if (!providerInstance) {
           throw new Error('Zoho provider instance required for calendar capabilities');
@@ -65,7 +68,7 @@ export class CapabilityFactory {
   static createSheetsCapabilities(provider: WorkspaceProvider, connectionId: string, providerInstance?: any): ISheetsCapabilities {
     switch (provider) {
       case WorkspaceProvider.GOOGLE_WORKSPACE:
-        return new GoogleSheetsCapabilities(connectionId);
+        return new GoogleSheetsCapabilities();
       case WorkspaceProvider.ZOHO:
         if (!providerInstance) {
           throw new Error('Zoho provider instance required for sheets capabilities');
@@ -84,7 +87,7 @@ export class CapabilityFactory {
   static createDriveCapabilities(provider: WorkspaceProvider, connectionId: string, providerInstance?: any): IDriveCapabilities {
     switch (provider) {
       case WorkspaceProvider.GOOGLE_WORKSPACE:
-        return new GoogleDriveCapabilities(connectionId);
+        return new GoogleDriveCapabilities();
       case WorkspaceProvider.ZOHO:
         if (!providerInstance) {
           throw new Error('Zoho provider instance required for drive capabilities');
@@ -92,6 +95,25 @@ export class CapabilityFactory {
         return new ZohoDriveCapabilities(connectionId, providerInstance);
       case WorkspaceProvider.MICROSOFT_365:
         throw new Error('Microsoft 365 drive capabilities not yet implemented');
+      default:
+        throw new Error(`Unsupported workspace provider: ${provider}`);
+    }
+  }
+
+  /**
+   * Create document capabilities for the specified provider
+   */
+  static createDocumentCapabilities(provider: WorkspaceProvider, connectionId: string, providerInstance?: any): IDocumentCapabilities {
+    switch (provider) {
+      case WorkspaceProvider.GOOGLE_WORKSPACE:
+        return new GoogleDocumentCapabilities(connectionId);
+      case WorkspaceProvider.ZOHO:
+        if (!providerInstance) {
+          throw new Error('Zoho provider instance required for document capabilities');
+        }
+        return new ZohoDocumentCapabilities(connectionId, providerInstance);
+      case WorkspaceProvider.MICROSOFT_365:
+        throw new Error('Microsoft 365 document capabilities not yet implemented');
       default:
         throw new Error(`Unsupported workspace provider: ${provider}`);
     }
@@ -123,6 +145,7 @@ export class CapabilityFactory {
     calendar: boolean;
     sheets: boolean;
     drive: boolean;
+    documents: boolean;
   } {
     switch (provider) {
       case WorkspaceProvider.GOOGLE_WORKSPACE:
@@ -130,28 +153,32 @@ export class CapabilityFactory {
           email: true,
           calendar: true,
           sheets: true,
-          drive: true
+          drive: true,
+          documents: true
         };
       case WorkspaceProvider.ZOHO:
         return {
           email: true,
           calendar: true,
           sheets: true,
-          drive: true
+          drive: true,
+          documents: true
         };
       case WorkspaceProvider.MICROSOFT_365:
         return {
           email: false,
           calendar: false,
           sheets: false,
-          drive: false
+          drive: false,
+          documents: false
         };
       default:
         return {
           email: false,
           calendar: false,
           sheets: false,
-          drive: false
+          drive: false,
+          documents: false
         };
     }
   }

@@ -22,6 +22,10 @@ export const GOOGLE_WORKSPACE_SCOPES = {
   // Sheets scopes
   SPREADSHEETS: 'https://www.googleapis.com/auth/spreadsheets',
   
+  // Docs scopes - Document editing capabilities
+  DOCUMENTS: 'https://www.googleapis.com/auth/documents',
+  DOCUMENTS_READONLY: 'https://www.googleapis.com/auth/documents.readonly',
+  
   // User info scopes
   USERINFO_EMAIL: 'https://www.googleapis.com/auth/userinfo.email',
   USERINFO_PROFILE: 'https://www.googleapis.com/auth/userinfo.profile',
@@ -69,10 +73,16 @@ export const ZOHO_SCOPES = {
   SHEET_DATA_UPDATE: 'ZohoSheet.dataAPI.UPDATE',
   SHEET_DATA_DELETE: 'ZohoSheet.dataAPI.DELETE',
   
+  // Writer API scopes - Document editing capabilities
+  WRITER_DOCUMENT_EDITOR_ALL: 'ZohoWriter.documentEditor.ALL',
+  ZOHO_PC_FILES_ALL: 'ZohoPC.files.ALL',
+  
   // WorkDrive API scopes (for file operations and search functionality)
-  WORKDRIVE_FILES_READ: 'WorkDrive.files.READ',
-  ZOHO_SEARCH_READ: 'ZohoSearch.securesearch.READ',
-  WORKDRIVE_TEAM_READ: 'WorkDrive.team.READ'
+  WORKDRIVE_FILES_ALL: 'WorkDrive.files.ALL',
+  WORKDRIVE_ORGANIZATION_ALL: 'WorkDrive.organization.ALL',
+  WORKDRIVE_WORKSPACE_ALL: 'WorkDrive.workspace.ALL',
+  WORKDRIVE_TEAM_READ: 'WorkDrive.team.READ',
+  ZOHO_SEARCH_READ: 'ZohoSearch.securesearch.READ'
 } as const;
 
 /**
@@ -89,6 +99,7 @@ export function getRequiredScopes(provider: WorkspaceProvider): string[] {
         GOOGLE_WORKSPACE_SCOPES.CALENDAR,
         GOOGLE_WORKSPACE_SCOPES.DRIVE,
         GOOGLE_WORKSPACE_SCOPES.SPREADSHEETS,
+        GOOGLE_WORKSPACE_SCOPES.DOCUMENTS,
         GOOGLE_WORKSPACE_SCOPES.USERINFO_EMAIL,
         GOOGLE_WORKSPACE_SCOPES.USERINFO_PROFILE
       ];
@@ -116,9 +127,13 @@ export function getRequiredScopes(provider: WorkspaceProvider): string[] {
         ZOHO_SCOPES.SHEET_DATA_CREATE,
         ZOHO_SCOPES.SHEET_DATA_UPDATE,
         ZOHO_SCOPES.SHEET_DATA_DELETE,
-        ZOHO_SCOPES.WORKDRIVE_FILES_READ,
-        ZOHO_SCOPES.ZOHO_SEARCH_READ,
-        ZOHO_SCOPES.WORKDRIVE_TEAM_READ
+        ZOHO_SCOPES.WRITER_DOCUMENT_EDITOR_ALL,
+        ZOHO_SCOPES.ZOHO_PC_FILES_ALL,
+        ZOHO_SCOPES.WORKDRIVE_FILES_ALL,
+        ZOHO_SCOPES.WORKDRIVE_ORGANIZATION_ALL,
+        ZOHO_SCOPES.WORKDRIVE_WORKSPACE_ALL,
+        ZOHO_SCOPES.WORKDRIVE_TEAM_READ,
+        ZOHO_SCOPES.ZOHO_SEARCH_READ
       ];
       
     default:
@@ -131,6 +146,13 @@ export function getRequiredScopes(provider: WorkspaceProvider): string[] {
  */
 export function getExtendedScopes(provider: WorkspaceProvider): string[] {
   switch (provider) {
+    case WorkspaceProvider.GOOGLE_WORKSPACE:
+      // For Google, add readonly docs scope for enhanced document viewing
+      return [
+        ...getRequiredScopes(provider),
+        GOOGLE_WORKSPACE_SCOPES.DOCUMENTS_READONLY
+      ];
+      
     case WorkspaceProvider.ZOHO:
       // For Zoho, extended scopes are the same as required since we use ALL scopes
       return getRequiredScopes(provider);

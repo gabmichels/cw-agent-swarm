@@ -1,5 +1,16 @@
 import { IDriveCapabilities } from '../interfaces/IDriveCapabilities';
-import { DriveFile, FileSearchCriteria, CreateFileParams } from '../DriveCapabilities';
+import { 
+  DriveFile, 
+  DriveFolder,
+  CreateFileParams,
+  CreateFolderParams,
+  ShareFileParams,
+  FileSearchCriteria, 
+  StorageQuota,
+  FileOrganizationSuggestion,
+  MoveFileParams,
+  FileActivity
+} from '../DriveCapabilities';
 import { ZohoWorkspaceProvider } from '../../providers/ZohoWorkspaceProvider';
 import { AxiosInstance } from 'axios';
 
@@ -37,10 +48,10 @@ export class ZohoDriveCapabilities implements IDriveCapabilities {
         let files = Array.isArray(response.data.data) ? response.data.data : [response.data.data];
         
         // Apply client-side filtering if needed
-        if (criteria.q) {
+        if (criteria.name) {
           files = files.filter((file: any) => 
-            file.name?.toLowerCase().includes(criteria.q!.toLowerCase()) ||
-            file.description?.toLowerCase().includes(criteria.q!.toLowerCase())
+            file.name?.toLowerCase().includes(criteria.name!.toLowerCase()) ||
+            file.description?.toLowerCase().includes(criteria.name!.toLowerCase())
           );
         }
 
@@ -53,7 +64,7 @@ export class ZohoDriveCapabilities implements IDriveCapabilities {
         // Filter by criteria if needed
         if (criteria.mimeType) {
           files = files.filter((file: any) => 
-            file.type && file.type.toLowerCase().includes(criteria.mimeType.toLowerCase())
+            file.type && file.type.toLowerCase().includes(criteria.mimeType!.toLowerCase())
           );
         }
 
@@ -63,18 +74,19 @@ export class ZohoDriveCapabilities implements IDriveCapabilities {
       return [];
     } catch (error) {
       console.error('Error searching Zoho WorkDrive files:', error);
-      if (error.response) {
-        console.error('Error response status:', error.response.status);
-        console.error('Error response data:', error.response.data);
+      if (error && typeof error === 'object' && 'response' in error) {
+        const axiosError = error as any;
+        console.error('Error response status:', axiosError.response?.status);
+        console.error('Error response data:', axiosError.response?.data);
       }
       throw new Error(`Failed to search files: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
   /**
-   * Get file information from Zoho WorkDrive
+   * Get detailed information about a specific file
    */
-  async getFileInfo(fileId: string, connectionId: string, agentId: string): Promise<DriveFile> {
+  async getFile(fileId: string, connectionId: string, agentId: string): Promise<DriveFile> {
     try {
       const client = await this.zohoProvider.getServiceClient(this.connectionId, 'drive');
       
@@ -98,8 +110,256 @@ export class ZohoDriveCapabilities implements IDriveCapabilities {
   }
 
   /**
-   * List files in a specific folder
+   * Create a new file
    */
+  async createFile(params: CreateFileParams, connectionId: string, agentId: string): Promise<DriveFile> {
+    throw new Error('File creation is not supported through WorkDrive. Use specific application APIs (Zoho Sheet, Writer, etc.) to create files.');
+  }
+
+  /**
+   * Create a new folder
+   */
+  async createFolder(params: CreateFolderParams, connectionId: string, agentId: string): Promise<DriveFolder> {
+    try {
+      const client = await this.zohoProvider.getServiceClient(this.connectionId, 'drive');
+      
+      const folderData = {
+        data: {
+          type: 'folders',
+          attributes: {
+            name: params.name,
+            parent_id: params.parents?.[0] || null
+          }
+        }
+      };
+
+      const response = await client.post('/folders', folderData, {
+        headers: {
+          'Content-Type': 'application/vnd.api+json'
+        }
+      });
+
+      return {
+        id: response.data.data.id,
+        name: response.data.data.attributes.name,
+        createdTime: new Date(response.data.data.attributes.created_time || Date.now()),
+        modifiedTime: new Date(response.data.data.attributes.modified_time || Date.now()),
+        parents: response.data.data.attributes.parent_id ? [response.data.data.attributes.parent_id] : undefined,
+        webViewLink: response.data.data.attributes.permalink,
+        shared: false
+      };
+    } catch (error) {
+      throw new Error(`Failed to create folder: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Share a file with specific permissions
+   */
+  async shareFile(params: ShareFileParams, connectionId: string, agentId: string): Promise<void> {
+    try {
+      const client = await this.zohoProvider.getServiceClient(this.connectionId, 'drive');
+      
+      for (const permission of params.permissions) {
+        const shareData = {
+          data: {
+            type: 'permissions',
+            attributes: {
+              email_id: permission.emailAddress,
+              role_id: permission.role === 'writer' ? 2 : 1, // 2 = editor, 1 = viewer
+              operation_type: 'add'
+            }
+          }
+        };
+
+        await client.post(`/files/${params.fileId}/permissions`, shareData, {
+          headers: {
+            'Content-Type': 'application/vnd.api+json'
+          }
+        });
+      }
+    } catch (error) {
+      throw new Error(`Failed to share file: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Get storage quota information
+   */
+  async getStorageQuota(connectionId: string, agentId: string): Promise<StorageQuota> {
+    try {
+      const client = await this.zohoProvider.getServiceClient(this.connectionId, 'drive');
+      
+      const response = await client.get('/user/storage');
+      
+      return {
+        limit: response.data.quota || 15000000000, // Default 15GB
+        usage: response.data.used || 0,
+        usageInDrive: response.data.used || 0,
+        usageInDriveTrash: 0,
+        usageInGmail: 0,
+        usageInPhotos: 0
+      };
+    } catch (error) {
+      // Return default values if quota endpoint doesn't exist
+      return {
+        limit: 15000000000, // 15GB default
+        usage: 0,
+        usageInDrive: 0,
+        usageInDriveTrash: 0,
+        usageInGmail: 0,
+        usageInPhotos: 0
+      };
+    }
+  }
+
+  /**
+   * Get file organization suggestions
+   */
+  async getOrganizationSuggestions(connectionId: string, agentId: string): Promise<FileOrganizationSuggestion[]> {
+    // For Zoho, provide basic organization suggestions
+    try {
+      const files = await this.searchFiles({}, connectionId, agentId);
+      
+      const suggestions: FileOrganizationSuggestion[] = [];
+      
+      // Group by file type
+      const filesByType = files.reduce((acc, file) => {
+        const type = file.mimeType || 'unknown';
+        if (!acc[type]) acc[type] = [];
+        acc[type].push(file);
+        return acc;
+      }, {} as Record<string, DriveFile[]>);
+
+      Object.entries(filesByType).forEach(([type, typeFiles]) => {
+        if (typeFiles.length > 3) {
+          suggestions.push({
+            type: 'unorganized',
+            files: typeFiles,
+            suggestion: `Create a folder for ${typeFiles.length} ${type} files to better organize them`,
+            potentialSavings: 0
+          });
+        }
+      });
+
+      return suggestions;
+    } catch (error) {
+      throw new Error(`Failed to get organization suggestions: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Download a file
+   */
+  async downloadFile(fileId: string, connectionId: string, agentId: string): Promise<Buffer> {
+    try {
+      const client = await this.zohoProvider.getServiceClient(this.connectionId, 'drive');
+      
+      const response = await client.get(`/files/${fileId}/download`, {
+        responseType: 'arraybuffer'
+      });
+
+      return Buffer.from(response.data);
+    } catch (error) {
+      throw new Error(`Failed to download file: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Update file content
+   */
+  async updateFile(fileId: string, content: string | Buffer, connectionId: string, agentId: string): Promise<DriveFile> {
+    try {
+      const client = await this.zohoProvider.getServiceClient(this.connectionId, 'drive');
+      
+      const formData = new FormData();
+      const blob = typeof content === 'string' ? new Blob([content]) : new Blob([new Uint8Array(content)]);
+      formData.append('file', blob);
+
+      const response = await client.put(`/files/${fileId}`, formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data'
+        }
+      });
+
+      return this.convertToDriveFile(response.data.data);
+    } catch (error) {
+      throw new Error(`Failed to update file: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Move file to folder
+   */
+  async moveFile(params: MoveFileParams, connectionId: string, agentId: string): Promise<DriveFile> {
+    try {
+      const client = await this.zohoProvider.getServiceClient(this.connectionId, 'drive');
+      
+      const moveData = {
+        data: {
+          type: 'files',
+          attributes: {
+            parent_id: params.newParents[0] // Use first parent from newParents array
+          }
+        }
+      };
+
+      const response = await client.patch(`/files/${params.fileId}`, moveData, {
+        headers: {
+          'Content-Type': 'application/vnd.api+json'
+        }
+      });
+
+      return this.convertToDriveFile(response.data.data);
+    } catch (error) {
+      throw new Error(`Failed to move file: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Delete a file
+   */
+  async deleteFile(fileId: string, connectionId: string, agentId: string): Promise<void> {
+    try {
+      const client = await this.zohoProvider.getServiceClient(this.connectionId, 'drive');
+      
+      await client.delete(`/files/${fileId}`);
+    } catch (error) {
+      throw new Error(`Failed to delete file: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Get recent file activity
+   */
+  async getRecentActivity(connectionId: string, agentId: string, maxResults?: number): Promise<FileActivity[]> {
+    try {
+      const client = await this.zohoProvider.getServiceClient(this.connectionId, 'drive');
+      
+      const response = await client.get('/files/recent', {
+        params: {
+          limit: maxResults || 50
+        }
+      });
+
+      return (response.data.data || []).map((activity: any) => ({
+        time: new Date(activity.timestamp || Date.now()),
+        actor: activity.user_name || 'Unknown User',
+        action: activity.action || 'modified',
+        target: activity.file_name || 'Unknown File',
+        details: activity.details || {}
+      }));
+    } catch (error) {
+      // Return empty array if activity endpoint doesn't exist
+      return [];
+    }
+  }
+
+  // Legacy method for backward compatibility
+  async getFileInfo(fileId: string, connectionId: string, agentId: string): Promise<DriveFile> {
+    return this.getFile(fileId, connectionId, agentId);
+  }
+
   async listFiles(folderId?: string, connectionId?: string, agentId?: string): Promise<DriveFile[]> {
     try {
       const client = await this.zohoProvider.getServiceClient(this.connectionId, 'drive');
@@ -124,7 +384,7 @@ export class ZohoDriveCapabilities implements IDriveCapabilities {
 
       if (response.data && response.data.data) {
         const files = Array.isArray(response.data.data) ? response.data.data : [response.data.data];
-        return files.map(file => this.convertToDriveFile(file));
+        return files.map((file: any) => this.convertToDriveFile(file));
       }
 
       return [];
@@ -132,19 +392,6 @@ export class ZohoDriveCapabilities implements IDriveCapabilities {
       console.error('Zoho WorkDrive list files error:', error);
       throw new Error(`Failed to list files: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
-  }
-
-  /**
-   * NOTE: File creation is not supported in WorkDrive directly.
-   * Files are created through specific applications:
-   * - Spreadsheets: Use ZohoSheetsCapabilities.createSpreadsheet()
-   * - Documents: Use Zoho Writer API
-   * - Other files: Upload through specific service APIs
-   * 
-   * WorkDrive is for file management, search, and organization only.
-   */
-  async createFile(params: CreateFileParams, connectionId: string, agentId: string): Promise<DriveFile> {
-    throw new Error('File creation is not supported through WorkDrive. Use specific application APIs (Zoho Sheet, Writer, etc.) to create files.');
   }
 
   /**
