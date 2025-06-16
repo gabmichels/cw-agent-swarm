@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { X, Plus, Settings, AlertCircle, CheckCircle, Clock } from 'lucide-react';
 import { SocialMediaProvider, SocialMediaConnection, SocialMediaConnectionStatus } from '../../services/social-media/database/ISocialMediaDatabase';
 import { SocialMediaConnectionCard } from './SocialMediaConnectionCard';
-import { getSocialMediaScopes } from '../../services/social-media/scopes/SocialMediaScopes';
+
 
 interface SocialMediaSettingsModalProps {
   isOpen: boolean;
@@ -38,6 +38,37 @@ export const SocialMediaSettingsModal: React.FC<SocialMediaSettingsModalProps> =
       loadConnections();
     }
   }, [isOpen, userId, organizationId]);
+
+  // Listen for OAuth success events to refresh connections
+  useEffect(() => {
+    const handleOAuthSuccess = () => {
+      if (isOpen) {
+        console.log('OAuth success detected, refreshing connections...');
+        loadConnections();
+      }
+    };
+
+    // Listen for URL parameter changes (OAuth success)
+    const checkForOAuthSuccess = () => {
+      const urlParams = new URLSearchParams(window.location.search);
+      const socialSuccess = urlParams.get('social_success');
+      if (socialSuccess === 'true' && isOpen) {
+        handleOAuthSuccess();
+      }
+    };
+
+    // Check immediately when modal opens
+    if (isOpen) {
+      checkForOAuthSuccess();
+    }
+
+    // Listen for custom events
+    window.addEventListener('socialMediaOAuthSuccess', handleOAuthSuccess);
+    
+    return () => {
+      window.removeEventListener('socialMediaOAuthSuccess', handleOAuthSuccess);
+    };
+  }, [isOpen]);
 
   const loadConnections = async () => {
     setConnectionsState(prev => ({ ...prev, loading: true, error: null }));
@@ -76,8 +107,7 @@ export const SocialMediaSettingsModal: React.FC<SocialMediaSettingsModalProps> =
     setConnecting(provider);
     
     try {
-      const scopes = getDefaultScopes(provider);
-      console.log(`Connecting to ${provider} with scopes:`, scopes);
+      console.log(`Connecting to ${provider}`);
       
       const response = await fetch('/api/social-media/connect', {
         method: 'POST',
@@ -85,10 +115,10 @@ export const SocialMediaSettingsModal: React.FC<SocialMediaSettingsModalProps> =
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          provider,
-          userId,
-          organizationId,
-          scopes
+          platform: provider.toLowerCase(),
+          tenantId: organizationId || userId || 'default_tenant',
+          userId: userId || 'default_user',
+          accountType: 'personal'
         }),
       });
 
@@ -133,10 +163,7 @@ export const SocialMediaSettingsModal: React.FC<SocialMediaSettingsModalProps> =
     }
   };
 
-  const getDefaultScopes = (provider: SocialMediaProvider): string[] => {
-    // Use the centralized scope configuration - single source of truth
-    return getSocialMediaScopes(provider);
-  };
+
 
   const getProviderDisplayName = (provider: SocialMediaProvider): string => {
     switch (provider) {

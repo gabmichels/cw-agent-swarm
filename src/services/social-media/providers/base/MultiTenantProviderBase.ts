@@ -11,6 +11,7 @@ import {
   PostMetrics
 } from './ISocialMediaProvider';
 import { SocialMediaProvider } from '../../database/ISocialMediaDatabase';
+import { fileStateStorage } from './FileStateStorage';
 
 /**
  * Multi-Tenant Provider Interface
@@ -57,18 +58,11 @@ export interface IMultiTenantSocialMediaProvider {
 export abstract class MultiTenantProviderBase implements IMultiTenantSocialMediaProvider {
   protected config: MultiTenantOAuthConfig;
   protected tokenStorage: Map<string, TenantSocialToken> = new Map();
-  protected stateStorage: Map<string, { 
-    tenantId: string; 
-    userId: string; 
-    accountType?: string;
-    timestamp: number;
-  }> = new Map();
 
   constructor(config: MultiTenantOAuthConfig) {
     this.config = config;
     
-    // Clean up expired state entries every 10 minutes
-    setInterval(() => this.cleanupExpiredStates(), 10 * 60 * 1000);
+    // Note: State cleanup is now handled by the global state storage
   }
 
   /**
@@ -81,17 +75,24 @@ export abstract class MultiTenantProviderBase implements IMultiTenantSocialMedia
     // Generate secure state parameter
     const state = ulid();
     
+    console.log('Storing OAuth state:', { state, tenantId, userId, accountType });
+    
     // Store state with tenant context (expires in 10 minutes)
-    this.stateStorage.set(state, { 
+    fileStateStorage.set(state, { 
       tenantId, 
       userId, 
       accountType,
       timestamp: Date.now()
     });
     
+    // Verify state was stored
+    const storedState = fileStateStorage.get(state);
+    console.log('State verification:', { state, found: !!storedState, storedState });
+    
     // Build OAuth URL with platform-specific parameters
     const authUrl = await this.buildAuthUrl(state);
 
+    console.log('OAuth initiation complete:', { state, authUrl });
     return { authUrl, state };
   }
 
@@ -105,14 +106,14 @@ export abstract class MultiTenantProviderBase implements IMultiTenantSocialMedia
     userId: string;
   }): Promise<TenantSocialToken> {
     // Validate state parameter
-    const stateData = this.stateStorage.get(params.state);
+    const stateData = fileStateStorage.get(params.state);
     if (!stateData || stateData.tenantId !== params.tenantId) {
       throw new Error('Invalid OAuth state parameter');
     }
 
     // Check state hasn't expired (10 minutes)
     if (Date.now() - stateData.timestamp > 10 * 60 * 1000) {
-      this.stateStorage.delete(params.state);
+      fileStateStorage.delete(params.state);
       throw new Error('OAuth state has expired');
     }
 
@@ -145,7 +146,7 @@ export abstract class MultiTenantProviderBase implements IMultiTenantSocialMedia
     this.tokenStorage.set(tenantToken.accountId, tenantToken);
     
     // Clean up state
-    this.stateStorage.delete(params.state);
+    fileStateStorage.delete(params.state);
 
     return tenantToken;
   }
@@ -269,21 +270,7 @@ export abstract class MultiTenantProviderBase implements IMultiTenantSocialMedia
     return decrypted;
   }
 
-  /**
-   * Clean up expired state entries
-   */
-  private cleanupExpiredStates(): void {
-    const now = Date.now();
-    const expiredStates: string[] = [];
-    
-    this.stateStorage.forEach((stateData, state) => {
-      if (now - stateData.timestamp > 10 * 60 * 1000) { // 10 minutes
-        expiredStates.push(state);
-      }
-    });
-    
-    expiredStates.forEach(state => this.stateStorage.delete(state));
-  }
+
 
   // Abstract methods that each platform must implement
   protected abstract buildAuthUrl(state: string): Promise<string>;

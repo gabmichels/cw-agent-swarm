@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { SocialMediaProvider, SocialMediaConnectionStatus } from '../../../../services/social-media/database/ISocialMediaDatabase';
+import { SocialMediaProvider, SocialMediaConnectionStatus, SocialMediaConnection } from '../../../../services/social-media/database/ISocialMediaDatabase';
+import { PrismaSocialMediaDatabase } from '../../../../services/social-media/database/PrismaSocialMediaDatabase';
+import { PrismaClient } from '@prisma/client';
 
 // Following IMPLEMENTATION_GUIDELINES.md - strict typing with Zod validation
 const ConnectionsQuerySchema = z.object({
@@ -14,53 +16,10 @@ const ConnectionsQuerySchema = z.object({
 
 type ConnectionsQuery = z.infer<typeof ConnectionsQuerySchema>;
 
-// Mock data for now - replace with actual database calls
-const mockConnections = [
-  {
-    id: 'conn_twitter_001',
-    userId: 'user_001',
-    organizationId: undefined,
-    provider: SocialMediaProvider.TWITTER,
-    providerAccountId: '123456789',
-    accountDisplayName: 'John Doe',
-    accountUsername: 'johndoe',
-    accountType: 'personal' as const,
-    encryptedCredentials: 'encrypted_token_data',
-    scopes: ['tweet.read', 'tweet.write', 'users.read'],
-    connectionStatus: SocialMediaConnectionStatus.ACTIVE,
-    metadata: { 
-      followerCount: 1250,
-      verifiedStatus: false,
-      accountCreated: '2020-01-15T00:00:00Z'
-    },
-    lastValidated: new Date('2024-01-01T12:00:00Z'),
-    createdAt: new Date('2024-01-01T10:00:00Z'),
-    updatedAt: new Date('2024-01-01T12:00:00Z')
-  },
-  {
-    id: 'conn_linkedin_001',
-    userId: 'user_001',
-    organizationId: undefined,
-    provider: SocialMediaProvider.LINKEDIN,
-    providerAccountId: 'linkedin_123',
-    accountDisplayName: 'John Doe - Marketing Professional',
-    accountUsername: 'john-doe-marketing',
-    accountType: 'business' as const,
-    encryptedCredentials: 'encrypted_linkedin_token',
-    scopes: ['r_liteprofile', 'w_member_social'],
-    connectionStatus: SocialMediaConnectionStatus.ACTIVE,
-    metadata: { 
-      connectionCount: 500,
-      industry: 'Marketing',
-      location: 'San Francisco, CA'
-    },
-    lastValidated: new Date('2024-01-01T11:30:00Z'),
-    createdAt: new Date('2024-01-01T09:30:00Z'),
-    updatedAt: new Date('2024-01-01T11:30:00Z')
-  }
-];
-
 export async function GET(request: NextRequest) {
+  const prisma = new PrismaClient();
+  const database = new PrismaSocialMediaDatabase(prisma);
+
   try {
     const { searchParams } = new URL(request.url);
     const queryParams = Object.fromEntries(searchParams.entries());
@@ -74,29 +33,19 @@ export async function GET(request: NextRequest) {
       status: validatedQuery.status
     });
 
-    // TODO: Replace with actual database implementation
-    // const database = await getDatabaseInstance();
-    // let connections;
-    
-    // if (validatedQuery.organizationId) {
-    //   connections = await database.getConnectionsByOrganization(validatedQuery.organizationId);
-    // } else if (validatedQuery.userId) {
-    //   connections = await database.getConnectionsByUser(validatedQuery.userId);
-    // } else {
-    //   throw new Error('Either userId or organizationId must be provided');
-    // }
-
-    // Filter mock data based on query parameters
-    let connections = mockConnections;
-    
-    if (validatedQuery.userId) {
-      connections = connections.filter(conn => conn.userId === validatedQuery.userId);
-    }
+    // Get connections from database
+    let connections: SocialMediaConnection[];
     
     if (validatedQuery.organizationId) {
-      connections = connections.filter(conn => conn.organizationId === validatedQuery.organizationId);
+      connections = await database.getConnectionsByOrganization(validatedQuery.organizationId);
+    } else if (validatedQuery.userId) {
+      connections = await database.getConnectionsByUser(validatedQuery.userId);
+    } else {
+      // If neither userId nor organizationId is provided, return empty array
+      connections = [];
     }
     
+    // Filter based on additional query parameters
     if (validatedQuery.provider) {
       connections = connections.filter(conn => conn.provider === validatedQuery.provider);
     }
@@ -113,8 +62,21 @@ export async function GET(request: NextRequest) {
 
     // Remove sensitive data before sending to client
     const sanitizedConnections = paginatedConnections.map(conn => ({
-      ...conn,
-      encryptedCredentials: '[REDACTED]' // Never send credentials to client
+      id: conn.id,
+      userId: conn.userId,
+      organizationId: conn.organizationId,
+      provider: conn.provider,
+      providerAccountId: conn.providerAccountId,
+      accountDisplayName: conn.accountDisplayName,
+      accountUsername: conn.accountUsername,
+      accountType: conn.accountType,
+      encryptedCredentials: '[REDACTED]', // Never send credentials to client
+      scopes: conn.scopes,
+      connectionStatus: conn.connectionStatus,
+      metadata: conn.metadata,
+      lastValidated: conn.lastValidated,
+      createdAt: conn.createdAt,
+      updatedAt: conn.updatedAt
     }));
 
     return NextResponse.json({
@@ -143,28 +105,27 @@ export async function GET(request: NextRequest) {
       success: false,
       error: error instanceof Error ? error.message : 'Failed to fetch connections'
     }, { status: 500 });
+  } finally {
+    await prisma.$disconnect();
   }
 }
 
 // POST method to create new connections (called by OAuth callback)
 export async function POST(request: NextRequest) {
+  const prisma = new PrismaClient();
+  const database = new PrismaSocialMediaDatabase(prisma);
+
   try {
     const body = await request.json();
     
-    // This would typically be called by the OAuth callback handler
-    // to create a new connection after successful OAuth flow
-    
     console.log('Creating new social media connection:', body);
     
-    // TODO: Implement connection creation logic
-    // - Validate OAuth tokens
-    // - Encrypt and store credentials
-    // - Create connection record
-    // - Return connection details
+    // This endpoint could be used for manual connection creation
+    // For now, connections are primarily created via OAuth callbacks
     
     return NextResponse.json({
       success: true,
-      message: 'Connection creation endpoint - to be implemented'
+      message: 'Connection creation via POST - implement as needed'
     });
 
   } catch (error) {
@@ -174,6 +135,8 @@ export async function POST(request: NextRequest) {
       success: false,
       error: error instanceof Error ? error.message : 'Failed to create connection'
     }, { status: 500 });
+  } finally {
+    await prisma.$disconnect();
   }
 }
 

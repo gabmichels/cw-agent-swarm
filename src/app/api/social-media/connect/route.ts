@@ -77,6 +77,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    console.log(`About to initiate OAuth for ${platform}:`, {
+      platform,
+      accountType,
+      tenantId,
+      userId
+    });
+
     // Initiate OAuth flow
     const oauthData = await provider.initiateOAuth(tenantId, userId, accountType);
 
@@ -86,6 +93,16 @@ export async function POST(request: NextRequest) {
       tenantId,
       userId,
       state: oauthData.state
+    });
+
+    // Verify state was stored by checking directly
+    const { fileStateStorage } = await import('@/services/social-media/providers/base/FileStateStorage');
+    const storedState = fileStateStorage.get(oauthData.state);
+    console.log('State verification in connect route:', {
+      state: oauthData.state,
+      found: !!storedState,
+      storedState,
+      storageSize: fileStateStorage.size()
     });
 
     return NextResponse.json({

@@ -9,6 +9,8 @@ import {
 } from './base/ISocialMediaProvider';
 import { SocialMediaProvider } from '../database/ISocialMediaDatabase';
 import { MultiTenantProviderBase } from './base/MultiTenantProviderBase';
+import { fileStateStorage } from './base/FileStateStorage';
+import crypto from 'crypto';
 
 /**
  * Multi-Tenant Twitter Provider
@@ -28,16 +30,29 @@ export class MultiTenantTwitterProvider extends MultiTenantProviderBase {
       tokenUrl: 'https://api.twitter.com/2/oauth2/token',
       refreshUrl: 'https://api.twitter.com/2/oauth2/token',
       revokeUrl: 'https://api.twitter.com/2/oauth2/revoke',
-      callbackUrl: `${process.env.NEXT_PUBLIC_APP_URL}/api/social-media/callback/twitter`
+      callbackUrl: `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/social-media/callback/twitter`
     };
     
     super(config);
   }
 
   /**
-   * Build Twitter OAuth URL
+   * Build Twitter OAuth URL with proper PKCE
    */
   protected async buildAuthUrl(state: string): Promise<string> {
+    // Generate PKCE parameters
+    const codeVerifier = this.generateCodeVerifier();
+    const codeChallenge = this.generateCodeChallenge(codeVerifier);
+    
+    // Store the code verifier with the state so we can retrieve it during token exchange
+    const stateData = fileStateStorage.get(state);
+    if (stateData) {
+      fileStateStorage.set(state, {
+        ...stateData,
+        codeVerifier // Add code verifier to state data
+      } as any);
+    }
+
     const params = new URLSearchParams({
       response_type: 'code',
       client_id: this.config.clientId,
@@ -45,7 +60,7 @@ export class MultiTenantTwitterProvider extends MultiTenantProviderBase {
       scope: this.config.scopes.join(' '),
       state,
       code_challenge_method: 'S256',
-      code_challenge: this.generateCodeChallenge()
+      code_challenge: codeChallenge
     });
 
     return `${this.config.authUrl}?${params.toString()}`;
@@ -60,6 +75,27 @@ export class MultiTenantTwitterProvider extends MultiTenantProviderBase {
     expires_in: number;
     token_type: string;
   }> {
+    // We need to get the code verifier from somewhere
+    // Since this method doesn't have access to state, we'll need to modify the base class
+    // For now, let's use a simple approach
+    throw new Error('exchangeCodeForToken called without state context - this should not happen');
+  }
+
+  /**
+   * Custom token exchange that includes state for PKCE
+   */
+  async exchangeCodeForTokenWithState(code: string, state: string): Promise<{
+    access_token: string;
+    refresh_token?: string;
+    expires_in: number;
+    token_type: string;
+  }> {
+    // Get the stored code verifier
+    const stateData = fileStateStorage.get(state) as any;
+    if (!stateData || !stateData.codeVerifier) {
+      throw new Error('Code verifier not found for state');
+    }
+
     const response = await fetch(this.config.tokenUrl, {
       method: 'POST',
       headers: {
@@ -70,7 +106,7 @@ export class MultiTenantTwitterProvider extends MultiTenantProviderBase {
         grant_type: 'authorization_code',
         code,
         redirect_uri: this.config.callbackUrl,
-        code_verifier: 'challenge' // In production, store and retrieve the actual verifier
+        code_verifier: stateData.codeVerifier
       })
     });
 
@@ -85,7 +121,7 @@ export class MultiTenantTwitterProvider extends MultiTenantProviderBase {
   /**
    * Get user profile from Twitter API
    */
-  protected async getUserProfile(accessToken: string): Promise<{
+  async getUserProfile(accessToken: string): Promise<{
     id: string;
     name: string;
     username: string;
@@ -229,10 +265,16 @@ export class MultiTenantTwitterProvider extends MultiTenantProviderBase {
   }
 
   /**
-   * Generate code challenge for PKCE
+   * Generate a cryptographically secure code verifier for PKCE
    */
-  private generateCodeChallenge(): string {
-    // In production, generate proper PKCE challenge
-    return 'challenge';
+  private generateCodeVerifier(): string {
+    return crypto.randomBytes(32).toString('base64url');
+  }
+
+  /**
+   * Generate code challenge from verifier using SHA256
+   */
+  private generateCodeChallenge(verifier: string): string {
+    return crypto.createHash('sha256').update(verifier).digest('base64url');
   }
 } 
