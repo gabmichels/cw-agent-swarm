@@ -237,6 +237,26 @@ export const SocialMediaConnectionCard: React.FC<SocialMediaConnectionCardProps>
             </div>
           );
         }
+        
+        // Show migration message for expired connections that need re-authentication
+        if (connection.connectionStatus === SocialMediaConnectionStatus.EXPIRED && 
+            connection.metadata?.error && 
+            String(connection.metadata.error).includes('Encryption format migration')) {
+          return (
+            <div className="mt-3 p-2 bg-blue-900/20 border border-blue-800 rounded text-blue-400 text-sm">
+              <div className="flex items-start space-x-2">
+                <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                <div>
+                  <div className="font-medium">Reconnection Required</div>
+                  <div className="text-xs mt-1 text-blue-300">
+                    This connection uses an older security format. Please reconnect to continue using this account.
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        }
+        
         return null;
       })()}
     </div>

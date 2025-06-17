@@ -237,7 +237,7 @@ REDDIT_CLIENT_ID=your_reddit_client_id
 REDDIT_CLIENT_SECRET=your_reddit_client_secret
 
 # Security Configuration
-SOCIAL_MEDIA_ENCRYPTION_KEY=your_256_bit_encryption_key
+ENCRYPTION_MASTER_KEY=your_64_character_hex_key
 SOCIAL_MEDIA_JWT_SECRET=your_jwt_secret
 
 # App Configuration

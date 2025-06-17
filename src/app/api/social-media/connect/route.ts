@@ -95,15 +95,8 @@ export async function POST(request: NextRequest) {
       state: oauthData.state
     });
 
-    // Verify state was stored by checking directly
-    const { fileStateStorage } = await import('@/services/social-media/providers/base/FileStateStorage');
-    const storedState = fileStateStorage.get(oauthData.state);
-    console.log('State verification in connect route:', {
-      state: oauthData.state,
-      found: !!storedState,
-      storedState,
-      storageSize: fileStateStorage.size()
-    });
+    // OAuth state is now stored in database via PrismaStateStorage
+    console.log('OAuth state stored in database for state:', oauthData.state);
 
     return NextResponse.json({
       success: true,

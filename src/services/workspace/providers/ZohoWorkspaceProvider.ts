@@ -10,6 +10,7 @@ import {
 } from '../../database/types';
 import { DatabaseService } from '../../database/DatabaseService';
 import { getRequiredScopes } from '../scopes/WorkspaceScopes';
+import { TokenEncryption } from '../../security/TokenEncryption';
 
 /**
  * Zoho Workspace provider implementation
@@ -40,6 +41,7 @@ export class ZohoWorkspaceProvider implements IWorkspaceProvider {
   private httpClient: AxiosInstance;
   private readonly authBaseUrl: string;
   private readonly apiBaseUrl: string;
+  private readonly tokenEncryption: TokenEncryption;
 
   constructor(
     private readonly clientId: string,
@@ -49,6 +51,7 @@ export class ZohoWorkspaceProvider implements IWorkspaceProvider {
   ) {
     this.authBaseUrl = `https://accounts.zoho.${region}/oauth/v2`;
     this.apiBaseUrl = `https://www.zohoapis.${region}`;
+    this.tokenEncryption = new TokenEncryption();
     
     this.httpClient = axios.create({
       timeout: 30000,
@@ -180,10 +183,10 @@ export class ZohoWorkspaceProvider implements IWorkspaceProvider {
         existingConnections.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
         const mostRecentConnection = existingConnections[0];
         
-        // Update the existing connection with new tokens
+        // Update the existing connection with new tokens (encrypted)
         const updatedConnection = await db.updateWorkspaceConnection(mostRecentConnection.id, {
-          accessToken: tokens.access_token || '',
-          refreshToken: tokens.refresh_token || mostRecentConnection.refreshToken,
+          accessToken: tokens.access_token ? this.tokenEncryption.encrypt(tokens.access_token) : '',
+          refreshToken: tokens.refresh_token ? this.tokenEncryption.encrypt(tokens.refresh_token) : mostRecentConnection.refreshToken,
           tokenExpiresAt: tokens.expires_in ? new Date(Date.now() + tokens.expires_in * 1000) : undefined,
           scopes: tokens.scope || mostRecentConnection.scopes,
           displayName: userInfo.name || `${userInfo.given_name || ''} ${userInfo.family_name || ''}`.trim() || email,
@@ -200,15 +203,15 @@ export class ZohoWorkspaceProvider implements IWorkspaceProvider {
         return updatedConnection;
       }
       
-      // Create new connection if none exists
+      // Create new connection if none exists (with encrypted tokens)
       const connection = await db.createWorkspaceConnection({
         userId: stateData.userId || null,
         organizationId: stateData.organizationId || null,
         provider: WorkspaceProvider.ZOHO,
         accountType,
         connectionType: ConnectionType.OAUTH_PERSONAL,
-        accessToken: tokens.access_token || '',
-        refreshToken: tokens.refresh_token || undefined,
+        accessToken: tokens.access_token ? this.tokenEncryption.encrypt(tokens.access_token) : '',
+        refreshToken: tokens.refresh_token ? this.tokenEncryption.encrypt(tokens.refresh_token) : undefined,
         tokenExpiresAt: tokens.expires_in ? new Date(Date.now() + tokens.expires_in * 1000) : undefined,
         scopes: tokens.scope || '',
         providerAccountId: userInfo.sub || userInfo.user_id || '',
@@ -247,10 +250,13 @@ export class ZohoWorkspaceProvider implements IWorkspaceProvider {
 
       console.log(`Refreshing Zoho access token for connection ${connectionId}...`);
 
+      // Decrypt the refresh token before using it
+      const decryptedRefreshToken = this.tokenEncryption.decrypt(connection.refreshToken);
+
       // Refresh the access token
       const tokenResponse = await this.httpClient.post(`${this.authBaseUrl}/token`, null, {
         params: {
-          refresh_token: connection.refreshToken,
+          refresh_token: decryptedRefreshToken,
           grant_type: 'refresh_token',
           client_id: this.clientId,
           client_secret: this.clientSecret
@@ -264,9 +270,9 @@ export class ZohoWorkspaceProvider implements IWorkspaceProvider {
         tokenType: tokens.token_type
       });
       
-      // Update the connection with new tokens
+      // Update the connection with new tokens (encrypted)
       const updatedConnection = await db.updateWorkspaceConnection(connectionId, {
-        accessToken: tokens.access_token,
+        accessToken: this.tokenEncryption.encrypt(tokens.access_token),
         tokenExpiresAt: tokens.expires_in ? new Date(Date.now() + tokens.expires_in * 1000) : undefined,
         status: ConnectionStatus.ACTIVE
       });
@@ -336,9 +342,12 @@ export class ZohoWorkspaceProvider implements IWorkspaceProvider {
       // Test the connection by making a simple API call to user info endpoint
       // This endpoint should work with basic email scope
       try {
+        // Decrypt the access token before using it
+        const decryptedAccessToken = this.tokenEncryption.decrypt(connection.accessToken);
+        
         await this.httpClient.get(`${this.authBaseUrl}/userinfo`, {
           headers: {
-            'Authorization': `Zoho-oauthtoken ${connection.accessToken}`
+            'Authorization': `Zoho-oauthtoken ${decryptedAccessToken}`
           }
         });
 
@@ -378,9 +387,12 @@ export class ZohoWorkspaceProvider implements IWorkspaceProvider {
       // Revoke the refresh token with Zoho
       if (connection.refreshToken) {
         try {
+          // Decrypt the refresh token before revoking it
+          const decryptedRefreshToken = this.tokenEncryption.decrypt(connection.refreshToken);
+          
           await this.httpClient.post(`${this.authBaseUrl}/token/revoke`, null, {
             params: {
-              token: connection.refreshToken
+              token: decryptedRefreshToken
             }
           });
         } catch (revokeError) {
@@ -440,22 +452,28 @@ export class ZohoWorkspaceProvider implements IWorkspaceProvider {
         throw new Error('Failed to get updated connection');
       }
       
+      // Decrypt the access token before using it
+      const decryptedAccessToken = this.tokenEncryption.decrypt(updatedConnection.accessToken);
+      
       return axios.create({
         baseURL: this.apiBaseUrl,
         timeout: 30000,
         headers: {
-          'Authorization': `Zoho-oauthtoken ${updatedConnection.accessToken}`,
+          'Authorization': `Zoho-oauthtoken ${decryptedAccessToken}`,
           'Content-Type': 'application/json',
           'User-Agent': 'CrowdWisdom-Agent-Swarm/1.0'
         }
       });
     }
 
+    // Decrypt the access token before using it
+    const decryptedAccessToken = this.tokenEncryption.decrypt(connection.accessToken);
+    
     return axios.create({
       baseURL: this.apiBaseUrl,
       timeout: 30000,
       headers: {
-        'Authorization': `Zoho-oauthtoken ${connection.accessToken}`,
+        'Authorization': `Zoho-oauthtoken ${decryptedAccessToken}`,
         'Content-Type': 'application/json',
         'User-Agent': 'CrowdWisdom-Agent-Swarm/1.0'
       }
@@ -508,10 +526,13 @@ export class ZohoWorkspaceProvider implements IWorkspaceProvider {
 
     console.log(`Creating ${service} client with base URL:`, baseURL);
 
+    // Decrypt the access token before using it
+    const decryptedAccessToken = this.tokenEncryption.decrypt(connection.accessToken);
+    
     return axios.create({
       baseURL,
       headers: {
-        'Authorization': `Zoho-oauthtoken ${connection.accessToken}`,
+        'Authorization': `Zoho-oauthtoken ${decryptedAccessToken}`,
         'Content-Type': 'application/json',
         'User-Agent': 'CrowdWisdom-Agent-Swarm/1.0'
       },

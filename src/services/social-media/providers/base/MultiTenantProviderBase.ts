@@ -1,6 +1,7 @@
 import { ulid } from 'ulid';
 import * as crypto from 'crypto';
 import { PrismaStateStorage } from './PrismaStateStorage';
+import { TokenEncryption } from '../../../security/TokenEncryption';
 import { 
   MultiTenantOAuthConfig,
   TenantSocialToken,
@@ -59,10 +60,12 @@ export abstract class MultiTenantProviderBase implements IMultiTenantSocialMedia
   protected config: MultiTenantOAuthConfig;
   protected tokenStorage: Map<string, TenantSocialToken> = new Map();
   protected stateStorage: PrismaStateStorage;
+  protected tokenEncryption: TokenEncryption;
 
   constructor(config: MultiTenantOAuthConfig) {
     this.config = config;
     this.stateStorage = new PrismaStateStorage();
+    this.tokenEncryption = new TokenEncryption();
   }
 
   /**
@@ -239,25 +242,17 @@ export abstract class MultiTenantProviderBase implements IMultiTenantSocialMedia
   }
 
   /**
-   * Encrypt token for storage
+   * Encrypt token for storage using the secure TokenEncryption service
    */
   protected encryptToken(token: string): string {
-    const key = process.env.SOCIAL_MEDIA_ENCRYPTION_KEY!;
-    const cipher = crypto.createCipher('aes-256-cbc', key);
-    let encrypted = cipher.update(token, 'utf8', 'hex');
-    encrypted += cipher.final('hex');
-    return encrypted;
+    return this.tokenEncryption.encrypt(token);
   }
 
   /**
-   * Decrypt token from storage
+   * Decrypt token from storage using the secure TokenEncryption service
    */
   protected decryptToken(encryptedToken: string): string {
-    const key = process.env.SOCIAL_MEDIA_ENCRYPTION_KEY!;
-    const decipher = crypto.createDecipher('aes-256-cbc', key);
-    let decrypted = decipher.update(encryptedToken, 'hex', 'utf8');
-    decrypted += decipher.final('utf8');
-    return decrypted;
+    return this.tokenEncryption.decrypt(encryptedToken);
   }
 
   // Abstract methods that each platform must implement

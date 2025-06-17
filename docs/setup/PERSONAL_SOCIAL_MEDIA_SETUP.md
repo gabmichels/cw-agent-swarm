@@ -28,7 +28,7 @@ ZAPIER_PERSONAL_LINKEDIN_WEBHOOK=https://hooks.zapier.com/hooks/catch/12345/mnop
 
 # Basic config
 NEXT_PUBLIC_APP_URL=http://localhost:3000
-SOCIAL_MEDIA_ENCRYPTION_KEY=your_32_character_key_here
+ENCRYPTION_MASTER_KEY=your_64_character_hex_key_here
 ```
 
 **That's it!** Your agents can now post through Zapier to your accounts.
@@ -88,7 +88,7 @@ LINKEDIN_CLIENT_SECRET=your_linkedin_client_secret
 
 # Application Settings
 NEXT_PUBLIC_APP_URL=http://localhost:3000
-SOCIAL_MEDIA_ENCRYPTION_KEY=generate_32_char_key_with_crypto
+ENCRYPTION_MASTER_KEY=generate_64_char_hex_key_with_crypto
 
 # Optional: Additional platforms
 FACEBOOK_APP_ID=your_facebook_app_id

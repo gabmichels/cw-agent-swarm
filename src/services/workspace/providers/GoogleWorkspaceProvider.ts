@@ -10,6 +10,7 @@ import {
   ConnectionType
 } from '../../database/types';
 import { DatabaseService } from '../../database/DatabaseService';
+import { TokenEncryption } from '../../security/TokenEncryption';
 
 /**
  * Google Workspace provider implementation
@@ -38,6 +39,7 @@ export class GoogleWorkspaceProvider implements IWorkspaceProvider {
   ];
 
   private oauth2Client: OAuth2Client;
+  private readonly tokenEncryption: TokenEncryption;
 
   constructor(
     private readonly clientId: string,
@@ -49,6 +51,7 @@ export class GoogleWorkspaceProvider implements IWorkspaceProvider {
       clientSecret,
       redirectUri
     );
+    this.tokenEncryption = new TokenEncryption();
   }
 
   async initiateConnection(config: ConnectionConfig): Promise<ConnectionResult> {
@@ -138,8 +141,7 @@ export class GoogleWorkspaceProvider implements IWorkspaceProvider {
           tokenExpiresAt: tokens.expiry_date ? new Date(tokens.expiry_date) : undefined,
           scopes: tokens.scope || mostRecentConnection.scopes,
           displayName: userInfo.data.name || email,
-          status: ConnectionStatus.ACTIVE,
-          updatedAt: new Date()
+          status: ConnectionStatus.ACTIVE
         });
         
         // Delete any duplicate connections (keep only the updated one)

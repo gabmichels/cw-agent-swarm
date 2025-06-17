@@ -186,7 +186,19 @@ export class PrismaSocialMediaDatabase implements ISocialMediaDatabase {
       if (!connection) return false;
 
       // Check if tokens are expired using the encryption service
-      const isExpired = tokenEncryption.areTokensExpired(connection.encryptedCredentials);
+      let isExpired = false;
+      try {
+        isExpired = tokenEncryption.areTokensExpired(connection.encryptedCredentials);
+      } catch (decryptionError) {
+        console.warn('Failed to decrypt tokens with new encryption - may be old format, marking connection for re-authentication:', decryptionError);
+        // If we can't decrypt the tokens, they're likely in the old format
+        // Mark the connection as expired so the user can re-authenticate
+        await this.updateConnection(connectionId, {
+          connectionStatus: SocialMediaConnectionStatus.EXPIRED,
+          metadata: { error: 'Encryption format migration required - please reconnect' }
+        });
+        return false;
+      }
       
       if (isExpired) {
         await this.updateConnection(connectionId, {
@@ -501,6 +513,59 @@ export class PrismaSocialMediaDatabase implements ISocialMediaDatabase {
     // TODO: Implement encryption key rotation
     // This would involve re-encrypting all stored credentials with a new key
     throw new Error('Encryption key rotation not yet implemented');
+  }
+
+  /**
+   * Migration helper: Mark old encrypted connections as expired
+   * This forces users to re-authenticate with the new encryption format
+   */
+  async migrateOldEncryptedConnections(): Promise<number> {
+    try {
+      const connections = await this.prisma.socialMediaConnection.findMany({
+        where: { connectionStatus: SocialMediaConnectionStatus.ACTIVE }
+      });
+
+      let migratedCount = 0;
+
+      for (const connection of connections) {
+        try {
+          // Try to directly decrypt tokens to test the encryption format
+          tokenEncryption.decryptTokens(connection.encryptedCredentials);
+          console.log(`Connection ${connection.id} (${connection.provider}) is using new encryption format - skipping`);
+        } catch (decryptionError) {
+          // If decryption fails, this is likely an old format connection
+          console.log(`Migrating old encrypted connection: ${connection.id} (${connection.provider}) - Error: ${decryptionError instanceof Error ? decryptionError.message : 'Unknown error'}`);
+          
+          try {
+            await this.prisma.socialMediaConnection.update({
+              where: { id: connection.id },
+              data: {
+                connectionStatus: SocialMediaConnectionStatus.EXPIRED,
+                metadata: JSON.stringify({ 
+                  error: 'Encryption format migration required - please reconnect',
+                  migratedAt: new Date().toISOString(),
+                  originalError: decryptionError instanceof Error ? decryptionError.message : 'Unknown error'
+                })
+              }
+            });
+            
+            migratedCount++;
+            console.log(`✅ Successfully marked connection ${connection.id} for re-authentication`);
+          } catch (updateError) {
+            console.error(`❌ Failed to update connection ${connection.id}:`, updateError);
+          }
+        }
+      }
+
+      console.log(`Migration complete: ${migratedCount} connections marked for re-authentication`);
+      return migratedCount;
+    } catch (error) {
+      throw new SocialMediaError(
+        'Failed to migrate old encrypted connections',
+        'MIGRATION_FAILED',
+        { error: error instanceof Error ? error.message : 'Unknown error' }
+      );
+    }
   }
 
   // Helper mapping functions

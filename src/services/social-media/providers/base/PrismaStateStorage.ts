@@ -1,5 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import { ulid } from 'ulid';
+import { prisma as defaultPrisma } from '../../../../lib/prisma';
 
 export interface StateData {
   tenantId: string;
@@ -19,21 +20,35 @@ export class PrismaStateStorage {
   private prisma: PrismaClient;
 
   constructor(prisma?: PrismaClient) {
-    this.prisma = prisma || new PrismaClient();
+    this.prisma = prisma || defaultPrisma;
   }
 
   /**
-   * Store OAuth state in database
+   * Store OAuth state in database (upsert: create or update)
    */
   async set(state: string, data: StateData): Promise<void> {
     try {
       // States expire after 10 minutes
       const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
-      await this.prisma.oAuthState.create({
-        data: {
+      console.log('Attempting to store OAuth state:', { state, platform: data.platform });
+
+      // Use upsert to handle both create and update cases
+      await this.prisma.oAuthState.upsert({
+        where: { state },
+        create: {
           id: ulid(),
           state,
+          tenantId: data.tenantId,
+          userId: data.userId,
+          platform: data.platform,
+          accountType: data.accountType || 'personal',
+          codeVerifier: data.codeVerifier,
+          returnUrl: data.returnUrl,
+          metadata: data.metadata ? JSON.stringify(data.metadata) : null,
+          expiresAt
+        },
+        update: {
           tenantId: data.tenantId,
           userId: data.userId,
           platform: data.platform,
@@ -47,8 +62,11 @@ export class PrismaStateStorage {
 
       console.log('OAuth state stored in database:', { state, platform: data.platform });
     } catch (error) {
-      console.error('Failed to store OAuth state:', error);
-      throw new Error('Failed to store OAuth state');
+      console.error('Failed to store OAuth state - Detailed error:', error);
+      console.error('Error name:', error instanceof Error ? error.name : 'Unknown');
+      console.error('Error message:', error instanceof Error ? error.message : 'Unknown');
+      console.error('Error stack:', error instanceof Error ? error.stack : 'Unknown');
+      throw new Error(`Failed to store OAuth state: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
