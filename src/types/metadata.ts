@@ -330,7 +330,7 @@ export enum AgentStatus {
 }
 
 /**
- * Agent metadata interface
+ * Agent metadata interface with organizational and personal mode support
  */
 export interface AgentMetadata extends BaseMetadata {
   // Agent-specific identification
@@ -364,6 +364,23 @@ export interface AgentMetadata extends BaseMetadata {
   
   // Content summary for agent retrieval optimization
   contentSummary?: string;
+  
+  // Organizational and categorization properties (mode-aware)
+  // Universal properties (both modes)
+  category?: string; // For personal mode: "Finance", "Health", "Productivity"
+  
+  // Organizational properties (organizational mode only)
+  department?: {
+    id: string; // Prisma department ID
+    name: string; // "Marketing", "Engineering", etc.
+    code: string; // "MKT", "ENG", etc.
+  }; // For organizational mode: actual departments with relational data
+  subDepartment?: string; // Verticals/domains within department (e.g., "Drivers" within "Engineering")
+  team?: string; // Small units/pods within subdepartment (e.g., "Backend Team" within "Drivers")
+  position?: string; // Job title/role (organizational mode only)
+  reportingTo?: StructuredId; // Manager agent ID (organizational mode only)
+  managedAgents?: StructuredId[]; // Direct reports (organizational mode only)
+  organizationLevel?: number; // Hierarchy depth, 0 = top level (organizational mode only)
 }
 
 /**

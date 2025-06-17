@@ -1,8 +1,9 @@
 'use client';
 
 import React, { useState } from 'react';
-import { X, Settings, Wifi, Users, Shield, Bell, Palette, Database } from 'lucide-react';
+import { X, Settings, Wifi, Users, Shield, Bell, Palette, Database, Building } from 'lucide-react';
 import { SocialMediaSettingsModal } from './social-media/SocialMediaSettingsModal';
+import { DepartmentManagementModal } from './organization/DepartmentManagementModal';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -18,6 +19,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   organizationId
 }) => {
   const [isSocialMediaModalOpen, setIsSocialMediaModalOpen] = useState(false);
+  const [isDepartmentModalOpen, setIsDepartmentModalOpen] = useState(false);
 
   if (!isOpen) return null;
 
@@ -59,6 +61,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           description: 'Create and manage agent templates',
           action: () => console.log('Agent templates'),
           disabled: true
+        }
+      ]
+    },
+    {
+      id: 'organization',
+      title: 'Organization',
+      description: 'Manage departments and organizational structure',
+      icon: Building,
+      items: [
+        {
+          title: 'Department Management',
+          description: 'Create and manage organizational departments',
+          action: () => setIsDepartmentModalOpen(true),
+          badge: 'New'
         }
       ]
     },
@@ -222,6 +238,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         onClose={() => setIsSocialMediaModalOpen(false)}
         userId={userId}
         organizationId={organizationId}
+      />
+      <DepartmentManagementModal
+        isOpen={isDepartmentModalOpen}
+        onClose={() => setIsDepartmentModalOpen(false)}
       />
     </>
   );

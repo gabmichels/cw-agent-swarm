@@ -41,31 +41,38 @@ The Organizational Chart feature will provide:
 
 ## Implementation Checklist
 
-### Phase 1: Schema & Data Models
-- [ ] **Platform Mode Configuration**
-  - [ ] Add `PLATFORM_MODE` environment variable (personal|organizational)
-  - [ ] Create configuration service to handle mode-specific logic
-  - [ ] Add runtime mode detection and validation
-  - [ ] Plan for future client-specific settings storage
+### Phase 1: Schema & Data Models ✅ **COMPLETED**
 
-- [ ] **Extend Agent Schema with Optional Organizational Properties**
-  - [ ] Add `department?: string` to AgentMetadata interface (optional in personal mode)
-  - [ ] Add `category?: string` for personal mode grouping (e.g., "Finance", "Health")
-  - [ ] Add `position?: string` for job titles (organizational mode only)
-  - [ ] Add `reportingTo?: StructuredId` for manager relationships (organizational mode only)
-  - [ ] Add `managedAgents?: StructuredId[]` for direct reports (organizational mode only)
-  - [ ] Add `organizationLevel?: number` for hierarchy depth (organizational mode only)
-  - [ ] Update agent schema validation rules to be mode-aware
+**Implemented Files:**
+- `src/services/PlatformConfigService.ts` - Platform mode configuration and feature detection
+- `src/types/metadata.ts` - Extended AgentMetadata interface with organizational properties
+- `src/types/organization.ts` - Comprehensive organizational data models and interfaces
+- `src/services/validation/AgentSchemaValidator.ts` - Mode-aware agent validation service
+- `src/services/migration/AgentOrganizationMigration.ts` - Agent organizational property migration service
+- [x] **Platform Mode Configuration**
+  - [x] Add `PLATFORM_MODE` environment variable (personal|organizational)
+  - [x] Create configuration service to handle mode-specific logic
+  - [x] Add runtime mode detection and validation
+  - [x] Plan for future client-specific settings storage
 
-- [ ] **Create Organizational Data Models**
-  - [ ] Define `Department` interface with ULID
-  - [ ] Define `OrganizationChart` interface
-  - [ ] Define `OrgHierarchyNode` interface
-  - [ ] Define `AgentConfigTemplate` interface
-  - [ ] Create comprehensive TypeScript types (no 'any' usage)
+- [x] **Extend Agent Schema with Optional Organizational Properties**
+  - [x] Add `department?: string` to AgentMetadata interface (optional in personal mode)
+  - [x] Add `category?: string` for personal mode grouping (e.g., "Finance", "Health")
+  - [x] Add `position?: string` for job titles (organizational mode only)
+  - [x] Add `reportingTo?: StructuredId` for manager relationships (organizational mode only)
+  - [x] Add `managedAgents?: StructuredId[]` for direct reports (organizational mode only)
+  - [x] Add `organizationLevel?: number` for hierarchy depth (organizational mode only)
+  - [x] Update agent schema validation rules to be mode-aware
 
-- [ ] **Database Schema Updates**
-  - [ ] Create migration script for existing agents
+- [x] **Create Organizational Data Models**
+  - [x] Define `Department` interface with ULID
+  - [x] Define `OrganizationChart` interface
+  - [x] Define `OrgHierarchyNode` interface
+  - [x] Define `AgentConfigTemplate` interface
+  - [x] Create comprehensive TypeScript types (no 'any' usage)
+
+- [x] **Database Schema Updates**
+  - [x] Create migration script for existing agents
   - [ ] Update Qdrant collections for organizational data
   - [ ] Create indexes for organizational queries
   - [ ] Implement validation constraints
@@ -213,6 +220,8 @@ interface AgentMetadata extends BaseMetadata {
   
   // Organizational properties (organizational mode only)
   department?: string; // For organizational mode: actual departments
+  subDepartment?: string; // Verticals/domains within department (e.g., "Drivers" within "Engineering")
+  team?: string; // Small units/pods within subdepartment (e.g., "Backend Team" within "Drivers")
   position?: string;
   reportingTo?: StructuredId;
   managedAgents?: StructuredId[];
@@ -224,6 +233,20 @@ interface PlatformConfig {
   organizationName?: string; // Only for organizational mode
   personalUserName?: string; // Only for personal mode
 }
+
+// Example organizational hierarchy structure:
+// Company: Deliveroo
+//   ├── Department: Engineering
+//   │   ├── SubDepartment: Drivers
+//   │   │   ├── Team: Backend Team
+//   │   │   │   ├── Agent: API Developer
+//   │   │   │   └── Agent: Database Specialist
+//   │   │   └── Team: Mobile Team
+//   │   │       └── Agent: iOS Developer
+//   │   └── SubDepartment: Marketplace
+//   │       └── Team: Recommendations Team
+//   └── Department: Operations
+//       └── SubDepartment: Customer Service
 
 interface Department {
   id: StructuredId;

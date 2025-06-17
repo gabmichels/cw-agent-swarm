@@ -75,6 +75,36 @@ model ActionResult {
   updatedAt   DateTime @updatedAt
 }
 
+model Department {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String?
+  code        String?  @unique // Short code like 'MKT', 'ENG', 'HR'
+  isActive    Boolean  @default(true)
+  
+  // Budgeting and Finance properties for future analysis
+  budgetLimit        Float?   // Monthly/annual budget limit
+  currentSpent       Float?   @default(0) // Current spent amount
+  currency           String?  @default("USD")
+  costCenterId       String?  // Reference to external cost center
+  
+  // Organizational properties
+  managerId          String?  // ID of department manager
+  parentDepartmentId String?  // For hierarchical departments
+  
+  // Timestamps
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  // Relations
+  parentDepartment Department? @relation("DepartmentHierarchy", fields: [parentDepartmentId], references: [id])
+  subDepartments   Department[] @relation("DepartmentHierarchy")
+
+  @@index([name])
+  @@index([isActive])
+  @@index([parentDepartmentId])
+}
+
 model WorkspaceEventType {
   id          String   @id @default(uuid())
   name        String   @unique // NEW_EMAIL, CALENDAR_INVITE, etc.

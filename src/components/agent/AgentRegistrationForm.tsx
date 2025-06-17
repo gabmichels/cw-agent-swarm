@@ -11,6 +11,7 @@ import AgentProcessingStatus, { ProcessingLog, ProcessingStep } from './AgentPro
 import { AgentWorkspacePermissionManager, AgentWorkspacePermissionConfig } from './AgentWorkspacePermissionManager';
 import { AgentSocialMediaPermissionManager, AgentSocialMediaPermissionConfig } from '../social-media/AgentSocialMediaPermissionManager';
 import { CapabilityLevel } from '@/agents/shared/capability-system';
+import { Department } from '../organization/DepartmentManagementModal';
 import './wizard.css';
 import { AgentStatus } from '@/server/memory/schema/agent';
 
@@ -30,6 +31,14 @@ interface ExtendedAgentMetadata extends AgentMetadata {
   };
   workspacePermissions?: AgentWorkspacePermissionConfig[];
   socialMediaPermissions?: AgentSocialMediaPermissionConfig[];
+  // Organizational fields - department as object with relational data
+  department?: {
+    id: string;
+    name: string;
+    code: string;
+  };
+  subDepartment?: string;
+  team?: string;
 }
 
 interface KnowledgeFile {
@@ -50,7 +59,11 @@ interface PersonaData {
 
 interface AgentConfig {
   knowledgePaths: string[];
-  department?: string;
+  department?: {
+    id: string;
+    name: string;
+    code: string;
+  };
 }
 
 interface AgentRegistrationFormProps {
@@ -162,6 +175,10 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
   const [workspacePermissions, setWorkspacePermissions] = useState<AgentWorkspacePermissionConfig[]>([]);
   const [socialMediaPermissions, setSocialMediaPermissions] = useState<AgentSocialMediaPermissionConfig[]>([]);
   
+  // Department management
+  const [departments, setDepartments] = useState<Department[]>([]);
+  const [selectedDepartmentId, setSelectedDepartmentId] = useState<string>('');
+  
   // Add processing status state
   const [processingLog, setProcessingLog] = useState<ProcessingLog>({
     steps: [
@@ -210,12 +227,31 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
         if (parsedData.managersConfig) setManagersConfig(parsedData.managersConfig);
         if (parsedData.workspacePermissions) setWorkspacePermissions(parsedData.workspacePermissions);
         if (parsedData.socialMediaPermissions) setSocialMediaPermissions(parsedData.socialMediaPermissions);
+        if (parsedData.selectedDepartmentId) setSelectedDepartmentId(parsedData.selectedDepartmentId);
         if (parsedData.currentStep !== undefined) setCurrentStep(parsedData.currentStep);
       } catch (error) {
         console.error('Error loading saved form data:', error);
       }
     }
+    
+    // Fetch departments
+    fetchDepartments();
   }, []);
+
+  const fetchDepartments = async () => {
+    try {
+      const response = await fetch('/api/departments');
+      const data = await response.json();
+      
+      if (data.success) {
+        setDepartments(data.departments);
+      } else {
+        console.error('Failed to fetch departments:', data.error);
+      }
+    } catch (error) {
+      console.error('Error fetching departments:', error);
+    }
+  };
   
   // Save form data to localStorage whenever it changes
   useEffect(() => {
@@ -228,11 +264,12 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
       managersConfig,
       workspacePermissions,
       socialMediaPermissions,
+      selectedDepartmentId,
       currentStep
     };
     
     localStorage.setItem(STORAGE_KEY, JSON.stringify(dataToSave));
-  }, [formData, systemPrompt, knowledgeData, personaData, agentCapabilities, managersConfig, workspacePermissions, socialMediaPermissions, currentStep]);
+  }, [formData, systemPrompt, knowledgeData, personaData, agentCapabilities, managersConfig, workspacePermissions, socialMediaPermissions, selectedDepartmentId, currentStep]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -686,6 +723,9 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
           performanceMetrics: formData.metadata.performanceMetrics,
           version: '1.0',
           isPublic: formData.metadata.isPublic,
+          department: formData.metadata.department,
+          subDepartment: formData.metadata.subDepartment,
+          team: formData.metadata.team,
         }
       };
       
@@ -906,6 +946,45 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
               <option value={AgentStatus.MAINTENANCE}>Maintenance</option>
               <option value={AgentStatus.OFFLINE}>Offline</option>
             </select>
+          </div>
+
+          <div className="wizard-form-group">
+            <label htmlFor="department" className="wizard-label">
+              Department
+            </label>
+            <select
+              id="department"
+              name="department"
+              value={selectedDepartmentId}
+              onChange={(e) => {
+                const departmentId = e.target.value;
+                setSelectedDepartmentId(departmentId);
+                const selectedDept = departments.find(d => d.id === departmentId);
+                setFormData(prevFormData => ({
+                  ...prevFormData,
+                  metadata: {
+                    ...prevFormData.metadata,
+                    department: selectedDept ? {
+                      id: selectedDept.id,
+                      name: selectedDept.name,
+                      code: selectedDept.code || ''
+                    } : undefined
+                  }
+                }));
+              }}
+              className="wizard-select"
+            >
+              <option value="">Select Department (Optional)</option>
+              {departments.map(dept => (
+                <option key={dept.id} value={dept.id}>
+                  {dept.name}
+                  {dept.code && ` (${dept.code})`}
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-gray-400 mt-1">
+              Assign this agent to a specific department for organizational purposes
+            </p>
           </div>
         </div>
         
