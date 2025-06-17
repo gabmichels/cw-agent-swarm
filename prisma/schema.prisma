@@ -334,4 +334,24 @@ model SocialMediaAuditLog {
   @@index([action])
   @@index([platform])
   @@index([timestamp])
+}
+
+// OAuth State Management - for secure OAuth flows
+model OAuthState {
+  id            String   @id @default(uuid())
+  state         String   @unique // The OAuth state parameter
+  tenantId      String
+  userId        String
+  platform      String   // References SocialMediaProvider.name
+  accountType   String   // personal, business, etc.
+  codeVerifier  String?  // For PKCE support
+  returnUrl     String?  // Where to redirect after OAuth
+  metadata      String?  // Additional state data as JSON
+  expiresAt     DateTime // States expire after 10 minutes
+  createdAt     DateTime @default(now())
+
+  @@index([state])
+  @@index([expiresAt])
+  @@index([tenantId])
+  @@index([userId])
 } 

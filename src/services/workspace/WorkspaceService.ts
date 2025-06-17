@@ -192,7 +192,8 @@ export class WorkspaceService {
    */
   async getUserConnections(userId: string): Promise<WorkspaceConnection[]> {
     const db = DatabaseService.getInstance();
-    return db.findWorkspaceConnections({ userId });
+    const connections = await db.findWorkspaceConnections({ userId });
+    return this.sanitizeConnectionsForAPI(connections);
   }
 
   /**
@@ -200,15 +201,28 @@ export class WorkspaceService {
    */
   async getOrganizationConnections(organizationId: string): Promise<WorkspaceConnection[]> {
     const db = DatabaseService.getInstance();
-    return db.findWorkspaceConnections({ organizationId });
+    const connections = await db.findWorkspaceConnections({ organizationId });
+    return this.sanitizeConnectionsForAPI(connections);
   }
 
   /**
-   * Get all workspace connections
+   * Get all workspace connections (for development/admin purposes)
    */
   async getAllConnections(): Promise<WorkspaceConnection[]> {
     const db = DatabaseService.getInstance();
-    return db.findWorkspaceConnections({});
+    const connections = await db.findWorkspaceConnections({});
+    return this.sanitizeConnectionsForAPI(connections);
+  }
+
+  /**
+   * Sanitize workspace connections for API responses by removing sensitive data
+   */
+  private sanitizeConnectionsForAPI(connections: WorkspaceConnection[]): WorkspaceConnection[] {
+    return connections.map(connection => ({
+      ...connection,
+      accessToken: undefined, // Remove sensitive token data
+      refreshToken: undefined // Remove sensitive token data
+    })) as WorkspaceConnection[];
   }
 
   /**

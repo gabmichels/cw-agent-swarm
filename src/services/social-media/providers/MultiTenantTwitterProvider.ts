@@ -9,15 +9,14 @@ import {
 } from './base/ISocialMediaProvider';
 import { SocialMediaProvider } from '../database/ISocialMediaDatabase';
 import { MultiTenantProviderBase } from './base/MultiTenantProviderBase';
-import { fileStateStorage } from './base/FileStateStorage';
-import crypto from 'crypto';
+import * as crypto from 'crypto';
 
 /**
  * Multi-Tenant Twitter Provider
  * 
  * Handles OAuth flows for multiple companies/users
  * Each tenant connects their own Twitter accounts
- * Supports multiple accounts per tenant (personal, company, product)
+ * Supports Twitter OAuth 2.0 with PKCE
  */
 export class MultiTenantTwitterProvider extends MultiTenantProviderBase {
   constructor() {
@@ -25,12 +24,12 @@ export class MultiTenantTwitterProvider extends MultiTenantProviderBase {
       platform: SocialMediaProvider.TWITTER,
       clientId: process.env.TWITTER_CLIENT_ID!,
       clientSecret: process.env.TWITTER_CLIENT_SECRET!,
-      scopes: ['tweet.read', 'tweet.write', 'users.read', 'offline.access'],
+      scopes: ['tweet.read', 'tweet.write', 'users.read'],
       authUrl: 'https://twitter.com/i/oauth2/authorize',
       tokenUrl: 'https://api.twitter.com/2/oauth2/token',
       refreshUrl: 'https://api.twitter.com/2/oauth2/token',
       revokeUrl: 'https://api.twitter.com/2/oauth2/revoke',
-      callbackUrl: `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/social-media/callback/twitter`
+      callbackUrl: `${process.env.NEXT_PUBLIC_APP_URL}/api/social-media/callback/twitter`
     };
     
     super(config);
@@ -44,13 +43,13 @@ export class MultiTenantTwitterProvider extends MultiTenantProviderBase {
     const codeVerifier = this.generateCodeVerifier();
     const codeChallenge = this.generateCodeChallenge(codeVerifier);
     
-    // Store the code verifier with the state so we can retrieve it during token exchange
-    const stateData = fileStateStorage.get(state);
+    // Store the code verifier with the state in database
+    const stateData = await this.stateStorage.get(state);
     if (stateData) {
-      fileStateStorage.set(state, {
+      await this.stateStorage.set(state, {
         ...stateData,
         codeVerifier // Add code verifier to state data
-      } as any);
+      });
     }
 
     const params = new URLSearchParams({
@@ -75,10 +74,9 @@ export class MultiTenantTwitterProvider extends MultiTenantProviderBase {
     expires_in: number;
     token_type: string;
   }> {
-    // We need to get the code verifier from somewhere
-    // Since this method doesn't have access to state, we'll need to modify the base class
-    // For now, let's use a simple approach
-    throw new Error('exchangeCodeForToken called without state context - this should not happen');
+    // This method is not used for Twitter since we need PKCE support
+    // Use exchangeCodeForTokenWithState instead
+    throw new Error('exchangeCodeForToken called without state context - use exchangeCodeForTokenWithState');
   }
 
   /**
@@ -90,8 +88,8 @@ export class MultiTenantTwitterProvider extends MultiTenantProviderBase {
     expires_in: number;
     token_type: string;
   }> {
-    // Get the stored code verifier
-    const stateData = fileStateStorage.get(state) as any;
+    // Get the stored code verifier from database
+    const stateData = await this.stateStorage.get(state);
     if (!stateData || !stateData.codeVerifier) {
       throw new Error('Code verifier not found for state');
     }

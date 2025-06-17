@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { MultiTenantTwitterProvider } from '@/services/social-media/providers/MultiTenantTwitterProvider';
-import { fileStateStorage } from '@/services/social-media/providers/base/FileStateStorage';
+import { PrismaStateStorage } from '@/services/social-media/providers/base/PrismaStateStorage';
 import { PrismaSocialMediaDatabase } from '@/services/social-media/database/PrismaSocialMediaDatabase';
 import { PrismaClient } from '@prisma/client';
 import { SocialMediaProvider, SocialMediaConnectionStatus } from '@/services/social-media/database/ISocialMediaDatabase';
@@ -22,6 +22,8 @@ import { SocialMediaProvider, SocialMediaConnectionStatus } from '@/services/soc
  */
 export async function GET(request: NextRequest) {
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+  const prisma = new PrismaClient();
+  const stateStorage = new PrismaStateStorage(prisma);
   
   try {
     const { searchParams } = new URL(request.url);
@@ -47,14 +49,12 @@ export async function GET(request: NextRequest) {
     // Initialize Twitter provider
     const twitterProvider = new MultiTenantTwitterProvider();
 
-    // Debug: Log the state and what's in storage
     console.log('Callback received state:', state);
-    console.log('File state storage contents:', fileStateStorage.entries());
 
-    // Get state data from file storage
-    const stateData = fileStateStorage.get(state);
+    // Get state data from database
+    const stateData = await stateStorage.get(state);
     if (!stateData) {
-      console.error('State not found in file storage. State:', state);
+      console.error('State not found in database. State:', state);
       return NextResponse.redirect(
         `${baseUrl}/?social_error=invalid_state&platform=twitter`
       );
@@ -78,71 +78,65 @@ export async function GET(request: NextRequest) {
       username: userProfile.username
     });
 
-    // Initialize Prisma database
-    const prisma = new PrismaClient();
+    // Initialize database
     const database = new PrismaSocialMediaDatabase(prisma);
 
-    try {
-      // Store the connection in database
-      const connection = await database.createConnection({
-        userId,
-        organizationId: tenantId !== userId ? tenantId : undefined,
-        provider: SocialMediaProvider.TWITTER,
-        providerAccountId: userProfile.id,
-        accountDisplayName: userProfile.name,
-        accountUsername: userProfile.username,
-        accountType: (stateData.accountType || 'personal') as 'personal' | 'business',
-        encryptedCredentials: JSON.stringify({
-          access_token: tokenResponse.access_token,
-          refresh_token: tokenResponse.refresh_token,
-          expires_in: tokenResponse.expires_in,
-          token_type: tokenResponse.token_type
-        }),
-        scopes: ['tweet.read', 'tweet.write', 'users.read'], // Twitter OAuth 2.0 default scopes
-        connectionStatus: SocialMediaConnectionStatus.ACTIVE,
-        metadata: {
-          followerCount: 0, // Would need additional API call to get this
-          verifiedStatus: false, // Would need additional API call to get this
-          accountCreated: new Date().toISOString()
-        },
-        lastValidated: new Date()
-      });
+    // Store the connection in database
+    const connection = await database.createConnection({
+      userId,
+      organizationId: tenantId !== userId ? tenantId : undefined,
+      provider: SocialMediaProvider.TWITTER,
+      providerAccountId: userProfile.id,
+      accountDisplayName: userProfile.name,
+      accountUsername: userProfile.username,
+      accountType: (stateData.accountType || 'personal') as 'personal' | 'business',
+      encryptedCredentials: {
+        access_token: tokenResponse.access_token,
+        refresh_token: tokenResponse.refresh_token,
+        expires_in: tokenResponse.expires_in,
+        token_type: tokenResponse.token_type
+      },
+      scopes: ['tweet.read', 'tweet.write', 'users.read'], // Twitter OAuth 2.0 default scopes
+      connectionStatus: SocialMediaConnectionStatus.ACTIVE,
+      metadata: {
+        followerCount: 0, // Would need additional API call to get this
+        verifiedStatus: false, // Would need additional API call to get this
+        accountCreated: new Date().toISOString()
+      },
+      lastValidated: new Date()
+    });
 
-      console.log('Twitter connection stored successfully in database:', {
-        connectionId: connection.id,
-        tenantId,
-        accountUsername: connection.accountUsername,
-        accountType: connection.accountType
-      });
+    console.log('Twitter connection stored successfully in database:', {
+      connectionId: connection.id,
+      tenantId,
+      accountUsername: connection.accountUsername,
+      accountType: connection.accountType
+    });
 
-      // Log the successful connection
-      await database.logAction({
-        timestamp: new Date(),
-        connectionId: connection.id,
-        agentId: undefined,
-        action: 'authenticate',
-        platform: SocialMediaProvider.TWITTER,
-        result: 'success',
-        ipAddress: request.headers.get('x-forwarded-for') || 'unknown',
-        userAgent: request.headers.get('user-agent') || 'unknown',
-        metadata: {
-          accountType: connection.accountType,
-          scopes: connection.scopes
-        }
-      });
+    // Log the successful connection
+    await database.logAction({
+      timestamp: new Date(),
+      connectionId: connection.id,
+      agentId: undefined,
+      action: 'authenticate',
+      platform: SocialMediaProvider.TWITTER,
+      result: 'success',
+      ipAddress: request.headers.get('x-forwarded-for') || 'unknown',
+      userAgent: request.headers.get('user-agent') || 'unknown',
+      metadata: {
+        accountType: connection.accountType,
+        scopes: connection.scopes
+      }
+    });
 
-      const redirectUrl = `${baseUrl}/?social_success=true&platform=twitter&account=${encodeURIComponent(connection.accountDisplayName)}`;
-      console.log('Redirecting to:', redirectUrl);
+    const redirectUrl = `${baseUrl}/?social_success=true&platform=twitter&account=${encodeURIComponent(connection.accountDisplayName)}`;
+    console.log('Redirecting to:', redirectUrl);
 
-      // Clean up the state
-      fileStateStorage.delete(state);
+    // Clean up the state
+    await stateStorage.delete(state);
 
-      // Redirect back to main page with success message
-      return NextResponse.redirect(redirectUrl);
-
-    } finally {
-      await prisma.$disconnect();
-    }
+    // Redirect back to main page with success message
+    return NextResponse.redirect(redirectUrl);
 
   } catch (error) {
     console.error('Twitter callback error:', error);
@@ -152,6 +146,8 @@ export async function GET(request: NextRequest) {
         error instanceof Error ? error.message : 'connection_failed'
       )}&platform=twitter`
     );
+  } finally {
+    await prisma.$disconnect();
   }
 }
 

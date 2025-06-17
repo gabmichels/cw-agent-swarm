@@ -7,7 +7,7 @@ interface PrismaClientWithSocialMedia extends PrismaClient {
   socialMediaAuditLog: any;
 }
 import { ulid } from 'ulid';
-import * as crypto from 'crypto';
+import { tokenEncryption } from '../../security/TokenEncryption';
 import {
   ISocialMediaDatabase,
   SocialMediaConnection,
@@ -25,63 +25,9 @@ import {
 // Following IMPLEMENTATION_GUIDELINES.md - dependency injection, error handling
 export class PrismaSocialMediaDatabase implements ISocialMediaDatabase {
   private prisma: PrismaClientWithSocialMedia;
-  private encryptionKey: string;
 
-  constructor(prisma: PrismaClient, encryptionKey?: string) {
+  constructor(prisma: PrismaClient) {
     this.prisma = prisma as PrismaClientWithSocialMedia;
-    this.encryptionKey = encryptionKey || process.env.SOCIAL_MEDIA_ENCRYPTION_KEY || 'default-key-change-in-production';
-  }
-
-  // Encryption utilities - simplified for testing compatibility
-  private encryptCredentials(credentials: string): string {
-    try {
-      // Use modern AES-256-GCM encryption
-      const algorithm = 'aes-256-gcm';
-      const key = crypto.scryptSync(this.encryptionKey, 'salt', 32);
-      const iv = crypto.randomBytes(16);
-      
-      const cipher = crypto.createCipher(algorithm, key) as any;
-      
-      let encrypted = cipher.update(credentials, 'utf8', 'hex');
-      encrypted += cipher.final('hex');
-      
-      // For GCM mode, we would get auth tag, but createCipher doesn't support it
-      // So we'll use a simpler approach for compatibility
-      
-      // Combine IV and encrypted data
-      return iv.toString('hex') + ':' + encrypted;
-    } catch (error) {
-      // Fallback to simple base64 encoding for testing environments
-      return Buffer.from(credentials).toString('base64');
-    }
-  }
-
-  private decryptCredentials(encryptedCredentials: string): string {
-    try {
-      // Check if it's the new format (with colons)
-      if (encryptedCredentials.includes(':')) {
-        const parts = encryptedCredentials.split(':');
-        if (parts.length === 2) {
-          const iv = Buffer.from(parts[0], 'hex');
-          const encrypted = parts[1];
-          
-          const algorithm = 'aes-256-gcm';
-          const key = crypto.scryptSync(this.encryptionKey, 'salt', 32);
-          
-          const decipher = crypto.createDecipher(algorithm, key) as any;
-          
-          let decrypted = decipher.update(encrypted, 'hex', 'utf8');
-          decrypted += decipher.final('utf8');
-          return decrypted;
-        }
-      }
-      
-      // Fallback to base64 decoding for testing
-      return Buffer.from(encryptedCredentials, 'base64').toString('utf8');
-    } catch (error) {
-      // If all else fails, return the original string (for testing)
-      return encryptedCredentials;
-    }
   }
 
   // Connection Management
@@ -89,11 +35,12 @@ export class PrismaSocialMediaDatabase implements ISocialMediaDatabase {
     try {
       const id = ulid();
       
-      // Encrypt credentials before storing
-      const encryptedCredentials = this.encryptCredentials(JSON.stringify({
-        accessToken: connection.encryptedCredentials,
-        // Add other credential fields as needed
-      }));
+      // Use production-ready encryption for credentials
+      const encryptedCredentials = tokenEncryption.encryptTokens(
+        typeof connection.encryptedCredentials === 'string' 
+          ? JSON.parse(connection.encryptedCredentials)
+          : connection.encryptedCredentials
+      );
 
       const created = await this.prisma.socialMediaConnection.create({
         data: {
@@ -184,9 +131,13 @@ export class PrismaSocialMediaDatabase implements ISocialMediaDatabase {
       if (updates.metadata) updateData.metadata = JSON.stringify(updates.metadata);
       if (updates.lastValidated) updateData.lastValidated = updates.lastValidated;
       
-      // Handle credential updates
+      // Handle credential updates with proper encryption
       if (updates.encryptedCredentials) {
-        updateData.encryptedCredentials = this.encryptCredentials(updates.encryptedCredentials);
+        updateData.encryptedCredentials = tokenEncryption.encryptTokens(
+          typeof updates.encryptedCredentials === 'string' 
+            ? JSON.parse(updates.encryptedCredentials)
+            : updates.encryptedCredentials
+        );
       }
 
       const updated = await this.prisma.socialMediaConnection.update({
@@ -234,8 +185,17 @@ export class PrismaSocialMediaDatabase implements ISocialMediaDatabase {
       const connection = await this.getConnection(connectionId);
       if (!connection) return false;
 
-      // TODO: Implement actual validation logic with platform APIs
-      // For now, just update the lastValidated timestamp
+      // Check if tokens are expired using the encryption service
+      const isExpired = tokenEncryption.areTokensExpired(connection.encryptedCredentials);
+      
+      if (isExpired) {
+        await this.updateConnection(connectionId, {
+          connectionStatus: SocialMediaConnectionStatus.EXPIRED
+        });
+        return false;
+      }
+
+      // Update last validated timestamp
       await this.updateConnection(connectionId, {
         lastValidated: new Date(),
         connectionStatus: SocialMediaConnectionStatus.ACTIVE

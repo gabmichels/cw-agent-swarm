@@ -1,5 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import { IDatabaseProvider } from './IDatabaseProvider';
+import { tokenEncryption } from '../security/TokenEncryption';
 import {
   WorkspaceConnection,
   WorkspaceConnectionCreateInput,
@@ -43,30 +44,60 @@ export class PrismaDatabaseProvider implements IDatabaseProvider {
 
   // Workspace Connection Operations
   async createWorkspaceConnection(input: WorkspaceConnectionCreateInput): Promise<WorkspaceConnection> {
-    return this.client.workspaceConnection.create({
+    // Encrypt tokens before storing
+    const encryptedTokens = tokenEncryption.encryptTokens({
+      access_token: input.accessToken,
+      refresh_token: input.refreshToken,
+      expires_in: input.tokenExpiresAt ? Math.floor((input.tokenExpiresAt.getTime() - Date.now()) / 1000) : undefined
+    });
+
+    const created = await this.client.workspaceConnection.create({
       data: {
         ...input,
+        accessToken: encryptedTokens, // Store encrypted tokens
+        refreshToken: undefined, // Refresh token is included in encrypted data
         status: input.status || ConnectionStatus.ACTIVE,
         createdAt: new Date(),
         updatedAt: new Date()
       }
     });
+
+    // Return decrypted version for immediate use
+    return this.decryptWorkspaceConnection(created);
   }
 
   async getWorkspaceConnection(id: string): Promise<WorkspaceConnection | null> {
-    return this.client.workspaceConnection.findUnique({
+    const connection = await this.client.workspaceConnection.findUnique({
       where: { id }
     });
+
+    return connection ? this.decryptWorkspaceConnection(connection) : null;
   }
 
   async updateWorkspaceConnection(id: string, input: WorkspaceConnectionUpdateInput): Promise<WorkspaceConnection> {
-    return this.client.workspaceConnection.update({
+    const updateData: any = {
+      ...input,
+      updatedAt: new Date()
+    };
+
+    // Handle token updates with encryption
+    if (input.accessToken || input.refreshToken) {
+      const encryptedTokens = tokenEncryption.encryptTokens({
+        access_token: input.accessToken || '',
+        refresh_token: input.refreshToken,
+        expires_in: input.tokenExpiresAt ? Math.floor((input.tokenExpiresAt.getTime() - Date.now()) / 1000) : undefined
+      });
+      
+      updateData.accessToken = encryptedTokens;
+      updateData.refreshToken = undefined; // Refresh token is included in encrypted data
+    }
+
+    const updated = await this.client.workspaceConnection.update({
       where: { id },
-      data: {
-        ...input,
-        updatedAt: new Date()
-      }
+      data: updateData
     });
+
+    return this.decryptWorkspaceConnection(updated);
   }
 
   async deleteWorkspaceConnection(id: string): Promise<void> {
@@ -76,9 +107,57 @@ export class PrismaDatabaseProvider implements IDatabaseProvider {
   }
 
   async findWorkspaceConnections(query: WorkspaceConnectionQuery): Promise<WorkspaceConnection[]> {
-    return this.client.workspaceConnection.findMany({
+    const connections = await this.client.workspaceConnection.findMany({
       where: query
     });
+
+    return connections.map(conn => this.decryptWorkspaceConnection(conn));
+  }
+
+  /**
+   * Decrypt workspace connection tokens for use
+   */
+  private decryptWorkspaceConnection(prismaConnection: any): WorkspaceConnection {
+    try {
+      // Decrypt the tokens
+      const decryptedTokens = tokenEncryption.decryptTokens(prismaConnection.accessToken);
+      
+      return {
+        ...prismaConnection,
+        accessToken: decryptedTokens.access_token,
+        refreshToken: decryptedTokens.refresh_token || undefined,
+        // Update tokenExpiresAt based on decrypted data if available
+        tokenExpiresAt: decryptedTokens.expires_in && decryptedTokens.encrypted_at 
+          ? new Date(new Date(decryptedTokens.encrypted_at).getTime() + (decryptedTokens.expires_in * 1000))
+          : prismaConnection.tokenExpiresAt
+      };
+    } catch (error) {
+      console.error('Failed to decrypt workspace connection tokens:', error);
+      // Return connection with empty tokens if decryption fails
+      return {
+        ...prismaConnection,
+        accessToken: '',
+        refreshToken: undefined
+      };
+    }
+  }
+
+  /**
+   * Check if workspace connection tokens are expired
+   */
+  async isWorkspaceConnectionExpired(id: string): Promise<boolean> {
+    const connection = await this.client.workspaceConnection.findUnique({
+      where: { id }
+    });
+
+    if (!connection) return true;
+
+    try {
+      return tokenEncryption.areTokensExpired(connection.accessToken);
+    } catch (error) {
+      console.error('Error checking workspace token expiry:', error);
+      return true; // Assume expired if we can't decrypt
+    }
   }
 
   // Agent Workspace Permission Operations

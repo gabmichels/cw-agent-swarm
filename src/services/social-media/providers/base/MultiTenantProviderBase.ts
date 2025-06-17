@@ -1,5 +1,6 @@
 import { ulid } from 'ulid';
-import crypto from 'crypto';
+import * as crypto from 'crypto';
+import { PrismaStateStorage } from './PrismaStateStorage';
 import { 
   MultiTenantOAuthConfig,
   TenantSocialToken,
@@ -11,7 +12,6 @@ import {
   PostMetrics
 } from './ISocialMediaProvider';
 import { SocialMediaProvider } from '../../database/ISocialMediaDatabase';
-import { fileStateStorage } from './FileStateStorage';
 
 /**
  * Multi-Tenant Provider Interface
@@ -58,11 +58,11 @@ export interface IMultiTenantSocialMediaProvider {
 export abstract class MultiTenantProviderBase implements IMultiTenantSocialMediaProvider {
   protected config: MultiTenantOAuthConfig;
   protected tokenStorage: Map<string, TenantSocialToken> = new Map();
+  protected stateStorage: PrismaStateStorage;
 
   constructor(config: MultiTenantOAuthConfig) {
     this.config = config;
-    
-    // Note: State cleanup is now handled by the global state storage
+    this.stateStorage = new PrismaStateStorage();
   }
 
   /**
@@ -77,17 +77,13 @@ export abstract class MultiTenantProviderBase implements IMultiTenantSocialMedia
     
     console.log('Storing OAuth state:', { state, tenantId, userId, accountType });
     
-    // Store state with tenant context (expires in 10 minutes)
-    fileStateStorage.set(state, { 
+    // Store state with tenant context in database
+    await this.stateStorage.set(state, { 
       tenantId, 
       userId, 
-      accountType,
-      timestamp: Date.now()
+      platform: this.config.platform,
+      accountType
     });
-    
-    // Verify state was stored
-    const storedState = fileStateStorage.get(state);
-    console.log('State verification:', { state, found: !!storedState, storedState });
     
     // Build OAuth URL with platform-specific parameters
     const authUrl = await this.buildAuthUrl(state);
@@ -106,15 +102,9 @@ export abstract class MultiTenantProviderBase implements IMultiTenantSocialMedia
     userId: string;
   }): Promise<TenantSocialToken> {
     // Validate state parameter
-    const stateData = fileStateStorage.get(params.state);
+    const stateData = await this.stateStorage.get(params.state);
     if (!stateData || stateData.tenantId !== params.tenantId) {
       throw new Error('Invalid OAuth state parameter');
-    }
-
-    // Check state hasn't expired (10 minutes)
-    if (Date.now() - stateData.timestamp > 10 * 60 * 1000) {
-      fileStateStorage.delete(params.state);
-      throw new Error('OAuth state has expired');
     }
 
     // Exchange authorization code for access token
@@ -146,7 +136,7 @@ export abstract class MultiTenantProviderBase implements IMultiTenantSocialMedia
     this.tokenStorage.set(tenantToken.accountId, tenantToken);
     
     // Clean up state
-    fileStateStorage.delete(params.state);
+    await this.stateStorage.delete(params.state);
 
     return tenantToken;
   }
@@ -269,8 +259,6 @@ export abstract class MultiTenantProviderBase implements IMultiTenantSocialMedia
     decrypted += decipher.final('utf8');
     return decrypted;
   }
-
-
 
   // Abstract methods that each platform must implement
   protected abstract buildAuthUrl(state: string): Promise<string>;
