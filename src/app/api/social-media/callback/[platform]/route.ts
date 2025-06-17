@@ -109,16 +109,44 @@ export async function GET(
     try {
       const { PrismaSocialMediaDatabase } = await import('@/services/social-media/database/PrismaSocialMediaDatabase');
       const { PrismaClient } = await import('@prisma/client');
+      const { TokenEncryption } = await import('@/services/security/TokenEncryption');
       
       const prisma = new PrismaClient();
       const database = new PrismaSocialMediaDatabase(prisma);
+      const tokenEncryption = new TokenEncryption();
       
       // Convert TenantSocialToken to SocialMediaConnection format
       // Map account types correctly
       const accountType = tokenData.accountType === 'company' ? 'business' : 
                          tokenData.accountType === 'product' ? 'creator' : 
                          'personal';
+
+      // The tokens from multi-tenant provider are encrypted and need to be decrypted
+      // then re-encrypted in the format expected by the regular providers
+      console.log('🔧 Processing tokens for storage...');
       
+      let credentials;
+      try {
+        const decryptedAccessToken = tokenEncryption.decrypt(tokenData.accessToken);
+        const decryptedRefreshToken = tokenData.refreshToken ? tokenEncryption.decrypt(tokenData.refreshToken) : undefined;
+        
+        console.log('✅ Tokens decrypted successfully');
+        console.log('🔑 Access token present:', !!decryptedAccessToken);
+        console.log('🔄 Refresh token present:', !!decryptedRefreshToken);
+        
+        credentials = {
+          access_token: decryptedAccessToken,
+          refresh_token: decryptedRefreshToken,
+          token_type: 'Bearer',
+          expires_in: Math.floor((tokenData.expiresAt.getTime() - Date.now()) / 1000),
+          scope: tokenData.scopes.join(' ')
+        };
+      } catch (decryptError) {
+        console.error('❌ Token decryption failed:', decryptError);
+        throw new Error(`Token decryption failed: ${decryptError.message}`);
+      }
+
+      // Pass the credentials to the database - it will handle encryption
       const connection = await database.createConnection({
         userId: tokenData.userId,
         organizationId: tokenData.tenantId,
@@ -127,12 +155,7 @@ export async function GET(
         accountDisplayName: tokenData.accountDisplayName,
         accountUsername: tokenData.accountUsername,
         accountType: accountType,
-        encryptedCredentials: JSON.stringify({
-          accessToken: tokenData.accessToken,
-          refreshToken: tokenData.refreshToken,
-          expiresAt: tokenData.expiresAt.toISOString(),
-          scopes: tokenData.scopes
-        }),
+        encryptedCredentials: credentials, // Database will encrypt these
         scopes: tokenData.scopes,
         connectionStatus: SocialMediaConnectionStatus.ACTIVE,
         metadata: {},
