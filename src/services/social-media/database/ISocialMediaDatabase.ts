@@ -71,7 +71,11 @@ export enum SocialMediaCapability {
   
   // Platform Management
   ACCOUNT_READ = 'ACCOUNT_READ',
-  PROFILE_EDIT = 'PROFILE_EDIT'
+  PROFILE_EDIT = 'PROFILE_EDIT',
+  
+  // Advanced Features
+  CROSS_PLATFORM_COORDINATION = 'CROSS_PLATFORM_COORDINATION',
+  CONTENT_OPTIMIZATION = 'CONTENT_OPTIMIZATION'
 }
 
 export enum AccessLevel {
