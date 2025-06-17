@@ -3,9 +3,18 @@ import { Message, FileAttachment } from '../types';
 import MarkdownRenderer from './MarkdownRenderer';
 import { highlightSearchMatches } from '../utils/smartSearch';
 import ChatBubbleMenu from './ChatBubbleMenu';
-import { ChevronLeft, ChevronRight, Paperclip } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Paperclip, Check, X, Clock, AlertTriangle } from 'lucide-react';
 import { FileAttachmentType } from '../constants/file';
 import { toast } from 'react-hot-toast';
+
+interface ApprovalContent {
+  taskId: string;
+  draftContent?: string;
+  scheduledTime?: Date;
+  taskType: string;
+  priority: 'low' | 'medium' | 'high' | 'urgent';
+  approvalMessage: string;
+}
 
 interface ChatBubbleProps {
   message: Message;
@@ -15,6 +24,11 @@ interface ChatBubbleProps {
   isInternalMessage?: boolean; // Flag indicating if this is an internal thought/reflection
   searchHighlight?: string; // Search query text to highlight
   'data-message-id'?: string; // Added property for message identification
+  // Approval-specific props
+  requiresApproval?: boolean;
+  approvalContent?: ApprovalContent;
+  onApprovalDecision?: (approved: boolean, taskId: string, notes?: string) => void;
+  userId?: string; // Current user ID for approval decisions
 }
 
 const ChatBubble: React.FC<ChatBubbleProps> = React.memo(({ 
@@ -24,13 +38,21 @@ const ChatBubble: React.FC<ChatBubbleProps> = React.memo(({
   onReplyToMessage,
   isInternalMessage = false,
   searchHighlight = '',
-  'data-message-id': dataMessageId
+  'data-message-id': dataMessageId,
+  requiresApproval = false,
+  approvalContent,
+  onApprovalDecision,
+  userId
 }) => {
   const [showMenu, setShowMenu] = useState(false);
   const [highlightedContent, setHighlightedContent] = useState<string | null>(null);
   // Track message versions and current version index
   const [messageVersions, setMessageVersions] = useState<string[]>([message.content || '']);
   const [currentVersionIndex, setCurrentVersionIndex] = useState(0);
+  // Approval state
+  const [approvalNotes, setApprovalNotes] = useState('');
+  const [showApprovalNotes, setShowApprovalNotes] = useState(false);
+  const [isProcessingApproval, setIsProcessingApproval] = useState(false);
 
   // Process search highlighting when content or search terms change
   useEffect(() => {
@@ -309,6 +331,38 @@ const ChatBubble: React.FC<ChatBubbleProps> = React.memo(({
     }, 3000);
   };
 
+  // Handle approval decision
+  const handleApprovalDecision = async (approved: boolean) => {
+    if (!approvalContent || !onApprovalDecision || !userId) {
+      showToast('Unable to process approval decision');
+      return;
+    }
+
+    setIsProcessingApproval(true);
+    try {
+      await onApprovalDecision(approved, approvalContent.taskId, approvalNotes || undefined);
+      showToast(approved ? 'Task approved successfully!' : 'Task rejected successfully!');
+      setApprovalNotes('');
+      setShowApprovalNotes(false);
+    } catch (error) {
+      console.error('Error processing approval decision:', error);
+      showToast('Failed to process approval decision');
+    } finally {
+      setIsProcessingApproval(false);
+    }
+  };
+
+  // Get priority color
+  const getPriorityColor = (priority: string) => {
+    switch (priority) {
+      case 'urgent': return 'text-red-400 bg-red-900/20';
+      case 'high': return 'text-orange-400 bg-orange-900/20';
+      case 'medium': return 'text-yellow-400 bg-yellow-900/20';
+      case 'low': return 'text-green-400 bg-green-900/20';
+      default: return 'text-gray-400 bg-gray-900/20';
+    }
+  };
+
   // Handle image click to show in modal
   const handleImageClick = (attachment: FileAttachment, e: React.MouseEvent) => {
     onImageClick(attachment, e);
@@ -567,6 +621,101 @@ const ChatBubble: React.FC<ChatBubbleProps> = React.memo(({
                     </div>
                   );
                 })}
+              </div>
+            )}
+            
+            {/* Approval UI */}
+            {requiresApproval && approvalContent && (
+              <div className="mt-4 p-4 bg-yellow-100 dark:bg-yellow-900/30 rounded-lg border border-yellow-200 dark:border-yellow-800">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <AlertTriangle className="h-5 w-5 text-yellow-600 dark:text-yellow-400" />
+                    <h4 className="font-semibold text-yellow-800 dark:text-yellow-200">
+                      Approval Required
+                    </h4>
+                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${getPriorityColor(approvalContent.priority)}`}>
+                      {approvalContent.priority.toUpperCase()}
+                    </span>
+                  </div>
+                  <Clock className="h-4 w-4 text-yellow-600 dark:text-yellow-400" />
+                </div>
+                
+                <div className="space-y-3">
+                  <div className="text-sm text-yellow-700 dark:text-yellow-300">
+                    <strong>Task:</strong> {approvalContent.taskType}
+                  </div>
+                  
+                  {approvalContent.scheduledTime && (
+                    <div className="text-sm text-yellow-700 dark:text-yellow-300">
+                      <strong>Scheduled for:</strong> {approvalContent.scheduledTime.toLocaleString()}
+                    </div>
+                  )}
+                  
+                  {approvalContent.draftContent && (
+                    <div className="text-sm text-yellow-700 dark:text-yellow-300">
+                      <strong>Content:</strong>
+                      <div className="mt-1 p-2 bg-yellow-50 dark:bg-yellow-900/50 rounded border border-yellow-200 dark:border-yellow-800 font-mono text-xs">
+                        {approvalContent.draftContent.length > 200 
+                          ? `${approvalContent.draftContent.substring(0, 200)}...`
+                          : approvalContent.draftContent
+                        }
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Approval notes input */}
+                  {showApprovalNotes && (
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-yellow-700 dark:text-yellow-300">
+                        Notes (optional):
+                      </label>
+                      <textarea
+                        value={approvalNotes}
+                        onChange={(e) => setApprovalNotes(e.target.value)}
+                        className="w-full p-2 text-sm bg-white dark:bg-gray-800 border border-yellow-200 dark:border-yellow-700 rounded resize-none"
+                        rows={3}
+                        placeholder="Add any notes about your decision..."
+                      />
+                    </div>
+                  )}
+                  
+                  {/* Action buttons */}
+                  <div className="flex items-center justify-between pt-2">
+                    <button
+                      onClick={() => setShowApprovalNotes(!showApprovalNotes)}
+                      className="text-xs text-yellow-600 dark:text-yellow-400 hover:text-yellow-800 dark:hover:text-yellow-200"
+                    >
+                      {showApprovalNotes ? 'Hide Notes' : 'Add Notes'}
+                    </button>
+                    
+                    <div className="flex space-x-2">
+                      <button
+                        onClick={() => handleApprovalDecision(false)}
+                        disabled={isProcessingApproval}
+                        className="flex items-center px-3 py-1 bg-red-600 text-white rounded text-sm hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {isProcessingApproval ? (
+                          <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-white mr-1"></div>
+                        ) : (
+                          <X className="h-3 w-3 mr-1" />
+                        )}
+                        Reject
+                      </button>
+                      <button
+                        onClick={() => handleApprovalDecision(true)}
+                        disabled={isProcessingApproval}
+                        className="flex items-center px-3 py-1 bg-green-600 text-white rounded text-sm hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {isProcessingApproval ? (
+                          <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-white mr-1"></div>
+                        ) : (
+                          <Check className="h-3 w-3 mr-1" />
+                        )}
+                        Approve & Schedule
+                      </button>
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
             

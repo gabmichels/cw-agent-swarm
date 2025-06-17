@@ -15,7 +15,11 @@ import {
   Clock, 
   CheckCircle, 
   XCircle, 
-  AlertCircle 
+  AlertCircle,
+  UserCheck,
+  ThumbsUp,
+  ThumbsDown,
+  MessageSquare
 } from 'lucide-react';
 import { TASK_IDS } from '../../lib/shared/constants';
 
@@ -54,8 +58,27 @@ interface SelfCreatedTask {
   };
 }
 
+// Types for approval requests
+interface ApprovalRequest {
+  id: string;
+  taskId: string;
+  taskName: string;
+  taskDescription: string;
+  taskType: string;
+  priority: 'low' | 'medium' | 'high' | 'urgent';
+  draftContent?: string;
+  scheduledTime?: string;
+  requestedAt: string;
+  requestedBy: string;
+  chatId: string;
+  status: 'pending' | 'approved' | 'rejected';
+  approvedBy?: string;
+  approvalNotes?: string;
+  approvalDecidedAt?: string;
+}
+
 // Sub-tab types
-type TabType = 'scheduled' | 'tasks';
+type TabType = 'scheduled' | 'tasks' | 'approvals';
 
 const TasksTab: React.FC<TasksTabProps> = ({
   isLoadingTasks,
@@ -79,6 +102,14 @@ const TasksTab: React.FC<TasksTabProps> = ({
   const [sortBy, setSortBy] = useState<'scheduledTime' | 'createdAt' | 'priority'>('scheduledTime');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [selectedTaskResult, setSelectedTaskResult] = useState<SelfCreatedTask | null>(null);
+  
+  // Approval state
+  const [approvalRequests, setApprovalRequests] = useState<ApprovalRequest[]>([]);
+  const [isLoadingApprovals, setIsLoadingApprovals] = useState(false);
+  const [approvalStatusFilter, setApprovalStatusFilter] = useState<string>('pending');
+  const [selectedApprovalRequest, setSelectedApprovalRequest] = useState<ApprovalRequest | null>(null);
+  const [approvalNotes, setApprovalNotes] = useState('');
+  const [isProcessingApproval, setIsProcessingApproval] = useState(false);
 
   // Function to clean task names by removing department names in braces
   const cleanTaskName = (name: string) => {
@@ -194,6 +225,163 @@ const TasksTab: React.FC<TasksTabProps> = ({
       setIsLoadingTaskBoard(false);
     }
   };
+
+  // Fetch approval requests
+  const fetchApprovalRequests = async () => {
+    setIsLoadingApprovals(true);
+    try {
+      const params = new URLSearchParams();
+      if (chatId) params.append('chatId', chatId);
+      
+      console.log('Fetching approval requests with params:', Object.fromEntries(params));
+      
+      const response = await fetch(`/api/tasks/approval?${params.toString()}`);
+      if (response.ok) {
+        const data = await response.json();
+        console.log('Approval API response:', data);
+        
+        // Transform API response to match our interface
+        const approvals: ApprovalRequest[] = (data.approvals || []).map((approval: any) => ({
+          id: approval.id || approval.taskId,
+          taskId: approval.taskId || approval.id,
+          taskName: approval.type ? `${approval.type.charAt(0).toUpperCase() + approval.type.slice(1)} Task` : 'Unknown Task',
+          taskDescription: approval.content || 'No description available',
+          taskType: approval.type || 'unknown',
+          priority: approval.priority || 'medium',
+          draftContent: approval.content,
+          scheduledTime: approval.scheduledTime,
+          requestedAt: approval.requestedAt || new Date().toISOString(),
+          requestedBy: 'AI Agent',
+          chatId: approval.chatId || chatId || 'unknown',
+          status: 'pending'
+        }));
+        
+        setApprovalRequests(approvals);
+      } else {
+        console.error('Failed to fetch approval requests:', response.status, response.statusText);
+        
+        // Fall back to mock data in development
+        if (process.env.NODE_ENV === 'development') {
+          console.log('Falling back to mock approval data for development');
+          setApprovalRequests(getMockApprovalRequests());
+        } else {
+          setApprovalRequests([]);
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching approval requests:', error);
+      
+      // Fall back to mock data in development
+      if (process.env.NODE_ENV === 'development') {
+        console.log('Falling back to mock approval data due to error');
+        setApprovalRequests(getMockApprovalRequests());
+      } else {
+        setApprovalRequests([]);
+      }
+    } finally {
+      setIsLoadingApprovals(false);
+    }
+  };
+
+  // Handle approval decision
+  const handleApprovalDecision = async (approved: boolean, taskId: string, notes?: string) => {
+    setIsProcessingApproval(true);
+    try {
+      const response = await fetch('/api/tasks/approval', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          taskId,
+          decision: approved ? 'approved' : 'rejected',
+          notes,
+          chatId: chatId || 'default'
+        })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        console.log('Approval decision processed:', data);
+        
+        // Update the approval request in state
+        setApprovalRequests(prev => prev.map(request => 
+          request.taskId === taskId 
+            ? {
+                ...request,
+                status: approved ? 'approved' : 'rejected',
+                approvedBy: userId || 'current-user',
+                approvalNotes: notes,
+                approvalDecidedAt: new Date().toISOString()
+              }
+            : request
+        ));
+        
+        // Close the modal
+        setSelectedApprovalRequest(null);
+        setApprovalNotes('');
+        
+        // Show success message
+        console.log(`Task ${approved ? 'approved' : 'rejected'} successfully!`);
+      } else {
+        console.error('Failed to process approval decision:', response.status);
+        throw new Error('Failed to process approval decision');
+      }
+    } catch (error) {
+      console.error('Error processing approval decision:', error);
+      throw error;
+    } finally {
+      setIsProcessingApproval(false);
+    }
+  };
+
+  // Mock approval data for development
+  const getMockApprovalRequests = (): ApprovalRequest[] => [
+    {
+      id: 'approval_001',
+      taskId: 'task_approval_001',
+      taskName: 'Tweet about AI Agents',
+      taskDescription: 'Post a tweet about the future of AI agents and their impact on productivity',
+      taskType: 'tweet',
+      priority: 'medium',
+      draftContent: '🚀 The future of AI agents is here! They\'re transforming how we work, automating complex tasks, and enabling us to focus on what matters most. Excited to see where this technology takes us! #AIAgents #Productivity #Future',
+      scheduledTime: new Date(Date.now() + 1000 * 60 * 60 * 2).toISOString(), // 2 hours from now
+      requestedAt: new Date(Date.now() - 1000 * 60 * 10).toISOString(), // 10 minutes ago
+      requestedBy: 'Marketing Agent',
+      chatId: chatId || 'default',
+      status: 'pending'
+    },
+    {
+      id: 'approval_002',
+      taskId: 'task_approval_002',
+      taskName: 'Send Email to Team',
+      taskDescription: 'Send weekly update email to the development team',
+      taskType: 'email',
+      priority: 'high',
+      draftContent: 'Subject: Weekly Development Update\n\nHi team,\n\nHere\'s our progress this week:\n- Completed approval system integration\n- Enhanced task management UI\n- Improved error handling\n\nGreat work everyone!\n\nBest regards,\nAI Assistant',
+      scheduledTime: new Date(Date.now() + 1000 * 60 * 30).toISOString(), // 30 minutes from now
+      requestedAt: new Date(Date.now() - 1000 * 60 * 5).toISOString(), // 5 minutes ago
+      requestedBy: 'Project Manager Agent',
+      chatId: chatId || 'default',
+      status: 'pending'
+    },
+    {
+      id: 'approval_003',
+      taskId: 'task_approval_003',
+      taskName: 'LinkedIn Post',
+      taskDescription: 'Share company milestone on LinkedIn',
+      taskType: 'post',
+      priority: 'low',
+      draftContent: 'Excited to announce that our AI agent platform has processed over 10,000 tasks this month! 🎉 Thank you to our amazing users for trusting us with their automation needs. Here\'s to the future of intelligent task management! #Milestone #AI #Automation',
+      requestedAt: new Date(Date.now() - 1000 * 60 * 60).toISOString(), // 1 hour ago
+      requestedBy: 'Social Media Agent',
+      chatId: chatId || 'default',
+      status: 'approved',
+      approvedBy: 'admin',
+      approvalNotes: 'Great content, approved for posting',
+      approvalDecidedAt: new Date(Date.now() - 1000 * 60 * 30).toISOString() // 30 minutes ago
+    }
+  ];
 
   // Mock data for development
   const getMockTasks = (): SelfCreatedTask[] => [
@@ -339,6 +527,20 @@ const TasksTab: React.FC<TasksTabProps> = ({
     }
   }, [statusFilter, activeTab]);
 
+  // Load approval requests when tab becomes active
+  useEffect(() => {
+    if (activeTab === 'approvals') {
+      fetchApprovalRequests();
+    }
+  }, [activeTab]);
+
+  // Refresh approvals when status filter changes
+  useEffect(() => {
+    if (activeTab === 'approvals') {
+      fetchApprovalRequests();
+    }
+  }, [approvalStatusFilter, activeTab]);
+
   // Function to handle manual refresh
   const handleManualRefresh = () => {
     setRefreshing(true);
@@ -346,6 +548,8 @@ const TasksTab: React.FC<TasksTabProps> = ({
     
     if (activeTab === 'tasks') {
       fetchSelfCreatedTasks();
+    } else if (activeTab === 'approvals') {
+      fetchApprovalRequests();
     }
     
     // The page component will handle the actual refresh when it detects the page reload
@@ -607,6 +811,22 @@ const TasksTab: React.FC<TasksTabProps> = ({
         >
           <ListTodo className="h-4 w-4 mr-2" />
           Task Board
+        </button>
+        <button
+          onClick={() => setActiveTab('approvals')}
+          className={`flex items-center px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+            activeTab === 'approvals'
+              ? 'bg-blue-600 text-white'
+              : 'text-gray-300 hover:text-white hover:bg-gray-600'
+          }`}
+        >
+          <UserCheck className="h-4 w-4 mr-2" />
+          Approvals
+          {approvalRequests.filter(req => req.status === 'pending').length > 0 && (
+            <span className="ml-2 bg-red-500 text-white text-xs rounded-full px-2 py-0.5">
+              {approvalRequests.filter(req => req.status === 'pending').length}
+            </span>
+          )}
         </button>
       </div>
 
@@ -930,9 +1150,293 @@ const TasksTab: React.FC<TasksTabProps> = ({
           )}
         </div>
       )}
+
+      {/* Approvals Tab */}
+      {activeTab === 'approvals' && (
+        <div>
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-xl font-bold">Approval Requests</h2>
+            <div className="flex items-center space-x-4">
+              {/* Status Filter */}
+              <div className="flex items-center space-x-2">
+                <Filter className="h-4 w-4 text-gray-400" />
+                <select 
+                  value={approvalStatusFilter} 
+                  onChange={(e) => setApprovalStatusFilter(e.target.value)}
+                  className="bg-gray-700 text-white text-sm rounded-md px-2 py-1 border border-gray-600"
+                >
+                  <option value="all">All Status</option>
+                  <option value="pending">Pending</option>
+                  <option value="approved">Approved</option>
+                  <option value="rejected">Rejected</option>
+                </select>
+              </div>
+              
+              {/* Refresh Button */}
+              <button 
+                onClick={handleManualRefresh} 
+                className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded-md flex items-center text-sm"
+                disabled={refreshing || isLoadingApprovals}
+              >
+                <RefreshCw className={`h-4 w-4 mr-1 ${refreshing || isLoadingApprovals ? 'animate-spin' : ''}`} /> 
+                Refresh
+              </button>
+            </div>
+          </div>
+          
+          {/* Approval Stats */}
+          <div className="grid grid-cols-3 gap-4 mb-6">
+            {['pending', 'approved', 'rejected'].map(status => {
+              const count = approvalRequests.filter(request => request.status === status).length;
+              const colors = {
+                pending: 'text-yellow-400',
+                approved: 'text-green-400',
+                rejected: 'text-red-400'
+              };
+              return (
+                <div key={status} className="bg-gray-700 p-3 rounded-lg">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-gray-400 capitalize">{status}</span>
+                    <span className={`text-lg font-bold ${colors[status as keyof typeof colors]}`}>{count}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          
+          {isLoadingApprovals ? (
+            <div className="flex justify-center py-8">
+              <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500"></div>
+              <span className="ml-2">Loading approval requests...</span>
+            </div>
+          ) : approvalRequests.filter(req => approvalStatusFilter === 'all' || req.status === approvalStatusFilter).length === 0 ? (
+            <div className="text-center py-8">
+              <UserCheck className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+              <p className="text-gray-400">No approval requests found matching your filters.</p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {approvalRequests
+                .filter(req => approvalStatusFilter === 'all' || req.status === approvalStatusFilter)
+                .map((request) => {
+                  const priorityColors = {
+                    urgent: 'bg-red-500 text-white',
+                    high: 'bg-orange-500 text-white',
+                    medium: 'bg-yellow-500 text-white',
+                    low: 'bg-green-500 text-white'
+                  };
+                  
+                  const statusColors = {
+                    pending: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300',
+                    approved: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300',
+                    rejected: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300'
+                  };
+                  
+                  return (
+                    <div key={request.id} className="bg-gray-700 rounded-lg p-4 border border-gray-600">
+                      <div className="flex justify-between items-start mb-3">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-1">
+                            <h3 className="text-lg font-semibold text-white">{request.taskName}</h3>
+                            <span className={`px-2 py-1 text-xs font-medium rounded ${priorityColors[request.priority as keyof typeof priorityColors]}`}>
+                              {request.priority.toUpperCase()}
+                            </span>
+                            <span className={`px-2 py-1 text-xs font-medium rounded-full ${statusColors[request.status as keyof typeof statusColors]}`}>
+                              {request.status.toUpperCase()}
+                            </span>
+                          </div>
+                          <p className="text-gray-300 text-sm mb-2">{request.taskDescription}</p>
+                          <div className="text-xs text-gray-400">
+                            <span>Requested by {request.requestedBy} • {formatRelativeTime(request.requestedAt)}</span>
+                            {request.scheduledTime && (
+                              <span> • Scheduled for {formatDate(request.scheduledTime)}</span>
+                            )}
+                          </div>
+                        </div>
+                        
+                        <div className="flex items-center gap-2">
+                          <MessageSquare className="h-4 w-4 text-gray-400" />
+                          <span className="text-xs text-gray-400">{request.taskType}</span>
+                        </div>
+                      </div>
+                      
+                      {request.draftContent && (
+                        <div className="mb-3">
+                          <h4 className="text-sm font-medium text-gray-300 mb-1">Content Preview:</h4>
+                          <div className="bg-gray-800 p-2 rounded border border-gray-600 text-sm text-gray-300 max-h-32 overflow-y-auto">
+                            {request.draftContent.length > 300 
+                              ? `${request.draftContent.substring(0, 300)}...`
+                              : request.draftContent
+                            }
+                          </div>
+                        </div>
+                      )}
+                      
+                      {request.status === 'pending' ? (
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            onClick={() => setSelectedApprovalRequest(request)}
+                            className="bg-gray-600 hover:bg-gray-500 text-white px-3 py-1 rounded text-sm flex items-center"
+                          >
+                            <Eye className="h-3 w-3 mr-1" />
+                            Review
+                          </button>
+                          <button
+                            onClick={() => handleApprovalDecision(false, request.taskId)}
+                            disabled={isProcessingApproval}
+                            className="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded text-sm flex items-center disabled:opacity-50"
+                          >
+                            <ThumbsDown className="h-3 w-3 mr-1" />
+                            Reject
+                          </button>
+                          <button
+                            onClick={() => handleApprovalDecision(true, request.taskId)}
+                            disabled={isProcessingApproval}
+                            className="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-sm flex items-center disabled:opacity-50"
+                          >
+                            <ThumbsUp className="h-3 w-3 mr-1" />
+                            Approve
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="text-xs text-gray-400 text-right">
+                          {request.status === 'approved' ? 'Approved' : 'Rejected'} by {request.approvedBy} • {formatRelativeTime(request.approvalDecidedAt || '')}
+                          {request.approvalNotes && (
+                            <div className="mt-1 text-gray-300">Notes: {request.approvalNotes}</div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+            </div>
+          )}
+        </div>
+      )}
       
       {/* Task Result Modal */}
       {renderTaskResultModal()}
+      
+      {/* Approval Detail Modal */}
+      {selectedApprovalRequest && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-gray-800 rounded-lg max-w-4xl w-full max-h-[90vh] overflow-auto">
+            <div className="p-6">
+              <div className="flex justify-between items-start mb-4">
+                <div>
+                  <h2 className="text-2xl font-bold text-white">{selectedApprovalRequest.taskName}</h2>
+                  <p className="text-gray-400 mt-1">{selectedApprovalRequest.taskDescription}</p>
+                </div>
+                <button 
+                  onClick={() => setSelectedApprovalRequest(null)}
+                  className="text-gray-400 hover:text-white text-2xl font-bold"
+                >
+                  ×
+                </button>
+              </div>
+              
+              {/* Request details */}
+              <div className="grid grid-cols-2 gap-4 mb-6">
+                <div>
+                  <h3 className="text-lg font-semibold text-white mb-2">Request Details</h3>
+                  <div className="space-y-2 text-sm">
+                    <div><span className="text-gray-400">Type:</span> <span className="text-white">{selectedApprovalRequest.taskType}</span></div>
+                    <div><span className="text-gray-400">Priority:</span> <span className="text-white">{selectedApprovalRequest.priority}</span></div>
+                    <div><span className="text-gray-400">Requested by:</span> <span className="text-white">{selectedApprovalRequest.requestedBy}</span></div>
+                    <div><span className="text-gray-400">Requested:</span> <span className="text-white">{formatDate(selectedApprovalRequest.requestedAt)}</span></div>
+                    {selectedApprovalRequest.scheduledTime && (
+                      <div><span className="text-gray-400">Scheduled for:</span> <span className="text-white">{formatDate(selectedApprovalRequest.scheduledTime)}</span></div>
+                    )}
+                  </div>
+                </div>
+                
+                <div>
+                  <h3 className="text-lg font-semibold text-white mb-2">Status</h3>
+                  <div className="space-y-2 text-sm">
+                    <div><span className="text-gray-400">Current Status:</span> <span className="text-white capitalize">{selectedApprovalRequest.status}</span></div>
+                    <div><span className="text-gray-400">Task ID:</span> <span className="text-white font-mono text-xs">{selectedApprovalRequest.taskId}</span></div>
+                    <div><span className="text-gray-400">Chat ID:</span> <span className="text-white font-mono text-xs">{selectedApprovalRequest.chatId}</span></div>
+                  </div>
+                </div>
+              </div>
+              
+              {/* Content preview */}
+              {selectedApprovalRequest.draftContent && (
+                <div className="mb-6">
+                  <h3 className="text-lg font-semibold text-white mb-2">Content to be Published</h3>
+                  <div className="bg-gray-700 p-4 rounded border border-gray-600">
+                    <pre className="text-green-400 whitespace-pre-wrap text-sm">{selectedApprovalRequest.draftContent}</pre>
+                  </div>
+                </div>
+              )}
+              
+              {/* Approval notes input */}
+              {selectedApprovalRequest.status === 'pending' && (
+                <div className="mb-6">
+                  <label className="block text-sm font-medium text-white mb-2">
+                    Approval Notes (optional):
+                  </label>
+                  <textarea
+                    value={approvalNotes}
+                    onChange={(e) => setApprovalNotes(e.target.value)}
+                    className="w-full p-2 text-sm bg-gray-700 border border-gray-600 rounded resize-none text-white"
+                    rows={3}
+                    placeholder="Add any notes about your decision..."
+                  />
+                </div>
+              )}
+              
+              {/* Action buttons */}
+              {selectedApprovalRequest.status === 'pending' ? (
+                <div className="flex justify-end space-x-3">
+                  <button
+                    onClick={() => setSelectedApprovalRequest(null)}
+                    className="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => handleApprovalDecision(false, selectedApprovalRequest.taskId, approvalNotes || undefined)}
+                    disabled={isProcessingApproval}
+                    className="flex items-center px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50"
+                  >
+                    {isProcessingApproval ? (
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                    ) : (
+                      <ThumbsDown className="h-4 w-4 mr-2" />
+                    )}
+                    Reject Task
+                  </button>
+                  <button
+                    onClick={() => handleApprovalDecision(true, selectedApprovalRequest.taskId, approvalNotes || undefined)}
+                    disabled={isProcessingApproval}
+                    className="flex items-center px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
+                  >
+                    {isProcessingApproval ? (
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                    ) : (
+                      <ThumbsUp className="h-4 w-4 mr-2" />
+                    )}
+                    Approve & Schedule
+                  </button>
+                </div>
+              ) : (
+                <div className="text-center py-4">
+                  <p className="text-gray-400">
+                    This request has already been {selectedApprovalRequest.status}.
+                  </p>
+                  {selectedApprovalRequest.approvalNotes && (
+                    <div className="mt-2">
+                      <span className="text-gray-400">Notes: </span>
+                      <span className="text-white">{selectedApprovalRequest.approvalNotes}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

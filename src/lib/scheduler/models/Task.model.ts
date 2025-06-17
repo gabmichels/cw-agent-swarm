@@ -192,6 +192,56 @@ export interface Task {
   dependencies?: TaskDependency[];
   
   /**
+   * Whether this task requires approval before execution
+   */
+  approvalRequired?: boolean;
+  
+  /**
+   * Current approval status
+   */
+  approvalStatus?: 'pending' | 'approved' | 'rejected';
+  
+  /**
+   * ID of the approval entry in the approval system
+   */
+  approvalEntryId?: string;
+  
+  /**
+   * Draft content that needs approval (e.g., tweet content, email content)
+   */
+  draftContent?: string;
+  
+  /**
+   * Message shown to user when requesting approval
+   */
+  approvalMessage?: string;
+  
+  /**
+   * ID of the chat where approval was requested
+   */
+  approvalChatId?: string;
+  
+  /**
+   * User who approved/rejected the task
+   */
+  approvedBy?: string;
+  
+  /**
+   * Notes from the approval decision
+   */
+  approvalNotes?: string;
+  
+  /**
+   * When approval was requested
+   */
+  approvalRequestedAt?: Date;
+  
+  /**
+   * When approval decision was made
+   */
+  approvalDecidedAt?: Date;
+  
+  /**
    * When the task was created
    */
   createdAt: Date;
@@ -238,6 +288,16 @@ export function createTask(partial: Partial<Task>): Task {
     scheduledTime: partial.scheduledTime,
     interval: partial.interval,
     dependencies: partial.dependencies || [],
+    approvalRequired: partial.approvalRequired,
+    approvalStatus: partial.approvalStatus,
+    approvalEntryId: partial.approvalEntryId,
+    draftContent: partial.draftContent,
+    approvalMessage: partial.approvalMessage,
+    approvalChatId: partial.approvalChatId,
+    approvedBy: partial.approvedBy,
+    approvalNotes: partial.approvalNotes,
+    approvalRequestedAt: partial.approvalRequestedAt,
+    approvalDecidedAt: partial.approvalDecidedAt,
     createdAt: partial.createdAt || now,
     updatedAt: partial.updatedAt || now,
     lastExecutedAt: partial.lastExecutedAt,
