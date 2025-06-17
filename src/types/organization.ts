@@ -1,61 +1,47 @@
 /**
  * Organizational Chart Data Models
  * 
- * Comprehensive type definitions for organizational structure according to IMPLEMENTATION_GUIDELINES.md
- * All identifiers use StructuredId (ULID) and strict TypeScript typing (no 'any' types).
+ * Comprehensive type definitions for organizational structure following IMPLEMENTATION_GUIDELINES.md
+ * All identifiers use ULID strings for consistency and simplicity.
+ * NO 'any' types - strict TypeScript typing throughout.
  */
 
-import { StructuredId } from './structured-id';
 import { AgentCapability } from '../agents/shared/base/types';
-
-/**
- * Organizational entity types for structured IDs
- */
-export enum OrgEntityType {
-  DEPARTMENT = 'department',
-  SUB_DEPARTMENT = 'sub_department',
-  TEAM = 'team',
-  ORGANIZATION_CHART = 'org_chart',
-  HIERARCHY_NODE = 'hierarchy_node',
-  AGENT_TEMPLATE = 'agent_template',
-  PLANNING_CHANGE = 'planning_change'
-}
 
 /**
  * Department interface with ULID identification
  */
-export interface Department {
-  id: StructuredId;
+export interface Department extends Record<string, unknown> {
+  id: string; // ULID
   name: string;
   description?: string;
-  parentDepartment?: StructuredId; // Reference to parent department for nested structures
-  headOfDepartment?: StructuredId; // Agent ID who manages this department
-  agents: StructuredId[]; // Array of agent IDs in this department
-  subDepartments?: StructuredId[]; // Child departments
+  code: string;
+  budgetLimit: number;
+  currentSpent: number;
+  currency: string;
+  managerId?: string; // ULID of manager agent
+  parentDepartmentId?: string | null; // ULID of parent department
+  agents: string[]; // Array of agent ULIDs
+  subDepartments: string[]; // Array of subdepartment ULIDs
+  teams: string[]; // Array of team ULIDs
   createdAt: Date;
   updatedAt: Date;
-  createdBy: StructuredId; // User or agent who created this department
-  
-  // Department-specific metadata
-  budget?: number; // Optional budget allocation
-  maxAgents?: number; // Optional maximum agent capacity
-  isActive: boolean; // Whether department is currently active
 }
 
 /**
  * SubDepartment interface for verticals/domains within departments
  */
 export interface SubDepartment {
-  id: StructuredId;
+  id: string; // ULID
   name: string;
   description?: string;
-  parentDepartment: StructuredId; // Reference to parent department
-  headOfSubDepartment?: StructuredId; // Agent ID who manages this subdepartment
-  agents: StructuredId[]; // Array of agent IDs in this subdepartment
-  teams?: StructuredId[]; // Child teams within this subdepartment
+  parentDepartment: string; // ULID reference to parent department
+  headOfSubDepartment?: string; // ULID of agent who manages this subdepartment
+  agents: string[]; // Array of agent ULIDs in this subdepartment
+  teams?: string[]; // Child team ULIDs within this subdepartment
   createdAt: Date;
   updatedAt: Date;
-  createdBy: StructuredId;
+  createdBy: string; // ULID
   
   // SubDepartment-specific metadata
   specialization?: string[]; // Areas of focus for this subdepartment
@@ -67,16 +53,16 @@ export interface SubDepartment {
  * Team interface for small units/pods within subdepartments
  */
 export interface Team {
-  id: StructuredId;
+  id: string; // ULID
   name: string;
   description?: string;
-  parentSubDepartment: StructuredId; // Reference to parent subdepartment
-  parentDepartment: StructuredId; // Reference to parent department (for easier queries)
-  teamLead?: StructuredId; // Agent ID who leads this team
-  agents: StructuredId[]; // Array of agent IDs in this team
+  parentSubDepartment: string; // ULID reference to parent subdepartment
+  parentDepartment: string; // ULID reference to parent department (for easier queries)
+  teamLead?: string; // ULID of agent who leads this team
+  agents: string[]; // Array of agent ULIDs in this team
   createdAt: Date;
   updatedAt: Date;
-  createdBy: StructuredId;
+  createdBy: string; // ULID
   
   // Team-specific metadata
   teamType?: 'development' | 'operations' | 'support' | 'research' | 'management' | 'other';
@@ -90,15 +76,15 @@ export interface Team {
  * Organization chart root structure
  */
 export interface OrganizationChart {
-  id: StructuredId;
+  id: string; // ULID
   name: string;
   description?: string;
-  departments: StructuredId[]; // References to Department entities
-  rootDepartments: StructuredId[]; // Top-level departments (no parent)
+  departments: string[]; // ULIDs of Department entities
+  rootDepartments: string[]; // ULIDs of top-level departments (no parent)
   hierarchy: OrgHierarchyNode[]; // Computed hierarchy structure
   lastUpdated: Date;
   createdAt: Date;
-  createdBy: StructuredId;
+  createdBy: string; // ULID
   
   // Chart metadata
   totalAgents: number; // Computed count of all agents
@@ -111,18 +97,18 @@ export interface OrganizationChart {
  * Hierarchy node for tree structure representation
  */
 export interface OrgHierarchyNode {
-  id: StructuredId;
+  id: string; // ULID
   nodeType: 'department' | 'subdepartment' | 'team' | 'agent';
-  entityId: StructuredId; // Reference to actual department, subdepartment, team, or agent
+  entityId: string; // ULID reference to actual department, subdepartment, team, or agent
   name: string;
   level: number; // Depth in hierarchy (0 = root department, 1 = subdepartment, 2 = team, 3 = agent)
-  parentNodeId?: StructuredId; // Parent node in hierarchy
-  children: StructuredId[]; // Child nodes
+  parentNodeId?: string; // ULID of parent node in hierarchy
+  children: string[]; // ULIDs of child nodes
   
   // Organizational context for easier navigation
-  departmentId?: StructuredId; // Reference to top-level department
-  subDepartmentId?: StructuredId; // Reference to subdepartment (if applicable)
-  teamId?: StructuredId; // Reference to team (if applicable)
+  departmentId?: string; // ULID reference to top-level department
+  subDepartmentId?: string; // ULID reference to subdepartment (if applicable)
+  teamId?: string; // ULID reference to team (if applicable)
   
   // Position and layout info for visualization
   position?: {
@@ -140,16 +126,16 @@ export interface OrgHierarchyNode {
  * Agent configuration template for spawning agents
  */
 export interface AgentConfigTemplate {
-  id: StructuredId;
+  id: string; // ULID
   name: string;
   description: string;
-  sourceAgentId?: StructuredId; // Original agent this template was created from
+  sourceAgentId?: string; // ULID of original agent this template was created from
   
   // Core agent configuration
   capabilities: AgentCapability[];
   defaultCategory?: string; // For personal mode
   defaultDepartment?: {
-    id: string;
+    id: string; // ULID
     name: string;
     code: string;
   }; // For organizational mode - department object with relational data
@@ -161,7 +147,7 @@ export interface AgentConfigTemplate {
   // Template metadata
   createdAt: Date;
   updatedAt: Date;
-  createdBy: StructuredId;
+  createdBy: string; // ULID
   usageCount: number; // How many times this template has been used
   lastUsed?: Date;
   
@@ -216,23 +202,23 @@ export interface AgentTemplateConfig {
  * Planning change for drag-and-drop reorganization
  */
 export interface OrgPlanningChange {
-  id: StructuredId;
+  id: string; // ULID
   changeType: PlanningChangeType;
-  entityId: StructuredId; // ID of entity being changed (agent, department)
+  entityId: string; // ULID of entity being changed (agent, department)
   
   // Change details
-  fromValue?: string | StructuredId;
-  toValue?: string | StructuredId;
+  fromValue?: string;
+  toValue?: string;
   metadata?: Record<string, unknown>;
   
   // Change tracking
   createdAt: Date;
-  createdBy: StructuredId;
+  createdBy: string; // ULID
   appliedAt?: Date;
   status: PlanningChangeStatus;
   
   // Impact analysis
-  affectedEntities?: StructuredId[]; // Other entities affected by this change
+  affectedEntities?: string[]; // ULIDs of other entities affected by this change
   estimatedImpact: ChangeImpact;
 }
 
@@ -277,7 +263,7 @@ export interface ChangeImpact {
  * Organizational query filters
  */
 export interface OrgQueryFilter {
-  departments?: string[]; // Filter by department IDs (not names for better relational integrity)
+  departments?: string[]; // Filter by department ULIDs
   levels?: number[]; // Filter by hierarchy levels
   agentStatuses?: string[]; // Filter by agent statuses
   positions?: string[]; // Filter by job positions
@@ -309,7 +295,7 @@ export interface OrgMetrics {
  * Department utilization metrics
  */
 export interface DepartmentUtilization {
-  departmentId: StructuredId;
+  departmentId: string; // ULID
   departmentName: string;
   agentCount: number;
   maxCapacity?: number;
@@ -334,7 +320,7 @@ export interface OrgValidationResult {
 export interface OrgValidationError {
   code: string;
   message: string;
-  entityId?: StructuredId;
+  entityId?: string; // ULID
   entityType?: string;
   severity: 'error' | 'warning' | 'info';
 }
@@ -345,7 +331,7 @@ export interface OrgValidationError {
 export interface OrgValidationWarning {
   code: string;
   message: string;
-  entityId?: StructuredId;
+  entityId?: string; // ULID
   recommendation?: string;
 }
 
@@ -357,4 +343,42 @@ export interface OrgValidationSuggestion {
   message: string;
   impact: ChangeImpact;
   implementationSteps?: string[];
+}
+
+/**
+ * Department creation request interface
+ */
+export interface DepartmentCreateRequest {
+  name: string;
+  description?: string;
+  code?: string;
+  budgetLimit?: number;
+  currency?: string;
+  managerId?: string; // ULID
+  parentDepartmentId?: string; // ULID
+}
+
+/**
+ * Department update request interface
+ */
+export interface DepartmentUpdateRequest {
+  name?: string;
+  description?: string;
+  code?: string;
+  budgetLimit?: number;
+  currency?: string;
+  managerId?: string; // ULID
+  parentDepartmentId?: string; // ULID
+}
+
+/**
+ * Agent department assignment interface
+ */
+export interface AgentDepartmentAssignment {
+  agentId: string; // ULID
+  departmentId: string; // ULID
+  subDepartment?: string;
+  team?: string;
+  position?: string;
+  organizationLevel?: number;
 } 

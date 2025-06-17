@@ -120,7 +120,7 @@ export interface BaseMetadata {
 export type MessageMetadataFactory = (partialMetadata: Partial<MessageMetadata>) => MessageMetadata;
 export type ThoughtMetadataFactory = (partialMetadata: Partial<CognitiveProcessMetadata>) => CognitiveProcessMetadata;
 export type MessageReplyContextFactory = (
-  messageId: StructuredId,
+  messageId: string,
   content: string,
   senderRole: ImportedMessageRole,
   options?: Partial<MessageReplyContext>
@@ -167,11 +167,11 @@ export enum MessagePriority {
  * Reply context interface for message threading and context preservation
  */
 export interface MessageReplyContext {
-  messageId: StructuredId;          // ID of the message being replied to
+  messageId: string;          // ULID of the message being replied to
   content: string;                  // Content of the original message
   senderRole: ImportedMessageRole;  // Role of the original message sender
-  senderAgentId?: StructuredId;     // Agent ID if sender was an agent
-  senderUserId?: StructuredId;      // User ID if sender was a user
+  senderAgentId?: string;     // ULID of agent if sender was an agent
+  senderUserId?: string;      // ULID of user if sender was a user
   timestamp: string;                // ISO timestamp of original message
   importance: ImportanceLevel;      // Importance level for LLM prioritization
   threadId?: string;                // Thread context for conversation flow
@@ -183,9 +183,9 @@ export interface MessageReplyContext {
 export interface MessageMetadata extends BaseMetadata {
   // Core message fields
   role: ImportedMessageRole;
-  userId: StructuredId;
-  agentId: StructuredId;
-  chatId: StructuredId;
+  userId: string; // ULID
+  agentId: string; // ULID
+  chatId: string; // ULID
   messageType?: string;
   
   // Thread information (required, not optional)
@@ -206,8 +206,8 @@ export interface MessageMetadata extends BaseMetadata {
   bookmarkedAt?: string; // ISO date string when bookmarked
   
   // Enhanced fields for multi-agent communication
-  senderAgentId?: StructuredId;
-  receiverAgentId?: StructuredId;
+  senderAgentId?: string; // ULID
+  receiverAgentId?: string; // ULID
   communicationType?: 'request' | 'response' | 'notification' | 'broadcast';
   priority?: MessagePriority;
   requiresResponse?: boolean;
@@ -244,7 +244,7 @@ export enum CognitiveProcessType {
 export interface CognitiveProcessMetadata extends BaseMetadata {
   // Core fields
   processType: CognitiveProcessType;
-  agentId: StructuredId;
+  agentId: string; // ULID
   
   // Context and relationships
   contextId?: string;     // Task, conversation, or other context ID
@@ -330,11 +330,12 @@ export enum AgentStatus {
 }
 
 /**
- * Agent metadata interface with organizational and personal mode support
+ * Agent metadata interface with proper typing
+ * Updated to match actual usage patterns and follow implementation guidelines
  */
 export interface AgentMetadata extends BaseMetadata {
   // Agent-specific identification
-  agentId: StructuredId;
+  agentId: string; // ULID
   name: string;
   description: string;
   
@@ -360,10 +361,17 @@ export interface AgentMetadata extends BaseMetadata {
   // Relationships
   chatIds?: string[];
   teamIds?: string[];
-  createdBy?: StructuredId;
+  createdBy?: string; // ULID
   
   // Content summary for agent retrieval optimization
   contentSummary?: string;
+  
+  // Capabilities (added to match template usage)
+  capabilities?: unknown[]; // Agent capabilities array
+  
+  // Temporal fields (added to match actual usage)
+  createdAt?: Date;
+  updatedAt?: Date;
   
   // Organizational and categorization properties (mode-aware)
   // Universal properties (both modes)
@@ -371,16 +379,24 @@ export interface AgentMetadata extends BaseMetadata {
   
   // Organizational properties (organizational mode only)
   department?: {
-    id: string; // Prisma department ID
+    id: string; // ULID - Prisma department ID
     name: string; // "Marketing", "Engineering", etc.
     code: string; // "MKT", "ENG", etc.
   }; // For organizational mode: actual departments with relational data
   subDepartment?: string; // Verticals/domains within department (e.g., "Drivers" within "Engineering")
   team?: string; // Small units/pods within subdepartment (e.g., "Backend Team" within "Drivers")
   position?: string; // Job title/role (organizational mode only)
-  reportingTo?: StructuredId; // Manager agent ID (organizational mode only)
-  managedAgents?: StructuredId[]; // Direct reports (organizational mode only)
+  reportingTo?: string; // ULID of manager agent (organizational mode only)
+  managedAgents?: string[]; // ULIDs of direct reports (organizational mode only)
   organizationLevel?: number; // Hierarchy depth, 0 = top level (organizational mode only)
+  
+  // Template metadata (for spawned agents)
+  metadata?: {
+    templateId?: string; // ULID of template used to create this agent
+    spawnedAt?: Date;
+    configVersion?: string;
+    [key: string]: unknown; // Allow additional metadata
+  };
 }
 
 /**
@@ -408,8 +424,8 @@ export interface DocumentMetadata extends BaseMetadata {
   url?: string;
   
   // Owner info
-  userId?: StructuredId;
-  agentId?: StructuredId;
+  userId?: string; // ULID
+  agentId?: string; // ULID
   
   // Chunking info for large documents
   chunkIndex?: number;
@@ -486,8 +502,8 @@ export interface TaskMetadata extends BaseMetadata {
   priority: TaskPriority;
   
   // Assignment
-  assignedTo?: StructuredId;
-  createdBy: StructuredId;
+  assignedTo?: string; // ULID
+  createdBy: string; // ULID
   
   // Timing
   dueDate?: string;  // ISO date string
