@@ -18,11 +18,12 @@ const LINKEDIN_SCOPES = [
 ];
 
 const FACEBOOK_SCOPES = [
+  'public_profile',
+  'email',
   'pages_show_list',
-  'pages_read_engagement',
-  'pages_manage_posts',
-  'pages_manage_engagement',
-  'publish_to_groups'
+  'pages_read_engagement'
+  // Note: pages_manage_posts requires App Review for regular Facebook Login
+  // Add after getting basic connection working
 ];
 
 const INSTAGRAM_SCOPES = [
@@ -81,9 +82,9 @@ export const getRequiredScopes = (provider: SocialMediaProvider): string[] => {
     case SocialMediaProvider.LINKEDIN:
       return ['profile', 'w_member_social'];
     case SocialMediaProvider.FACEBOOK:
-      return ['pages_show_list', 'pages_manage_posts'];
+      return ['public_profile', 'email'];
     case SocialMediaProvider.INSTAGRAM:
-      return ['user_profile', 'instagram_basic'];
+      return ['instagram_basic', 'instagram_content_publish'];
     case SocialMediaProvider.REDDIT:
       return ['identity', 'read', 'submit'];
     case SocialMediaProvider.TIKTOK:

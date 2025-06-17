@@ -26,10 +26,11 @@ export class MultiTenantFacebookProvider extends MultiTenantProviderBase {
       scopes: [
         'public_profile',
         'email',
-        'pages_manage_posts',
-        'pages_read_engagement',
-        'pages_show_list',
-        'publish_to_groups'
+        // TODO: Uncomment these scopes after Facebook App Review approval
+        // 'pages_manage_posts',
+        // 'pages_read_engagement',
+        // 'pages_show_list', 
+        // 'publish_to_groups'
       ],
       authUrl: 'https://www.facebook.com/v18.0/dialog/oauth',
       tokenUrl: 'https://graph.facebook.com/v18.0/oauth/access_token',

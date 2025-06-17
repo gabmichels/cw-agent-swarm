@@ -19,10 +19,11 @@ import { MultiTenantProviderBase } from './base/MultiTenantProviderBase';
  */
 export class MultiTenantInstagramProvider extends MultiTenantProviderBase {
   constructor() {
+    // Instagram Graph API uses Facebook credentials and requires Business/Creator account
     const config: MultiTenantOAuthConfig = {
       platform: SocialMediaProvider.INSTAGRAM,
-      clientId: process.env.INSTAGRAM_CLIENT_ID!,
-      clientSecret: process.env.INSTAGRAM_CLIENT_SECRET!,
+      clientId: process.env.FACEBOOK_APP_ID!,
+      clientSecret: process.env.FACEBOOK_APP_SECRET!,
       scopes: [
         'instagram_basic',
         'instagram_content_publish',
