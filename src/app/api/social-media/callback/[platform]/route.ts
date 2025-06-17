@@ -4,7 +4,7 @@ import { MultiTenantLinkedInProvider } from '@/services/social-media/providers/M
 import { MultiTenantTikTokProvider } from '@/services/social-media/providers/MultiTenantTikTokProvider';
 import { MultiTenantFacebookProvider } from '@/services/social-media/providers/MultiTenantFacebookProvider';
 import { MultiTenantInstagramProvider } from '@/services/social-media/providers/MultiTenantInstagramProvider';
-import { SocialMediaProvider } from '@/services/social-media/database/ISocialMediaDatabase';
+import { SocialMediaProvider, SocialMediaConnectionStatus } from '@/services/social-media/database/ISocialMediaDatabase';
 import { IMultiTenantSocialMediaProvider } from '@/services/social-media/providers/base/MultiTenantProviderBase';
 
 /**
@@ -43,14 +43,14 @@ export async function GET(
     if (error) {
       console.error(`OAuth error for ${platform}:`, error, errorDescription);
       return NextResponse.redirect(
-        `${process.env.NEXT_PUBLIC_APP_URL}/settings/social-media?error=${encodeURIComponent(error)}&platform=${platform}`
+        `${process.env.NEXT_PUBLIC_APP_URL}/?error=${encodeURIComponent(error)}&platform=${platform}&source=oauth_error`
       );
     }
 
     // Validate required parameters
     if (!code || !state) {
       return NextResponse.redirect(
-        `${process.env.NEXT_PUBLIC_APP_URL}/settings/social-media?error=missing_parameters&platform=${platform}`
+        `${process.env.NEXT_PUBLIC_APP_URL}/?error=missing_parameters&platform=${platform}&source=oauth_validation`
       );
     }
 
@@ -58,21 +58,39 @@ export async function GET(
     const providerFactory = providers[platform.toLowerCase()];
     if (!providerFactory) {
       return NextResponse.redirect(
-        `${process.env.NEXT_PUBLIC_APP_URL}/settings/social-media?error=unsupported_platform&platform=${platform}`
+        `${process.env.NEXT_PUBLIC_APP_URL}/?error=unsupported_platform&platform=${platform}&source=oauth_provider`
       );
     }
 
     const provider = providerFactory();
 
-    // TODO: Extract tenantId and userId from state or session
-    // For now, using placeholder values - in production, these would come from:
-    // 1. Decoded state parameter (recommended)
-    // 2. User session/JWT token
-    // 3. Database lookup
-    const tenantId = 'tenant_placeholder'; // Extract from state or session
-    const userId = 'user_placeholder'; // Extract from state or session
+    // Extract tenantId and userId from the stored state data
+    // The state parameter contains the original tenant/user info
+    let tenantId: string;
+    let userId: string;
+    
+    try {
+      // Access the state storage to get the original tenant/user IDs
+      // This is a temporary solution - in production you'd handle this more elegantly
+      const stateStorage = (provider as any).stateStorage;
+      const stateData = await stateStorage.get(state);
+      
+      if (!stateData) {
+        throw new Error('State data not found - OAuth session may have expired');
+      }
+      
+      tenantId = stateData.tenantId;
+      userId = stateData.userId;
+      
+      console.log('Retrieved OAuth state data:', { tenantId, userId, platform });
+    } catch (stateError) {
+      console.error('Failed to retrieve state data:', stateError);
+      return NextResponse.redirect(
+        `${process.env.NEXT_PUBLIC_APP_URL}/?error=invalid_state&platform=${platform}&details=${encodeURIComponent((stateError as Error).message)}`
+      );
+    }
 
-    // Handle OAuth callback
+    // Handle OAuth callback with correct tenant/user IDs
     const tokenData = await provider.handleOAuthCallback({
       code,
       state,
@@ -87,22 +105,57 @@ export async function GET(
       accountType: tokenData.accountType
     });
 
-    // TODO: Store token in database
-    // In production, you would:
-    // 1. Save tokenData to your database
-    // 2. Associate with the user/tenant
-    // 3. Set up proper error handling and rollback
+    // Store connection in database
+    try {
+      const { PrismaSocialMediaDatabase } = await import('@/services/social-media/database/PrismaSocialMediaDatabase');
+      const { PrismaClient } = await import('@prisma/client');
+      
+      const prisma = new PrismaClient();
+      const database = new PrismaSocialMediaDatabase(prisma);
+      
+      // Convert TenantSocialToken to SocialMediaConnection format
+      // Map account types correctly
+      const accountType = tokenData.accountType === 'company' ? 'business' : 
+                         tokenData.accountType === 'product' ? 'creator' : 
+                         'personal';
+      
+      const connection = await database.createConnection({
+        userId: tokenData.userId,
+        organizationId: tokenData.tenantId,
+        provider: tokenData.platform,
+        providerAccountId: tokenData.accountId,
+        accountDisplayName: tokenData.accountDisplayName,
+        accountUsername: tokenData.accountUsername,
+        accountType: accountType,
+        encryptedCredentials: JSON.stringify({
+          accessToken: tokenData.accessToken,
+          refreshToken: tokenData.refreshToken,
+          expiresAt: tokenData.expiresAt.toISOString(),
+          scopes: tokenData.scopes
+        }),
+        scopes: tokenData.scopes,
+        connectionStatus: SocialMediaConnectionStatus.ACTIVE,
+        metadata: {},
+        lastValidated: new Date()
+      });
 
-    // Redirect back to settings with success
+      console.log(`Successfully stored ${platform} connection in database:`, connection.id);
+      await prisma.$disconnect();
+    } catch (dbError) {
+      console.error('Failed to store connection in database:', dbError);
+      // Don't fail the OAuth flow, but log the error
+    }
+
+    // Redirect back to home page with success message
     return NextResponse.redirect(
-      `${process.env.NEXT_PUBLIC_APP_URL}/settings/social-media?success=true&platform=${platform}&account=${encodeURIComponent(tokenData.accountDisplayName)}`
+      `${process.env.NEXT_PUBLIC_APP_URL}/?success=true&platform=${platform}&account=${encodeURIComponent(tokenData.accountDisplayName)}&source=oauth_success`
     );
 
   } catch (error) {
     console.error(`OAuth callback error for ${params.platform}:`, error);
     
     return NextResponse.redirect(
-      `${process.env.NEXT_PUBLIC_APP_URL}/settings/social-media?error=callback_failed&platform=${params.platform}&details=${encodeURIComponent((error as Error).message)}`
+      `${process.env.NEXT_PUBLIC_APP_URL}/?error=callback_failed&platform=${params.platform}&details=${encodeURIComponent((error as Error).message)}&source=oauth_callback`
     );
   }
 }

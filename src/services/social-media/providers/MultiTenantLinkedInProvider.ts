@@ -23,7 +23,7 @@ export class MultiTenantLinkedInProvider extends MultiTenantProviderBase {
       platform: SocialMediaProvider.LINKEDIN,
       clientId: process.env.LINKEDIN_CLIENT_ID!,
       clientSecret: process.env.LINKEDIN_CLIENT_SECRET!,
-      scopes: ['r_liteprofile', 'r_emailaddress', 'w_member_social'],
+              scopes: ['openid', 'profile', 'email', 'w_member_social'],
       authUrl: 'https://www.linkedin.com/oauth/v2/authorization',
       tokenUrl: 'https://www.linkedin.com/oauth/v2/accessToken',
       refreshUrl: 'https://www.linkedin.com/oauth/v2/accessToken',
@@ -81,29 +81,39 @@ export class MultiTenantLinkedInProvider extends MultiTenantProviderBase {
   }
 
   /**
-   * Get user profile from LinkedIn API
+   * Get user profile from LinkedIn API using OpenID Connect
    */
   protected async getUserProfile(accessToken: string): Promise<{
     id: string;
     name: string;
     username: string;
   }> {
-    const response = await fetch('https://api.linkedin.com/v2/people/~:(id,firstName,lastName)', {
-      headers: {
-        'Authorization': `Bearer ${accessToken}`
+    try {
+      // Use LinkedIn OpenID Connect userinfo endpoint for profile data
+      const response = await fetch('https://api.linkedin.com/v2/userinfo', {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`
+        }
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('LinkedIn userinfo API error:', response.status, errorText);
+        throw new Error(`LinkedIn userinfo API failed: ${response.status} ${errorText}`);
       }
-    });
 
-    if (!response.ok) {
-      throw new Error('Failed to get LinkedIn user profile');
+      const data = await response.json();
+      console.log('LinkedIn userinfo response:', data);
+      
+      return {
+        id: data.sub, // OpenID Connect standard subject identifier
+        name: data.name || data.given_name + ' ' + data.family_name || 'LinkedIn User',
+        username: data.email || data.sub // Use email as username, fallback to ID
+      };
+    } catch (error) {
+      console.error('Error getting LinkedIn user profile:', error);
+      throw new Error(`Failed to get LinkedIn user profile: ${(error as Error).message}`);
     }
-
-    const data = await response.json();
-    return {
-      id: data.id,
-      name: `${data.firstName.localized.en_US} ${data.lastName.localized.en_US}`,
-      username: data.id // LinkedIn doesn't have usernames like Twitter
-    };
   }
 
   /**
@@ -156,7 +166,7 @@ export class MultiTenantLinkedInProvider extends MultiTenantProviderBase {
    */
   protected async testConnection(accessToken: string): Promise<boolean> {
     try {
-      const response = await fetch('https://api.linkedin.com/v2/people/~:(id)', {
+      const response = await fetch('https://api.linkedin.com/v2/userinfo', {
         headers: {
           'Authorization': `Bearer ${accessToken}`
         }

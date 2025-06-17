@@ -40,6 +40,12 @@ Each Customer Company
 3. **Configure OAuth 2.0**
    ```
    App Type: Web App
+   
+   # For Local Development:
+   Callback URLs: http://localhost:3000/api/social-media/callback/twitter
+   Website URL: http://localhost:3000
+   
+   # For Production:
    Callback URLs: https://yourdomain.com/api/social-media/callback/twitter
    Website URL: https://yourdomain.com
    Terms of Service: https://yourdomain.com/terms
@@ -75,14 +81,19 @@ Each Customer Company
 
 3. **Configure OAuth 2.0**
    ```
+   # For Local Development:
+   Authorized Redirect URLs: 
+   http://localhost:3000/api/social-media/callback/linkedin
+   
+   # For Production:
    Authorized Redirect URLs: 
    https://yourdomain.com/api/social-media/callback/linkedin
    ```
 
-4. **Required Products**
-   - ✅ Sign In with LinkedIn using OpenID Connect
-   - ✅ Share on LinkedIn
-   - ✅ Marketing Developer Platform (for company pages)
+4. **Required Products** (Request these from LinkedIn)
+   - ✅ **Sign In with LinkedIn using OpenID Connect** (provides: `openid`, `profile`, `email`)
+   - ✅ **Share on LinkedIn** (provides: `w_member_social`)
+   - ✅ **Marketing Developer Platform** (optional, for company pages)
 
 5. **Environment Variables**
    ```bash
@@ -107,6 +118,10 @@ Each Customer Company
 
 3. **Configure OAuth 2.0**
    ```
+   # For Local Development:
+   Redirect URI: http://localhost:3000/api/social-media/callback/tiktok
+   
+   # For Production:
    Redirect URI: https://yourdomain.com/api/social-media/callback/tiktok
    ```
 
@@ -139,6 +154,11 @@ Each Customer Company
 
 3. **Add Facebook Login Product**
    ```
+   # For Local Development:
+   Valid OAuth Redirect URIs:
+   http://localhost:3000/api/social-media/callback/facebook
+   
+   # For Production:
    Valid OAuth Redirect URIs:
    https://yourdomain.com/api/social-media/callback/facebook
    ```
@@ -167,6 +187,11 @@ Each Customer Company
 
 2. **Configure Instagram Product**
    ```
+   # For Local Development:
+   Valid OAuth Redirect URIs:
+   http://localhost:3000/api/social-media/callback/instagram
+   
+   # For Production:
    Valid OAuth Redirect URIs:
    https://yourdomain.com/api/social-media/callback/instagram
    ```
@@ -196,7 +221,10 @@ Each Customer Company
    - App Type: `web app`
    - Name: `YourSaaS Social Media Manager`
    - Description: `Multi-tenant social media management`
-   - Redirect URI: `https://yourdomain.com/api/social-media/callback/reddit`
+   - **For Local Development:**
+     - Redirect URI: `http://localhost:3000/api/social-media/callback/reddit`
+   - **For Production:**
+     - Redirect URI: `https://yourdomain.com/api/social-media/callback/reddit`
 
 3. **Required Scopes**
    - ✅ identity
@@ -241,7 +269,11 @@ ENCRYPTION_MASTER_KEY=your_64_character_hex_key
 SOCIAL_MEDIA_JWT_SECRET=your_jwt_secret
 
 # App Configuration
-NEXT_PUBLIC_APP_URL=https://yourdomain.com
+# For Local Development:
+NEXT_PUBLIC_APP_URL=http://localhost:3000
+
+# For Production:
+# NEXT_PUBLIC_APP_URL=https://yourdomain.com
 ```
 
 ---

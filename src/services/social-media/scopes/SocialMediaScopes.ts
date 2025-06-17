@@ -11,10 +11,10 @@ const TWITTER_SCOPES = [
 ];
 
 const LINKEDIN_SCOPES = [
-  'r_liteprofile',
-  'r_emailaddress',
-  'w_member_social',
-  'rw_organization_admin'
+  'openid',
+  'profile',
+  'email',
+  'w_member_social'
 ];
 
 const FACEBOOK_SCOPES = [
@@ -79,7 +79,7 @@ export const getRequiredScopes = (provider: SocialMediaProvider): string[] => {
     case SocialMediaProvider.TWITTER:
       return ['tweet.read', 'tweet.write', 'users.read'];
     case SocialMediaProvider.LINKEDIN:
-      return ['r_liteprofile', 'w_member_social'];
+      return ['profile', 'w_member_social'];
     case SocialMediaProvider.FACEBOOK:
       return ['pages_show_list', 'pages_manage_posts'];
     case SocialMediaProvider.INSTAGRAM:
@@ -111,10 +111,10 @@ export const getScopeDescription = (scope: string, provider: SocialMediaProvider
     'offline.access': 'Maintain access when offline',
     
     // LinkedIn
-    'r_liteprofile': 'Read basic profile information',
-    'r_emailaddress': 'Access email address',
+    'openid': 'Sign in with LinkedIn',
+    'profile': 'Read basic profile information',
+    'email': 'Access email address',
     'w_member_social': 'Share content on your behalf',
-    'rw_organization_admin': 'Manage organization pages',
     
     // Facebook
     'pages_show_list': 'See pages you manage',
