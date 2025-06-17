@@ -50,6 +50,7 @@
     "test:market-scanner": "tsx tests/market-scanner/test-market-scanner.ts",
     "test:market-scanner-nlp": "tsx tests/market-scanner/test-market-scanner-nlp.ts",
     "chloe:scheduled-tasks": "tsx src/scheduledTasks/index.ts",
+    "cleanup-agents": "node scripts/cleanup-simple.js",
     "capability-demo": "ts-node src/scripts/run-capability-demo.ts",
     "storage:start": "docker-compose up -d minio createbuckets",
     "storage:stop": "docker-compose down"
