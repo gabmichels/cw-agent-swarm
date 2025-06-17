@@ -569,7 +569,7 @@ export class PrismaSocialMediaDatabase implements ISocialMediaDatabase {
   }
 
   // Helper mapping functions
-  private mapPrismaToConnection(prismaConnection: any): SocialMediaConnection {
+  public mapPrismaToConnection(prismaConnection: any): SocialMediaConnection {
     return {
       id: prismaConnection.id,
       userId: prismaConnection.userId,

@@ -21,12 +21,15 @@ import {
   SocialMediaConnection,
   SocialMediaConnectionStatus
 } from '../database/ISocialMediaDatabase';
+import { TokenEncryption } from '../../security/TokenEncryption';
 
 export class TwitterProvider implements ISocialMediaProvider {
   private connections = new Map<string, SocialMediaConnection>();
+  private tokenEncryption: TokenEncryption;
 
   constructor() {
     // Initialize provider
+    this.tokenEncryption = new TokenEncryption();
   }
 
   addConnection(connection: SocialMediaConnection): void {
@@ -40,13 +43,13 @@ export class TwitterProvider implements ISocialMediaProvider {
         return false;
       }
 
-      // Parse encrypted credentials
-      const credentials = JSON.parse(connection.encryptedCredentials);
+      // Decrypt credentials
+      const credentials = this.tokenEncryption.decryptTokens(connection.encryptedCredentials);
       
       // Test the connection with a simple API call
       const response = await fetch('https://api.twitter.com/2/users/me', {
         headers: {
-          'Authorization': `Bearer ${credentials.accessToken}`,
+          'Authorization': `Bearer ${credentials.access_token}`,
         },
       });
 
@@ -73,7 +76,7 @@ export class TwitterProvider implements ISocialMediaProvider {
         );
       }
 
-      const credentials = JSON.parse(connection.encryptedCredentials);
+      const credentials = this.tokenEncryption.decryptTokens(connection.encryptedCredentials);
       const tweetText = this.formatTweetContent(params.content, params.hashtags);
       
       const tweetData: any = {
@@ -88,7 +91,7 @@ export class TwitterProvider implements ISocialMediaProvider {
       const response = await fetch('https://api.twitter.com/2/tweets', {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${credentials.accessToken}`,
+          'Authorization': `Bearer ${credentials.access_token}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(tweetData),
@@ -142,11 +145,11 @@ export class TwitterProvider implements ISocialMediaProvider {
         );
       }
 
-      const credentials = JSON.parse(connection.encryptedCredentials);
+      const credentials = this.tokenEncryption.decryptTokens(connection.encryptedCredentials);
       
       const response = await fetch(`https://api.twitter.com/2/tweets/${postId}?tweet.fields=created_at,public_metrics`, {
         headers: {
-          'Authorization': `Bearer ${credentials.accessToken}`,
+          'Authorization': `Bearer ${credentials.access_token}`,
         },
       });
 
@@ -197,12 +200,12 @@ export class TwitterProvider implements ISocialMediaProvider {
         );
       }
 
-      const credentials = JSON.parse(connection.encryptedCredentials);
+      const credentials = this.tokenEncryption.decryptTokens(connection.encryptedCredentials);
       const limit = Math.min(params.limit || 10, 100);
       
       const response = await fetch(`https://api.twitter.com/2/users/${connection.providerAccountId}/tweets?max_results=${limit}&tweet.fields=created_at,public_metrics`, {
         headers: {
-          'Authorization': `Bearer ${credentials.accessToken}`,
+          'Authorization': `Bearer ${credentials.access_token}`,
         },
       });
 
@@ -261,12 +264,12 @@ export class TwitterProvider implements ISocialMediaProvider {
         );
       }
 
-      const credentials = JSON.parse(connection.encryptedCredentials);
+      const credentials = this.tokenEncryption.decryptTokens(connection.encryptedCredentials);
       
       const response = await fetch(`https://api.twitter.com/2/tweets/${postId}`, {
         method: 'DELETE',
         headers: {
-          'Authorization': `Bearer ${credentials.accessToken}`,
+          'Authorization': `Bearer ${credentials.access_token}`,
         },
       });
 
@@ -334,12 +337,12 @@ export class TwitterProvider implements ISocialMediaProvider {
         );
       }
 
-      const credentials = JSON.parse(connection.encryptedCredentials);
+      const credentials = this.tokenEncryption.decryptTokens(connection.encryptedCredentials);
       
       // Get replies to the tweet
       const response = await fetch(`https://api.twitter.com/2/tweets/search/recent?query=conversation_id:${postId}&tweet.fields=created_at,author_id,public_metrics`, {
         headers: {
-          'Authorization': `Bearer ${credentials.accessToken}`,
+          'Authorization': `Bearer ${credentials.access_token}`,
         },
       });
 

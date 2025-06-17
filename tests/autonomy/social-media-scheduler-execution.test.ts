@@ -8,7 +8,11 @@
 
 import { describe, test, expect, beforeAll, afterAll } from 'vitest';
 import { SocialMediaCommandType } from '../../src/services/social-media/integration/SocialMediaNLP';
-import { SocialMediaProvider, SocialMediaCapability } from '../../src/services/social-media/database/ISocialMediaDatabase';
+import { SocialMediaProvider, SocialMediaCapability, SocialMediaConnection, SocialMediaConnectionStatus } from '../../src/services/social-media/database/ISocialMediaDatabase';
+import { MultiTenantTwitterProvider } from '../../src/services/social-media/providers/MultiTenantTwitterProvider';
+import { TwitterProvider } from '../../src/services/social-media/providers/TwitterProvider';
+import { PrismaSocialMediaDatabase } from '../../src/services/social-media/database/PrismaSocialMediaDatabase';
+import { PrismaClient } from '@prisma/client';
 import { ulid } from 'ulid';
 
 describe('Social Media Scheduler Execution Tests', () => {
