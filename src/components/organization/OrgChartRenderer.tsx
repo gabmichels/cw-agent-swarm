@@ -16,11 +16,14 @@ import ReactFlow, {
   EdgeChange,
   Connection,
   addEdge,
-  ReactFlowProvider
+  ReactFlowProvider,
+  ConnectionLineType,
+  Handle
 } from 'reactflow';
+import dagre from '@dagrejs/dagre';
 import 'reactflow/dist/style.css';
 import { Department, OrgHierarchyNode } from '../../types/organization';
-import { AgentMetadata } from '../../types/metadata';
+import { AgentMetadata, AgentStatus } from '../../types/metadata';
 import { PlatformConfigService } from '../../services/PlatformConfigService';
 
 /**
@@ -53,16 +56,18 @@ export interface OrgChartChange {
 }
 
 /**
- * Node dimensions and spacing constants
+ * Node dimensions and spacing constants for Dagre layout
  */
 const NODE_DIMENSIONS = {
   DEPARTMENT_WIDTH: 300,
   DEPARTMENT_HEIGHT: 200,
+  SUBDEPARTMENT_WIDTH: 250,
+  SUBDEPARTMENT_HEIGHT: 150,
+  TEAM_WIDTH: 200,
+  TEAM_HEIGHT: 120,
   AGENT_WIDTH: 180,
-  AGENT_HEIGHT: 80,
-  SPACING_X: 100,
-  SPACING_Y: 150,
-  LEVEL_HEIGHT: 250
+  AGENT_HEIGHT: 200,
+  SPACING: 80
 } as const;
 
 /**
@@ -82,11 +87,13 @@ const DEPARTMENT_THEMES = {
  * Agent status indicators with visual styling
  */
 const AGENT_STATUS_CONFIG = {
-  AVAILABLE: { color: '#4CAF50', icon: '●', label: 'Available' },
-  BUSY: { color: '#FF9800', icon: '●', label: 'Busy' },
-  OFFLINE: { color: '#9E9E9E', icon: '●', label: 'Offline' },
-  MAINTENANCE: { color: '#F44336', icon: '●', label: 'Maintenance' }
+  [AgentStatus.AVAILABLE]: { color: '#4CAF50', icon: '●', label: 'Available' },
+  [AgentStatus.BUSY]: { color: '#FF9800', icon: '●', label: 'Busy' },
+  [AgentStatus.OFFLINE]: { color: '#9E9E9E', icon: '●', label: 'Offline' },
+  [AgentStatus.MAINTENANCE]: { color: '#F44336', icon: '●', label: 'Maintenance' }
 } as const;
+
+// Dagre instances are created fresh for each layout calculation
 
 /**
  * Get department theme based on name/type
@@ -103,10 +110,72 @@ const getDepartmentTheme = (departmentName: string) => {
 };
 
 /**
+ * Get node dimensions based on type
+ */
+const getNodeDimensions = (nodeType: string) => {
+  switch (nodeType) {
+    case 'department':
+      return { width: NODE_DIMENSIONS.DEPARTMENT_WIDTH, height: NODE_DIMENSIONS.DEPARTMENT_HEIGHT };
+    case 'subdepartment':
+      return { width: NODE_DIMENSIONS.SUBDEPARTMENT_WIDTH, height: NODE_DIMENSIONS.SUBDEPARTMENT_HEIGHT };
+    case 'team':
+      return { width: NODE_DIMENSIONS.TEAM_WIDTH, height: NODE_DIMENSIONS.TEAM_HEIGHT };
+    case 'agent':
+      return { width: NODE_DIMENSIONS.AGENT_WIDTH, height: NODE_DIMENSIONS.AGENT_HEIGHT };
+    default:
+      return { width: NODE_DIMENSIONS.AGENT_WIDTH, height: NODE_DIMENSIONS.AGENT_HEIGHT };
+  }
+};
+
+/**
+ * Dagre graph configuration - following official example pattern
+ */
+const dagreGraph = new dagre.graphlib.Graph().setDefaultEdgeLabel(() => ({}));
+
+/**
+ * Apply Dagre layout - following official example exactly
+ */
+const getLayoutedElements = (nodes: Node[], edges: Edge[], direction = 'TB') => {
+  const isHorizontal = direction === 'LR';
+  dagreGraph.setGraph({ rankdir: direction });
+
+  nodes.forEach((node) => {
+    const { width, height } = getNodeDimensions(node.type || 'agent');
+    dagreGraph.setNode(node.id, { width, height });
+  });
+
+  edges.forEach((edge) => {
+    dagreGraph.setEdge(edge.source, edge.target);
+  });
+
+  dagre.layout(dagreGraph);
+
+  const newNodes = nodes.map((node) => {
+    const nodeWithPosition = dagreGraph.node(node.id);
+    const { width, height } = getNodeDimensions(node.type || 'agent');
+    const newNode = {
+      ...node,
+      targetPosition: isHorizontal ? Position.Left : Position.Top,
+      sourcePosition: isHorizontal ? Position.Right : Position.Bottom,
+      position: {
+        x: nodeWithPosition.x - width / 2,
+        y: nodeWithPosition.y - height / 2,
+      },
+    };
+
+    return newNode;
+  });
+
+  return { nodes: newNodes, edges };
+};
+
+/**
  * Custom Department Node Component
  */
 const DepartmentNode: React.FC<{ data: any }> = ({ data }) => {
-  const theme = getDepartmentTheme(data.department.name);
+  const theme = getDepartmentTheme(data.department?.name || data.name || 'Unknown');
+  // Count agents from the department data, or use the direct agents array
+  const agentCount = data.agents?.length || 0;
   
   return (
     <div 
@@ -122,6 +191,17 @@ const DepartmentNode: React.FC<{ data: any }> = ({ data }) => {
         position: 'relative'
       }}
     >
+      {/* Handles for connecting edges */}
+      <Handle
+        type="target"
+        position={Position.Top}
+        style={{ background: theme.color }}
+      />
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        style={{ background: theme.color }}
+      />
       <div className="department-header" style={{ 
         display: 'flex', 
         alignItems: 'center', 
@@ -137,9 +217,9 @@ const DepartmentNode: React.FC<{ data: any }> = ({ data }) => {
             fontSize: '16px', 
             fontWeight: 'bold' 
           }}>
-            {data.department.name}
+            {data.department?.name || data.name}
           </h3>
-          {data.department.description && (
+          {data.department?.description && (
             <p style={{ 
               margin: 0, 
               color: '#666', 
@@ -154,15 +234,15 @@ const DepartmentNode: React.FC<{ data: any }> = ({ data }) => {
       
       <div className="department-stats">
         <div style={{ fontSize: '12px', color: '#666', marginBottom: '4px' }}>
-          👥 {data.agentCount} agents
+          👥 {agentCount} agents
         </div>
-        {data.department.headOfDepartment && (
+        {data.department?.managerId && (
           <div style={{ fontSize: '12px', color: '#666', marginBottom: '4px' }}>
-            👤 Head: {data.headName || 'Unknown'}
+            👤 Manager: {data.managerName || 'Unknown'}
           </div>
         )}
         <div style={{ fontSize: '12px', color: '#666' }}>
-          📊 Utilization: {Math.round((data.agentCount / (data.department.maxCapacity || 10)) * 100)}%
+          💰 Budget: {data.department?.currency || '$'}{data.department?.budgetLimit || 0}
         </div>
       </div>
       
@@ -187,7 +267,7 @@ const DepartmentNode: React.FC<{ data: any }> = ({ data }) => {
               fontSize: '12px',
               cursor: 'pointer'
             }}
-            onClick={() => data.onEdit?.(data.department.id)}
+            onClick={() => data.onEdit?.(data.department?.id)}
           >
             ✏️
           </button>
@@ -201,7 +281,14 @@ const DepartmentNode: React.FC<{ data: any }> = ({ data }) => {
  * Custom Agent Node Component
  */
 const AgentNode: React.FC<{ data: any }> = ({ data }) => {
-  const statusConfig = AGENT_STATUS_CONFIG[data.agent.status as keyof typeof AGENT_STATUS_CONFIG] || AGENT_STATUS_CONFIG.OFFLINE;
+  const agent = data.agent;
+  const status = agent?.status as AgentStatus || AgentStatus.OFFLINE;
+  const statusConfig = AGENT_STATUS_CONFIG[status];
+  
+  // Use department theme color if available, otherwise use status color
+  const departmentTheme = data.departmentTheme || DEPARTMENT_THEMES.default;
+  const borderColor = departmentTheme.color;
+  const bgColor = departmentTheme.bgColor;
   
   return (
     <div 
@@ -209,86 +296,201 @@ const AgentNode: React.FC<{ data: any }> = ({ data }) => {
       style={{
         width: NODE_DIMENSIONS.AGENT_WIDTH,
         height: NODE_DIMENSIONS.AGENT_HEIGHT,
-        backgroundColor: 'white',
-        border: `2px solid ${statusConfig.color}`,
-        borderRadius: '8px',
-        padding: '12px',
-        boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+        backgroundColor: bgColor,
+        border: `2px solid ${borderColor}`,
+        borderRadius: '6px',
+        padding: '8px',
+        boxShadow: '0 2px 6px rgba(0,0,0,0.1)',
         position: 'relative',
-        cursor: data.planningMode ? 'grab' : 'default'
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'center'
       }}
     >
+      {/* Handles for connecting edges */}
+      <Handle
+        type="target"
+        position={Position.Top}
+        style={{ background: borderColor }}
+      />
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        style={{ background: borderColor }}
+      />
       <div className="agent-header" style={{ 
         display: 'flex', 
         alignItems: 'center', 
         justifyContent: 'space-between',
-        marginBottom: '8px'
+        marginBottom: '4px'
       }}>
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          flex: 1,
-          minWidth: 0
+        <h4 style={{ 
+          margin: 0, 
+          fontSize: '12px', 
+          fontWeight: 'bold',
+          color: borderColor,
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+          flex: 1
         }}>
-          <div style={{
-            width: '8px',
-            height: '8px',
-            borderRadius: '50%',
-            backgroundColor: statusConfig.color,
-            marginRight: '8px',
-            flexShrink: 0
-          }} />
-          <h4 style={{ 
-            margin: 0, 
-            fontSize: '14px', 
+          {agent?.name || 'Unknown Agent'}
+        </h4>
+        <span 
+          style={{ 
+            color: statusConfig.color, 
+            fontSize: '10px',
             fontWeight: 'bold',
-            color: '#333',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap'
-          }}>
-            {data.agent.name}
-          </h4>
+            marginLeft: '4px'
+          }}
+          title={statusConfig.label}
+        >
+          {statusConfig.icon}
+        </span>
+      </div>
+      
+      <div className="agent-details" style={{ flex: 1 }}>
+        <div style={{ fontSize: '10px', color: '#666', marginBottom: '1px' }}>
+          📋 {agent?.position || 'Agent'}
         </div>
-        
-        {data.planningMode && (
-          <button 
-            style={{
-              background: 'transparent',
-              border: 'none',
-              cursor: 'grab',
-              fontSize: '12px',
-              padding: '2px'
-            }}
-            title="Drag to move"
-          >
-            ⋮⋮
-          </button>
+        {agent?.specialization?.length > 0 && (
+          <div style={{ fontSize: '9px', color: '#888', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            🎯 {agent.specialization.slice(0, 1).join(', ')}
+          </div>
         )}
       </div>
       
-      {data.agent.position && (
-        <div style={{ 
-          fontSize: '12px', 
-          color: '#666', 
-          marginBottom: '4px',
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap'
-        }}>
-          💼 {data.agent.position}
+      {data.planningMode && (
+        <div 
+          className="agent-actions"
+          style={{
+            position: 'absolute',
+            top: '2px',
+            right: '2px',
+            display: 'flex',
+            gap: '1px'
+          }}
+        >
+          <button 
+            style={{
+              background: statusConfig.color,
+              color: 'white',
+              border: 'none',
+              borderRadius: '2px',
+              padding: '1px 4px',
+              fontSize: '8px',
+              cursor: 'pointer'
+            }}
+            onClick={() => data.onReassign?.(agent?.agentId)}
+          >
+            ↔
+          </button>
         </div>
       )}
+    </div>
+  );
+};
+
+/**
+ * Custom SubDepartment Node Component
+ */
+const SubDepartmentNode: React.FC<{ data: any }> = ({ data }) => {
+  const parentTheme = getDepartmentTheme(data.parentDepartmentName || '');
+  
+  return (
+    <div 
+      className="subdepartment-node"
+      style={{
+        width: NODE_DIMENSIONS.SUBDEPARTMENT_WIDTH,
+        height: NODE_DIMENSIONS.SUBDEPARTMENT_HEIGHT,
+        backgroundColor: `${parentTheme.bgColor}aa`,
+        border: `2px dashed ${parentTheme.color}`,
+        borderRadius: '8px',
+        padding: '12px',
+        boxShadow: '0 2px 6px rgba(0,0,0,0.05)',
+        position: 'relative'
+      }}
+    >
+      <div className="subdepartment-header" style={{ 
+        display: 'flex', 
+        alignItems: 'center', 
+        marginBottom: '8px'
+      }}>
+        <span style={{ fontSize: '18px', marginRight: '6px' }}>📂</span>
+        <h4 style={{ 
+          margin: 0, 
+          color: parentTheme.color, 
+          fontSize: '14px', 
+          fontWeight: 'bold' 
+        }}>
+          {data.name}
+        </h4>
+      </div>
       
-      <div style={{ fontSize: '11px', color: '#999' }}>
-        🔧 {data.agent.capabilities?.length || 0} capabilities
+      <div className="subdepartment-stats">
+        <div style={{ fontSize: '11px', color: '#666' }}>
+          👥 {data.agentCount || 0} agents
+        </div>
       </div>
     </div>
   );
 };
 
 /**
- * Main OrgChartRenderer Component
+ * Custom Team Node Component
+ */
+const TeamNode: React.FC<{ data: any }> = ({ data }) => {
+  return (
+    <div 
+      className="team-node"
+      style={{
+        width: NODE_DIMENSIONS.TEAM_WIDTH,
+        height: NODE_DIMENSIONS.TEAM_HEIGHT,
+        backgroundColor: '#f8f9fa',
+        border: '2px solid #6c757d',
+        borderRadius: '6px',
+        padding: '10px',
+        boxShadow: '0 1px 4px rgba(0,0,0,0.05)',
+        position: 'relative'
+      }}
+    >
+      <div className="team-header" style={{ 
+        display: 'flex', 
+        alignItems: 'center', 
+        marginBottom: '6px'
+      }}>
+        <span style={{ fontSize: '16px', marginRight: '4px' }}>👥</span>
+        <h5 style={{ 
+          margin: 0, 
+          color: '#495057', 
+          fontSize: '12px', 
+          fontWeight: 'bold' 
+        }}>
+          {data.name}
+        </h5>
+      </div>
+      
+      <div className="team-stats">
+        <div style={{ fontSize: '10px', color: '#666' }}>
+          Members: {data.agentCount || 0}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/**
+ * Node types for React Flow
+ */
+const nodeTypes = {
+  department: DepartmentNode,
+  agent: AgentNode,
+  subdepartment: SubDepartmentNode,
+  team: TeamNode,
+};
+
+/**
+ * Main OrgChartRenderer Component with Dagre Layout
  */
 export const OrgChartRenderer: React.FC<OrgChartRendererProps> = ({
   departments,
@@ -303,494 +505,225 @@ export const OrgChartRenderer: React.FC<OrgChartRendererProps> = ({
   onAgentReassign,
   onPreviewChanges
 }) => {
-  const [nodes, setNodes, onNodesChange] = useNodesState([]);
-  const [edges, setEdges, onEdgesChange] = useEdgesState([]);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [dimensions, setDimensions] = useState({ width, height });
-  const [pendingChanges, setPendingChanges] = useState<OrgChartChange[]>([]);
-  const [selectedDepartment, setSelectedDepartment] = useState<string | null>(null);
-  const platformConfig = PlatformConfigService.getInstance();
-
-  // Custom node types
-  const nodeTypes = useMemo(() => ({
-    department: DepartmentNode,
-    agent: AgentNode
-  }), []);
-
-  // Update dimensions based on container size
-  useEffect(() => {
-    if (containerRef.current) {
-      const resizeObserver = new ResizeObserver(entries => {
-        for (const entry of entries) {
-          const { width, height } = entry.contentRect;
-          setDimensions({ 
-            width: Math.max(width, 800), 
-            height: Math.max(height, 600) 
-          });
-        }
-      });
-      
-      resizeObserver.observe(containerRef.current);
-      
-      // Initial measurement
-      setDimensions({
-        width: Math.max(containerRef.current.offsetWidth, 800),
-        height: Math.max(containerRef.current.offsetHeight, 600)
-      });
-      
-      return () => {
-        resizeObserver.disconnect();
-      };
-    }
-  }, []);
+  const [layoutDirection, setLayoutDirection] = useState<'TB' | 'LR'>('TB');
 
   /**
-   * Calculate hierarchical layout positions
+   * Build initial nodes and edges, then apply layout - following official example pattern
    */
-  const calculateLayout = useCallback(() => {
-    if (!platformConfig.isOrganizationalMode()) {
-      // Personal mode - simple grid layout by category
-      return calculatePersonalModeLayout();
-    }
+  const { nodes: initialLayoutedNodes, edges: initialLayoutedEdges } = useMemo(() => {
+    console.log('Building nodes and edges from hierarchy:', hierarchy.length);
     
-    return calculateOrganizationalLayout();
-  }, [departments, agents, hierarchy, dimensions]);
-
-  /**
-   * Personal mode layout - agents grouped by category
-   */
-  const calculatePersonalModeLayout = useCallback(() => {
     const flowNodes: Node[] = [];
     const flowEdges: Edge[] = [];
-    
-    // Group agents by category
-    const agentsByCategory = agents.reduce((acc, agent) => {
-      const category = agent.category || 'Uncategorized';
-      if (!acc[category]) acc[category] = [];
-      acc[category].push(agent);
-      return acc;
-    }, {} as Record<string, AgentMetadata[]>);
 
-    let yOffset = 50;
-    
-    Object.entries(agentsByCategory).forEach(([category, categoryAgents]) => {
-      // Create category header
-      flowNodes.push({
-        id: `category-${category}`,
-        type: 'default',
-        position: { x: 50, y: yOffset },
-        data: { 
-          label: (
-            <div style={{
-              padding: '12px 24px',
-              backgroundColor: '#f0f0f0',
-              borderRadius: '8px',
-              fontWeight: 'bold',
-              fontSize: '16px',
-              color: '#333'
-            }}>
-              📁 {category} ({categoryAgents.length})
-            </div>
-          )
+    // Create nodes for each hierarchy item
+    hierarchy.forEach((item) => {
+      const nodeData = item.nodeData || {};
+      
+      // For agent nodes, find their department to get the theme
+      let departmentTheme = null;
+      if (item.nodeType === 'agent' && item.departmentId) {
+        const department = departments.find(d => d.id === item.departmentId);
+        if (department) {
+          departmentTheme = getDepartmentTheme(department.name);
+        }
+      }
+      
+      let nodeProps: Node = {
+        id: item.id,
+        type: item.nodeType,
+        position: { x: 0, y: 0 }, // Will be set by Dagre
+        data: {
+          ...nodeData,
+          name: item.name,
+          nodeType: item.nodeType,
+          planningMode,
+          // For department nodes - keep agents data for display
+          agents: item.nodeType === 'department' ? (nodeData.agents || []) : undefined,
+          // For agent nodes - provide the agent data and department theme
+          agent: item.nodeType === 'agent' ? nodeData.agent : undefined,
+          departmentTheme: departmentTheme,
+          department: nodeData.department,
+          onEdit: (id: string) => {
+            console.log('Edit node:', id);
+          },
+          onReassign: (agentId: string) => {
+            console.log('Reassign agent:', agentId);
+            onAgentReassign?.(agentId, item.departmentId || '');
+          }
         },
-        draggable: false
-      });
-      
-      yOffset += 80;
-      
-      // Add agents in this category
-      categoryAgents.forEach((agent, index) => {
-        const xPosition = 100 + (index % 4) * (NODE_DIMENSIONS.AGENT_WIDTH + NODE_DIMENSIONS.SPACING_X);
-        const yPosition = yOffset + Math.floor(index / 4) * (NODE_DIMENSIONS.AGENT_HEIGHT + 40);
-        
-        flowNodes.push({
-          id: agent.agentId,
-          type: 'agent',
-          position: { x: xPosition, y: yPosition },
-          data: { 
-            agent,
-            planningMode
-          },
-          draggable: planningMode
-        });
-      });
-      
-      yOffset += Math.ceil(categoryAgents.length / 4) * (NODE_DIMENSIONS.AGENT_HEIGHT + 40) + 60;
+        draggable: planningMode,
+      };
+
+      flowNodes.push(nodeProps);
     });
+
+    // Create edges based on parent-child relationships
+    hierarchy.forEach((item) => {
+      if (item.parentNodeId) {
+        const edge: Edge = {
+          id: `${item.parentNodeId}-${item.id}`,
+          source: item.parentNodeId,
+          target: item.id,
+          type: 'default',
+          style: { 
+            stroke: '#666666', 
+            strokeWidth: 2,
+            strokeDasharray: '5,5'
+          }
+        };
+        
+        flowEdges.push(edge);
+        console.log(`Created edge: ${edge.id} (${edge.source} -> ${edge.target})`);
+      }
+    });
+
+
+
+    console.log('Generated nodes:', flowNodes.map(n => ({ id: n.id, type: n.type, name: n.data.name })));
+    console.log('Generated edges:', flowEdges.map(e => ({ id: e.id, source: e.source, target: e.target })));
     
+    // Verify node-edge connections
+    flowEdges.forEach(edge => {
+      const sourceExists = flowNodes.some(n => n.id === edge.source);
+      const targetExists = flowNodes.some(n => n.id === edge.target);
+      console.log(`Edge ${edge.id}: source ${edge.source} exists: ${sourceExists}, target ${edge.target} exists: ${targetExists}`);
+      if (!sourceExists) console.error(`SOURCE NODE ${edge.source} NOT FOUND`);
+      if (!targetExists) console.error(`TARGET NODE ${edge.target} NOT FOUND`);
+    });
+
+    // Apply initial layout immediately
+    if (flowNodes.length > 0) {
+      return getLayoutedElements(flowNodes, flowEdges, layoutDirection);
+    }
+
     return { nodes: flowNodes, edges: flowEdges };
-  }, [agents, planningMode]);
+  }, [hierarchy, departments, planningMode, onAgentReassign, layoutDirection]);
+
+  // Initialize React Flow state with layouted elements
+  const [nodes, setNodes, onNodesChange] = useNodesState(initialLayoutedNodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState(initialLayoutedEdges);
 
   /**
-   * Organizational mode layout - hierarchical department structure
+   * Handle node drag end
    */
-  const calculateOrganizationalLayout = useCallback(() => {
-    const flowNodes: Node[] = [];
-    const flowEdges: Edge[] = [];
-    
-    // Create department hierarchy map
-    const departmentMap = new Map(departments.map(dept => [dept.id, dept]));
-    const agentsByDepartment = agents.reduce((acc, agent) => {
-      const deptId = agent.department?.id || 'unassigned';
-      if (!acc[deptId]) acc[deptId] = [];
-      acc[deptId].push(agent);
-      return acc;
-    }, {} as Record<string, AgentMetadata[]>);
-
-    // Calculate department levels
-    const departmentLevels = new Map<string, number>();
-    const calculateLevel = (deptId: string, visited = new Set<string>()): number => {
-      if (visited.has(deptId)) return 0; // Circular reference protection
-      if (departmentLevels.has(deptId)) return departmentLevels.get(deptId)!;
-      
-      const dept = departmentMap.get(deptId);
-      if (!dept || !dept.parentDepartmentId) {
-        departmentLevels.set(deptId, 0);
-        return 0;
-      }
-      
-      visited.add(deptId);
-      const level = calculateLevel(dept.parentDepartmentId, visited) + 1;
-      departmentLevels.set(deptId, level);
-      return level;
-    };
-
-    departments.forEach(dept => calculateLevel(dept.id));
-
-    // Group departments by level
-    const departmentsByLevel = new Map<number, Department[]>();
-    departments.forEach(dept => {
-      const level = departmentLevels.get(dept.id) || 0;
-      if (!departmentsByLevel.has(level)) {
-        departmentsByLevel.set(level, []);
-      }
-      departmentsByLevel.get(level)!.push(dept);
-    });
-
-    // Position departments
-    let maxLevel = Math.max(...Array.from(departmentLevels.values()));
-    
-    for (let level = 0; level <= maxLevel; level++) {
-      const depts = departmentsByLevel.get(level) || [];
-      const levelWidth = Math.max(dimensions.width, depts.length * (NODE_DIMENSIONS.DEPARTMENT_WIDTH + NODE_DIMENSIONS.SPACING_X));
-      
-      depts.forEach((dept, index) => {
-        const xPosition = (levelWidth / (depts.length + 1)) * (index + 1) - NODE_DIMENSIONS.DEPARTMENT_WIDTH / 2;
-        const yPosition = level * NODE_DIMENSIONS.LEVEL_HEIGHT + 50;
-        
-        // Get head of department name
-        const headAgent = dept.headOfDepartment ? 
-          agents.find(a => a.agentId === dept.headOfDepartment) : null;
-        
-        // Create department node
-        flowNodes.push({
-          id: dept.id,
-          type: 'department',
-          position: { x: xPosition, y: yPosition },
-          data: { 
-            department: dept,
-            agentCount: agentsByDepartment[dept.id]?.length || 0,
-            headName: headAgent?.name,
-            planningMode,
-            onEdit: (deptId: string) => {
-              // Handle department edit
-              console.log('Edit department:', deptId);
-            }
-          },
-          draggable: planningMode
-        });
-
-        // Add department agents
-        const deptAgents = agentsByDepartment[dept.id] || [];
-        deptAgents.forEach((agent, agentIndex) => {
-          const agentX = xPosition + 20 + (agentIndex % 2) * (NODE_DIMENSIONS.AGENT_WIDTH / 2 + 10);
-          const agentY = yPosition + NODE_DIMENSIONS.DEPARTMENT_HEIGHT + 20 + 
-                        Math.floor(agentIndex / 2) * (NODE_DIMENSIONS.AGENT_HEIGHT + 10);
-          
-          flowNodes.push({
-            id: agent.agentId,
-            type: 'agent',
-            position: { x: agentX, y: agentY },
-            data: { 
-              agent,
-              planningMode
-            },
-            draggable: planningMode,
-            parentNode: dept.id,
-            extent: 'parent'
-          });
-
-          // Create edge from department to agent
-          flowEdges.push({
-            id: `dept-${dept.id}-agent-${agent.agentId}`,
-            source: dept.id,
-            target: agent.agentId,
-            type: 'straight',
-            style: { stroke: '#ddd', strokeWidth: 1 },
-            markerEnd: { type: MarkerType.ArrowClosed, color: '#ddd' }
-          });
-        });
-
-        // Create edge from parent department
-        if (dept.parentDepartmentId) {
-          flowEdges.push({
-            id: `dept-${dept.parentDepartmentId}-${dept.id}`,
-            source: dept.parentDepartmentId,
-            target: dept.id,
-            type: 'smoothstep',
-            style: { stroke: '#666', strokeWidth: 2 },
-            markerEnd: { type: MarkerType.ArrowClosed, color: '#666' }
-          });
-        }
-      });
+  const handleNodeDragStop = useCallback((event: React.MouseEvent, node: Node) => {
+    if (planningMode && onNodeMove) {
+      onNodeMove(node.id, node.position);
     }
+  }, [planningMode, onNodeMove]);
 
-    // Add reporting relationships between agents
-    agents.forEach(agent => {
-      if (agent.reportingTo) {
-        const manager = agents.find(a => a.agentId === agent.reportingTo);
-        if (manager) {
-          flowEdges.push({
-            id: `reporting-${agent.agentId}-${manager.agentId}`,
-            source: manager.agentId,
-            target: agent.agentId,
-            type: 'smoothstep',
-            style: { stroke: '#4CAF50', strokeWidth: 1, strokeDasharray: '5,5' },
-            markerEnd: { type: MarkerType.ArrowClosed, color: '#4CAF50' },
-            label: 'Reports to'
-          });
-        }
-      }
-    });
-
-    return { nodes: flowNodes, edges: flowEdges };
-  }, [departments, agents, dimensions, planningMode]);
-
-  // Initialize graph when data changes
-  useEffect(() => {
-    const { nodes: flowNodes, edges: flowEdges } = calculateLayout();
-    setNodes(flowNodes);
-    setEdges(flowEdges);
-  }, [calculateLayout]);
-
-  // Handle node changes (drag, etc.)
-  const handleNodesChange = useCallback((changes: NodeChange[]) => {
-    if (planningMode) {
-      changes.forEach(change => {
-        if (change.type === 'position' && change.position && onNodeMove) {
-          onNodeMove(change.id, change.position);
-          
-          // Track pending changes
-          const newChange: OrgChartChange = {
-            type: 'agent_move',
-            agentId: change.id,
-            newPosition: change.position
-          };
-          setPendingChanges(prev => [...prev.filter(c => c.agentId !== change.id), newChange]);
-        }
-      });
-    }
-    onNodesChange(changes);
-  }, [planningMode, onNodeMove, onNodesChange]);
-
-  // Handle connection creation (for planning mode)
-  const onConnect = useCallback((params: Connection) => {
-    if (planningMode && onAgentReassign) {
-      // Handle agent reassignment via connection
-      onAgentReassign(params.source!, params.target!);
-    }
-    setEdges((eds) => addEdge(params, eds));
-  }, [planningMode, onAgentReassign, setEdges]);
-
-  // Notify about pending changes
-  useEffect(() => {
-    if (onPreviewChanges && pendingChanges.length > 0) {
-      onPreviewChanges(pendingChanges);
-    }
-  }, [pendingChanges, onPreviewChanges]);
-
-  // Filter controls for organizational mode
-  const departmentFilter = useMemo(() => {
-    if (!platformConfig.isOrganizationalMode()) return null;
-    
-    const uniqueDepartments = departments.map(dept => ({
-      id: dept.id,
-      name: dept.name,
-      agentCount: agents.filter(a => a.department?.id === dept.id).length
-    }));
-
-    return (
-      <div className="mb-3">
-        <div className="filter-title" style={{ fontSize: '12px', fontWeight: 'bold', marginBottom: '8px' }}>
-          Filter by Department
-        </div>
-        <div className="filter-options" style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
-          <button
-            className={`filter-chip ${selectedDepartment === null ? 'active' : ''}`}
-            style={{
-              padding: '4px 8px',
-              border: '1px solid #ddd',
-              borderRadius: '4px',
-              background: selectedDepartment === null ? '#e3f2fd' : 'white',
-              fontSize: '11px',
-              cursor: 'pointer'
-            }}
-            onClick={() => setSelectedDepartment(null)}
-          >
-            All Departments
-          </button>
-          {uniqueDepartments.map(dept => (
-            <button
-              key={dept.id}
-              className={`filter-chip ${selectedDepartment === dept.id ? 'active' : ''}`}
-              style={{
-                padding: '4px 8px',
-                border: '1px solid #ddd',
-                borderRadius: '4px',
-                background: selectedDepartment === dept.id ? '#e3f2fd' : 'white',
-                fontSize: '11px',
-                cursor: 'pointer'
-              }}
-              onClick={() => setSelectedDepartment(dept.id === selectedDepartment ? null : dept.id)}
-            >
-              {dept.name} ({dept.agentCount})
-            </button>
-          ))}
-        </div>
-      </div>
+  /**
+   * Handle layout direction change - following official example pattern
+   */
+  const handleLayoutChange = useCallback((direction: 'TB' | 'LR') => {
+    const { nodes: layoutedNodes, edges: layoutedEdges } = getLayoutedElements(
+      nodes,
+      edges,
+      direction
     );
-  }, [departments, agents, selectedDepartment, platformConfig]);
+
+    setNodes([...layoutedNodes]);
+    setEdges([...layoutedEdges]);
+    setLayoutDirection(direction);
+  }, [nodes, edges, setNodes, setEdges]);
+
+  /**
+   * Handle connection between nodes
+   */
+  const onConnect = useCallback((params: Connection) => {
+    const newEdge = {
+      ...params,
+      type: 'smoothstep',
+      animated: true,
+      style: { stroke: '#10b981', strokeWidth: 2 },
+    };
+    setEdges((eds) => addEdge(newEdge, eds));
+  }, [setEdges]);
 
   return (
-    <div 
-      ref={containerRef}
-      className="org-chart-renderer"
-      style={{ width: '100%', height: '100%', position: 'relative' }}
-    >
-      <style jsx>{`
-        .org-chart-renderer .react-flow__node {
-          cursor: ${planningMode ? 'grab' : 'default'};
-        }
-        
-        .org-chart-renderer .react-flow__node:active {
-          cursor: ${planningMode ? 'grabbing' : 'default'};
-        }
-        
-        .filter-panel {
-          background: white;
-          padding: 12px;
-          border-radius: 8px;
-          box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-          max-width: 300px;
-        }
-        
-        .filter-title {
-          font-size: 12px;
-          font-weight: bold;
-          margin-bottom: 8px;
-          color: #333;
-        }
-        
-        .planning-mode-indicator {
-          position: absolute;
-          top: 16px;
-          right: 16px;
-          background: #ff9800;
-          color: white;
-          padding: 8px 16px;
-          border-radius: 20px;
-          font-size: 12px;
-          font-weight: bold;
-          z-index: 1000;
-          box-shadow: 0 2px 8px rgba(0,0,0,0.2);
-        }
-        
-        .pending-changes {
-          position: absolute;
-          bottom: 80px;
-          right: 16px;
-          background: white;
-          border: 1px solid #ddd;
-          border-radius: 8px;
-          padding: 12px;
-          max-width: 250px;
-          box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-          z-index: 1000;
-        }
-      `}</style>
-      
-      {planningMode && (
-        <div className="planning-mode-indicator">
-          ✏️ Planning Mode Active
-        </div>
-      )}
-      
-      {planningMode && pendingChanges.length > 0 && (
-        <div className="pending-changes">
-          <div style={{ fontWeight: 'bold', marginBottom: '8px', fontSize: '12px' }}>
-            Pending Changes ({pendingChanges.length})
-          </div>
-          <div style={{ fontSize: '11px', color: '#666' }}>
-            {pendingChanges.length} modification{pendingChanges.length !== 1 ? 's' : ''} ready to apply
-          </div>
-        </div>
-      )}
-      
+    <div style={{ width: '100%', height: '100%', position: 'relative' }}>
       <ReactFlowProvider>
         <ReactFlow
           nodes={nodes}
           edges={edges}
-          onNodesChange={handleNodesChange}
+          onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
           nodeTypes={nodeTypes}
+          connectionLineType={ConnectionLineType.SmoothStep}
+          onNodeDragStop={handleNodeDragStop}
           fitView
-          fitViewOptions={{ padding: 0.2 }}
-          minZoom={0.1}
-          maxZoom={2}
+          fitViewOptions={{ padding: 0.1, includeHiddenNodes: false }}
+          style={{ backgroundColor: '#f8f9fa' }}
+          snapToGrid={true}
+          snapGrid={[20, 20]}
+          minZoom={0.2}
+          maxZoom={1.5}
           defaultViewport={{ x: 0, y: 0, zoom: 0.8 }}
-          nodesDraggable={interactive && planningMode}
-          nodesConnectable={interactive && planningMode}
-          elementsSelectable={interactive}
+          deleteKeyCode={null}
+          selectionKeyCode={null}
         >
-          <Controls position="bottom-right" />
+          <Background color="#e5e7eb" gap={20} />
+          <Controls />
           <MiniMap 
             nodeColor={(node) => {
-              if (node.type === 'department') {
-                return getDepartmentTheme(node.data?.department?.name || '').color;
+              switch (node.type) {
+                case 'department': return '#e91e63';
+                case 'subdepartment': return '#ff9800';
+                case 'team': return '#2196f3';
+                case 'agent': return '#4caf50';
+                default: return '#757575';
               }
-              return '#4CAF50';
             }}
-            maskColor="rgba(255, 255, 255, 0.7)"
-            position="bottom-left"
+            nodeStrokeWidth={3}
+            zoomable
+            pannable
           />
-          <Background color="#f5f5f5" gap={20} />
           
-          <Panel position="top-left" className="filter-panel">
-            {departmentFilter}
-            
-            <div style={{ fontSize: '11px', color: '#666', marginTop: '12px' }}>
-              <div>📊 {departments.length} departments</div>
-              <div>👥 {agents.length} agents</div>
-              {platformConfig.isOrganizationalMode() && (
-                <div>🏗️ {Math.max(...Array.from(new Set(departments.map(d => {
-                  let level = 0;
-                  let current = d;
-                  const visited = new Set();
-                  while (current.parentDepartmentId && !visited.has(current.id)) {
-                    visited.add(current.id);
-                    current = departments.find(dept => dept.id === current.parentDepartmentId) || current;
-                    level++;
-                    if (level > 10) break; // Safety check
-                  }
-                  return level;
-                })))) + 1} levels</div>
-              )}
-              {planningMode && (
-                <div style={{ marginTop: '8px', padding: '4px', backgroundColor: '#fff3cd', borderRadius: '4px' }}>
-                  💡 Drag nodes to reorganize
-                </div>
-              )}
+          {/* Layout Controls */}
+          <Panel position="top-right">
+            <div style={{ display: 'flex', gap: '8px', background: 'white', padding: '8px', borderRadius: '6px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
+              <button
+                onClick={() => handleLayoutChange('TB')}
+                style={{
+                  padding: '6px 12px',
+                  border: 'none',
+                  borderRadius: '4px',
+                  background: layoutDirection === 'TB' ? '#2563eb' : '#e5e7eb',
+                  color: layoutDirection === 'TB' ? 'white' : '#374151',
+                  cursor: 'pointer',
+                  fontSize: '12px'
+                }}
+              >
+                Vertical
+              </button>
+              <button
+                onClick={() => handleLayoutChange('LR')}
+                style={{
+                  padding: '6px 12px',
+                  border: 'none',
+                  borderRadius: '4px',
+                  background: layoutDirection === 'LR' ? '#2563eb' : '#e5e7eb',
+                  color: layoutDirection === 'LR' ? 'white' : '#374151',
+                  cursor: 'pointer',
+                  fontSize: '12px'
+                }}
+              >
+                Horizontal
+              </button>
+            </div>
+          </Panel>
+
+          {/* Stats Panel */}
+          <Panel position="bottom-left">
+            <div style={{ background: 'white', padding: '12px', borderRadius: '6px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)', fontSize: '12px' }}>
+              <div><strong>Organization Stats</strong></div>
+              <div>📁 Departments: {departments.length}</div>
+              <div>🤖 Agents: {agents.length}</div>
+              <div>🏗️ Nodes: {nodes.length}</div>
+              <div>🔗 Connections: {edges.length}</div>
+              {planningMode && <div style={{ color: '#dc3545', fontWeight: 'bold' }}>📝 Planning Mode Active</div>}
             </div>
           </Panel>
         </ReactFlow>

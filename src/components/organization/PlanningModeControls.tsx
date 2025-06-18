@@ -76,16 +76,16 @@ export const PlanningModeControls: React.FC<PlanningModeControlsProps> = ({
       <style jsx>{`
         .planning-mode-controls {
           position: fixed;
-          top: 20px;
+          top: 80px;
           right: 20px;
-          background: white;
+          background: #1f2937;
           border-radius: 12px;
-          box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+          box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
           padding: 16px;
           min-width: 300px;
           max-width: 400px;
           z-index: 1000;
-          border: 1px solid #e0e0e0;
+          border: 1px solid #374151;
         }
 
         .controls-header {
@@ -102,7 +102,7 @@ export const PlanningModeControls: React.FC<PlanningModeControlsProps> = ({
           align-items: center;
           gap: 8px;
           font-weight: bold;
-          color: #333;
+          color: #f9fafb;
         }
 
         .mode-status {
@@ -157,7 +157,7 @@ export const PlanningModeControls: React.FC<PlanningModeControlsProps> = ({
         .changes-header {
           font-size: 14px;
           font-weight: 600;
-          color: #333;
+          color: #f9fafb;
           margin-bottom: 8px;
           display: flex;
           align-items: center;
@@ -176,16 +176,16 @@ export const PlanningModeControls: React.FC<PlanningModeControlsProps> = ({
         .changes-list {
           max-height: 200px;
           overflow-y: auto;
-          border: 1px solid #e9ecef;
+          border: 1px solid #4b5563;
           border-radius: 6px;
-          background: #f8f9fa;
+          background: #374151;
         }
 
         .change-item {
           padding: 8px 12px;
-          border-bottom: 1px solid #e9ecef;
+          border-bottom: 1px solid #4b5563;
           font-size: 13px;
-          color: #495057;
+          color: #d1d5db;
         }
 
         .change-item:last-child {
@@ -195,7 +195,7 @@ export const PlanningModeControls: React.FC<PlanningModeControlsProps> = ({
         .no-changes {
           padding: 16px;
           text-align: center;
-          color: #6c757d;
+          color: #9ca3af;
           font-size: 13px;
           font-style: italic;
         }

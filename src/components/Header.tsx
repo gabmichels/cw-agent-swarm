@@ -214,7 +214,9 @@ const Header: React.FC<HeaderProps> = ({
         <nav>
           <ul className="flex space-x-4">
             <li>
-              <a href="#" className="text-sm hover:text-blue-400">Dashboard</a>
+              <Link href="/org-chart" className="text-sm hover:text-blue-400">
+                Org Chart
+              </Link>
             </li>
             {/* Commented out hasMultipleAgents check for testing */}
             {/* {hasMultipleAgents && ( */}
